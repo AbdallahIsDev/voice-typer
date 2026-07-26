@@ -739,8 +739,17 @@ class TestAudioClipRealtimeIpcEvent:
         # (runs on the audio worker thread instead of the real-time
         # audio thread). The clipping IPC event is still pushed from
         # there — the invariant is preserved.
-        src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        assert "audio_clip" in src, (
+        # Subsequent refactor: the clipping-detection + event-emit
+        # logic was extracted into the dedicated ``_detect_and_emit_clipping``
+        # helper (called by ``_process_audio_chunk``). The invariant —
+        # "the recording callback path pushes an audio_clip IPC event
+        # when clipping is detected" — is preserved (just lives in a
+        # helper for readability). We check both methods so the test
+        # survives either layout.
+        chunk_src = inspect.getsource(recording.Recorder._process_audio_chunk)
+        detect_src = inspect.getsource(recording.Recorder._detect_and_emit_clipping)
+        combined = chunk_src + "\n" + detect_src
+        assert "audio_clip" in combined, (
             "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC event when clipping is detected."
         )
         # B-1 + RW-8: production code now enqueues the event on
@@ -750,7 +759,7 @@ class TestAudioClipRealtimeIpcEvent:
         # audio hot path. The invariant — "the recording callback
         # pushes an event to the IPC channel" — is preserved (just
         # async via the queue).
-        assert "_event_queue.put" in src or "event_bus.publish" in src or "_push_event_now" in src, (
+        assert "_event_queue.put" in combined or "event_bus.publish" in combined or "_push_event_now" in combined, (
             "AUDIO-CLIP: recording callback must enqueue the audio_clip "
             "event via _event_queue.put (RW-8 worker queue) OR call "
             "event_bus.publish / _push_event_now directly."

@@ -256,7 +256,13 @@ async def test_dispatch_normal_command_calls_underlying_dispatch(monkeypatch):
 
 
 async def test_dispatch_missing_type_returns_invalid_payload():
-    """A frame without a `type` field is a protocol error, not a crash."""
+    """A frame without a `type` field is a protocol error, not a crash.
+
+    RT-FIX-9 / EC-FIX-2: error codes are now namespaced. The
+    invalid-payload path emits ``client.invalid_payload`` (with the
+    bare ``invalid_payload`` legacy form preserved in ``legacy_code``
+    for older clients). Accept either form for forward-compat.
+    """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
     dispatch = sw._make_dispatch(server)
@@ -264,17 +270,22 @@ async def test_dispatch_missing_type_returns_invalid_payload():
     result = await dispatch({"data": {}}, MagicMock())
 
     assert result["type"] == "error"
-    assert result["data"]["code"] == "invalid_payload"
+    assert result["data"]["code"] in ("client.invalid_payload", "invalid_payload")
 
 
 async def test_dispatch_non_string_type_returns_invalid_payload():
-    """`type` must be a string — numbers/None/objects are rejected."""
+    """`type` must be a string — numbers/None/objects are rejected.
+
+    RT-FIX-9 / EC-FIX-2: error codes are now namespaced. Accept either
+    the canonical ``client.invalid_payload`` form or the bare legacy
+    ``invalid_payload`` form.
+    """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
     dispatch = sw._make_dispatch(server)
 
     result = await dispatch({"type": 42}, MagicMock())
-    assert result["data"]["code"] == "invalid_payload"
+    assert result["data"]["code"] in ("client.invalid_payload", "invalid_payload")
 
 
 async def test_dispatch_dispatch_raises_returns_internal_error():
@@ -295,7 +306,13 @@ async def test_dispatch_dispatch_raises_returns_internal_error():
 
 
 async def test_dispatch_rate_limit_enforced_under_burst():
-    """The ADR-0019 rate limiter must reject after `burst` frames in a window."""
+    """The ADR-0019 rate limiter must reject after `burst` frames in a window.
+
+    RT-FIX-9 / EC-FIX-2: rate-limit error codes are now namespaced.
+    Accept either the canonical ``client.rate_limited`` form or the
+    bare legacy ``rate_limited`` form (preserved in ``legacy_code``
+    for one release of backward compat).
+    """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
     server._dispatch = MagicMock(return_value={"type": "result", "data": {}})
@@ -309,7 +326,10 @@ async def test_dispatch_rate_limit_enforced_under_burst():
         if (
             isinstance(result, dict)
             and result.get("type") == "error"
-            and result.get("data", {}).get("code") == "rate_limited"
+            and result.get("data", {}).get("code") in (
+                "client.rate_limited",
+                "rate_limited",
+            )
         ):
             rejected_count += 1
 
@@ -347,7 +367,20 @@ def test_max_frame_bytes_is_1_mib():
     assert sw._MAX_FRAME_BYTES == 1024 * 1024
 
 
-def test_shutdown_ack_timeout_is_2s():
-    """ADR-0020 §10: 2.0s shutdown ack hard timeout."""
-    sw = _import_sidecar_ws()
-    assert sw._SHUTDOWN_ACK_TIMEOUT_SECONDS == 2.0
+# ─── Cooperative shutdown hard timeout (ADR-0020 §10) ─────────────────
+#
+# DT-54: the previous ``test_shutdown_ack_timeout_is_2s`` test asserted
+# ``sidecar_ws._SHUTDOWN_ACK_TIMEOUT_SECONDS == 2.0``. That Python
+# constant was dead code — Python never enforced the cooperative-shutdown
+# timeout (it just acked ``{"type":"shutdown"}`` and exited; the Rust
+# host's kill-children backstop is what enforces the 2s window). The
+# constant was deleted, so the test was deleted too.
+#
+# The canonical 2s deadline is now pinned by the per-platform
+# cooperative-shutdown tests, which verify the Rust host's
+# ``SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000`` constant in
+# ``src-tauri/src/util.rs`` (the single source of truth):
+#   - tests/tauri/mig15/test_shutdown_windows.py::TestShutdownAckTimeoutConstant
+#   - tests/tauri/mig16/test_shutdown_macos.py::TestShutdownAckTimeoutConstant
+#   - tests/tauri/mig17/test_shutdown_linux.py::TestShutdownAckTimeoutConstant
+# ---------------------------------------------------------------------

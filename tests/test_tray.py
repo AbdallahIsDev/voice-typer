@@ -266,16 +266,20 @@ class TestTrayMenuHasMinimalOptions:
         assert any("Help" in lb for lb in labels), "UX-33: tray menu should include a 'Help...' item"
 
     def test_force_cancel_not_in_menu_when_idle(self, tray):
-        """UX-3 (FIX-10): 'Force Cancel Stuck Transcription' is hidden when idle.
+        """UX-3 (FIX-10): the Force-cancel item is hidden when idle.
 
         Previously the item was always visible (cluttering the menu
         when nothing was stuck). Now it only renders when
         ``state == AppState.TRANSCRIBING``.
+
+        NH-17: the canonical tray label is now ``"Force cancel transcription"``
+        (lowercase 'c') — the legacy ``force_cancel_stuck_transcription`` key
+        has been removed. We substring-match on the canonical phrase.
         """
-        # Default state is IDLE — Force Cancel should NOT be in menu.
+        # Default state is IDLE — Force cancel should NOT be in menu.
         labels = _menu_labels(tray)
-        assert not any("Force Cancel" in lb for lb in labels), (
-            "UX-3: Force Cancel Stuck Transcription should NOT appear when state==IDLE"
+        assert not any("Force cancel transcription" in lb for lb in labels), (
+            "UX-3: Force cancel transcription should NOT appear when state==IDLE"
         )
 
     def test_no_advanced_submenu(self, tray):
@@ -701,8 +705,8 @@ class TestUndoLastTrayItem:
         tray._controller.undo_last.assert_called_once()
 
     def test_undo_last_is_above_force_cancel(self, tray):
-        """UX-1: 'Undo Last' should appear ABOVE 'Force Cancel' in the menu."""
-        # Set state to TRANSCRIBING so Force Cancel is rendered.
+        """UX-1: 'Undo Last' should appear ABOVE the Force-cancel item in the menu."""
+        # Set state to TRANSCRIBING so the Force cancel item is rendered.
         from voice_typer.server.tray import AppState
 
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
@@ -712,10 +716,13 @@ class TestUndoLastTrayItem:
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [str(m.args[0]) for m in menu_items]
         undo_idx = next((i for i, lb in enumerate(labels) if "Undo Last" in lb), None)
-        force_idx = next((i for i, lb in enumerate(labels) if "Force Cancel" in lb), None)
+        # NH-17: canonical label is "Force cancel transcription" (lowercase c).
+        force_idx = next((i for i, lb in enumerate(labels) if "Force cancel transcription" in lb), None)
         assert undo_idx is not None, "Undo Last item not found"
-        assert force_idx is not None, "Force Cancel item not found"
-        assert undo_idx < force_idx, f"Undo Last (idx={undo_idx}) should appear ABOVE Force Cancel (idx={force_idx})"
+        assert force_idx is not None, "Force cancel transcription item not found"
+        assert undo_idx < force_idx, (
+            f"Undo Last (idx={undo_idx}) should appear ABOVE Force cancel transcription (idx={force_idx})"
+        )
 
 
 # ─── UX-2 (FIX-10): Microphone submenu + set_microphones cache ────────────
@@ -810,13 +817,19 @@ class TestMicrophoneSubmenu:
 
 
 class TestForceCancelConditional:
-    """UX-3 (FIX-10): 'Force Cancel Stuck Transcription' is only
+    """UX-3 (FIX-10): the Force-cancel transcription item is only
     rendered when ``state == AppState.TRANSCRIBING``. Previously it
     was always visible, cluttering the menu when nothing was stuck.
+
+    NH-17: the canonical tray label is now ``"Force cancel transcription"``
+    (lowercase 'c'); the legacy ``force_cancel_stuck_transcription`` key
+    (``"Force Cancel Stuck Transcription"``) was removed from
+    ``tray_i18n.py`` so the tray menu and the renderer's
+    ``home.forceCancelHint`` use the same canonical wording.
     """
 
     def test_force_cancel_hidden_when_idle(self, tray):
-        """Force Cancel is NOT in the menu when state==IDLE."""
+        """Force cancel is NOT in the menu when state==IDLE."""
         from voice_typer.server.tray import AppState
 
         tray.set_state(AppState.IDLE)
@@ -824,10 +837,12 @@ class TestForceCancelConditional:
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         labels = [str(i.args[0]) for i in items if isinstance(i, _FakeMenuItem)]
-        assert not any("Force Cancel" in lb for lb in labels), "Force Cancel should NOT appear when state==IDLE"
+        assert not any("Force cancel transcription" in lb for lb in labels), (
+            "Force cancel transcription should NOT appear when state==IDLE"
+        )
 
     def test_force_cancel_visible_when_transcribing(self, tray):
-        """Force Cancel IS in the menu when state==TRANSCRIBING."""
+        """Force cancel IS in the menu when state==TRANSCRIBING."""
         from voice_typer.server.tray import AppState
 
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
@@ -835,11 +850,18 @@ class TestForceCancelConditional:
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         labels = [str(i.args[0]) for i in items if isinstance(i, _FakeMenuItem)]
-        assert any("Force Cancel" in lb for lb in labels), "Force Cancel SHOULD appear when state==TRANSCRIBING"
+        assert any("Force cancel transcription" in lb for lb in labels), (
+            "Force cancel transcription SHOULD appear when state==TRANSCRIBING"
+        )
 
     def test_force_cancel_label_renamed(self, tray):
-        """UX-3: the label is 'Force Cancel Stuck Transcription' (not
-        the old 'Cancel Transcription')."""
+        """NH-17: the canonical tray label is 'Force cancel transcription'.
+
+        The legacy ``force_cancel_stuck_transcription`` key ("Force Cancel
+        Stuck Transcription") was removed from ``tray_i18n.py`` so the
+        tray menu and the renderer's ``home.forceCancelHint`` use the
+        same canonical wording.
+        """
         from voice_typer.server.tray import AppState
 
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
@@ -847,8 +869,11 @@ class TestForceCancelConditional:
         tray.start(bg_work=None)
         items = _FakeIcon.last_kwargs["menu"]()
         labels = [str(i.args[0]) for i in items if isinstance(i, _FakeMenuItem)]
-        force_label = next(lb for lb in labels if "Force Cancel" in lb)
-        assert "Stuck" in force_label, f"Label should say 'Force Cancel Stuck Transcription', got: {force_label!r}"
+        # Canonical label uses lowercase 'c' in "cancel".
+        force_label = next(lb for lb in labels if "Force cancel transcription" in lb)
+        assert "Stuck" not in force_label, (
+            f"Label should NOT contain 'Stuck' (NH-17 canonical wording), got: {force_label!r}"
+        )
 
 
 # ─── UX-11 (FIX-10): Elapsed recording time in tooltip ────────────────────

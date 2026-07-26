@@ -72,7 +72,7 @@ The bridge listens to the Rust host's ``supervisor_relaunching`` /
 about the ``python-event`` channel) sees them. The synthesised frames
 ``{type: "reconnecting", data: {reason: "supervisor_relaunching"}}`` are not
 part of the ``PythonPushEvent`` discriminated union in
-``types/ipc.ts`` (which only models server-published events, not
+``types/ipc/push_events.ts`` (which only models server-published events, not
 host-bridged ones). The double cast through ``unknown`` is the
 type-system escape hatch. Functionally correct (the runtime shape
 matches what ``useConnection``'s ``usePythonEvent("reconnecting", …)``
@@ -195,7 +195,11 @@ _TAURI_BRIDGE_TS = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
 _USE_PYTHON_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
 _APP_TSX = _RENDERER_SRC / "App.tsx"
-_IPC_TS = _RENDERER_SRC / "types" / "ipc.ts"
+# DT-31 / DT-FIX-7: the former monolithic ipc types file was split
+# into a ``types/ipc/`` directory. The ``PythonPushEvent``
+# discriminated union + all *Event interfaces now live in
+# ``types/ipc/push_events.ts``.
+_IPC_TS = _RENDERER_SRC / "types" / "ipc" / "push_events.ts"
 _SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 
@@ -280,8 +284,14 @@ def app_tsx_source() -> str:
 
 @pytest.fixture(scope="module")
 def ipc_ts_source() -> str:
-    """Read types/ipc.ts as text (for static assertions)."""
-    assert _IPC_TS.is_file(), f"types/ipc.ts not found: {_IPC_TS}"
+    """Read types/ipc/push_events.ts as text (for static assertions).
+
+    DT-31 / DT-FIX-7 split the former monolithic ipc types file into a
+    ``types/ipc/`` directory; the ``PythonPushEvent`` discriminated
+    union + all *Event interfaces (``StatusChangeEvent``, ``ErrorEvent``,
+    etc.) moved to ``types/ipc/push_events.ts``.
+    """
+    assert _IPC_TS.is_file(), f"types/ipc/push_events.ts not found: {_IPC_TS}"
     return _IPC_TS.read_text(encoding="utf-8")
 
 
@@ -1271,23 +1281,29 @@ def test_use_connection_subscribes_to_status_change_event(
 
 
 def test_ipc_types_define_python_push_event_union(ipc_ts_source: str) -> None:
-    """The ``PythonPushEvent`` discriminated union in ``types/ipc.ts``
-    must include the ``StatusChangeEvent`` + ``ErrorEvent`` variants
-    that ``useConnection``'s subscriptions rely on.
+    """The ``PythonPushEvent`` discriminated union in
+    ``types/ipc/push_events.ts`` must include the ``StatusChangeEvent``
+    + ``ErrorEvent`` variants that ``useConnection``'s subscriptions
+    rely on.
 
     Note (GAP-B): the synthesised ``reconnecting`` + ``reconnected``
     frames from ``tauri-bridge.ts`` are NOT in this union — the
     bridge casts through ``unknown`` to inject them. They're
     host-bridged events, not server-published events.
+
+    DT-31 / DT-FIX-7: the ``PythonPushEvent`` union moved from the
+    former monolithic ipc types file to ``types/ipc/push_events.ts``;
+    the ``ipc_ts_source`` fixture reads the new split file.
     """
     # StatusChangeEvent variant
     assert '"status_change"' in ipc_ts_source, (
-        "types/ipc.ts must define a StatusChangeEvent variant with "
-        "type: 'status_change' — useConnection subscribes to this."
+        "types/ipc/push_events.ts must define a StatusChangeEvent variant "
+        "with type: 'status_change' — useConnection subscribes to this."
     )
     # ErrorEvent variant
     assert '"error"' in ipc_ts_source, (
-        "types/ipc.ts must define an ErrorEvent variant with type: 'error' — useConnection subscribes to this."
+        "types/ipc/push_events.ts must define an ErrorEvent variant with "
+        "type: 'error' — useConnection subscribes to this."
     )
     # The PythonPushEvent union export
     union_re = re.compile(
@@ -1295,9 +1311,9 @@ def test_ipc_types_define_python_push_event_union(ipc_ts_source: str) -> None:
         re.MULTILINE,
     )
     assert union_re.search(ipc_ts_source), (
-        "types/ipc.ts must export the PythonPushEvent discriminated "
-        "union — this is the canonical type for server-published "
-        "push events."
+        "types/ipc/push_events.ts must export the PythonPushEvent "
+        "discriminated union — this is the canonical type for "
+        "server-published push events."
     )
 
 

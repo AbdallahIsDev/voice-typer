@@ -56,6 +56,32 @@ INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-comm
 # the same PR when a command is added or removed.
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 
+# S4-CR-18 (this session): Python backend's ``_COMMAND_REGISTRY`` literal —
+# asserted to match the renderer allowlist PLUS the documented set of
+# host-only commands (routed by the Rust host directly, never via the
+# renderer's ``dispatch`` path). If this count drifts from
+# ``allowed-commands.ts`` + ``_HOST_ONLY_COMMANDS`` (in either direction),
+# the test below fails with the drifted file's name.
+IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
+
+# S4-CR-18: commands present in ``_COMMAND_REGISTRY`` but intentionally
+# absent from the renderer ``ALLOWED_COMMANDS`` because the Rust host
+# routes them directly (they don't go through the renderer's
+# ``dispatch`` path). When a host-only command is added or removed,
+# this set MUST be updated in the same PR.
+_HOST_ONLY_COMMANDS = frozenset({
+    "shutdown": (
+        "Tauri cooperative-shutdown command (EC-FIX-2 / EC-9). The "
+        "Rust host invokes it via the WS transport's special-case "
+        "intercept; the renderer never dispatches it."
+    ),
+    "tray_click": (
+        "Tauri tray-menu click dispatch (ADR-0020 §6.5 / §16). The "
+        "Rust host forwards a clicked menu item id; the renderer has "
+        "no tray-menu UI."
+    ),
+})
+
 
 def _count_allowed_commands() -> int:
     """Count quoted command strings inside the ALLOWED_COMMANDS Set block."""
@@ -308,4 +334,137 @@ def test_rust_allowlist_contains_key_commands() -> None:
         f"Rust ALLOWED_COMMANDS is missing key command(s): {sorted(missing)}. "
         f"These are load-bearing for the UI — add them back to "
         f"src-tauri/src/commands/sidecar_cmds.rs."
+    )
+
+# ─── S4-CR-18 (this session): Python _COMMAND_REGISTRY ↔ TS allowlist parity ──
+
+
+def _command_registry_entries() -> set[str]:
+    """Return the set of command names in the Python ``_COMMAND_REGISTRY``.
+
+    Parses ``voice_typer/server/ipc_server.py`` and extracts every
+    ``"<cmd_name>": "_handle_..."`` key from the
+    ``_COMMAND_REGISTRY: dict[str, str] = {...}`` literal.
+    """
+    src = IPC_SERVER_PY.read_text(encoding="utf-8")
+    m_start = re.search(r"_COMMAND_REGISTRY\s*:\s*dict\[str,\s*str\]\s*=\s*\{", src)
+    assert m_start is not None, (
+        "voice_typer/server/ipc_server.py no longer declares the "
+        "`_COMMAND_REGISTRY: dict[str, str] = {` literal. Did the "
+        "registry shape change? Update this parser to match."
+    )
+    depth = 1
+    i = m_start.end()
+    while i < len(src) and depth > 0:
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+        i += 1
+    body = src[m_start.end() : i - 1]
+    return set(re.findall(r'"([a-z_]+)"\s*:\s*"_handle_', body))
+
+
+def test_command_registry_literal_exists() -> None:
+    """Sanity: ``_COMMAND_REGISTRY`` literal must exist and be non-empty."""
+    registry = _command_registry_entries()
+    assert registry, (
+        "Parsed _COMMAND_REGISTRY is empty — either the literal was "
+        "moved/renamed (update _command_registry_entries' anchor "
+        "regex) or the registry was emptied (very likely a bug)."
+    )
+
+
+def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta() -> None:
+    """Python ``_COMMAND_REGISTRY`` count == TS allowlist + host-only set.
+
+    S4-CR-18: the original finding flagged drift between docs (which
+    said 68/69/~35) and the actual IPC surface (then 70). The docs are
+    now reconciled to 61 (the renderer allowlist count), but the
+    Python ``_COMMAND_REGISTRY`` is intentionally larger because two
+    host-only commands — ``shutdown`` and ``tray_click`` — are routed
+    by the Rust host directly, never via the renderer's ``dispatch``
+    path, so they're deliberately absent from ``allowed-commands.ts``.
+
+    This test encodes that invariant:
+
+        len(_COMMAND_REGISTRY) == len(ALLOWED_COMMANDS) + len(_HOST_ONLY_COMMANDS)
+    """
+    ts = _allowed_commands_ts()
+    registry = _command_registry_entries()
+    host_only = set(_HOST_ONLY_COMMANDS)
+
+    # All host-only commands must actually be in the registry.
+    host_only_not_in_registry = host_only - registry
+    assert not host_only_not_in_registry, (
+        f"_HOST_ONLY_COMMANDS lists {sorted(host_only_not_in_registry)} "
+        f"but these are NOT in _COMMAND_REGISTRY. Either the registry "
+        f"dropped a host-only command (update _HOST_ONLY_COMMANDS) or "
+        f"the command was renamed."
+    )
+
+    # All host-only commands must be ABSENT from the renderer allowlist.
+    host_only_leaked_to_renderer = host_only & ts
+    assert not host_only_leaked_to_renderer, (
+        f"_HOST_ONLY_COMMANDS {sorted(host_only_leaked_to_renderer)} "
+        f"are ALSO in the renderer ALLOWED_COMMANDS — that contradicts "
+        f"the 'host-only' designation. Either remove them from "
+        f"allowed-commands.ts or remove them from _HOST_ONLY_COMMANDS."
+    )
+
+    # Every registry command must be EITHER in the renderer allowlist
+    # OR in the host-only set.
+    unaccounted = registry - ts - host_only
+    assert not unaccounted, (
+        f"_COMMAND_REGISTRY has {len(unaccounted)} command(s) not in "
+        f"the renderer ALLOWED_COMMANDS and not in _HOST_ONLY_COMMANDS: "
+        f"{sorted(unaccounted)}. Each registry command must be EITHER "
+        f"reachable from the renderer (add to allowed-commands.ts) OR "
+        f"explicitly host-only (add to _HOST_ONLY_COMMANDS)."
+    )
+
+    # Every renderer-allowlisted command must be in the registry.
+    missing_from_registry = ts - registry
+    assert not missing_from_registry, (
+        f"Renderer ALLOWED_COMMANDS lists {sorted(missing_from_registry)} "
+        f"but these are NOT in _COMMAND_REGISTRY. The renderer would "
+        f"dispatch these commands and the backend would reject them "
+        f"with 'unknown_command'."
+    )
+
+    # Count invariant: registry == renderer + host-only.
+    assert len(registry) == len(ts) + len(host_only), (
+        f"Count invariant broken: _COMMAND_REGISTRY has {len(registry)} "
+        f"entries, renderer ALLOWED_COMMANDS has {len(ts)}, and "
+        f"_HOST_ONLY_COMMANDS has {len(host_only)} — expected "
+        f"{len(ts)} + {len(host_only)} = {len(ts) + len(host_only)}. "
+        f"Files to check:\n"
+        f"  - voice_typer/server/ipc_server.py (_COMMAND_REGISTRY)\n"
+        f"  - voice_typer/client/src/main/allowed-commands.ts\n"
+        f"  - tests/test_security_doc_command_count.py (_HOST_ONLY_COMMANDS)"
+    )
+
+
+def test_security_md_documents_renderer_count_not_registry_count() -> None:
+    """SECURITY.md must document the RENDERER allowlist count, not the registry count.
+
+    S4-CR-18: the security doc should advertise the ATTACK SURFACE —
+    i.e. what a compromised renderer can invoke — which is the renderer
+    allowlist count (61), NOT the registry count (63, including 2
+    host-only commands the renderer cannot invoke).
+    """
+    documented = _documented_count()
+    ts_count = _count_allowed_commands()
+    registry_count = len(_command_registry_entries())
+    assert documented is not None, (
+        "SECURITY.md no longer documents the ALLOWED_COMMANDS count in a "
+        "parseable form."
+    )
+    assert documented == ts_count, (
+        f"SECURITY.md documents {documented} ALLOWED_COMMANDS but the "
+        f"renderer source defines {ts_count}. SECURITY.md must document "
+        f"the RENDERER allowlist count (the attack surface a compromised "
+        f"renderer can reach), NOT the Python _COMMAND_REGISTRY count "
+        f"(which is {registry_count}, including {len(_HOST_ONLY_COMMANDS)} "
+        f"host-only commands the renderer cannot invoke)."
     )

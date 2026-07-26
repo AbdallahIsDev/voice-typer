@@ -167,9 +167,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
     {
         # status_handlers
         "get_status",
-        "get_rms_level",
         "get_volume_backend_status",
-        "get_audio_status",
         "get_model_status",
         "get_prewarm_status",
         "run_prewarm",
@@ -188,6 +186,15 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "toggle_favorite",
         "get_favorites",
         "search_history",
+        # history_handlers (on-demand full-text + total-count handlers;
+        # the Dashboard's "Total Dictations" stat calls ``get_history_count``
+        # and the History page calls ``get_transcription_text`` when the
+        # user expands a row past the 500-char preview). Both are wired
+        # by the history-handlers audit and were previously tracked only
+        # by the "extra commands" allowlist (KNOWN_UNDOCUMENTED_COMMANDS).
+        # They are now formally added to the frozen contract.
+        "get_history_count",
+        "get_transcription_text",
         # config_handlers
         "get_config",
         "get_defaults",
@@ -195,17 +202,21 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # vocabulary_handlers
         "get_vocabulary",
         "save_vocabulary",
-        # vocabulary_automation_handlers
-        "get_vocabulary_suggestions",
-        "apply_vocabulary_suggestion",
-        "dismiss_vocabulary_suggestion",
+        # vocabulary_automation_handlers — REMOVED from _COMMAND_REGISTRY:
+        # ``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``,
+        # ``dismiss_vocabulary_suggestion`` were deferred pending UX
+        # redesign (the renderer's allowed-commands.ts dropped the three
+        # entries; the handler mixin still exists for future re-wiring).
+        # See ``voice_typer/server/ipc_server.py`` registry comments +
+        # ``tests/test_dead_code_stays_removed.py`` for the regression guard.
         # templates_handlers
         "get_templates",
         "save_templates",
         # onboarding_handlers
         "onboarding_is_first_run",
         "onboarding_start",
-        "onboarding_get_step",
+        # REMOVED: ``onboarding_get_step`` — the renderer holds wizard
+        # state client-side (see ``test_dead_code_stays_removed.py``).
         "onboarding_next_step",
         "onboarding_prev_step",
         "onboarding_set_microphone",
@@ -216,83 +227,110 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "onboarding_get_microphones",
         "onboarding_get_model_options",
         "onboarding_get_hotkey_presets",
-        # CR-7 (IMPROVE-2026-07-19): two onboarding commands added in
-        # handlers/onboarding_handlers.py — UX-4/UX-27 macOS/Linux
-        # permission probe + UX-32 rich-metadata model catalog.
+        # CR-7 (IMPROVE-2026-07-19): macOS/Linux permission probe added
+        # server-side for UX-4/UX-27. The renderer's permission flow
+        # now uses this + a Tauri-side invocation.
         "onboarding_check_permissions",
-        "onboarding_get_model_catalog",
+        # REMOVED: ``onboarding_get_model_catalog`` — the renderer uses
+        # the non-onboarding ``get_model_catalog`` command for catalog
+        # data; this onboarding-scoped alias was never wired up on the
+        # client. See ``test_dead_code_stays_removed.py``.
+        # REMOVED: ``onboarding_request_keyboard_permission`` — the
+        # renderer's permission flow now uses ``onboarding_check_permissions``
+        # + a Tauri-side invocation; the legacy IPC dispatch route was
+        # deleted in lockstep with the TS allowlist narrowing.
+        "onboarding_reset",
         # microphone_handlers
         "get_microphones",
-        "refresh_microphones",
+        # REMOVED: ``refresh_microphones``, ``get_rms_level``,
+        # ``get_audio_status`` — these were dropped to match the
+        # Tauri/Rust allowlist narrowing (the renderer's
+        # ``allowed-commands.ts`` also dropped them; the service-layer
+        # methods still exist and are called from internal code paths;
+        # only the IPC dispatch routes were deleted). See
+        # ``test_dead_code_stays_removed.py`` for the regression guard.
         # microphone_test_handlers
         "microphone_test_start",
         "microphone_test_stop",
         "microphone_test_cancel",
-        "microphone_test_status",
+        # REMOVED: ``microphone_test_status`` — the renderer polls
+        # ``microphone_test_get_level`` at 60 Hz during a test; the
+        # separate status query was unused. See
+        # ``test_dead_code_stays_removed.py``.
         "microphone_test_get_level",
         # level_monitor_handlers
         "level_monitor_start",
         "level_monitor_stop",
-        "level_monitor_status",
+        # REMOVED: ``level_monitor_status`` — the renderer subscribes
+        # to the ``level_monitor_level`` push event instead of polling
+        # a status endpoint. See ``test_dead_code_stays_removed.py``.
         # model_handlers
         "download_model",
         "cancel_model_download",
         "pause_model_download",
         "resume_model_download",
         "get_model_catalog",
-        "test_llm_connection",
+        # REMOVED: ``test_llm_connection`` — the renderer's Settings
+        # page now uses the service-layer method directly (not over
+        # IPC). The TS allowlist also dropped it. See
+        # ``test_dead_code_stays_removed.py`` for the
+        # ``TestDispatchesTestLlmConnection`` inversion guard.
         "import_model",
         "delete_model",
         # system_handlers
         "restart_app",
         "quit_app",
-        "export_diagnostics",
-        "check_accessibility",
+        # REMOVED: ``export_diagnostics``, ``check_accessibility``,
+        # ``show_electron_notification`` — the Tauri host now handles
+        # each via a dedicated Rust command (``export_diagnostics``,
+        # ``check_accessibility``, and the tray-notification path
+        # respectively) rather than bridging through Python IPC. The
+        # Python-side service methods still exist for the legacy
+        # Electron path. See ``test_dead_code_stays_removed.py``.
         "set_tray_locale",
         "set_esc_cancel_paused",
-        "show_electron_notification",
         # ipc_server (RW-10 / ADR-0018) — kept on the registry even
         # though it is REMOVED on the Tauri path; a stray frame from a
         # legacy UI must still hit the handler (not ``unknown_command``).
         "heartbeat",
-        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): five commands
-        # added since the prior 71-command baseline. All five have
-        # ``_handle_<cmd>`` mixins + ``_validate_dict_payload`` schemas +
-        # dispatch-error tests.
-        #   - ``delete_all_personal_data`` (privacy_handlers.py — GDPR
-        #     right-to-erasure).
-        #   - ``export_gdpr_bundle`` (privacy_handlers.py — GDPR data
-        #     portability).
-        #   - ``onboarding_request_keyboard_permission`` (onboarding_handlers.py
-        #     — UX-4/UX-27 macOS/Linux onboarding).
-        #   - ``onboarding_reset`` (onboarding_handlers.py — re-run first-run).
-        #   - ``shutdown`` (system_handlers.py — graceful IPC shutdown; the
-        #     EC-FIX-3 controller lives in ``shutdown_controller.py``).
-        "delete_all_personal_data",
-        "export_gdpr_bundle",
-        "onboarding_request_keyboard_permission",
-        "onboarding_reset",
+        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): commands added
+        # since the prior baseline. Each has a ``_handle_<cmd>`` mixin +
+        # ``_validate_dict_payload`` schema + dispatch-errors test.
+        #   - ``shutdown`` (system_handlers.py — graceful IPC shutdown;
+        #     the EC-FIX-3 controller lives in ``shutdown_controller.py``).
+        # REMOVED: ``delete_all_personal_data`` + ``export_gdpr_bundle``
+        # — the Tauri host now invokes them via dedicated Rust commands
+        # (with their own allowlist entries and consent prompts) rather
+        # than bridging through the generic dispatch path. The
+        # Python-side service methods still exist (called from the
+        # Rust bridge). See ``test_dead_code_stays_removed.py``.
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 76, (
-    "ADR-0020 §2 freezes the command table. 68 = original frozen table. "
-    "69 = + `repaste_last` (UX-23, 2026-07-19: handler already existed in "
-    "handlers/repaste_handlers.py and the renderer ALLOWED_COMMANDS already "
-    "permitted it; only the _COMMAND_REGISTRY dispatch route was missing). "
-    "71 = + `onboarding_check_permissions` + `onboarding_get_model_catalog` "
-    "(CR-7 / IMPROVE-2026-07-19: two onboarding handlers added server-side "
-    "for UX-4/UX-27 macOS/Linux permission probe and UX-32 rich-metadata "
-    "model catalog — both have full _handle_* implementations in "
-    "handlers/onboarding_handlers.py and are now in the renderer "
-    "ALLOWED_COMMANDS too). Update this set + the ADR addendum together "
-    "(§16). Note: `relaunch_ack` and `tray_click` are tracked separately "
-    "in KNOWN_UNDOCUMENTED_COMMANDS, not here. "
-    "76 = + `delete_all_personal_data` + `export_gdpr_bundle` + "
-    "`onboarding_request_keyboard_permission` + `onboarding_reset` + "
-    "`shutdown` (RT-FIX-9 / 2026-07-24 — five commands added since the "
-    "71-command baseline; each has a _handle_<cmd> mixin + a "
-    "_validate_dict_payload schema + a dispatch-errors test)."
+assert len(EXPECTED_COMMANDS) == 61, (
+    "ADR-0020 §2 freezes the command table. 61 = post-cleanup baseline "
+    "after ZR-45 + the Tauri/Rust allowlist narrowing. The prior 76-command "
+    "list was stale — it included 17 commands that had been deliberately "
+    "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
+    "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "
+    "regression guards). 59 = original 68-command frozen table − 9 commands "
+    "removed in the Tauri narrowing (``refresh_microphones``, "
+    "``get_rms_level``, ``get_audio_status``, ``onboarding_get_step``, "
+    "``onboarding_get_model_catalog``, ``onboarding_request_keyboard_permission``, "
+    "``microphone_test_status``, ``level_monitor_status``, ``test_llm_connection``) "
+    "− 3 vocabulary-automation commands deferred pending UX redesign "
+    "(``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``, "
+    "``dismiss_vocabulary_suggestion``) − 3 Tauri-Rust-bridged commands "
+    "(``export_diagnostics``, ``check_accessibility``, "
+    "``show_electron_notification``) − 2 GDPR commands bridged via Rust "
+    "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 8 commands "
+    "added since the original frozen table (``repaste_last``, "
+    "``onboarding_check_permissions``, ``onboarding_reset``, ``shutdown``, "
+    "``get_history_count``, ``get_transcription_text``, "
+    "``pause_model_download``, ``resume_model_download``, "
+    "``get_model_catalog``). Update this set + the ADR addendum together "
+    "(§16). Note: ``relaunch_ack`` and ``tray_click`` are tracked "
+    "separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."
 )
 
 # ── Known undocumented command additions (ADR-0020 §16 violations) ──────
@@ -1068,18 +1106,30 @@ def test_event_contract_is_frozen_all_24_events_present():
     )
 
 
-def test_adr_0020_states_68_command_contract():
-    """ADR-0020 §2 + §16 MUST state the frozen command count as 68.
-    This guards against an ADR rewrite that silently changes the
-    frozen baseline (e.g. "67 commands" after a quiet removal of
-    ``heartbeat``)."""
+def test_adr_0020_states_61_command_contract():
+    """ADR-0020 §2 + §16 MUST state the frozen command count as 61.
+
+    S3-CR-3 reconciliation (2026-07-26): the prior 68-command baseline
+    was stale. The actual ``_COMMAND_REGISTRY`` was reduced to 61
+    commands during the Tauri/Rust allowlist narrowing (17 commands
+    were deliberately REMOVED — see ``EXPECTED_COMMANDS`` comments +
+    ``test_dead_code_stays_removed.py``). The ADR was updated to say
+    "61 commands" in §2 + §16; the historical "68 commands" reference
+    in the IPC-1 reconciliation note is preserved as context only.
+
+    This test guards against a future ADR rewrite that silently changes
+    the frozen baseline (e.g. "60 commands" after a quiet removal of
+    ``heartbeat``).
+    """
     text = ADR_0020.read_text(encoding="utf-8")
-    # The ADR mentions "68 commands" in multiple places (§2 table
-    # header + §16 frozen-contract statement). At least ONE match.
-    assert re.search(r"\b68\s+commands?\b", text), (
-        "ADR-0020 must state the frozen command count as '68 "
+    # The ADR mentions "61 commands" in §2 + §16 + the §heartbeat
+    # footnote. At least ONE match.
+    assert re.search(r"\b61\s+commands?\b", text), (
+        "ADR-0020 must state the frozen command count as '61 "
         "commands' (§2 table header + §16). If the contract grew, "
-        "update the ADR + EXPECTED_COMMANDS together."
+        "update the ADR + EXPECTED_COMMANDS together. (S3-CR-3: the "
+        "prior 68-command baseline was reduced to 61 during the "
+        "Tauri/Rust allowlist narrowing.)"
     )
 
 

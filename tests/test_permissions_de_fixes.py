@@ -381,21 +381,36 @@ class TestRecorderStartPreflightGuard:
         # Should NOT raise from the permission guard. (It may raise later
         # from buffer/state setup if our minimal mock is missing an attr —
         # but the permission guard must not be the cause.)
-        # NOTE: DE-4 originally specified a typed
-        # ``MicrophonePermissionDeniedError`` in ``asr_errors.py``, but
-        # that class was never landed in the source tree (the permission
-        # guard uses ``MicrophonePermissionState`` enum +
-        # ``check_microphone_permission()`` instead). The
-        # ``MicrophonePermissionDeniedError`` symbol therefore does not
-        # exist; we cannot catch it by type. Instead we accept any
-        # exception from the minimal mock as "not a permission denial"
-        # (the permission guard was monkeypatched to a no-op above).
+        #
+        # We explicitly catch ``MicrophonePermissionDeniedError`` and fail
+        # the test if it fires — the permission guard was monkeypatched to
+        # a no-op above, so this typed error must NOT propagate out of
+        # ``start()``. Other exceptions (from the minimal mock missing
+        # PortAudio attrs) are acceptable and are logged so future drift
+        # in the mock surface surfaces in test output instead of being
+        # silently swallowed.
+        from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
+
         try:
             rec.start()
-        except Exception:
+        except MicrophonePermissionDeniedError as exc:
+            pytest.fail(
+                "start() raised MicrophonePermissionDeniedError despite "
+                f"verify being no-op: {exc}"
+            )
+        except Exception as exc:  # noqa: BLE001 — intentional broad catch
             # Other exceptions (incomplete mock) are acceptable for this
             # test — we only care that the permission guard didn't fire.
-            pass
+            # Log the swallowed exception so future mock drift surfaces
+            # instead of being silently lost.
+            import warnings
+
+            warnings.warn(
+                "rec.start() raised a non-permission exception during the "
+                f"no-op-verify test (acceptable for minimal mock): "
+                f"{type(exc).__name__}: {exc}",
+                stacklevel=2,
+            )
         finally:
             # Clean up any state start() may have set.
             with __import__("contextlib").suppress(Exception):

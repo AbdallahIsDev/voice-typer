@@ -1247,3 +1247,97 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
         "translate_event_name must have an `other => other` forward-compat "
         "passthrough arm (unknown event names flow through unchanged)."
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# YJ-21: respawn_inner install-time guard + atomic install (CR-81)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
+    supervisor_source: str,
+) -> None:
+    """YJ-21 / CR-81: ``respawn_inner`` must acquire the ``state.child``
+    lock BEFORE re-checking ``shutting_down`` inside the post-spawn
+    install block — closing the narrow race where ``shutdown_sidecar_for_exit``
+    on the main thread runs between the (previously lock-free) shutdown
+    check and the lock acquire.
+
+    Pre-fix sequence (the race YJ-21 closes):
+      1. respawn_inner: ``shutting_down.load()`` → false (no lock held).
+      2. main thread: ``shutting_down.swap(true)``, acquires ``state.child``
+         lock, takes the slot (None — respawn_inner cleared it earlier),
+         releases the lock, returns.
+      3. respawn_inner: acquires ``state.child`` lock, installs the fresh
+         child, returns ``Ok(())``.
+      4. host exits; the freshly-installed sidecar is orphaned.
+
+    Post-fix: the ``mutex_lock(&state.child)`` call is the FIRST
+    statement inside the ``Ok((port, child, exit_rx))`` arm's install
+    block, immediately followed by the ``shutting_down.load()`` recheck
+    INSIDE the lock scope.
+
+    This is a source-inspection test (the sandbox cannot compile/run
+    the Rust host). End-to-end race validation must be performed on a
+    real desktop host per platform.
+    """
+    # Locate the post-spawn install block. The pattern: the Ok((port,
+    # child, exit_rx)) match arm followed by the mutex_lock call, then
+    # the shutting_down recheck INSIDE the lock scope.
+    install_block_re = re.compile(
+        r"Ok\(\(\s*port\s*,\s*child\s*,\s*exit_rx\s*\)\)\s*=>\s*\{",
+        re.DOTALL,
+    )
+    match = install_block_re.search(supervisor_source)
+    assert match is not None, (
+        "supervisor.rs must have a `Ok((port, child, exit_rx)) => { ... }` "
+        "match arm in respawn_inner — could not anchor YJ-21 install-block "
+        "source inspection."
+    )
+    install_block_start = match.end()
+    # Pull the next ~4500 chars (enough to cover the install block +
+    # the inside-lock recheck). The block ends at the next top-level
+    # match arm or the closing brace of the match. The post-spawn
+    # block has a long CR-81 docstring (~50 lines) before the actual
+    # mutex_lock call, so the window must be wide enough to span it.
+    install_block = supervisor_source[install_block_start : install_block_start + 4500]
+
+    # The mutex_lock call must come FIRST inside the install block.
+    mutex_lock_match = re.search(r"mutex_lock\(\s*&state\.child\s*\)", install_block)
+    assert mutex_lock_match is not None, (
+        "YJ-21 / CR-81: respawn_inner post-spawn block must acquire "
+        "`mutex_lock(&state.child)` to serialize the install with "
+        "`shutdown_sidecar_for_exit`."
+    )
+    lock_acquired_at = mutex_lock_match.start()
+
+    # The shutting_down recheck must appear AFTER the lock acquire,
+    # inside the same block — so it executes WHILE the lock is held.
+    recheck_pattern = r"state\.shutting_down\.load\(\s*Ordering::SeqCst\s*\)"
+    rechecks_after_lock = list(re.finditer(recheck_pattern, install_block))
+    assert rechecks_after_lock, (
+        "YJ-21 / CR-81: respawn_inner must recheck `state.shutting_down` "
+        "INSIDE the child-lock scope (post-spawn recheck). No "
+        "`state.shutting_down.load(Ordering::SeqCst)` call found after "
+        "`mutex_lock(&state.child)` in the install block."
+    )
+    first_recheck = rechecks_after_lock[0]
+    assert first_recheck.start() > lock_acquired_at, (
+        f"YJ-21 / CR-81: the `shutting_down` recheck must come AFTER "
+        f"`mutex_lock(&state.child)` is acquired (so the check-and-install "
+        f"is atomic w.r.t. `shutdown_sidecar_for_exit`'s take). Found "
+        f"recheck at offset {first_recheck.start()} but lock at offset {lock_acquired_at}."
+    )
+
+    # The block must also have a branch that kills the freshly-spawned
+    # child when the inside-lock recheck sees shutting_down == true.
+    # The pattern is: shutting_down recheck → if true → kill_tree.
+    kill_branch_re = re.compile(
+        r"shutting_down.*?\{[^}]*?kill_tree", re.DOTALL
+    )
+    assert kill_branch_re.search(install_block), (
+        "YJ-21 / CR-81: when the inside-lock recheck sees "
+        "`shutting_down == true`, the freshly-spawned child must be "
+        "killed (kill_tree) instead of being installed — otherwise the "
+        "child leaks."
+    )

@@ -83,6 +83,46 @@ class TestMicrophoneTestStart:
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
+    def test_consent_missing_returns_consent_required_envelope(
+        self, ipc_server, fake_service, fake_app
+    ):
+        """XZ-PRIV-03: ``voice_biometric_consent=False`` → ``client.consent_required``.
+
+        The mic test records up to 60s of audio and returns base64 WAV
+        over IPC. Without consent gating, a renderer bug or compromised
+        renderer could exfiltrate biometric voice data. The handler
+        raises ``ConsentRequiredError`` BEFORE touching the service
+        layer; ``_respond_with_error`` maps it to the structured
+        ``client.consent_required`` envelope so the renderer can
+        surface a consent dialog instead of a generic error toast.
+        """
+        fake_app.config.voice_biometric_consent = False
+        fake_service.microphone_test_start.return_value = {"ok": True}
+        resp = ipc_server._handle_microphone_test_start({"duration": 5.0}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.consent_required"
+        # The structured fields let the renderer deep-link to the
+        # exact toggle in Settings (NEW-PRIV-006).
+        assert resp["data"]["consent_field"] == "voice_biometric_consent"
+        assert resp["data"]["engine_name"] == "microphone_test"
+        # Service must NOT have been called — the gate fires BEFORE
+        # the validation/dispatch block.
+        fake_service.microphone_test_start.assert_not_called()
+
+    def test_consent_present_proceeds_to_service(
+        self, ipc_server, fake_service, fake_app
+    ):
+        """XZ-PRIV-03: ``voice_biometric_consent=True`` → service is called.
+
+        Positive-path regression: the consent gate must NOT block
+        legitimate use when the user has explicitly opted in.
+        """
+        fake_app.config.voice_biometric_consent = True
+        fake_service.microphone_test_start.return_value = {"ok": True}
+        resp = ipc_server._handle_microphone_test_start({"duration": 5.0}, {})
+        assert resp["type"] == "microphone_test_result"
+        fake_service.microphone_test_start.assert_called_once()
+
 
 class TestMicrophoneTestStop:
     """``_handle_microphone_test_stop`` — stop an in-progress test."""

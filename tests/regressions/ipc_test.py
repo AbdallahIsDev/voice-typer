@@ -31,6 +31,14 @@ class TestAccessibilityIpcEndpointExists:
     The finding: macOS Accessibility check exists but no IPC endpoint
     for the Electron UI to query. Fix: added ``check_accessibility``
     IPC handler that returns ``{granted, platform}``.
+
+    Stale-test refresh: the ``check_accessibility`` command was
+    REMOVED from ``IPCServer._COMMAND_REGISTRY`` (the Tauri host now
+    invokes it via a dedicated Rust command). The Python-side
+    ``_handle_check_accessibility`` method still exists on
+    ``SystemHandlersMixin`` for the legacy Electron path. This test
+    calls the handler method directly instead of routing through
+    ``_dispatch`` (which would otherwise respond ``unknown_command``).
     """
 
     @pytest.mark.skipif(
@@ -57,8 +65,11 @@ class TestAccessibilityIpcEndpointExists:
         server.app = app
         server.service = MagicMock()
 
-        # Dispatch the check_accessibility command
-        resp = server._dispatch({"type": "check_accessibility", "id": "test"})
+        # Invoke the handler directly. The command was removed from
+        # ``_COMMAND_REGISTRY`` (the Tauri host handles it natively),
+        # so ``_dispatch`` would route to ``unknown_command`` — but the
+        # handler method itself is unchanged.
+        resp = server._handle_check_accessibility(None, {"id": "test"})
 
         assert resp["type"] == "accessibility_status"
         assert resp["data"]["granted"] is True

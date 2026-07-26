@@ -59,7 +59,14 @@ if not hasattr(ctypes, "WINFUNCTYPE"):
 
 SERVER_DIR = Path(__file__).resolve().parent.parent / "voice_typer" / "server"
 APP_PY = SERVER_DIR / "app.py"
-SERVICE_PY = SERVER_DIR / "service.py"
+# ``service.py`` was refactored into a ``service/`` package (ARCH-5). The
+# app-level locks now live in ``service/_base.py`` (the App class) and may
+# be acquired from any of the service submodules. Collect all of them.
+SERVICE_DIR = SERVER_DIR / "service"
+SERVICE_PY_FILES = sorted(SERVICE_DIR.glob("*.py")) if SERVICE_DIR.is_dir() else [SERVER_DIR / "service.py"]
+# For backwards-compat with tests that import SERVICE_PY as a single path,
+# point at the App-class host (the primary lock holder).
+SERVICE_PY = SERVICE_DIR / "_base.py"
 DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_pipeline.py"
 
 # The three app-level locks enumerated in the contract. ``_lock`` is the
@@ -194,8 +201,8 @@ class TestNoLockNesting:
 
     @pytest.mark.parametrize(
         "filepath",
-        [APP_PY, SERVICE_PY, DICTATION_PIPELINE_PY],
-        ids=["app.py", "service.py", "dictation_pipeline.py"],
+        [APP_PY, *SERVICE_PY_FILES, DICTATION_PIPELINE_PY],
+        ids=["app.py"] + [f"service/{p.name}" for p in SERVICE_PY_FILES] + ["dictation_pipeline.py"],
     )
     def test_no_nested_app_locks(self, filepath: Path):
         source = _read_source(filepath)

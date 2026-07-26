@@ -874,3 +874,143 @@ class TestDE57EvictionLogPrivacy:
             "DE-57 / CR-74: evicted word content must NOT be logged at "
             f"WARNING level either; found {pii_word!r} in:\n" + "\n".join(r.getMessage() for r in caplog.records)
         )
+
+
+# ── XZ-PRIV-02: streaming session securely zeros audio buffers ──────────
+
+
+def test_secure_clear_audio_helper_zeros_in_place():
+    """XZ-PRIV-02: ``_secure_clear_audio`` mirrors the batch path's
+    ``_secure_clear_array`` so the streaming path doesn't leak voice
+    data via process memory after transcription.
+
+    Pre-fix: ``streaming.py`` had no secure-clear helper at all — audio
+    arrays (recorder snapshots + window views) lingered until the next
+    GC pass.  Post-fix: the helper exists and zeros non-empty numpy
+    arrays in-place.
+    """
+    from voice_typer.server.streaming import _secure_clear_audio
+
+    arr = np.array([0.5, -0.3, 0.8, 0.0, -1.0], dtype=np.float32)
+    assert np.any(arr != 0), "test setup: array must start non-zero"
+
+    _secure_clear_audio(arr)
+
+    assert np.all(arr == 0), (
+        "_secure_clear_audio must zero the array in-place (XZ-PRIV-02 / SEC-audit-008)"
+    )
+    assert arr.shape == (5,)
+    assert arr.dtype == np.float32
+
+
+def test_secure_clear_audio_handles_none_and_empty():
+    """XZ-PRIV-02: ``_secure_clear_audio`` must be a safe no-op for
+    ``None`` / empty arrays so callers don't have to pre-check."""
+    from voice_typer.server.streaming import _secure_clear_audio
+
+    _secure_clear_audio(None)  # must not raise
+    empty = np.array([], dtype=np.float32)
+    _secure_clear_audio(empty)
+    assert empty.size == 0
+
+
+def test_process_available_audio_once_zeros_snapshot_after_transcription():
+    """XZ-PRIV-02 regression: after ``process_available_audio_once``
+    consumes a recorder snapshot, the underlying numpy buffer MUST be
+    zeroed in-place (mirrors ``dictation_pipeline.py:345`` for the
+    batch path).  Pre-fix: the snapshot array lingered in process
+    memory until GC.
+    """
+    from voice_typer.server.streaming import StreamingTranscriptionSession
+
+    config = StreamingConfig(min_first_chunk_seconds=4.0, chunk_seconds=5.0)
+    recorder = MagicMock()
+    snapshot = audio_seconds(5.0, amplitude=0.42)
+    recorder.snapshot.return_value = snapshot
+    transcriber = MagicMock()
+    transcriber.transcribe_words.return_value = []
+
+    session = StreamingTranscriptionSession(
+        recorder=recorder,
+        transcriber=transcriber,
+        config=config,
+        sample_rate=SAMPLE_RATE,
+    )
+
+    assert session.process_available_audio_once() is True
+
+    # The snapshot buffer must be zeroed in-place (XZ-PRIV-02 / SEC-audit-008).
+    assert np.all(snapshot == 0), (
+        "StreamingTranscriptionSession.process_available_audio_once must zero "
+        "the recorder snapshot in-place after transcription (XZ-PRIV-02). "
+        "Pre-fix: the audio buffer lingered in process memory until the next "
+        "GC pass, defeating SEC-audit-008's intent for the streaming path."
+    )
+
+
+def test_process_available_audio_once_zeros_audio_even_on_transcribe_failure():
+    """XZ-PRIV-02: the secure-clear ``finally`` block MUST fire even
+    when ``transcribe_words`` raises — otherwise a mid-transcription
+    exception would leave the previous chunk's audio in process memory.
+    """
+    from voice_typer.server.streaming import StreamingTranscriptionSession
+
+    config = StreamingConfig(min_first_chunk_seconds=4.0, chunk_seconds=5.0)
+    recorder = MagicMock()
+    snapshot = audio_seconds(5.0, amplitude=0.7)
+    recorder.snapshot.return_value = snapshot
+    transcriber = MagicMock()
+    transcriber.transcribe_words.side_effect = RuntimeError("chunk failed")
+
+    session = StreamingTranscriptionSession(
+        recorder=recorder,
+        transcriber=transcriber,
+        config=config,
+        sample_rate=SAMPLE_RATE,
+    )
+
+    # The exception is caught (returns False) but the audio must still
+    # be zeroed by the ``finally`` block.
+    assert session.process_available_audio_once() is False
+
+    assert np.all(snapshot == 0), (
+        "StreamingTranscriptionSession.process_available_audio_once must zero "
+        "the recorder snapshot even when transcribe_words raises "
+        "(XZ-PRIV-02 finally-block guarantee)."
+    )
+
+
+def test_finalize_zeros_full_audio_after_tail_merge():
+    """XZ-PRIV-02: ``finalize()`` MUST zero the caller-supplied
+    ``full_audio`` array after using it for the tail-merge / batch
+    fallback path.  Mirrors ``dictation_pipeline.py:337-346``'s
+    ``self._audio.fill(0)`` pattern.  Pre-fix: streaming finalize left
+    the full recording in process memory.
+    """
+    from voice_typer.server.streaming import StreamingTranscriptionSession
+
+    config = StreamingConfig(min_first_chunk_seconds=4.0, chunk_seconds=5.0)
+    recorder = MagicMock()
+    recorder.snapshot.return_value = audio_seconds(5.0)
+    transcriber = MagicMock()
+    transcriber.transcribe_words.return_value = []
+    transcriber.transcribe_with_fallback.return_value = "fallback text"
+
+    session = StreamingTranscriptionSession(
+        recorder=recorder,
+        transcriber=transcriber,
+        config=config,
+        sample_rate=SAMPLE_RATE,
+    )
+
+    full_audio = audio_seconds(5.0, amplitude=0.9)
+    assert np.any(full_audio != 0), "test setup: full_audio must start non-zero"
+
+    result = session.finalize(full_audio)
+
+    assert result == "fallback text"
+    assert np.all(full_audio == 0), (
+        "StreamingTranscriptionSession.finalize must zero full_audio in-place "
+        "after using it (XZ-PRIV-02). Mirrors the batch path in "
+        "dictation_pipeline.py:337-346."
+    )

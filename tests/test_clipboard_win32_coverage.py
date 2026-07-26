@@ -1653,33 +1653,33 @@ class TestSendCtrlVWin32:
         cm._keyboard = MagicMock()
         return cm
 
-    def _patch_pynput_win32(self, sendinput_return=4):
-        """Patch sys.modules so ``from pynput._util.win32 import ...``
-        returns our real ctypes structures + a mocked SendInput.
-        """
-        mod = _make_pynput_win32_module(sendinput_return)
-        return patch.dict(
-            sys.modules,
-            {"pynput._util": MagicMock(), "pynput._util.win32": mod},
-        )
-
     def test_calls_sendinput_with_four_events(self, fake_win32):
-        """Happy path: SendInput returns 4 → success, no fallback."""
+        """Happy path: SendInput returns 4 → success, no fallback.
+
+        XZ-CLIP-12: production code now defines INPUT/KEYBDINPUT/
+        INPUT_union inline via ctypes.Structure (no longer imports
+        from pynput._util.win32) and calls user32.SendInput directly
+        via ctypes.windll.user32. The fake_win32 fixture patches
+        ctypes.windll so we control user32.SendInput.return_value
+        directly.
+        """
         cm = self._make_cm()
-        with self._patch_pynput_win32(sendinput_return=4) as mods:
-            mod = mods["pynput._util.win32"]
-            with patch.object(clip_mod, "_Key") as mock_key:
-                mock_key.ctrl = "ctrl_key"
-                cm._send_ctrl_v_win32()
-            # SendInput was called with 4 events.
-            mod.SendInput.assert_called_once()
-            args, _ = mod.SendInput.call_args
-            assert args[0] == 4
+        mock_user32 = fake_win32["user32"]
+        mock_user32.SendInput.return_value = 4
+        with patch.object(clip_mod, "_Key") as mock_key:
+            mock_key.ctrl = "ctrl_key"
+            cm._send_ctrl_v_win32()
+        # SendInput was called with 4 events.
+        mock_user32.SendInput.assert_called_once()
+        args, _ = mock_user32.SendInput.call_args
+        assert args[0] == 4
 
     def test_logs_warning_on_sendinput_zero_and_falls_back_to_pynput(self, fake_win32):
         """SendInput returning 0 → log info, fall back to pynput."""
         cm = self._make_cm()
-        with self._patch_pynput_win32(sendinput_return=0), patch.object(clip_mod, "_Key") as mock_key:
+        mock_user32 = fake_win32["user32"]
+        mock_user32.SendInput.return_value = 0
+        with patch.object(clip_mod, "_Key") as mock_key:
             mock_key.ctrl = "ctrl_key"
             with patch.object(clip_mod, "log") as mock_log:
                 cm._send_ctrl_v_win32()
@@ -1693,16 +1693,18 @@ class TestSendCtrlVWin32:
     def test_logs_warning_on_partial_sendinput_success(self, fake_win32):
         """SendInput returning 1..3 → log error, synthesize KEYUP, no fallback."""
         cm = self._make_cm()
-        with self._patch_pynput_win32(sendinput_return=2) as mods:
-            mod = mods["pynput._util.win32"]
-            with patch.object(clip_mod, "_Key") as mock_key:
-                mock_key.ctrl = "ctrl_key"
-                with patch.object(clip_mod, "log") as mock_log:
-                    cm._send_ctrl_v_win32()
+        mock_user32 = fake_win32["user32"]
+        # First SendInput returns 2 (partial); second (KEYUP cleanup) is
+        # also a mock — return value doesn't matter for this test.
+        mock_user32.SendInput.side_effect = [2, 2]
+        with patch.object(clip_mod, "_Key") as mock_key:
+            mock_key.ctrl = "ctrl_key"
+            with patch.object(clip_mod, "log") as mock_log:
+                cm._send_ctrl_v_win32()
         # SendInput called twice: first (4 events), then (2 KEYUP cleanup).
-        assert mod.SendInput.call_count == 2
+        assert mock_user32.SendInput.call_count == 2
         # Second call used 2 events (KEYUP for V and Ctrl).
-        second_args, _ = mod.SendInput.call_args_list[1]
+        second_args, _ = mock_user32.SendInput.call_args_list[1]
         assert second_args[0] == 2
         # pynput fallback NOT called.
         cm._keyboard.press.assert_not_called()
@@ -1717,15 +1719,14 @@ class TestSendCtrlVWin32:
     def test_swallows_exception_during_keyup_cleanup(self, fake_win32):
         """If KEYUP cleanup raises, the exception is logged but swallowed."""
         cm = self._make_cm()
-        with self._patch_pynput_win32(sendinput_return=1) as mods:
-            mod = mods["pynput._util.win32"]
-            # First SendInput returns 1 (partial); second raises.
-            mod.SendInput.side_effect = [1, RuntimeError("cleanup failed")]
-            with patch.object(clip_mod, "_Key") as mock_key:
-                mock_key.ctrl = "ctrl_key"
-                with patch.object(clip_mod, "log") as mock_log:
-                    # Should not raise.
-                    cm._send_ctrl_v_win32()
+        mock_user32 = fake_win32["user32"]
+        # First SendInput returns 1 (partial); second raises.
+        mock_user32.SendInput.side_effect = [1, RuntimeError("cleanup failed")]
+        with patch.object(clip_mod, "_Key") as mock_key:
+            mock_key.ctrl = "ctrl_key"
+            with patch.object(clip_mod, "log") as mock_log:
+                # Should not raise.
+                cm._send_ctrl_v_win32()
         # Debug log emitted for cleanup failure.
         debug_calls = [
             c for c in mock_log.debug.call_args_list if "KEYUP cleanup" in str(c) or "failed to synthesize" in str(c)

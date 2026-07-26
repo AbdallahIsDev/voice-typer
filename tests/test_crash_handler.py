@@ -168,6 +168,100 @@ class TestCrashHandlerConfigDir:
         crash_handler.set_crash_handler_config_dir(BadPath())  # type: ignore[arg-type]
         assert crash_handler._crash_file_path == ""
 
+    def test_yj47_crash_file_path_in_archive_subdir(self, tmp_path):
+        """YJ-47: the VEH crash file path is INSIDE
+        ``<config_dir>/crash_diagnostics_archive/`` (no longer in the
+        config_dir root). Pre-fix, the file sat in the root between the
+        crash (T0) and the next startup (T1), exposing the 500-module
+        fingerprint at the same path the user opens for ``config.toml``.
+        """
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        path = crash_handler._crash_file_path
+        assert path, "YJ-47: _crash_file_path must be non-empty after set_crash_handler_config_dir"
+        # Strip the trailing NUL terminator for the path checks.
+        path_no_nul = path.rstrip("\0")
+        assert "crash_diagnostics_archive" in path_no_nul, (
+            f"YJ-47: VEH crash file path must be inside crash_diagnostics_archive/ "
+            f"(was: {path_no_nul!r})"
+        )
+        # The archive subdir must have been pre-created so the VEH
+        # callback (which can't safely mkdir during heap corruption)
+        # can write directly to its target.
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        assert archive_dir.is_dir(), (
+            "YJ-47: set_crash_handler_config_dir must pre-create the archive dir"
+        )
+
+    def test_yj47_header_max_modules_is_100(self):
+        """YJ-47: ``_HEADER_MAX_MODULES`` is capped at 100 (was 500).
+
+        Pre-fix, the crash_diagnostics header dumped up to 500
+        top-level ``sys.modules`` package names — an install-fingerprint
+        exposure in the config_dir root. Capping at 100 bounds the
+        fingerprint while still capturing the long-tail C extensions
+        (whisper, torch, numpy, etc.) that appear in the first 50
+        sorted top-level names.
+        """
+        assert crash_handler._HEADER_MAX_MODULES == 100, (
+            f"YJ-47: _HEADER_MAX_MODULES must be 100 (was 500); "
+            f"got {crash_handler._HEADER_MAX_MODULES}"
+        )
+
+    def test_yj47_report_pending_crash_surfaces_archive_subdir_file(self, tmp_path):
+        """YJ-47: ``report_pending_crash`` scans the archive subdir and
+        surfaces a VEH-written crash file (no longer in the root).
+        Pre-fix, scanning only the root would have missed VEH files
+        written directly to the archive — users would never see the
+        "previous session crashed" notification.
+        """
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True)
+        crash_file = archive_dir / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None, (
+            "YJ-47: report_pending_crash must surface archive-subdir files"
+        )
+        assert "Access violation" in result
+
+        # The crash file must still be in the archive (NOT moved out).
+        assert crash_file.exists(), (
+            "YJ-47: archive-subdir crash file must remain in place after surfacing"
+        )
+        # A sidecar ``.reported`` marker must be created so the next
+        # startup scan skips this file (no re-notification).
+        sidecar = archive_dir / "crash_diagnostics.1234.txt.reported"
+        assert sidecar.exists(), (
+            "YJ-47: report_pending_crash must create a .reported sidecar marker"
+        )
+
+    def test_yj47_report_pending_crash_skips_files_with_sidecar(self, tmp_path):
+        """YJ-47: ``report_pending_crash`` does NOT re-surface crash
+        files that already have a ``.reported`` sidecar marker. Without
+        this skip, every startup would re-surface the same crash record
+        forever (since VEH-written files stay in the archive).
+        """
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True)
+        crash_file = archive_dir / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        # Pre-create the sidecar marker — the file was already surfaced.
+        sidecar = archive_dir / "crash_diagnostics.1234.txt.reported"
+        sidecar.touch()
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is None, (
+            "YJ-47: report_pending_crash must NOT re-surface files with a "
+            ".reported sidecar marker"
+        )
+
 
 # ─── report_pending_crash ───────────────────────────────────────────────
 
@@ -234,6 +328,44 @@ class TestCrashHandlerReportPending:
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is not None
         assert "Fatal exit" in result
+
+    def test_yj42_reads_file_with_illegal_instruction(self, tmp_path):
+        """YJ-42: ``report_pending_crash`` recognises STATUS_ILLEGAL_INSTRUCTION
+        and produces a specific summary (not the generic fallback).
+        """
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ILLEGAL_INSTRUCTION: the CPU tried to execute an invalid opcode.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Illegal instruction" in result
+        assert "0xC000001D" in result
+
+    def test_yj42_reads_file_with_stack_overflow(self, tmp_path):
+        """YJ-42: ``report_pending_crash`` recognises STATUS_STACK_OVERFLOW."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_STACK_OVERFLOW: the thread exhausted its stack.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Stack overflow" in result
+        assert "0xC00000FD" in result
+
+    def test_yj42_reads_file_with_in_page_error(self, tmp_path):
+        """YJ-42: ``report_pending_crash`` recognises STATUS_IN_PAGE_ERROR."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_IN_PAGE_ERROR: a memory page could not be loaded.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "In-page error" in result
+        assert "0xC0000006" in result
 
     def test_unknown_crash_code_extracts_code_line(self, tmp_path):
         """An unknown crash code → summary includes the ``code=0x…`` line."""
@@ -496,17 +628,57 @@ class TestCrashHandlerConstants:
         assert crash_handler.STATUS_FATAL_APP_EXIT == 0x40000015
 
     def test_crash_codes_set_contains_all_four(self):
-        assert (
-            frozenset(
-                {
-                    crash_handler.STATUS_HEAP_CORRUPTION,
-                    crash_handler.STATUS_ACCESS_VIOLATION,
-                    crash_handler.STATUS_STACK_BUFFER_OVERRUN,
-                    crash_handler.STATUS_FATAL_APP_EXIT,
-                }
-            )
-            == crash_handler._CRASH_CODES
+        """The original four fatal SEH codes are present in ``_CRASH_CODES``.
+
+        YJ-42 extended ``_CRASH_CODES`` from 4 codes to 13 codes (added
+        ``STATUS_ILLEGAL_INSTRUCTION`` + 8 other fatal exception codes).
+        This test asserts the original 4 are still present (superset check)
+        rather than equality, so the addition doesn't break the regression.
+        """
+        original_four = frozenset(
+            {
+                crash_handler.STATUS_HEAP_CORRUPTION,
+                crash_handler.STATUS_ACCESS_VIOLATION,
+                crash_handler.STATUS_STACK_BUFFER_OVERRUN,
+                crash_handler.STATUS_FATAL_APP_EXIT,
+            }
         )
+        assert original_four <= crash_handler._CRASH_CODES, (
+            "YJ-42: the original four fatal codes MUST remain in _CRASH_CODES "
+            "after the extension (superset check)."
+        )
+
+    def test_crash_codes_set_contains_yj42_extended_codes(self):
+        """YJ-42: ``_CRASH_CODES`` covers 9 additional fatal Windows
+        exception codes that were silently bypassed by the VEH handler
+        pre-fix. STATUS_BREAKPOINT and STATUS_SINGLE_STEP are deliberately
+        omitted so an attached debugger doesn't trigger crash records.
+        """
+        extended_codes = frozenset(
+            {
+                crash_handler.STATUS_ILLEGAL_INSTRUCTION,
+                crash_handler.STATUS_INT_DIVIDE_BY_ZERO,
+                crash_handler.STATUS_PRIVILEGED_INSTRUCTION,
+                crash_handler.STATUS_IN_PAGE_ERROR,
+                crash_handler.STATUS_STACK_OVERFLOW,
+                crash_handler.STATUS_NONCONTINUABLE_EXCEPTION,
+                crash_handler.STATUS_INVALID_HANDLE,
+                crash_handler.STATUS_DATATYPE_MISALIGNMENT,
+                crash_handler.STATUS_GUARD_PAGE_VIOLATION,
+            }
+        )
+        assert extended_codes <= crash_handler._CRASH_CODES, (
+            "YJ-42: the 9 extended fatal codes MUST be in _CRASH_CODES."
+        )
+
+    def test_crash_codes_excludes_breakpoint_and_single_step(self):
+        """YJ-42: STATUS_BREAKPOINT (0x80000003) and STATUS_SINGLE_STEP
+        (0x80000004) are deliberately excluded from ``_CRASH_CODES`` so
+        an attached debugger doesn't trigger a crash record on every
+        breakpoint / single-step trap.
+        """
+        assert 0x80000003 not in crash_handler._CRASH_CODES
+        assert 0x80000004 not in crash_handler._CRASH_CODES
 
     def test_exception_continue_search_is_zero(self):
         """VEH callbacks return ``EXCEPTION_CONTINUE_SEARCH`` (=0) to let
@@ -514,6 +686,44 @@ class TestCrashHandlerConstants:
         constant — it must never change.
         """
         assert crash_handler.EXCEPTION_CONTINUE_SEARCH == 0x0
+
+    def test_yj42_extended_codes_have_friendly_names(self):
+        """YJ-42: every extended STATUS_* code in ``_CRASH_CODES`` has a
+        corresponding pre-encoded ``_NAME_*`` byte string for the VEH
+        callback's friendly-name slot. The mapping is consulted in
+        ``_vectored_handler_impl`` — a missing ``_NAME_*`` constant
+        would cause the callback to fall through to ``_NAME_UNKNOWN``,
+        defeating the purpose of extending the code set.
+        """
+        # Map each extended STATUS_* code to its expected _NAME_* bytes.
+        # The original 4 codes (HEAP / ACCESS / STACK / FATAL) are
+        # already covered by existing tests, so we focus on the 9
+        # new codes added by YJ-42.
+        yj42_mapping = {
+            crash_handler.STATUS_ILLEGAL_INSTRUCTION: crash_handler._NAME_ILLEGAL_INSTRUCTION,
+            crash_handler.STATUS_INT_DIVIDE_BY_ZERO: crash_handler._NAME_INT_DIVIDE_BY_ZERO,
+            crash_handler.STATUS_PRIVILEGED_INSTRUCTION: crash_handler._NAME_PRIVILEGED_INSTRUCTION,
+            crash_handler.STATUS_IN_PAGE_ERROR: crash_handler._NAME_IN_PAGE_ERROR,
+            crash_handler.STATUS_STACK_OVERFLOW: crash_handler._NAME_STACK_OVERFLOW,
+            crash_handler.STATUS_NONCONTINUABLE_EXCEPTION: crash_handler._NAME_NONCONTINUABLE,
+            crash_handler.STATUS_INVALID_HANDLE: crash_handler._NAME_INVALID_HANDLE,
+            crash_handler.STATUS_DATATYPE_MISALIGNMENT: crash_handler._NAME_MISALIGNMENT,
+            crash_handler.STATUS_GUARD_PAGE_VIOLATION: crash_handler._NAME_GUARD_PAGE,
+        }
+        for code, name in yj42_mapping.items():
+            assert isinstance(name, bytes), (
+                f"YJ-42: _NAME_* for code {code:#x} must be pre-encoded bytes "
+                f"(VEH callback cannot allocate during heap corruption)"
+            )
+            assert code in crash_handler._CRASH_CODES, (
+                f"YJ-42: STATUS_* code {code:#x} must be in _CRASH_CODES"
+            )
+            # Each name MUST be ≤ 80 bytes — the ``name`` slot in
+            # ``_CRASH_MSG_LAYOUT`` is 80 bytes wide.
+            assert len(name) <= 80, (
+                f"YJ-42: _NAME_* for code {code:#x} is {len(name)} bytes "
+                f"(exceeds 80-byte name slot in _CRASH_MSG_LAYOUT)"
+            )
 
 
 # ─── Hex encoding helpers ───────────────────────────────────────────────

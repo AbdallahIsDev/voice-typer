@@ -81,6 +81,16 @@ CONSTANTS = [
     "STATUS_ACCESS_VIOLATION",
     "STATUS_STACK_BUFFER_OVERRUN",
     "STATUS_FATAL_APP_EXIT",
+    # YJ-42: extended fatal codes
+    "STATUS_ILLEGAL_INSTRUCTION",
+    "STATUS_INT_DIVIDE_BY_ZERO",
+    "STATUS_PRIVILEGED_INSTRUCTION",
+    "STATUS_IN_PAGE_ERROR",
+    "STATUS_STACK_OVERFLOW",
+    "STATUS_NONCONTINUABLE_EXCEPTION",
+    "STATUS_INVALID_HANDLE",
+    "STATUS_DATATYPE_MISALIGNMENT",
+    "STATUS_GUARD_PAGE_VIOLATION",
     "_CRASH_CODES",
     "EXCEPTION_CONTINUE_SEARCH",
     "GENERIC_WRITE",
@@ -116,6 +126,16 @@ READONLY_REFS = [
     "_NAME_ACCESS",
     "_NAME_STACK",
     "_NAME_FATAL",
+    # YJ-42: friendly names for the extended fatal codes
+    "_NAME_ILLEGAL_INSTRUCTION",
+    "_NAME_INT_DIVIDE_BY_ZERO",
+    "_NAME_PRIVILEGED_INSTRUCTION",
+    "_NAME_IN_PAGE_ERROR",
+    "_NAME_STACK_OVERFLOW",
+    "_NAME_NONCONTINUABLE",
+    "_NAME_INVALID_HANDLE",
+    "_NAME_MISALIGNMENT",
+    "_NAME_GUARD_PAGE",
     "_NAME_UNKNOWN",
     "_HEX_CHARS",
 ]
@@ -160,7 +180,13 @@ class TestBackwardCompatNames:
             )
 
     def test_constants_have_correct_values(self):
-        """The status codes must match the original values exactly."""
+        """The status codes must match the original values exactly.
+
+        YJ-42 extended ``_CRASH_CODES`` from 4 codes to 13 codes — the
+        equality check on the original 4-code set is now a superset
+        check (the original 4 are still present), and the extended codes
+        are validated separately by ``test_extended_codes_present``.
+        """
         from voice_typer.server import crash_handler
 
         assert crash_handler.STATUS_HEAP_CORRUPTION == 0xC0000374
@@ -168,14 +194,32 @@ class TestBackwardCompatNames:
         assert crash_handler.STATUS_STACK_BUFFER_OVERRUN == 0xC0000409
         assert crash_handler.STATUS_FATAL_APP_EXIT == 0x40000015
         assert crash_handler.EXCEPTION_CONTINUE_SEARCH == 0x0
-        assert frozenset(
+        original_four = frozenset(
             {
                 crash_handler.STATUS_HEAP_CORRUPTION,
                 crash_handler.STATUS_ACCESS_VIOLATION,
                 crash_handler.STATUS_STACK_BUFFER_OVERRUN,
                 crash_handler.STATUS_FATAL_APP_EXIT,
             }
-        ) == crash_handler._CRASH_CODES
+        )
+        assert original_four <= crash_handler._CRASH_CODES, (
+            "YJ-42: original four codes must remain in _CRASH_CODES after the extension"
+        )
+
+    def test_extended_codes_present(self):
+        """YJ-42: the 9 extended fatal codes (added to ``_CRASH_CODES``)
+        are present and have the documented Windows NT status values."""
+        from voice_typer.server import crash_handler
+
+        assert crash_handler.STATUS_ILLEGAL_INSTRUCTION == 0xC000001D
+        assert crash_handler.STATUS_INT_DIVIDE_BY_ZERO == 0xC0000094
+        assert crash_handler.STATUS_PRIVILEGED_INSTRUCTION == 0xC0000096
+        assert crash_handler.STATUS_IN_PAGE_ERROR == 0xC0000006
+        assert crash_handler.STATUS_STACK_OVERFLOW == 0xC00000FD
+        assert crash_handler.STATUS_NONCONTINUABLE_EXCEPTION == 0xC0000025
+        assert crash_handler.STATUS_INVALID_HANDLE == 0xC0000008
+        assert crash_handler.STATUS_DATATYPE_MISALIGNMENT == 0xC0000002
+        assert crash_handler.STATUS_GUARD_PAGE_VIOLATION == 0x80000001
 
     def test_structs_importable(self):
         from voice_typer.server import crash_handler

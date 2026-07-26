@@ -476,6 +476,13 @@ class TestNotificationPayloadShape:
           - Two extra fields (``duration_ms``, ``critical``) control the
             toast's auto-close timeout and priority (see class docstring
             for Linux behavior).
+          - The ``show_electron_notification`` command was REMOVED from
+            ``IPCServer._COMMAND_REGISTRY`` because the Tauri host now
+            handles notifications via a dedicated Rust command. These
+            tests now invoke ``_handle_show_electron_notification``
+            directly to verify the payload shape the Python-side handler
+            still emits for the legacy Electron code path (and as the
+            reference shape the Rust host mirrors).
         """
         server = _make_ipc_server()
         captured: dict = {}
@@ -483,17 +490,14 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
+            server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Transcription complete",
-                        "message": "Inserted 42 words.",
-                        "duration_ms": 4000,
-                        "critical": False,
-                    },
-                    "id": "mig17-toast-shape",
-                }
+                    "title": "Transcription complete",
+                    "message": "Inserted 42 words.",
+                    "duration_ms": 4000,
+                    "critical": False,
+                },
+                {"id": "mig17-toast-shape"},
             )
         # Top-level shape.
         assert set(captured.keys()) == {"type", "data"}, (
@@ -531,12 +535,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M"},
-                    "id": "mig17-toast-field-name",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M"},
+                {"id": "mig17-toast-field-name"},
             )
         assert "message" in captured["data"], (
             "payload data must have a 'message' field — this is the field "
@@ -562,12 +563,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {},
-                    "id": "mig17-toast-defaults",
-                }
+            server._handle_show_electron_notification(
+                {},
+                {"id": "mig17-toast-defaults"},
             )
         assert captured["type"] == "notification"
         # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
@@ -594,12 +592,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M", "critical": True},
-                    "id": "mig17-toast-critical-type",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M", "critical": True},
+                {"id": "mig17-toast-critical-type"},
             )
         assert isinstance(captured["data"]["critical"], bool), (
             f"payload 'critical' must be a bool (so JSON-serializes to "
@@ -624,12 +619,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M", "duration_ms": 3000},
-                    "id": "mig17-toast-duration-type",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M", "duration_ms": 3000},
+                {"id": "mig17-toast-duration-type"},
             )
         assert isinstance(captured["data"]["duration_ms"], int), (
             f"payload 'duration_ms' must be an int (so JSON-serializes to a "

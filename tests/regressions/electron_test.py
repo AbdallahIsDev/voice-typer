@@ -73,15 +73,32 @@ class TestElectronNotificationIpcEndpoint:
     `show_electron_notification` IPC handler that pushes an
     `electron_notification` event to the Electron UI, which can
     display a persistent toast/banner with user-controlled duration.
+
+    Stale-test refresh: the ``show_electron_notification``
+    command was REMOVED from ``IPCServer._COMMAND_REGISTRY`` because
+    the Tauri host now handles notifications via a dedicated Rust
+    command. The Python-side handler method
+    ``SystemHandlersMixin._handle_show_electron_notification`` still
+    exists for the legacy Electron path. These regression tests now
+    assert the handler method exists and is callable directly
+    (instead of routing through ``_dispatch`` which no longer
+    recognises the command).
     """
 
     def test_ipc_handler_exists(self):
         from voice_typer.server import ipc_server
 
-        # REFACTOR: _dispatch was converted to a command registry.
-        assert "show_electron_notification" in ipc_server.IPCServer._COMMAND_REGISTRY, (
-            "TRAY-035: IPC _COMMAND_REGISTRY must include 'show_electron_notification'"
+        # The handler method must exist on the IPCServer class (mixed in
+        # via SystemHandlersMixin). The command was REMOVED from
+        # _COMMAND_REGISTRY because the Tauri host handles the
+        # notification path natively now; the Python handler remains
+        # for the legacy Electron code path.
+        assert hasattr(ipc_server.IPCServer, "_handle_show_electron_notification"), (
+            "TRAY-035: IPCServer must expose '_handle_show_electron_notification' "
+            "(via SystemHandlersMixin) so the legacy Electron path can still "
+            "push a notification event"
         )
+        assert callable(ipc_server.IPCServer._handle_show_electron_notification)
 
     def test_handler_validates_data_is_dict(self):
         """The handler must reject non-dict data with an error response."""
@@ -95,8 +112,11 @@ class TestElectronNotificationIpcEndpoint:
         server.app = app
         server.service = MagicMock()
 
-        # Dispatch with non-dict data
-        resp = server._dispatch({"type": "show_electron_notification", "data": "not a dict", "id": "test"})
+        # Call the handler method directly. The command was removed
+        # from _COMMAND_REGISTRY (Tauri host handles it natively), so
+        # _dispatch would route to ``unknown_command`` — but the
+        # handler method itself is unchanged.
+        resp = server._handle_show_electron_notification("not a dict", {"id": "test"})
         assert resp["type"] == "error"
         # DE-36: the validation helper now emits the namespaced
         # ``client.invalid_payload`` as the primary ``code`` (with the
@@ -122,6 +142,12 @@ class TestElectronNotificationFieldValidation:
     name and a human-readable message, and a stringly-typed
     ``"critical": "false"`` should be rejected rather than silently
     escalate the notification.
+
+    Stale-test refresh: the test now calls the handler method
+    directly (``_handle_show_electron_notification``) instead of
+    routing through ``_dispatch`` — the command was removed from
+    ``_COMMAND_REGISTRY`` when the Tauri host took over the
+    notification path natively.
     """
 
     def _make_server(self):
@@ -146,12 +172,9 @@ class TestElectronNotificationFieldValidation:
     def test_non_numeric_duration_ms_returns_invalid_field(self):
         """``duration_ms: "abc"`` must return code=invalid_field, not a ValueError echo."""
         server = self._make_server()
-        resp = server._dispatch(
-            {
-                "type": "show_electron_notification",
-                "data": {"title": "Hi", "message": "Body", "duration_ms": "abc"},
-                "id": "t1",
-            }
+        resp = server._handle_show_electron_notification(
+            {"title": "Hi", "message": "Body", "duration_ms": "abc"},
+            {"id": "t1"},
         )
         assert resp["type"] == "error"
         # DE-36: code is now namespaced as ``client.invalid_field``
@@ -166,12 +189,9 @@ class TestElectronNotificationFieldValidation:
     def test_stringly_critical_is_rejected(self):
         """``critical: "false"`` (string) must be rejected, not silently coerced to True."""
         server = self._make_server()
-        resp = server._dispatch(
-            {
-                "type": "show_electron_notification",
-                "data": {"title": "Hi", "message": "Body", "critical": "false"},
-                "id": "t2",
-            }
+        resp = server._handle_show_electron_notification(
+            {"title": "Hi", "message": "Body", "critical": "false"},
+            {"id": "t2"},
         )
         assert resp["type"] == "error"
         # DE-36: code is now namespaced as ``client.invalid_field``
@@ -184,12 +204,9 @@ class TestElectronNotificationFieldValidation:
     def test_non_string_title_is_rejected(self):
         """``title: 42`` must be rejected with code=invalid_field rather than silently stringified."""
         server = self._make_server()
-        resp = server._dispatch(
-            {
-                "type": "show_electron_notification",
-                "data": {"title": 42, "message": "Body"},
-                "id": "t3",
-            }
+        resp = server._handle_show_electron_notification(
+            {"title": 42, "message": "Body"},
+            {"id": "t3"},
         )
         assert resp["type"] == "error"
         # DE-36: code is now namespaced as ``client.invalid_field``
@@ -208,16 +225,13 @@ class TestElectronNotificationFieldValidation:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch(
+            resp = server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Hi",
-                        "message": "Body",
-                        "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
-                    },
-                    "id": "t4",
-                }
+                    "title": "Hi",
+                    "message": "Body",
+                    "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
+                },
+                {"id": "t4"},
             )
         assert resp["type"] == "ack"
         assert captured["data"]["duration_ms"] == 24 * 60 * 60 * 1000
@@ -231,17 +245,14 @@ class TestElectronNotificationFieldValidation:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch(
+            resp = server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Hello",
-                        "message": "World",
-                        "duration_ms": 5000,
-                        "critical": True,
-                    },
-                    "id": "t5",
-                }
+                    "title": "Hello",
+                    "message": "World",
+                    "duration_ms": 5000,
+                    "critical": True,
+                },
+                {"id": "t5"},
             )
         assert resp["type"] == "ack"
         # CR-8: event renamed from `electron_notification` → `notification`
@@ -263,12 +274,9 @@ class TestElectronNotificationFieldValidation:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {},
-                    "id": "t6",
-                }
+            resp = server._handle_show_electron_notification(
+                {},
+                {"id": "t6"},
             )
         assert resp["type"] == "ack"
         assert captured["data"] == {
@@ -314,13 +322,18 @@ class TestSettingsRendererCallsPythonBridgeCall:
         # .ipc() usage at build time; the file-content check is a belt-and-
         # suspenders guard against reintroduction in case the type check
         # is bypassed.
-        # The Settings UI was refactored: ``window.python?.call(...)`` now
-        # lives in the dedicated GeneralSettingsSection component
-        # (formerly inline in Settings.tsx).
+        #
+        # The Settings UI was refactored: GeneralSettingsSection.tsx now
+        # delegates to the i18n module's ``setLocale()`` helper, which in
+        # turn calls ``window.python.call({type: "set_tray_locale", ...})``
+        # in ``pushLocaleToPythonBackend`` (i18n.ts). The actual
+        # ``window.python.call(...)`` invocation therefore lives in i18n.ts
+        # — both files MUST use ``.call(`` and MUST NOT use ``.ipc(`` so
+        # the TypeScript PythonBridge type (which only exposes ``call`` and
+        # ``onEvent``) does not break the build.
+        client_root = Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client"
         settings_path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "voice_typer"
-            / "client"
+            client_root
             / "src"
             / "renderer"
             / "src"
@@ -328,14 +341,41 @@ class TestSettingsRendererCallsPythonBridgeCall:
             / "settings"
             / "GeneralSettingsSection.tsx"
         )
-        src = settings_path.read_text(encoding="utf-8")
-        # Must use .call( not .ipc(
-        assert "window.python?.call(" in src, (
-            "TS error: GeneralSettingsSection.tsx must use window.python?.call() not .ipc()"
+        i18n_path = (
+            client_root / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
         )
-        # Must NOT use .ipc( anywhere
-        assert "window.python?.ipc(" not in src, (
+        settings_src = settings_path.read_text(encoding="utf-8")
+        i18n_src = i18n_path.read_text(encoding="utf-8")
+
+        # GeneralSettingsSection.tsx delegates to ``setLocale()`` and must
+        # NOT call the Python bridge directly via ``.ipc(`` (the original
+        # TS error). It also must not use ``.call(`` directly — that's now
+        # encapsulated in i18n's ``pushLocaleToPythonBackend``.
+        assert "window.python?.ipc(" not in settings_src, (
             "TS error: GeneralSettingsSection.tsx must NOT use window.python?.ipc() — "
+            "the PythonBridge type does not expose an 'ipc' method"
+        )
+        assert "window.python?.call(" not in settings_src, (
+            "TS error: GeneralSettingsSection.tsx must NOT call "
+            "window.python?.call(...) directly — setLocale dispatch is "
+            "encapsulated in i18n.ts's pushLocaleToPythonBackend. This "
+            "negative check pins the delegation boundary."
+        )
+
+        # i18n.ts owns the actual ``window.python.call(...)`` dispatch
+        # (inside ``pushLocaleToPythonBackend``). It MUST use ``.call(``
+        # (positive check) and MUST NOT use ``.ipc(`` (negative check).
+        assert "set_tray_locale" in i18n_src, (
+            "i18n.ts must dispatch a 'set_tray_locale' message so the tray "
+            "menu / tooltip / OS notifications localise with the renderer."
+        )
+        assert ".call(" in i18n_src, (
+            "TS error: i18n.ts must dispatch set_tray_locale via "
+            "window.python.call(...) — the PythonBridge type only exposes "
+            "'call' and 'onEvent' (not 'ipc')."
+        )
+        assert "window.python?.ipc(" not in i18n_src, (
+            "TS error: i18n.ts must NOT use window.python?.ipc() — "
             "the PythonBridge type does not expose an 'ipc' method"
         )
 

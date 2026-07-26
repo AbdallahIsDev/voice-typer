@@ -220,6 +220,39 @@ class TestBuildModelsSubmenuConfigProvider:
         active_models = [name for name, _, is_active, _ in result if is_active]
         assert "small.en" in active_models
 
+    def test_corrupt_config_json_falls_back_to_defaults_and_logs(self, tmp_path, caplog):
+        """PI-19 regression: a corrupt ``config.json`` must NOT silently
+        fall through to defaults. The tray menu still returns defaults
+        (so the user sees a functional menu), but a ``log.debug`` line
+        records the failure so it can be diagnosed from
+        ``voice-typer.log``. Mirrors the pattern at ``config.py:1043``.
+        """
+        import logging
+
+        from voice_typer.server.tray_models import build_models_submenu_data
+
+        config_dir = tmp_path
+        config_path = config_dir / "config.json"
+        # Write corrupt JSON that json.load will reject.
+        config_path.write_text("{not valid json at all", encoding="utf-8")
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.tray_models"):
+            result = build_models_submenu_data(
+                lambda: config_dir,
+                lambda name: None,
+                config_provider=None,
+            )
+
+        # Defaults must be returned so the tray menu is still usable.
+        active_models = [name for name, _, is_active, _ in result if is_active]
+        assert "tiny.en" in active_models
+
+        # The corrupt-config log line must be present.
+        corrupt_log_lines = [r.message for r in caplog.records if "failed to read config.json" in r.message]
+        assert corrupt_log_lines, (
+            "PI-19 regression: expected a log.debug line recording the config.json read failure, got none"
+        )
+
 
 class TestCancelModelDownloadMechanism:
     """Verify the cancel mechanism works at the Python service level.
@@ -352,9 +385,9 @@ class TestTrayIconUsesGetchannelNotSplitIndex:
         # The production source uses ``getchannel("A")`` (double quotes);
         # accept either quote style so the test is resilient to the
         # formatter's preference.
-        assert ('getchannel("A")' in code_only) or (
-            "getchannel('A')" in code_only
-        ), "expected getchannel('A') or getchannel(\"A\") in _make_icon source"
+        assert ('getchannel("A")' in code_only) or ("getchannel('A')" in code_only), (
+            "expected getchannel('A') or getchannel(\"A\") in _make_icon source"
+        )
 
 
 class TestOnboardingControllerRemovesStepCallbacks:

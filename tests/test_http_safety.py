@@ -97,9 +97,7 @@ class TestNoRedirectHandlerRedactsUrl:
         branch on ``e.code`` for 3xx-specific handling)."""
         handler = _NoRedirectHandler()
         with pytest.raises(HTTPError) as exc_info:
-            handler.redirect_request(
-                None, None, 307, "Temporary Redirect", None, "https://example.com/x"
-            )
+            handler.redirect_request(None, None, 307, "Temporary Redirect", None, "https://example.com/x")
         assert exc_info.value.code == 307
         # The message includes both the code and the redirect-refused
         # marker so callers can distinguish a refused-redirect error
@@ -275,6 +273,102 @@ class TestHttpsOnlyHTTPHandler:
     def test_loopback_set_is_documented(self):
         """The loopback exemption set must contain exactly the three
         documented loopback hosts (no more, no less)."""
-        assert frozenset(
-            {"localhost", "127.0.0.1", "::1"}
-        ) == _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS
+        assert frozenset({"localhost", "127.0.0.1", "::1"}) == _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS
+
+
+# ---------------------------------------------------------------------------
+# YJ-26: no ``# type: ignore[override]`` suppression on urllib overrides
+# ---------------------------------------------------------------------------
+
+
+class TestYJ26NoOverrideSuppression:
+    """YJ-26: ``_NoRedirectHandler.redirect_request`` and
+    ``_HttpsOnlyHTTPHandler.http_open`` must NOT carry a
+    ``# type: ignore[override]`` suppression marker. The overrides are
+    typed to match the parent class signatures exactly (per typeshed),
+    so the suppression is unnecessary and would silently mask future
+    type drift between the override and ``urllib.request``."""
+
+    def _method_def_line(self, cls: type, name: str) -> str:
+        """Return the source line of the ``def <name>(...)`` header
+        for the given class+method (no body, no decorators)."""
+        import inspect
+
+        src = inspect.getsource(getattr(cls, name))
+        # The first non-empty source line is the ``def ...`` header
+        # (inspect.getsource on a method does NOT include decorators
+        # when the method has none, but it DOES include the docstring
+        # body — we want just the ``def`` line).
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("def "):
+                return stripped
+        # If we somehow don't find a def line, return empty so the
+        # ``"type: ignore" not in`` assertion below passes trivially
+        # and the assertion on ``startswith("def")`` catches the
+        # regression.
+        return ""
+
+    def test_redirect_request_has_no_override_suppression(self):
+        """``_NoRedirectHandler.redirect_request`` must not carry a
+        ``# type: ignore[override]`` marker (YJ-26 line ``:76``)."""
+        def_line = self._method_def_line(_NoRedirectHandler, "redirect_request")
+        assert def_line.startswith("def redirect_request(")
+        assert "type: ignore" not in def_line, (
+            "YJ-26 regression: `# type: ignore` reintroduced on "
+            "`_NoRedirectHandler.redirect_request`. The override is "
+            "typed to match the parent signature exactly — see the "
+            "YJ-26 fix commit in _http_safety.py for the rationale."
+        )
+
+    def test_http_open_has_no_override_suppression(self):
+        """``_HttpsOnlyHTTPHandler.http_open`` must not carry a
+        ``# type: ignore[override]`` marker (YJ-26 line ``:129``).
+        The return type is ``http.client.HTTPResponse`` to match the
+        parent ``HTTPHandler.http_open`` signature per typeshed."""
+        def_line = self._method_def_line(_HttpsOnlyHTTPHandler, "http_open")
+        assert def_line.startswith("def http_open(")
+        assert "type: ignore" not in def_line, (
+            "YJ-26 regression: `# type: ignore` reintroduced on "
+            "`_HttpsOnlyHTTPHandler.http_open`. The override return "
+            "type is `http.client.HTTPResponse` (matching the parent "
+            "typeshed signature) — no suppression is needed."
+        )
+
+    def test_http_open_return_type_matches_parent(self):
+        """The override's return annotation must be the parent's
+        return type (``http.client.HTTPResponse`` per typeshed), NOT
+        ``object`` or ``Any`` — widening the return type violates
+        covariance and was the original reason the ``# type: ignore``
+        marker was added."""
+        import http.client
+        import typing
+
+        # inspect.signature returns the resolved annotation only if
+        # ``from __future__ import annotations`` is NOT in effect.
+        # The module DOES use ``from __future__ import annotations``
+        # (line 34), so we resolve via ``typing.get_type_hints``.
+        hints = typing.get_type_hints(_HttpsOnlyHTTPHandler.http_open)
+        # ``get_type_hints`` on an unbound method includes ``self`` and
+        # the ``return`` key. PEP 563 + ``from __future__ import
+        # annotations`` means the annotation strings are resolved
+        # against the module globals (which include ``http.client``
+        # and ``Request``).
+        assert "return" in hints, (
+            "YJ-26 regression: `http_open` has no return annotation — "
+            "the override MUST be typed `-> http.client.HTTPResponse` "
+            "to match the parent signature."
+        )
+        assert hints["return"] is http.client.HTTPResponse, (
+            f"YJ-26 regression: `http_open` return type is "
+            f"`{hints['return']!r}`, expected "
+            f"`http.client.HTTPResponse`. Widening to `object` or "
+            f"`Any` would require a `# type: ignore[override]` "
+            f"suppression marker (which YJ-26 explicitly removed)."
+        )
+        # Sanity check that ``req`` is typed as ``Request`` (so the
+        # override signature is fully aligned with the parent).
+        assert "req" in hints, "YJ-26 regression: `http_open` is missing the `req` parameter annotation."
+        from urllib.request import Request as UrllibRequest
+
+        assert hints["req"] is UrllibRequest

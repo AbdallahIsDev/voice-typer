@@ -287,36 +287,23 @@ class TestSendCtrlVWin32:
     def test_invokes_send_input_with_mocked_win32_api(self):
         """_send_ctrl_v_win32 builds an INPUT batch and calls SendInput.
 
-        Mocks ctypes.windll.user32 and pynput._util.win32 so the function
-        can be exercised on any platform.
+        XZ-CLIP-12: production code now defines INPUT/KEYBDINPUT/
+        INPUT_union inline via ctypes.Structure (no longer imports
+        from pynput._util.win32) and calls user32.SendInput directly
+        via ctypes.windll.user32. Mock ctypes.windll.user32 so the
+        function can be exercised on any platform.
         """
-        # Mock the pynput._util.win32 package (normally Windows-only)
-        mock_win32_util = MagicMock()
-        # Provide MagicMock substitutes for the struct-like types
-        mock_win32_util.INPUT = MagicMock
-        mock_win32_util.KEYBDINPUT = MagicMock
-        mock_win32_util.INPUT_union = MagicMock
-        mock_win32_util.KEYBOARDINPUT = MagicMock
-        mock_win32_util.MouseInput = MagicMock
-        mock_win32_util.HardwareInput = MagicMock
-        with patch.dict(
-            sys.modules,
-            {
-                "pynput._util": MagicMock(),
-                "pynput._util.win32": mock_win32_util,
-            },
-        ):
-            cm = ClipboardManager.__new__(ClipboardManager)
-            cm._keyboard = None
-            mock_user32 = MagicMock()
-            mock_user32.SendInput.return_value = 1  # 1 event sent
-            with patch("ctypes.windll", create=True) as windll_mock:
-                windll_mock.user32 = mock_user32
-                # The function may still raise on attribute access details;
-                # the key invariant is that it attempted to call SendInput
-                # or returned without crashing the test runner.
-                with contextlib.suppress(Exception):
-                    cm._send_ctrl_v_win32()
+        cm = ClipboardManager.__new__(ClipboardManager)
+        cm._keyboard = None
+        mock_user32 = MagicMock()
+        mock_user32.SendInput.return_value = 1  # 1 event sent
+        with patch("ctypes.windll", create=True) as windll_mock:
+            windll_mock.user32 = mock_user32
+            # The function may still raise on attribute access details;
+            # the key invariant is that it attempted to call SendInput
+            # or returned without crashing the test runner.
+            with contextlib.suppress(Exception):
+                cm._send_ctrl_v_win32()
 
 
 # =============================================================================
@@ -463,3 +450,113 @@ class TestIsSafePasteTarget:
         with patch.object(clip_mod, "is_windows", return_value=False):
             result = ClipboardManager._is_safe_paste_target()
             assert result is True
+
+
+# =============================================================================
+# YJ-22 (retry / partial fix): _Controller narrowed from Any to type | None
+# =============================================================================
+
+
+class TestYj22PynputBindingsTyping:
+    """YJ-22: ``_Controller`` narrowed from ``Any`` to ``type | None``.
+
+    YJ-22 prescribed narrowing BOTH ``_Key`` and ``_Controller`` from
+    ``Any`` to ``type | None`` and dropping the
+    ``# type: ignore[assignment]`` markers. The original YJ-22 fix was
+    applied then reverted (YJ-FIX-B2) because ``type | None`` broke 6
+    downstream ``_cb._Key.cmd`` / ``_cb._Key.shift`` /
+    ``_cb._Key.insert`` / ``_cb._Key.ctrl`` accesses in
+    :mod:`voice_typer.server.clipboard.manager` — ``type`` and
+    ``None`` don't expose pynput's ``Key`` enum members.
+
+    This retry re-applies the narrowing ONLY to ``_Controller`` (where
+    it's safe — the only downstream usage is ``_cb._Controller()``
+    instantiation, and ``type`` is callable). ``_Key`` stays ``Any``
+    with a documented rationale in the source comment block.
+    """
+
+    def test_controller_annotation_is_type_or_none(self):
+        """The ``_Controller`` annotation MUST be ``type | None`` (not
+        ``Any``). Verifies by inspecting the module's ``__annotations__``
+        dict — this is the runtime source of truth that pyrefly consults."""
+        import voice_typer.server.clipboard as clip_mod
+
+        ann = clip_mod.__annotations__.get("_Controller")
+        # Accept both the modern ``type | None`` form (PEP 604) and the
+        # legacy ``Optional[type]`` / ``Union[type, None]`` forms in
+        # case the annotation was created with a different helper.
+        assert ann is not None, (
+            "YJ-22: ``_Controller`` must have an explicit annotation (``type | None``). Found: no annotation."
+        )
+        assert ann == "type | None" or ann == type | None, (
+            f"YJ-22: ``_Controller`` annotation must be ``type | None`` (narrowed from ``Any``). Got: {ann!r}"
+        )
+
+    def test_controller_initial_value_is_none(self):
+        """``_Controller`` initial value MUST be ``None`` (the lazy-import
+        sentinel). ``type | None`` accepts ``None`` without a
+        ``# type: ignore[assignment]`` marker."""
+        import voice_typer.server.clipboard as clip_mod
+
+        assert clip_mod._Controller is None, (
+            "YJ-22: ``_Controller`` initial value must be ``None`` (lazily populated by ``_ensure_pynput_imported()``)."
+        )
+
+    def test_controller_no_type_ignore_marker(self):
+        """No ``# type: ignore[assignment]`` marker on the ``_Controller``
+        line — ``type | None`` accepts ``None`` without a marker."""
+        import inspect
+
+        import voice_typer.server.clipboard as clip_mod
+
+        src = inspect.getsource(clip_mod)
+        # Find the line declaring _Controller.
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("_Controller:") and "=" in stripped:
+                assert "type: ignore" not in stripped, (
+                    f"YJ-22: ``_Controller`` line must NOT carry a "
+                    f"``# type: ignore`` marker — ``type | None`` "
+                    f"accepts ``None`` natively. Got: {stripped!r}"
+                )
+                return
+        raise AssertionError(
+            "YJ-22: could not locate the ``_Controller:`` declaration line in voice_typer.server.clipboard source."
+        )
+
+    def test_key_annotation_remains_any_with_documented_rationale(self):
+        """``_Key`` stays ``Any`` — narrowing to ``type | None`` would
+        break the 6 downstream ``_cb._Key.cmd`` / etc. accesses in
+        clipboard/manager.py. The source MUST carry a comment block
+        documenting why ``_Key`` was not narrowed."""
+        import voice_typer.server.clipboard as clip_mod
+
+        ann = clip_mod.__annotations__.get("_Key")
+        assert ann is not None, "YJ-22: ``_Key`` must have an explicit annotation."
+        # ``Any`` is the documented retained annotation (full narrowing
+        # requires a pynput stub or Protocol — deferred).
+        assert ann == "Any" or ann is Any, (
+            f"YJ-22: ``_Key`` annotation must remain ``Any`` (full "
+            f"narrowing deferred — see source comment). Got: {ann!r}"
+        )
+
+    def test_key_no_type_ignore_marker(self):
+        """No ``# type: ignore[assignment]`` marker on the ``_Key`` line
+        — ``Any`` accepts ``None`` natively."""
+        import inspect
+
+        import voice_typer.server.clipboard as clip_mod
+
+        src = inspect.getsource(clip_mod)
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("_Key:") and "=" in stripped:
+                assert "type: ignore" not in stripped, (
+                    f"YJ-22: ``_Key`` line must NOT carry a ``# type: ignore`` marker. Got: {stripped!r}"
+                )
+                return
+        raise AssertionError("YJ-22: could not locate the ``_Key:`` declaration line.")
+
+
+# Need Any import for the assertion above.
+from typing import Any  # noqa: E402 — late import for the assertion helper

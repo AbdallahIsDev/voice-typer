@@ -388,9 +388,21 @@ def use_python_source() -> str:
 
 @pytest.fixture(scope="module")
 def preload_source() -> str:
-    """Read ``client/src/preload/index.ts`` as text."""
+    """Read ``client/src/preload/index.ts`` as text.
+
+    Also includes ``client/src/preload/_bubble-channels.ts`` (the
+    shared bubble-channel factory called by ``index.ts`` via
+    ``makeBubbleApi``) so the parity / source-inspection tests find
+    the literal ``bubble:level`` channel name, the ``{rms, peak}``
+    payload fields, and the ``ipcRenderer.on('bubble:level', …)``
+    subscription that the factory performs on the renderer's behalf.
+    """
     assert _PRELOAD.exists(), f"preload not found: {_PRELOAD}"
-    return _PRELOAD.read_text(encoding="utf-8")
+    text = _PRELOAD.read_text(encoding="utf-8")
+    factory = _PRELOAD.parent / "_bubble-channels.ts"
+    if factory.exists():
+        text = text + "\n// ── _bubble-channels.ts (factory used by preload/index.ts) ──\n" + factory.read_text(encoding="utf-8")
+    return text
 
 
 @pytest.fixture(scope="module")
@@ -978,25 +990,48 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     backend pushes a ``bubble_level`` event. The preload subscribes
     via ``ipcRenderer.on('bubble:level', handler)`` and forwards the
     payload (``{rms, peak}``) to the renderer's callback.
+
+    RT-9: the subscription may live directly in ``preload/index.ts`` OR
+    in the shared ``_bubble-channels.ts`` factory that ``index.ts``
+    calls via ``makeBubbleApi`` (the factory's ``makeListener`` helper
+    receives ``ipcRenderer`` as ``ipc`` and registers ``ipc.on(channel,
+    handler)`` where ``channel == "bubble:level"``). The fixture
+    concatenates both files so this parity check passes regardless of
+    where the literal subscription lives.
     """
     assert ELECTRON_BUBBLE_LEVEL_CHANNEL in preload_source, (
-        f"preload/index.ts must subscribe to the "
+        f"preload/index.ts (or its _bubble-channels.ts factory) must subscribe to the "
         f"{ELECTRON_BUBBLE_LEVEL_CHANNEL!r} IPC channel (Electron main "
         "emits it from handle-message.ts:58 when the Python backend "
         "pushes a bubble_level event)."
     )
-    # The subscription must use `ipcRenderer.on`.
+    # The subscription must use ``ipcRenderer.on`` (or the factory's
+    # ``ipc.on`` alias, since ``ipc == ipcRenderer`` at the call site).
+    # The factory uses ``makeListener(ipc, "bubble:level", ...)`` which
+    # internally calls ``ipc.on(channel, handler)`` where ``channel`` is
+    # the string literal ``"bubble:level"`` — so accept any of:
+    # (a) inline ``ipcRenderer.on('bubble:level', ...)``
+    # (b) inline ``ipc.on('bubble:level', ...)``
+    # (c) factory call ``makeListener<...>(ipc, "bubble:level", ...)``
     listen_re = re.compile(
-        r'ipcRenderer\.on\(\s*["\']bubble:level["\']',
+        r'(?:'
+        r'ipcRenderer\.on\(\s*["\']bubble:level["\']'
+        r'|ipc\.on\(\s*["\']bubble:level["\']'
+        r'|makeListener<[^>]*>\(\s*ipc\s*,\s*["\']bubble:level["\']'
+        r')',
+        re.DOTALL,
     )
     assert listen_re.search(preload_source), (
-        "preload/index.ts must call `ipcRenderer.on('bubble:level', …)` "
-        "so the bubble level stream is delivered to the renderer's "
-        "onLevel callback."
+        "preload/index.ts (or its _bubble-channels.ts factory) must call "
+        "`ipcRenderer.on('bubble:level', …)` (or `ipc.on('bubble:level', …)` "
+        "via the factory's `makeListener` helper) so the bubble level "
+        "stream is delivered to the renderer's onLevel callback."
     )
     # The payload shape must be `{rms, peak}`.
     assert "rms" in preload_source and "peak" in preload_source, (
-        "preload/index.ts bubble:level payload must be `{rms, peak}` — matches the Tauri bridge's `{rms, peak}` shape."
+        "preload/index.ts (or its _bubble-channels.ts factory) bubble:level "
+        "payload must be `{rms, peak}` — matches the Tauri bridge's "
+        "`{rms, peak}` shape."
     )
 
 

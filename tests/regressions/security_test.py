@@ -110,8 +110,7 @@ class TestTranscriptionLoggingRedactsPii:
             "the transcription text when log_transcriptions is True."
         )
         assert any(raw_text.encode("utf-8") in call_args for call_args in sha256_calls), (
-            "SEC-009 / G4-H-08: hashlib.sha256 must be called with the raw "
-            "transcription text as its argument."
+            "SEC-009 / G4-H-08: hashlib.sha256 must be called with the raw transcription text as its argument."
         )
 
         # The raw transcription text must NOT appear in any log line —
@@ -150,6 +149,161 @@ class TestTranscriptionLoggingRedactsPii:
 
         text = "Hello world, this is a test transcription."
         assert redact_pii(text) == text
+
+    def test_transcribe_segment_log_redacts_pii_when_log_transcriptions_true(self, caplog):
+        """XS-20 / SEC-009: ``TranscriptionEngine._transcribe_unlocked``
+        logs per-segment DEBUG lines. Pre-fix, raw segment text was
+        logged verbatim at DEBUG level regardless of
+        ``log_transcriptions``, leaking any PII the user dictated
+        whenever DEBUG logging was enabled (e.g. in diagnostics zips).
+
+        Post-fix: when ``log_transcriptions`` is True, segment text is
+        passed through ``redact_pii`` before being logged — so email /
+        phone / SSN / credit-card patterns are masked. When False, only
+        the segment char count + timestamps are logged (no text content
+        at all).
+
+        This test exercises the transcription path with a fake model
+        whose segment contains a known email pattern, captures the log
+        output, and asserts:
+          1. The raw email string does NOT appear in the log.
+          2. The ``[EMAIL]`` redaction token DOES appear (when
+             ``log_transcriptions=True``).
+        """
+        import logging
+        import threading
+        import types
+        from unittest.mock import MagicMock
+
+        import numpy as np
+        from voice_typer.server.config import Config
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        # Build a minimal Config with log_transcriptions=True.
+        cfg = Config()
+        cfg.log_transcriptions = True
+
+        # Construct the engine without touching the real model. The
+        # ``_model`` attribute is set to a stub that returns a single
+        # segment containing a PII pattern.
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine.config = cfg
+        engine.beam_size = 1
+        engine.best_of = 1
+        engine.language = "en"
+        engine.condition_on_previous_text = False
+        engine._lock = threading.Lock()
+
+        # Segment stub: provides .start, .end, .text, .avg_logprob,
+        # .no_speech_prob — the attributes consumed by the loop.
+        seg = types.SimpleNamespace(
+            start=0.0,
+            end=1.0,
+            text="Contact john.doe@example.com for details.",
+            avg_logprob=-0.5,
+            no_speech_prob=0.01,
+        )
+        info = types.SimpleNamespace(
+            language="en",
+            language_probability=1.0,
+        )
+
+        # Patch the model's transcribe to return our segment + info.
+        engine._model = MagicMock()
+        engine._model.transcribe.return_value = (iter([seg]), info)
+
+        # Stub out the hallucination rejection so it doesn't interfere.
+        engine._should_reject_low_audio_hallucination = lambda **kwargs: False
+
+        # Build a 1-second float32 audio buffer at 16 kHz (non-empty so
+        # the early-return guard at the top of _transcribe_unlocked is
+        # not triggered).
+        audio = np.zeros(16000, dtype=np.float32)
+        audio[1000:1100] = 0.1  # non-silence so RMS > 0.001
+
+        raw_email = "john.doe@example.com"
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.transcription"):
+            engine._transcribe_unlocked(audio)
+
+        log_text = caplog.text
+        # The raw email MUST NOT appear in the log output — only the
+        # ``[EMAIL]`` redaction token should appear in its place.
+        assert raw_email not in log_text, (
+            "XS-20 / SEC-009: raw PII (email) must NOT appear in the "
+            "transcription segment DEBUG log when log_transcriptions is "
+            "True. redact_pii should have masked it as [EMAIL]."
+        )
+        # The ``[EMAIL]`` redaction token SHOULD appear (proving the
+        # redact_pii call site fired).
+        assert "[EMAIL]" in log_text, (
+            "XS-20 / SEC-009: when log_transcriptions is True, segment "
+            "text should be passed through redact_pii before logging, "
+            "producing the [EMAIL] token for an email pattern."
+        )
+
+    def test_transcribe_segment_log_emits_no_text_when_log_transcriptions_false(self, caplog):
+        """XS-20 / SEC-009 (negative case): when ``log_transcriptions``
+        is False (the default), the per-segment DEBUG log must NOT
+        emit any text content — only the char count + timestamps.
+        This is the privacy-by-default invariant: PII never leaks to
+        the log file unless the operator has explicitly opted in.
+        """
+        import logging
+        import threading
+        import types
+        from unittest.mock import MagicMock
+
+        import numpy as np
+        from voice_typer.server.config import Config
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        cfg = Config()
+        cfg.log_transcriptions = False  # default — no transcription logging
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine._model = MagicMock()
+        engine.config = cfg
+        engine.beam_size = 1
+        engine.best_of = 1
+        engine.language = "en"
+        engine.condition_on_previous_text = False
+        engine._lock = threading.Lock()
+
+        seg_text = "My SSN is 123-45-6789 and card 4111-1111-1111-1111."
+        seg = types.SimpleNamespace(
+            start=0.0,
+            end=1.0,
+            text=seg_text,
+            avg_logprob=-0.5,
+            no_speech_prob=0.01,
+        )
+        info = types.SimpleNamespace(language="en", language_probability=1.0)
+        engine._model.transcribe.return_value = (iter([seg]), info)
+        engine._should_reject_low_audio_hallucination = lambda **kwargs: False
+
+        audio = np.zeros(16000, dtype=np.float32)
+        audio[1000:1100] = 0.1
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.transcription"):
+            engine._transcribe_unlocked(audio)
+
+        log_text = caplog.text
+        # The raw segment text (containing SSN + CC patterns) MUST NOT
+        # appear in the log output when log_transcriptions is False.
+        assert seg_text not in log_text, (
+            "XS-20 / SEC-009: when log_transcriptions is False, the "
+            "segment DEBUG log must NOT contain raw segment text — only "
+            "the char count + timestamps."
+        )
+        # And the redaction tokens should NOT appear either (because
+        # the text was never logged at all, not even through redact_pii).
+        assert "[SSN]" not in log_text, (
+            "XS-20 / SEC-009: when log_transcriptions is False, the "
+            "segment DEBUG log must not emit any text content — not "
+            "even redacted text."
+        )
+        assert "[CC]" not in log_text
 
 
 class TestReadCappedAbortsOnOverflow:
@@ -479,6 +633,17 @@ class TestSystemRootValidationFunctional:
         ``test_validate_systemroot_rejects_traversal`` pattern: patch
         ``is_windows`` to True, set all-caps ``SYSTEMROOT``, and
         assert the function resets it to the safe default.
+
+        Systemroot-conditional-reset: the production code only resets
+        to the default when ``C:\\Windows`` actually exists as a
+        directory (the previous unconditional reset broke the fail-soft
+        contract on stripped-down Wine prefixes and the Linux sandbox,
+        where ``C:\\Windows`` doesn't exist either). On the Linux CI
+        runner we therefore mock ``Path`` so the default reports
+        ``is_dir() True`` — mirroring the real Windows runtime where
+        ``C:\\Windows`` is always present. The sibling
+        ``tests/test_validate_systemroot.py::test_missing_dir_does_not_exit``
+        covers the inverse case (default also missing → no reset).
         """
         from voice_typer.server import config
         from voice_typer.server.config import _validate_systemroot
@@ -487,7 +652,34 @@ class TestSystemRootValidationFunctional:
         monkeypatch.setattr(config, "is_windows", lambda: True)
         # Use all-caps SYSTEMROOT (case-sensitive on Linux; the production
         # function reads os.environ.get("SYSTEMROOT", "")).
-        monkeypatch.setenv("SYSTEMROOT", r"C:\Nonexistent\Path\12345")
+        user_root = r"C:\Nonexistent\Path\12345"
+        monkeypatch.setenv("SYSTEMROOT", user_root)
+
+        # Mock Path so the user-supplied path reports is_dir()=False
+        # (missing) while the default C:\Windows reports is_dir()=True
+        # (present) — mirroring real Windows runtime semantics.
+        default_root = r"C:\Windows"
+
+        class _FakePath:
+            def __init__(self, s):
+                self._s = str(s)
+
+            def __truediv__(self, other):
+                return _FakePath(self._s + "\\" + str(other))
+
+            def is_dir(self):
+                return self._s == default_root
+
+            def exists(self):
+                # notepad.exe check is downstream of the reset branch;
+                # report True so the function returns normally.
+                return True
+
+            def __str__(self):
+                return self._s
+
+        monkeypatch.setattr(config, "Path", _FakePath)
+
         _validate_systemroot()
         # The function must reset the malicious value to the safe default
         # (``C:\Windows``) — see config.py:246-262.

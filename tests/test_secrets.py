@@ -79,6 +79,56 @@ class TestRedactSecret:
         # should pass through unchanged.
         assert redact_secret(s) == s
 
+    def test_yj48_short_bare_secret_not_redacted_by_default(self):
+        """YJ-48: a BARE short secret (no ``Bearer``/``Token``/``--token=``
+        prefix) shorter than ``_MIN_REDACT_LEN`` is NOT redacted by default.
+        This is the documented gap — the short-string guard exists to
+        avoid false-positives on ordinary words. Callers in
+        security-critical contexts where bare short secrets are plausible
+        should pass ``aggressive=True`` (see
+        ``test_yj48_aggressive_redacts_short_bare_secret``).
+        """
+        # 12-char bare API key — below the 20-char guard.
+        bare_short_secret = "sk-abcd1234567"
+        assert len(bare_short_secret) < _secrets._MIN_REDACT_LEN
+        # Default behaviour: NOT redacted (the documented gap).
+        assert redact_secret(bare_short_secret) == bare_short_secret
+
+    def test_yj48_aggressive_redacts_short_bare_secret(self):
+        """YJ-48: ``aggressive=True`` bypasses the short-string guard so
+        a bare short secret IS redacted via :func:`redact_api_keys`. This
+        is the opt-in path for security-critical callers (crash
+        excepthook, env-var audit) where bare short secrets are plausible.
+        """
+        # 12-char bare API key with the OpenAI ``sk-`` prefix — below the
+        # 20-char guard but the ``sk-`` prefix is one of the canonical
+        # API-key patterns in ``_KEY_PATTERNS``.
+        bare_short_secret = "sk-abcd1234567"
+        assert len(bare_short_secret) < _secrets._MIN_REDACT_LEN
+        redacted = redact_secret(bare_short_secret, aggressive=True)
+        # The secret portion MUST be replaced (the ``sk-`` pattern is
+        # matched by ``redact_api_keys`` regardless of length when the
+        # guard is bypassed).
+        assert bare_short_secret not in redacted, (
+            f"YJ-48: aggressive=True must redact short bare secrets; "
+            f"got {redacted!r}"
+        )
+        assert "***" in redacted
+
+    def test_yj48_aggressive_does_not_break_long_secret_redaction(self):
+        """YJ-48: ``aggressive=True`` does NOT break redaction of long
+        secrets (those above ``_MIN_REDACT_LEN``). It only bypasses the
+        short-string early-exit guard.
+        """
+        long_secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
+        assert len(long_secret) >= _secrets._MIN_REDACT_LEN
+        # Both modes should redact long secrets.
+        default_redacted = redact_secret(long_secret)
+        aggressive_redacted = redact_secret(long_secret, aggressive=True)
+        assert default_redacted == aggressive_redacted
+        assert "sk-abcdef" not in default_redacted
+        assert "***" in default_redacted
+
 
 class TestRedactApiKeys:
     """Tests for the ``redact_api_keys`` helper (XV-121 DRY consolidation).

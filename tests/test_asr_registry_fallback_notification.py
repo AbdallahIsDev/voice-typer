@@ -150,14 +150,17 @@ class TestLastResortNotificationFires:
         # The event must include the backend name so the IPC push channel
         # can render a useful message in the renderer.
         last_resort_events = [e for e in published if e.get("type") == "asr_last_resort_unloaded"]
-        assert last_resort_events[0]["backend"] == "parakeet", (
+        # DT-16: payload fields now wrapped under the canonical ``data``
+        # key (matching every other event_bus.publish caller) so the Rust
+        # WS reader + usePythonEvent forwarding actually surface them.
+        assert last_resort_events[0]["data"]["backend"] == "parakeet", (
             "XZ-14-06: asr_last_resort_unloaded event must include the "
-            f"backend name. Got {last_resort_events[0]!r}."
+            f"backend name under data. Got {last_resort_events[0]!r}."
         )
         # The event must include a timestamp so diagnostics can correlate.
-        assert "timestamp" in last_resort_events[0], (
+        assert "timestamp" in last_resort_events[0]["data"], (
             "XZ-14-06: asr_last_resort_unloaded event must include a "
-            "timestamp (mirrors asr_backend_disabled)."
+            "timestamp under data (mirrors asr_backend_disabled)."
         )
 
     def test_subscriber_receives_configured_backend_name_not_actual_backend_name(self):

@@ -151,11 +151,34 @@ def _read_spawn_rs_source() -> str:
 
 
 def _make_fake_server():
-    """Build a fake IPCServer with the attributes _make_dispatch needs."""
+    """Build a fake IPCServer with the attributes _make_dispatch needs.
+
+    RT-FIX-9 / EC-FIX-3 (2026-07-24): ``_make_dispatch`` now uses
+    ``loop.run_in_executor(server._ws_dispatch_pool, ...)`` (G4-H-30 —
+    dedicated thread pool for WS dispatch, separate from the default
+    executor). A MagicMock attribute access auto-vivifies a child
+    MagicMock, so ``getattr(server, "_ws_dispatch_pool", None)`` returns
+    a non-None MagicMock — the lazy-create branch in ``_make_dispatch``
+    is skipped, and the MagicMock is passed to
+    ``loop.run_in_executor``. ``asyncio.futures.wrap_future`` then
+    asserts the submit() return is a real ``concurrent.futures.Future``
+    and fails on the MagicMock.
+
+    Fix: explicitly set ``server._ws_dispatch_pool = None`` so the
+    lazy-create branch runs and creates a real ``ThreadPoolExecutor``
+    that ``run_in_executor`` can use. The executor is shared across
+    calls on the same server (so cleanup is the test's responsibility —
+    we let it leak at process exit, which is fine for a unit test).
+    """
     server = MagicMock()
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
+    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # ``_make_dispatch`` to run (it creates a real ThreadPoolExecutor).
+    # If we leave this unset, MagicMock auto-vivifies a child mock
+    # that fails the ``wrap_future`` isinstance assertion.
+    server._ws_dispatch_pool = None
     return server
 
 
@@ -727,6 +750,10 @@ async def test_rate_limiter_applied_to_ws_frames():
     The default limiter is 200 burst / 600 sustained over a 10s window.
     Sending 201 frames rapidly must produce at least one
     ``rate_limited`` error response.
+
+    RT-FIX-9 / EC-FIX-2: rate-limit error codes are now namespaced.
+    Accept either the canonical ``client.rate_limited`` form or the
+    bare legacy ``rate_limited`` form.
     """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
@@ -739,7 +766,10 @@ async def test_rate_limiter_applied_to_ws_frames():
         if (
             isinstance(result, dict)
             and result.get("type") == "error"
-            and result.get("data", {}).get("code") == "rate_limited"
+            and result.get("data", {}).get("code") in (
+                "client.rate_limited",
+                "rate_limited",
+            )
         ):
             rejected += 1
 
@@ -786,6 +816,10 @@ async def test_rate_limiter_rejects_with_structured_error():
     The host's backoff relies on this exact error shape to
     distinguish "slow down" from "internal error". A bare exception
     or a missing code field would trigger the wrong recovery path.
+
+    RT-FIX-9 / EC-FIX-2: rate-limit error codes are now namespaced.
+    Accept either the canonical ``client.rate_limited`` form or the
+    bare legacy ``rate_limited`` form (preserved in ``legacy_code``).
     """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
@@ -798,7 +832,12 @@ async def test_rate_limiter_rejects_with_structured_error():
     # Next frame must be rate_limited.
     result = await dispatch({"type": "ping", "data": {}}, MagicMock())
     assert result["type"] == "error"
-    assert result["data"]["code"] == "rate_limited"
+    assert result["data"]["code"] in (
+        "client.rate_limited",
+        "rate_limited",
+    ), (
+        f"expected rate_limited error code, got {result['data'].get('code')!r}"
+    )
     assert "message" in result["data"], "rate_limited error must include a message"
 
 

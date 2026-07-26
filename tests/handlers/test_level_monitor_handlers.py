@@ -50,6 +50,44 @@ class TestLevelMonitorStart:
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
+    def test_consent_missing_returns_consent_required_envelope(
+        self, ipc_server, fake_service, fake_app
+    ):
+        """XZ-PRIV-03: ``voice_biometric_consent=False`` → ``client.consent_required``.
+
+        The level monitor opens an InputStream that captures audio at
+        the device native rate (16k–48k samples/sec). Even though only
+        dBFS values are returned over IPC (not raw audio), the capture
+        itself is biometric-data processing under GDPR Art. 9. The
+        handler raises ``ConsentRequiredError`` BEFORE touching the
+        service layer; ``_respond_with_error`` maps it to the
+        structured ``client.consent_required`` envelope.
+        """
+        fake_app.config.voice_biometric_consent = False
+        fake_service.level_monitor_start.return_value = {"running": True}
+        resp = ipc_server._handle_level_monitor_start({"mic_id": "usb"}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.consent_required"
+        assert resp["data"]["consent_field"] == "voice_biometric_consent"
+        assert resp["data"]["engine_name"] == "level_monitor"
+        # Service must NOT have been called — the gate fires BEFORE
+        # the validation/dispatch block.
+        fake_service.level_monitor_start.assert_not_called()
+
+    def test_consent_present_proceeds_to_service(
+        self, ipc_server, fake_service, fake_app
+    ):
+        """XZ-PRIV-03: ``voice_biometric_consent=True`` → service is called.
+
+        Positive-path regression: the consent gate must NOT block
+        legitimate use when the user has explicitly opted in.
+        """
+        fake_app.config.voice_biometric_consent = True
+        fake_service.level_monitor_start.return_value = {"running": True}
+        resp = ipc_server._handle_level_monitor_start({"mic_id": "usb"}, {})
+        assert resp["type"] == "level_monitor_status"
+        fake_service.level_monitor_start.assert_called_once_with(mic_id="usb")
+
 
 class TestLevelMonitorStop:
     """``_handle_level_monitor_stop`` — stop the background level monitor."""

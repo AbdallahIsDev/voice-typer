@@ -3,6 +3,7 @@ and about-page privacy disclosures."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,124 @@ class TestConfigDeclaresConsentFlags:
         )
         assert errors, "Non-bool consent value should be rejected"
         assert "huggingface_consent" not in validated
+
+
+class TestNoAutoUpdateFetchOnSettingsMount:
+    """S3-CR-11 regression guard: PrewarmAndUpdates must NOT auto-fire the
+    GitHub release-check ``fetch`` on mount.
+
+    The pre-fix code (removed by CR-11) fired a ``fetch`` to
+    ``https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest``
+    inside a ``useEffect`` on every mount of the Settings section.
+    This leaked the user's public IP, request timestamp, and Electron
+    User-Agent on every Settings page open, breaking the "offline
+    guarantee" the project advertises (and violating the implicit
+    consent contract — no ``Config.auto_update_check_consent`` flag
+    gated the call).
+
+    The fix removed the auto-firing ``checkForUpdate`` callback and its
+    ``useEffect`` invocation. The manual "Check for Updates" button
+    (``handleManualCheck``) is the explicit opt-in path and remains.
+
+    These tests are static source-inspection guards (we cannot mount
+    the React component from a Python test runner). They fail loudly if
+    a future contributor re-introduces the auto-fire pattern. The
+    ``test_consent_and_privacy.py`` module owns this guard because the
+    finding's fix explicitly requested "Add regression test in
+    ``test_consent_and_privacy.py`` asserting no fetch fires on mount
+    when consent is False".
+    """
+
+    PREWARM_UPDATES_TSX = (
+        REPO_ROOT
+        / "voice_typer"
+        / "client"
+        / "src"
+        / "renderer"
+        / "src"
+        / "components"
+        / "settings"
+        / "PrewarmAndUpdates.tsx"
+    )
+
+    @pytest.fixture(scope="class")
+    def component_source(self) -> str:
+        if not self.PREWARM_UPDATES_TSX.exists():
+            pytest.skip(
+                f"PrewarmAndUpdates.tsx not found at {self.PREWARM_UPDATES_TSX}"
+            )
+        return self.PREWARM_UPDATES_TSX.read_text(encoding="utf-8")
+
+    def _use_effect_bodies(self, src: str) -> list[str]:
+        """Extract each ``useEffect(() => { ... }, [...])`` body."""
+        bodies: list[str] = []
+        for m in re.finditer(r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{", src):
+            start = m.end()
+            depth = 1
+            i = start
+            while i < len(src) and depth > 0:
+                if src[i] == "{":
+                    depth += 1
+                elif src[i] == "}":
+                    depth -= 1
+                i += 1
+            bodies.append(src[start : i - 1])
+        return bodies
+
+    def test_no_autofire_check_for_update_in_use_effect(self, component_source):
+        """No ``useEffect`` body may call ``checkForUpdate``."""
+        bodies = self._use_effect_bodies(component_source)
+        assert bodies, (
+            "PrewarmAndUpdates.tsx should have at least one useEffect "
+            "(the mount-time get_prewarm_status fetch)."
+        )
+        for idx, body in enumerate(bodies):
+            assert "checkForUpdate" not in body, (
+                f"PrewarmAndUpdates.tsx useEffect #{idx} references "
+                f"'checkForUpdate' — S3-CR-11 regression: auto-firing the "
+                f"GitHub release check on mount leaks the user's IP and "
+                f"breaks the offline guarantee. The manual "
+                f"'handleManualCheck' button is the explicit opt-in path."
+            )
+
+    def test_no_api_github_fetch_in_use_effect(self, component_source):
+        """No ``useEffect`` body may ``fetch`` the GitHub releases API."""
+        bodies = self._use_effect_bodies(component_source)
+        github_pattern = re.compile(
+            r"(api\.github\.com|LATEST_RELEASE_API|releases/latest)",
+            re.IGNORECASE,
+        )
+        for idx, body in enumerate(bodies):
+            assert not github_pattern.search(body), (
+                f"PrewarmAndUpdates.tsx useEffect #{idx} fetches the "
+                f"GitHub releases API on mount — S3-CR-11 regression: "
+                f"this leaks the user's public IP + Electron User-Agent "
+                f"on every Settings page open. Move the fetch behind "
+                f"the explicit 'handleManualCheck' button click handler."
+            )
+
+    def test_manual_check_handler_still_exists(self, component_source):
+        """The manual ``handleManualCheck`` opt-in path must remain."""
+        assert "handleManualCheck" in component_source, (
+            "PrewarmAndUpdates.tsx is missing the 'handleManualCheck' "
+            "handler — S3-CR-11 fix removed the AUTO-fire, not the "
+            "manual update-check feature. Users must still be able to "
+            "check for updates via the explicit 'Check for Updates' "
+            "button."
+        )
+
+    def test_no_config_auto_update_consent_flag_required(self):
+        """No ``Config.auto_update_check_consent`` flag is required.
+
+        The finding's proposed fix offered two options: (a) gate the
+        auto-check behind a new ``Config.auto_update_check_consent``
+        flag, OR (b) remove the auto-fire ``useEffect`` and only run
+        the check on explicit button click. The project chose (b)
+        (per the CR-11 comment in PrewarmAndUpdates.tsx) — simpler,
+        no new config surface, no implicit-consent ambiguity. This
+        test documents that decision.
+        """
+        pass
 
 
 class TestCloudEngineRefusesWithoutConsent:

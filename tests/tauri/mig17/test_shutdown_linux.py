@@ -1343,36 +1343,77 @@ class TestPythonShutdownReleasesMic:
         return dispatch, server
 
 
-# ─── Python side: shutdown timeout constant ───────────────────────────
+# ─── Cooperative shutdown hard timeout (ADR-0020 §10) ────────────────
 
 
-class TestPythonShutdownTimeout:
-    """The Python sidecar mirrors the host's SHUTDOWN_ACK_TIMEOUT_MS as
-    ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0`` for its own diagnostics
-    (e.g., logging how long it took to release the mic before exiting).
+class TestShutdownAckTimeoutConstant:
+    """ADR-0020 §10: the cooperative-shutdown hard timeout is defined
+    in the Rust host as ``SHUTDOWN_ACK_TIMEOUT_MS = 2000``
+    (``src-tauri/src/util.rs``) — the single source of truth.
+
+    DT-54: the previous Python-side ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0``
+    constant in ``sidecar_ws.py`` was dead code — Python never enforced
+    the timeout (it just acked ``{"type":"shutdown"}`` and exited; the
+    Rust host's kill-children backstop is what enforces the 2s window).
+    The constant was deleted to avoid misleading readers into thinking
+    Python enforces it. These tests now pin the Rust constant as the
+    canonical source of truth.
     """
 
-    def test_shutdown_ack_timeout_seconds_is_2(self):
-        sw = _import_sidecar_ws()
-        assert hasattr(sw, "_SHUTDOWN_ACK_TIMEOUT_SECONDS"), (
-            "sidecar_ws must define _SHUTDOWN_ACK_TIMEOUT_SECONDS (mirrors the "
-            "host's SHUTDOWN_ACK_TIMEOUT_MS for diagnostic logging)"
+    def test_rust_shutdown_ack_timeout_ms_is_2000(self):
+        """The Rust host's ``SHUTDOWN_ACK_TIMEOUT_MS`` constant in
+        ``src-tauri/src/util.rs`` must equal 2000 (2s graceful window)."""
+        src = _read(_UTIL_RS)
+        const_re = re.compile(
+            r"SHUTDOWN_ACK_TIMEOUT_MS\s*:\s*u64\s*=\s*2000\s*;",
+            re.MULTILINE,
         )
-        assert sw._SHUTDOWN_ACK_TIMEOUT_SECONDS == 2.0, (
-            f"_SHUTDOWN_ACK_TIMEOUT_SECONDS must be 2.0 (matches host's "
-            f"SHUTDOWN_ACK_TIMEOUT_MS=2000), got "
-            f"{sw._SHUTDOWN_ACK_TIMEOUT_SECONDS}"
+        assert const_re.search(src), (
+            "src-tauri/src/util.rs must define "
+            "SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000 (ADR-0020 §10: 2s "
+            "cooperative-shutdown hard timeout — the Rust host's "
+            "kill-children backstop fires after this window)."
         )
 
-    def test_shutdown_timeout_constant_documented(self):
-        """The Python constant must be documented as the cooperative
-        shutdown hard timeout (ADR-0020 §10) so a future maintainer
-        understands it mirrors the host's deadline."""
+    def test_python_sidecar_does_not_define_dead_timeout_constant(self):
+        """DT-54: ``sidecar_ws.py`` must NOT define the dead
+        ``_SHUTDOWN_ACK_TIMEOUT_SECONDS`` constant — Python never
+        enforced the timeout; the Rust host's
+        ``SHUTDOWN_ACK_TIMEOUT_MS`` is the single source of truth.
+        """
         src = _read(_SIDECAR_WS_PY)
+        const_re = re.compile(
+            r"^\s*_SHUTDOWN_ACK_TIMEOUT_SECONDS\s*=\s*",
+            re.MULTILINE,
+        )
+        assert not const_re.search(src), (
+            "DT-54: sidecar_ws.py must NOT define the dead "
+            "_SHUTDOWN_ACK_TIMEOUT_SECONDS constant — Python never "
+            "enforced the cooperative-shutdown timeout (the Rust host's "
+            "SHUTDOWN_ACK_TIMEOUT_MS in src-tauri/src/util.rs is the "
+            "single source of truth)."
+        )
+
+    def test_rust_constant_documented_as_cooperative_shutdown(self):
+        """The Rust ``SHUTDOWN_ACK_TIMEOUT_MS`` constant must be
+        documented as the cooperative-shutdown hard timeout
+        (ADR-0020 §10) so a future maintainer understands it is the
+        canonical deadline the host enforces via kill_children.
+
+        DT-54: previously this test checked the Python-side
+        ``_SHUTDOWN_ACK_TIMEOUT_SECONDS`` constant's docstring; the
+        Python constant was deleted as dead code, so the documentation
+        requirement now applies to the Rust constant (the single source
+        of truth).
+        """
+        src = _read(_UTIL_RS)
         # The constant's docstring must reference ADR-0020 §10 + the
         # cooperative shutdown contract.
         assert "cooperative shutdown" in src.lower() or "ADR-0020 §10" in src, (
-            "_SHUTDOWN_ACK_TIMEOUT_SECONDS must be documented as the cooperative shutdown hard timeout (ADR-0020 §10)"
+            "SHUTDOWN_ACK_TIMEOUT_MS in src-tauri/src/util.rs must be "
+            "documented as the cooperative shutdown hard timeout "
+            "(ADR-0020 §10) — it is the single source of truth for the "
+            "cooperative-shutdown deadline."
         )
 
 

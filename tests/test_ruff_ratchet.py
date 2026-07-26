@@ -160,15 +160,40 @@ class TestBaselineSchema:
 # ── 2. Comparison logic tests ────────────────────────────────────────
 
 
+def _pick_representative_rule(baseline: dict) -> tuple[str, int]:
+    """Pick a rule with count > 1 from the baseline for use in compare tests.
+
+    WR-14: the tests previously hardcoded N806 with fallback 27, but N806
+    dropped to 0 after parallel agents cleaned up naming violations.
+    Hardcoding any specific rule makes the tests brittle to baseline
+    regeneration. Instead, we pick a rule with count > 1 (so shrink-by-1
+    is meaningful) directly from the current baseline. If no rule has
+    count > 1, we fall back to count > 0; if the baseline is empty, we
+    fall back to a synthetic B007:3 input (matches the original test
+    intent and the per-rule regression test below).
+    """
+    by_rule = baseline.get("by_rule", {})
+    for rule, count in sorted(by_rule.items()):
+        if count > 1:
+            return rule, count
+    for rule, count in sorted(by_rule.items()):
+        if count > 0:
+            return rule, count
+    return "B007", 3
+
+
 class TestCompareLogic:
     """Verify scripts/ruff_ratchet_check.py compare behavior with synthetic inputs."""
 
     def test_equal_counts_passes(self) -> None:
-        # Use a rule with count > 1 from the current baseline to avoid brittleness
-        # (UP007 baseline is 1 as of session XS; N806 is 27). Match N806 count.
+        # Use a rule with count > 1 from the current baseline to avoid brittleness.
+        # WR-14: previously hardcoded N806 with fallback 27, but N806 dropped to 0
+        # after parallel agents cleaned up naming violations. Now we pick a
+        # representative rule dynamically from the baseline so the test stays
+        # valid as the baseline evolves.
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        _n806 = _baseline["by_rule"].get("N806", 27)
-        stdin = json.dumps([{"code": "N806"}] * _n806)
+        _rule, _count = _pick_representative_rule(_baseline)
+        stdin = json.dumps([{"code": _rule}] * _count)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0, (
             f"Expected exit 0 (counts equal baseline), got {result.returncode}.\n"
@@ -177,10 +202,10 @@ class TestCompareLogic:
         assert "PASS" in result.stdout
 
     def test_total_grew_fails(self) -> None:
-        # Use N806 baseline + 1 to exceed per-rule count
+        # Use the same representative rule + 1 to exceed per-rule count
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        _n806 = _baseline["by_rule"].get("N806", 27)
-        stdin = json.dumps([{"code": "N806"}] * (_n806 + 1))
+        _rule, _count = _pick_representative_rule(_baseline)
+        stdin = json.dumps([{"code": _rule}] * (_count + 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (total grew), got {result.returncode}.\n"
@@ -210,10 +235,12 @@ class TestCompareLogic:
         assert "B007" in result.stdout
 
     def test_total_shrunk_passes_with_improved_hint(self) -> None:
-        # Use N806 baseline - 1 to show shrinkage
+        # Use the representative rule - 1 to show shrinkage.
+        # WR-14: previously hardcoded N806 with fallback 27; switched to
+        # dynamic rule selection so the test survives baseline regeneration.
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        _n806 = _baseline["by_rule"].get("N806", 27)
-        stdin = json.dumps([{"code": "N806"}] * max(0, _n806 - 1))
+        _rule, _count = _pick_representative_rule(_baseline)
+        stdin = json.dumps([{"code": _rule}] * max(0, _count - 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0
         assert "improved" in result.stdout.lower()

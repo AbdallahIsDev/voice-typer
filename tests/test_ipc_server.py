@@ -6,9 +6,14 @@ Test coverage
           runs (cleanup runs on a background daemon thread).
 - GT-25:  state-mutating dispatches serialize on ``_dispatch_lock``;
           read-only handlers bypass the lock.
-- GT-29:  ``_command_handlers`` instance cache exists, is typed
-          ``dict[str, CommandHandler]``, and every entry resolves to a
-          callable bound method.
+- GT-29:  ``IPCServer.__init__`` validates the ``_COMMAND_REGISTRY`` at
+          construction time via a loop that asserts every entry
+          resolves to a callable bound method (DT-5: the previous
+          ``_command_handlers`` instance cache was dead code — ``_dispatch``
+          resolves the handler via ``getattr(self, handler_name, None)``
+          at dispatch time, so the cache was never read. The cache was
+          deleted; the typo-validation goal is now achieved by the
+          ``__init__``-time assertion loop without storing bound methods).
 - GT-30:  ``_rate_limiter_instance`` is declared on ``IPCServer.__init__``
           (no more ``# type: ignore[attr-defined]``).
 - GT-45:  TOCTOU re-check of ``app._shutting_down`` inside the dispatch
@@ -60,64 +65,71 @@ def _make_server() -> IPCServer:
     return IPCServer(app, service=service)
 
 
-# ── GT-29: dispatch table methods exist + are typed ───────────────────
+# ── GT-29: __init__-time registry validation (DT-5 dead-cache removal) ──
 
 
 class TestGT29DispatchTableTyped:
-    """GT-29: ``_command_handlers`` is a typed instance cache of bound
-    methods, built from the class-level ``_COMMAND_REGISTRY``.
+    """GT-29 / DT-5: ``IPCServer.__init__`` validates the
+    ``_COMMAND_REGISTRY`` at construction time by looping over every
+    entry, resolving it via ``getattr(self, method_name)``, and raising
+    ``RuntimeError`` if the attribute is not callable. A typo in the
+    class-level registry surfaces at construction (every test that
+    builds an IPCServer) instead of only when the buggy command is
+    dispatched.
+
+    The previous ``_command_handlers: dict[str, CommandHandler]``
+    instance cache (built in ``__init__`` and stored on ``self``) was
+    dead code — ``_dispatch`` resolves the handler the same way at
+    dispatch time via ``getattr(self, handler_name, None)``, so the
+    cache was never read. DT-5 (Phase 4) deleted the cache; the
+    typo-validation goal is preserved by the ``__init__``-time
+    assertion loop.
     """
 
-    def test_command_handlers_exists_after_init(self) -> None:
-        server = _make_server()
-        assert hasattr(server, "_command_handlers"), (
-            "GT-29: IPCServer must expose an instance-level "
-            "_command_handlers cache built in __init__."
-        )
-        assert isinstance(server._command_handlers, dict)
+    def test_init_validates_registry_via_assertion_loop(self) -> None:
+        """GT-29 / DT-5: ``__init__`` must contain a loop that asserts
+        every ``_COMMAND_REGISTRY`` entry resolves to a callable on
+        ``self`` (the typo-validation goal previously served by the
+        dead ``_command_handlers`` cache).
 
-    def test_command_handlers_matches_registry(self) -> None:
-        """Every ``_COMMAND_REGISTRY`` entry resolves to a callable in
-        ``_command_handlers``."""
-        server = _make_server()
-        assert set(server._command_handlers.keys()) == set(
-            IPCServer._COMMAND_REGISTRY.keys()
-        ), (
-            "GT-29: _command_handlers keys must match _COMMAND_REGISTRY "
-            "keys exactly — drift means a registry entry doesn't resolve "
-            "to a callable."
-        )
-        for cmd, handler in server._command_handlers.items():
-            assert callable(handler), (
-                f"GT-29: _command_handlers[{cmd!r}] is not callable — "
-                "the registry entry points at a non-callable attribute."
-            )
-
-    def test_command_handlers_values_are_bound_methods(self) -> None:
-        """Each value is a bound method on the IPCServer instance."""
-        server = _make_server()
-        for cmd, handler in server._command_handlers.items():
-            # Bound methods expose __self__ pointing at the instance.
-            assert hasattr(handler, "__self__"), (
-                f"GT-29: _command_handlers[{cmd!r}] is not a bound method "
-                "— it should be getattr(self, method_name)."
-            )
-            assert handler.__self__ is server, (
-                f"GT-29: _command_handlers[{cmd!r}].__self__ is not the "
-                "IPCServer instance — the cache was built incorrectly."
-            )
-
-    def test_command_handlers_typed_as_command_handler(self) -> None:
-        """The instance annotation must be ``dict[str, CommandHandler]``."""
-        # Read the __annotations__ on the class (the instance annotation
-        # in __init__ is stored as a class-level __annotations__ entry
-        # via the `self._command_handlers: dict[str, CommandHandler] = ...`
-        # form). We instead introspect the source of __init__ to verify
-        # the declared type matches CommandHandler.
+        We introspect the source of ``__init__`` and verify the
+        validation loop is present — the cache is gone, but the
+        typo-detection contract survives.
+        """
         src = inspect.getsource(IPCServer.__init__)
-        assert "dict[str, CommandHandler]" in src, (
-            "GT-29: __init__ must declare _command_handlers as "
-            "dict[str, CommandHandler] (typed bound-method cache)."
+        # The loop iterates over ``_COMMAND_REGISTRY`` entries and
+        # resolves each via ``getattr(self, _method_name, None)``.
+        assert "_COMMAND_REGISTRY.items()" in src, (
+            "GT-29 / DT-5: __init__ must iterate over "
+            "_COMMAND_REGISTRY.items() to validate every entry resolves "
+            "to a callable (replaces the deleted _command_handlers cache)."
+        )
+        assert "callable(" in src, (
+            "GT-29 / DT-5: __init__ must call callable() on each "
+            "resolved attribute to validate the registry at construction "
+            "time."
+        )
+        # The dead ``_command_handlers`` cache must NOT be built.
+        assert "self._command_handlers" not in src, (
+            "DT-5: __init__ must NOT build the dead _command_handlers "
+            "instance cache — _dispatch resolves handlers at dispatch "
+            "time via getattr(self, handler_name, None), so the cache "
+            "was never read. Only the typo-validation loop survives."
+        )
+
+    def test_command_handlers_cache_not_set_after_init(self) -> None:
+        """DT-5: the ``_command_handlers`` instance attribute is NOT
+        set by ``__init__`` (the dead cache was deleted). Tests that
+        previously monkey-patched the cache entry must now patch the
+        handler method directly on the instance — ``_dispatch``
+        resolves via ``getattr(self, handler_name, None)`` at dispatch
+        time so the patch is observed.
+        """
+        server = _make_server()
+        assert not hasattr(server, "_command_handlers"), (
+            "DT-5: the _command_handlers instance cache was deleted as "
+            "dead code — _dispatch resolves handlers at dispatch time. "
+            "__init__ must NOT set this attribute."
         )
 
     def test_registry_typo_surfaces_at_construction(self) -> None:
@@ -262,13 +274,12 @@ class TestGT25GT45DispatchLockAndTOCTOU:
             resp["data"] = {"ok": True}
             return resp
 
-        # Patch the bound method on the instance — _command_handlers
-        # was built in __init__ BEFORE the patch, so we must update
-        # the cache entry too.
+        # Patch the bound method on the instance. DT-5: the previous
+        # ``_command_handlers`` instance cache was deleted; ``_dispatch``
+        # resolves the handler via ``getattr(self, handler_name, None)``
+        # at dispatch time, so monkey-patching the instance attribute is
+        # observed directly (no cache entry to update).
         server._handle_toggle_dictation = slow_toggle
-        server._command_handlers["toggle_dictation"] = (
-            server._handle_toggle_dictation
-        )
 
         threads = []
         results: list[object] = []
@@ -307,12 +318,15 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         """
         server = _make_server()
         # Make get_status return a trivial response.
+        # DT-5: the previous ``_command_handlers`` instance cache was
+        # deleted; ``_dispatch`` resolves the handler via
+        # ``getattr(self, handler_name, None)`` at dispatch time, so
+        # patching the instance attribute is observed directly.
         server._handle_get_status = lambda data, resp: (  # noqa: E731
             resp.__setitem__("type", "status")
             or resp.__setitem__("data", {"status": "idle"})
             or resp
         )
-        server._command_handlers["get_status"] = server._handle_get_status
 
         # Hold the dispatch lock on the test thread.
         with server._dispatch_lock:
@@ -680,4 +694,86 @@ class TestGTD110SendTypedParams:
         assert "object" in ann_str or "_TCPLineIO" in ann_str, (
             f"GT-D1-10: _send's _client parameter must be typed "
             f"(object | None or _TCPLineIO | None); got {ann_str!r}."
+        )
+
+
+# ── YJ-27: dispatch handler assignment uses typing.cast, not suppression ──
+
+
+class TestYJ27DispatchCastNotSuppression:
+    """YJ-27: ``IPCServer._dispatch``'s ``handler = _resolved`` line
+    MUST use ``typing.cast(CommandHandler, _resolved)`` and NOT carry a
+    ``# type: ignore[assignment]`` suppression marker.
+
+    The prior form was ``handler = _resolved  # type: ignore[assignment]``
+    which silently masked any future type drift between ``getattr``'s
+    ``Any``/``callable``-narrowed result and the ``CommandHandler`` alias.
+    ``typing.cast`` is the typed assertion: it preserves the LHS's
+    type-checking on subsequent use, surfaces real CommandHandler-shape
+    mismatches, and is local/removable when YJ-1's full handler-method
+    annotation migration lands.
+    """
+
+    def _dispatch_source(self) -> str:
+        """Return the source of ``IPCServer._dispatch`` (the bound
+        method, not the unbound function — easier in tests)."""
+        import inspect
+        return inspect.getsource(IPCServer._dispatch)
+
+    def test_dispatch_assignment_has_no_type_ignore_suppression(self) -> None:
+        """No ``handler = ...`` assignment line in ``_dispatch`` may
+        carry a ``# type: ignore`` marker. The ``handler: CommandHandler
+        | None = None`` declaration is fine; we only inspect
+        assignments."""
+        src = self._dispatch_source()
+        offending = [
+            line.strip()
+            for line in src.splitlines()
+            if line.strip().startswith("handler =")
+            and "type: ignore" in line
+            and "handler: " not in line  # skip the type declaration
+        ]
+        assert not offending, (
+            "YJ-27 regression: `# type: ignore` reintroduced on a "
+            f"`handler = ...` assignment in _dispatch: {offending!r}. "
+            "Use `typing.cast(CommandHandler, _resolved)` instead."
+        )
+
+    def test_dispatch_uses_typing_cast(self) -> None:
+        """The dispatch's handler assignment MUST use
+        ``typing.cast(CommandHandler, _resolved)`` (or the equivalent
+        ``cast(CommandHandler, _resolved)`` if ``cast`` is imported
+        bare). Bare ``handler = _resolved`` (no cast, no annotation)
+        would silently re-introduce the type-error-suppression hole
+        that YJ-27 closed."""
+        src = self._dispatch_source()
+        assert (
+            "typing.cast(CommandHandler, _resolved)" in src
+            or "cast(CommandHandler, _resolved)" in src
+        ), (
+            "YJ-27 regression: dispatch no longer uses "
+            "`typing.cast(CommandHandler, _resolved)`. The handler "
+            "assignment must use the typed cast, NOT bare assignment."
+        )
+
+    def test_dispatch_handler_still_invokes_correctly(self) -> None:
+        """End-to-end sanity: dispatching a real command (heartbeat)
+        returns a normal envelope. The cast must not corrupt the call
+        path. Pre-existing behavior preserved."""
+        # Use the lightweight in-process fake that GT-29 already built.
+        # The fixture returns a tuple of (server, fake_app, fake_service).
+        from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
+
+        fixture_result = make_ipc_server_with_fakes()
+        # Accept either a bare IPCServer or a tuple (the fixture's signature
+        # is `tuple[Any, MagicMock, MagicMock]`).
+        server = fixture_result[0] if isinstance(fixture_result, tuple) else fixture_result
+        result = server._dispatch({"type": "heartbeat", "id": 42})
+        # heartbeat returns a ResponseEnvelope (dict) or None for fire-
+        # and-forget. Either is acceptable — the contract is "the cast
+        # doesn't crash or replace the handler with garbage."
+        assert result is None or isinstance(result, dict), (
+            f"YJ-27 sanity failure: dispatch returned {type(result)!r}, "
+            f"expected None or dict (the cast must not corrupt the "
+            f"resolved handler)."
         )

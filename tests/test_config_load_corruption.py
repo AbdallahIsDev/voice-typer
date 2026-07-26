@@ -512,3 +512,156 @@ class TestConfigLoadWarningMessageQuality:
         recs = _warning_records(caplog)
         assert recs
         assert recs[0].levelno == logging.WARNING
+
+
+# ── S2-CR-44: extracted coercion helpers ─────────────────────────────────
+
+
+class TestS2CR44CoercionHelpers:
+    """S2-CR-44: ``_warn_and_reset`` and ``_warn_and_coerce`` extract
+    the duplicated 5-line "build msg → log → append → reset" pattern
+    that appeared 6 times in the original
+    ``_validate_non_numeric_fields``.
+
+    These tests verify the helpers behave correctly in isolation so
+    future refactors of the per-type branches can rely on them.
+    """
+
+    def test_warn_and_reset_returns_default_value(self, caplog):
+        """``_warn_and_reset`` returns the default value for the field."""
+        defaults = Config()
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            result = Config._warn_and_reset(
+                "autostart",
+                "yes",
+                defaults,
+                warnings,
+                reason="had non-bool value",
+            )
+        # The default for ``autostart`` is True (per the Config dataclass).
+        assert result == defaults.autostart
+        assert result is True
+
+    def test_warn_and_reset_appends_to_warnings_list(self, caplog):
+        """The warnings list is appended in place."""
+        defaults = Config()
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            Config._warn_and_reset(
+                "streaming_chunk_seconds",
+                "not a number",
+                defaults,
+                warnings,
+                reason="had non-float value",
+            )
+        assert len(warnings) == 1
+        msg = warnings[0]
+        # The message must include enough context to be actionable:
+        # field name, original value, default value, and the reason.
+        assert "streaming_chunk_seconds" in msg
+        assert "'not a number'" in msg
+        assert repr(defaults.streaming_chunk_seconds) in msg
+        assert "had non-float value" in msg
+        assert "resetting to default" in msg
+
+    def test_warn_and_reset_logs_at_warning_level(self, caplog):
+        """The warning is emitted via the config logger at WARNING level."""
+        defaults = Config()
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            Config._warn_and_reset(
+                "language",
+                42,
+                defaults,
+                warnings,
+                reason="had non-string value",
+            )
+        recs = _warning_records(caplog)
+        assert len(recs) == 1
+        assert recs[0].levelno == logging.WARNING
+        assert "language" in recs[0].message
+
+    def test_warn_and_coerce_returns_coerced_value(self, caplog):
+        """``_warn_and_coerce`` returns the coerced value (not the original)."""
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            result = Config._warn_and_coerce(
+                "streaming_chunk_seconds",
+                "0.5",  # string from form input
+                0.5,  # coerced float
+                warnings,
+                reason="had non-float value",
+            )
+        assert result == 0.5
+        assert isinstance(result, float)
+
+    def test_warn_and_coerce_appends_to_warnings_list(self, caplog):
+        """The warnings list captures the coercion event."""
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            Config._warn_and_coerce(
+                "sample_rate",
+                "16000",  # string from JSON
+                16000,  # coerced int
+                warnings,
+                reason="had non-int value",
+            )
+        assert len(warnings) == 1
+        msg = warnings[0]
+        # The message must include both the original and coerced values
+        # so the user can see what was changed.
+        assert "sample_rate" in msg
+        assert "'16000'" in msg  # original string form
+        assert repr(16000) in msg  # coerced int form
+        assert "had non-int value" in msg
+        assert "coerced to" in msg
+
+    def test_warn_and_coerce_logs_at_warning_level(self, caplog):
+        """The coercion warning is logged at WARNING (recoverable)."""
+        warnings: list[str] = []
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            Config._warn_and_coerce(
+                "autostart",
+                "yes",
+                True,
+                warnings,
+                reason="had non-bool value",
+            )
+        recs = _warning_records(caplog)
+        assert len(recs) == 1
+        assert recs[0].levelno == logging.WARNING
+
+    def test_validate_non_numeric_fields_uses_helpers_for_bool_coercion(
+        self, caplog
+    ):
+        """S2-CR-44 regression: bool coercion routes through
+        ``_warn_and_coerce`` so the warning message format stays
+        consistent with int/float coercion.
+        """
+        # Force a non-bool value for a bool field.
+        data = {"autostart": "yes"}
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            validated = Config._validate_non_numeric_fields(data)
+        assert validated["autostart"] is True
+        # The warning must match the helper's format (not the legacy
+        # inline format).
+        recs = _warning_records(caplog)
+        assert recs, "expected at least one WARNING record"
+        assert "autostart" in recs[0].message
+        assert "coerced to" in recs[0].message
+
+    def test_validate_non_numeric_fields_uses_helpers_for_int_reset(self, caplog):
+        """S2-CR-44 regression: int field reset routes through
+        ``_warn_and_reset``.
+        """
+        # An int field with a non-numeric string value → reset to default.
+        data = {"sample_rate": "not a number"}
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
+            validated = Config._validate_non_numeric_fields(data)
+        # Should be reset to the default sample_rate.
+        assert validated["sample_rate"] == Config().sample_rate
+        recs = _warning_records(caplog)
+        assert recs
+        assert "sample_rate" in recs[0].message
+        assert "resetting to default" in recs[0].message
