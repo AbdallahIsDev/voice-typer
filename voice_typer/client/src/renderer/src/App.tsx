@@ -109,7 +109,7 @@ export default function App() {
 			return;
 		}
 		document.getElementById("main-content")?.focus();
-	}, [currentPage]);
+	}, []);
 
 	useSoundFeedback();
 

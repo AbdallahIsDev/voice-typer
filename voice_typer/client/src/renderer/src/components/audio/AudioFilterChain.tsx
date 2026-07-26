@@ -232,7 +232,7 @@ export function AudioFilterChain({
 	// re-render on locale change (the imported `t` is a plain function
 	// with no React subscription), so the labels would stay in the old
 	// language until a parent re-rendered for some other reason.
-	const locale = useSyncExternalStore(
+	const _locale = useSyncExternalStore(
 		subscribeLocale,
 		getLocaleSnapshot,
 		getLocaleSnapshot,
@@ -260,9 +260,7 @@ export function AudioFilterChain({
 	// `useSyncExternalStore`); the `t` function reads the current
 	// locale's translation map at call time, so all calls inside the
 	// factory resolve against the same locale.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: locale is
-	// needed in the dep array so the factory re-runs on language switch,
-	// even though `t()` reads the locale internally.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: _locale triggers re-run on language switch
 	const labels = useMemo(() => {
 		const audioSectionTitle = t("settings.audioEnhancement.title");
 		return {
@@ -352,7 +350,7 @@ export function AudioFilterChain({
 				"settings.audioEnhancement.notchFrequencyInfoSearch",
 			),
 		};
-	}, [locale]);
+	}, [_locale]);
 
 	const audioSectionTitle = labels.audioSectionTitle;
 

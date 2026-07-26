@@ -334,7 +334,9 @@ function useAudioLevels(
 	}, []);
 
 	useEffect(() => {
-		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
 		if (!api) return;
 
 		// Asymmetric smoothing: fast attack, slower release.
@@ -423,7 +425,9 @@ export function useBubbleLifecycle(
 	useAudioLevels(dotRefs, isVisible);
 
 	useEffect(() => {
-		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
 		if (!api) return;
 		const offShow = api.onShow(() => setIsVisible(true));
 		const offHide = api.onHide(() => setIsVisible(false));
@@ -469,7 +473,9 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	const [exitTick, setExitTick] = useState(0);
 
 	useEffect(() => {
-		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
 		if (!api) return;
 
 		const offShow = api.onShow(() => {
@@ -696,11 +702,7 @@ export function BubbleMicButton({
  * default ipcMain behavior is to silently drop messages with no
  * registered handler).
  */
-export function BubbleDismissButton({
-	onClick,
-}: {
-	onClick: () => void;
-}) {
+export function BubbleDismissButton({ onClick }: { onClick: () => void }) {
 	const label = t("bubble.dismissAria");
 	return (
 		<button
