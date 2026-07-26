@@ -4,15 +4,16 @@ appId: com.voicetyper.app
 productName: Voice Typer
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true
-# NEW-DOC-014: publish config for auto-update via GitHub releases.
-# When a new release is published, the app's auto-updater checks this
-# provider for newer versions. The `provider: github` uses the
-# GITHUB_TOKEN environment variable set by CI.
-publish:
-  provider: github
-  owner: AbdallahIsDev
-  repo: voice-typer
-  releaseType: release
+# S1-CR-148 / S5-CR-51: the `publish: github` block was removed because
+# it was dead config — per docs/migration/signing-guide.md:431 and
+# ADR-0020 §15, NO runtime code consumes it (no `electron-updater`
+# integration exists, and the Tauri path uses `tauri-plugin-updater`
+# instead, which is gated by `src-tauri/capabilities/migrate-runtime.json`
+# — also not granted today). Leaving the block in place misled future
+# maintainers into thinking auto-update was wired up. When auto-update
+# is actually implemented (either via `electron-updater` on the
+# Electron path or `tauri-plugin-updater` on the Tauri path), re-add
+# the appropriate publish config at that time.
 
 directories:
   buildResources: resources

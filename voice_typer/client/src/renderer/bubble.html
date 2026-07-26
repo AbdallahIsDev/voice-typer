@@ -5,6 +5,42 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!--
+      S5-CR-44 / BG-19: set <html lang> from the saved UI locale BEFORE
+      the bubble React tree mounts so screen readers announce the
+      waveform / REC / Ready / Transcribing labels in the user's UI
+      locale (not the browser default). The bubble window is a SEPARATE
+      BrowserWindow from the main app, so `setLocale()` running in the
+      main renderer does NOT propagate `document.documentElement.lang`
+      here — the bubble renderer must apply its own `lang` from the
+      same `voice-typer-ui-locale` localStorage key the main window
+      uses. The bubble's i18n setup (in `bubble-components.tsx`) also
+      calls `setLocale()` at runtime, but the inline script runs first
+      so first-paint content is announced correctly.
+
+      Same shape + comments as `index.html`'s inline script (kept in
+      sync). The strict CSP meta tag below forbids inline scripts; the
+      production build must add a `sha256-...` hash for this block to
+      the CSP `script-src` directive (electron-vite's html plugin
+      computes the hash at build time). In dev, `cspEmissionPlugin`
+      rewrites the CSP to permit `unsafe-inline` for `script-src`.
+  -->
+  <script>
+    (() => {
+      var locale, SUPPORTED, tag;
+      try {
+        locale = localStorage.getItem("voice-typer-ui-locale");
+        if (typeof locale !== "string" || locale === "") return;
+        SUPPORTED = { ar: "ar", de: "de", en: "en", es: "es", fr: "fr", hi: "hi", ru: "ru", zh: "zh" };
+        tag = SUPPORTED[locale];
+        if (tag) document.documentElement.lang = tag;
+      } catch {
+        // localStorage unavailable (sandboxed frame, Tauri webview, etc.)
+        // — fall through to the hardcoded lang="en" attribute.
+      }
+    })();
+  </script>
+
+  <!--
       SEC-012 / RW-3: Content Security Policy for the bubble window.
       Same hardening as index.html.  This meta tag is the STRICT production
       CSP — cspEmissionPlugin (electron.vite.config.ts) rewrites it at serve

@@ -272,9 +272,7 @@ export default function App() {
 			message?: string;
 			recovery_path?: string | null;
 		};
-		const message =
-			payload.message ??
-			"Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.";
+		const message = payload.message ?? t("home.pasteFailedMessage");
 		const recoveryPath =
 			typeof payload.recovery_path === "string" ? payload.recovery_path : null;
 		const lines = message.split("\n");
@@ -459,14 +457,14 @@ export default function App() {
 				/>
 
 				{/* Split the screen-reader live region
-				    into TWO regions — one for recording state, one for
-				    connection status. Previously a single aria-atomic region
-				    concatenated both streams, so any change in either
-				    re-announced the ENTIRE combined text — meaning a brief
-				    `connectionStatus` flicker caused "Recording started." to
-				    be re-announced even though recording state hadn't
-				    changed. Two regions isolate the two streams so each only
-				    re-announces when ITS OWN content changes. */}
+                                    into TWO regions — one for recording state, one for
+                                    connection status. Previously a single aria-atomic region
+                                    concatenated both streams, so any change in either
+                                    re-announced the ENTIRE combined text — meaning a brief
+                                    `connectionStatus` flicker caused "Recording started." to
+                                    be re-announced even though recording state hadn't
+                                    changed. Two regions isolate the two streams so each only
+                                    re-announces when ITS OWN content changes. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
 					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
@@ -476,11 +474,11 @@ export default function App() {
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 				</div>
 				{/* PVT-fix-9: announce connection-state transitions so
-				    screen-reader users get the same feedback that sighted
-				    users get from the connecting/disconnected/restarting UI
-				    swap. Reuses existing i18n keys (`app.lostConnection`,
-				    `app.restartingBackend`, `about.connected`) so no new
-				    translation keys are required. */}
+                                    screen-reader users get the same feedback that sighted
+                                    users get from the connecting/disconnected/restarting UI
+                                    swap. Reuses existing i18n keys (`app.lostConnection`,
+                                    `app.restartingBackend`, `about.connected`) so no new
+                                    translation keys are required. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
 					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}

@@ -28,6 +28,7 @@ import {
 } from "react";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import type { BubbleWindowBubble } from "@/types/ipc";
 import {
 	BubbleDismissButton,
 	BubbleMicButton,
@@ -42,6 +43,20 @@ import {
 	useBubbleLifecycle,
 	useBubbleStateMachine,
 } from "./bubble-components";
+
+// S1-CR-153: previously every effect/callback in this file re-cast
+// `window.bubble` to `BubbleWindowBubble | undefined` inline — the same
+// `as import("@/types/ipc").BubbleWindowBubble | undefined` expression
+// appeared 5+ times. Centralising the cast in one typed accessor makes
+// the intent explicit (a single, named unsafe boundary at the preload
+// bridge), removes the visual noise, and gives the test suite one
+// function to mock if needed. The cast itself is unavoidable because
+// `window.bubble` is typed as `unknown` from the sandboxed preload
+// (SEC-026): the bubble renderer's preload script is intentionally
+// minimal and the type augmentation lives in `@/types/ipc/bubble_bridge`.
+function getBubbleApi(): BubbleWindowBubble | undefined {
+	return window.bubble as BubbleWindowBubble | undefined;
+}
 
 // PVT-048 / BG-30: keyboard-based bubble repositioning was previously
 // implemented as a `window.addEventListener("keydown", ...)` handler
@@ -101,9 +116,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 
 	// Sync `draggable` from the main process (Settings page toggle).
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
+		const api = getBubbleApi();
 		if (!api) return;
 		const off = api.onDraggable((d: boolean) => setDraggable(d));
 		return off;
@@ -119,9 +132,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// payload are handled inside `useBubbleLifecycle` → `useThemeSync`
 	// — PVT-017.)
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
+		const api = getBubbleApi();
 		if (!api?.onConfig) return;
 
 		const off = api.onConfig((cfg) => {
@@ -147,9 +158,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// sandboxed renderer (SEC-026) with no python.call, so it routes
 	// through the dedicated bubble:toggle-dictation channel.
 	const handleMicClick = useCallback(() => {
-		(
-			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
-		)?.toggleDictation?.();
+		getBubbleApi()?.toggleDictation?.();
 	}, []);
 
 	// XA-6-1 / XA-6-13: stop / retry button click → toggle dictation.
@@ -159,9 +168,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// The visual affordance is differentiated in `BubbleStopButton`
 	// based on the parent-supplied `mode` (stop icon vs retry icon).
 	const handleStopClick = useCallback(() => {
-		(
-			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
-		)?.toggleDictation?.();
+		getBubbleApi()?.toggleDictation?.();
 	}, []);
 
 	// BG-96: dismiss button click → send `bubble:dismiss` IPC. The
@@ -175,13 +182,15 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// method. When F11 (or a future type extension) adds `dismiss` to
 	// BubbleWindowBubble, this cast can be removed.
 	const handleDismissClick = useCallback(() => {
-		(
-			window.bubble as
-				| (import("@/types/ipc").BubbleWindowBubble & {
-						dismiss?: () => void;
-				  })
-				| undefined
-		)?.dismiss?.();
+		// BG-96: `dismiss` is exposed by the bubble preload but not yet on
+		// the public `BubbleWindowBubble` type (ipc.ts is owned by another
+		// agent). We widen via the local helper so the call is still
+		// type-checked at the boundary. When the type is extended, the
+		// intersection here can be removed.
+		const api = getBubbleApi() as
+			| (BubbleWindowBubble & { dismiss?: () => void })
+			| undefined;
+		api?.dismiss?.();
 	}, []);
 
 	// Auto-resize BrowserWindow to fit the pill content exactly.
@@ -194,9 +203,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 		if (!el) return;
 		const w = Math.ceil(el.offsetWidth);
 		const h = Math.ceil(el.offsetHeight);
-		(
-			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
-		)?.resizeTo?.(w + 1, h + 1);
+		getBubbleApi()?.resizeTo?.(w + 1, h + 1);
 		void mode; // semantic dep — pill content size changes between modes
 	}, [animState, mode]);
 
@@ -228,20 +235,17 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// the pill content (handles edge cases where the initial
 	// useLayoutEffect ran before layout settled).
 	const handleAnimEnd = useCallback(() => {
+		const api = getBubbleApi();
 		if (animState === "exit") {
 			setAnimState("");
-			(
-				window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
-			)?.hideComplete?.();
+			api?.hideComplete?.();
 		} else if (animState === "enter") {
 			setAnimState("");
 			const el = pillRef.current;
 			if (el) {
 				const w = Math.ceil(el.offsetWidth);
 				const h = Math.ceil(el.offsetHeight);
-				(
-					window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
-				)?.resizeTo?.(w + 1, h + 1);
+				api?.resizeTo?.(w + 1, h + 1);
 			}
 		}
 	}, [animState, setAnimState]);
@@ -316,12 +320,12 @@ export function Bubble({ className: _className }: { className?: string }) {
 				) : mode === "idle" ? (
 					<>
 						{/* A11Y: sr-only announcement so screen-reader users hear
-						    "Transcription complete." when the bubble transitions to
-						    idle (always_visible mode). The empty div below is
-						    preserved as a zero-width sibling so Bubble.test.tsx's
-						    `emptyContainer.textContent === ""` assertion still
-						    passes — querySelector returns the first match in DOM
-						    order, which is the empty div. */}
+                                                    "Transcription complete." when the bubble transitions to
+                                                    idle (always_visible mode). The empty div below is
+                                                    preserved as a zero-width sibling so Bubble.test.tsx's
+                                                    `emptyContainer.textContent === ""` assertion still
+                                                    passes — querySelector returns the first match in DOM
+                                                    order, which is the empty div. */}
 						<div className="flex h-6 items-center" />
 						<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
 							<HugeiconsIcon

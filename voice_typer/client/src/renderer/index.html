@@ -35,19 +35,20 @@
       lang="en".
   -->
   <script>
-    (function () {
+    (() => {
+      var locale, SUPPORTED, tag;
       try {
-        var locale = localStorage.getItem("voice-typer-ui-locale");
+        locale = localStorage.getItem("voice-typer-ui-locale");
         if (typeof locale !== "string" || locale === "") return;
         // Map our 8 supported locale codes (ar, de, en, es, fr, hi, ru, zh)
         // to BCP-47 language tags.  We don't add a region subtag because
         // the app's translations are region-neutral (e.g. "fr" not
         // "fr-FR"); screen readers will use the user's OS-level region
         // for date/number formatting anyway.
-        var SUPPORTED = { ar: "ar", de: "de", en: "en", es: "es", fr: "fr", hi: "hi", ru: "ru", zh: "zh" };
-        var tag = SUPPORTED[locale];
+        SUPPORTED = { ar: "ar", de: "de", en: "en", es: "es", fr: "fr", hi: "hi", ru: "ru", zh: "zh" };
+        tag = SUPPORTED[locale];
         if (tag) document.documentElement.lang = tag;
-      } catch (e) {
+      } catch {
         // localStorage unavailable (sandboxed frame, Tauri webview, etc.)
         // — fall through to the hardcoded lang="en" attribute.
       }

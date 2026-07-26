@@ -44,13 +44,14 @@ export default defineConfig(({ command }) => ({
 			sourcemap: false,
 			rollupOptions: {
 				input: {
-					// SEC-026: split the preload into a main-only and a bubble-only
-					// build. The bubble renderer gets a much smaller surface (only
-					// bubble:level / bubble:show / bubble:hide / bubble:draggable /
-					// bubble:position / bubble:drag*), so a compromised bubble can't
-					// invoke python.call({type:"quit_app"}) or window_.close().
+					// SEC-026: single preload entry for both main and bubble
+					// windows.  At runtime the preload inspects the window
+					// location to determine which APIs to expose — the full
+					// surface for the main renderer, or only the bubble
+					// subset for the bubble window.  A separate bubble entry
+					// would force Rollup to create a shared chunk that
+					// Electron's sandbox preloadRequire cannot load.
 					index: resolve(__dirname, "src/preload/index.ts"),
-					bubble: resolve(__dirname, "src/preload/bubble.ts"),
 				},
 			},
 		},
