@@ -85,7 +85,7 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // fails LOUDLY if `focusable: false` is removed without also
 // re-adding the handler.
 
-export function Bubble({ className: _className }: { className?: string }) {
+export function Bubble() {
 	const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
 	const pillRef = useRef<HTMLDivElement>(null);
 	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

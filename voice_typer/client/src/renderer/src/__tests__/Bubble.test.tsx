@@ -135,8 +135,8 @@ describe("Bubble", () => {
 	it("renders recording visualizer bars by default", () => {
 		render(<Bubble />);
 		// Default mode is "recording", which shows 7 visualizer bar <span>s
-		// inside a flex container with gap-[3px]
-		const bars = document.querySelectorAll(".gap-\\[3px\\] > span");
+		// inside a flex container with gap-0.75 (the Tailwind utility, was gap-[3px])
+		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 	});
 
@@ -156,13 +156,13 @@ describe("Bubble", () => {
 		render(<Bubble />);
 
 		// Bars should be visible initially
-		const barsBefore = document.querySelectorAll(".gap-\\[3px\\] > span");
+		const barsBefore = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(barsBefore.length).toBe(7);
 
 		setBubbleState("transcribing");
 
 		// Bars should no longer be rendered
-		const barsAfter = document.querySelectorAll(".gap-\\[3px\\] > span");
+		const barsAfter = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(barsAfter.length).toBe(0);
 	});
 
@@ -177,7 +177,7 @@ describe("Bubble", () => {
 		expect(emptyContainer?.textContent?.trim()).toBe("");
 
 		// No bars
-		const bars = document.querySelectorAll(".gap-\\[3px\\] > span");
+		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(0);
 
 		// No transcribing text
@@ -188,21 +188,21 @@ describe("Bubble", () => {
 		render(<Bubble />);
 
 		// Start: recording mode (bars visible)
-		expect(document.querySelectorAll(".gap-\\[3px\\] > span").length).toBe(7);
+		expect(document.querySelectorAll(".gap-0\\.75 > span").length).toBe(7);
 
 		// Transcribing: text visible, bars hidden
 		setBubbleState("transcribing");
 		expect(screen.getByText("Transcribing")).toBeTruthy();
-		expect(document.querySelectorAll(".gap-\\[3px\\] > span").length).toBe(0);
+		expect(document.querySelectorAll(".gap-0\\.75 > span").length).toBe(0);
 
 		// Idle: nothing visible
 		setBubbleState("idle");
 		expect(screen.queryByText("Transcribing")).toBeNull();
-		expect(document.querySelectorAll(".gap-\\[3px\\] > span").length).toBe(0);
+		expect(document.querySelectorAll(".gap-0\\.75 > span").length).toBe(0);
 
 		// Back to recording: bars visible again
 		setBubbleState("recording");
-		expect(document.querySelectorAll(".gap-\\[3px\\] > span").length).toBe(7);
+		expect(document.querySelectorAll(".gap-0\\.75 > span").length).toBe(7);
 	});
 
 	it("has accessible aria-label", () => {
