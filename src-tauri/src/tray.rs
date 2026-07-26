@@ -80,7 +80,12 @@ struct TrayStatePayload {
     tooltip: Option<String>,
 }
 
-const TRAY_TOOLTIP: &str = "Voice Typer";
+// Tray tooltip + placeholder label use the cross-language
+// `APP_NAME` constant from `branding.rs` (mirrors
+// `voice_typer/server/branding.py::APP_NAME` and
+// `voice_typer/client/src/main/branding.ts::APP_NAME`). Replaces two
+// inline brand literals that were drift hazards.
+const TRAY_TOOLTIP: &str = crate::branding::APP_NAME;
 const TRAY_ID: &str = "voice-typer-tray";
 
 /// CR-6: map a logical icon name (`"idle"`, `"recording"`,
@@ -185,7 +190,9 @@ fn build_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<tauri::m
 /// Build an empty (single disabled placeholder) menu so the tray always
 /// has a menu handle before the first `tray_menu` event arrives.
 fn empty_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<R>> {
-    let item = MenuItemBuilder::with_id("hidden_placeholder", "Voice Typer")
+    // Use `APP_NAME` instead of an inline brand literal so
+    // the placeholder label stays in sync with the rest of the UI.
+    let item = MenuItemBuilder::with_id("hidden_placeholder", crate::branding::APP_NAME)
         .enabled(false)
         .build(app)?;
     MenuBuilder::new(app).items(&[&item]).build()

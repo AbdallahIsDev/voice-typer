@@ -755,7 +755,17 @@ fn spawn_reader_task(
 /// supervisor respawn triggered at miss #3 kills the sidecar, which drops
 /// the TCP socket, which makes the WS reader's drain loop clear all
 /// pending entries. So the leak is bounded and self-healing.
-fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
+/// This function is `async fn` (was `fn` calling
+/// `blocking_lock()`). The caller `reconnect_ws` is already `async`,
+/// so the change is local — we can hold the `AsyncMutex` guard across
+/// the (very short) synchronous section without blocking a Tokio
+/// worker thread. The previous `blocking_lock()` form would panic if
+/// called from within an async runtime worker thread in certain
+/// configurations (Tokio's `blocking_lock` panics if the current
+/// thread is a runtime worker that has run out of blocking-thread
+/// budget — see tokio-rs/tokio#3716). The `async fn` + `lock().await`
+/// form is the canonical Tokio pattern and avoids the panic risk.
+async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
     // GT-8 / GT-C4-3: abort any previous heartbeat task before spawning
     // the new one. `reconnect_ws` is called on every successful
     // supervisor respawn (and on initial cold start), so without this abort the
@@ -778,23 +788,29 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
     // future is dropped (which happens when the 15s outer timeout
     // cancels `dispatch_inner`).
     let prev_handle_opt = {
-        let mut hb_guard = heartbeat_state.heartbeat_handle.blocking_lock();
+        let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
         hb_guard.take()
     };
     if let Some(prev) = prev_handle_opt {
         prev.abort();
         log::info!("[HEARTBEAT] aborted previous heartbeat task before spawning new one (GT-8)");
     }
+    // Clone the Arc BEFORE moving it into the async closure. The
+    // closure below (async move { ... }) takes ownership of
+    // `heartbeat_state_for_task`; the original `heartbeat_state` is
+    // still referenced after the spawn to store the new JoinHandle
+    // (line `*hb_guard = Some(handle)` below).
+    let heartbeat_state_for_task = heartbeat_state.clone();
     let handle: tauri::async_runtime::JoinHandle<()> =
         tauri::async_runtime::spawn(async move {
             let mut missed: u32 = 0;
             let mut interval = tokio::time::interval(Duration::from_secs(10));
             loop {
-                if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
+                if heartbeat_state_for_task.shutting_down.load(Ordering::SeqCst) {
                     break;
                 }
                 interval.tick().await;
-                if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
+                if heartbeat_state_for_task.shutting_down.load(Ordering::SeqCst) {
                     break;
                 }
                 let heartbeat_args = DispatchArgs {
@@ -803,7 +819,7 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
                 };
                 match tokio::time::timeout(
                     Duration::from_secs(15),
-                    dispatch_inner(heartbeat_args, heartbeat_state.clone()),
+                    dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
                 )
                 .await
                 {
@@ -819,7 +835,7 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
                             );
                             trigger_respawn_off_thread(
                                 heartbeat_app.clone(),
-                                heartbeat_state.clone(),
+                                heartbeat_state_for_task.clone(),
                             );
                             break;
                         }
@@ -833,7 +849,7 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
                             );
                             trigger_respawn_off_thread(
                                 heartbeat_app.clone(),
-                                heartbeat_state.clone(),
+                                heartbeat_state_for_task.clone(),
                             );
                             break;
                         }
@@ -844,7 +860,7 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
     // GT-8 / GT-C4-3: store the new handle so the next reconnect (or
     // `shutdown_sidecar_for_exit`) can abort it.
     {
-        let mut hb_guard = heartbeat_state.heartbeat_handle.blocking_lock();
+        let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
         *hb_guard = Some(handle);
     }
 }
@@ -875,7 +891,12 @@ pub(crate) async fn reconnect_ws(
     let app_handle = app.clone();
     let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;
     spawn_reader_task(app_handle.clone(), state_clone.clone(), read);
-    spawn_heartbeat_task(app_handle, state_clone);
+    // `spawn_heartbeat_task` is now `async fn` — `.await` it
+    // instead of fire-and-forget. The function only holds the
+    // `AsyncMutex` guard for the brief synchronous take/store sections
+    // (no `.await` inside the critical section), so this doesn't add
+    // meaningful latency to `reconnect_ws`.
+    spawn_heartbeat_task(app_handle, state_clone).await;
     Ok(())
 }
 

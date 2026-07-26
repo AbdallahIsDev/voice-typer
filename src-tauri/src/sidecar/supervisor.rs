@@ -1,7 +1,7 @@
 //! Sidecar supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
 //! Previously named `supervisor.rs` — the old name was an opaque internal task ID.
 
-use crate::state::{SidecarHandle, SidecarState};
+use crate::state::SidecarState;
 // G4-H-27 (session 4): poison-safe Mutex helper. Replacing
 // `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
 // mutex (a prior panic while holding the lock) doesn't re-panic and
@@ -198,7 +198,14 @@ pub(crate) async fn respawn(
             json!({
                 "reason": "circuit_breaker_tripped",
                 "restart_count": restart_count,
-                "message": "Voice Typer could not start its backend after multiple attempts. Please reinstall."
+                // Use the brand constant instead of an
+                // inline brand-name literal so the user-facing reinstall
+                // prompt stays in lockstep with `crate::branding::APP_NAME`
+                // (and the TS/Python mirrors) if the product is ever renamed.
+                "message": format!(
+                    "{} could not start its backend after multiple attempts. Please reinstall.",
+                    crate::branding::APP_NAME
+                )
             }),
         );
         return Err(format!(
@@ -291,47 +298,77 @@ pub(crate) async fn respawn_inner(
         // Rotate the auth token for the fresh sidecar instance.
         let new_token = generate_token();
         match spawn_sidecar_and_get_port(app, &new_token).await {
-            Ok((port, child, exit_rx)) => {                // CR-3: take AND kill_tree the PREVIOUS child before
-            // installing the new one. Without this, every successful
-            // respawn overwrites `state.child` with the new
-            // `SidecarHandle` and the previous child is leaked.
-            // After 5 backoff retries, up to 5 zombie Python sidecar
-            // processes can run concurrently — each holding the
-            // microphone, the native hotkey binary, and model
-            // subprocesses. The single-instance mutex is disabled
-            // under `TAURI_SIDECAR=1`, so nothing else gates them.
-            //
-            // `kill_tree` (state.rs) reaps the entire process tree
-            // (sidecar + grandchildren: native hotkey binary, model
-            // subprocesses) — `kill()` alone would orphan the
-            // grandchildren. Best-effort: errors are logged but do
-            // not abort the respawn (a kill failure here is
-            // recoverable — the OS may reap the zombie on its own
-            // once the parent exits, but we want it gone NOW so
-            // the new sidecar can re-acquire the mic).
-            let prev = mutex_lock(&state.child).take();
-            if let Some(prev) = prev {
-                log::info!("[SUPERVISOR] killing previous sidecar handle before respawn install");
-                if let Err(e) = prev.kill_tree().await {
-                    log::warn!("[SUPERVISOR] prev child kill_tree failed (best-effort): {}", e);
-                }
-                }
-
-                // CR-81: second re-check — install-time guard. If the
-                // shutdown path ran between the spawn above and the
-                // lock acquire below (e.g., `shutdown_sidecar` was
-                // invoked while `spawn_sidecar_and_get_port` was
-                // awaiting stdout), we MUST NOT install the fresh child
-                // over the (possibly already-killed) one the shutdown
-                // path took. Instead, kill the freshly-spawned child
-                // and return — the host is shutting down and doesn't
-                // need a live sidecar.
-                if state.shutting_down.load(Ordering::SeqCst) {
-                    log::info!(
-                        "[SUPERVISOR] shutting down (post-spawn re-check) — killing freshly-spawned sidecar instead of installing"
-                    );
-                    // Best-effort kill of the new child we just spawned.
-                    if let Err(e) = child.kill_tree().await {
+            Ok((port, child, exit_rx)) => {
+                // CR-81: install-time guard + atomic install.
+                //
+                // Acquire `state.child` lock FIRST, then re-check
+                // `shutting_down` INSIDE the lock, then either install
+                // the fresh child or kill it. This closes the narrow
+                // race window where `shutdown_sidecar_for_exit` on the
+                // main thread can run between the (previously
+                // lock-free) shutdown check and the lock acquire:
+                //
+                //   1. respawn_inner: `shutting_down.load()` → false
+                //      (CHECK A, no lock held).
+                //   2. main thread: `shutting_down.swap(true)`,
+                //      acquires `state.child` lock, takes the slot
+                //      (which is `None` here — respawn_inner already
+                //      cleared it at the pre-spawn take+kill above),
+                //      releases the lock, returns.
+                //   3. respawn_inner: acquires `state.child` lock,
+                //      installs the fresh child, returns `Ok(())`.
+                //   4. host exits; the freshly-installed sidecar is
+                //      orphaned (no one kills it).
+                //
+                // By acquiring the lock BEFORE the shutdown check,
+                // step 2 blocks on the lock until respawn_inner is
+                // done installing (or has killed the fresh child and
+                // returned). If shutdown_sidecar_for_exit acquires
+                // the lock first, it sees either:
+                //   - the OLD child (which respawn_inner already
+                //     killed) — `take()` returns the stale handle,
+                //     `kill_tree()` is a no-op on an already-dead
+                //     process (best-effort, error logged).
+                //   - the FRESH child (which respawn_inner just
+                //     installed) — `take()` returns the live handle,
+                //     `kill_tree()` reaps it. respawn_inner returns
+                //     `Ok(())` having installed a child that
+                //     shutdown_sidecar_for_exit will then take + kill.
+                //   - `None` (respawn_inner hasn't reached the install
+                //     step yet because it's still waiting on the
+                //     lock) — shutdown_sidecar_for_exit returns, then
+                //     respawn_inner acquires the lock, sees
+                //     `shutting_down == true` (CHECK B below), kills
+                //     the freshly-spawned child, returns `Ok(())`.
+                //
+                // Wrap `child` in an Option so it's not conditionally
+                // moved inside the lock scope — the lock scope block
+                // can consume it in the else branch via `.take()`
+                // while the if branch leaves it untouched for use
+                // outside the block.
+                //
+                // The lock is released at the block scope end (before
+                // any await) so the future stays `Send`
+                // (`std::sync::MutexGuard` is `!Send`).
+                let mut child = Some(child);
+                let old_handle = {
+                    let mut child_guard = mutex_lock(&state.child);
+                    if state.shutting_down.load(Ordering::SeqCst) {
+                        log::info!(
+                            "[SUPERVISOR] shutting down (post-spawn re-check inside lock) — killing freshly-spawned sidecar instead of installing"
+                        );
+                        // child_guard dropped at block end.
+                        // child was NOT consumed — kill it below.
+                        None
+                    } else {
+                        let old = child_guard.take();
+                        *child_guard = Some(child.take().unwrap());
+                        old
+                    }
+                }; // child_guard dropped — no !Send across await
+                if let Some(c) = child {
+                    // shutting_down was true — child was NOT installed.
+                    if let Err(e) = c.kill_tree().await {
                         log::warn!(
                             "[SUPERVISOR] freshly-spawned child kill_tree failed (best-effort): {}",
                             e
@@ -339,18 +376,6 @@ pub(crate) async fn respawn_inner(
                     }
                     return Ok(());
                 }
-
-                // Drop the MutexGuard BEFORE awaiting kill_tree so the
-                // future stays Send (std::sync::MutexGuard is !Send).
-                // Take the old handle out under the lock, drop the
-                // guard, then await the kill outside the critical
-                // section (CR-28).
-                let old_handle = {
-                    let mut child_guard = mutex_lock(&state.child);
-                    let old = child_guard.take();
-                    *child_guard = Some(child);
-                    old
-                };
                 if let Some(old) = old_handle {
                     log::info!("[SUPERVISOR] killing old sidecar before installing new one (CR-28)");
                     let _ = old.kill_tree().await;
@@ -457,13 +482,10 @@ pub(crate) fn bubble_coalesce_should_emit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{SidecarHandle, SidecarState};
+use crate::state::SidecarState;
     use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
-    use std::collections::HashMap;
-    use std::sync::atomic::{AtomicBool, AtomicU64};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
-    use tokio::sync::Mutex as AsyncMutex;
 
     // ── PVT-G5-051: parse_restart_counter saturating cast ──────────────
 
@@ -639,15 +661,7 @@ mod tests {
     /// from `SidecarState` — it was write-only dead state. The test
     /// helper no longer initializes it.
     fn make_test_state() -> Arc<SidecarState> {
-        Arc::new(SidecarState {
-            child: Mutex::new(None),
-            ws_tx: Mutex::new(None),
-            pending: Arc::new(AsyncMutex::new(HashMap::new())),
-            next_id: AtomicU64::new(1),
-            shutting_down: AtomicBool::new(false),
-            respawn_in_progress: AtomicBool::new(false),
-            child_exit_rx: AsyncMutex::new(None),
-        })
+        Arc::new(SidecarState::new())
     }
 
     #[test]
@@ -973,8 +987,18 @@ mod tests {
         );
         assert!(state.respawn_in_progress.load(Ordering::SeqCst));
 
-        let panicking_inner = async fn() -> Result<(), String> {
+        // Pre-existing baseline syntax error: `let x = async fn() -> T { ... };`
+        // is not valid Rust (`async fn` is an item declaration, not an
+        // expression). The intent was a callable that returns a panicking
+        // future — fixed by switching to a closure
+        // that returns an `async move { ... }` block. The closure is
+        // called with `panicking_inner()` (matching the original
+        // `panicking_inner()` call below), preserving the test's
+        // AssertUnwindSafe(panicking_inner()).catch_unwind().await shape.
+        let panicking_inner = || async move {
             panic!("simulated respawn_inner panic (GT-9 test)");
+            #[allow(unreachable_code)]
+            Ok::<(), String>(())
         };
         let result = AssertUnwindSafe(panicking_inner()).catch_unwind().await;
 

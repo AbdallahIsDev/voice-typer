@@ -19,6 +19,7 @@
 
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
+use tokio::sync::oneshot;
 
 use crate::commands::export::{export_data, require_main_window};
 use crate::platform::paths::config_dir;
@@ -196,11 +197,11 @@ fn redact_config_secrets_inner(
 /// renderer cannot trigger OS file-manager opens.
 #[tauri::command]
 pub async fn open_logs(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    let log_dir = config_dir(&app);
+    let log_dir = config_dir();
     // Best-effort mkdir — if it fails (e.g. permission denied), the
     // open command below will surface the error to the user.
     let _ = std::fs::create_dir_all(&log_dir);
@@ -228,11 +229,11 @@ pub async fn open_logs(
 /// renderer cannot trigger OS file-manager opens.
 #[tauri::command]
 pub async fn open_host_logs(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    let log_dir = config_dir(&app).join("logs");
+    let log_dir = config_dir().join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
     let open_result = open_path_in_file_manager(&log_dir);
@@ -323,19 +324,17 @@ pub async fn open_model_import_dialog(
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    // PVT-048: use the async ``pick_folder().await`` variant instead of
-    // ``blocking_pick_folder()``. The blocking variant parks the Tokio
-    // worker thread for the entire duration the user has the folder
-    // picker open; with Tauri's default 2-N worker pool, that stalls
-    // concurrent ``dispatch`` calls (heartbeat, status polling) queued
-    // behind the blocked worker. The async variant yields the worker
-    // while the dialog is open, letting other commands proceed.
-    let file_path = app
-        .dialog()
+    // PVT-048: use the async folder-pick pattern instead of blocking.
+    // tauri-plugin-dialog v2.7.2's ``pick_folder()`` is callback-based
+    // (not async), so we bridge it via a oneshot channel.
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
         .file()
         .set_title("Select Model Folder")
-        .pick_folder()
-        .await;
+        .pick_folder(move |f| {
+            let _ = tx.send(f);
+        });
+    let file_path = rx.await.unwrap_or(None);
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
         None => return Ok(json!({"canceled": true})),

@@ -58,15 +58,18 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
+// The project-wide clippy lint gate lives in `Cargo.toml`'s
+// `[lints.clippy]` block (GT-D3-6 — `all`, `cast_possible_truncation`,
+// `unwrap_used` all set to `"warn"`). The same `#![warn(...)]` attribute
+// was previously triplicated here at lines 62/65/68 — fully redundant
+// with Cargo.toml and a maintenance hazard (3 sites to keep in sync).
+// Deleted all 3 copies; Cargo.toml is now the single source of truth.
 
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
-
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
-
+// The branding module exposes the cross-language `APP_NAME` constant
+// (mirrors `voice_typer/server/branding.py::APP_NAME` and
+// `voice_typer/client/src/main/branding.ts::APP_NAME`). Replaces 4 inline
+// brand literals that were drift hazards.
+mod branding;
 mod commands;
 mod migrate;
 mod platform;
@@ -114,11 +117,8 @@ use sidecar::supervisor::respawn;
 use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
 use state::SidecarState;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tokio::sync::Mutex as AsyncMutex;
-use std::collections::HashMap;
 
 // GT-26 (High, partial): Host shutdown budget mismatched.
 //
@@ -209,15 +209,7 @@ fn main() {
         // MIG-1.1: dialog plugin for export_history / export_vocabulary
         // save-file dialogs (invoked from Rust, not TS).
         .plugin(tauri_plugin_dialog::init())
-        .manage(Arc::new(SidecarState {
-            child: Mutex::new(None),
-            ws_tx: Mutex::new(None),
-            pending: Arc::new(AsyncMutex::new(HashMap::new())),
-            next_id: AtomicU64::new(1),
-            shutting_down: AtomicBool::new(false),
-            respawn_in_progress: AtomicBool::new(false),
-            child_exit_rx: AsyncMutex::new(None),
-        }))
+        .manage(Arc::new(SidecarState::new()))
         // MIG-1.1 + MIG-1.2: register export + bubble commands alongside
         // the existing dispatch/paste_text/shutdown_sidecar.
         .invoke_handler(tauri::generate_handler![

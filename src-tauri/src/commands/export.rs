@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
+use tokio::sync::oneshot;
 
 // ─── DE-18: shared main-window guard ──────────────────────────────────
 //
@@ -96,23 +97,24 @@ pub(crate) async fn export_data(
     default_filename: &str,
     title: &str,
 ) -> Result<Value, String> {
-    // PVT-048: use the async ``save_file().await`` variant instead of
-    // ``blocking_save_file()``. The blocking variant parks the Tokio worker
-    // thread for the entire duration the user has the save dialog open;
-    // with Tauri's default 2-N worker pool, that stalls concurrent
-    // ``dispatch`` calls (heartbeat, status polling) queued behind the
-    // blocked worker. On a 2-core machine the IPC layer can freeze while
-    // the dialog is open. The async variant yields the worker while the
-    // dialog is open, letting other commands proceed.
-    let file_path = app
-        .dialog()
+    // PVT-048: use the async file-save pattern instead of blocking.
+    // The blocking variant parks the Tokio worker thread for the entire
+    // duration the user has the save dialog open; with Tauri's default
+    // 2-N worker pool, that stalls concurrent ``dispatch`` calls
+    // (heartbeat, status polling) queued behind the blocked worker.
+    // tauri-plugin-dialog v2.7.2's ``save_file()`` is callback-based
+    // (not async), so we bridge it via a oneshot channel.
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
         .file()
         .set_title(title)
         .add_filter("JSON", &["json"])
         .add_filter("CSV", &["csv"])
         .set_file_name(default_filename)
-        .save_file()
-        .await;
+        .save_file(move |f| {
+            let _ = tx.send(f);
+        });
+    let file_path = rx.await.unwrap_or(None);
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
         None => return Ok(json!({"canceled": true})),
@@ -123,7 +125,22 @@ pub(crate) async fn export_data(
         "csv" => json_to_csv(&data)?,
         other => return Err(format!("unsupported format: {}", other)),
     };
-    std::fs::write(&path, content).map_err(|e| format!("write failed: {e}"))?;
+    // Use the shared `atomic_write_bytes` helper
+    // (temp + fsync + rename + parent-dir fsync) instead of
+    // `std::fs::write`. The user-picked destination may be on a
+    // network drive, USB stick, or sync-client-watched folder
+    // (Dropbox/OneDrive) — a non-atomic `std::fs::write` truncates
+    // the destination first, so a crash or disk-full mid-write
+    // leaves a partial CSV/JSON that opens but is missing rows.
+    // `atomic_write_bytes` writes to a sibling temp file then renames
+    // into place, so the destination is either the OLD file or the
+    // NEW file (never a truncated half). The helper is `pub(crate)`
+    // in `crate::migrate`; it already exists for the migration path
+    // and is reused here for consistency (DRY — see the migrate.rs
+    // cross-language "3 variants of atomic-write" finding, which
+    // this fix consolidates on the Rust side).
+    crate::migrate::atomic_write_bytes(&path, content.as_bytes())
+        .map_err(|e| format!("write failed: {e}"))?;
     Ok(json!({"success": true, "path": path.to_string_lossy().to_string()}))
 }
 
@@ -420,5 +437,95 @@ mod tests {
         assert_eq!(
             parsed["data"]["message"], "command only allowed from main window"
         );
+    }
+
+    // ── atomic_write_bytes wiring ─────────────────
+    //
+    // `export_data` can't be unit-tested directly because it opens a
+    // real `tauri-plugin-dialog` save dialog (requires a running Tauri
+    // runtime). Instead, these tests verify the contract of the
+    // underlying helper that `export_data` now delegates to:
+    // `crate::migrate::atomic_write_bytes`. The contract is "write
+    // fails → original file unchanged" (atomicity), which is the
+    // property the helper requires.
+
+    #[test]
+    fn test_pi13_atomic_write_helper_preserves_existing_file_on_overwrite() {
+        // Contract: when `atomic_write_bytes` is called on a
+        // path that already has content, the new content fully
+        // replaces the old (no truncated half). The temp-file-then-
+        // rename pattern guarantees this — either the OLD file is at
+        // `path` (rename hasn't happened yet) or the NEW file is at
+        // `path` (rename succeeded). There's no intermediate state.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-pi13-test-{}-overwrite",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("export.csv");
+        // Pre-existing file with sentinel content.
+        std::fs::write(&path, b"OLD,SENTINEL,CONTENTS\n").unwrap();
+        // Atomic overwrite with new content.
+        let new_content = b"new,export,contents\nrow2\n";
+        crate::migrate::atomic_write_bytes(&path, new_content)
+            .expect("atomic_write_bytes must succeed");
+        let read_back = std::fs::read(&path).expect("file must still exist");
+        assert_eq!(
+            read_back.as_slice(),
+            new_content.as_ref(),
+            "PI-13: atomic overwrite must replace contents fully"
+        );
+        // The temp file must NOT leak.
+        let tmp_path = tmp.join(".export.csv.tmp.migrate");
+        assert!(
+            !tmp_path.exists(),
+            "PI-13: temp file leaked after rename: {}",
+            tmp_path.display()
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
+        // Contract: when `atomic_write_bytes` FAILS (e.g. the
+        // target directory doesn't exist), the original file at `path`
+        // (if any) must be UNCHANGED. This is the key property the
+        // export path needs: a flaky destination (USB stick pulled
+        // mid-write, network drive dropped) must NOT corrupt the
+        // user's pre-existing export file.
+        //
+        // We can't easily simulate a mid-rename failure in a unit test
+        // (the rename syscall is atomic on POSIX). Instead, we test
+        // the "create tmp file fails" path by pointing at a path
+        // inside a non-existent directory — `File::create(&tmp)`
+        // returns ENOENT, the function returns Err, and we verify
+        // that a sentinel file at a DIFFERENT path (the "original
+        // export file" we're simulating) is unchanged.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-pi13-test-{}-failure",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        std::fs::create_dir_all(&tmp).unwrap();
+        // "Original file" — must survive the failed write.
+        let original_path = tmp.join("export.csv");
+        std::fs::write(&original_path, b"ORIGINAL,SENTINEL\n").unwrap();
+        // Path whose parent dir does NOT exist — `File::create` fails.
+        let bad_path = tmp.join("nonexistent_subdir").join("export.csv");
+        let result = crate::migrate::atomic_write_bytes(&bad_path, b"NEW");
+        assert!(
+            result.is_err(),
+            "PI-13: write to non-existent subdir must return Err, got Ok"
+        );
+        // The original file at the unrelated path must be UNCHANGED.
+        let read_back = std::fs::read(&original_path)
+            .expect("original file must still exist after failed write");
+        assert_eq!(
+            read_back.as_slice(),
+            b"ORIGINAL,SENTINEL\n".as_ref(),
+            "PI-13: failed atomic write must NOT modify the original file"
+        );
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }

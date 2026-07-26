@@ -37,13 +37,19 @@ use crate::state::SidecarState;
 
 // ─── DE-71: main-window-origin guard for bubble control commands ──────
 //
-// `bubble_signal_ready` and `bubble_emit_state` emit events TO the
-// bubble window that the bubble renderer interprets as authoritative
-// sidecar state. A compromised sandboxed bubble (XSS in the waveform
-// pill) MUST NOT be able to spoof these — e.g. emitting a fake
-// `bubble:ready` to confuse the sidecar's level-pump startup, or
-// emitting `bubble:set-state("recording")` to spoof the UI into
-// showing "recording" while the sidecar is actually idle.
+// `bubble_signal_ready` emits events TO the bubble window that the
+// bubble renderer interprets as authoritative sidecar state. A
+// compromised sandboxed bubble (XSS in the waveform pill) MUST NOT be
+// able to spoof these — e.g. emitting a fake `bubble:ready` to confuse
+// the sidecar's level-pump startup.
+//
+// (The `bubble_emit_state` command that used to live here was
+// removed as dead code. The bubble's `bubble:set-state` event
+// is now emitted directly by the WS reader task in `sidecar/ws.rs`:
+// the Python sidecar publishes `bubble_set_state` over the WebSocket,
+// the WS reader's `translate_event_name` (ws.rs:894) translates it to
+// `bubble:set-state`, and `app.emit("bubble:set-state", ...)` fans it
+// out to the bubble window. No main-renderer relay is involved.)
 //
 // The canonical `require_main_window` helper lives in
 // `commands::sidecar_cmds` but is `fn`-private (not `pub(crate)`).
@@ -142,11 +148,26 @@ pub async fn bubble_signal_ready(
 /// + MIG-1.2). The TS bridge calls this with the cursor position
 /// (offset by a small delta) so the bubble appears under the cursor.
 ///
-/// XPLAT-6: the renderer's legacy `setPosition("top" | "bottom")` call
-/// shape is supported by accepting `serde_json::Value` for `x` and `y`.
-/// Numeric values are used directly; `"top"`/`"bottom"` strings compute
-/// the appropriate y from the primary monitor size + bubble size
-/// (centered horizontally). Any other shape returns an error.
+/// XPLAT-6: the renderer's `setPosition("top" | "bottom")` call
+/// shape is the ONLY production call shape — `useConnection.ts:117`
+/// (syncing the saved `bubble_position` config) and
+/// `GeneralSettingsSection.tsx:151` (the bubble-position dropdown) both
+/// pass one of `"top"` / `"bottom"`. The previous `(x: Value, y: Value)`
+/// signature was a leaky abstraction: the TS bridge had to forward the
+/// single keyword as BOTH `x` and `y` (since Tauri v2 arg deserialization
+/// rejected a single `{ position }` payload for a 2-arg command), and
+/// the Rust `parse_position` helper then re-derived centered-x from
+/// either axis. The new `(position: String)` signature accepts the
+/// keyword directly and resolves it to absolute physical coordinates
+/// server-side (centered horizontally, y=0 for "top", y=screen_h -
+/// bubble_h for "bottom", clamped to ≥0).
+///
+/// The previous numeric `(x: Value, y: Value)` path was dead in
+/// production (no caller passed numeric coords) — its parsing logic is
+/// preserved as the test-only `parse_position` helper below so the
+/// existing unit tests for the numeric / NaN / inf edge cases continue
+/// to pin the contract for any future caller that reintroduces numeric
+/// coordinates.
 ///
 /// **Window-origin policy (DE-71):** this command is intentionally NOT
 /// gated by [`require_main_window`] — the bubble renderer is permitted
@@ -159,8 +180,7 @@ pub async fn bubble_signal_ready(
 /// boundary — the bubble is sandboxed per SEC-026 / CR-5).
 #[tauri::command]
 pub async fn bubble_set_position(
-    x: Value,
-    y: Value,
+    position: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let window = app
@@ -178,10 +198,44 @@ pub async fn bubble_set_position(
         .map_err(|e| e.to_string())?;
     let bubble_w = bubble_size.width as i32;
     let bubble_h = bubble_size.height as i32;
-    let (px, py) = parse_position(x, y, screen_w, screen_h, bubble_w, bubble_h)?;
+    let (px, py) = parse_keyword_position(&position, screen_w, screen_h, bubble_w, bubble_h)?;
     window
         .set_position(PhysicalPosition::new(px, py))
         .map_err(|e| e.to_string())
+}
+
+/// Parse a `"top"` / `"bottom"` keyword into `(x, y)` physical
+/// pixels. The bubble is centered horizontally (clamped to ≥0 so a
+/// bubble wider than the primary monitor doesn't end up off-screen
+/// left), and y is `0` for `"top"` or `screen_h - bubble_h` clamped to
+/// ≥0 for `"bottom"`.
+///
+/// Extracted from the command body so the keyword→coordinate mapping
+/// can be unit-tested without a Tauri runtime + monitor enumeration.
+fn parse_keyword_position(
+    position: &str,
+    screen_w: i32,
+    screen_h: i32,
+    bubble_w: i32,
+    bubble_h: i32,
+) -> Result<(i32, i32), String> {
+    // AC-33: clamp to ≥0 — mirrors the prior `parse_position` behavior.
+    // Without the clamp, when the bubble window is wider than the
+    // primary monitor (e.g. 400px bubble on a 320px-wide screen),
+    // `(screen_w - bubble_w) / 2` evaluates to a NEGATIVE value,
+    // moving the bubble's top-left off-screen left.
+    let centered_x = ((screen_w - bubble_w) / 2).max(0);
+    let py = match position {
+        "top" => 0,
+        "bottom" => (screen_h - bubble_h).max(0),
+        other => {
+            return Err(format!(
+                "position must be \"top\" or \"bottom\", got {:?}",
+                other
+            ))
+        }
+    };
+    Ok((centered_x, py))
 }
 
 /// Parse a position value into `(x, y)` physical pixels.
@@ -213,6 +267,14 @@ pub async fn bubble_set_position(
 ///   footgun while still saturating +inf/-inf to the i32 bounds (which
 ///   matches the JSON `bubble_set_position` contract — a +inf x lands
 ///   the bubble at the rightmost representable pixel).
+///
+/// This helper is no longer called by `bubble_set_position` (the
+/// command now takes a single `position: String` keyword and uses
+/// `parse_keyword_position` above). It's kept as a `#[cfg(test)]`-only
+/// helper so the existing unit tests for the numeric / NaN / inf edge
+/// cases continue to pin the contract for any future caller that
+/// reintroduces numeric coordinates.
+#[cfg(test)]
 fn parse_position(
     x: Value,
     y: Value,
@@ -300,6 +362,10 @@ fn parse_position(
 ///   (it's `i32::MIN` for very large positives due to float-bit-
 ///   pattern reinterpretation, which is surprising). The explicit clamp
 ///   makes the intent obvious.
+///
+/// This helper is `#[cfg(test)]`-only (see `parse_position` above
+/// for the rationale).
+#[cfg(test)]
 fn clamp_f64_to_i32(f: f64) -> i32 {
     if f.is_nan() {
         return 0;
@@ -319,6 +385,75 @@ fn clamp_f64_to_i32(f: f64) -> i32 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ── parse_keyword_position (the new single-keyword API) ───────
+    //
+    // The new `bubble_set_position(position: String)` command delegates
+    // to `parse_keyword_position`. These tests pin the keyword →
+    // coordinate mapping for `"top"` and `"bottom"` and the rejection
+    // of unknown keywords. The behavior matches the legacy
+    // `parse_position(json!("top"), json!("top"), ...)` shape (centered
+    // horizontally, y=0 for "top", y=screen_h-bubble_h clamped to ≥0
+    // for "bottom").
+
+    #[test]
+    fn test_parse_keyword_position_top() {
+        let (x, y) = parse_keyword_position("top", 1920, 1080, 320, 80).unwrap();
+        assert_eq!(x, (1920 - 320) / 2);
+        assert_eq!(y, 0);
+    }
+
+    #[test]
+    fn test_parse_keyword_position_bottom() {
+        let (x, y) = parse_keyword_position("bottom", 1920, 1080, 320, 80).unwrap();
+        assert_eq!(x, (1920 - 320) / 2);
+        assert_eq!(y, 1080 - 80);
+    }
+
+    #[test]
+    fn test_parse_keyword_position_bottom_clamped_when_bubble_taller_than_screen() {
+        // Mirrors the legacy `test_parse_position_bottom_clamped_when_bubble_taller_than_screen`
+        // — `(screen_h - bubble_h).max(0)` clamps the negative result to 0.
+        let (x, y) = parse_keyword_position("bottom", 320, 80, 400, 200).unwrap();
+        assert_eq!(x, (320 - 400) / 2);
+        assert_eq!(y, 0); // (80 - 200).max(0) == 0
+    }
+
+    #[test]
+    fn test_parse_keyword_position_top_centered_x_clamped_when_bubble_wider_than_screen() {
+        // AC-33: when the bubble is wider than the screen, `(screen_w -
+        // bubble_w) / 2` is negative; `.max(0)` clamps to 0 so the
+        // bubble's top-left doesn't end up off-screen left.
+        let (x, _) = parse_keyword_position("top", 320, 1080, 400, 80).unwrap();
+        assert_eq!(x, 0);
+    }
+
+    #[test]
+    fn test_parse_keyword_position_unknown_keyword_returns_err() {
+        let result = parse_keyword_position("middle", 1920, 1080, 320, 80);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("must be \"top\" or \"bottom\""),
+            "error should mention the accepted keywords, got: {}",
+            err
+        );
+        assert!(
+            err.contains("middle"),
+            "error should include the offending keyword, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_keyword_position_empty_string_returns_err() {
+        let result = parse_keyword_position("", 1920, 1080, 320, 80);
+        assert!(result.is_err());
+    }
+
+    // ── PVT-G5-051 legacy: parse_position (kept test-only for the ───────
+    // numeric / NaN / inf edge-case contracts — see the `#[cfg(test)]`
+    // annotation on `parse_position` for the rationale).
 
     #[test]
     fn test_parse_position_numeric_int() {
@@ -873,6 +1008,28 @@ fn compute_move_by_new_pos(
     Ok((new_x, new_y))
 }
 
+// A Tauri command that emitted bubble-state events (previously declared
+// here with a full docstring) was REMOVED as dead code. It was never
+// registered in `main.rs::tauri::generate_handler![...]` (the
+// registration was removed earlier with the comment that the command
+// was "dead in production"), so the function was unreachable from the
+// renderer — the `#[tauri::command]` macro generated a handler that
+// no `invoke(...)` call from the renderer could ever reach. Keeping
+// the dead fn + docstring was misleading (the docstring claimed "the
+// legitimate caller is the MAIN renderer's `usePython.ts::
+// onStatusChange` handler", but no such caller exists in the
+// renderer code) and created a maintenance hazard (a future
+// contributor might re-register it without understanding why the
+// earlier removal happened).
+//
+// The `bubble:set-state` Tauri event itself is still emitted by the
+// WS reader task in `sidecar::ws` (which forwards sidecar
+// `status_change` events directly to the bubble window) — that path
+// does NOT go through a Tauri command, so deleting this command
+// doesn't affect the bubble's state-update UX. The deleted command
+// would have been a SECOND path (renderer → invoke → the deleted
+// command → emit_to) that was never wired up.
+
 /// Hide the bubble window and emit `bubble:hide` so the renderer can
 /// run cleanup (e.g., stop the level animation) BEFORE the window becomes
 /// invisible (ADR-0020 §9 + MIG-1.2).
@@ -890,6 +1047,21 @@ fn compute_move_by_new_pos(
 /// the user stops interacting, so requiring the call to originate from
 /// the main window would break the auto-hide UX. The command's effect
 /// is confined to the bubble window itself.
+///
+/// **Renderer-side assertFromBubble gate:** this command is exposed
+/// ONLY on the bubble window's preload (`preload/bubble.ts`) — the
+/// main renderer's preload no longer exposes it (the type
+/// `MainRendererBubbleMutators` in `types/ipc.ts` reflects this). The
+/// main renderer's `bubble:hidden` IPC listener (in
+/// `voice_typer/client/src/main/windows/bubble-window.ts:610`) SHOULD
+/// add an `if (!assertFromBubble(event)) return;` gate so a stray
+/// `bubble:hidden` IPC from a non-bubble renderer is ignored — that
+/// edit is in `bubble-window.ts`, which is OUT OF SCOPE for this fix
+/// wave (owned by the main-process agent). The Rust-side
+/// `check_dispatch_window_label` helper does NOT apply here (this
+/// command doesn't go through the `dispatch` path — it's a dedicated
+/// `#[tauri::command]`). Document this as a follow-up TODO for the
+/// main-process agent.
 #[tauri::command]
 pub async fn bubble_hide_complete(app: tauri::AppHandle) -> Result<(), String> {
     // GT-50: emit FIRST so the renderer's cleanup runs while the
@@ -982,45 +1154,6 @@ fn cap_resize_dim(d: u32) -> u32 {
     d.min(BUBBLE_RESIZE_MAX_DIM)
 }
 
-/// Emit a `bubble:set-state` event to the bubble window with the given
-/// state string (CR-33 / ADR-0020 §9). The bubble renderer's
-/// `onSetState(callback)` listener (in preload/bubble.ts:64-71) updates
-/// the state label — e.g. "recording", "transcribing", "loading".
-///
-/// This command is invoked from the MAIN renderer (which has dispatch
-/// access) when the Python sidecar sends a `status_change` event, so
-/// the sandboxed bubble renderer doesn't need to subscribe to the full
-/// Python event stream. The main renderer routes only the state
-/// relevant to the bubble via this dedicated channel.
-///
-/// Mirrors the Electron `bubble:set-state` IPC send in
-/// `voice_typer/client/src/main/index.ts`.
-///
-/// **DE-71 (main-window gate):** this command is now gated by
-/// [`require_main_window`]. It emits an authoritative state label that
-/// the bubble UI trusts (the bubble displays "recording" without any
-/// independent verification), so a compromised sandboxed bubble MUST
-/// NOT be able to spoof a state — e.g. emitting
-/// `bubble:set-state("recording")` to fool the user into thinking the
-/// mic is hot when the sidecar is actually idle (a privacy-relevant
-/// spoof). The legitimate caller is the MAIN renderer's
-/// `usePython.ts::onStatusChange` handler, which forwards sidecar
-/// `status_change` events. The bubble renderer has no legitimate
-/// reason to invoke it (it learns state via the emitted event, not by
-/// emitting one itself).
-#[tauri::command]
-pub async fn bubble_emit_state(
-    state: String,
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
-    // DE-71: only the main window may emit bubble state — see the doc
-    // comment above for the state-spoofing rationale.
-    require_main_window(&window)?;
-    app.emit_to("bubble", "bubble:set-state", state)
-        .map_err(|e| e.to_string())
-}
-
 /// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
 /// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)
 /// with NO `dispatch` access — the `window.label() != "main"` guard at
@@ -1032,15 +1165,18 @@ pub async fn bubble_emit_state(
 /// sidecar via the WS bridge (mirroring how `dispatch` does it but
 /// with a fixed command name and fire-and-forget semantics — the
 /// bubble doesn't need the response because the sidecar's
-/// `status_change` event will reach it via `bubble_emit_state`).
+/// `status_change` event will reach it via the WS-reader-translated
+/// `bubble:set-state` route; see the section comment
+/// at the top of this file for the full route description).
 ///
 /// The Python sidecar's `toggle_dictation` handler responds with
 /// `{type:"result", data:{recording: bool}}` — we ignore the response
 /// here (no `pending` entry is registered) because the bubble renderer
 /// doesn't need it (it learns the new state via the `bubble:set-state`
-/// event the main renderer forwards). The main renderer's
-/// `usePython.ts` subscription to `status_change` is the source of
-/// truth for the toggle's effect on the rest of the UI.
+/// event emitted by the WS reader task — see `sidecar/ws.rs`
+/// `translate_event_name`). The main renderer's `usePython.ts`
+/// subscription to `status_change` is the source of truth for the
+/// toggle's effect on the rest of the UI.
 ///
 /// Mirrors the Electron `bubble:toggle-dictation` IPC handler in
 /// `voice_typer/client/src/main/index.ts` which calls
@@ -1073,8 +1209,10 @@ pub async fn bubble_emit_state(
 /// the last-toggle timestamp. Toggles that arrive within the 500ms
 /// window are silently dropped (returning Ok(()) — the renderer
 /// doesn't need to know it was rate-limited because the sidecar's
-/// `status_change` event will reach it via `bubble_emit_state` and
-/// the bubble UI reflects the ACTUAL state, not the requested state).
+/// `status_change` event is translated by the WS reader task
+/// (`sidecar/ws.rs::translate_event_name`) into the
+/// `bubble:set-state` Tauri event, and the bubble UI reflects the
+/// ACTUAL state, not the requested state).
 #[tauri::command]
 pub async fn bubble_toggle_dictation(
     state: tauri::State<'_, Arc<SidecarState>>,

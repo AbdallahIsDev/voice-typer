@@ -64,6 +64,7 @@ rand = "0.9"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+thiserror = "2"
 
 # Logging
 log = "0.4"
@@ -90,6 +91,14 @@ windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Threading",
+    # Job Object APIs for kill-on-parent-exit on the release
+    # sidecar. `Win32_System_JobObjects` provides `CreateJobObjectW`,
+    # `SetInformationJobObject`, `AssignProcessToJobObject`. See
+    # `src/platform/process.rs`.
+    "Win32_System_JobObjects",
+    # CreateJobObjectW is gated behind Win32_Security in windows
+    # 0.61.x (it takes a SECURITY_ATTRIBUTES parameter).
+    "Win32_Security",
 ] }
 
 [profile.release]

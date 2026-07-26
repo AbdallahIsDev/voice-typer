@@ -104,6 +104,32 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         // in `index.ts`). The Python test
         // `tests/test_security_doc_command_count.py` cross-checks
         // parity (count + exact entries).
+        //
+        // Reconciliation: 17 entries that previously appeared
+        // ONLY in this Rust allowlist (and NOT in the TS allowlist)
+        // were removed in lockstep with the TS-side cleanup.
+        // Each of the 17 was audited via
+        // `rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`
+        // and confirmed to have ZERO renderer callers (the only TS
+        // matches were in doc comments, not actual `invoke()` calls).
+        // Defense-in-depth principle: the Rust host should NOT
+        // allowlist commands the renderer never sends — a compromised
+        // renderer would otherwise be able to `invoke('dispatch',
+        // {cmd:'<one of these 17>'})` and reach a server-side handler
+        // that no legitimate UI path exercises. The 17 removed:
+        //   apply_vocabulary_suggestion, check_accessibility,
+        //   delete_all_personal_data, dismiss_vocabulary_suggestion,
+        //   export_diagnostics, export_gdpr_bundle, get_audio_status,
+        //   get_rms_level, get_vocabulary_suggestions,
+        //   level_monitor_status, microphone_test_status,
+        //   onboarding_get_model_catalog, onboarding_get_step,
+        //   onboarding_request_keyboard_permission, refresh_microphones,
+        //   show_electron_notification, test_llm_connection.
+        // The matching Python-side `_COMMAND_REGISTRY` entries have been
+        // removed in lockstep — all three layers (this Rust literal, the TS
+        // `ALLOWED_COMMANDS` Set, and the Python `_COMMAND_REGISTRY`) now
+        // stay in sync. The parity test `test_security_doc_command_count.py`
+        // enforces count + exact-entry equality across all three.
         let cmds: &[&str] = &[
             "get_status",
             "toggle_dictation",
@@ -133,7 +159,6 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "save_vocabulary",
             "onboarding_is_first_run",
             "onboarding_start",
-            "onboarding_get_step",
             "onboarding_next_step",
             "onboarding_prev_step",
             "onboarding_set_microphone",
@@ -148,7 +173,6 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // accessibility prompts) and "Model Catalog" call would
             // reject with `disallowed_command` under Tauri.
             "onboarding_check_permissions",
-            "onboarding_get_model_catalog",
             "onboarding_get_microphones",
             "onboarding_get_model_options",
             "onboarding_get_hotkey_presets",
@@ -156,48 +180,37 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "cancel_model_download",
             "pause_model_download",
             "resume_model_download",
-            "test_llm_connection",
             "delete_model",
             "get_model_catalog",
             "microphone_test_start",
             "microphone_test_stop",
             "microphone_test_cancel",
-            "microphone_test_status",
             "microphone_test_get_level",
             "level_monitor_start",
             "level_monitor_stop",
-            "level_monitor_status",
             "set_esc_cancel_paused",
             "set_tray_locale",
             "import_model",
             "heartbeat",
             "relaunch_ack",
             "repaste_last",
-            "refresh_microphones",
-            "get_rms_level",
-            "get_audio_status",
-            "export_diagnostics",
-            "check_accessibility",
-            "show_electron_notification",
-            "get_vocabulary_suggestions",
-            "apply_vocabulary_suggestion",
-            "dismiss_vocabulary_suggestion",
             "force_cancel_transcription",
-            // PVT-G5-025: GDPR Art. 17 (right to erasure) + Art. 20
-            // (right to data portability) — now renderer-callable from
-            // the Settings → Privacy page. Mirrors the TS allowlist.
-            "delete_all_personal_data",
-            "export_gdpr_bundle",
-            // Onboarding keyboard-permission request + reset — invoked
-            // by the renderer's Onboarding page. Both are registered in
-            // the Python-side `_COMMAND_REGISTRY` and implemented in
-            // `handlers/onboarding_handlers.py`. Without these entries
-            // in the Rust allowlist, the renderer's Onboarding page
-            // calls would be rejected by the defense-in-depth gate
-            // (`disallowed_command`) under Tauri even though they
-            // succeed under Electron. Mirrors the TS allowlist (CR-4
-            // parity — keep both files in sync).
-            "onboarding_request_keyboard_permission",
+            // Lightweight history counters (added by the perf-reliability
+            // pass): `get_history_count` is invoked by the Dashboard to
+            // fetch just the total row count (avoids pulling the full
+            // history array), and `get_transcription_text` is invoked
+            // by the history detail view to fetch a single
+            // transcription's full text on demand. Both have
+            // server-side handlers in `_COMMAND_REGISTRY`
+            // (`voice_typer/server/ipc_server.py`); listed here so the
+            // Tauri host does not reject the renderer's `invoke()`.
+            "get_history_count",
+            "get_transcription_text",
+            // G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset —
+            // invoked by the Onboarding page. Registered in the Python-side
+            // `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
+            // `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
+            // Mirrors the TS allowlist.
             "onboarding_reset",
         ];
         let mut set = HashSet::with_capacity(cmds.len());
@@ -398,37 +411,14 @@ async fn dispatch_frame(
         pending.insert(id, tx);
     }
 
-    // PVT-G5-036: re-check `state.ws_tx` is still `Some` AFTER inserting
-    // the pending entry — a reconnect between the outer clone above and
-    // the insert could have left us holding a stale `ws_tx`. If the
-    // current value is `None`, the reader has exited (or is about to)
-    // and the pending entry would never be fulfilled; remove it and
-    // reject. Tight critical section: lock, check, drop the guard
-    // before awaiting the pending mutex.
-    //
-    // Note: the MutexGuard is held in its OWN block scope so the
-    // compiler can prove it is dropped BEFORE the `.await` on
-    // `state.pending.lock()` — `std::sync::MutexGuard` is `!Send`
-    // (the inner `Option<Sender<Message>>` is `Send` but not `Sync`),
-    // so holding it across an `.await` would make the surrounding
-    // future `!Send`, which Tauri's `#[tauri::command]` requires to
-    // be `Send`. The boolean `needs_cleanup` carries the result out
-    // of the lock scope so the await happens AFTER the guard is gone.
-    let needs_cleanup = {
-        let ws_tx_now = mutex_lock(&state.ws_tx);
-        ws_tx_now.is_none()
-    };
-    if needs_cleanup {
-        let mut pending = state.pending.lock().await;
-        pending.remove(&id);
-        log::warn!(
-            "[dispatch] id={} cmd={} rejected: WS disconnected mid-dispatch \
-             (orphaned pending entry removed)",
-            id,
-            cmd
-        );
-        return Err("sidecar not connected".into());
-    }
+    // Optimization: a prior version of this dispatch path took a second
+    // `state.ws_tx` lock here (the "needs_cleanup" check) to detect a
+    // WS-disconnect that happened between the outer clone above and the
+    // pending-entry insert. That second lock was redundant — the
+    // `try_send` error path below already handles the WS-disconnected
+    // case (TrySendError::Closed removes the pending entry and returns
+    // the same "sidecar not connected" error). Removing the second lock
+    // halves mutex contention per dispatch with no behavior change.
 
     // Send the frame via the WS writer channel. On send failure, remove
     // the pending entry too — the writer task has exited so the WS
@@ -437,13 +427,17 @@ async fn dispatch_frame(
     if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string().into())) {
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
+        let err_msg = match &e {
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => "sidecar not connected".to_string(),
+            tokio::sync::mpsc::error::TrySendError::Full(_) => format!("WS send failed: {e}"),
+        };
         log::warn!(
             "[dispatch] id={} cmd={} WS send failed: {} (pending entry removed)",
             id,
             cmd,
             e
         );
-        return Err(format!("WS send failed: {e}"));
+        return Err(err_msg);
     }
 
     // Await the response with a timeout.

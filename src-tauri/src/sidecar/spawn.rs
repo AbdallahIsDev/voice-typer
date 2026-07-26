@@ -1,4 +1,10 @@
 //! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).
+//!
+//! Both spawn paths call `.env_clear()` before
+//! adding specific env vars, then re-add only an explicit OS-required
+//! allowlist via `passthrough_env_allowlist()`. This prevents the
+//! sidecar from inheriting arbitrary host env vars (e.g. `HF_TOKEN`,
+//! `OPENAI_API_KEY`, `http_proxy`) exported from the user's shell.
 
 use crate::state::SidecarHandle;
 use crate::util::SERVER_STARTED_TIMEOUT_MS;
@@ -51,29 +57,150 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
     value == Some("1")
 }
 
+/// Conservative OS-env allowlist passed through to
+/// the sidecar after `.env_clear()`. The sidecar process should NOT
+/// inherit arbitrary host env vars (e.g. `HF_TOKEN`, `OPENAI_API_KEY`
+/// exported from the user's shell, `http_proxy` from a corporate
+/// machine) — only the OS-required vars it needs to function plus the
+/// voice-typer-specific vars already added explicitly via `.env(...)`
+/// calls in `spawn_sidecar_release` / `spawn_sidecar_dev_mode`.
+///
+/// Conservative by design: when in doubt, prefer to pass FEWER vars.
+/// Missing vars produce loud failures (Python can't find its home dir,
+/// X11 can't find DISPLAY, etc.) that are easy to debug; leaked vars
+/// produce silent security holes.
+///
+/// Allowlist (mirrors the Python side's similar `os.environ` filtering
+/// in `voice_typer/server/app.py:main()` for the renderer-driven
+/// restart path — though that filter is more permissive because the
+/// Python side runs as the user, not as a sandboxed child):
+///
+/// Always-pass (cross-platform OS infrastructure):
+///   `PATH`, `USER`, `LANG`, `TEMP`, `TMP`, `TMPDIR`
+///
+/// POSIX-only: `HOME`
+/// Windows-only: `USERPROFILE`, `SYSTEMROOT`
+///
+/// Locale category overrides: any var matching `LC_*` (e.g.
+/// `LC_ALL`, `LC_CTYPE`, `LC_MESSAGES`).
+///
+/// Linux-only (GUI + session bus): `DISPLAY`, `WAYLAND_DISPLAY`,
+/// `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
+/// `DBUS_SESSION_BUS_ADDRESS`. Without these the sidecar's tray icon
+/// (Qt/GTK) and audio subsystem (PulseAudio → DBUS) would fail.
+///
+/// macOS-only (LaunchAgent identity): `XPC_SERVICE_NAME` (only
+/// relevant when the host is launched by `launchd`; harmless otherwise
+/// — the var is unset in normal Tauri launches).
+///
+/// Voice-typer-specific vars (`TAURI_SIDECAR`, `VOICE_TYPER_IPC_TOKEN`,
+/// `VOICE_TYPER_NATIVE_DIR`, `VOICE_TYPER_PREWARM_EXE`,
+/// `VOICE_TYPER_CONFIG_DIR`, `VOICE_TYPER_DEBUG`, `RUST_LOG`) are
+/// added explicitly by the spawn callers AFTER this function returns —
+/// they are NOT in the allowlist (they take precedence over any host
+/// value via the subsequent `.env(...)` call).
+///
+/// Returns a `Vec<(OsString, OsString)>` (not a `HashMap`) because
+/// both `tauri_plugin_shell::process::Command::envs` and
+/// `tokio::process::Command::envs` accept an iterator of `(K, V)`
+/// pairs and a Vec preserves insertion order for debuggability.
+pub(crate) fn passthrough_env_allowlist(
+) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    let mut out: Vec<(std::ffi::OsString, std::ffi::OsString)> = Vec::new();
+
+    // ── Always-pass (cross-platform) ───────────────────────────────
+    const ALWAYS: &[&str] = &[
+        "PATH",
+        "USER",
+        "LANG",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+    ];
+    for name in ALWAYS {
+        if let Some(val) = std::env::var_os(name) {
+            out.push((std::ffi::OsString::from(name), val));
+        }
+    }
+
+    // ── POSIX: HOME ────────────────────────────────────────────────
+    #[cfg(unix)]
+    if let Some(val) = std::env::var_os("HOME") {
+        out.push((std::ffi::OsString::from("HOME"), val));
+    }
+
+    // ── Windows: USERPROFILE + SYSTEMROOT ──────────────────────────
+    #[cfg(windows)]
+    if let Some(val) = std::env::var_os("USERPROFILE") {
+        out.push((std::ffi::OsString::from("USERPROFILE"), val));
+    }
+    #[cfg(windows)]
+    if let Some(val) = std::env::var_os("SYSTEMROOT") {
+        out.push((std::ffi::OsString::from("SYSTEMROOT"), val));
+    }
+
+    // ── Locale category overrides (LC_*) ──────────────────────────
+    // Walk the live env so we pick up whatever LC_* categories the
+    // user has set (LC_ALL, LC_CTYPE, LC_MESSAGES, LC_TIME, …). The
+    // sidecar's Python `locale` module + gettext translations depend
+    // on these.
+    for (name, val) in std::env::vars_os() {
+        if let Some(s) = name.to_str() {
+            if s.starts_with("LC_") {
+                out.push((name, val));
+            }
+        }
+    }
+
+    // ── Linux: GUI + session bus ──────────────────────────────────
+    #[cfg(target_os = "linux")]
+    {
+        const LINUX_GUI: &[&str] = &[
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "XDG_RUNTIME_DIR",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "DBUS_SESSION_BUS_ADDRESS",
+        ];
+        for name in LINUX_GUI {
+            if let Some(val) = std::env::var_os(name) {
+                out.push((std::ffi::OsString::from(name), val));
+            }
+        }
+    }
+
+    // ── macOS: LaunchAgent identity ───────────────────────────────
+    // Only set when running under launchd (LaunchAgent/LaunchDaemon).
+    // Harmless to pass through when unset (None branch is skipped).
+    #[cfg(target_os = "macos")]
+    if let Some(val) = std::env::var_os("XPC_SERVICE_NAME") {
+        out.push((std::ffi::OsString::from("XPC_SERVICE_NAME"), val));
+    }
+
+    out
+}
+
 /// ADR-0020 §1 + §4.1: release-build spawn via `externalBin`. Wraps
 /// the resulting `CommandChild` in `SidecarHandle::ShellPlugin`.
 ///
-/// GT-A2-4 (Low, SKIPPED — documented): the release-mode ShellPlugin
-/// sidecar has no kill-on-drop equivalent of the dev-mode
-/// `kill_on_drop(true)`. If the host process crashes (segfault, OOM
-/// kill, `kill -9`), the sidecar Python process is orphaned and keeps
-/// running with the mic / IPC port / native hotkey binary held. The
-/// proper fix is platform-specific:
-///   - POSIX: `prctl(PR_SET_PDEATHSIG, SIGKILL)` in a `pre_exec` hook.
+/// Kill-on-parent-exit guarantee: the release-mode ShellPlugin sidecar's
+/// `CommandChild` does NOT kill the OS process on Drop. If the host
+/// crashes (segfault, OOM kill, `kill -9`), the sidecar Python process
+/// would be orphaned and keep running with the mic / IPC port / native
+/// hotkey binary held. To prevent this, `spawn_sidecar_release`
+/// registers a kill-on-parent-exit guarantee via the platform helper
+/// `crate::platform::process::register_kill_on_parent_exit(pid)` right
+/// after `cmd.spawn()` below. The platform helper implements the
+/// OS-specific machinery:
+///   - POSIX: `prctl(PR_SET_PDEATHSIG, SIGKILL)` via a `pre_exec`-style
+///     post-spawn syscall on the child's pid.
 ///   - Windows: assign the sidecar to a Job Object with
 ///     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
-/// Both approaches require a `pre_exec` hook (POSIX) or post-spawn
-/// Job-Object syscalls (Windows) that the tauri-plugin-shell
-/// `externalBin` API does NOT expose. The fix would require EITHER
-/// refactoring the release path to spawn via `std::process::Command`
-/// directly OR adding a `platform/*` helper that attaches the
-/// just-spawned child's pid to a Job Object / registers prctl —
-/// `platform/*` is GT-FIX-20's domain. COORDINATION NOTE for
-/// GT-FIX-20: a `platform::process::register_kill_on_parent_exit(pid:
-/// u32)` helper would let this file call it right after
-/// `cmd.spawn()` below. The dev-mode path is already covered by
-/// `kill_on_drop(true)` (see `spawn_sidecar_dev_mode`).
+/// Best-effort: errors are logged but do NOT abort the spawn (the
+/// sidecar is already running — killing the host's spawn path wouldn't
+/// help). The dev-mode path is already covered by `kill_on_drop(true)`
+/// (see `spawn_sidecar_dev_mode`).
 pub(crate) async fn spawn_sidecar_release(
     app: &tauri::AppHandle,
     token: &str,
@@ -97,8 +224,17 @@ pub(crate) async fn spawn_sidecar_release(
         .map_err(|e| format!("resource_dir failed: {e}"))?;
     let prewarm_exe = prewarm_resource_path(app)?;
 
+    // Clear inherited host env BEFORE adding the
+    // voice-typer-specific vars. Without this, the sidecar inherits
+    // arbitrary host env vars (e.g. `HF_TOKEN`, `OPENAI_API_KEY`,
+    // `http_proxy`) — a leak surface for credentials + a configuration
+    // surprise surface (the sidecar would see unrelated host exports).
+    // The `passthrough_env_allowlist()` re-adds only the OS-required
+    // vars the sidecar needs to function (PATH, HOME, locale, etc.).
     let cmd = sidecar
         .args(["--ws"])
+        .env_clear()
+        .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
@@ -112,6 +248,25 @@ pub(crate) async fn spawn_sidecar_release(
     let (mut rx, child) = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn sidecar: {e}"))?;
+
+    // Register a kill-on-parent-exit guarantee so the OS reaps the
+    // orphan sidecar when the host dies. Best-effort: errors are logged
+    // but do NOT abort the spawn (the sidecar is already running —
+    // killing the host's spawn path wouldn't help). The dev-mode path
+    // is already covered by `kill_on_drop(true)` (see
+    // `spawn_sidecar_dev_mode`).
+    //
+    // NOTE: `child.pid()` returns `u32` directly (NOT `Option<u32>`)
+    // for the shell-plugin child — it always has a pid once spawned.
+    let sidecar_pid = child.pid();
+    if let Err(e) = crate::platform::process::register_kill_on_parent_exit(sidecar_pid) {
+        log::warn!(
+            "[SIDECAR] failed to register kill-on-parent-exit for pid {} \
+             (best-effort — sidecar will run but may be orphaned on host crash): {}",
+            sidecar_pid,
+            e
+        );
+    }
 
     // ADR-0020 §1: read stdout until we parse the server_started JSON.
     // The sidecar force-sets stdout to line-buffered (sidecar_ws.py
@@ -295,7 +450,13 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         .map_err(|e| format!("cwd failed: {e}"))?;
 
     let mut cmd = tokio::process::Command::new(python_bin);
+    // Clear inherited host env BEFORE adding the
+    // voice-typer-specific vars (mirrors the release path above).
+    // Dev mode also adds `VOICE_TYPER_DEBUG=1` + `RUST_LOG=debug` for
+    // verbose native-child logging during `cargo tauri dev`.
     cmd.args(["-m", "voice_typer.server.ipc_server", "--ws"])
+        .env_clear()
+        .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
@@ -570,5 +731,112 @@ mod tests {
              (update target_triple_for's match arms)",
             triple
         );
+    }
+
+    // ── passthrough_env_allowlist ──────────────────
+
+    #[test]
+    fn test_passthrough_env_allowlist_excludes_unrelated_vars() {
+        // A sentinel "secret" env var set in the host process
+        // must NOT appear in the allowlist (regression guard for the
+        // env_clear + allowlist pattern). We set it via std::env::set_var
+        // for the duration of this test — Cargo runs tests in the same
+        // process by default, so the var is visible to
+        // passthrough_env_allowlist's std::env::vars_os() walk.
+        //
+        // SAFETY: std::env::set_var is process-global and unsafe in
+        // Rust 2024 (mutex concerns), but tests run single-threaded by
+        // default unless `--test-threads=N` is used. The var name is
+        // unique enough that it won't collide with another test's env.
+        let sentinel = "VOICE_TYPER_PI2_TEST_SENTINEL_SECRET";
+        std::env::set_var(sentinel, "should-not-leak");
+        let allowlist = passthrough_env_allowlist();
+        std::env::remove_var(sentinel);
+
+        let names: Vec<String> = allowlist
+            .iter()
+            .map(|(k, _)| k.to_string_lossy().to_string())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n == sentinel),
+            "PI-2 regression: sentinel env var leaked into allowlist: {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_passthrough_env_allowlist_includes_path() {
+        // PATH is in the ALWAYS list — it must be present (the sidecar
+        // needs it to find `python3` / native hotkey binaries).
+        let allowlist = passthrough_env_allowlist();
+        let names: Vec<String> = allowlist
+            .iter()
+            .map(|(k, _)| k.to_string_lossy().to_string())
+            .collect();
+        // PATH is set on every sane OS; if it's somehow unset in the
+        // test env, skip this assertion (don't fail the test).
+        if std::env::var_os("PATH").is_some() {
+            assert!(
+                names.iter().any(|n| n == "PATH"),
+                "PI-2: PATH missing from allowlist: {:?}",
+                names
+            );
+        }
+    }
+
+    #[test]
+    fn test_passthrough_env_allowlist_includes_lc_categories_when_set() {
+        // When LC_ALL is set in the host env, it must appear in
+        // the allowlist (locale category pass-through). When unset,
+        // the allowlist must NOT contain it (no spurious empty values).
+        let lc_all = "VOICE_TYPER_PI2_LC_ALL_DOES_NOT_EXIST";
+        // Sanity: lc_all is not a real LC_* var name — use a real one.
+        let real_lc = "LC_ALL";
+        let was_set = std::env::var_os(real_lc).is_some();
+        if !was_set {
+            std::env::set_var(real_lc, "C");
+        }
+        let allowlist = passthrough_env_allowlist();
+        if !was_set {
+            std::env::remove_var(real_lc);
+        }
+
+        let names: Vec<String> = allowlist
+            .iter()
+            .map(|(k, _)| k.to_string_lossy().to_string())
+            .collect();
+        // LC_ALL should be present (either because the host had it set,
+        // or because this test set it temporarily).
+        assert!(
+            names.iter().any(|n| n == real_lc),
+            "PI-2: LC_ALL missing from allowlist (it was set during the call): {:?}",
+            names
+        );
+        // Sentinel must NOT leak (mirrors the unrelated-vars test).
+        assert!(
+            !names.iter().any(|n| n == lc_all),
+            "PI-2 regression: sentinel leaked: {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_passthrough_env_allowlist_no_duplicates() {
+        // The allowlist must not contain duplicate entries —
+        // duplicates would silently override each other in the child
+        // process's env map (the last write wins). The `LC_*` walk
+        // could in principle produce a duplicate if a manually-added
+        // var name happened to start with "LC_", but the ALWAYS list
+        // is uppercase non-LC_* names so there's no overlap.
+        let allowlist = passthrough_env_allowlist();
+        let mut seen = std::collections::HashSet::new();
+        for (k, _) in &allowlist {
+            let key = k.to_string_lossy().to_string();
+            assert!(
+                seen.insert(key.clone()),
+                "PI-2: duplicate env var in allowlist: {}",
+                key
+            );
+        }
     }
 }

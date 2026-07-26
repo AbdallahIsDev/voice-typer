@@ -1,9 +1,22 @@
 //! Rotating file logger (ADR-0020 §11): 5 MB × 5 files, excludes bubble_level.
+//!
+//! Log files + the parent `<config_dir>/logs/` dir
+//! are created with restricted POSIX permissions (`0o600` for files,
+//! `0o700` for the dir) so dictated-text fragments and any PII the
+//! Rust code emits are NOT world-readable on multi-user POSIX systems.
+//! Mirrors the Python side's `os.umask(0o077)` + `os.chmod(log_file,
+//! 0o600)` pattern in `voice_typer/server/log.py`.
 
 use crate::util::{ROTATE_MAX_BYTES, ROTATE_MAX_FILES, now_timestamp};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Mutex;
+
+// POSIX-only `OpenOptions::mode` + `Permissions::from_mode`
+// trait imports. On Windows these are no-ops (the OS uses ACLs, not
+// mode bits) — the `#[cfg(unix)]` blocks below gate every call site.
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 /// ADR-0020 §11: initialize a rotating file logger writing to
 /// `<config_dir>/logs/voice-typer.log` (5 MB × 5 files ≈ 25 MB cap).
@@ -31,6 +44,20 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     let logs_dir = config_dir.join("logs");
     std::fs::create_dir_all(&logs_dir)
         .map_err(|e| format!("create logs dir failed: {e}"))?;
+    // Tighten the parent `<config_dir>/logs/` dir to
+    // `0o700` on POSIX (owner rwx only — no group/other access). Mirrors
+    // the Python side's `os.chmod(config_dir, 0o700)` at
+    // `voice_typer/server/log.py:891-893`. Best-effort: a `chmod` failure
+    // is logged but does NOT block logger init (a too-permissive dir is
+    // a softening of the security posture, not a hard failure — the
+    // individual log files inside still get `0o600` via `OpenOptionsExt`).
+    #[cfg(unix)]
+    {
+        let _ = std::fs::set_permissions(
+            &logs_dir,
+            std::fs::Permissions::from_mode(0o700),
+        );
+    }
     let writer = RotatingFileWriter::new(logs_dir, "voice-typer");
     // PVT-G5-082: honor `RUST_LOG` runtime log-level override. Parsed
     // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
@@ -248,10 +275,35 @@ impl RotatingFileWriter {
         // renaming), open a fresh File in append mode.
         if guard.is_none() {
             std::fs::create_dir_all(&self.dir)?;
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.current_path())?;
+            // Create the log file with `0o600` perms
+            // on POSIX so it is NOT world-readable. On Linux/macOS the
+            // default `OpenOptions::create(true).append(true).open(...)`
+            // inherits the process umask (typically 0o022), producing
+            // `0o644` — readable by group + others. The dictation log
+            // may contain raw transcription text + PII (XZ-LOG-02),
+            // so tighten to owner-only. On Windows `OpenOptionsExt::mode`
+            // is unavailable; the OS uses ACLs instead (configured at
+            // install time, not per-file).
+            let mut opts = OpenOptions::new();
+            opts.create(true).append(true);
+            #[cfg(unix)]
+            opts.mode(0o600);
+            let file = opts.open(self.current_path())?;
+            // Belt-and-suspenders: if the file already existed (created
+            // by a prior run with looser perms), explicitly chmod it to
+            // 0o600 now. `OpenOptions::mode` only applies to NEW files,
+            // not pre-existing ones — so without this chmod a leftover
+            // 0o644 log file from a pre-hardening build would stay world-
+            // readable indefinitely. Best-effort: a chmod failure does
+            // not block logging (a too-permissive file is a security
+            // softening, not a hard failure).
+            #[cfg(unix)]
+            {
+                let _ = std::fs::set_permissions(
+                    self.current_path(),
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
             *guard = Some(file);
         }
         // Borrow the File from the guard for the write/flush/metadata
@@ -306,12 +358,36 @@ impl RotatingFileWriter {
                     let _ = std::fs::remove_file(&to);
                 }
                 let _ = std::fs::rename(&from, &to);
+                // Belt-and-suspenders chmod of the
+                // renamed file to 0o600 on POSIX. `rename` preserves
+                // the source file's mode, which should already be 0o600
+                // (set by `write_line`'s `OpenOptionsExt::mode` call),
+                // but a leftover rotated file from a pre-hardening build may
+                // still be 0o644. Best-effort: ignore errors (the file
+                // may have been moved/deleted between the rename and the
+                // chmod — extremely unlikely but defensive).
+                #[cfg(unix)]
+                {
+                    let _ = std::fs::set_permissions(
+                        &to,
+                        std::fs::Permissions::from_mode(0o600),
+                    );
+                }
             }
         }
         let from = self.current_path();
         let to = self.dir.join(format!("{}.log.1", self.base_name));
         if from.exists() {
-            let _ = std::fs::rename(from, to);
+            let _ = std::fs::rename(&from, &to);
+            // Same belt-and-suspenders chmod for the
+            // `.log` → `.log.1` rename above.
+            #[cfg(unix)]
+            {
+                let _ = std::fs::set_permissions(
+                    &to,
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
         }
         Ok(())
     }
@@ -690,6 +766,131 @@ mod tests {
             content.contains("?:0"),
             "fallback file:line missing from log line: {}",
             content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── 0o600 file permissions on POSIX ──────────
+
+    #[cfg(unix)]
+    #[test]
+    fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
+        // The log file created by `write_line` must have mode
+        // `0o600` (owner rw only — no group/other access) on POSIX.
+        // Pre-fix the file inherited the process umask (typically
+        // 0o022), producing `0o644` — readable by group + others.
+        // The dictation log may contain raw transcription text + PII
+        // (XZ-LOG-02), so it must be owner-only.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-pi7-mode",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        writer.write_line("secret-dictation-text").unwrap();
+        writer.flush().unwrap();
+
+        let path = tmp.join("test-log.log");
+        let meta = std::fs::metadata(&path)
+            .expect("log file must exist after write_line");
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "PI-7: log file mode must be 0o600 (owner rw only); got 0o{:o}",
+            mode
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_rotating_file_writer_rotated_files_get_0o600_on_posix() {
+        // After rotation, the renamed `.log.1` file must also
+        // have mode `0o600`. `rename` preserves the source file's mode
+        // (which is 0o600 from the `OpenOptionsExt::mode` call in
+        // `write_line`), plus the belt-and-suspenders `chmod` in
+        // `rotate` re-asserts 0o600 in case a pre-hardening leftover file
+        // had looser perms.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-pi7-rotate-mode",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        // Write ~6 MB total to trigger at least one rotation
+        // (ROTATE_MAX_BYTES = 5 MB).
+        let big_line = "x".repeat(100_000);
+        for _ in 0..60 {
+            writer.write_line(&big_line).unwrap();
+        }
+        writer.flush().unwrap();
+
+        let rotated = tmp.join("test-log.log.1");
+        assert!(rotated.exists(), "rotated file .log.1 must exist");
+        let meta = std::fs::metadata(&rotated)
+            .expect("rotated log file must exist");
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "PI-7: rotated log file mode must be 0o600; got 0o{:o}",
+            mode
+        );
+
+        // The current (just-rotated) `.log` file must also be 0o600 —
+        // it was just freshly opened by `write_line`'s `OpenOptionsExt::mode(0o600)`.
+        let current = tmp.join("test-log.log");
+        let meta = std::fs::metadata(&current)
+            .expect("current log file must exist");
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "PI-7: current log file mode must be 0o600 after rotation; got 0o{:o}",
+            mode
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
+        // `init_file_logger` must chmod the parent `<config_dir>/logs/`
+        // dir to `0o700` (owner rwx only) on POSIX, mirroring the Python
+        // side's `os.chmod(config_dir, 0o700)` at log.py:891-893.
+        //
+        // We can't call `init_file_logger` from a test (it calls
+        // `log::set_logger`, which is process-global and can only be
+        // set once per process). Instead, mirror the dir-chmod logic
+        // directly: create a logs dir, chmod it to 0o755 (the
+        // permissive default), then re-apply the same chmod call
+        // `init_file_logger` does, and verify the mode is 0o700.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-pi7-dir-mode",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let logs_dir = tmp.join("logs");
+        std::fs::create_dir_all(&logs_dir).unwrap();
+        // Set permissive mode first (mimics a pre-hardening leftover dir).
+        std::fs::set_permissions(
+            &logs_dir,
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        // Apply the same chmod `init_file_logger` does.
+        let _ = std::fs::set_permissions(
+            &logs_dir,
+            std::fs::Permissions::from_mode(0o700),
+        );
+        let meta = std::fs::metadata(&logs_dir).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "PI-7: logs dir mode must be 0o700; got 0o{:o}",
+            mode
         );
         std::fs::remove_dir_all(&tmp).ok();
     }

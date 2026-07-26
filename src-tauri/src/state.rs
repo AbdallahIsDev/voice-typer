@@ -256,6 +256,14 @@ pub(crate) fn kill_process_tree(pid: u32) {
             }
         }
 
+        // Short-circuit when no descendants exist — avoids the
+        // unconditional 200ms sleep below on the Tauri event-loop thread
+        // (called from shutdown_sidecar_for_exit via block_on).
+        if all_descendants.is_empty() {
+            log::debug!("[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle", pid);
+            return;
+        }
+
         for &dpid in &all_descendants {
             match Command::new("kill")
                 .args(["-TERM", &dpid.to_string()])

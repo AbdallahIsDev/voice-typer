@@ -517,7 +517,9 @@ async fn restore_focus_or_fallback(
     let _ = app
         .notification()
         .builder()
-        .title("Voice Typer")
+        // Use `APP_NAME` instead of an inline brand literal so
+        // the toast title stays in sync with the rest of the UI.
+        .title(crate::branding::APP_NAME)
         .body(toast_body)
         .show();
     // DE-74: schedule the clipboard restore as a fire-and-forget
