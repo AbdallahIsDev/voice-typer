@@ -46,7 +46,6 @@ import pytest
 # find the attribute).
 import voice_typer.server.config  # noqa: F401
 import voice_typer.server.security  # noqa: F401
-
 from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
 
@@ -87,10 +86,9 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 return_value=None,
-            ),
+            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
         ):
-            with caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"):
-                write_startup_diagnostic("construction", exc=RuntimeError("boom"))
+            write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         critical_records = [
             r for r in caplog.records if r.levelno == logging.CRITICAL
@@ -123,10 +121,9 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 side_effect=OSError("read-only filesystem"),
-            ),
+            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
         ):
-            with caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"):
-                write_startup_diagnostic("construction", exc=RuntimeError("boom"))
+            write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         critical_records = [
             r for r in caplog.records if r.levelno == logging.CRITICAL
@@ -163,10 +160,9 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 side_effect=OSError("read-only filesystem"),
-            ),
+            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
         ):
-            with caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"):
-                write_startup_diagnostic("construction", exc=RuntimeError("boom"))
+            write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         critical_records = [
             r for r in caplog.records if r.levelno == logging.CRITICAL
@@ -193,10 +189,9 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 return_value=None,
-            ),
+            ),caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server")
         ):
-            with caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server"):
-                write_startup_diagnostic("construction", exc=RuntimeError("boom"))
+            write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert not error_records, (
@@ -460,3 +455,84 @@ class TestHeaderPreservation:
 
         assert written_payloads
         assert "--- custom-phase failed at" in written_payloads[0]
+
+
+# ─── PI-12: /tmp fallback uses O_TRUNC (not O_EXCL) so repeated crash dumps ─
+# ─── can overwrite a previous diagnostic file ──────────────────────────────
+
+
+class TestPi12TmpFallbackOverwrite:
+    """PI-12: the /tmp fallback path previously used ``O_EXCL`` (atomic
+    create, refuses to clobber an existing file). With ``O_EXCL``, if
+    ``/tmp/voice-typer-startup-error.log`` exists from a previous crash,
+    the next startup crash cannot write its diagnostic — ``os.open``
+    raises ``FileExistsError``, the outer ``except Exception`` runs, and
+    the traceback is lost. The docstring at line 146-147 says "OVERWRITE
+    (not append) the diagnostic file so repeated relaunch crashes don't
+    grow it without bound" — the /tmp fallback must honor that same
+    contract.
+
+    These tests pin the new ``O_TRUNC`` behavior so a future refactor
+    that restores ``O_EXCL`` (e.g. a copy-paste from the config_dir
+    primary path) doesn't silently regress PI-12.
+    """
+
+    def test_second_consecutive_crash_dump_overwrites_first(
+        self, diag_dir: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """PI-12: two consecutive calls to ``write_startup_diagnostic``
+        that both fall through to the /tmp fallback must both succeed
+        — the second call overwrites the first diagnostic file rather
+        than raising ``FileExistsError``.
+
+        Pre-PI-12 behavior: the second call would raise
+        ``FileExistsError`` from ``os.open(O_EXCL)`` inside the
+        fallback ``try`` block; the outer ``except Exception`` would
+        log "Could not write diagnostic anywhere" and the second
+        crash's traceback would be lost.
+        """
+        # Redirect tempfile.gettempdir to tmp_path so the fallback file
+        # lands inside the test sandbox.
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+        # Force the primary write to fail so both calls fall through to
+        # the /tmp fallback path.
+        with (
+            patch(
+                "voice_typer.server.config._config_dir",
+                return_value=diag_dir,
+            ),
+            patch(
+                "voice_typer.server.config._secure_atomic_write",
+                side_effect=OSError("read-only filesystem"),
+            ),
+        ):
+            # First crash dump.
+            write_startup_diagnostic("construction", exc=RuntimeError("first crash"))
+            # Second crash dump — must NOT raise. Pre-PI-12, this would
+            # raise FileExistsError (caught by the outer except) and the
+            # second crash's traceback would be lost.
+            write_startup_diagnostic("construction", exc=RuntimeError("second crash"))
+
+        tmp_file = tmp_path / "voice-typer-startup-error.log"
+        # The fallback file must still exist (not deleted by the second
+        # call's failed os.open).
+        assert tmp_file.exists(), (
+            "PI-12 regression: the /tmp fallback file should still exist "
+            "after the second consecutive crash dump"
+        )
+        # The file content must be the SECOND crash's diagnostic (i.e.
+        # the second call overwrote the first). Both payloads contain
+        # the "Voice Typer startup failed at" header, so we distinguish
+        # them by the exception message embedded in the traceback.
+        content = tmp_file.read_text(encoding="utf-8")
+        assert "second crash" in content, (
+            "PI-12 regression: the /tmp fallback file should contain the "
+            "SECOND crash's diagnostic (the first was overwritten). "
+            f"Got content:\n{content}"
+        )
+        assert "first crash" not in content, (
+            "PI-12 regression: the /tmp fallback file should NOT contain "
+            "the first crash's diagnostic (it should have been overwritten "
+            f"by the second). Got content:\n{content}"
+        )

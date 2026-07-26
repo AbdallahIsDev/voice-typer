@@ -91,3 +91,102 @@ class TestForceCancelTranscription:
             "a False-success result must stay as the *_result type, not be converted to an error response"
         )
         assert resp["data"]["success"] is False
+
+
+# ── PI-17: typed cloud/LLM exception → IPC error code mapping ────────────
+
+
+class TestCloudErrorMapping:
+    """PI-17: when the service raises a typed ``CloudEngineError``
+    subclass (e.g. ``CloudAuthError`` from a 401 cloud response), the
+    dictation handler's catch-all routes the exception through
+    ``HandlerBase._respond_with_error`` which ``isinstance``-checks
+    the type and emits the matching namespaced IPC error code
+    (``server.cloud_auth_failed`` / ``server.cloud_rate_limited`` /
+    ``server.cloud_server_error`` / ``server.cloud_network_error`` /
+    ``server.cloud_config_error`` / ``server.cloud_engine_error``).
+
+    The fallback for a non-cloud ``RuntimeError`` (e.g. "mic in use")
+    stays as ``server.internal_error`` — that's the existing CR-20
+    behavior and remains correct for non-cloud errors.
+    """
+
+    def test_cloud_auth_error_maps_to_specific_code(self, ipc_server, fake_service):
+        """A ``CloudAuthError`` from the service produces
+        ``{code: "server.cloud_auth_failed", message: "cloud API key
+        invalid or revoked"}`` — NOT the generic
+        ``server.internal_error`` envelope.
+        """
+        from voice_typer.server.asr_errors import CloudAuthError
+
+        fake_service.toggle_dictation.side_effect = CloudAuthError("401 from cloud provider")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_auth_failed"
+        assert resp["data"]["message"] == "cloud API key invalid or revoked"
+
+    def test_cloud_rate_limit_error_maps_to_specific_code(self, ipc_server, fake_service):
+        from voice_typer.server.asr_errors import CloudRateLimitError
+
+        fake_service.toggle_dictation.side_effect = CloudRateLimitError("429 from cloud provider")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_rate_limited"
+
+    def test_cloud_network_error_maps_to_specific_code(self, ipc_server, fake_service):
+        from voice_typer.server.asr_errors import CloudNetworkError
+
+        fake_service.toggle_dictation.side_effect = CloudNetworkError("URLError: timeout")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_network_error"
+
+    def test_cloud_config_error_maps_to_specific_code(self, ipc_server, fake_service):
+        from voice_typer.server.asr_errors import CloudConfigError
+
+        fake_service.toggle_dictation.side_effect = CloudConfigError("missing API key")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_config_error"
+
+    def test_cloud_server_error_maps_to_specific_code(self, ipc_server, fake_service):
+        from voice_typer.server.asr_errors import CloudServerError
+
+        fake_service.toggle_dictation.side_effect = CloudServerError("503 from cloud provider")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_server_error"
+
+    def test_cloud_engine_error_base_maps_to_specific_code(self, ipc_server, fake_service):
+        """The typed base ``CloudEngineError`` (raised when the HTTP
+        status doesn't fit one of the specific subclasses — e.g. 4xx
+        other than 401/403/429) maps to ``server.cloud_engine_error``,
+        NOT the generic ``server.internal_error``.
+        """
+        from voice_typer.server.asr_errors import CloudEngineError
+
+        fake_service.toggle_dictation.side_effect = CloudEngineError("unknown cloud failure")
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.cloud_engine_error"
+
+    def test_consent_required_error_maps_to_consent_code(self, ipc_server, fake_service):
+        """A ``ConsentRequiredError`` from the service produces
+        ``{code: "client.consent_required", ...}`` plus the structured
+        consent fields (engine_name, consent_field, model_id) so the
+        renderer can surface a consent dialog deep-linked to the exact
+        toggle in Settings (NEW-PRIV-006).
+        """
+        from voice_typer.server.asr_errors import ConsentRequiredError
+
+        fake_service.toggle_dictation.side_effect = ConsentRequiredError(
+            "Cloud openai consent not given",
+            engine_name="openai",
+            consent_field="cloud_openai_consent",
+            model_id=None,
+        )
+        resp = ipc_server._handle_toggle_dictation({}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.consent_required"
+        assert resp["data"]["engine_name"] == "openai"
+        assert resp["data"]["consent_field"] == "cloud_openai_consent"

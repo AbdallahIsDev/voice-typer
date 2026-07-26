@@ -16,20 +16,28 @@ These tests exercise the Win32 DACL / SECURITY_ATTRIBUTES builder
    writing into the buffer — same pattern as
    ``_set_byref_value`` in the clipboard coverage tests.
 4. For the SID pointer read out of ``TOKEN_USER``, write a fake
-   non-zero pointer into the buffer at offset ``sizeof(LPVOID)`` so
-   the ``if not p_sid: return None`` check passes.
+   non-zero pointer into the buffer at offset ``0`` (the location of
+   ``TOKEN_USER.User.Sid`` after the CR-001 struct-offset fix —
+   ``TOKEN_USER`` is just ``SID_AND_ATTRIBUTES`` whose first field is
+   ``Sid`` at offset 0) so the ``if not p_sid: return None`` check
+   passes.
 
 The SUT returns ``None`` on any failure (the caller then falls back to
-a default NULL DACL). The success path returns a ctypes
-``SECURITY_ATTRIBUTES`` structure.
+a default NULL ``lpMutexAttributes`` for ``CreateMutexW``, which uses
+the per-user default DACL — safe baseline). The success path returns a
+ctypes ``SECURITY_ATTRIBUTES`` structure.
 
-SetEntriesInAclW return-code semantics
----------------------------------------
+SetEntriesInAclW return-code semantics (post-CR-003)
+----------------------------------------------------
 ``SetEntriesInAclW`` returns a ``DWORD`` Win32 error code (0 =
 ``ERROR_SUCCESS`` = success). The SUT checks
 ``if SetEntriesInAclW(...) != 0`` — so a *successful* return (0)
-enters the else branch that uses ``new_acl``, and a *failed* return
-(non-zero) enters the fallback (NULL DACL) branch. See
+proceeds to call ``SetSecurityDescriptorDacl(sd, True, new_acl,
+False)`` (the success branch that uses ``new_acl``), and a *failed*
+return (non-zero) returns ``None`` *directly* (CR-003 removed the
+NULL-DACL fallback that pre-fix called ``SetSecurityDescriptorDacl``
+with ``dacl=None`` — that fallback was a security bug because a NULL
+DACL grants EVERY token ``MUTEX_ALL_ACCESS``). See
 ``TestSetEntriesInAclSemantics`` below for the pinned behaviour.
 """
 
@@ -60,14 +68,20 @@ def _set_byref_value(byref_obj, value):
 
 
 def _write_sid_pointer_into_buf(buf, ptr_value=0xDEADBEEF):
-    """Write a non-zero pointer at offset ``sizeof(LPVOID)`` in ``buf``.
+    """Write a non-zero pointer at offset ``0`` in ``buf``.
 
-    The SUT reads ``p_sid`` from ``buf`` at offset ``sizeof(LPVOID)``
-    (the ``TOKEN_USER.Sid`` field — a pointer). We write a fake
-    non-zero pointer there so the ``if not p_sid: return None`` check
-    passes.
+    The SUT (post-CR-001) reads ``p_sid`` from ``TOKEN_USER.User.Sid``,
+    which is at offset 0 of the buffer (``TOKEN_USER`` is just
+    ``SID_AND_ATTRIBUTES`` whose first field ``Sid`` is a pointer at
+    offset 0 on x64). We write a fake non-zero pointer there so the
+    ``if not p_sid: return None`` check passes.
+
+    Pre-CR-001 the SUT read from ``addressof(buf) + sizeof(LPVOID)``
+    (= 8 on x64, the ``Attributes`` DWORD), and the corresponding
+    helper wrote at that offset. Both the SUT and the helper are now
+    aligned on offset 0.
     """
-    offset = ctypes.sizeof(wintypes.LPVOID)
+    offset = 0
     fake_ptr = ctypes.c_void_p(ptr_value)
     ctypes.memmove(
         ctypes.addressof(buf) + offset,
@@ -94,9 +108,12 @@ def _configure_full_success(advapi32):
     """Configure ``advapi32`` mocks for the full success path.
 
     Note: ``SetEntriesInAclW`` returns ``DWORD`` (0 = ``ERROR_SUCCESS``
-    = success). The SUT's ``if not SetEntriesInAclW(...)`` check means
-    a successful return (0) enters the NULL-DACL fallback branch — see
-    the module docstring's "Known SUT quirk" note.
+    = success). The SUT's ``if SetEntriesInAclW(...) != 0`` check means
+    a successful return (0) skips the early-return and proceeds to call
+    ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
+    branch). A failed return (non-zero) returns ``None`` *directly*
+    (CR-003 removed the NULL-DACL fallback — see the module docstring's
+    "SetEntriesInAclW return-code semantics" note).
     """
     advapi32.GetTokenInformation.side_effect = _gti_success_side_effect
     advapi32.InitializeSecurityDescriptor.return_value = 1  # BOOL success
@@ -200,22 +217,26 @@ class TestErrorPaths:
         assert _create_restrictive_security_attributes() is None
 
     def test_set_entries_in_acl_success_dacl_failure_returns_none(self, fake_windll):
-        """``SetEntriesInAclW=0`` (success) → fallback branch; if the
-        fallback ``SetSecurityDescriptorDacl`` also fails → None."""
+        """``SetEntriesInAclW=0`` (success) → success branch; if
+        ``SetSecurityDescriptorDacl`` fails → None."""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         adv.SetSecurityDescriptorDacl.return_value = 0  # BOOL failure
         assert _create_restrictive_security_attributes() is None
 
-    def test_set_entries_in_acl_failure_dacl_failure_returns_none(self, fake_windll):
-        """``SetEntriesInAclW=non-zero`` (failure) → else branch; if
-        ``SetSecurityDescriptorDacl`` fails → None."""
+    def test_set_entries_in_acl_failure_returns_none(self, fake_windll):
+        """``SetEntriesInAclW=non-zero`` (failure) → returns None directly
+        (CR-003: no NULL-DACL fallback; ``SetSecurityDescriptorDacl`` is
+        never called)."""
         adv = fake_windll["advapi32"]
         adv.GetTokenInformation.side_effect = _gti_success_side_effect
         adv.InitializeSecurityDescriptor.return_value = 1
         adv.SetEntriesInAclW.return_value = 5  # ERROR_ACCESS_DENIED
-        adv.SetSecurityDescriptorDacl.return_value = 0  # BOOL failure
+        adv.SetSecurityDescriptorDacl.return_value = 0  # would fail if reached
         assert _create_restrictive_security_attributes() is None
+        # CR-003: the SUT must NOT call SetSecurityDescriptorDacl on the
+        # SetEntriesInAclW failure path (no NULL-DACL fallback).
+        adv.SetSecurityDescriptorDacl.assert_not_called()
 
     def test_exception_during_execution_returns_none(self, fake_windll):
         """Any unexpected exception is caught by the outer ``except
@@ -337,32 +358,37 @@ class TestSetEntriesInAclSemantics:
 
     ``SetEntriesInAclW`` returns ``DWORD`` (0 = ``ERROR_SUCCESS`` =
     success). The SUT checks ``if SetEntriesInAclW(...) != 0`` — so a
-    *successful* return (0) enters the else branch that uses
-    ``new_acl``, and a *failed* return (non-zero) enters the fallback
-    (NULL DACL) branch.
+    *successful* return (0) skips the early-return and proceeds to call
+    ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
+    branch that uses ``new_acl``). A *failed* return (non-zero) returns
+    ``None`` *directly* — CR-003 removed the NULL-DACL fallback (which
+    was a security bug: a NULL DACL grants EVERY token
+    ``MUTEX_ALL_ACCESS``). The SUT therefore does NOT call
+    ``SetSecurityDescriptorDacl`` on the failure path.
     """
 
-    def test_failure_return_enters_null_dacl_fallback(self, fake_windll):
-        """``SetEntriesInAclW=non-zero`` (error) → fallback branch
-        → ``SetSecurityDescriptorDacl`` called with ``dacl=None``
-        (NULL DACL — permissive)."""
+    def test_failure_return_returns_none_without_dacl_call(self, fake_windll):
+        """``SetEntriesInAclW=non-zero`` (error) → returns ``None`` directly
+        (CR-003: no NULL-DACL fallback). ``SetSecurityDescriptorDacl`` is
+        NOT called."""
         adv = fake_windll["advapi32"]
         adv.GetTokenInformation.side_effect = _gti_success_side_effect
         adv.InitializeSecurityDescriptor.return_value = 1
         adv.SetEntriesInAclW.return_value = 5  # ERROR_ACCESS_DENIED
-        adv.SetSecurityDescriptorDacl.return_value = 1
-        _create_restrictive_security_attributes()
-        args = adv.SetSecurityDescriptorDacl.call_args[0]
-        # args = (sd, True, dacl, False); fallback uses dacl=None
-        assert args[2] is None
+        adv.SetSecurityDescriptorDacl.return_value = 1  # would succeed if reached
+        result = _create_restrictive_security_attributes()
+        assert result is None
+        # CR-003: the SUT must NOT call SetSecurityDescriptorDacl on the
+        # SetEntriesInAclW failure path (no NULL-DACL fallback).
+        adv.SetSecurityDescriptorDacl.assert_not_called()
 
     def test_success_return_uses_new_acl(self, fake_windll):
-        """``SetEntriesInAclW=0`` (``ERROR_SUCCESS``) → else branch →
+        """``SetEntriesInAclW=0`` (``ERROR_SUCCESS``) → success branch →
         ``SetSecurityDescriptorDacl`` called with ``new_acl``
         (non-None)."""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         _create_restrictive_security_attributes()
         args = adv.SetSecurityDescriptorDacl.call_args[0]
-        # args = (sd, True, new_acl, False); else branch uses new_acl
+        # args = (sd, True, new_acl, False); success branch uses new_acl
         assert args[2] is not None

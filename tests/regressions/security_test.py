@@ -31,34 +31,44 @@ class TestTranscriptionLoggingRedactsPii:
     """SEC-009.
 
     Pre-fix: ``redact_pii()`` was dead code — declared in security.py
-    but never called from production. Fix: wire it into the
-    ``log_transcriptions=True`` path of ``DictationPipeline._store_result``
-    so emails, phone numbers, SSNs, and credit-card-like patterns are
-    masked before hitting the log file.
+    but never called from production. The original SEC-009 fix wired
+    ``redact_pii()`` into the ``log_transcriptions=True`` path of
+    ``DictationPipeline._store_result`` so PII patterns were masked
+    before hitting the log file.
+
+    G4-H-08 (superseded SEC-009): ``redact_pii()`` only masked four
+    patterns (email / US-phone / SSN / credit-card-like) — medical
+    dictation, financial narratives, addresses, and names passed
+    through verbatim. For a voice-typing tool this is the primary
+    PII surface, so masking just four patterns was insufficient.
+    The path now logs a non-reversible 12-char SHA-256 prefix of the
+    transcription text instead, preserving log-line correlation
+    (the same transcription produces the same hash) without leaking
+    ANY content. ``len(text)`` is also logged so operators can spot
+    suspiciously short / long transcriptions.
     """
 
-    def test_store_result_calls_redact_pii_when_log_transcriptions_true(self):
-        """SEC-009: when ``log_transcriptions`` is enabled,
-        ``DictationPipeline._store_result`` must pipe the transcription
-        text through ``redact_pii()`` before logging so PII patterns
-        (email, phone, SSN, credit card) don't leak to the log file.
-        Pre-fix, raw text was logged.
+    def test_store_result_logs_sha256_hash_not_raw_text(self, caplog):
+        """SEC-009 / G4-H-08: when ``log_transcriptions`` is enabled,
+        ``DictationPipeline._store_result`` must log a non-reversible
+        SHA-256 hash prefix of the transcription text — NOT the raw
+        text and NOT a four-pattern ``redact_pii()`` masked version
+        (which leaked medical/financial/address/name PII). The raw
+        text must NEVER appear in the log output.
 
-        RW-8: ported from a source-string meta-test (which inspected
-        ``_store_result`` source for the substring ``redact_pii``) to a
-        behavioral test that mocks ``redact_pii`` and verifies it is
-        invoked with the transcription text. The behavioral test is
-        robust to refactors — if ``redact_pii`` is renamed or inlined,
-        the test still catches the regression as long as PII would
-        leak to the log.
+        The test is behavioral: it patches ``hashlib.sha256`` so we
+        can assert the hash path is invoked, AND it captures the log
+        output to verify the raw transcription text does not leak.
         """
+        import hashlib
+        import logging
 
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         # Build a minimal app mock. ``_store_result`` touches:
         # ``history_db.add_transcription`` / ``flush``,
         # ``config.crash_recovery_enabled`` (False → skip crash recovery),
-        # ``config.log_transcriptions`` (True → trigger the redaction path),
+        # ``config.log_transcriptions`` (True → trigger the hash-log path),
         # ``config.model_size`` / ``config.device`` (passed to add_transcription),
         # ``_last_transcription`` (assigned), ``tray.notify`` (only on errors),
         # and ``event_bus.publish`` (transcription_final push event — the
@@ -71,17 +81,55 @@ class TestTranscriptionLoggingRedactsPii:
 
         pipeline = DictationPipeline(app)
 
-        # Patch ``redact_pii`` at its source module so the local import
-        # inside ``_store_result`` picks up the mock.
-        with patch("voice_typer.server.security.redact_pii") as mock_redact:
-            mock_redact.return_value = "[REDACTED]"
-            pipeline._store_result("Contact john.doe@example.com")
+        raw_text = "Contact john.doe@example.com for the biopsy results."
 
-        mock_redact.assert_called_once()
-        args, _ = mock_redact.call_args
-        assert "john.doe@example.com" in args[0], (
-            "SEC-009: _store_result must pass the raw transcription text "
-            "to redact_pii() so PII patterns are masked before logging."
+        # Patch ``hashlib.sha256`` so we can assert the hash path is
+        # invoked (the source does ``hashlib.sha256(text.encode(...))``).
+        # We delegate to the real implementation so the log line gets a
+        # real 12-char hex prefix (which we then verify is NOT the raw
+        # text).
+        real_sha256 = hashlib.sha256
+        sha256_calls: list[bytes] = []
+
+        def _tracking_sha256(payload: bytes):
+            sha256_calls.append(payload)
+            return real_sha256(payload)
+
+        with (
+            patch("hashlib.sha256", side_effect=_tracking_sha256),
+            caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"),
+        ):
+            pipeline._store_result(raw_text)
+
+        # ``hashlib.sha256`` MUST have been invoked with the raw text
+        # bytes (the G4-H-08 contract). If this fails, the source has
+        # regressed to either logging raw text or to ``redact_pii()``
+        # (the pre-G4-H-08 four-pattern masker).
+        assert sha256_calls, (
+            "SEC-009 / G4-H-08: _store_result must call hashlib.sha256 on "
+            "the transcription text when log_transcriptions is True."
+        )
+        assert any(raw_text.encode("utf-8") in call_args for call_args in sha256_calls), (
+            "SEC-009 / G4-H-08: hashlib.sha256 must be called with the raw "
+            "transcription text as its argument."
+        )
+
+        # The raw transcription text must NOT appear in any log line —
+        # only the 12-char hash prefix + length are logged. This is the
+        # core SEC-009 invariant: PII never leaks to the log file.
+        log_text = caplog.text
+        assert raw_text not in log_text, (
+            "SEC-009 / G4-H-08: the raw transcription text must NOT appear "
+            "in the log output — only a non-reversible SHA-256 hash prefix "
+            "should be logged. The raw text was found in the log."
+        )
+        # Belt-and-suspenders: verify the hash-prefix form is present
+        # (``hash=<12 hex chars>`` per dictation_pipeline.py:1131).
+        import re
+
+        assert re.search(r"hash=[0-9a-f]{12}", log_text), (
+            "SEC-009 / G4-H-08: the log line should contain "
+            "'hash=<12-char hex prefix>' when log_transcriptions is True."
         )
 
     def test_redact_pii_masks_email_phone_ssn_cc(self):
@@ -304,11 +352,22 @@ class TestComtypesFallbackFailsClosed:
         would need to uninstall comtypes and capture log output, which
         is heavy; the source-string check catches removal of the
         WARNING level or the fallback call directly.
+
+        The source uses the module-level ``_log()`` helper (a
+        lazy-init logger getter) rather than a bare ``log`` symbol,
+        so the assertion uses a regex that accepts both ``log.warning``
+        and ``_log().warning`` forms.
         """
+        import re
+
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard._is_password_field)
-        assert "log.warning" in src, "PLAT-014: comtypes-absence must log at WARNING level (not INFO)"
+        # Accept both ``log.warning(...)`` and ``_log().warning(...)``
+        # forms (the clipboard module uses the lazy ``_log()`` helper).
+        assert re.search(r"\b(?:log|_log\(\))\.warning\b", src), (
+            "PLAT-014: comtypes-absence must log at WARNING level (not INFO)"
+        )
         # Must call the credential-dialog fallback
         assert "_focused_window_is_credential_dialog" in src, (
             "PLAT-014: comtypes-absence path must call _focused_window_is_credential_dialog"

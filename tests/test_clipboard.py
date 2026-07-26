@@ -175,7 +175,7 @@ class TestWaylandFallback:
             stderr = b""
 
         def fake_run(cmd, **kw):
-            captured.append(cmd)
+            captured.append((cmd, kw))
             return FakeProc()
 
         monkeypatch.setattr(mod.subprocess, "run", fake_run)
@@ -186,8 +186,14 @@ class TestWaylandFallback:
         mod._linux_copy("hello wayland")
 
         assert len(captured) == 1
-        assert captured[0][0] == "wl-copy"
-        assert "hello wayland" in captured[0]
+        cmd, kw = captured[0]
+        assert cmd[0] == "wl-copy"
+        # XZ-CLIP-02 (security): text is piped via stdin (NOT passed as
+        # a positional CLI argument) so it isn't visible in
+        # /proc/<pid>/cmdline to other local users.
+        assert "hello wayland" in kw.get("input", b"").decode("utf-8"), (
+            "XZ-CLIP-02: text must be piped via stdin=input=... (not as CLI arg)"
+        )
         pyperclip_mock.copy.assert_not_called()
 
     def test_linux_copy_falls_back_to_pyperclip_on_wl_copy_failure(self, monkeypatch):

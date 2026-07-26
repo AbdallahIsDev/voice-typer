@@ -56,7 +56,6 @@ touching real subsystems. They do NOT import ``voice_typer.server.app``
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import sys
@@ -73,7 +72,6 @@ from voice_typer.server.shutdown_controller import (
     _TIMEOUT,
     ShutdownController,
 )
-
 
 # ── Fake app ───────────────────────────────────────────────────────────
 

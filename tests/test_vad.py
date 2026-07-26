@@ -25,6 +25,13 @@ class _MockTensor:
     def float(self):
         return self
 
+    def to(self, dtype):
+        # TY-26: ``.to(torch.float32)`` is a no-op (returns the same
+        # tensor) when the dtype already matches — mirroring real
+        # torch's behaviour. The mock tensor is always float32, so
+        # ``.to(<any dtype>)`` returns ``self``.
+        return self
+
     def item(self):
         return float(self.data[0]) if len(self.data) > 0 else 0.0
 

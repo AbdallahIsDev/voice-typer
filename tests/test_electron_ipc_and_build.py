@@ -40,12 +40,26 @@ class TestElectronExposesDataExportHandlers:
     # main process (would use @vitest/electron or Playwright Electron).
     def test_main_has_templates_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert 'ipcMain.handle("templates:export"' in main_ts or '"templates:export"' in main_ts
+        export_handlers_ts = (
+            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
+        ).read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts
+        assert (
+            'ipcMain.handle("templates:export"' in combined
+            or '"templates:export"' in combined
+        )
 
     # REQUIRES-ELECTRON-RUNNER: same as above — src/main/index.ts source check.
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert 'ipcMain.handle("config:export"' in main_ts or '"config:export"' in main_ts
+        export_handlers_ts = (
+            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
+        ).read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts
+        assert (
+            'ipcMain.handle("config:export"' in combined
+            or '"config:export"' in combined
+        )
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/preload/index.ts source which
     # imports `electron` + `node:*`; behavioral version needs a real Electron
@@ -58,12 +72,26 @@ class TestElectronExposesDataExportHandlers:
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_history_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert 'ipcMain.handle("history:export"' in main_ts or '"history:export"' in main_ts
+        export_handlers_ts = (
+            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
+        ).read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts
+        assert (
+            'ipcMain.handle("history:export"' in combined
+            or '"history:export"' in combined
+        )
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_vocabulary_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        assert 'ipcMain.handle("vocabulary:export"' in main_ts or '"vocabulary:export"' in main_ts
+        export_handlers_ts = (
+            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
+        ).read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts
+        assert (
+            'ipcMain.handle("vocabulary:export"' in combined
+            or '"vocabulary:export"' in combined
+        )
 
 
 class TestVersionReadsFromPackageMetadata:
@@ -144,7 +172,11 @@ class TestUnknownIPCCommandCode:
         result = server._dispatch({"id": 7, "type": "totally_made_up_command"})
 
         assert result["type"] == "error"
-        assert result["data"]["code"] == "unknown_command"
+        # PI-23 namespaced the error code as ``server.unknown_command``;
+        # the bare ``unknown_command`` is preserved as ``legacy_code``
+        # for back-compat with any consumer still reading ``code``.
+        code = result["data"]["code"]
+        assert code in ("unknown_command", "server.unknown_command")
         assert result["data"]["command"] == "totally_made_up_command"
         assert "Unknown command" in result["data"]["message"]
 

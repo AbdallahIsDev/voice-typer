@@ -44,7 +44,7 @@ ALLOWED_UNTRANSLATED = {
     "models.providers.groq.label",  # "Groq Whisper API"
     "models.providers.deepgram.label",  # "Deepgram API"
     # Parakeet label is a product name — kept identical.
-    "models.card.parakeetLabel",  # "NVIDIA Parakeet TDT v3  ┬╖  "
+    "models.card.parakeetLabel",  # "NVIDIA Parakeet TDT v3  ·  "
     # Em-dash placeholder for missing data — identical glyph across locales.
     "about.unknown",  # "—"
     # Version number format — "v{version}" is universally identical.
@@ -122,10 +122,10 @@ ALLOWED_UNTRANSLATED = {
     "theme.preset.solarized",  # "Solarized"
 }
 
-# Pre-existing untranslated settings keys documented in the directive (┬º6).
+# Pre-existing untranslated settings keys documented in the directive (§6).
 # These are a known gap from prior rounds.  They are documented here so the
 # completeness test doesn't block on them, but they ARE tracked for future
-# translation work.  See worklog.md ┬º"Known Limitations".
+# translation work.  See worklog.md §"Known Limitations".
 #
 # I18N-PARTIAL: the models.* snack/test/benchmark/hfConsent/card/cloud/download
 # keys are fully translated for ar and es, but only partially translated for
@@ -178,7 +178,7 @@ PRE_EXISTING_UNTRANSLATED = {
     "settings.overlayDescription",
     "settings.show",
     "settings.hide",
-    # hi locale: missing settings.tabs.* keys (pre-existing gap from directive ┬º6).
+    # hi locale: missing settings.tabs.* keys (pre-existing gap from directive §6).
     "settings.tabs.appearance",
     "settings.tabs.aiAudio",
     "settings.tabs.privacy",
@@ -375,7 +375,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.permissionsTestFailure",
     "onboarding.permissionsTestButton",
     "onboarding.skipConfirmTitle",
-    "onboarding.skipConfirmMessage",
     "onboarding.skipConfirmLabel",
     "bubble.micButtonStartAria",
     "bubble.micButtonStopAria",
@@ -405,7 +404,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # help (3 keys)
     "help.openCheatSheet",  # "Open punctuation cheat sheet"
     "help.searchNoMatch",  # "No commands match "{query}""
-    "help.searchPlaceholder",  # "Search commandsΓÇª"
+    "help.searchPlaceholder",  # "Search commands…"
     # history (3 keys)
     "history.charsSuffix",  # " ({count} chars)"
     # "Export limited to {count} most recent records — use search to export older entries."
@@ -424,27 +423,27 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.keys.cmd",  # "Cmd"
     "hotkey.keys.ctrl",  # "Ctrl"
     "hotkey.keys.delete",  # "Delete"
-    "hotkey.keys.down",  # "Γåô"
+    "hotkey.keys.down",  # "↓"
     "hotkey.keys.end",  # "End"
     "hotkey.keys.enter",  # "Enter"
     "hotkey.keys.esc",  # "Esc"
     "hotkey.keys.fn",  # "Fn"
-    "hotkey.keys.fnMacOSOnly",  # "Fn / Globe ≡ƒîÉ (macOS only)"
+    "hotkey.keys.fnMacOSOnly",  # "Fn / Globe 🌐 (macOS only)"
     "hotkey.keys.home",  # "Home"
     "hotkey.keys.insert",  # "Insert"
-    "hotkey.keys.left",  # "ΓåÉ"
+    "hotkey.keys.left",  # "←"
     "hotkey.keys.numLock",  # "Num Lock"
     "hotkey.keys.pageDown",  # "Page Down"
     "hotkey.keys.pageUp",  # "Page Up"
     "hotkey.keys.pause",  # "Pause"
     "hotkey.keys.printScreen",  # "Print Screen"
-    "hotkey.keys.right",  # "ΓåÆ"
+    "hotkey.keys.right",  # "→"
     "hotkey.keys.scrollLock",  # "Scroll Lock"
     "hotkey.keys.shift",  # "Shift"
     "hotkey.keys.space",  # "Space"
     "hotkey.keys.super",  # "Super"
     "hotkey.keys.tab",  # "Tab"
-    "hotkey.keys.up",  # "Γåæ"
+    "hotkey.keys.up",  # "↑"
     "hotkey.keys.win",  # "Win"
     # hotkeyPicker (1 keys)
     "hotkeyPicker.customLabel",  # "{label}"
@@ -461,7 +460,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # "Log out and back in (or reboot) for the group change to take effect"
     "onboarding.permissionsInstructionsLinuxStep3",
     "onboarding.permissionsInstructionsLinuxTitle",  # "Input Group + udev Rule Required"
-    "onboarding.permissionsInstructionsMacosStep1",  # "Open System Settings ΓåÆ Privacy & Security ΓåÆ Accessibility"
+    "onboarding.permissionsInstructionsMacosStep1",  # "Open System Settings → Privacy & Security → Accessibility"
     "onboarding.permissionsInstructionsMacosStep2",  # "Add Voice Typer (and its key-listener helper) to the list"
     "onboarding.permissionsInstructionsMacosStep3",  # "Toggle the switch ON for Voice Typer"
     "onboarding.permissionsInstructionsMacosTitle",  # "Accessibility Permission Required"
@@ -484,19 +483,19 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.audioEnhancement.compressorAttack",  # "Compressor Attack"
     "settings.audioEnhancement.compressorAttackAria",  # "Compressor Attack"
     # "How fast compression engages when the signal exceeds the threshold."
-    # "2ΓÇô10ms catches transients without pumping."
+    # "2–10ms catches transients without pumping."
     "settings.audioEnhancement.compressorAttackInfo",
     "settings.audioEnhancement.compressorAttackInfoSearch",  # "How fast compression engages."
     "settings.audioEnhancement.compressorOutputGain",  # "Compressor Output Gain"
     "settings.audioEnhancement.compressorOutputGainAria",  # "Compressor Output Gain"
     # "Make-up gain applied after compression to restore perceived loudness."
-    # "0dB is neutral; +3ΓÇô6dB compensates for typical speech compression."
+    # "0dB is neutral; +3–6dB compensates for typical speech compression."
     "settings.audioEnhancement.compressorOutputGainInfo",
     "settings.audioEnhancement.compressorOutputGainInfoSearch",  # "Make-up gain applied after compression."
     "settings.audioEnhancement.compressorRelease",  # "Compressor Release"
     "settings.audioEnhancement.compressorReleaseAria",  # "Compressor Release"
     # "How fast compression disengages after the signal drops below the threshold."
-    # "50ΓÇô150ms avoids gain breathing on trailing syllables."
+    # "50–150ms avoids gain breathing on trailing syllables."
     "settings.audioEnhancement.compressorReleaseInfo",
     "settings.audioEnhancement.compressorReleaseInfoSearch",  # "How fast compression disengages."
     "settings.audioEnhancement.equalizer",  # "Equalizer"
@@ -504,19 +503,19 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.audioEnhancement.gateAttack",  # "Gate Attack"
     "settings.audioEnhancement.gateAttackAria",  # "Gate Attack"
     # "How fast the gate opens when the signal rises above the open threshold."
-    # "5ΓÇô25ms is typical for speech."
+    # "5–25ms is typical for speech."
     "settings.audioEnhancement.gateAttackInfo",
     "settings.audioEnhancement.gateAttackInfoSearch",  # "How fast the gate opens."
     "settings.audioEnhancement.gateHold",  # "Gate Hold"
     "settings.audioEnhancement.gateHoldAria",  # "Gate Hold"
     # "How long the gate stays open after the signal drops below the close"
-    # "threshold before release begins. 100ΓÇô300ms prevents flicker on pauses."
+    # "threshold before release begins. 100–300ms prevents flicker on pauses."
     "settings.audioEnhancement.gateHoldInfo",
     "settings.audioEnhancement.gateHoldInfoSearch",  # "How long the gate stays open after the signal drops."
     "settings.audioEnhancement.gateRelease",  # "Gate Release"
     "settings.audioEnhancement.gateReleaseAria",  # "Gate Release"
     # "How fast the gate closes after the hold time expires."
-    # "100ΓÇô200ms avoids abrupt cuts on trailing consonants."
+    # "100–200ms avoids abrupt cuts on trailing consonants."
     "settings.audioEnhancement.gateReleaseInfo",
     "settings.audioEnhancement.gateReleaseInfoSearch",  # "How fast the gate closes after the hold time expires."
     "settings.audioEnhancement.limiter",  # "Limiter"
@@ -524,7 +523,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.audioEnhancement.limiterRelease",  # "Limiter Release"
     "settings.audioEnhancement.limiterReleaseAria",  # "Limiter Release"
     # "How fast the limiter recovers after catching a transient."
-    # "50ΓÇô100ms is typical."
+    # "50–100ms is typical."
     "settings.audioEnhancement.limiterReleaseInfo",
     "settings.audioEnhancement.limiterReleaseInfoSearch",  # "How fast the limiter recovers after catching a transient."
     "settings.audioEnhancement.notchFrequency",  # "Notch Frequency"
@@ -594,7 +593,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "format.duration.minuteShort",
     "format.duration.secondShort",
     "home.pasteFailedMessage",
-    "home.toggleFailed",
     "hotkey.errors.comboMustEndNonModifier",
     "hotkey.errors.empty",
     "hotkey.errors.fnMacOnly",
@@ -658,8 +656,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "nav.group.system",
     "onboarding.modelOption",
     "onboarding.permissionsCheckFailed",
-    "onboarding.step4Item",
-    "onboarding.step5Item",
     "settings.hotkeySection.parseError",
     "settings.hotkeySection.rangeErrorMinutes",
     "settings.hotkeySection.rangeErrorSeconds",
@@ -686,7 +682,7 @@ def _load_json(path: Path) -> dict:
 
 
 def _flatten_keys(obj: dict, prefix: str = "") -> dict[str, str]:
-    """Recursively collect all dot-separated keys ΓåÆ scalar values from a nested dict."""
+    """Recursively collect all dot-separated keys → scalar values from a nested dict."""
     flat: dict[str, str] = {}
     for k, v in obj.items():
         full = f"{prefix}.{k}" if prefix else k

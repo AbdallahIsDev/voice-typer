@@ -116,7 +116,7 @@ class TestDeleteAllPersonalData:
         resp = ipc_server._handle_delete_all_personal_data(bad_payload, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.delete_all_personal_data.assert_not_called()
 
     def test_generic_exception_returns_internal_error_envelope(self, ipc_server, fake_service):
@@ -222,7 +222,7 @@ class TestExportGdprBundle:
         resp = ipc_server._handle_export_gdpr_bundle(bad_payload, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.export_gdpr_bundle.assert_not_called()
 
     def test_generic_exception_returns_internal_error_envelope(self, ipc_server, fake_service):

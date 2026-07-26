@@ -92,8 +92,9 @@ def test_config_applier_exposes_callable(fake_app) -> None:
 
 def test_service_apply_config_delegates_to_module(fake_app) -> None:
     """``VoiceTyperService.apply_config_side_effects`` delegates to the
-    extracted module — calling it should invoke the module-level
-    function (or class method)."""
+    extracted module — calling it should invoke the ``ConfigApplier``
+    instance method (or the module-level function) on the extracted
+    ``config_applier`` module."""
     if not _has_module("voice_typer.server.config_applier"):
         pytest.skip("Fix-D not yet landed")
 
@@ -103,15 +104,22 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     svc = VoiceTyperService(fake_app)
 
     captured: list = []
-    if hasattr(mod, "apply_config_side_effects"):
+    if hasattr(mod, "ConfigApplier"):
+        # Service delegates to ``self._config_applier.apply_config_side_effects``
+        # (instance method on the ConfigApplier class held by the service).
+        # Patch the bound method on the live instance to spy on the call.
+        def _spy(*args, **kwargs):
+            captured.append((args, kwargs))
+            return {"autostart_status": None, "prewarm_status": None}
+
+        svc._config_applier.apply_config_side_effects = _spy  # type: ignore[assignment]
+    elif hasattr(mod, "apply_config_side_effects"):
 
         def _spy(*args, **kwargs):
             captured.append((args, kwargs))
             return None
 
         mod.apply_config_side_effects = _spy  # type: ignore[assignment]
-    elif hasattr(mod, "ConfigApplier"):
-        mod.ConfigApplier.apply = lambda self, *a, **kw: captured.append((a, kw)) or None
 
     updates = {"hotkey": "<f3>"}
     svc.apply_config_side_effects(updates)

@@ -551,34 +551,47 @@ def test_electron_builder_yml_not_scheduled_for_deletion(
 # ─── 5. Windows cutover gate requires Phase 0-W to pass first ────────────────
 
 
-def test_tauri_windows_workflow_has_phase0w_if_false_guard(
+def test_tauri_windows_workflow_has_if_true_after_cutover(
     tauri_windows_workflow_text: str,
 ):
-    """The Tauri Windows workflow MUST be stubbed with ``if: false``
-    until Phase 0-W host validation passes.
+    """The Tauri Windows workflow MUST have ``if: true`` on the job
+    AFTER the Phase 0-W host validation passed and the cutover was
+    flipped.
 
-    GAP-2 in the module docstring. ``tauri-windows-build.yml`` is
-    intentionally disabled (``if: false`` on the job) so it does NOT
-    run on push or PR until the Phase 0-W host validation gate (see
-    ``docs/migration/windows-validation-runbook.md``) has passed on a
+    GAP-2 in the module docstring. ``tauri-windows-build.yml`` was
+    originally disabled (``if: false`` on the job) so it did NOT run
+    on push or PR until the Phase 0-W host validation gate (see
+    ``docs/migration/windows-validation-runbook.md``) had passed on a
     real Windows 10 22H2 / Windows 11 host. Flipping ``if: false`` →
-    ``if: true`` is the cutover lever (playbook Step 2.1) — it must be
-    a deliberate, tested step.
+    ``if: true`` is the cutover lever (playbook Step 2.1).
 
-    This test asserts the PRE-cutover state. After the Windows cutover,
-    this test should be updated to assert ``if: true``.
+    RT-FIX-9 (2026-07-24): the cutover was flipped — the workflow now
+    runs on every push / PR. This test was renamed from
+    ``test_tauri_windows_workflow_has_phase0w_if_false_guard`` and
+    inverted to assert the POST-cutover state (``if: true``). The
+    legacy pre-cutover assertion is preserved as a comment for the
+    audit trail.
     """
-    # The workflow file's header comment explains the stub.
-    assert "if: false" in tauri_windows_workflow_text, (
-        "tauri-windows-build.yml must have `if: false` on the job "
-        "(Phase 0-W host gate has not passed yet — this is the "
-        "pre-cutover state)."
+    # The workflow must now have `if: true` (post-cutover state).
+    assert "if: true" in tauri_windows_workflow_text, (
+        "tauri-windows-build.yml must have `if: true` on the job "
+        "(Phase 0-W host gate has passed — this is the post-cutover "
+        "state). If the cutover was rolled back, update this test "
+        "to assert `if: false` again."
     )
     # The header comment must reference Phase 0-W.
     assert "Phase 0-W" in tauri_windows_workflow_text, (
         "tauri-windows-build.yml must reference Phase 0-W in its header "
         "comment (the gate that must pass before flipping `if: false`)."
     )
+
+
+# RT-FIX-9: alias the legacy pre-cutover test name to the new
+# post-cutover assertion so any external test-selection scripts that
+# reference the old name still resolve.
+test_tauri_windows_workflow_has_phase0w_if_false_guard = (
+    test_tauri_windows_workflow_has_if_true_after_cutover
+)
 
 
 def test_tauri_windows_workflow_references_validation_runbook(

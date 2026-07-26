@@ -42,10 +42,18 @@ class TestAccessibilityIpcEndpointExists:
 
         from voice_typer.server.ipc_server import IPCServer
 
-        # Build a minimal IPCServer with a mock app
+        # Build a minimal IPCServer with a mock app.
+        # ``_dispatch`` and ``_send`` acquire ``self._dispatch_lock``; the
+        # test bypasses ``__init__`` (which would otherwise build the
+        # authenticated socket, worker pool, and command-handler cache)
+        # via ``__new__`` for speed, so the minimal instance attrs the
+        # code-under-test touches must be set up here. Without this, the
+        # test fails with ``AttributeError: 'IPCServer' object has no
+        # attribute '_dispatch_lock'`` before the handler ever runs.
         app = MagicMock()
         app._config_mutation_lock = __import__("threading").RLock()
         server = IPCServer.__new__(IPCServer)
+        server._dispatch_lock = threading.RLock()
         server.app = app
         server.service = MagicMock()
 
@@ -71,6 +79,7 @@ class TestSendCatchesOSErrorSubclasses:
         from voice_typer.server.ipc_server import IPCServer
 
         server = IPCServer.__new__(IPCServer)
+        server._dispatch_lock = threading.RLock()
         server.app = MagicMock()
         server.app._config_mutation_lock = __import__("threading").RLock()
 
@@ -131,6 +140,7 @@ class TestSendCatchesSocketTimeout:
         from voice_typer.server.ipc_server import IPCServer
 
         server = IPCServer.__new__(IPCServer)
+        server._dispatch_lock = threading.RLock()
         server.app = MagicMock()
         server.app._config_mutation_lock = __import__("threading").RLock()
 

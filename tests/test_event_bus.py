@@ -43,8 +43,7 @@ import threading
 import time
 
 import pytest
-from voice_typer.server import event_bus
-from voice_typer.server import log_rate_limit
+from voice_typer.server import event_bus, log_rate_limit
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 

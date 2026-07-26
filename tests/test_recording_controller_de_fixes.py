@@ -39,9 +39,10 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from voice_typer.server.recording_controller import RecordingController
 
 
-def _make_controller() -> "RecordingController":
+def _make_controller() -> RecordingController:
     """Build a RecordingController with a fully-mocked app.
 
     The mock app provides every attribute the controller reads/writes
@@ -236,9 +237,9 @@ class TestDE12StopAndCancelSerialized:
 
         # Patch DictationPipeline import inside _stop_impl so we don't
         # actually run a transcription.
-        with patch("voice_typer.server.dictation_pipeline.DictationPipeline") as PipelineMock:
+        with patch("voice_typer.server.dictation_pipeline.DictationPipeline") as pipeline_mock:
             pipeline = MagicMock()
-            PipelineMock.return_value = pipeline
+            pipeline_mock.return_value = pipeline
 
             threads = [threading.Thread(target=ctrl.stop, name=f"stop-{i}") for i in range(2)]
             for t in threads:

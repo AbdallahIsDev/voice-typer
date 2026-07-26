@@ -20,15 +20,12 @@ Coverage:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import numpy as np
 import pytest
 
 scipy = pytest.importorskip("scipy.signal")  # skips the whole module if missing
 
 from voice_typer.server.audio_filters.noise_suppressor import (  # noqa: E402
-    _FLOAT_TO_INT16_MAX,
     _INT16_SCALE,
     _RNNOISE_FRAME_SIZE,
     _RNNOISE_SAMPLE_RATE,

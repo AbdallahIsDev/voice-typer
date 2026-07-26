@@ -358,6 +358,7 @@ class TestSpawnBackgroundPrewarm:
         from unittest.mock import MagicMock
 
         captured: dict = {}
+
         fake_proc = MagicMock()
         fake_proc.pid = 1234
 
@@ -376,6 +377,136 @@ class TestSpawnBackgroundPrewarm:
         # The trigger must always be passed.
         assert "--trigger" in captured["cmd"]
         assert "app-start" in captured["cmd"]
+
+
+# ─── YJ-52: spawn_background_prewarm must check is_prewarm_running ──────────
+
+
+class TestYJ52SpawnSkipsWhenPrewarmRunning:
+    """YJ-52 (review-fix-C2-rework): ``spawn_background_prewarm`` must
+    call ``_pkg.is_prewarm_running()`` at the top and short-circuit
+    (returning the existing PID) if a prewarm subprocess is already
+    running.
+
+    The original ``spawn_background_prewarm`` always spawned a new
+    subprocess — when ``wait_for_prewarm`` timed out at 60s (the first
+    prewarm was still running), the caller would spawn a SECOND
+    prewarm, racing with the existing one for disk I/O and
+    double-writing the PID file. The YJ-52 fix adds an
+    ``is_prewarm_running()`` guard at the top.
+
+    These tests pin the YJ-52 fix so a future revert (removing the
+    ``is_prewarm_running()`` check) fails loudly. Mutation sanity
+    check: temporarily comment out the ``is_prewarm_running()`` check
+    in ``spawn_background_prewarm`` and these tests FAIL.
+    """
+
+    def test_returns_existing_pid_and_skips_spawn_when_running(
+        self, monkeypatch, caplog
+    ):
+        """When ``is_prewarm_running()`` returns True, ``spawn_background_prewarm``
+        returns the existing PID and does NOT call ``subprocess.Popen``.
+
+        YJ-52 assertions:
+          1. Return value matches ``_read_prewarm_pid()`` (12345).
+          2. ``subprocess.Popen`` is NOT called (no second spawn).
+          3. An INFO log mentioning "spawn skipped" is emitted.
+        """
+        import logging
+        from unittest.mock import MagicMock
+
+        # Mock is_prewarm_running to return True (prewarm already running).
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: True)
+        # Mock _read_prewarm_pid to return the existing PID.
+        monkeypatch.setattr(prewarm, "_read_prewarm_pid", lambda: 12345)
+        # Mock is_windows to a stable value (the spawn path checks it).
+        monkeypatch.setattr(prewarm, "is_windows", lambda: False)
+        # Mock subprocess.Popen so we can detect if it's called.
+        fake_popen = MagicMock(
+            side_effect=AssertionError(
+                "YJ-52: subprocess.Popen must NOT be called when "
+                "is_prewarm_running() returns True (the existing "
+                "prewarm should be reused, not double-spawned)."
+            )
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.process_tracker.subprocess.Popen",
+            fake_popen,
+        )
+
+        with caplog.at_level(
+            logging.INFO, logger="voice_typer.server.prewarm"
+        ):
+            result = process_tracker.spawn_background_prewarm(
+                force=True, trigger="manual"
+            )
+
+        # (1) Return value is the existing PID, not a new spawn PID.
+        assert result == 12345, (
+            f"YJ-52: spawn_background_prewarm should return the existing "
+            f"PID (12345) when is_prewarm_running() is True; got {result!r}."
+        )
+        # (2) subprocess.Popen was NOT called.
+        assert not fake_popen.called, (
+            "YJ-52: subprocess.Popen was called even though "
+            "is_prewarm_running() returned True — the existing prewarm "
+            "should have been reused."
+        )
+        # (3) An INFO log mentioning "spawn skipped" was emitted.
+        info_messages = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.INFO
+        ]
+        skipped_logs = [
+            m for m in info_messages if "spawn skipped" in m
+        ]
+        assert skipped_logs, (
+            f"YJ-52: expected an INFO log mentioning 'spawn skipped' "
+            f"when is_prewarm_running() is True; got INFO logs: "
+            f"{info_messages!r}"
+        )
+        # The log should mention the existing PID so operators can
+        # trace which prewarm was reused.
+        assert any("12345" in m for m in skipped_logs), (
+            f"YJ-52: 'spawn skipped' log should mention the existing "
+            f"PID 12345; got {skipped_logs!r}"
+        )
+
+    def test_falls_through_to_spawn_when_is_prewarm_running_false(
+        self, monkeypatch
+    ):
+        """When ``is_prewarm_running()`` returns False, spawn proceeds
+        normally (the YJ-52 guard short-circuits cleanly).
+
+        This test pins the complementary branch of YJ-52: the guard
+        must NOT prevent normal spawning when no prewarm is running.
+        """
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: False)
+        monkeypatch.setattr(prewarm, "is_windows", lambda: False)
+
+        fake_proc = MagicMock()
+        fake_proc.pid = 99999
+        fake_popen = MagicMock(return_value=fake_proc)
+        monkeypatch.setattr(
+            "voice_typer.server.prewarm.process_tracker.subprocess.Popen",
+            fake_popen,
+        )
+
+        pid = process_tracker.spawn_background_prewarm(
+            force=True, trigger="manual"
+        )
+        assert pid == 99999, (
+            f"YJ-52: when is_prewarm_running() is False, spawn should "
+            f"return the new subprocess PID (99999); got {pid!r}."
+        )
+        assert fake_popen.called, (
+            "YJ-52: when is_prewarm_running() is False, "
+            "subprocess.Popen MUST be called — the guard short-circuited "
+            "incorrectly."
+        )
 
 
 class TestGetPrewarmStatus:

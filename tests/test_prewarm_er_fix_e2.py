@@ -30,17 +30,12 @@ than the re-exporting ``__init__.py``.
 
 from __future__ import annotations
 
-import logging
 import sys
 from collections import namedtuple
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server import prewarm
-from voice_typer.server.prewarm import cache_probe as _cache_probe_mod
-from voice_typer.server.prewarm import pipeline as _pipeline_mod
-
 
 # Real psutil.sensors_battery() returns a named tuple (iterable).
 # ``_on_battery_and_low_charge`` unpacks it via

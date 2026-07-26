@@ -721,3 +721,285 @@ class TestQueueBounded:
                 except queue_mod.Empty:
                     break
             db.close()
+
+
+# ─── PI-10 / PI-11 regression tests ────────────────────────────────────────
+
+
+class TestPreMigrationBackup:
+    """PI-10: ``_init_db_schema`` must create a pre-migration backup
+    (``history.db.pre-migration-v<from>.bak``) before running any
+    migration. If a future migration has a logic bug that silently
+    corrupts rows, the user can restore from this backup.
+
+    The backup is best-effort: if the copy fails (disk full,
+    permissions), the migration proceeds anyway (the user's history is
+    more valuable than the backup; a stuck migration would leave the
+    app on the old schema, which is worse).
+
+    These tests pin the new behavior so a future refactor that drops
+    the backup step doesn't silently regress PI-10.
+    """
+
+    def test_pre_migration_backup_created_on_v1_to_v3_migration(self, tmp_path):
+        """PI-10: a v1 DB migrated to v3 must produce a
+        ``history.db.pre-migration-v1.bak`` file before the migration
+        runs.
+
+        Strategy: set up a v1 DB (no favorite/language columns) with
+        a few rows of user data. Open it with HistoryDB (which
+        triggers the migration v1 -> v2 -> v3). Assert the .bak file
+        exists and contains the v1 schema (no favorite column) —
+        proving the backup was taken BEFORE the migration ran.
+        """
+        import sqlite3
+
+        from voice_typer.server.history_db import HistoryDB
+
+        db_path = tmp_path / "test_history.db"
+
+        # Set up a v1 DB with user data.
+        setup_conn = sqlite3.connect(str(db_path))
+        setup_conn.execute("""
+            CREATE TABLE transcriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                duration REAL DEFAULT 0,
+                model TEXT DEFAULT '',
+                device TEXT DEFAULT '',
+                word_count INTEGER DEFAULT 0,
+                char_count INTEGER DEFAULT 0
+            )
+        """)
+        setup_conn.execute("""
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        setup_conn.execute("INSERT INTO schema_meta (key, value) VALUES ('version', '1')")
+        setup_conn.execute("INSERT INTO transcriptions (text) VALUES ('pre-migration data')")
+        setup_conn.commit()
+        setup_conn.close()
+
+        # Open with HistoryDB — triggers the v1 -> v2 -> v3 migration.
+        db = HistoryDB(db_path=db_path)
+        try:
+            assert db._init_error is None, (
+                f"Expected migration to succeed; got _init_error={db._init_error}"
+            )
+        finally:
+            db.close()
+
+        # The .bak file must exist and contain the v1 schema (no
+        # favorite column) — proving the backup was taken BEFORE the
+        # migration ran.
+        bak_path = db_path.with_name(f"{db_path.name}.pre-migration-v1.bak")
+        assert bak_path.exists(), (
+            "PI-10 regression: pre-migration backup file should exist "
+            f"after a v1 -> v3 migration. Files in dir: "
+            f"{[p.name for p in db_path.parent.iterdir()]}"
+        )
+        bak_conn = sqlite3.connect(str(bak_path))
+        try:
+            bak_conn.row_factory = sqlite3.Row
+            # The .bak must be at the OLD schema (no favorite column).
+            cursor = bak_conn.execute("PRAGMA table_info(transcriptions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            assert "favorite" not in columns, (
+                "PI-10 regression: pre-migration backup should be at the "
+                "OLD schema (v1, no favorite column), but the backup has "
+                f"the favorite column. Columns: {columns}"
+            )
+            # The .bak must contain the user data we inserted before
+            # the migration.
+            cursor = bak_conn.execute("SELECT text FROM transcriptions")
+            rows = [row[0] for row in cursor.fetchall()]
+            assert "pre-migration data" in rows, (
+                "PI-10 regression: pre-migration backup should contain "
+                f"the pre-migration user data. Rows: {rows}"
+            )
+            # The .bak's schema_meta.version must be 1 (the OLD version).
+            cursor = bak_conn.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+            row = cursor.fetchone()
+            assert row is not None and int(row[0]) == 1, (
+                "PI-10 regression: pre-migration backup should record "
+                f"the OLD schema version (1). Got: {row[0] if row else None}"
+            )
+        finally:
+            bak_conn.close()
+
+    def test_no_pre_migration_backup_when_already_at_current_version(self, tmp_path):
+        """PI-10: opening a DB that's already at the current schema
+        version must NOT create a pre-migration backup (the migration
+        loop is empty, so there's nothing to back up).
+
+        This guards against the backup step running unconditionally on
+        every launch, which would accumulate stale .bak files (or
+        overwrite a legitimate pre-migration .bak with an identical
+        post-migration copy).
+        """
+        import sqlite3
+
+        from voice_typer.server import history_db as history_db_module
+        from voice_typer.server.history_db import HistoryDB
+
+        db_path = tmp_path / "test_history.db"
+
+        # Set up a fully-migrated DB at the current schema version.
+        setup_conn = sqlite3.connect(str(db_path))
+        setup_conn.execute("""
+            CREATE TABLE transcriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                duration REAL DEFAULT 0,
+                model TEXT DEFAULT '',
+                device TEXT DEFAULT '',
+                word_count INTEGER DEFAULT 0,
+                char_count INTEGER DEFAULT 0,
+                favorite INTEGER DEFAULT 0,
+                language TEXT DEFAULT ''
+            )
+        """)
+        setup_conn.execute("""
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        setup_conn.execute(
+            "INSERT INTO schema_meta (key, value) VALUES ('version', ?)",
+            (str(history_db_module._CURRENT_SCHEMA_VERSION),),
+        )
+        setup_conn.commit()
+        setup_conn.close()
+
+        db = HistoryDB(db_path=db_path)
+        try:
+            assert db._init_error is None
+        finally:
+            db.close()
+
+        # No .bak file should exist (no migration ran).
+        bak_files = list(db_path.parent.glob("*.pre-migration-v*.bak"))
+        assert bak_files == [], (
+            "PI-10 regression: no pre-migration backup should be created "
+            "when the DB is already at the current schema version. "
+            f"Found: {[p.name for p in bak_files]}"
+        )
+
+
+class TestCloseWalCheckpoint:
+    """PI-11: ``close()`` must run ``PRAGMA wal_checkpoint(TRUNCATE)``
+    before sending the shutdown sentinel to the writer thread. This
+    flushes all WAL pages back to the main DB file and truncates
+    ``history.db-wal`` to zero size, so a clean shutdown leaves no
+    uncheckpointed WAL residue.
+
+    The checkpoint is best-effort: if it fails (e.g. DB busy), close()
+    proceeds anyway. Wrapped in ``contextlib.suppress(sqlite3.Error)``.
+
+    These tests pin the new behavior so a future refactor that drops
+    the close()-time checkpoint doesn't silently regress PI-11.
+    """
+
+    def test_close_runs_wal_checkpoint_truncate(self, tmp_path, monkeypatch):
+        """PI-11: close() must call self.checkpoint(truncate=True) before
+        sending the shutdown sentinel.
+
+        Strategy: monkeypatch ``checkpoint`` to record its call. After
+        close(), assert it was called exactly once with
+        ``truncate=True``.
+        """
+        from voice_typer.server.history_db import HistoryDB
+
+        db = HistoryDB(db_path=tmp_path / "wal_close.db")
+        checkpoint_calls: list[bool] = []
+        original_checkpoint = db.checkpoint
+
+        def _spy_checkpoint(truncate: bool = True) -> bool:
+            checkpoint_calls.append(truncate)
+            return original_checkpoint(truncate=truncate)
+
+        monkeypatch.setattr(db, "checkpoint", _spy_checkpoint)
+
+        db.close()
+
+        assert len(checkpoint_calls) == 1, (
+            "PI-11 regression: close() should call self.checkpoint() "
+            f"exactly once. Got {len(checkpoint_calls)} calls."
+        )
+        assert checkpoint_calls[0] is True, (
+            "PI-11 regression: close() should call self.checkpoint("
+            "truncate=True) to flush + truncate the WAL. Got "
+            f"truncate={checkpoint_calls[0]}"
+        )
+
+    def test_close_does_not_block_on_checkpoint_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """PI-11: if the checkpoint raises sqlite3.Error, close() must
+        NOT block — the suppress wrapper swallows the error and
+        proceeds to send the shutdown sentinel.
+
+        Without the suppress, a checkpoint failure (e.g. DB busy,
+        disk full) would prevent the writer thread from being shut
+        down, leaking a daemon thread and the writer's connection.
+        """
+        from voice_typer.server.history_db import HistoryDB
+
+        db = HistoryDB(db_path=tmp_path / "wal_fail.db")
+
+        def _failing_checkpoint(truncate: bool = True) -> bool:
+            import sqlite3
+
+            raise sqlite3.Error("simulated checkpoint failure")
+
+        monkeypatch.setattr(db, "checkpoint", _failing_checkpoint)
+
+        # close() must NOT raise — the sqlite3.Error is suppressed.
+        db.close()
+        # The writer thread must have exited despite the checkpoint
+        # failure (proves close() proceeded to send the sentinel).
+        assert not db._writer_thread.is_alive(), (
+            "PI-11 regression: writer thread should exit after close() "
+            "even if the pre-shutdown checkpoint fails"
+        )
+
+    def test_close_truncates_wal_file(self, tmp_path):
+        """PI-11: end-to-end — after close(), the ``-wal`` sidecar file
+        must be either absent or zero-size (TRUNCATE mode zeros it).
+
+        We insert some rows (which generate WAL pages), close, and
+        assert the WAL file is gone or empty. Pre-PI-11, the WAL file
+        could contain hundreds of KB of uncheckpointed pages after a
+        clean shutdown.
+        """
+        from voice_typer.server.history_db import HistoryDB
+
+        db_path = tmp_path / "wal_truncate.db"
+        db = HistoryDB(db_path=db_path)
+        # Insert rows to generate WAL pages.
+        for i in range(50):
+            db.add_transcription(f"entry {i} " * 20)  # ~120 bytes each
+        db.flush()
+
+        wal_path = db_path.with_name(db_path.name + "-wal")
+        # The WAL file should exist and be non-empty after the writes
+        # (before close()).
+        assert wal_path.exists(), (
+            "Pre-close: WAL file should exist after writes (WAL mode is on)"
+        )
+
+        db.close()
+
+        # After close(), the WAL file must be either absent or
+        # zero-size (TRUNCATE mode zeros it; a subsequent open may
+        # recreate it as zero-size or delete it).
+        if wal_path.exists():
+            assert wal_path.stat().st_size == 0, (
+                "PI-11 regression: WAL file should be truncated to zero "
+                f"size after close(). Size: {wal_path.stat().st_size}"
+            )

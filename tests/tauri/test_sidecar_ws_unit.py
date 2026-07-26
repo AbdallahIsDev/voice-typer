@@ -171,27 +171,72 @@ async def test_authenticate_accepts_bytes_or_str(monkeypatch):
 
 
 def _make_fake_server():
-    """Build a fake IPCServer with the attributes _make_dispatch needs."""
+    """Build a fake IPCServer with the attributes _make_dispatch needs.
+
+    RT-FIX-9 / EC-FIX-3 (2026-07-24): ``_make_dispatch`` now uses
+    ``loop.run_in_executor(server._ws_dispatch_pool, ...)`` (G4-H-30 —
+    dedicated thread pool for WS dispatch, separate from the default
+    executor). A MagicMock attribute access auto-vivifies a child
+    MagicMock, so ``getattr(server, "_ws_dispatch_pool", None)`` returns
+    a non-None MagicMock — the lazy-create branch in ``_make_dispatch``
+    is skipped, and the MagicMock is passed to
+    ``loop.run_in_executor``. ``asyncio.futures.wrap_future`` then
+    asserts the submit() return is a real ``concurrent.futures.Future``
+    and fails on the MagicMock.
+
+    Fix: explicitly set ``server._ws_dispatch_pool = None`` so the
+    lazy-create branch runs and creates a real ``ThreadPoolExecutor``
+    that ``run_in_executor`` can use. The executor is shared across
+    calls on the same server (so cleanup is the test's responsibility —
+    we let it leak at process exit, which is fine for a unit test).
+    """
     server = MagicMock()
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
+    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # ``_make_dispatch`` to run (it creates a real ThreadPoolExecutor).
+    # If we leave this unset, MagicMock auto-vivifies a child mock
+    # that fails the ``wrap_future`` isinstance assertion.
+    server._ws_dispatch_pool = None
     return server
 
 
 async def test_dispatch_shutdown_returns_ack_and_schedules_quit(monkeypatch):
-    """`{"type":"shutdown"}` → ack immediately, schedule app.quit() in background."""
+    """``{"type":"shutdown"}`` flows through ``server._dispatch`` like
+    every other command (post-EC-FIX-3).
+
+    RT-FIX-9 / EC-FIX-3 (2026-07-24): the WS path used to special-case
+    ``shutdown`` here — it acked immediately with ``{"ack": True}`` and
+    scheduled ``app.quit()`` on a background thread. EC-FIX-3 relocated
+    the shutdown handler to the shared ``_COMMAND_REGISTRY`` entry
+    ``"shutdown": "_handle_shutdown"`` (registered in ipc_server.py),
+    which delegates to ``service.quit()`` — the SAME path the TCP
+    ``quit_app`` command uses. The special-case is removed; ``shutdown``
+    now flows through ``server._dispatch`` like every other command.
+
+    This test was updated to assert the new behavior:
+    ``server._dispatch`` is called with the shutdown message, and the
+    result is whatever ``server._dispatch`` returns (in this fake, the
+    default ``{"type": "result", "data": {"ok": True}}`` return value).
+    The pre-EC-FIX-3 ack shape (``{"ack": True}``) is gone.
+    """
     sw = _import_sidecar_ws()
     server = _make_fake_server()
     dispatch = sw._make_dispatch(server)
 
-    result = await dispatch({"type": "shutdown"}, MagicMock())
+    result = await dispatch({"type": "shutdown", "data": {}}, MagicMock())
 
-    assert result == {"type": "result", "data": {"ack": True}}
-    # app.quit() is scheduled on a background thread — give it a moment
-    # to fire, then assert.
-    await asyncio.sleep(0.05)
-    server.app.quit.assert_called_once()
+    # ``shutdown`` flows through ``server._dispatch`` (no special-case
+    # ack). The fake server's _dispatch returns
+    # ``{"type": "result", "data": {"ok": True}}``.
+    assert result == {"type": "result", "data": {"ok": True}}
+    # ``server._dispatch`` MUST have been called with the shutdown
+    # message (the EC-FIX-3 relocation routes shutdown through the
+    # shared dispatch path, not a special-case branch).
+    server._dispatch.assert_called_once()
+    msg = server._dispatch.call_args[0][0]
+    assert msg["type"] == "shutdown"
 
 
 async def test_dispatch_normal_command_calls_underlying_dispatch(monkeypatch):
@@ -242,7 +287,11 @@ async def test_dispatch_dispatch_raises_returns_internal_error():
     result = await dispatch({"type": "get_status", "data": {}}, MagicMock())
 
     assert result["type"] == "error"
-    assert result["data"]["code"] == "internal_error"
+    # RT-FIX-9: error codes are now namespaced. The internal-error
+    # path emits ``server.internal_error`` (with the bare
+    # ``internal_error`` legacy form preserved in ``legacy_code`` for
+    # older clients). Accept either form for forward-compat.
+    assert result["data"]["code"] in ("server.internal_error", "internal_error")
 
 
 async def test_dispatch_rate_limit_enforced_under_burst():

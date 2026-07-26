@@ -28,7 +28,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-
 from voice_typer.server.config_validators import (
     _ALLOWED_LANGUAGES,
     _ALLOWED_LANGUAGES_SOURCE,
@@ -41,7 +40,6 @@ from voice_typer.server.config_validators import (
     validate_config,
     validate_config_update,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # XZ-14-04 — cross-field hotkey conflict check
@@ -727,3 +725,153 @@ class TestXZ1415CustomThemeCaps:
         assert err is not None
         assert "light" in err
         assert "too many keys" in err
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# PI-18 / PI-24 — cross-field cloud/LLM config validation
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestPI18CrossFieldCloudConfig:
+    """PI-18: ``_check_cross_field_cloud_config`` catches cloud/LLM
+    config inconsistencies at IPC save time (and at config-load time
+    via :func:`validate_config`) so the user doesn't discover the
+    inconsistency at transcribe time (when
+    ``cloud_engines.CloudEngine.transcribe`` raises
+    ``CloudConfigError`` — PI-17 / PI-24).
+    """
+
+    def test_cloud_url_without_key_raises(self) -> None:
+        """Setting ``cloud_api_url`` to a non-empty value while
+        ``cloud_api_key`` is empty in the same update is rejected.
+        """
+        _, errors = validate_config_update(
+            {
+                "cloud_api_url": "https://api.openai.com/v1/audio/transcriptions",
+                "cloud_api_key": "",
+            }
+        )
+        assert any("cloud_api_key" in e and "required" in e for e in errors), errors
+
+    def test_cloud_key_without_url_raises(self) -> None:
+        """Setting ``cloud_api_key`` to a non-empty value while
+        ``cloud_api_url`` is empty in the same update is rejected
+        (the cloud engine needs an explicit URL — there's no default
+        when the key is set without one).
+        """
+        _, errors = validate_config_update(
+            {
+                "cloud_api_url": "",
+                "cloud_api_key": "sk-test-key",
+            }
+        )
+        assert any("cloud_api_url" in e and "required" in e for e in errors), errors
+
+    def test_llm_polish_without_key_raises(self) -> None:
+        """Enabling ``llm_polish`` while ``llm_api_key`` is empty in
+        the same update is rejected — the polish path would silently
+        no-op (``polish()`` returns the original text when no key is
+        configured), leaving the user wondering why "polish" does
+        nothing.
+        """
+        _, errors = validate_config_update(
+            {
+                "llm_polish": True,
+                "llm_api_key": "",
+            }
+        )
+        assert any("llm_api_key" in e and "required" in e for e in errors), errors
+
+    def test_llm_polish_without_consent_raises(self) -> None:
+        """Enabling ``llm_polish`` while ``llm_polish_consent`` is
+        False in the same update is rejected — the polish path requires
+        both the master toggle AND explicit consent (PII is sent to a
+        third-party LLM endpoint).
+        """
+        _, errors = validate_config_update(
+            {
+                "llm_polish": True,
+                "llm_polish_consent": False,
+            }
+        )
+        assert any("llm_polish_consent" in e and "True" in e for e in errors), errors
+
+    def test_cloud_consent_without_key_raises(self) -> None:
+        """Setting any ``cloud_*_consent`` flag to True while
+        ``cloud_api_key`` is empty in the same update is rejected —
+        the cloud engine will refuse to send audio at transcribe time
+        (``CloudConfigError``).
+        """
+        _, errors = validate_config_update(
+            {
+                "cloud_openai_consent": True,
+                "cloud_api_key": "",
+            }
+        )
+        assert any("cloud_api_key" in e and "required" in e for e in errors), errors
+
+    def test_cloud_config_valid_when_all_fields_set(self) -> None:
+        """When all cloud/LLM fields are set consistently in the same
+        update, no cross-field error is raised — the happy path.
+        """
+        _, errors = validate_config_update(
+            {
+                "cloud_api_url": "https://api.openai.com/v1/audio/transcriptions",
+                "cloud_api_key": "sk-test-key",
+                "cloud_openai_consent": True,
+                "llm_polish": True,
+                "llm_api_key": "sk-llm-key",
+                "llm_polish_consent": True,
+            }
+        )
+        # No cross-field cloud/LLM errors. (Other errors may exist if
+        # the per-field validators reject any of these values, but the
+        # cross-field cloud-config check itself produces no errors.)
+        cloud_field_errors = [
+            e
+            for e in errors
+            if any(
+                name in e
+                for name in (
+                    "cloud_api_key",
+                    "cloud_api_url",
+                    "llm_api_key",
+                    "llm_polish_consent",
+                )
+            )
+        ]
+        assert cloud_field_errors == [], cloud_field_errors
+
+    def test_partial_update_does_not_trigger_false_positive(self) -> None:
+        """PI-18 regression guard: when the renderer pushes only ONE
+        of the two paired fields (e.g. just ``cloud_api_url`` without
+        ``cloud_api_key``), the cross-field check must NOT fire — the
+        other field may already be set in the saved config, and we
+        can't tell from the delta alone. False positives here would
+        break the common "update one field at a time" UX.
+        """
+        _, errors = validate_config_update(
+            {
+                "cloud_api_url": "https://api.openai.com/v1/audio/transcriptions",
+            }
+        )
+        assert not any("cloud_api_key" in e and "required" in e for e in errors), errors
+
+    def test_full_config_load_catches_inconsistency(self) -> None:
+        """PI-18: ``validate_config`` (full-config check) catches a
+        hand-edited ``config.json`` that sets ``llm_polish=True`` but
+        ``llm_api_key=""``. Mirrors the hotkey-load-time check pattern
+        at the same function.
+        """
+        cfg = SimpleNamespace(
+            llm_polish=True,
+            llm_api_key="",
+            llm_polish_consent=True,
+            cloud_api_key="",
+            cloud_api_url="",
+            cloud_openai_consent=False,
+            cloud_groq_consent=False,
+            cloud_deepgram_consent=False,
+        )
+        errors = validate_config(cfg)
+        assert any("llm_api_key" in e and "required" in e for e in errors), errors

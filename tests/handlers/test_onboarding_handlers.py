@@ -100,14 +100,22 @@ class TestOnboardingSetMicrophone:
     def test_missing_mic_id_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_microphone({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        # DE-36: validator now emits namespaced ``client.missing_field``.
+        # ``legacy_code`` carries the bare form for one release cycle so
+        # older renderer error-handling code that switches on the bare
+        # string keeps working until the migration completes.
+        assert resp["data"]["code"] == "client.missing_field"
+        assert resp["data"]["legacy_code"] == "missing_field"
         assert resp["data"]["field"] == "mic_id"
         fake_service.onboarding_set_microphone.assert_not_called()
 
     def test_non_string_mic_id_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_microphone({"mic_id": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # preserved in ``legacy_code``).
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["legacy_code"] == "invalid_field"
         assert resp["data"]["field"] == "mic_id"
 
     def test_service_returns_error_dict_flips_response_type_to_error(self, ipc_server, fake_service):
@@ -145,7 +153,10 @@ class TestOnboardingSetHotkey:
     def test_non_string_hotkey_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": 99}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # preserved in ``legacy_code``).
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["legacy_code"] == "invalid_field"
         assert resp["data"]["field"] == "hotkey"
 
 
@@ -167,7 +178,10 @@ class TestOnboardingSetModel:
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_model({"model": ["small"]}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # preserved in ``legacy_code``).
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["legacy_code"] == "invalid_field"
         assert resp["data"]["field"] == "model"
 
 

@@ -49,12 +49,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 
 import pytest
-
 from voice_typer.server import config as config_mod
-from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config
 
 
 @pytest.fixture(autouse=True)

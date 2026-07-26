@@ -5,7 +5,6 @@ flag, no ``VOICE_TYPER_IPC_TOKEN`` env var), the Python backend spawns
 Electron as a subprocess and passes it the connection info via env vars
 (``VT_PYTHON_PORT`` + ``VT_IPC_TOKEN``).  These tests cover:
 
-- ``is_spawned_by_electron()`` detection (3 cases)
 - ``launch_electron_frontend()`` returns a PID on success / None on failure
 - ``terminate_electron()`` kills the process (POSIX path mocked)
 - ``_ensure_single_instance`` writes a backend PID file on startup
@@ -26,32 +25,6 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server import app as app_module
 from voice_typer.server import electron_launcher
-
-# ── is_spawned_by_electron ──────────────────────────────────────────────
-
-
-class TestIsSpawnedByElectron:
-    """is_spawned_by_electron() correctly detects Electron-spawned mode."""
-
-    def test_is_spawned_by_electron_detects_port_flag(self, monkeypatch):
-        """``--port`` in sys.argv → True (Electron spawns with --port N)."""
-        monkeypatch.setattr(sys, "argv", ["voice_typer", "--port", "9876"])
-        # Clear env var to ensure only the flag triggers detection.
-        monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
-        assert electron_launcher.is_spawned_by_electron() is True
-
-    def test_is_spawned_by_electron_detects_ipc_token(self, monkeypatch):
-        """``VOICE_TYPER_IPC_TOKEN`` env var set → True."""
-        monkeypatch.setattr(sys, "argv", ["voice_typer"])  # no --port
-        monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "abc123")
-        assert electron_launcher.is_spawned_by_electron() is True
-
-    def test_is_spawned_by_electron_returns_false_standalone(self, monkeypatch):
-        """No --port and no env var → False (standalone terminal run)."""
-        monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
-        assert electron_launcher.is_spawned_by_electron() is False
-
 
 # ── launch_electron_frontend ────────────────────────────────────────────
 

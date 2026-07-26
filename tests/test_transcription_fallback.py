@@ -361,10 +361,7 @@ class TestAC3UnifiedGpuErrorKeywords:
         GPU branch's ``_reload_under_lock`` and check the probe
         completes without re-raising.
         """
-        from voice_typer.server.transcription import (
-            TranscriptionEngine,
-            _GPU_ERROR_KEYWORDS,
-        )
+        from voice_typer.server.transcription import _GPU_ERROR_KEYWORDS, TranscriptionEngine
 
         # Confirm the keyword is in the unified constant (sanity for
         # the parametrize above).
@@ -401,7 +398,6 @@ class TestAC3UnifiedGpuErrorKeywords:
         # ``log.warning("...Loaded via: %s", self.loaded_via)`` line reads
         # our stub instead of computing the real value (which would touch
         # unset instance attrs).
-        from voice_typer.server.transcription import TranscriptionEngine as _TE
 
         monkeypatch.setattr(type(engine), "loaded_via", property(lambda self: "cuda/float16/test"))
 

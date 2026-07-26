@@ -30,7 +30,6 @@ from __future__ import annotations
 import contextlib
 import os
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -47,7 +46,6 @@ from voice_typer.server import single_instance as si_mod  # noqa: E402
 # VoiceTyperApp construction + hardware mocking. Pytest discovers
 # fixtures imported into a test module's namespace.
 from tests.test_startup_sequence import app_for_startup  # noqa: E402,F401
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -84,14 +82,10 @@ def _hold_flock(lock_path):
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield fd
     finally:
-        try:
+        with contextlib.suppress(OSError):
             fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
-        try:
+        with contextlib.suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
 
 
 # ── GT-41: flock-first on stale O_EXCL ─────────────────────────────────
@@ -308,7 +302,7 @@ class TestGTA13StartupSharedBudget:
     """
 
     def test_concurrent_futures_wait_called_with_shared_timeout(
-        self, app_for_startup, monkeypatch
+        self, app_for_startup, monkeypatch  # noqa: F811 - pytest fixture injected by name (imported at module top)
     ):
         """The parallel work must call ``concurrent.futures.wait`` with
         ``timeout=10`` and a set containing BOTH futures — NOT
@@ -375,7 +369,7 @@ class TestGTA13StartupSharedBudget:
         )
         assert call["return_when"] == concurrent.futures.ALL_COMPLETED
 
-    def test_shared_budget_does_not_sum_timeouts(self, app_for_startup, monkeypatch):
+    def test_shared_budget_does_not_sum_timeouts(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
         """Behavioral test: with BOTH tasks exceeding the budget, the
         total wait time is the SINGLE budget (~0.5s, monkeypatched),
         NOT 2x the budget (~1.0s).

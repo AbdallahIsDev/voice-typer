@@ -590,8 +590,16 @@ def test_python_call_handler_registered_on_python_call_channel(
     resolves the IPC promise with the response envelope (or
     ``{_error: '...'}`` on not-connected / send-exception).
     """
-    assert 'ipcMain.handle("python-call"' in python_call_handler_source or (
-        "ipcMain.handle('python-call'" in python_call_handler_source
+    # RT-FIX-9: the `ipcMain.handle("python-call", ...)` call may span
+    # multiple lines (the handler arrow function body wraps), so a
+    # simple `in` check fails when the `(` and `"python-call"` are on
+    # different lines or separated by trailing whitespace. Use a regex
+    # that tolerates intra-line whitespace + line breaks.
+    import re as _re
+
+    assert _re.search(
+        r'ipcMain\.handle\(\s*["\']python-call["\']',
+        python_call_handler_source,
     ), "python-call-handler.ts must register the 'python-call' IPC handler via `ipcMain.handle('python-call', …)`."
     # The handler must call sendToPython (the TCP bridge) on the
     # connected path.

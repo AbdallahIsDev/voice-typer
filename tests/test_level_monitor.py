@@ -758,3 +758,217 @@ class TestXV58DroppedChunksLogging:
             )
         finally:
             lm.stop_monitoring()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# YJ-50: _test_auto_stop_timer mutation must be locked in cancel_test_recording
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestYJ50CancelTestRecordingLock:
+    """YJ-50 (review-fix-C2-rework): ``cancel_test_recording`` must
+    acquire ``_monitor_lock`` before cancelling + clearing the auto-stop
+    timer.
+
+    The original YJ-50 fix wrapped the timer-cancel block in
+    ``stop_test_recording`` but the implementer claimed it also wrapped
+    ``cancel_test_recording`` — the git diff showed only ONE of the
+    three mutation sites was actually locked. This test class pins the
+    fix so a future revert (removing the ``with _monitor_lock:`` wrap
+    in ``cancel_test_recording``) fails loudly.
+
+    Strategy: use ``unittest.mock.patch`` to wrap ``_monitor_lock.__enter__``
+    and assert it's called when ``cancel_test_recording`` runs, AND use
+    a real-lock + thread + ``threading.Event`` contention test to verify
+    the lock is actually acquired BEFORE the timer cancel happens (not
+    just that ``__enter__`` was called somewhere).
+    """
+
+    def test_cancel_test_recording_acquires_monitor_lock(self, monkeypatch):
+        """``cancel_test_recording`` must call ``_monitor_lock.__enter__``.
+
+        YJ-50: if the ``with _monitor_lock:`` wrap is removed from
+        ``cancel_test_recording``, this assertion fails because
+        ``__enter__`` is no longer called from that code path
+        (``_cancel_test_locked`` still acquires the lock itself, but
+        the timer-cancel block at the top of ``cancel_test_recording``
+        would no longer be locked — the original YJ-50 bug).
+
+        We patch ``_monitor_lock`` with a wrapper that records entry
+        count, then call ``cancel_test_recording`` and assert the
+        wrapper was entered at least once from the ``cancel_test_recording``
+        call site (not just from ``_cancel_test_locked`` which is
+        called second).
+        """
+        import voice_typer.server.level_monitor as lm
+
+        # Reset any leftover timer from prior tests.
+        lm._test_auto_stop_timer = None
+
+        # Install a fake timer so the cancel block has something to do.
+        fake_timer = MagicMock()
+        lm._test_auto_stop_timer = fake_timer
+
+        # Wrap _monitor_lock to count entries.
+        enter_calls: list[float] = []
+        real_lock = lm._monitor_lock
+
+        class _CountingLock:
+            """Proxy that records ``__enter__`` calls and delegates to
+            the real lock so behaviour is unchanged."""
+
+            def __enter__(self):
+                enter_calls.append(time.perf_counter())
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                return real_lock.__exit__(*exc)
+
+        counting_lock = _CountingLock()
+        monkeypatch.setattr(lm, "_monitor_lock", counting_lock)
+
+        # Sanity: a fresh cancel_test_recording with no test active
+        # returns the "No test running" envelope. ``_cancel_test_locked``
+        # still acquires the lock itself (and the new wrap at the top
+        # of cancel_test_recording acquires it again).
+        result = lm.cancel_test_recording()
+
+        # YJ-50 (review-fix-C2-rework): the timer cancel block at the
+        # top of cancel_test_recording must acquire the lock. With the
+        # fix, we see at least 2 entries: one for the timer-cancel
+        # block and one for _cancel_test_locked. Without the fix (the
+        # original YJ-50 bug), we'd see only 1 entry (from
+        # _cancel_test_locked).
+        assert len(enter_calls) >= 2, (
+            f"YJ-50: cancel_test_recording must acquire _monitor_lock "
+            f"for the timer-cancel block (expected >= 2 entries: one "
+            f"for the timer-cancel wrap + one for _cancel_test_locked); "
+            f"got {len(enter_calls)} entries. Did the with-lock wrap "
+            f"get removed from cancel_test_recording?"
+        )
+
+        # The timer must have been cancelled AND the global cleared.
+        assert fake_timer.cancel.called, (
+            "cancel_test_recording did not call timer.cancel() — the "
+            "auto-stop timer would leak (YJ-50 regression)."
+        )
+        assert lm._test_auto_stop_timer is None, (
+            f"cancel_test_recording did not clear _test_auto_stop_timer "
+            f"(still {lm._test_auto_stop_timer!r}) — YJ-50 regression."
+        )
+        # Sanity: the function returned a valid envelope.
+        assert isinstance(result, dict)
+        assert "success" in result
+
+    def test_cancel_test_recording_waits_for_lock_contention(self, monkeypatch):
+        """``cancel_test_recording`` must BLOCK on ``_monitor_lock`` if
+        another thread holds it (proving the lock is acquired BEFORE
+        the timer cancel, not after).
+
+        Strategy: hold ``_monitor_lock`` from a worker thread, signal
+        the main thread to call ``cancel_test_recording``, then verify
+        the main thread is still blocked. Release the lock and verify
+        the main thread proceeds (and the timer was cancelled after
+        the release, not before).
+
+        This test would FAIL if the ``with _monitor_lock:`` wrap were
+        removed from ``cancel_test_recording`` (the timer would be
+        cancelled immediately without waiting for the lock — the
+        main thread would proceed past the contention point too
+        quickly).
+        """
+        import voice_typer.server.level_monitor as lm
+
+        # Reset any leftover timer.
+        lm._test_auto_stop_timer = None
+
+        # Install a fake timer that records when it was cancelled.
+        fake_timer = MagicMock()
+        cancel_timestamps: list[float] = []
+
+        def _record_cancel():
+            cancel_timestamps.append(time.perf_counter())
+
+        fake_timer.cancel.side_effect = _record_cancel
+        lm._test_auto_stop_timer = fake_timer
+
+        # Use the REAL _monitor_lock for this test (the autouse fixture
+        # may have replaced it with a MagicMock via the previous test's
+        # monkeypatch — restore the real one).
+        real_lock = threading.Lock()
+        monkeypatch.setattr(lm, "_monitor_lock", real_lock)
+
+        # Worker thread acquires the lock and holds it until released.
+        lock_held = threading.Event()
+        release_lock = threading.Event()
+
+        def hold_lock():
+            with real_lock:
+                lock_held.set()
+                # Wait for main thread to signal it's trying to enter
+                # the lock (we'll give it a small head start below).
+                release_lock.wait(timeout=5.0)
+
+        worker = threading.Thread(target=hold_lock, daemon=True)
+        worker.start()
+        assert lock_held.wait(timeout=2.0), "worker did not acquire lock"
+
+        # Spawn a thread to call cancel_test_recording. It should BLOCK
+        # on the lock.
+        cancel_done = threading.Event()
+        cancel_result: list[dict] = []
+
+        def call_cancel():
+            cancel_result.append(lm.cancel_test_recording())
+            cancel_done.set()
+
+        cancel_thread = threading.Thread(target=call_cancel, daemon=True)
+        cancel_thread.start()
+
+        # Give cancel_thread time to reach the lock acquisition point.
+        time.sleep(0.1)
+
+        # YJ-50: cancel_test_recording must be blocked (the lock is held
+        # by the worker). If the timer-cancel wrap were removed, the
+        # timer would be cancelled immediately (without waiting for the
+        # lock) and cancel_thread would proceed past the timer-cancel
+        # block to call _cancel_test_locked (which itself blocks on the
+        # lock). Either way, the timer.cancel() must NOT have been
+        # called yet — the wrap means we acquire the lock BEFORE
+        # cancelling the timer.
+        assert not cancel_done.is_set(), (
+            "YJ-50: cancel_test_recording returned before the lock was "
+            "released — the timer-cancel block did NOT wait for "
+            "_monitor_lock (the with-lock wrap is missing)."
+        )
+        # Critical YJ-50 assertion: the timer was NOT cancelled while
+        # the lock was held by another thread. With the wrap, the timer
+        # cancel happens INSIDE the lock, so it can't happen until the
+        # worker releases the lock.
+        assert len(cancel_timestamps) == 0, (
+            f"YJ-50: timer.cancel() was called {len(cancel_timestamps)} "
+            f"time(s) BEFORE the lock was released — the timer-cancel "
+            f"block is NOT inside the with _monitor_lock: wrap (the "
+            f"original YJ-50 bug)."
+        )
+
+        # Release the lock — cancel_test_recording should now proceed.
+        release_lock.set()
+        assert cancel_done.wait(timeout=2.0), (
+            "cancel_test_recording did not return after lock release — "
+            "deadlock?"
+        )
+
+        # After lock release, the timer MUST have been cancelled exactly
+        # once (cancel_test_recording's wrap) and the global cleared.
+        # _cancel_test_locked also cancels the timer, but by then the
+        # global is None so the inner ``is not None`` guard short-circuits
+        # and cancel() is NOT called a second time.
+        assert len(cancel_timestamps) == 1, (
+            f"expected timer.cancel() to be called exactly once after "
+            f"lock release; got {len(cancel_timestamps)} calls."
+        )
+        assert lm._test_auto_stop_timer is None
+
+        worker.join(timeout=2.0)
+        cancel_thread.join(timeout=2.0)

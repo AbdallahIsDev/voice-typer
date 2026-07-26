@@ -67,7 +67,7 @@ class TestSaveVocabulary:
         """
         resp = ipc_server._handle_save_vocabulary(["not", "a", "dict"], {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         assert "data" in resp["data"]["message"]
         fake_service.save_vocabulary_with_diff.assert_not_called()
 

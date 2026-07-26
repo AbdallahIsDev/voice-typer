@@ -46,7 +46,7 @@ sys.modules.setdefault("pyperclip", MagicMock())
 # ===========================================================================
 
 
-def _make_vocab(tmp_path) -> "object":
+def _make_vocab(tmp_path) -> object:
     """Build a VocabularyManager with no bundled corrections.
 
     ``bundled_path`` points at a non-existent file so the merge starts
@@ -235,10 +235,10 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
     block that removes it, so the entry (holding ``self``, the
     snapshot, and the dictated text) leaked for the process lifetime.
     """
+    import voice_typer.server.clipboard.manager as mgr_mod
     from voice_typer.server import clipboard as clip_mod
     from voice_typer.server.clipboard import ClipboardManager
     from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
-    import voice_typer.server.clipboard.manager as mgr_mod
 
     cm = _make_cm()
     snap = ClipboardSnapshot(
@@ -297,10 +297,10 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
 def test_pending_restores_no_leak_warning_logged() -> None:
     """ER-72: a failed ``Thread().start()`` logs a WARNING so the
     operator can diagnose the resource starvation."""
+    import voice_typer.server.clipboard.manager as mgr_mod
     from voice_typer.server import clipboard as clip_mod
     from voice_typer.server.clipboard import ClipboardManager
     from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
-    import voice_typer.server.clipboard.manager as mgr_mod
 
     cm = _make_cm()
     snap = ClipboardSnapshot(
@@ -332,9 +332,16 @@ def test_pending_restores_no_leak_warning_logged() -> None:
         exits.append(p)
     try:
         mock_log = MagicMock()
+        # ``manager.py`` has its OWN ``log = logging.getLogger(...)`` at
+        # module level (it does NOT import ``log`` from ``clipboard``),
+        # so patching ``clip_mod.log`` alone is insufficient — the
+        # warning is emitted from ``manager._paste_delayed_restore``
+        # via the manager-module-local ``log`` reference. Patch both
+        # so the call is intercepted regardless of which reference
+        # the production code uses.
         with patch.object(clip_mod, "log", mock_log), patch.object(
-            mgr_mod.threading, "Thread", FakeThread
-        ):
+            mgr_mod, "log", mock_log
+        ), patch.object(mgr_mod.threading, "Thread", FakeThread):
             cm.paste(snapshot=snap, pasted_text="text")
     finally:
         for p in reversed(exits):

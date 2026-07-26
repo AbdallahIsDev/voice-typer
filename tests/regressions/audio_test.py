@@ -1018,7 +1018,7 @@ class TestDynamicSampleRateResolution:
                 "default_samplerate": 48000,
                 "max_input_channels": 1,
             }
-            result = rec._resolve_effective_sample_rate()
+            result = rec._resolve_effective_sample_rate(None)
             # The method must return a (sample_rate, device_info_dict) tuple.
             assert result is not None, (
                 "AUDIO-016: _resolve_effective_sample_rate() returned None — "

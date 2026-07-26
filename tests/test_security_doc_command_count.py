@@ -139,17 +139,63 @@ def _documented_count() -> int | None:
 
 
 def test_security_md_allowlist_count_matches_source() -> None:
+    """SECURITY.md must document the IPC allowlist count accurately.
+
+    YJ-10 + YJ-FIX-A2 reconciliation note (session YJ, Group 5):
+
+    This test was temporarily downgraded to a soft-warn in YJ-FIX-A because
+    no agent in that wave owned ``SECURITY.md`` (a docs file outside the
+    fix-subagents' file scope), so the doc was stale: it still documented
+    76 commands while the TS renderer source had 59 (GT-32 had removed 17
+    stale entries, and YJ-10 reconciled the Rust allowlist to match). The
+    soft-warn surfaced the drift in CI logs without blocking the build.
+
+    YJ-FIX-A2 (this session) updated ``SECURITY.md`` to reflect the
+    current 59-entry renderer allowlist AND the actual 78-handler
+    ``_COMMAND_REGISTRY`` count (19 of those 78 handlers are intentionally
+    absent from the renderer allowlist — ``tray_click``, ``shutdown``, and
+    the 17 GT-32-removed commands). With ``SECURITY.md`` now accurate, the
+    strict ``assert documented == actual`` is restored below as the
+    regression guard, so any future drift between ``SECURITY.md`` and the
+    renderer allowlist is caught hard at CI time.
+
+    The YJ-10 Rust ↔ TS count parity invariant is also asserted here
+    (duplicated from ``test_rust_allowlist_matches_ts_allowlist_count``)
+    so this test stays useful as a parity guard.
+    """
     actual = _count_allowed_commands()
+    # YJ-10 invariant: Rust ↔ TS allowlist count MUST match. This is
+    # the regression-guard portion of the test (the YJ-10 fix's primary
+    # contract). Already enforced separately by
+    # `test_rust_allowlist_matches_ts_allowlist_count`, but duplicated
+    # here so this test stays useful as a parity guard.
+    rust_count = len(_allowed_commands_rust())
+    assert rust_count == actual, (
+        f"Rust ALLOWED_COMMANDS has {rust_count} entries but the TS "
+        f"renderer source defines {actual}. YJ-10 parity broken — "
+        f"update both files in the same PR."
+    )
+
     documented = _documented_count()
     assert documented is not None, (
         "SECURITY.md no longer documents the ALLOWED_COMMANDS count in a "
         "parseable form (expected: 'only the N commands listed in "
         "ALLOWED_COMMANDS')."
     )
+    # YJ-FIX-A2: strict regression guard restored. SECURITY.md was updated
+    # in this same fix wave to document 59 entries (matching the
+    # `allowed-commands.ts` count after GT-32's 17-command prune +
+    # YJ-10's Rust reconciliation). If this assertion fires, either
+    # SECURITY.md drifted (a contributor added/removed a command in the
+    # renderer allowlist without updating the doc) or the parser in
+    # `_documented_count` needs updating because the prose shape changed.
     assert documented == actual, (
         f"SECURITY.md documents {documented} ALLOWED_COMMANDS but the "
-        f"renderer source defines {actual}. Update SECURITY.md and this "
-        f"assertion together (d-review Finding 5)."
+        f"renderer source defines {actual}. SECURITY.md is stale — "
+        f"update the count in the 'Command Allowlist (SEC-019)' section "
+        f"(and the surrounding prose about the Python `_COMMAND_REGISTRY` "
+        f"handler count, which is now {len(_allowed_commands_rust())} "
+        f"Rust entries ↔ {actual} TS entries ↔ 78 Python handlers)."
     )
 
 

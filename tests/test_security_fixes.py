@@ -1181,14 +1181,29 @@ class TestG4M55ExtendUrlAllowlistAuditLog:
         finally:
             _secrets._user_extensions.discard("auto-caller.example.com")
 
-    def test_warning_emitted_even_for_empty_input(self, caplog):
-        """G4-M-55: even a no-op call (empty hosts iterable) emits a
-        WARNING — operators want to see every attempt to extend the
-        allowlist, including no-ops."""
-        with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+    def test_info_emitted_for_empty_input(self, caplog):
+        """YJ-44: a no-op call (empty hosts iterable) emits an INFO
+        audit record — not a WARNING. WARNING is reserved for the
+        security-relevant case (actual hosts being added). The no-op
+        case is still audited (so operators can trace every attempt to
+        extend the allowlist) but demoted to INFO to avoid WARNING
+        spam when callers pass an empty iterable defensively."""
+        with caplog.at_level("INFO", logger="voice_typer.server._secrets"):
             extend_url_allowlist([], caller="test-empty-input")
-        assert any("[URL-Allowlist]" in r.message for r in caplog.records), (
-            "even a no-op extend_url_allowlist call must emit a WARNING"
+        # An INFO record with the URL-Allowlist tag must be emitted.
+        assert any(
+            "[URL-Allowlist]" in r.message and r.levelname == "INFO"
+            for r in caplog.records
+        ), (
+            "a no-op extend_url_allowlist call must emit an INFO audit record"
+        )
+        # And NO WARNING record should be emitted for the no-op case.
+        assert not any(
+            r.levelname == "WARNING" and "[URL-Allowlist]" in r.message
+            for r in caplog.records
+        ), (
+            "a no-op extend_url_allowlist call must NOT emit a WARNING "
+            "(YJ-44: WARNING reserved for actual host additions)"
         )
 
 

@@ -312,6 +312,111 @@ class TestVocabularyImportValidation:
         assert dropped == 3
 
 
+# ─── PI-8 regression tests ────────────────────────────────────────────────
+
+
+class TestVocabularyBackupAndQuarantine:
+    """PI-8: vocabulary.py now routes persistence through PersistedJSON,
+    which provides single-slot .bak before overwrite + corrupt-file
+    quarantine on load failure. These tests pin the new behavior so a
+    future refactor that drops the helper (or replaces it with a
+    bare _secure_atomic_write) doesn't silently regress PI-8."""
+
+    def test_vocabulary_creates_bak_on_overwrite(self, vocab_dir, bundled):
+        """PI-8: save vocab A, save vocab B, assert .bak file contains A.
+
+        The .bak is single-slot: each save overwrites the previous .bak
+        (so re-saves don't accumulate backup files). The .bak holds the
+        PREVIOUS content, byte-for-byte, so the user can recover their
+        last good state if a save turns out to be wrong.
+        """
+        from voice_typer.server.vocabulary import VOCAB_FILENAME, VocabularyManager
+
+        user_file = vocab_dir / VOCAB_FILENAME
+        bak_file = vocab_dir / f"{VOCAB_FILENAME}.bak"
+
+        # Save vocab A: an entry "teh" -> "the".
+        vm1 = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
+        vm1.add_entry("misspellings", "teh", "the")
+        vm1.add_entry("misspellings", "recieve", "receive")
+        del vm1
+
+        content_a = user_file.read_text(encoding="utf-8")
+        assert '"teh"' in content_a
+        # No .bak yet — first save has nothing to back up.
+        assert not bak_file.exists()
+
+        # Save vocab B: a different entry "whitespace" -> "white space".
+        vm2 = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
+        vm2.add_entry("misspellings", "whitespace", "white space")
+        del vm2
+
+        content_b = user_file.read_text(encoding="utf-8")
+        assert '"whitespace"' in content_b
+        # The .bak must now exist and contain vocab A's content
+        # (byte-for-byte), so the user can recover their previous
+        # state if vocab B turns out to be wrong.
+        assert bak_file.exists(), (
+            "PI-8 regression: .bak file should exist after the second "
+            "save overwrites the first"
+        )
+        bak_content = bak_file.read_text(encoding="utf-8")
+        assert bak_content == content_a, (
+            "PI-8 regression: .bak file should contain the PREVIOUS "
+            "vocab content (byte-for-byte), not the new content"
+        )
+        assert '"teh"' in bak_content
+        assert '"whitespace"' not in bak_content
+
+    def test_vocabulary_quarantines_corrupt_file(self, vocab_dir, bundled):
+        """PI-8: write corrupt JSON to the vocab file, call load, assert
+        the file is moved to .corrupt-<ts> and load returns the default
+        (empty user vocab — bundled still loads).
+
+        Without quarantine, the next save would atomically overwrite the
+        corrupt file with the in-memory defaults, destroying any chance
+        of forensic recovery. Quarantine preserves the corrupt file at
+        ``<path>.corrupt-<timestamp>`` so the user can inspect what
+        truncation pattern led to the parse failure.
+        """
+        from voice_typer.server.vocabulary import VOCAB_FILENAME, VocabularyManager
+
+        user_file = vocab_dir / VOCAB_FILENAME
+        # Write corrupt JSON to the user vocab file.
+        corrupt_payload = '{"misspellings": {"teh": "the", broken'
+        user_file.write_text(corrupt_payload, encoding="utf-8")
+        assert user_file.exists()
+
+        # Construct a VocabularyManager — this calls _load_user which
+        # must detect the corrupt JSON, quarantine it, and fall back
+        # to the default (empty user vocab). Bundled corrections still
+        # load normally (they're a separate file).
+        vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
+
+        # The corrupt file must have been renamed to .corrupt-<ts>.
+        assert not user_file.exists(), (
+            "PI-8 regression: corrupt vocab file should have been "
+            "renamed (quarantined), not left in place"
+        )
+        corrupt_files = list(vocab_dir.glob(f"{VOCAB_FILENAME}.corrupt-*"))
+        assert len(corrupt_files) == 1, (
+            f"PI-8 regression: expected exactly one .corrupt-<ts> file, "
+            f"got {corrupt_files}"
+        )
+        # The quarantined file must contain the original corrupt payload
+        # (byte-for-byte) so the user can inspect what went wrong.
+        assert corrupt_files[0].read_text(encoding="utf-8") == corrupt_payload
+
+        # Load must have returned the default (empty user vocab). The
+        # bundled misspellings ("teh" -> "the") still load.
+        miss = vm.get_category("misspellings")
+        assert isinstance(miss, dict)
+        assert "teh" in miss  # bundled
+        # No user "broken" key leaked through.
+        assert "broken" not in miss
+
+
+
 class TestTemplatesEnforcesCaps:
     """G4-M-38: templates.add() and templates.import_json() must enforce
     MAX_TEMPLATES, MAX_TRIGGER_LENGTH, MAX_OUTPUT_LENGTH caps."""

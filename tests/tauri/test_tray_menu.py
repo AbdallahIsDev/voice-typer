@@ -246,7 +246,13 @@ def test_tray_click_unknown_id_returns_error(monkeypatch):
         result = server._dispatch({"type": "tray_click", "data": {"id": "nope"}})
 
         assert result["type"] == "error"
-        assert result["data"]["code"] == "unknown_tray_item"
+        # RT-FIX-9: error codes are now namespaced. Accept either the
+        # namespaced ``server.unknown_tray_item`` form or the bare
+        # legacy ``unknown_tray_item`` form for forward-compat.
+        assert result["data"]["code"] in (
+            "server.unknown_tray_item",
+            "unknown_tray_item",
+        )
         assert result["data"]["id"] == "nope"
     finally:
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
@@ -263,7 +269,15 @@ def test_tray_click_missing_id_returns_error():
     result = server._dispatch({"type": "tray_click", "data": {}})
 
     assert result["type"] == "error"
-    assert result["data"]["code"] in ("missing_field", "invalid_payload")
+    # RT-FIX-9: error codes are now namespaced. Accept either the
+    # namespaced form (``client.missing_field`` / ``client.invalid_payload``)
+    # or the bare legacy form for forward-compat.
+    assert result["data"]["code"] in (
+        "missing_field",
+        "invalid_payload",
+        "client.missing_field",
+        "client.invalid_payload",
+    )
 
 
 # ─── S1-CR-6: tray_menu + tray_state publish wiring ──────────────────────

@@ -25,6 +25,7 @@ unavailable, the helper logs a WARNING (once) and returns ``False``
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -202,8 +203,14 @@ class TestIsPasswordFieldLinux:
         ]
         assert len(debug_calls) >= 1
 
-    def test_returns_false_when_pyatspi_raises_on_get_desktop(self):
-        """If pyatspi.Registry.getDesktop raises, fail open (return False)."""
+    def test_returns_true_when_pyatspi_raises_on_get_desktop(self):
+        """If pyatspi.Registry.getDesktop raises, fail closed (return True).
+
+        EC-15: when the AT-SPI2 desktop bus is unavailable, we cannot
+        traverse the accessibility tree to verify the focused element
+        is not a password field. Failing closed (blocking paste) is
+        safer than allowing paste into a potentially-sensitive field.
+        """
         fake = _make_fake_pyatspi(focused_role=1 << 11)
 
         # Override getDesktop to raise.
@@ -213,7 +220,7 @@ class TestIsPasswordFieldLinux:
         fake.Registry.getDesktop = staticmethod(_raise)
         with patch.dict(sys.modules, {"pyatspi": fake}), patch.object(clip_mod, "log"):
             result = safety_mod._is_password_field_linux()
-        assert result is False
+        assert result is True
 
 
 # ===========================================================================
@@ -365,8 +372,15 @@ class TestIsPasswordFieldMacOS:
             result = safety_mod._is_password_field_macos()
         assert result is False
 
-    def test_returns_false_when_ax_call_raises(self):
-        """If AXUIElementCopyAttributeValue raises, fail open (return False)."""
+    def test_returns_true_when_ax_call_raises(self):
+        """If AXUIElementCopyAttributeValue raises, fail closed (return True).
+
+        EC-15: when the AX API call itself raises (e.g. broken
+        accessibility permission), we cannot verify the focused
+        element is not a password field. Failing closed (blocking
+        paste) is safer than allowing paste into a potentially-
+        sensitive field.
+        """
         fakes = _make_fake_pyobjc(role="AXSecureTextField")
 
         def _raise(*args, **kwargs):
@@ -378,7 +392,7 @@ class TestIsPasswordFieldMacOS:
             patch.object(clip_mod, "log"),
         ):
             result = safety_mod._is_password_field_macos()
-        assert result is False
+        assert result is True
 
 
 # ===========================================================================
@@ -494,10 +508,8 @@ class TestSignalHandlerRegistration:
                 ):
                     # The handler should run _force_restore_pending_at_exit
                     # then call os.kill (patched to noop). Should not raise.
-                    try:
+                    with contextlib.suppress(SystemExit):
                         clip_mod._signal_restore_handler(signal_mod.SIGTERM, None)
-                    except SystemExit:
-                        pass  # the re-raise fallback path; acceptable
         mock_force.assert_called_once()
         # os.kill was called with our PID and the signum.
         if mock_kill.called:

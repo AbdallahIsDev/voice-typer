@@ -310,11 +310,28 @@ class TestPttWiring:
     def test_dispatcher_sets_on_release_in_ptt_mode(self):
         """When recording_mode is 'push_to_talk', the dispatcher must
         call ``set_on_release(app._stop_dictation)``.
+
+        The PTT wiring lives in ``_create_and_start_main_backend`` (a
+        helper extracted from ``register`` for the atomic-swap
+        refactor, CR-15). Both methods' source is inspected so a
+        future refactor that moves the wiring again doesn't break this
+        regression guard.
         """
-        source = inspect.getsource(HotkeyDispatcher.register)
-        assert "set_on_release" in source, "HotkeyDispatcher.register must call set_on_release for PTT mode"
-        assert "push_to_talk" in source, "HotkeyDispatcher.register must check recording_mode == 'push_to_talk'"
-        assert "_stop_dictation" in source, "HotkeyDispatcher.register must wire set_on_release to app._stop_dictation"
+        register_src = inspect.getsource(HotkeyDispatcher.register)
+        helper_src = inspect.getsource(HotkeyDispatcher._create_and_start_main_backend)
+        combined_src = register_src + "\n" + helper_src
+        assert "set_on_release" in combined_src, (
+            "HotkeyDispatcher must call set_on_release for PTT mode "
+            "(in register or _create_and_start_main_backend)"
+        )
+        assert "push_to_talk" in combined_src, (
+            "HotkeyDispatcher must check recording_mode == 'push_to_talk' "
+            "(in register or _create_and_start_main_backend)"
+        )
+        assert "_stop_dictation" in combined_src, (
+            "HotkeyDispatcher must wire set_on_release to app._stop_dictation "
+            "(in register or _create_and_start_main_backend)"
+        )
 
     def test_win32_backend_fires_on_release_on_key_up(self):
         """The Win32 polling backend must detect key-up transitions and
@@ -503,37 +520,86 @@ class TestServiceTestMethod:
 
 
 class TestDispatchesTestLlmConnection:
-    """NEW-DEAD-015: the IPC dispatcher must route test_llm_connection."""
+    """ZR-45: ``test_llm_connection`` was REMOVED from ``_COMMAND_REGISTRY``.
 
-    def test_ipc_dispatches_test_llm_connection(self, server_with_mock_app):
-        """``_dispatch({'type': 'test_llm_connection'})`` must call
-        ``service.test_llm_connection()`` and return the result.
+    Previously (NEW-DEAD-015) this class asserted that the IPC
+    dispatcher routed ``test_llm_connection`` to the service-layer
+    method. ZR-45 removed the command from ``_COMMAND_REGISTRY`` (and
+    from the renderer allowlist) because the renderer no longer
+    invokes it — the "Test connection" affordance was removed from the
+    Models page UI in favour of the cloud-provider probe in
+    ``CloudProvidersPanel``. The service-layer method
+    ``service.test_llm_connection`` still exists (it's called by other
+    service methods), but the IPC dispatch route is gone.
+
+    The tests below are INVERTED — they now assert the command is NOT
+    in the registry (regression guard against a silent re-add without
+    an ADR-0020 §16 addendum + renderer allowlist update).
+    """
+
+    def test_ipc_does_not_dispatch_test_llm_connection(self, server_with_mock_app):
+        """``_dispatch({'type': 'test_llm_connection'})`` must NOT call
+        ``service.test_llm_connection()`` — ZR-45 removed the route.
+
+        The dispatch should hit ``_handle_unknown_command`` and return
+        an ``error`` envelope with the ``server.unknown_command`` code
+        (per ``ipc_server._handle_unknown_command``).
         """
         srv = server_with_mock_app
         srv.service.test_llm_connection = MagicMock(return_value={"success": True, "message": "Connected"})
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
-        srv.service.test_llm_connection.assert_called_once()
-        assert result["type"] == "test_llm_connection_result"
-        assert result["data"] == {"success": True, "message": "Connected"}
+        # ZR-45: the service method MUST NOT be invoked — there is no
+        # dispatch route to it.
+        srv.service.test_llm_connection.assert_not_called()
+        assert result["type"] == "error", (
+            "ZR-45: `test_llm_connection` was removed from _COMMAND_REGISTRY; "
+            "dispatch must return an error envelope, not a result. If the "
+            "command was intentionally re-added, update _COMMAND_REGISTRY + "
+            "the renderer allowlist + this test together."
+        )
+        # ERR-009 / EC-FIX-2: the error envelope carries a structured
+        # ``code`` field; ``server.unknown_command`` is the canonical
+        # code for an unregistered command.
+        assert result["data"].get("code") == "server.unknown_command", (
+            "ZR-45: the error envelope should carry the `server.unknown_command` "
+            f"code; got {result['data'].get('code')!r}"
+        )
 
-    def test_ipc_handles_service_exception(self, server_with_mock_app):
-        """When the service raises, the IPC route must return an error."""
+    def test_ipc_handles_service_exception_when_command_not_registered(
+        self, server_with_mock_app
+    ):
+        """ZR-45: the prior test_ipc_handles_service_exception asserted
+        that a service-raising ``test_llm_connection`` surfaced as an
+        IPC error envelope. With the route removed, the service is
+        never invoked, so the "service raises" path is unreachable for
+        this command. This test now asserts the command is simply not
+        registered (the dispatch returns the unknown-command error
+        WITHOUT calling the service, regardless of whether the service
+        would have raised).
+        """
         srv = server_with_mock_app
+        # Even if the service method WOULD raise, the dispatch must not
+        # call it because the route is gone.
         srv.service.test_llm_connection = MagicMock(side_effect=RuntimeError("boom"))
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
+        srv.service.test_llm_connection.assert_not_called()
         assert result["type"] == "error"
-        assert "boom" in result["data"]["message"]
+        # The error is the unknown-command envelope, NOT the "boom"
+        # propagation (the service was never called).
+        assert "boom" not in result["data"].get("message", "")
+        assert result["data"].get("code") == "server.unknown_command"
 
 
 class TestRendererAllowlist:
-    """NEW-DEAD-015: the Electron main process allowlist must include
-    test_llm_connection so the renderer can invoke it."""
+    """ZR-45: the Electron main process allowlist must NOT include
+    ``test_llm_connection`` — the IPC command was removed from
+    ``_COMMAND_REGISTRY`` and the renderer no longer invokes it."""
 
-    def test_allowlist_includes_test_llm_connection(self):
+    def test_allowlist_does_not_include_test_llm_connection(self):
         from pathlib import Path
 
         # WR-14: allowlist moved from index.ts to allowed-commands.ts per CR-063.
@@ -546,8 +612,21 @@ class TestRendererAllowlist:
             / "allowed-commands.ts"
         )
         source = main_ts.read_text(encoding="utf-8")
-        assert '"test_llm_connection"' in source, (
-            "Electron main process ALLOWED_COMMANDS must include 'test_llm_connection' so the renderer can invoke it"
+        # ZR-45: the literal must NOT appear inside the
+        # ``ALLOWED_COMMANDS = new Set<string>([...])`` block. We
+        # tolerate the name appearing in comments (e.g. the GT-32
+        # stale-entry-removal note), so the check is scoped to the
+        # Set block specifically.
+        set_start = source.find("ALLOWED_COMMANDS = new Set")
+        assert set_start != -1, "ALLOWED_COMMANDS = new Set block not found"
+        set_end = source.find("]);", set_start)
+        assert set_end != -1, "ALLOWED_COMMANDS = new Set block end not found"
+        set_block = source[set_start:set_end]
+        assert '"test_llm_connection"' not in set_block, (
+            "ZR-45: `test_llm_connection` was removed from _COMMAND_REGISTRY; "
+            "the renderer ALLOWED_COMMANDS Set must NOT include it. If the "
+            "command was intentionally re-added to _COMMAND_REGISTRY, update "
+            "the allowlist + this test together."
         )
 
 

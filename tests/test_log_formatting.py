@@ -38,7 +38,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from voice_typer.server.log import (
     _BubbleLevelExclusionFilter,
     _ColorFormatter,
@@ -51,7 +50,6 @@ from voice_typer.server.log import (
     set_module_level,
     setup_logging,
 )
-
 
 # ─── Test isolation ────────────────────────────────────────────────────────
 

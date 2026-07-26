@@ -940,10 +940,37 @@ class TestAudioWorkerThreadLifecycle:
         """RT-SAFE-001: the worker thread (_process_audio_chunk) must
         contain the heavy processing pipeline that was previously in the
         audio callback. This is a source-inspection test that pins the
-        architecture: the heavy work must be on the worker thread."""
+        architecture: the heavy work must be on the worker thread.
+
+        ZR-60: the heavy-pipeline call sites were extracted from
+        ``_process_audio_chunk`` into named helpers
+        (``_apply_filter_chain`` / ``_run_silero_vad`` / etc.) which
+        the orchestrator delegates to. All of these helpers run on the
+        same worker thread as the orchestrator (they're called
+        synchronously from ``_process_audio_chunk``), so the
+        architecture is preserved. The source-inspection check now
+        aggregates the orchestrator + the four helpers that own the
+        heavy operations.
+        """
         from voice_typer.server import recording
 
         worker_src = inspect.getsource(recording.Recorder._process_audio_chunk)
+        # ZR-60: aggregate the helper sources so the source-inspection
+        # checks still find the heavy-pipeline call sites after the
+        # split. All helpers are called synchronously from the
+        # orchestrator on the same worker thread.
+        worker_src += "\n" + inspect.getsource(
+            recording.Recorder._apply_filter_chain
+        )
+        worker_src += "\n" + inspect.getsource(
+            recording.Recorder._run_silero_vad
+        )
+        worker_src += "\n" + inspect.getsource(
+            recording.Recorder._compute_rms_and_peak
+        )
+        worker_src += "\n" + inspect.getsource(
+            recording.Recorder._update_silence_state_machine
+        )
         # The worker thread MUST run these heavy operations
         assert "compute_vad_prob" in worker_src, "RT-SAFE-001: Silero VAD must run on the worker thread"
         assert "_get_resample_poly" in worker_src, "RT-SAFE-001: scipy resample must run on the worker thread"

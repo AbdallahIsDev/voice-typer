@@ -48,11 +48,8 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
-from unittest.mock import MagicMock
 
 import pytest
-
 
 # ────────────────────────────────────────────────────────────────────────────
 # DE-38: _scrub_traceback + _respond_with_error log scrubbing
@@ -242,7 +239,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
 
     def test_newline_in_title_is_rejected(self, ipc_server):
@@ -252,7 +249,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
 
     def test_terminal_bell_in_message_is_rejected(self, ipc_server):
@@ -262,7 +259,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "message"
 
     def test_rtl_override_in_title_is_rejected(self, ipc_server):
@@ -278,7 +275,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
 
     def test_zero_width_joiner_in_message_is_rejected(self, ipc_server):
@@ -288,7 +285,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "message"
 
     def test_bom_in_title_is_rejected(self, ipc_server):
@@ -298,7 +295,7 @@ class TestDE42ControlCharRejection:
             {},
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
 
     def test_tab_in_message_is_accepted(self, ipc_server):
@@ -363,7 +360,7 @@ class TestDE43GetStatusValidation:
         """
         resp = ipc_server._handle_get_status(["not", "a", "dict"], {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.get_status.assert_not_called()
 
     def test_string_payload_returns_invalid_payload_error(
@@ -372,7 +369,7 @@ class TestDE43GetStatusValidation:
         """A string ``data`` → ``code: invalid_payload``."""
         resp = ipc_server._handle_get_status("not-a-dict", {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
 
     def test_none_payload_is_coerced_to_empty_dict(
         self, ipc_server, fake_service
@@ -416,7 +413,7 @@ class TestDE44RestoreHistoryPayloadCap:
         record = {"id": 1, "text": oversized_text}
         resp = ipc_server._handle_restore_history({"record": record}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "payload_too_large"
+        assert resp["data"]["code"] == "client.payload_too_large"
         assert resp["data"]["field"] == "record.text"
         fake_service.restore_history.assert_not_called()
 
@@ -439,7 +436,7 @@ class TestDE44RestoreHistoryPayloadCap:
         record = {"id": 1, "text": "ok", "blob": giant_blob}
         resp = ipc_server._handle_restore_history({"record": record}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.restore_history.assert_not_called()
 
     def test_text_at_exactly_8192_chars_is_accepted(
@@ -580,7 +577,7 @@ class TestDE45DurationClampRange:
             {"duration": ["not", "a", "number"]}, {}
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "duration"
         fake_service.microphone_test_start.assert_not_called()
 
@@ -611,7 +608,7 @@ class TestDE46RunPrewarmNoStrEcho:
         )
         resp = ipc_server._handle_run_prewarm({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "handler_error"
+        assert resp["data"]["code"] == "server.handler_error"
         assert resp["data"]["message"] == "Failed to start prewarm"
         # The leaky path must NOT appear in the renderer-facing message.
         assert "leaked_username" not in resp["data"]["message"], (
@@ -632,7 +629,7 @@ class TestDE46RunPrewarmNoStrEcho:
         )
         resp = ipc_server._handle_run_prewarm({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "not_found"
+        assert resp["data"]["code"] == "server.not_found"
         assert resp["data"]["message"] == "Python interpreter not found"
         assert "leaked_username" not in resp["data"]["message"]
         assert leaky_path not in resp["data"]["message"]
@@ -668,7 +665,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
 
         resp = ipc_server._handle_open_prewarm_log({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "handler_error"
+        assert resp["data"]["code"] == "server.handler_error"
         assert resp["data"]["message"] == "Failed to open log"
         assert "leaked_username" not in resp["data"]["message"]
         assert leaky_path not in resp["data"]["message"]
@@ -698,7 +695,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
 
         resp = ipc_server._handle_open_prewarm_log({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "not_found"
+        assert resp["data"]["code"] == "server.not_found"
         assert resp["data"]["message"] == "No editor available to open the log"
         assert "leaked_username" not in resp["data"]["message"]
         assert leaky_path not in resp["data"]["message"]

@@ -857,15 +857,15 @@ def test_known_gap_prewarm_check_is_stub(prewarm_text: str):
     This test ASSERTS the gap is present. DO NOT fix this gap as part
     of MIG-1.7 gate check 1 — report it to the primary agent.
     """
-    # The prewarm --check path exits 0 without importing anything.
-    assert "import nuitka" not in prewarm_text, (
-        "build_prewarm_linux.sh --check now actually verifies the toolchain "
-        "— update this test to assert PRESENCE instead of absence, and "
-        "remove GAP-3 from the module docstring."
+    # WR-18 fixed the stub: --check now delegates to build_sidecar_linux.sh --check
+    # instead of just echoing "OK if that passes" and exiting 0.
+    assert "build_sidecar_linux.sh" in prewarm_text and "--check" in prewarm_text, (
+        "build_prewarm_linux.sh --check must delegate to build_sidecar_linux.sh --check "
+        "so the prewarm build env is actually verified (WR-18 fixed the stub)."
     )
-    assert "same toolchain as build_sidecar_linux" in prewarm_text or ("OK if that passes" in prewarm_text), (
-        "build_prewarm_linux.sh --check must still be the stub that "
-        "delegates to build_sidecar_linux (GAP-3 expected pattern)."
+    assert "import nuitka" not in prewarm_text, (
+        "build_prewarm_linux.sh --check should delegate (not independently import nuitka) "
+        "— the sidecar check covers the shared Nuitka toolchain."
     )
 
 

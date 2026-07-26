@@ -119,6 +119,17 @@ class TestDuplicateDiskSpaceCheckRemoved:
         # disk-space check. Mock ``_check_disk_space_for_download`` to
         # raise ``RuntimeError`` so the function short-circuits after
         # the check (no actual download attempt).
+        #
+        # DE-58 / G4-H-04: ``download_parakeet_weights`` now enforces a
+        # defense-in-depth HuggingFace consent gate. ``config=None``
+        # (the default) is treated as "consent NOT given" (GDPR Art.
+        # 6/13 safe default), so a bare ``download_parakeet_weights()``
+        # call returns ``(False, "huggingface_consent_false", None)``
+        # before reaching the disk-space check. We pass ``force=True``
+        # to bypass the consent gate — this test isn't exercising
+        # consent, it's exercising the disk-space delegation path.
+        # ``force=True`` is the documented escape hatch for legacy /
+        # test paths that have verified consent upstream.
         with (
             patch(
                 "huggingface_hub.snapshot_download",
@@ -129,12 +140,24 @@ class TestDuplicateDiskSpaceCheckRemoved:
                 side_effect=RuntimeError("insufficient space"),
             ) as mock_check,
         ):
-            result = asr_setup.download_parakeet_weights()
+            result = asr_setup.download_parakeet_weights(force=True)
 
-        # The function returns False on insufficient space.
-        assert result is False, (
-            "PROD-005: download_parakeet_weights should return False when "
-            "the canonical disk-space check raises RuntimeError."
+        # G4-M-46: the function returns a 3-tuple
+        # ``(success, reason, exc_info)``. On insufficient space,
+        # ``success`` is False and ``reason`` is
+        # ``"disk_space_insufficient"``.
+        assert isinstance(result, tuple) and len(result) == 3, (
+            "PROD-005 / G4-M-46: download_parakeet_weights must return a "
+            "3-tuple (success, reason, exc_info)."
+        )
+        assert result[0] is False, (
+            "PROD-005: download_parakeet_weights should return success=False "
+            "when the canonical disk-space check raises RuntimeError."
+        )
+        assert result[1] == "disk_space_insufficient", (
+            "PROD-005: download_parakeet_weights should return "
+            "reason='disk_space_insufficient' when the canonical disk-space "
+            f"check raises RuntimeError. Got reason={result[1]!r}."
         )
         # The canonical check must have been invoked.
         assert mock_check.call_count == 1, (

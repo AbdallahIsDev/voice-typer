@@ -12,7 +12,21 @@ following personal-data artifacts are NOT deletable today:
 - ``templates.json`` (user templates — PII).
 - ``mic-test-*.wav`` (mic-test recordings — voice biometric data).
 - ``voice-typer.log`` (log file — PII redacted but still personal).
-- ``crash-*.dmp`` (crash dumps — may contain memory snapshots).
+- ``voice-typer.log.1`` .. ``voice-typer.log.5`` (rotated log backups
+  — PI-4: produced by ``RotatingFileHandler(backupCount=5)`` in
+  ``voice_typer/server/log.py:911-915``; may contain user-spoken
+  text via ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG
+  logs per XZ-PRIV-04).
+- ``crash_diagnostics.<PID>.txt`` (PI-5: Windows VEH crash file,
+  written by ``crash_handler.py:722``).
+- ``python_crash.<PID>.txt`` (PI-5: Python ``_crash_excepthook``
+  marker file, written by ``crash_handler.py:1190``).
+- ``prewarm.log`` + ``prewarm.log.1``..``prewarm.log.5`` (PI-6:
+  prewarm process rotating log, written by
+  ``voice_typer/server/prewarm/logging_setup.py:84``).
+- ``<config_dir>/logs/voice-typer.log`` + rotated backups (PI-6:
+  Rust host rotating log, written by
+  ``src-tauri/src/platform/logging.rs:30-34``).
 
 Model artifacts (``<config_dir>/models/`` and
 ``<config_dir>/huggingface/``) are explicitly OUT OF SCOPE — model
@@ -29,6 +43,7 @@ FAIL until Fix-D lands the new method.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -110,15 +125,64 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     mic_test_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     artifacts["mic-test.wav"] = mic_test_path
 
-    # 8. voice-typer.log
+    # 8. voice-typer.log (active log file)
     log_path = tmp_path / "voice-typer.log"
     log_path.write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
     artifacts["voice-typer.log"] = log_path
 
-    # 9. crash-*.dmp
-    crash_path = tmp_path / "crash-20240101-120000.dmp"
-    crash_path.write_bytes(b"\x00\x01\x02MDMP")
-    artifacts["crash.dmp"] = crash_path
+    # 8b. PI-4: voice-typer.log.{1,2} — rotated backups produced by
+    # RotatingFileHandler(backupCount=5) in voice_typer/server/log.py.
+    # Per XZ-PII-01 / XZ-PRIV-04 these backups may contain user-spoken
+    # text via _crash_excepthook's CRITICAL log + per-segment DEBUG
+    # logs, so they MUST be unlinked by GDPR delete.
+    log1_path = tmp_path / "voice-typer.log.1"
+    log1_path.write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
+    artifacts["voice-typer.log.1"] = log1_path
+    log2_path = tmp_path / "voice-typer.log.2"
+    log2_path.write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
+    artifacts["voice-typer.log.2"] = log2_path
+
+    # 9. PI-5: real crash files — crash_diagnostics.<PID>.txt
+    # (Windows VEH handler, crash_handler.py:722) and
+    # python_crash.<PID>.txt (_crash_excepthook marker,
+    # crash_handler.py:1190).  The previous test created a fictional
+    # ``crash-20240101-120000.dmp`` which matched the equally
+    # fictional ``crash-*.dmp`` glob in the service — false-green.
+    # Use ``os.getpid()`` for the PID so the filenames match what
+    # production crash code writes.
+    _pid = os.getpid()
+    crash_diag_path = tmp_path / f"crash_diagnostics.{_pid}.txt"
+    crash_diag_path.write_text(f"VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n")
+    artifacts["crash_diagnostics.txt"] = crash_diag_path
+
+    py_crash_path = tmp_path / f"python_crash.{_pid}.txt"
+    py_crash_path.write_text(f"Python excepthook marker for PID {_pid}\ntraceback with secret='pii'\n")
+    artifacts["python_crash.txt"] = py_crash_path
+
+    # 10. PI-6: prewarm.log + rotated backup (prewarm process
+    # rotating log, prewarm/logging_setup.py:84 — same
+    # RotatingFileHandler config as the main log).
+    prewarm_path = tmp_path / "prewarm.log"
+    prewarm_path.write_text("2024-01-01 12:00:00 INFO [PREWARM] warming model with secret='pii'\n")
+    artifacts["prewarm.log"] = prewarm_path
+    prewarm1_path = tmp_path / "prewarm.log.1"
+    prewarm1_path.write_text("2024-01-01 11:00:00 DEBUG [PREWARM] rotated secret\n")
+    artifacts["prewarm.log.1"] = prewarm1_path
+
+    # 11. PI-6: Rust host logs/ subdirectory (written by
+    # src-tauri/src/platform/logging.rs:30-34).  The GDPR delete
+    # walks _GDPR_PERSONAL_GLOBS against the config_dir root only,
+    # so without an explicit ``shutil.rmtree(config_dir / "logs")``
+    # step these files survive.  Per XZ-LOG-02 the Rust logger has
+    # no PII redaction, so dictated-text fragments may be present.
+    rust_logs_dir = tmp_path / "logs"
+    rust_logs_dir.mkdir(parents=True, exist_ok=True)
+    rust_log_path = rust_logs_dir / "voice-typer.log"
+    rust_log_path.write_text("2024-01-01 12:00:00 INFO [rust] transcript='secret from rust'\n")
+    artifacts["logs/voice-typer.log"] = rust_log_path
+    rust_log1_path = rust_logs_dir / "voice-typer.log.1"
+    rust_log1_path.write_text("2024-01-01 11:00:00 INFO [rust] rotated secret\n")
+    artifacts["logs/voice-typer.log.1"] = rust_log1_path
 
     return artifacts
 
@@ -281,17 +345,140 @@ def test_delete_all_personal_data_truncates_log(tmp_path) -> None:
         mp.undo()
 
 
-def test_delete_all_personal_data_erases_crash_dumps(tmp_path) -> None:
-    """crash-*.dmp files must be deleted."""
+def test_delete_all_personal_data_erases_rotated_log_backups(tmp_path) -> None:
+    """PI-4: voice-typer.log.{1,2} rotated backups must be unlinked.
+
+    ``RotatingFileHandler(backupCount=5)`` in ``voice_typer/server/log.py``
+    produces ``voice-typer.log.1`` .. ``voice-typer.log.5``.  Per
+    XZ-PII-01 / XZ-PRIV-04 these backups may contain user-spoken text
+    via ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs,
+    so leaving them on disk is a GDPR Art. 17 violation.
+    """
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        assert not artifacts["crash.dmp"].exists()
-        remaining = list(tmp_path.glob("crash-*.dmp"))
-        assert remaining == [], f"crash-*.dmp files still present after GDPR delete: {remaining}"
+        assert not artifacts["voice-typer.log.1"].exists(), (
+            "voice-typer.log.1 (rotated backup) must be deleted — may contain "
+            "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
+        )
+        assert not artifacts["voice-typer.log.2"].exists(), (
+            "voice-typer.log.2 (rotated backup) must be deleted — may contain "
+            "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
+        )
+        # ALL voice-typer.log.* files should be gone, not just .1 and .2.
+        remaining = list(tmp_path.glob("voice-typer.log.*"))
+        assert remaining == [], (
+            f"voice-typer.log.* rotated backups still present after GDPR delete: {remaining}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_crash_dumps(tmp_path) -> None:
+    """PI-5: crash_diagnostics.<PID>.txt + python_crash.<PID>.txt must
+    be deleted.
+
+    These are the REAL crash file names written by production code:
+      * ``crash_diagnostics.<PID>.txt`` — Windows VEH handler
+        (``crash_handler.py:722``)
+      * ``python_crash.<PID>.txt`` — Python ``_crash_excepthook``
+        marker (``crash_handler.py:1190``)
+
+    The previous test created a fictional ``crash-20240101-120000.dmp``
+    which matched the equally fictional ``crash-*.dmp`` glob in the
+    service — false-green.  This test uses ``os.getpid()`` so the
+    filenames match what production crash code writes.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_personal_data(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["crash_diagnostics.txt"].exists(), (
+            "crash_diagnostics.<PID>.txt must be deleted — Windows VEH crash "
+            "file written by crash_handler.py:722 (PI-5)."
+        )
+        assert not artifacts["python_crash.txt"].exists(), (
+            "python_crash.<PID>.txt must be deleted — Python excepthook marker "
+            "written by crash_handler.py:1190 (PI-5)."
+        )
+        # No crash_diagnostics.*.txt or python_crash.*.txt should remain.
+        remaining_diag = list(tmp_path.glob("crash_diagnostics.*.txt"))
+        assert remaining_diag == [], (
+            f"crash_diagnostics.*.txt files still present after GDPR delete: {remaining_diag}"
+        )
+        remaining_py = list(tmp_path.glob("python_crash.*.txt"))
+        assert remaining_py == [], (
+            f"python_crash.*.txt files still present after GDPR delete: {remaining_py}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_prewarm_log(tmp_path) -> None:
+    """PI-6: prewarm.log + rotated backups must be deleted.
+
+    The prewarm process writes ``prewarm.log`` (and rotates it with the
+    same RotatingFileHandler config as the main log — see
+    ``prewarm/logging_setup.py:84``).  Per XZ-LOG-03 / XZ-PRIV-04 the
+    prewarm log may include model paths + config snippets.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_personal_data(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["prewarm.log"].exists(), (
+            "prewarm.log must be deleted — prewarm process log (PI-6)."
+        )
+        assert not artifacts["prewarm.log.1"].exists(), (
+            "prewarm.log.1 (rotated backup) must be deleted — prewarm process "
+            "log rotation (PI-6)."
+        )
+        remaining = list(tmp_path.glob("prewarm.log*"))
+        assert remaining == [], (
+            f"prewarm.log* files still present after GDPR delete: {remaining}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_rust_logs_subdir(tmp_path) -> None:
+    """PI-6: ``<config_dir>/logs/`` (Rust host rotating log) must be
+    recursively removed.
+
+    The Rust host writes ``<config_dir>/logs/voice-typer.log`` (+ rotated
+    backups) per ``src-tauri/src/platform/logging.rs:30-34``.  The Python
+    GDPR-delete glob walk only matches files at the config_dir root, so
+    without an explicit ``shutil.rmtree(config_dir / "logs")`` step the
+    entire Rust log tree survives.  Per XZ-LOG-02 the Rust logger has
+    no PII redaction, so dictated-text fragments may be present.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_personal_data(tmp_path)
+        svc.delete_all_personal_data()
+        rust_log = artifacts["logs/voice-typer.log"]
+        rust_log1 = artifacts["logs/voice-typer.log.1"]
+        assert not rust_log.exists(), (
+            "<config_dir>/logs/voice-typer.log must be deleted — Rust host log "
+            "with no PII redaction (PI-6, XZ-LOG-02)."
+        )
+        assert not rust_log1.exists(), (
+            "<config_dir>/logs/voice-typer.log.1 (rotated) must be deleted (PI-6)."
+        )
+        # The entire logs/ subdirectory should be gone (rmtree).
+        assert not (tmp_path / "logs").exists(), (
+            "<config_dir>/logs/ subdirectory still exists after GDPR delete "
+            "— should have been rmtree'd (PI-6)."
+        )
     finally:
         mp.undo()
 

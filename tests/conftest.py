@@ -331,6 +331,33 @@ def mock_heavy_imports(monkeypatch, request):
             """
 
         mock_torch.cuda.OutOfMemoryError = _FakeOutOfMemoryError
+
+        # scipy's ``array_api_compat`` dispatcher calls
+        # ``is_torch_array(x)`` whenever ``'torch' in sys.modules`` (which
+        # is always true under this fixture). That helper does
+        # ``isinstance(x, torch.Tensor)`` — and a bare ``MagicMock``
+        # attribute is NOT a type, so the call raises
+        # ``TypeError: isinstance() arg 2 must be a type`` and crashes
+        # any scipy function (``scipy.signal.butter`` / ``lfilter`` /
+        # ``resample_poly`` — all used lazily by ``audio_filters/`` and
+        # ``recording/resampling.py``) the first time it dispatches on a
+        # non-numpy input. The same class of bug also breaks
+        # ``issubclass(np.ndarray, torch.Tensor)`` probes used by other
+        # array-API-aware libraries. Fix: expose a real (empty) class at
+        # ``torch.Tensor`` so the isinstance/issubclass checks return
+        # ``False`` cleanly instead of raising.
+        class _FakeTensor:
+            """Real class so ``isinstance(x, torch.Tensor)`` is valid.
+
+            ``MagicMock`` attributes are not types, so any
+            ``isinstance``/``issubclass`` check against ``mock_torch.Tensor``
+            raises ``TypeError``. Using a real (empty) class makes those
+            checks return ``False`` cleanly — which is the correct
+            semantics for a mock torch (nothing is ever a real torch
+            tensor under this fixture).
+            """
+
+        mock_torch.Tensor = _FakeTensor
         monkeypatch.setitem(sys.modules, "torch", mock_torch)
         # ``torch.backends``, ``torch.backends.mps`` etc. are
         # auto-created child mocks — no explicit per-submodule setitem
@@ -419,6 +446,31 @@ def mock_heavy_imports(monkeypatch, request):
         )
 
 
+@pytest.fixture(autouse=True)
+def _reset_log_rate_limit():
+    """Reset ``log_rate_limit`` module-level state between tests.
+
+    ``log_rate_limit`` keeps three module-level dicts
+    (``_RATE_LIMIT_COUNTS``, ``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE``,
+    ``_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY``) that persist across tests.
+    Without this reset, a test that exercises a rate-limited log path
+    (e.g. ``test_ipc_no_client_log_redaction``) leaves counters behind
+    that cause the *next* test's first call to be suppressed at DEBUG
+    instead of emitted at INFO — so ``caplog.at_level(INFO)`` captures
+    nothing and the test fails when run after its siblings.
+
+    The reset is autouse so the same leak can't bite future tests that
+    exercise ``log_rate_limited``.  Mirrors the ``keyboard_ownership``
+    reset inside ``mock_heavy_imports`` (CR-017) and the
+    ``clear_binary_path_cache`` autouse pattern (XV-112).
+    """
+    from voice_typer.server import log_rate_limit
+
+    log_rate_limit.reset()
+    yield
+    log_rate_limit.reset()
+
+
 # ── Shared fixtures for domain-split test files ────────────────────────
 
 
@@ -486,22 +538,33 @@ def clear_binary_path_cache():
     it) — those tests use ``monkeypatch.setattr`` to swap the function
     out, so they are unaffected by this fixture.
     """
+    # The original early ``return`` on ``ImportError`` for
+    # ``native_hotkeys.binary_path`` skipped all subsequent cache
+    # clears in this fixture. That was a latent bug: if a future
+    # refactor split out ``native_hotkeys`` while keeping ``prewarm``
+    # importable, the new ``_resolve_hf_cache_dir`` clear below would
+    # silently stop running. Converted to the same try/except/else
+    # pattern XV-100 already uses so every clear runs independently of
+    # the others.
     try:
         from voice_typer.server.native_hotkeys.binary_path import (
             get_native_binary_path,
         )
     except ImportError:
         # Module not importable in this test environment (e.g. a
-        # stripped-down test subset). Nothing to clear.
-        return
-    # ``functools.lru_cache`` decorates the function with
-    # ``cache_clear``. If a future change removes the decorator, the
-    # ``getattr`` guard keeps this fixture a no-op rather than
-    # erroring — the affected tests would then start failing (which is
-    # the desired signal: the caching contract was broken).
-    cache_clear = getattr(get_native_binary_path, "cache_clear", None)
-    if cache_clear is not None:
-        cache_clear()
+        # stripped-down test subset). Nothing to clear for THIS path —
+        # subsequent clears below still run.
+        pass
+    else:
+        # ``functools.lru_cache`` decorates the function with
+        # ``cache_clear``. If a future change removes the decorator,
+        # the ``getattr`` guard keeps this fixture a no-op rather than
+        # erroring — the affected tests would then start failing
+        # (which is the desired signal: the caching contract was
+        # broken).
+        cache_clear = getattr(get_native_binary_path, "cache_clear", None)
+        if cache_clear is not None:
+            cache_clear()
 
     # XV-100: clear the memoised ``shutil.which`` cache in
     # ``voice_typer.server.clipboard.linux``.  Same rationale as above:
@@ -520,6 +583,55 @@ def clear_binary_path_cache():
         which_cache_clear = getattr(_shutil_which_cached, "cache_clear", None)
         if which_cache_clear is not None:
             which_cache_clear()
+
+    # The ``spawn_background_prewarm`` path now calls
+    # ``_pkg.is_prewarm_running()`` at the top, which routes through
+    # ``_pid_file_path()`` → ``_config_root()`` →
+    # ``_resolve_hf_cache_dir()`` (decorated ``@lru_cache(maxsize=1)``
+    # in ``voice_typer/server/prewarm/cache_probe.py``). Without this
+    # clear, the ``TestSpawnBackgroundPrewarm`` tests in BOTH
+    # ``tests/test_prewarm.py`` and ``tests/test_prewarm_process_tracker.py``
+    # pollute the cache with the real ``~/.local/share/voice-typer/huggingface``
+    # path, so subsequent ``TestResolveHfCacheDir`` tests (which
+    # monkeypatch ``_config_dir`` to a tmp_path) fail because the
+    # cached value doesn't match the patched path. The
+    # ``_resolve_hf_cache_dir`` docstring claims "Tests clear the cache
+    # via ``cache_clear()`` in the autouse fixture" — this block makes
+    # that claim true.
+    try:
+        from voice_typer.server.prewarm.cache_probe import (
+            _resolve_hf_cache_dir,
+        )
+    except ImportError:
+        # Module not importable in this test environment — nothing to
+        # clear.
+        pass
+    else:
+        resolve_hf_cache_clear = getattr(
+            _resolve_hf_cache_dir, "cache_clear", None
+        )
+        if resolve_hf_cache_clear is not None:
+            resolve_hf_cache_clear()
+
+    # XV-19: also clear ``_cached_active_config`` so tests that
+    # monkeypatch ``Config.load`` (e.g. test_e2e_smoke's prewarm
+    # filter test) don't see a stale cached config from a prior test.
+    # Without this clear, the first test that calls
+    # ``_active_model_cache_dirs()`` populates the cache, and the
+    # second test's ``monkeypatch.setattr(Config, "load", ...)``
+    # has no effect because the cached config is returned directly.
+    try:
+        from voice_typer.server.prewarm.cache_probe import (
+            _cached_active_config,
+        )
+    except ImportError:
+        pass
+    else:
+        cached_cfg_clear = getattr(
+            _cached_active_config, "cache_clear", None
+        )
+        if cached_cfg_clear is not None:
+            cached_cfg_clear()
 
 
 # ── FT-2: daemon-thread leak prevention ──────────────────────────────────

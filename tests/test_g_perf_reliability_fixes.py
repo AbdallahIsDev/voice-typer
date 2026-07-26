@@ -343,8 +343,17 @@ class TestAsrRegistryUnloadOnLoadFailure:
         backend.is_loaded = False
         return backend
 
-    def test_failed_backend_unload_called_before_unregister(self):
-        """MEM-01: unload() is called on the failed backend BEFORE unregister + fallback."""
+    def test_failed_backend_unload_called_before_fallback(self):
+        """MEM-01: unload() is called on the failed backend BEFORE fallback.
+
+        XS-17 (F-09): the failed primary backend is intentionally NOT
+        unregistered — it stays in ``_backends`` so subsequent
+        ``load_with_fallback`` calls can retry it (and increment the
+        failure counter toward the disable threshold). The original
+        test name ``..._before_unregister`` predates this design
+        change; the assertion on ``registry.get("qwen") is None`` has
+        been updated to assert the backend stays registered.
+        """
         from voice_typer.server.asr_registry import AsrBackendRegistry
 
         config = SimpleNamespace(asr_backend="qwen")
@@ -366,13 +375,22 @@ class TestAsrRegistryUnloadOnLoadFailure:
             "unload() must release the partially-allocated tensor — "
             "without it, the failed backend leaks the tensor until GC"
         )
-        # The failed backend was unregistered.
-        assert registry.get("qwen") is None
+        # XS-17 (F-09): the failed backend is intentionally kept
+        # registered so it can be retried on the next call.
+        assert registry.get("qwen") is failed_backend
         # The whisper fallback's load was called and succeeded.
         whisper_backend.load.assert_called_once()
 
-    def test_unload_failure_does_not_prevent_unregister(self):
-        """If unload() itself raises, unregister + fallback still proceed."""
+    def test_unload_failure_does_not_prevent_fallback(self):
+        """If unload() itself raises, the fallback still proceeds.
+
+        XS-17 (F-09): the failed primary backend is intentionally NOT
+        unregistered even if ``unload()`` raises — the registry keeps it
+        around so subsequent calls can retry. The original test name
+        ``..._does_not_prevent_unregister`` predates this design
+        change; the assertion on ``registry.get("qwen") is None`` has
+        been updated accordingly.
+        """
         from voice_typer.server.asr_registry import AsrBackendRegistry
 
         config = SimpleNamespace(asr_backend="qwen")
@@ -391,8 +409,8 @@ class TestAsrRegistryUnloadOnLoadFailure:
         assert result is whisper_backend
         # unload() was attempted (and failed).
         failed_backend.unload.assert_called_once()
-        # The failed backend was STILL unregistered despite the unload failure.
-        assert registry.get("qwen") is None
+        # XS-17 (F-09): the failed backend stays registered for retry.
+        assert registry.get("qwen") is failed_backend
 
     def test_whisper_fallback_unload_on_failure(self):
         """MEM-01: if the whisper fallback ALSO fails, its unload() is called too."""

@@ -474,11 +474,12 @@ class TestModelStatusCache:
 
         # Drive the cache clock manually.  ``get_model_status`` reads
         # ``time.monotonic()`` from the module-level ``time`` import
-        # in voice_typer.server.service, so patching that binding
-        # controls the cache's view of "now".
+        # in voice_typer.server.service.model (where ``ModelMixin``
+        # lives), so patching that binding controls the cache's view
+        # of "now".
         fake_now = [0.0]
         monkeypatch.setattr(
-            "voice_typer.server.service.time.monotonic",
+            "voice_typer.server.service.model.time.monotonic",
             lambda: fake_now[0],
         )
 

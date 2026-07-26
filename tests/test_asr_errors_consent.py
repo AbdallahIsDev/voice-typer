@@ -57,7 +57,6 @@ import pytest
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
-
 # ── DE-30: class-attribute and subclass tests ───────────────────────────
 
 
@@ -269,9 +268,9 @@ class TestTranscribeWithFallbackRespectsConsent:
         This pins the second half of the narrowed clause
         (``RuntimeError, OSError``).
         """
-        import numpy as np
         from urllib.error import URLError
 
+        import numpy as np
         from voice_typer.server.cloud_engines import CloudEngine
 
         eng = CloudEngine(provider="groq", api_key="sk-test-key", consent_given=True)
@@ -535,7 +534,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         # The consent handler produces ``code: consent_required`` (NOT
         # ``server.internal_error`` — that would hide the consent signal
         # from the renderer's consent-dialog logic).
-        assert resp["data"]["code"] == "consent_required", (
+        assert resp["data"]["code"] == "server.consent_required", (
             f"Expected code=consent_required, got: {resp}"
         )
         # provider / scope are surfaced from the exception so the
@@ -565,7 +564,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         assert resp["type"] == "error"
         assert resp.get("id") == 7
-        assert resp["data"]["code"] == "consent_required"
+        assert resp["data"]["code"] == "server.consent_required"
         # ``provider`` / ``scope`` come from the subclass's class
         # attributes (DE-30) — they're NOT set per-instance like
         # ``CloudConsentRequiredError``.
@@ -599,7 +598,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         assert resp["type"] == "error"
         assert resp.get("id") == 99
-        assert resp["data"]["code"] == "consent_required"
+        assert resp["data"]["code"] == "server.consent_required"
         # provider / scope degrade to empty string for legacy raise
         # sites (base-class default).
         assert resp["data"]["provider"] == ""
@@ -634,7 +633,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
             f"ConsentRequiredError was swallowed by the generic except "
             f"Exception clause — clause ordering is wrong: {resp}"
         )
-        assert resp["data"]["code"] == "consent_required"
+        assert resp["data"]["code"] == "server.consent_required"
         assert resp["data"]["provider"] == "groq"
 
     def test_connection_survives_consent_error(
@@ -664,7 +663,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp1 = _read_response_line(client, timeout=2.0)
         assert resp1["type"] == "error"
-        assert resp1["data"]["code"] == "consent_required"
+        assert resp1["data"]["code"] == "server.consent_required"
 
         # Second call on the SAME socket — connection must survive
         # and the handler (now un-flaked) returns a normal status.

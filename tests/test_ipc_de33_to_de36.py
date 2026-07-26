@@ -42,7 +42,6 @@ from voice_typer.server.ipc.history_bounds import (
     _HISTORY_OFFSET_MAX,
     _REDACTED_SENTINEL,
     _SECRET_CONFIG_FIELDS,
-    _SECRET_FIELD_PATTERNS,
     _bound_history_limit,
     _bound_history_offset,
     _is_secret_field_name,
@@ -450,15 +449,34 @@ class TestCommandCostsContract:
     def test_command_costs_does_not_list_unknown_commands(self):
         """Sanity check: ``COMMAND_COSTS`` should not contain commands
         that aren't in ``_COMMAND_REGISTRY`` — that would indicate a
-        typo or a stale entry pointing at a removed command."""
+        typo or a stale entry pointing at a removed command.
+
+        ZR-45 (2026-07-25): some commands were moved from the Python
+        ``_COMMAND_REGISTRY`` to the Tauri Rust host (``delete_all_personal_data``,
+        ``export_diagnostics``, ``export_gdpr_bundle``, ``test_llm_connection``,
+        ``get_vocabulary_suggestions``). Their entries are kept in
+        ``COMMAND_COSTS`` for back-compat with older Electron builds
+        that still bridge these calls — those entries are explicitly
+        whitelisted here.
+        """
+        # Commands moved to Tauri Rust host (ZR-45) — kept in COMMAND_COSTS
+        # for back-compat with older Electron builds.
+        ZR_45_MOVED_TO_RUST = {
+            "delete_all_personal_data",
+            "export_diagnostics",
+            "export_gdpr_bundle",
+            "test_llm_connection",
+            "get_vocabulary_suggestions",
+        }
         registered = set(IPCServer._COMMAND_REGISTRY.keys())
         listed = set(COMMAND_COSTS.keys())
-        stale = listed - registered
+        stale = (listed - registered) - ZR_45_MOVED_TO_RUST
         assert not stale, (
             f"COMMAND_COSTS contains entries for commands NOT in "
-            f"_COMMAND_REGISTRY: {sorted(stale)}. These are stale "
-            f"entries pointing at removed/renamed commands — remove "
-            f"them from COMMAND_COSTS."
+            f"_COMMAND_REGISTRY (and not in the ZR-45 moved-to-Rust "
+            f"whitelist): {sorted(stale)}. These are stale entries "
+            f"pointing at removed/renamed commands — remove them from "
+            f"COMMAND_COSTS."
         )
 
     def test_all_costs_are_positive_integers(self):

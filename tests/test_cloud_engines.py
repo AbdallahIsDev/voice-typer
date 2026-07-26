@@ -364,8 +364,9 @@ class TestCloudEngineUrlAllowlist:
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
         # The mock must have been called — proving the allowlist let
-        # the default OpenAI URL through.
-        assert mock_open.call_count == 1
+        # the default OpenAI URL through. The engine retries 3x on
+        # URLError, so call_count is >= 1 (typically 3).
+        assert mock_open.call_count >= 1
         req = mock_open.call_args[0][0]
         assert req.full_url == "https://api.openai.com/v1/audio/transcriptions"
 
@@ -399,8 +400,9 @@ class TestCloudEngineUrlAllowlist:
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
         # The mock must have been called — proving the allowlist let
-        # the localhost URL through.
-        assert mock_open.call_count == 1
+        # the localhost URL through. The engine retries 3x on URLError,
+        # so call_count is >= 1 (typically 3).
+        assert mock_open.call_count >= 1
         req = mock_open.call_args[0][0]
         assert req.full_url == "http://localhost:11434/v1/audio/transcriptions"
 
@@ -552,10 +554,13 @@ class TestDeepgramUrlParameterInjection:
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
         # The mock must have been called — proving validation passed
-        # and the allowlist let the Deepgram URL through.
-        assert mock_open.call_count == 1
+        # and the allowlist let the Deepgram URL through. The engine
+        # retries 3x on URLError, so call_count is >= 1 (typically 3).
+        assert mock_open.call_count >= 1
         req = mock_open.call_args[0][0]
-        assert req.full_url == "https://api.deepgram.com/v1/listen"
+        # Deepgram appends query parameters (model, language, punctuate)
+        # to the base URL. Assert the base URL is present (prefix check).
+        assert req.full_url.startswith("https://api.deepgram.com/v1/listen")
         # "invalid characters" appears only when validation fails;
         # a URLError-based RuntimeError means validation passed.
         assert "invalid characters" not in str(exc_info.value)
@@ -573,4 +578,186 @@ class TestDeepgramUrlParameterInjection:
             consent_given=True,
         )
         with pytest.raises(RuntimeError, match="invalid characters"):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+
+# ── PI-17: typed cloud/LLM exception hierarchy ───────────────────────────
+
+
+class TestCloudEngineTypedExceptions:
+    """PI-17: ``CloudEngine`` raises typed ``CloudEngineError`` subclasses
+    (``CloudAuthError`` / ``CloudRateLimitError`` / ``CloudServerError`` /
+    ``CloudNetworkError`` / ``CloudConfigError``) instead of generic
+    ``RuntimeError``, so the IPC layer can ``isinstance``-check and emit
+    a distinct IPC error code for each category.
+
+    These tests pin the contract: the typed exception is raised, AND the
+    underlying ``HTTPError`` / ``URLError`` is preserved on ``__cause__``
+    so server-side logging retains the full traceback for diagnosis.
+    """
+
+    def test_cloud_engine_raises_auth_error_on_401(self):
+        """A 401 HTTPError from the cloud provider raises
+        ``CloudAuthError`` (PI-17). The IPC layer maps this to
+        ``server.cloud_auth_failed`` so the renderer can prompt the
+        user to re-enter their API key.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        import numpy as np
+        from voice_typer.server.asr_errors import CloudAuthError
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="revoked-key",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error": "invalid_api_key"}'),
+        )
+        with (
+            patch("voice_typer.server.cloud_engines._opener.open", side_effect=http_err),
+            pytest.raises(CloudAuthError) as exc_info,
+        ):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+        # The original HTTPError must be chained on __cause__ so the
+        # server-side ERROR log (with exc_info=True) retains the full
+        # traceback for diagnosis.
+        assert isinstance(exc_info.value.__cause__, HTTPError)
+        assert exc_info.value.__cause__.code == 401
+
+    def test_cloud_engine_raises_rate_limit_on_429(self):
+        """A 429 HTTPError from the cloud provider raises
+        ``CloudRateLimitError`` (PI-17) — AFTER the retry budget is
+        exhausted (the engine retries 429 once honoring Retry-After).
+        """
+        import io
+        from email.message import Message
+        from urllib.error import HTTPError
+
+        import numpy as np
+        from voice_typer.server.asr_errors import CloudRateLimitError
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="valid-key",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        # Use a real Message as headers so ``exc.headers.get(...)`` works
+        # (the production code reads ``Retry-After``).
+        hdrs = Message()
+        hdrs["Retry-After"] = "0"
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=429,
+            msg="Too Many Requests",
+            hdrs=hdrs,
+            fp=io.BytesIO(b'{"error": "rate_limit_exceeded"}'),
+        )
+        # All 3 retry attempts return 429 → CloudRateLimitError after
+        # the retry budget is exhausted. Patch sleep so the test
+        # doesn't wait for the Retry-After backoff.
+        with (
+            patch("voice_typer.server.cloud_engines._opener.open", side_effect=http_err),
+            patch("time.sleep"),
+            pytest.raises(CloudRateLimitError) as exc_info,
+        ):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+        assert isinstance(exc_info.value.__cause__, HTTPError)
+        assert exc_info.value.__cause__.code == 429
+
+    def test_cloud_engine_raises_server_error_on_500(self):
+        """A 5xx HTTPError from the cloud provider raises
+        ``CloudServerError`` (PI-17).
+        """
+        import io
+        from urllib.error import HTTPError
+
+        import numpy as np
+        from voice_typer.server.asr_errors import CloudServerError
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="valid-key",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error": "server_error"}'),
+        )
+        with (
+            patch("voice_typer.server.cloud_engines._opener.open", side_effect=http_err),
+            pytest.raises(CloudServerError) as exc_info,
+        ):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+        assert isinstance(exc_info.value.__cause__, HTTPError)
+        assert exc_info.value.__cause__.code == 503
+
+    def test_cloud_engine_raises_network_error_on_urlerror(self):
+        """A ``URLError`` (timeout / DNS / connection reset) raises
+        ``CloudNetworkError`` (PI-17) — AFTER the 3-attempt retry budget
+        is exhausted.
+        """
+        from urllib.error import URLError
+
+        import numpy as np
+        from voice_typer.server.asr_errors import CloudNetworkError
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="valid-key",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        # All 3 retry attempts fail with URLError → CloudNetworkError.
+        # Patch sleep so the test doesn't wait for the exponential
+        # backoff (0.5s + 1.0s = 1.5s real time).
+        with (
+            patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=URLError("test-isolated-network-error"),
+            ),
+            patch("time.sleep"),
+            pytest.raises(CloudNetworkError) as exc_info,
+        ):
+            engine.transcribe(np.zeros(16000, dtype=np.float32))
+        assert isinstance(exc_info.value.__cause__, URLError)
+
+    def test_cloud_engine_raises_config_error_on_missing_key(self):
+        """A cloud engine constructed without an API key raises
+        ``CloudConfigError`` at transcribe time (PI-17 / PI-24). The
+        cross-field validator at
+        ``config_validators._check_cross_field_cloud_config`` catches
+        the common case at save time; this runtime check stays as
+        defense-in-depth for the case where the key was revoked
+        between save and transcribe.
+        """
+        import numpy as np
+        from voice_typer.server.asr_errors import CloudConfigError
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        # consent_given=True but api_key="" → is_loaded=False →
+        # transcribe() raises CloudConfigError.
+        engine = CloudEngine(
+            provider="openai",
+            api_key="",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        with pytest.raises(CloudConfigError, match="missing API key"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))

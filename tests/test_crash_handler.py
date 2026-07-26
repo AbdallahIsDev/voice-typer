@@ -898,7 +898,7 @@ class TestCrashBufferLayout:
 
     def test_buffer_size_matches_layout_sum_plus_margin(self):
         layout_sum = sum(width for _, width in crash_handler._CRASH_MSG_LAYOUT)
-        assert crash_handler._CRASH_MSG_BUF_SIZE > layout_sum, (
+        assert layout_sum < crash_handler._CRASH_MSG_BUF_SIZE, (
             f"GT-B2-14: buffer size ({crash_handler._CRASH_MSG_BUF_SIZE}) "
             f"must exceed layout sum ({layout_sum}) to provide headroom"
         )

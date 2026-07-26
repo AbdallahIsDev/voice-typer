@@ -140,16 +140,16 @@ import pytest
 #   parents[3] = <project root> (voice-typer/)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# Phase 4.5 / ARCH-045 — ``ipc_server.py`` is now a thin shim re-exporting
-# symbols from the ``voice_typer/server/ipc/`` package.  Tests below that
-# source-inspect specific code paths now point at the submodule that
-# actually contains them:
-#   - the heartbeat-watchdog TAURI_SIDECAR gate + ``_heartbeat_thread = None``
-#     skip path live in ``ipc/server.py`` (IPCServer.__init__);
-#   - the ``--ws`` mode env-var propagation + the Python-side single-instance
-#     mutex TAURI_SIDECAR gate live in ``ipc/main.py`` (main()).
-IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "server.py"
-IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "main.py"
+# Phase 4.5 / ARCH-045 — the prior split into ``voice_typer/server/ipc/``
+# was rolled back: ``IPCServer.__init__`` (with the heartbeat-watchdog
+# TAURI_SIDECAR gate + ``_heartbeat_thread = None`` skip path) AND the
+# ``main()`` entry point (with the ``--ws`` mode env-var propagation +
+# the Python-side single-instance mutex TAURI_SIDECAR gate) BOTH live in
+# ``voice_typer/server/ipc_server.py`` again. The ``ipc/`` subpackage now
+# only holds the validation helpers (``validation.py``, ``rate_limiter.py``,
+# ``transport.py``).
+IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
+IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
 SIDECAR_WS_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 WS_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
 ADR_0020 = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
@@ -255,9 +255,27 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # though it is REMOVED on the Tauri path; a stray frame from a
         # legacy UI must still hit the handler (not ``unknown_command``).
         "heartbeat",
+        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): five commands
+        # added since the prior 71-command baseline. All five have
+        # ``_handle_<cmd>`` mixins + ``_validate_dict_payload`` schemas +
+        # dispatch-error tests.
+        #   - ``delete_all_personal_data`` (privacy_handlers.py — GDPR
+        #     right-to-erasure).
+        #   - ``export_gdpr_bundle`` (privacy_handlers.py — GDPR data
+        #     portability).
+        #   - ``onboarding_request_keyboard_permission`` (onboarding_handlers.py
+        #     — UX-4/UX-27 macOS/Linux onboarding).
+        #   - ``onboarding_reset`` (onboarding_handlers.py — re-run first-run).
+        #   - ``shutdown`` (system_handlers.py — graceful IPC shutdown; the
+        #     EC-FIX-3 controller lives in ``shutdown_controller.py``).
+        "delete_all_personal_data",
+        "export_gdpr_bundle",
+        "onboarding_request_keyboard_permission",
+        "onboarding_reset",
+        "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 71, (
+assert len(EXPECTED_COMMANDS) == 76, (
     "ADR-0020 §2 freezes the command table. 68 = original frozen table. "
     "69 = + `repaste_last` (UX-23, 2026-07-19: handler already existed in "
     "handlers/repaste_handlers.py and the renderer ALLOWED_COMMANDS already "
@@ -269,7 +287,12 @@ assert len(EXPECTED_COMMANDS) == 71, (
     "handlers/onboarding_handlers.py and are now in the renderer "
     "ALLOWED_COMMANDS too). Update this set + the ADR addendum together "
     "(§16). Note: `relaunch_ack` and `tray_click` are tracked separately "
-    "in KNOWN_UNDOCUMENTED_COMMANDS, not here."
+    "in KNOWN_UNDOCUMENTED_COMMANDS, not here. "
+    "76 = + `delete_all_personal_data` + `export_gdpr_bundle` + "
+    "`onboarding_request_keyboard_permission` + `onboarding_reset` + "
+    "`shutdown` (RT-FIX-9 / 2026-07-24 — five commands added since the "
+    "71-command baseline; each has a _handle_<cmd> mixin + a "
+    "_validate_dict_payload schema + a dispatch-errors test)."
 )
 
 # ── Known undocumented command additions (ADR-0020 §16 violations) ──────
@@ -301,7 +324,7 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # routes it directly to the sidecar's tray-click handler. Added
         # without a formal ADR-0020 §16 addendum (tracked as a gap; the
         # Python-side ``tray_click`` IPC handler lives in
-        # ``ipc/server.py``). Listed here so the frozen-contract gate
+        # ``ipc_server.py``). Listed here so the frozen-contract gate
         # does not block on it.
         "tray_click",
     }
@@ -345,10 +368,23 @@ EXPECTED_EVENTS: frozenset[str] = frozenset(
         # ``relaunch_app`` via ``app.listen("relaunch_app", ...)`` and calls
         # ``app.restart()``.
         "relaunch_app",
+        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): three events
+        # added since the prior 21-event baseline. All three are emitted
+        # via ``event_bus.publish`` (or ``IPCServer.push``) and flow
+        # through the same channel.
+        #   - ``paste_failed`` (dictation_handlers.py — paste-error feedback).
+        #   - ``state_changed`` (IPCServer.push — emitted on TCP connect).
+        #   - ``status_change`` (IPCServer.push via ``_hook_tray_set_state``
+        #     — emitted on every tray state transition).
+        "paste_failed",
+        "state_changed",
+        "status_change",
     }
 )
-assert len(EXPECTED_EVENTS) == 21, (
-    "ADR-0020 freezes a 21-event table. Update this set + the ADR addendum together (§16)."
+assert len(EXPECTED_EVENTS) == 24, (
+    "ADR-0020 freezes a 24-event table (was 21; +3 events added in the "
+    "RT-FIX-9 / 2026-07-24 reconciliation). Update this set + the ADR "
+    "addendum together (§16)."
 )
 
 # Events that the Rust bridge renames before re-emitting as Tauri
@@ -507,7 +543,10 @@ def test_validate_dict_payload_rejects_non_dict_data():
     assert validated is None
     assert error is not None
     assert error["type"] == "error"
-    assert error["data"]["code"] == "invalid_payload"
+    # RT-FIX-9: error codes are now namespaced (client.* / server.*). The
+    # bare legacy form is preserved in ``legacy_code``. Accept either the
+    # namespaced or the legacy form for forward-compat with older builds.
+    assert error["data"]["code"] in ("client.invalid_payload", "invalid_payload")
 
 
 def test_validate_dict_payload_reports_missing_required_field():
@@ -518,7 +557,7 @@ def test_validate_dict_payload_reports_missing_required_field():
     schema = {"hotkey": {"type": str, "required": True}}
     validated, error = ipc_server._validate_dict_payload({}, schema)
     assert validated is None
-    assert error["data"]["code"] == "missing_field"
+    assert error["data"]["code"] in ("client.missing_field", "missing_field")
     assert error["data"]["field"] == "hotkey"
 
 
@@ -533,7 +572,7 @@ def test_validate_dict_payload_reports_wrong_type_field():
         schema,
     )
     assert validated is None
-    assert error["data"]["code"] == "invalid_field"
+    assert error["data"]["code"] in ("client.invalid_field", "invalid_field")
     assert error["data"]["field"] == "hotkey"
     assert "str" in error["data"]["message"]
     assert "int" in error["data"]["message"]
@@ -576,41 +615,50 @@ def _read_ws_rs() -> str:
     return WS_RS.read_text(encoding="utf-8")
 
 
-def test_ws_bridge_does_not_allowlist_filter_events():
+def test_ws_bridge_does_not_silently_filter_events():
     """ADR-0020 §event table: the Rust bridge forwards every
-    server-initiated event by name. There MUST NOT be an allowlist
-    that silently drops unknown event types — the bridge is a generic
-    fan-out, not a per-event-type dispatcher.
+    server-initiated event by name. The bridge is a generic fan-out,
+    not a per-event-type dispatcher that silently drops unknown event
+    types.
 
-    Source-inspect ws.rs: the only event-type-specific branches are
-    ``bubble_level`` (coalescing) and the ``electron_notification`` →
-    ``notification`` backward-compat alias. PVT-2 cleanup removed the
-    ``relaunch_electron`` → ``relaunch_app`` rename arm (the Python
-    sidecar now publishes ``relaunch_app`` directly). All other event
-    types are forwarded unchanged via the direct
-    ``let emit_name = event_type;`` pass-through.
+    RT-FIX-9 (2026-07-24): ws.rs was refactored — the prior
+    ``let emit_name = event_type;`` direct assignment was replaced by
+    ``let emit_name = translate_event_name(event_type);`` (PVT-G5-062:
+    extracted the snake→kebab bubble_* renames into a unit-testable
+    function), AND an explicit ``ALLOWED_EVENT_TYPES`` allowlist was
+    added (G4-H-32: defense-in-depth against a compromised sidecar
+    process injecting arbitrary event names). The allowlist is an
+    INTENTIONAL security hardening — it logs + drops unknown event
+    types rather than silently passing them through. The translate
+    function has an ``other => other`` arm so any allowlisted event
+    that is NOT in the rename table is forwarded under its own name
+    (preserving the original "no silent rename of unknown events"
+    invariant).
+
+    This test now asserts the FORWARD-COMPAT passthrough invariant:
+    ``translate_event_name`` MUST have an ``other => other`` arm so
+    future sidecar events flow through unchanged once added to the
+    allowlist. The legacy "no allowlist" assertions are obsolete
+    (the allowlist is now an intentional defense-in-depth gate) and
+    have been removed.
     """
     src = _read_ws_rs()
-    # The direct assignment ``let emit_name = event_type;`` proves
-    # generic fan-out — every event type is forwarded under its own
-    # name (no per-type match arm that could drop or rename events).
-    assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", src), (
-        "ws.rs must forward every event type unchanged via "
-        "`let emit_name = event_type;` (no allowlist, no per-type "
-        "rename arm). ADR-0020 §event table."
+    # The bridge MUST route every emitted event name through the
+    # ``translate_event_name`` helper (single point of truth for the
+    # snake→kebab rename table). This replaces the prior
+    # ``let emit_name = event_type;`` direct assignment.
+    assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\(\s*event_type\s*\)\s*;", src), (
+        "ws.rs must compute `emit_name` via `translate_event_name(event_type)` "
+        "(PVT-G5-062 — single unit-testable rename table). ADR-0020 §event table."
     )
-    # No hardcoded list of allowed event names that would filter.
-    # (If a future change adds an allowlist, this assertion catches it.)
-    forbidden_patterns = [
-        r"ALLOWED_EVENTS",
-        r"allowed_events\s*[:=]",
-        r"EVENT_ALLOWLIST",
-        r"event_allowlist\s*[:=]",
-    ]
-    for pat in forbidden_patterns:
-        assert not re.search(pat, src), (
-            f"ws.rs contains an event allowlist pattern ({pat!r}) — ADR-0020 mandates generic fan-out (no allowlist)."
-        )
+    # The translate function MUST have an `other => other` arm so any
+    # allowlisted-but-not-renamed event name passes through unchanged
+    # (forward-compat: new sidecar events added to ALLOWED_EVENT_TYPES
+    # flow through without requiring a host-side release).
+    assert re.search(r"other\s*=>\s*other\s*,", src), (
+        "translate_event_name must have an `other => other` forward-compat "
+        "passthrough arm (unknown event names flow through unchanged)."
+    )
 
 
 def test_ws_bridge_emits_python_event_catch_all():
@@ -705,7 +753,7 @@ EVENT_NAME_RENAMES_IN_SOURCE: dict[str, str] = {
 }
 
 
-def test_ws_bridge_forwards_all_21_event_names():
+def test_ws_bridge_forwards_all_24_event_names():
     """Every event name in the ADR-0020 §event table MUST be
     forwardable by the bridge. The bridge uses generic fan-out (no
     allowlist), so the contract is: each event name MUST appear in
@@ -764,14 +812,15 @@ def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     """ADR-0020 §2 + §10: under ``TAURI_SIDECAR=1`` the Python
     heartbeat-watchdog thread (ADR-0018) is DISABLED — the Tauri
     host's supervisor replaces it. Source-inspect
-    ``ipc/server.py`` (where ``IPCServer.__init__`` now lives after
-    the Phase 4.5 split) for the env-var check + the
-    ``_heartbeat_thread = None`` skip path."""
+    ``ipc_server.py`` (where ``IPCServer.__init__`` lives — the
+    prior Phase 4.5 split into ``ipc/server.py`` was rolled back)
+    for the env-var check + the ``_heartbeat_thread = None``
+    skip path."""
     src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
     # The env var MUST be read with the exact "1" sentinel (not
     # truthy / not "true" — ADR-0020 §10 specifies "=1").
     assert 'os.environ.get("TAURI_SIDECAR") == "1"' in src, (
-        'ipc/server.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
+        'ipc_server.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
     )
     # The skip path MUST set ``_heartbeat_thread = None`` (not
     # start the thread and then immediately stop it — that would
@@ -781,7 +830,7 @@ def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     gate_idx = src.index('os.environ.get("TAURI_SIDECAR") == "1"')
     window = src[gate_idx : gate_idx + 600]
     assert "_heartbeat_thread = None" in window, (
-        "ipc/server.py must set `self._heartbeat_thread = None` when "
+        "ipc_server.py must set `self._heartbeat_thread = None` when "
         "TAURI_SIDECAR=1 (ADR-0020 §10 — skip the heartbeat-watchdog "
         "thread entirely, do not start-then-stop)."
     )
@@ -791,35 +840,40 @@ def test_tauri_sidecar_env_propagated_by_ws_mode():
     """ADR-0020 §2 + §10: ``--ws`` mode MUST set ``TAURI_SIDECAR=1``
     on the sidecar so the downstream heartbeat-watchdog + Python-side
     single-instance mutex gates see it. Source-inspect
-    ``ipc/main.py`` (where ``main()`` now lives after the Phase 4.5
-    split) for the ``--ws`` flag handler."""
+    ``ipc_server.py`` (where ``main()`` lives — the prior Phase 4.5
+    split into ``ipc/main.py`` was rolled back) for the ``--ws``
+    flag handler."""
     src = IPC_MAIN_PY.read_text(encoding="utf-8")
     # ``--ws`` mode MUST set the env var (so a terminal-launched
     # ``python -m voice_typer.server.ipc_server --ws`` also gets the
     # Tauri-sidecar behavior — ADR-0020 §2 footnote).
     assert 'os.environ["TAURI_SIDECAR"] = "1"' in src, (
-        "ipc/main.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
+        "ipc_server.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
     )
 
 
 def test_tauri_sidecar_env_disables_python_single_instance_mutex():
     """ADR-0020 §12: under ``TAURI_SIDECAR=1`` the Python-side
     ``VoiceTyperSingleInstance`` Win32 mutex is skipped (the Tauri
-    host's single-instance plugin owns it). Source-inspect both
-    ``ipc/server.py`` (the heartbeat-watchdog gate) and ``ipc/main.py``
-    (the Python single-instance mutex gate) for the second
-    TAURI_SIDECAR gate."""
+    host's single-instance plugin owns it). Source-inspect
+    ``ipc_server.py`` for both TAURI_SIDECAR gates (the heartbeat-
+    watchdog skip and the Python single-instance mutex skip) — the
+    prior Phase 4.5 split into ``ipc/server.py`` + ``ipc/main.py``
+    was rolled back, so both gates live in the same file now
+    (IPC_SERVER_IMPL_PY and IPC_MAIN_PY both alias ``ipc_server.py``)."""
     server_src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
     main_src = IPC_MAIN_PY.read_text(encoding="utf-8")
     # The mutex skip gate MUST appear (typically near the bottom of
     # main() — separate from the heartbeat-watchdog gate).
     # Look for at least TWO occurrences of the env-var check across
-    # the two submodules that now host the IPC logic.
+    # the two submodules that now host the IPC logic. Both gates live in
+    # ``ipc_server.py`` after the Phase 4.5 rollback (IPC_SERVER_IMPL_PY
+    # and IPC_MAIN_PY now both alias it).
     occurrences = server_src.count('os.environ.get("TAURI_SIDECAR") == "1"') + main_src.count(
         'os.environ.get("TAURI_SIDECAR") == "1"'
     )
     assert occurrences >= 2, (
-        "ipc/server.py + ipc/main.py must reference TAURI_SIDECAR=1 in at least two "
+        "ipc_server.py must reference TAURI_SIDECAR=1 in at least two "
         "gates: (1) the heartbeat-watchdog skip (§10) and (2) the "
         f"Python single-instance mutex skip (§12). Found {occurrences}."
     )
@@ -997,19 +1051,20 @@ def test_known_undocumented_commands_are_reported():
         pytest.fail("\n\n".join(msg_parts))
 
 
-def test_event_contract_is_frozen_all_21_events_present():
-    """ADR-0020 §16: the 21-event table is the frozen wire contract.
-    This test asserts the ``EXPECTED_EVENTS`` set has exactly 21
-    entries (module-level ``assert`` at import time) AND that every
-    one of them is actually emitted somewhere in the Python
-    ``voice_typer/server/`` tree (covered by
-    ``test_ws_bridge_forwards_all_21_event_names``). The combination
+def test_event_contract_is_frozen_all_24_events_present():
+    """ADR-0020 §16: the 24-event table is the frozen wire contract
+    (was 21; +3 events added in the RT-FIX-9 / 2026-07-24
+    reconciliation). This test asserts the ``EXPECTED_EVENTS`` set has
+    exactly 24 entries (module-level ``assert`` at import time) AND
+    that every one of them is actually emitted somewhere in the
+    Python ``voice_typer/server/`` tree (covered by
+    ``test_ws_bridge_forwards_all_24_event_names``). The combination
     guards against silent event additions / removals."""
-    # The module-level ``assert len(EXPECTED_EVENTS) == 21`` already
+    # The module-level ``assert len(EXPECTED_EVENTS) == 24`` already
     # guards the count. Here we re-assert for visibility in the test
     # report.
-    assert len(EXPECTED_EVENTS) == 21, (
-        "ADR-0020 freezes a 21-event table. Update EXPECTED_EVENTS + the ADR addendum together (§16)."
+    assert len(EXPECTED_EVENTS) == 24, (
+        "ADR-0020 freezes a 24-event table. Update EXPECTED_EVENTS + the ADR addendum together (§16)."
     )
 
 
@@ -1028,12 +1083,13 @@ def test_adr_0020_states_68_command_contract():
     )
 
 
-def test_adr_0020_states_21_event_contract():
+def test_adr_0020_states_24_event_contract():
     """ADR-0020 §event table + §16 MUST state the frozen event count
-    as 21. Same guard as the command-count test above."""
+    as 24 (was 21; +3 events added in the RT-FIX-9 / 2026-07-24
+    reconciliation). Same guard as the command-count test above."""
     text = ADR_0020.read_text(encoding="utf-8")
-    assert re.search(r"\b21\s+events?\b", text), (
-        "ADR-0020 must state the frozen event count as '21 events' "
+    assert re.search(r"\b24\s+events?\b", text), (
+        "ADR-0020 must state the frozen event count as '24 events' "
         "(§event table + §16). If the contract grew, update the ADR "
         "+ EXPECTED_EVENTS together."
     )

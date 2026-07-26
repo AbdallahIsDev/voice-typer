@@ -176,3 +176,101 @@ class TestTemplateImportExport:
         json_str = json.dumps({"templates": [{"trigger": "no_output"}]})
         count = tm.import_json(json_str)
         assert count == 0
+
+
+# ─── PI-8 regression tests ────────────────────────────────────────────────
+
+
+class TestTemplatesBackupAndQuarantine:
+    """PI-8: templates.py now routes persistence through PersistedJSON,
+    which provides single-slot .bak before overwrite + corrupt-file
+    quarantine on load failure. These tests pin the new behavior so a
+    future refactor that drops the helper (or replaces it with a
+    bare _secure_atomic_write) doesn't silently regress PI-8."""
+
+    def test_templates_creates_bak_on_overwrite(self, template_dir):
+        """PI-8: save template A, save template B, assert .bak file
+        contains A.
+
+        The .bak is single-slot: each save overwrites the previous .bak
+        (so re-saves don't accumulate backup files). The .bak holds the
+        PREVIOUS content, byte-for-byte, so the user can recover their
+        last good state if a save turns out to be wrong.
+        """
+        from voice_typer.server.templates import TEMPLATES_FILENAME, TemplateManager
+
+        templates_file = template_dir / TEMPLATES_FILENAME
+        bak_file = template_dir / f"{TEMPLATES_FILENAME}.bak"
+
+        # Save template A.
+        tm1 = TemplateManager(config_dir=template_dir)
+        tm1.add("hello", "Hello World!")
+        del tm1
+
+        content_a = templates_file.read_text(encoding="utf-8")
+        assert '"hello"' in content_a
+        # No .bak yet — first save has nothing to back up.
+        assert not bak_file.exists()
+
+        # Save template B (different trigger).
+        tm2 = TemplateManager(config_dir=template_dir)
+        tm2.add("goodbye", "Goodbye World!")
+        del tm2
+
+        content_b = templates_file.read_text(encoding="utf-8")
+        assert '"goodbye"' in content_b
+        # The .bak must now exist and contain template A's content
+        # (byte-for-byte), so the user can recover their previous
+        # state if template B turns out to be wrong.
+        assert bak_file.exists(), (
+            "PI-8 regression: .bak file should exist after the second "
+            "save overwrites the first"
+        )
+        bak_content = bak_file.read_text(encoding="utf-8")
+        assert bak_content == content_a, (
+            "PI-8 regression: .bak file should contain the PREVIOUS "
+            "template content (byte-for-byte), not the new content"
+        )
+        assert '"hello"' in bak_content
+        assert '"goodbye"' not in bak_content
+
+    def test_templates_quarantines_corrupt_file(self, template_dir):
+        """PI-8: write corrupt JSON to the templates file, call load,
+        assert the file is moved to .corrupt-<ts> and load returns the
+        default (empty templates list).
+
+        Without quarantine, the next save would atomically overwrite the
+        corrupt file with the in-memory defaults, destroying any chance
+        of forensic recovery. Quarantine preserves the corrupt file at
+        ``<path>.corrupt-<timestamp>`` so the user can inspect what
+        truncation pattern led to the parse failure.
+        """
+        from voice_typer.server.templates import TEMPLATES_FILENAME, TemplateManager
+
+        templates_file = template_dir / TEMPLATES_FILENAME
+        # Write corrupt JSON to the templates file.
+        corrupt_payload = '{"templates": [{"trigger": "hello", broken'
+        templates_file.write_text(corrupt_payload, encoding="utf-8")
+        assert templates_file.exists()
+
+        # Construct a TemplateManager — this calls _load which must
+        # detect the corrupt JSON, quarantine it, and fall back to the
+        # default (empty templates list).
+        tm = TemplateManager(config_dir=template_dir)
+
+        # The corrupt file must have been renamed to .corrupt-<ts>.
+        assert not templates_file.exists(), (
+            "PI-8 regression: corrupt templates file should have been "
+            "renamed (quarantined), not left in place"
+        )
+        corrupt_files = list(template_dir.glob(f"{TEMPLATES_FILENAME}.corrupt-*"))
+        assert len(corrupt_files) == 1, (
+            f"PI-8 regression: expected exactly one .corrupt-<ts> file, "
+            f"got {corrupt_files}"
+        )
+        # The quarantined file must contain the original corrupt payload
+        # (byte-for-byte) so the user can inspect what went wrong.
+        assert corrupt_files[0].read_text(encoding="utf-8") == corrupt_payload
+
+        # Load must have returned the default (empty templates list).
+        assert len(tm.templates) == 0

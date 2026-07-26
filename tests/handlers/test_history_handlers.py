@@ -107,14 +107,14 @@ class TestDeleteHistory:
     def test_missing_id_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_delete_history({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "id"
         fake_service.delete_history.assert_not_called()
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_delete_history(None, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.delete_history.assert_not_called()
 
     def test_string_id_is_accepted(self, ipc_server, fake_service):
@@ -142,14 +142,14 @@ class TestRestoreHistory:
     def test_missing_record_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_restore_history({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "record"
 
     def test_non_dict_record_returns_invalid_field_error(self, ipc_server, fake_service):
         """``record`` must be a dict — the schema rejects ints/strings/lists."""
         resp = ipc_server._handle_restore_history({"record": "not-a-dict"}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "record"
 
 
@@ -192,7 +192,7 @@ class TestToggleFavorite:
     def test_missing_id_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_toggle_favorite({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "id"
 
 

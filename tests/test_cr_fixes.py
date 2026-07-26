@@ -102,6 +102,11 @@ class TestCR11PerProcessRateLimiter:
 
         server = MagicMock()
         server._dispatch = MagicMock(return_value={"type": "result", "data": {}})
+        # MagicMock auto-vivifies ``_ws_dispatch_pool`` as a child mock,
+        # which makes ``loop.run_in_executor`` fail (it expects a real
+        # ThreadPoolExecutor whose ``submit`` returns a Future). Force
+        # ``None`` so the production code creates a real pool.
+        server._ws_dispatch_pool = None
         dispatch = sidecar_ws._make_dispatch(server)
 
         # Send one frame — this should create+store the limiter on server.

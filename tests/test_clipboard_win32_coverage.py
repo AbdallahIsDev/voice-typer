@@ -294,12 +294,18 @@ class TestWin32EmptyClipboard:
         fake_win32["user32"].EmptyClipboard.assert_called_once_with()
         fake_win32["user32"].CloseClipboard.assert_called_once_with()
 
-    def test_swallows_runtime_error_from_context_manager(self, fake_win32):
-        """If Win32Clipboard.__init__ raises, _win32_empty_clipboard returns."""
+    def test_swallows_oserror_from_context_manager(self, fake_win32):
+        """If Win32Clipboard.__init__ raises OSError, _win32_empty_clipboard returns.
+
+        EC-15 narrowed the catch from bare ``except Exception: pass`` to
+        ``(OSError, AttributeError)`` — the expected failure modes for
+        Win32 ctypes calls. RuntimeError (a programmer error) is intentionally
+        NOT swallowed so it surfaces during development.
+        """
         # Even though is_windows() is True, force the constructor to raise
         # by patching it.
-        with patch.object(clip_mod, "Win32Clipboard", side_effect=RuntimeError("nope")):
-            # Should not raise — the function has a broad except.
+        with patch.object(clip_mod, "Win32Clipboard", side_effect=OSError("nope")):
+            # Should not raise — the function has the narrowed except.
             _win32_empty_clipboard()
 
 
@@ -413,8 +419,16 @@ class TestIsElevatedTargetWindows:
             result = _is_elevated_target()
         assert result is False
 
-    def test_returns_false_when_our_open_process_token_fails(self, fake_win32):
-        """OpenProcessToken for our_token returning 0 → False."""
+    def test_returns_true_when_our_open_process_token_fails(self, fake_win32):
+        """OpenProcessToken for our_token returning 0 → True (fail-closed).
+
+        EC-15 / CLIP-3: when OUR elevation cannot be determined
+        (OpenProcessToken fails), ``_get_we_elevated`` caches
+        ``we_elevated=False``. If the target IS elevated, we cannot
+        safely allow paste — UIPI may silently drop the SendInput.
+        Block paste (return True) rather than risk pasting into an
+        elevated target we couldn't verify ourselves against.
+        """
 
         def _set_pid(hwnd, byref_obj):
             _set_byref_value(byref_obj, 1234)
@@ -427,13 +441,16 @@ class TestIsElevatedTargetWindows:
         fake_target_ptr.__getitem__.return_value = 1
         with patch("ctypes.cast", side_effect=[fake_target_ptr]):
             result = _is_elevated_target()
-        assert result is False
+        assert result is True
 
-    def test_returns_false_when_our_get_token_info_fails(self, fake_win32):
-        """GetTokenInformation for our_token (real call) returning 0 → False.
+    def test_returns_true_when_our_get_token_info_fails(self, fake_win32):
+        """GetTokenInformation for our_token (real call) returning 0 → True.
 
-        Covers the second `if not advapi32.GetTokenInformation(...)` check
-        inside the ``our_token`` branch (line 253).
+        EC-15 / CLIP-3: when OUR elevation cannot be determined
+        (GetTokenInformation fails), ``_get_we_elevated`` caches
+        ``we_elevated=False``. If the target IS elevated, block paste
+        (return True) rather than risk pasting into an elevated target
+        we couldn't verify ourselves against.
         """
 
         def _set_pid(hwnd, byref_obj):
@@ -445,18 +462,22 @@ class TestIsElevatedTargetWindows:
         #   1: target probe (success)
         #   2: target real  (success)
         #   3: our probe    (success)
-        #   4: our real     (FAIL → triggers `return False` at line 253)
+        #   4: our real     (FAIL → triggers we_elevated=False)
         fake_win32["advapi32"].GetTokenInformation.side_effect = [1, 1, 1, 0]
         fake_target_ptr = MagicMock()
         fake_target_ptr.__getitem__.return_value = 1
         with patch("ctypes.cast", side_effect=[fake_target_ptr]):
             result = _is_elevated_target()
-        assert result is False
+        assert result is True
 
-    def test_returns_false_on_exception(self, fake_win32):
-        """Any unexpected exception → False (broad except)."""
+    def test_returns_true_on_exception(self, fake_win32):
+        """Any unexpected exception → True (fail-closed, EC-15).
+
+        If the elevation check itself raises, block paste rather than
+        risk pasting into an elevated target we couldn't verify.
+        """
         fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("unexpected")
-        assert _is_elevated_target() is False
+        assert _is_elevated_target() is True
 
 
 # ===========================================================================
@@ -499,10 +520,14 @@ class TestFocusedWindowIsCredentialDialog:
         fake_win32["user32"].GetClassNameW.return_value = 0
         assert _focused_window_is_credential_dialog() is False
 
-    def test_returns_false_on_exception(self, fake_win32):
-        """Any exception → False."""
+    def test_returns_true_on_exception(self, fake_win32):
+        """Any exception → True (fail-closed, EC-15).
+
+        If the credential-dialog check itself raises, block paste
+        rather than risk pasting into an undetected credential prompt.
+        """
         fake_win32["user32"].GetForegroundWindow.side_effect = OSError("nope")
-        assert _focused_window_is_credential_dialog() is False
+        assert _focused_window_is_credential_dialog() is True
 
 
 # ===========================================================================
@@ -941,8 +966,13 @@ class TestIsSafePasteTargetWindows:
         fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("boom")
         assert ClipboardManager._is_safe_paste_target() is True
 
-    def test_returns_true_when_is_elevated_check_raises(self, fake_win32):
-        """If _is_elevated_target raises, debug log + continue → True."""
+    def test_returns_false_when_is_elevated_check_raises(self, fake_win32):
+        """If _is_elevated_target raises, fail-closed → False.
+
+        CLIP-3: when the elevation check itself raises, block paste
+        (return False) rather than risk pasting into an elevated target
+        with broken detection infrastructure.
+        """
         fake_win32["buf"].return_value.value = "Edit"
         with (
             patch(
@@ -953,7 +983,7 @@ class TestIsSafePasteTargetWindows:
             patch.object(clip_mod, "log"),
         ):
             result = ClipboardManager._is_safe_paste_target()
-        assert result is True
+        assert result is False
 
     def test_returns_true_when_content_editable_check_raises(self, fake_win32):
         """If _is_content_editable raises, debug log + continue → True."""
@@ -1023,9 +1053,16 @@ class TestDetectFocusedProcessWindows:
         result = ClipboardManager._detect_focused_process()
         assert result is None
 
-    def test_detect_returns_none_on_exception(self, fake_win32):
-        """Any exception → None."""
-        fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("boom")
+    def test_detect_returns_none_on_oserror(self, fake_win32):
+        """OSError from Win32 API → None (caught by narrowed except).
+
+        EC-15 narrowed the catch from bare ``except Exception: pass``
+        to ``(OSError, AttributeError)``. OSError covers Win32 API
+        failures; AttributeError covers a missing ctypes function
+        pointer. RuntimeError (a programmer error) is intentionally
+        NOT caught.
+        """
+        fake_win32["user32"].GetForegroundWindow.side_effect = OSError("boom")
         assert ClipboardManager._detect_focused_process() is None
 
 

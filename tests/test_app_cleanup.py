@@ -540,8 +540,20 @@ class TestRelaunchAckEventDriven:
         )
 
     def test_restart_app_falls_back_to_sleep_without_server(self, app, monkeypatch):
-        """When there is no IPC server (event unavailable), restart_app must
-        preserve the original 300ms pause so behaviour is unchanged.
+        """TY-13: when there is no IPC server (event unavailable),
+        ``restart_app`` must NOT sleep at all — the previous 300ms
+        fallback was removed because no IPC server means no one is
+        listening for the relaunch event, so waiting accomplishes
+        nothing and blocks the tray callback thread for nothing.
+
+        Pre-TY-13 behaviour: ``time.sleep(0.3)`` fallback when no IPC
+        server was attached (PERF-005's belt-and-suspenders pause).
+        Post-TY-13 behaviour: skip the wait entirely (0ms). The
+        ``relaunch_app`` event is delivered via ``event_bus.publish``
+        BEFORE ``_wait_for_relaunch_ack`` is called, so even with no
+        IPC server the host's ``pythonProcess.on("exit")`` handler
+        still triggers the same relaunch as a fallback when the
+        process exits — the 300ms sleep contributed nothing.
         """
         _stub_restart_environment(app, monkeypatch)
         app._ipc_server = None
@@ -555,8 +567,10 @@ class TestRelaunchAckEventDriven:
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        assert sleep_calls == [0.3], (
-            f"restart_app must fall back to the 300ms sleep when no IPC server is available; got {sleep_calls}"
+        assert sleep_calls == [], (
+            f"TY-13: restart_app must NOT sleep when no IPC server is "
+            f"available — the 300ms fallback was removed (no one is "
+            f"listening for the relaunch_ack). Got sleep_calls: {sleep_calls}"
         )
 
 

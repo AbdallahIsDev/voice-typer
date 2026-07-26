@@ -83,6 +83,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/tauri/mig17/<this> → repo root
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+# CR-52: the paste logic was extracted from `sidecar_cmds.rs::paste_text`
+# (now a 5-line thin wrapper) into `commands/paste.rs::execute_paste` +
+# the `paste_via_enigo_text` / `paste_via_clipboard_and_ctrl_v` helpers.
+# Tests that inspect the actual paste algorithm read this file.
+PASTE_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "paste.rs"
 UTIL_RS = REPO_ROOT / "src-tauri" / "src" / "util.rs"
 ADR_0020_MD = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 LINUX_RUNBOOK_MD = REPO_ROOT / "docs" / "migration" / "linux-validation-runbook.md"
@@ -97,6 +102,19 @@ def sidecar_cmds_src() -> str:
     """Read the ``sidecar_cmds.rs`` source file once per module."""
     assert SIDECAR_CMDS_RS.is_file(), f"missing Rust source: {SIDECAR_CMDS_RS}"
     return SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def paste_src() -> str:
+    """Read the ``paste.rs`` source file once per module.
+
+    CR-52: the paste algorithm was extracted from ``sidecar_cmds.rs``
+    into ``commands/paste.rs``. Tests that inspect the actual paste
+    logic (short/long branch, enigo errors, mod_key selection, Wayland
+    fallback) read this file.
+    """
+    assert PASTE_RS.is_file(), f"missing Rust source: {PASTE_RS}"
+    return PASTE_RS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -140,6 +158,28 @@ def _slice_paste_text(src: str) -> str:
     start = src.index("/// ADR-0020 §6.2: paste transcribed text")
     # find the end: next "// ───" section header after the function body
     end_match = re.search(r"\n// ─── Tauri command: cooperative shutdown", src[start:])
+    end = start + end_match.start() if end_match else len(src)
+    return src[start:end]
+
+
+def _slice_paste_logic(src: str) -> str:
+    """Return the paste-logic body from ``paste.rs`` (CR-52 extraction).
+
+    Returns the source from the ``pub async fn execute_paste`` signature
+    through the end of the platform-agnostic helpers (before the
+    Windows-only focus-restore section). Used by source-inspection tests
+    that verify the actual paste algorithm — the short/long branch
+    dispatch, the ``paste_via_enigo_text`` / ``paste_via_clipboard_and_ctrl_v``
+    helpers, the mod_key selection, and the Wayland fallback.
+    """
+    start_match = re.search(r"pub\s+async\s+fn\s+execute_paste\b", src)
+    if not start_match:
+        # Fallback: return the whole file (assertions will fail with a
+        # clear error rather than a confusing slice miss).
+        return src
+    start = start_match.start()
+    # Slice to the Windows-only focus-restore section header (if present).
+    end_match = re.search(r"// ─── Windows focus-restore", src[start:])
     end = start + end_match.start() if end_match else len(src)
     return src[start:end]
 
@@ -190,7 +230,7 @@ def test_paste_short_threshold_is_300(util_src: str) -> None:
 # ─── 2. Short text path: enigo.text() only ───────────────────────────────
 
 
-def test_short_text_path_uses_enigo_text_only(sidecar_cmds_src: str) -> None:
+def test_short_text_path_uses_enigo_text_only(paste_src: str) -> None:
     """Short text (< threshold) calls ``enigo.text()`` only.
 
     The short-text branch must:
@@ -203,8 +243,13 @@ def test_short_text_path_uses_enigo_text_only(sidecar_cmds_src: str) -> None:
     (per ADR-0020 §6.2 Linux row). **This is X11-only — it does NOT work
     on Wayland** (see test_xplat2_wayland_short_text_gap_* for the
     documented gap).
+
+    CR-52: the short-text branch now delegates to the
+    ``paste_via_enigo_text`` helper (extracted from the original inline
+    ``enigo.text()`` call). The helper does the actual enigo.text() call
+    + log line; the branch just dispatches.
     """
-    body = _slice_paste_text(sidecar_cmds_src)
+    body = _slice_paste_logic(paste_src)
 
     # The short-text branch is delimited by `if text.chars().count() < PASTE_SHORT_THRESHOLD {`
     # ... `} else {`. Slice it out.
@@ -219,10 +264,13 @@ def test_short_text_path_uses_enigo_text_only(sidecar_cmds_src: str) -> None:
     )
     short_branch = short_match.group(1)
 
-    # Must call enigo.text(&text).
-    assert "enigo.text" in short_branch, (
-        "Short-text branch must call `enigo.text(&text)` (IME-safe Unicode "
-        "injection per ADR-0020 §6.2). Got branch:\n" + short_branch
+    # CR-52: the short-text branch delegates to ``paste_via_enigo_text``.
+    # The helper does the actual enigo.text() call (IME-safe Unicode
+    # injection per ADR-0020 §6.2).
+    assert "paste_via_enigo_text" in short_branch, (
+        "Short-text branch must call `paste_via_enigo_text(&text)` (CR-52 "
+        "extraction — IME-safe Unicode injection per ADR-0020 §6.2). "
+        "Got branch:\n" + short_branch
     )
 
     # Must NOT touch the clipboard.
@@ -238,17 +286,32 @@ def test_short_text_path_uses_enigo_text_only(sidecar_cmds_src: str) -> None:
         "breaks IME / dead keys / non-English layouts, per ADR-0020 §6.2)."
     )
 
-    # Must log the short-path message documented in the Linux runbook Step 8.
-    assert "[PASTE] injected" in short_branch and "via enigo" in short_branch, (
-        "Short-text branch must log `[PASTE] injected N chars via enigo` "
-        "(linux-validation-runbook.md Step 8 verify-in-logs step)."
+    # The ``paste_via_enigo_text`` helper must use enigo.text() and log
+    # the short-path message documented in the Linux runbook Step 8.
+    helper_match = re.search(
+        r"fn\s+paste_via_enigo_text\s*\([^)]*\)\s*->\s*Result<\(\),\s*String>\s*\{(.*?)^\}",
+        body,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert helper_match is not None, (
+        "paste.rs must define `paste_via_enigo_text` (CR-52 extraction)."
+    )
+    helper_body = helper_match.group(1)
+    assert "enigo.text" in helper_body, (
+        "paste_via_enigo_text must call `enigo.text(text)` (IME-safe Unicode "
+        "injection per ADR-0020 §6.2). Helper body:\n" + helper_body
+    )
+    assert "[PASTE] injected" in helper_body and "via enigo" in helper_body, (
+        "paste_via_enigo_text must log `[PASTE] injected N chars via enigo` "
+        "(linux-validation-runbook.md Step 8 verify-in-logs step). "
+        "Helper body:\n" + helper_body
     )
 
 
 # ─── 3. Long text path: clipboard + Ctrl+V (Linux uses Control, not Meta) ─
 
 
-def test_long_text_path_uses_clipboard_plus_ctrl_v(sidecar_cmds_src: str) -> None:
+def test_long_text_path_uses_clipboard_plus_ctrl_v(paste_src: str) -> None:
     """Long text (≥ threshold) calls ``clipboard.write_text()`` + 3 ``enigo.key()`` calls.
 
     Order matters: clipboard write MUST happen before the key events so
@@ -264,68 +327,93 @@ def test_long_text_path_uses_clipboard_plus_ctrl_v(sidecar_cmds_src: str) -> Non
     Ctrl+V path is the ONLY reliable paste path on Wayland (per ADR-0020
     §6.6) — enigo's per-character XTest injection does NOT work on
     Wayland.
-    """
-    body = _slice_paste_text(sidecar_cmds_src)
 
-    # The long-text branch is everything after `} else {` up to the
-    # function's closing `Ok(())` + `}`.
-    else_match = re.search(r"\}\s*else\s*\{(.*?)(\n    Ok\(\(\)\)\n\})\s*$", body, re.DOTALL)
+    CR-52: the long-text branch now delegates to the
+    ``paste_via_clipboard_and_ctrl_v`` helper. The helper does the actual
+    clipboard write + 3 key events + log line; the branch just dispatches.
+    """
+    body = _slice_paste_logic(paste_src)
+
+    # The long-text branch is the `else { ... }` arm of the
+    # `if text.chars().count() < PASTE_SHORT_THRESHOLD` check. In
+    # paste.rs (CR-52) this is a single delegation call:
+    # `paste_via_clipboard_and_ctrl_v(&app, &text).await?;`. We don't
+    # require `Ok(())` to immediately follow the else block (the new
+    # execute_paste has Windows focus-restore code between the else
+    # block and the trailing `Ok(())`).
+    else_match = re.search(r"\}\s*else\s*\{([^}]*)\}", body, re.DOTALL)
     assert else_match is not None, (
-        "Could not locate the long-text branch (`} else { ... Ok(()) }`). Did the function structure change?"
+        "Could not locate the long-text branch (`} else { ... }`). "
+        "Did the function structure change?"
     )
     long_branch = else_match.group(1)
 
+    # CR-52: the long-text branch delegates to ``paste_via_clipboard_and_ctrl_v``.
+    assert "paste_via_clipboard_and_ctrl_v" in long_branch, (
+        "Long-text branch must call `paste_via_clipboard_and_ctrl_v(&app, &text)` "
+        "(CR-52 extraction — clipboard + Ctrl+V per ADR-0020 §6.2). "
+        "Got branch:\n" + long_branch
+    )
+
+    # The ``paste_via_clipboard_and_ctrl_v`` helper must do clipboard
+    # write + 3 key events in order + log line. We search the whole
+    # ``_slice_paste_logic`` body (the helper has nested braces that
+    # make a precise slice fragile) — the patterns are specific enough.
+    # CR-52: enigo calls are split across lines in the source
+    # (`enigo\n  .key(...)`) so the regexes allow whitespace between
+    # `enigo` and `.key` / `.text`.
     # 1. Clipboard write — must come BEFORE the enigo key calls.
-    cb_match = re.search(r"app\.clipboard\(\)\s*\.write_text\([^)]+\)", long_branch)
+    # CR-52: the new form is `.write_text(text.to_string())` (was `text.clone()`).
+    cb_match = re.search(r"app\.clipboard\(\)\s*\.write_text\([^)]+\)", body)
     assert cb_match is not None, (
-        "Long-text branch must call `app.clipboard().write_text(text.clone())` "
+        "paste_via_clipboard_and_ctrl_v must call `app.clipboard().write_text(...)` "
         "(tauri-plugin-clipboard-manager) per ADR-0020 §6.2."
     )
     cb_end = cb_match.end()
 
     # 2. mod_key Press — must come AFTER clipboard write.
-    press_match = re.search(r"enigo\.key\(\s*mod_key\s*,\s*enigo::Direction::Press\s*\)", long_branch)
+    press_match = re.search(r"enigo\s*\.key\(\s*mod_key\s*,\s*enigo::Direction::Press\s*\)", body)
     assert press_match is not None, (
-        "Long-text branch must call `enigo.key(mod_key, enigo::Direction::Press)` (Ctrl down) per ADR-0020 §6.2."
+        "paste_via_clipboard_and_ctrl_v must call `enigo.key(mod_key, enigo::Direction::Press)` (Ctrl down) per ADR-0020 §6.2."
     )
     assert press_match.start() > cb_end, (
-        "Long-text branch: `enigo.key(mod_key, Press)` must come AFTER "
+        "paste_via_clipboard_and_ctrl_v: `enigo.key(mod_key, Press)` must come AFTER "
         "`app.clipboard().write_text(...)` — otherwise Ctrl+V would paste "
         "the stale clipboard contents, not the new long text."
     )
 
     # 3. 'v' Click — must come AFTER mod_key Press.
     v_match = re.search(
-        r"enigo\.key\(\s*Key::Unicode\('v'\)\s*,\s*enigo::Direction::Click\s*\)",
-        long_branch,
+        r"enigo\s*\.key\(\s*Key::Unicode\('v'\)\s*,\s*enigo::Direction::Click\s*\)",
+        body,
     )
     assert v_match is not None, (
-        "Long-text branch must call `enigo.key(Key::Unicode('v'), "
+        "paste_via_clipboard_and_ctrl_v must call `enigo.key(Key::Unicode('v'), "
         "enigo::Direction::Click)` (the V keystroke) per ADR-0020 §6.2."
     )
     assert v_match.start() > press_match.end(), (
-        "Long-text branch: `enigo.key('v', Click)` must come AFTER "
+        "paste_via_clipboard_and_ctrl_v: `enigo.key('v', Click)` must come AFTER "
         "`enigo.key(mod_key, Press)` so the modifier is held when V is pressed."
     )
 
     # 4. mod_key Release — must come AFTER 'v' Click.
     release_match = re.search(
-        r"enigo\.key\(\s*mod_key\s*,\s*enigo::Direction::Release\s*\)",
-        long_branch,
+        r"enigo\s*\.key\(\s*mod_key\s*,\s*enigo::Direction::Release\s*\)",
+        body,
     )
     assert release_match is not None, (
-        "Long-text branch must call `enigo.key(mod_key, enigo::Direction::Release)` "
+        "paste_via_clipboard_and_ctrl_v must call `enigo.key(mod_key, enigo::Direction::Release)` "
         "(Ctrl up) per ADR-0020 §6.2 — otherwise the modifier stays held "
         "and the next user keystroke becomes Ctrl+<key> on Linux."
     )
     assert release_match.start() > v_match.end(), (
-        "Long-text branch: `enigo.key(mod_key, Release)` must come AFTER "
+        "paste_via_clipboard_and_ctrl_v: `enigo.key(mod_key, Release)` must come AFTER "
         "`enigo.key('v', Click)` so the modifier is released only after V."
     )
 
     # 5. Log message matches the runbook Step 8 expected format.
-    assert "[PASTE] injected" in long_branch and "via clipboard + Ctrl/Cmd+V" in long_branch, (
-        "Long-text branch must log `[PASTE] injected N chars via clipboard + "
+    assert "[PASTE] injected" in body and "via clipboard + Ctrl/Cmd+V" in body, (
+        "paste_via_clipboard_and_ctrl_v must log `[PASTE] injected N chars via clipboard + "
         "Ctrl/Cmd+V` (linux-validation-runbook.md Step 8 verify-in-logs step)."
     )
 
@@ -333,7 +421,7 @@ def test_long_text_path_uses_clipboard_plus_ctrl_v(sidecar_cmds_src: str) -> Non
 # ─── 4. Empty text is a no-op ────────────────────────────────────────────
 
 
-def test_empty_text_is_no_op(sidecar_cmds_src: str) -> None:
+def test_empty_text_is_no_op(paste_src: str) -> None:
     """Empty text returns ``Ok(())`` immediately — no enigo, no clipboard.
 
     A no-op early-return guards against:
@@ -341,17 +429,22 @@ def test_empty_text_is_no_op(sidecar_cmds_src: str) -> None:
     - Clipboard being clobbered with an empty string (would erase the
       user's current clipboard contents for no benefit).
     """
-    body = _slice_paste_text(sidecar_cmds_src)
+    body = _slice_paste_logic(paste_src)
 
-    # The early-return must be the FIRST statement after `let text = args.text;`.
+    # The early-return must be the FIRST statement in ``execute_paste``.
+    # CR-52: ``execute_paste`` takes ``text: String`` directly (not
+    # ``args: PasteTextArgs``), so there's no ``let text = args.text;``
+    # assignment — accept both forms (old sidecar_cmds.rs had the
+    # assignment; new paste.rs doesn't).
     early_return = re.search(
-        r"let\s+text\s*=\s*args\.text\s*;\s*\n\s*if\s+text\.is_empty\(\)\s*\{\s*\n\s*return\s+Ok\(\(\)\)\s*;\s*\n\s*\}",
+        r"(?:let\s+text\s*=\s*args\.text\s*;\s*\n\s*)?if\s+text\.is_empty\(\)\s*\{\s*\n\s*return\s+Ok\(\(\)\)\s*;\s*\n\s*\}",
         body,
     )
     assert early_return is not None, (
-        "paste_text must early-return `Ok(())` on empty text BEFORE any "
-        "enigo / clipboard call. Pattern `let text = args.text; if text.is_empty() "
-        "{ return Ok(()); }` not found at the expected position."
+        "execute_paste must early-return `Ok(())` on empty text BEFORE any "
+        "enigo / clipboard call. Pattern `if text.is_empty() { return Ok(()); }` "
+        "(optionally preceded by `let text = args.text;`) not found at the "
+        "expected position."
     )
 
     # The early-return must come BEFORE the first `use enigo::` import.
@@ -366,7 +459,7 @@ def test_empty_text_is_no_op(sidecar_cmds_src: str) -> None:
 # ─── 5. Linux path uses Key::Control (not Key::Meta) ──────────────────────
 
 
-def test_linux_path_uses_key_control_not_meta(sidecar_cmds_src: str) -> None:
+def test_linux_path_uses_key_control_not_meta(paste_src: str) -> None:
     """Linux path selects ``Key::Control`` (Ctrl+V); macOS path selects ``Key::Meta`` (Cmd+V).
 
     The Rust code uses ``cfg!(target_os = "macos")`` to pick the modifier
@@ -377,8 +470,12 @@ def test_linux_path_uses_key_control_not_meta(sidecar_cmds_src: str) -> None:
     (``Key::Control``); the macOS branch is covered by
     ``test_enigo_paste_macos.py`` and the Windows branch by
     ``test_enigo_paste_windows.py``.
+
+    CR-52: the mod_key selection now lives in the
+    ``paste_via_clipboard_and_ctrl_v`` helper in ``paste.rs`` (was
+    inline in ``sidecar_cmds.rs::paste_text``).
     """
-    body = _slice_paste_text(sidecar_cmds_src)
+    body = _slice_paste_logic(paste_src)
 
     mod_match = re.search(
         r"let\s+mod_key\s*=\s*if\s+cfg!\(target_os\s*=\s*\"macos\"\)\s*\{\s*"
@@ -409,7 +506,7 @@ def test_linux_path_uses_key_control_not_meta(sidecar_cmds_src: str) -> None:
 # ─── 6. enigo errors are surfaced as Rust errors ─────────────────────────
 
 
-def test_enigo_errors_surfaced_as_rust_errors(sidecar_cmds_src: str) -> None:
+def test_enigo_errors_surfaced_as_rust_errors(paste_src: str) -> None:
     """Every ``enigo`` / ``clipboard`` call propagates errors via ``.map_err(...)?``.
 
     ADR-0020 §6.2 + NEW-IPC-107: errors from the paste path MUST surface
@@ -426,46 +523,64 @@ def test_enigo_errors_surfaced_as_rust_errors(sidecar_cmds_src: str) -> None:
       to the clipboard + Ctrl+V path (per the runbook Step 8 common
       failures section: "enigo.text() failed → EXPECTED on Wayland.
       Verify the clipboard + Ctrl+V fallback path works.").
+
+    CR-52: the call sites moved to the ``paste_via_enigo_text`` and
+    ``paste_via_clipboard_and_ctrl_v`` helpers in ``paste.rs``.
+    ``enigo.text(&text)`` became ``enigo.text(text)`` (the helper takes
+    ``&str``); ``.write_text(text.clone())`` became
+    ``.write_text(text.to_string())``. Accept both old and new forms.
     """
-    body = _slice_paste_text(sidecar_cmds_src)
+    body = _slice_paste_logic(paste_src)
 
     # Every `enigo.X(...)` or `app.clipboard().write_text(...)` call
     # must be immediately followed by `.map_err(|e| format!(...))?`.
+    # CR-52: the call sites moved to ``paste_via_enigo_text`` and
+    # ``paste_via_clipboard_and_ctrl_v`` helpers. ``enigo.text(&text)``
+    # became ``enigo.text(text)`` (helper takes ``&str``);
+    # ``.write_text(text.clone())`` became ``.write_text(text.to_string())``.
+    # The enigo calls are also split across lines in the source
+    # (`enigo\n  .key(...)`) so we use regex patterns that allow
+    # whitespace (including newlines) between `enigo` and `.key`/`.text`.
+    # Accept BOTH old + new forms per logical call site.
     expected_call_sites = [
-        # (call substring, error-message-prefix substring)
-        ("Enigo::new(&Settings::default())", "enigo init failed"),
-        ("enigo.text(&text)", "enigo.text failed"),
-        (".write_text(text.clone())", "clipboard write failed"),
-        ("enigo.key(mod_key, enigo::Direction::Press)", "enigo mod press failed"),
-        ("enigo.key(Key::Unicode('v'), enigo::Direction::Click)", "enigo v click failed"),
-        ("enigo.key(mod_key, enigo::Direction::Release)", "enigo mod release failed"),
+        # (regex pattern, error-message-prefix substring)
+        (r"Enigo::new\(\s*&\s*Settings::default\(\)\s*\)", "enigo init failed"),
+        (r"enigo\s*\.\s*text\(\s*(?:&)?\s*text\s*\)", "enigo.text failed"),
+        (r"\.\s*write_text\(\s*text\s*\.\s*(?:clone|to_string)\(\s*\)\s*\)", "clipboard write failed"),
+        (r"enigo\s*\.\s*key\(\s*mod_key\s*,\s*enigo::Direction::Press\s*\)", "enigo mod press failed"),
+        (r"enigo\s*\.\s*key\(\s*Key::Unicode\('v'\)\s*,\s*enigo::Direction::Click\s*\)", "enigo v click failed"),
+        (r"enigo\s*\.\s*key\(\s*mod_key\s*,\s*enigo::Direction::Release\s*\)", "enigo mod release failed"),
     ]
 
-    for call_substr, err_prefix in expected_call_sites:
-        idx = body.find(call_substr)
-        assert idx != -1, (
-            f"Expected call site `{call_substr}` not found in paste_text body. Did the implementation change?"
-        )
-        tail = body[idx + len(call_substr) : idx + len(call_substr) + 200]
-        map_err_pattern = re.compile(
-            r"\s*\.map_err\(\s*\|e\|\s*format!\(\s*\"([^\"]+)\"",
-            re.DOTALL,
-        )
-        m = map_err_pattern.match(tail)
-        assert m is not None, (
-            f"Call `{call_substr}` must be immediately followed by "
+    map_err_pattern = re.compile(
+        r"\s*\.map_err\(\s*\|e\|\s*format!\(\s*\"([^\"]+)\"",
+        re.DOTALL,
+    )
+
+    for call_pattern, err_prefix in expected_call_sites:
+        m_call = re.search(call_pattern, body)
+        if m_call is None:
+            raise AssertionError(
+                f"Expected call site matching `{call_pattern}` not found in "
+                f"paste.rs body. Did the implementation change?"
+            )
+        call_end = m_call.end()
+        tail = body[call_end : call_end + 200]
+        m_err = map_err_pattern.match(tail)
+        assert m_err is not None, (
+            f"Call matching `{call_pattern}` must be immediately followed by "
             f"`.map_err(|e| format!(...))?` to surface the error as a Rust "
             f"String. Tail after call:\n{tail!r}"
         )
-        actual_prefix = m.group(1)
+        actual_prefix = m_err.group(1)
         assert actual_prefix.startswith(err_prefix), (
-            f"Call `{call_substr}` must surface its error with the prefix "
-            f"`{err_prefix}` (so the UI can pattern-match on the cause). "
+            f"Call matching `{call_pattern}` must surface its error with the "
+            f"prefix `{err_prefix}` (so the UI can pattern-match on the cause). "
             f"Got prefix: `{actual_prefix}`."
         )
         assert "?;" in tail or re.search(r"\?\s*;", tail), (
-            f"Call `{call_substr}` must end with `?` (the `?` operator) so "
-            f"the error propagates to the Tauri command return value. "
+            f"Call matching `{call_pattern}` must end with `?` (the `?` operator) "
+            f"so the error propagates to the Tauri command return value. "
             f"Tail after call:\n{tail!r}"
         )
 
@@ -583,62 +698,31 @@ def test_wayland_short_text_path_expected_to_fail(adr_0020_src: str, linux_runbo
 # ─── 9. XPLAT-2 gap: Wayland fallback should be used for ALL text on Wayland
 
 
-def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str, sidecar_cmds_src: str) -> None:
-    """XPLAT-2 (REVIEW-4): Rust ``paste_text`` Wayland fallback — gap documented + fix verified.
+def test_xplat2_wayland_short_text_gap_documented(paste_src: str) -> None:
+    """XPLAT-2 (closed): Rust ``execute_paste`` Wayland fallback regression guard.
 
     Originally the Rust ``paste_text`` used ``enigo.text()`` for short
     text and ``enigo.key(Control, v)`` for the Ctrl+V keystroke in the
-    long path — both X11-only. review.md XPLAT-2
-    documented this gap and recommended detecting Wayland and falling
-    back to ``wtype`` (or always using the clipboard + ``Ctrl+V`` path
-    on Wayland).
+    long path — both X11-only. review.md XPLAT-2 documented this gap
+    and recommended detecting Wayland and falling back to ``wtype``
+    (or always using the clipboard + ``Ctrl+V`` path on Wayland).
 
     The fix has now landed in production code (see
-    ``src-tauri/src/commands/sidecar_cmds.rs::is_wayland_session`` +
-    the early-return in ``paste_text``): a Wayland session is detected
+    ``src-tauri/src/commands/paste.rs::is_wayland_session`` + the
+    early-return in ``execute_paste``): a Wayland session is detected
     via ``XDG_SESSION_TYPE=wayland`` and the clipboard + ``Ctrl+V`` path
     is used for ALL text on Wayland (per ADR-0020 §6.6).
 
-    This test verifies:
-      1. review.md still documents the XPLAT-2 entry
-         (status may be "Pending" or "Fixed" — the review
-         owner is a separate sub-agent that updates the status field).
-      2. The Rust source now HAS Wayland detection — the gap is closed.
-         If this assertion fails, someone removed the Wayland fallback
-         and the XPLAT-2 gap has regressed.
+    NOTE: review.md no longer carries an XPLAT-2 entry (the gap was
+    closed + the entry retired). This test now serves purely as a
+    REGRESSION GUARD: it verifies the Rust source still HAS Wayland
+    detection. If this assertion fails, someone removed the Wayland
+    fallback and the XPLAT-2 gap has regressed.
     """
-    # 1. review.md must document XPLAT-2.
-    xplat2_match = re.search(
-        r"#### XPLAT-2 — Rust `paste_text` doesn't handle Wayland.*?(?=\n#### XPLAT-|\Z)",
-        comprehensive_review_src,
-        re.DOTALL,
-    )
-    assert xplat2_match is not None, (
-        "review.md must have an 'XPLAT-2 — Rust paste_text doesn't handle Wayland' section under REVIEW-4."
-    )
-    xplat2 = xplat2_match.group(0)
-    assert "Wayland" in xplat2 and "enigo.text()" in xplat2, (
-        "XPLAT-2 entry must describe the Wayland gap with `enigo.text()` as the X11-only API. Section:\n" + xplat2
-    )
-    # Severity must be High.
-    assert re.search(r"Severity.*High", xplat2, re.DOTALL), (
-        "XPLAT-2 severity must be High (per REVIEW-4). Section:\n" + xplat2
-    )
-    # Status must be Pending or Fixed (Pending until the
-    # review.md owner flips it to Fixed after observing
-    # the production-code fix; Fixed afterwards).
-    assert re.search(r"Status.*(?:Pending|Fixed)", xplat2, re.DOTALL), (
-        "XPLAT-2 status must be Pending or Fixed. Section:\n" + xplat2
-    )
-    # The recommended fix must mention wtype or ydotool.
-    assert "wtype" in xplat2 or "ydotool" in xplat2, (
-        "XPLAT-2 recommended fix must mention `wtype` or `ydotool` as the Wayland fallback. Section:\n" + xplat2
-    )
-
-    # 2. The Rust paste_text source now HAS Wayland detection — the
-    #    XPLAT-2 gap is closed. If this assertion fails, the Wayland
-    #    fallback has regressed and the gap is back.
-    body = _slice_paste_text(sidecar_cmds_src)
+    # The Rust execute_paste source now HAS Wayland detection — the
+    # XPLAT-2 gap is closed. If this assertion fails, the Wayland
+    # fallback has regressed and the gap is back.
+    body = _slice_paste_logic(paste_src)
     wayland_detection_patterns = [
         r"WAYLAND_DISPLAY",
         r"XDG_SESSION_TYPE",
@@ -648,49 +732,48 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
     ]
     detected = [pat for pat in wayland_detection_patterns if re.search(pat, body)]
     assert detected, (
-        "XPLAT-2 (Wayland fallback) is NOT implemented in paste_text "
+        "XPLAT-2 (Wayland fallback) is NOT implemented in execute_paste "
         "(detected patterns: none). The Rust source must detect Wayland "
         "via WAYLAND_DISPLAY / XDG_SESSION_TYPE=wayland and fall back to "
         "clipboard + Ctrl+V (per ADR-0020 §6.6)."
     )
 
 
-def test_xplat2_wayland_short_text_simulation_fails(sidecar_cmds_src: str, adr_0020_src: str) -> None:
-    """Simulation: short-text path on Wayland silently fails (XPLAT-2 gap).
+def test_xplat2_wayland_short_text_simulation_fails(paste_src: str, adr_0020_src: str) -> None:
+    """Short-text branch condition does NOT inline a Wayland check.
 
-    This is the BEHAVIOURAL demonstration of XPLAT-2: when the Rust
-    ``paste_text`` is invoked on Wayland with short text, it calls
-    ``enigo.text()`` which is X11-only. enigo will return an error
-    (or, worse, silently no-op depending on the X11 connection state
-    through XWayland) — the text does NOT get injected into the
-    Wayland foreground app.
+    Originally (XPLAT-2 gap): the Rust ``paste_text`` did NOT detect
+    Wayland, so short-text transcription on Wayland silently failed
+    (enigo.text() is X11-only). The fix (now landed) added a Wayland
+    detection ``if`` block ABOVE the short/long branch in
+    ``paste.rs::execute_paste`` — the short-text branch's CONDITION
+    itself still only checks ``text.chars().count() < PASTE_SHORT_THRESHOLD``
+    (no Wayland check), but a separate earlier ``if is_wayland_session()``
+    block short-circuits to the clipboard + Ctrl+V path for ALL text on
+    Wayland.
 
-    The simulation re-implements the Rust control flow and asserts
-    that on Wayland:
-    - The SHORT text path STILL calls ``enigo.text()`` (because the
-      Rust code has no Wayland branch — this is the gap).
-    - The LONG text path DOES work (clipboard + Ctrl+V is display-
-      server-agnostic via tauri-plugin-clipboard-manager).
-
-    The recommended fix (not implemented — see XPLAT-2) is to detect
-    Wayland at runtime and use the clipboard + Ctrl+V path for ALL
-    text on Wayland (not just long text). This test documents the gap.
+    This test is a regression guard: it verifies the short-text branch's
+    CONDITION does NOT inline a Wayland check (the Wayland detection is
+    a separate earlier ``if`` block, not part of the short/long branch
+    condition). If someone refactors the Wayland detection INTO the
+    short-text branch condition, this test will flag the change so the
+    XPLAT-2 regression-guarD logic stays in sync.
     """
-    # The Rust paste_text does NOT have a Wayland branch — confirmed
-    # by test_xplat2_wayland_short_text_gap_documented above. The
-    # short-text branch is selected based on `text.chars().count() <
-    # PASTE_SHORT_THRESHOLD` ONLY, with no Wayland check. This means
-    # on Wayland, short text hits the enigo.text() path which is
-    # X11-only and silently fails.
-
-    # 1. Verify the Rust short-text branch has NO Wayland check.
-    body = _slice_paste_text(sidecar_cmds_src)
+    # 1. Verify the Rust short-text branch condition has NO inline
+    #    Wayland check (the Wayland detection is a separate earlier
+    #    ``if is_wayland_session()`` block, not part of the short/long
+    #    branch condition).
+    body = _slice_paste_logic(paste_src)
     short_match = re.search(
         r"if\s+text\.chars\(\)\.count\(\)\s*<\s*PASTE_SHORT_THRESHOLD\s*\{(.*?)\}\s*else\s*\{",
         body,
         re.DOTALL,
     )
-    assert short_match is not None
+    assert short_match is not None, (
+        "Could not locate the short-text branch (`if text.chars().count() < "
+        "PASTE_SHORT_THRESHOLD { ... } else { ... }`) in paste.rs. "
+        "Did the control flow change?"
+    )
     short_branch = short_match.group(0)
     # The branch condition must be ONLY the char-count check — no Wayland.
     # Extract just the condition (between `if` and `{`).
@@ -698,14 +781,16 @@ def test_xplat2_wayland_short_text_simulation_fails(sidecar_cmds_src: str, adr_0
     assert condition_match is not None
     condition = condition_match.group(1)
     assert "WAYLAND_DISPLAY" not in condition, (
-        "XPLAT-2 gap closed? The short-text branch condition now checks "
-        "WAYLAND_DISPLAY. If so, update review.md XPLAT-2 "
-        f"status. Condition: {condition}"
+        "The short-text branch condition should NOT inline a WAYLAND_DISPLAY "
+        "check (the Wayland detection is a separate earlier `if` block in "
+        "execute_paste). If the refactor was intentional, update this "
+        f"regression guard. Condition: {condition}"
     )
     assert "XDG_SESSION_TYPE" not in condition, (
-        "XPLAT-2 gap closed? The short-text branch condition now checks "
-        "XDG_SESSION_TYPE. If so, update review.md XPLAT-2 "
-        f"status. Condition: {condition}"
+        "The short-text branch condition should NOT inline an XDG_SESSION_TYPE "
+        "check (the Wayland detection is a separate earlier `if` block in "
+        "execute_paste). If the refactor was intentional, update this "
+        f"regression guard. Condition: {condition}"
     )
 
     # 2. ADR-0020 §6.6 must state the clipboard + Ctrl+V path is the

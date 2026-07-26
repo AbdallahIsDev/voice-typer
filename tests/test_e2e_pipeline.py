@@ -472,7 +472,17 @@ class TestE2EFullPipeline:
 
         assert resp["id"] == 6
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "unknown_command"
+        # PI-23: error codes are now namespaced (server.unknown_command).
+        # The bare form is preserved as ``legacy_code`` for back-compat
+        # with older Electron builds.
+        code = resp["data"]["code"]
+        legacy = resp["data"].get("legacy_code")
+        assert code == "server.unknown_command" or code == "unknown_command", (
+            f"expected namespaced 'server.unknown_command' or legacy 'unknown_command', got {code!r}"
+        )
+        assert legacy == "unknown_command" or code == "unknown_command", (
+            f"legacy_code should be 'unknown_command' for back-compat, got {legacy!r}"
+        )
         assert "frobnicate" in resp["data"]["message"]
 
         sock.close()

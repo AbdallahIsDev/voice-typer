@@ -179,27 +179,46 @@ class TestPrewarmFiltersImportsByActiveBackend:
         )
 
     def test_warm_imports_imports_torch_for_parakeet(self, temp_config, monkeypatch):
-        """When asr_backend=parakeet, _warm_imports MUST import torch + transformers."""
+        """When asr_backend=parakeet, _warm_imports MUST warm torch + transformers.
+
+        XV-19/XV-32: production no longer does ``import torch`` (which
+        executes ~5s of CPU). Instead it calls
+        ``_warm_package_files("torch")`` which uses
+        ``importlib.util.find_spec`` to locate the package files and
+        reads them into the OS page cache without executing the
+        package's code. The test verifies the file-warming path is
+        taken (not the import path).
+        """
         (temp_config / "config.json").write_text(json.dumps({"asr_backend": "parakeet"}))
-        imported = []
+        warmed_packages = []
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         def tracking_import(name, *args, **kwargs):
+            # XV-19: production should NOT call __import__("torch") —
+            # it warms files instead. Track any unexpected imports so
+            # we can fail the test if a future regression reintroduces
+            # the import path.
             if name in ("torch", "transformers", "faster_whisper"):
-                imported.append(name)
+                raise AssertionError(
+                    f"_warm_imports should NOT call __import__({name!r}) — "
+                    f"it should use _warm_package_files instead (XV-19)."
+                )
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr("builtins.__import__", tracking_import)
         from voice_typer.server import prewarm
+        from voice_typer.server.prewarm import cache_probe
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
-        # Mock the heavy modules so they don't actually load.
-        # XS-100: ``prewarm._warm_imports`` calls ``_warm_package_files("torch")``
-        # which uses ``importlib.util.find_spec("torch")``. ``find_spec`` looks
-        # up ``sys.modules["torch"].__spec__`` and raises
-        # ``ValueError: torch.__spec__ is not set`` if the attribute is missing
-        # (MagicMock does NOT auto-vivify dunder attributes). Set ``__spec__``
-        # explicitly via ``importlib.util.spec_from_loader`` so the mock
-        # satisfies the importlib contract without needing a real loader.
+        # Intercept _warm_package_files to track which packages were warmed.
+        real_warm = cache_probe._warm_package_files
+
+        def tracking_warm(pkg_name):
+            warmed_packages.append(pkg_name)
+            return real_warm(pkg_name)
+
+        monkeypatch.setattr(cache_probe, "_warm_package_files", tracking_warm)
+        # Mock the heavy modules so find_spec succeeds without actually
+        # locating the real packages on this machine.
         mock_torch = MagicMock()
         mock_torch.__spec__ = importlib.util.spec_from_loader("torch", loader=None)
         mock_transformers = MagicMock()
@@ -213,8 +232,12 @@ class TestPrewarmFiltersImportsByActiveBackend:
         }
         with patch.dict(sys.modules, fake_modules):
             prewarm._warm_imports()
-        assert "torch" in imported, "parakeet backend must import torch"
-        assert "transformers" in imported, "parakeet backend must import transformers"
+        assert "torch" in warmed_packages, (
+            "parakeet backend must warm torch files via _warm_package_files('torch')"
+        )
+        assert "transformers" in warmed_packages, (
+            "parakeet backend must warm transformers files via _warm_package_files('transformers')"
+        )
 
 
 class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:

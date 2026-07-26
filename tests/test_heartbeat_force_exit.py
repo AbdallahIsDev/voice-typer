@@ -139,7 +139,7 @@ def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(  # noqa: N8
         if self.name == "heartbeat-force-exit":
             created_threads.append(self)
 
-    # Now check at t=101 (well within the 120s timeout — should NOT fire).
+    # Now check at t=101 (well within the 45s timeout — should NOT fire).
     with (
         patch.object(threading.Thread, "start", capturing_start),
         patch(

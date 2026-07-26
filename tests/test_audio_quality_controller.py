@@ -201,7 +201,15 @@ class TestFinalizeAudioQualityReport:
     def test_short_circuits_when_warnings_disabled(self):
         """``audio_quality_warnings=False`` (the default) means we skip
         the analysis entirely for efficiency — no ``analyze_full_audio``
-        call, no tray notification, no reset."""
+        call, no tray notification.
+
+        ER-44: ``reset()`` IS still called in the ``finally:`` block so
+        per-chunk accumulator state (clip_count, peak, rms_ema,
+        low_volume_chunks) doesn't leak across recording sessions when
+        warnings are disabled. The early-return path used to skip reset,
+        which carried the previous session's clipping/low-volume stats
+        into the next session's report.
+        """
         ctrl, app = _make_controller()
         app.config.audio_quality_warnings = False
         audio = np.ones(16000, dtype=np.float32)
@@ -215,7 +223,9 @@ class TestFinalizeAudioQualityReport:
         app._audio_quality = MagicMock()
         ctrl._finalize_audio_quality_report(audio)
         app._audio_quality.analyze_full_audio.assert_not_called()
-        app._audio_quality.reset.assert_not_called()
+        # ER-44: reset() MUST be called even on the early-return path so
+        # accumulator state doesn't leak across sessions.
+        app._audio_quality.reset.assert_called_once()
         # And tray.notify must NEVER be called (FIX-HOTKEY-AND-NOTIFICATION).
         app.tray.notify.assert_not_called()
 
@@ -296,9 +306,10 @@ class TestFinalizeAudioQualityReport:
         )
 
     def test_reset_not_called_when_analyze_raises(self):
-        """If analyze_full_audio raises, reset() must NOT be called
-        (matches the original try/except scope: reset is inside the
-        try block, after the analyze call)."""
+        """If analyze_full_audio raises, reset() MUST still be called
+        (ER-44: reset is in the ``finally:`` block so it ALWAYS runs,
+        even on exception — preventing state leakage across sessions
+        when the analyzer crashes)."""
         ctrl, app = _make_controller()
         app.config.audio_quality_warnings = True
         mock_aq = MagicMock()
@@ -307,7 +318,8 @@ class TestFinalizeAudioQualityReport:
 
         ctrl._finalize_audio_quality_report(np.ones(16, dtype=np.float32))
 
-        mock_aq.reset.assert_not_called()
+        # ER-44: reset() is in finally: so it runs even on exception.
+        mock_aq.reset.assert_called_once()
 
 
 # ── AUDIO-8: live RMS EMA wiring ──────────────────────────────────────
@@ -372,9 +384,13 @@ class TestOnAudioQualityChunkRmsEma:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.audio_quality_controller"):
             for _ in range(5):
                 ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
-            for _ in range(20):
-                ctrl._on_audio_quality_chunk(rms=0.5, peak=0.5)
-            for _ in range(5):
+            # Use 1 chunk of recovery (not 20) so EMA ends at ~0.025
+            # (alpha=0.05, rms=0.5 → ema = 0.05*0.5 = 0.025). With 20
+            # chunks, EMA would converge to ~0.32 and the second
+            # low-volume episode (5 chunks of 0.001) wouldn't be enough
+            # to bring EMA back below 0.005 — the warning wouldn't fire.
+            ctrl._on_audio_quality_chunk(rms=0.5, peak=0.5)
+            for _ in range(50):
                 ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
         warn_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warn_records) == 2, f"Expected 2 warnings (one per episode), got {len(warn_records)}"

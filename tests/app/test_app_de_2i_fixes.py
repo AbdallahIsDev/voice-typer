@@ -38,7 +38,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ── Shared helpers ──────────────────────────────────────────────────────
 
 
@@ -210,8 +209,8 @@ class TestDE48ConfigLoadRaisesInInit:
         propagation in Config.load), ``__init__`` must catch it and
         construct with ``Config()`` defaults so the rest of init can
         proceed."""
-        from voice_typer.server.config import Config
         from voice_typer.server import app as app_module
+        from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
         monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
@@ -244,8 +243,8 @@ class TestDE48ConfigLoadRaisesInInit:
         self, tmp_config_dir, monkeypatch, caplog
     ):
         """The exception must be logged at ERROR with ``exc_info=True``."""
-        from voice_typer.server.config import Config
         from voice_typer.server import app as app_module
+        from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
         monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
@@ -291,8 +290,8 @@ class TestDE48ConfigLoadRaisesInInit:
         """After ``self.tray`` is built, ``__init__`` must call
         ``tray.notify`` with a user-facing message about the config
         load failure."""
-        from voice_typer.server.config import Config
         from voice_typer.server import app as app_module
+        from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
         monkeypatch.setattr(app_module, "enable_autostart", lambda: True)
@@ -392,8 +391,8 @@ class TestDE48ConfigLoadRaisesInInit:
         """If ``tray.notify`` itself raises (e.g. tray backend not
         fully initialized), ``__init__`` must NOT re-raise — the
         user already has the ERROR log line + traceback for triage."""
-        from voice_typer.server.config import Config
         from voice_typer.server import app as app_module
+        from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
         monkeypatch.setattr(app_module, "enable_autostart", lambda: True)

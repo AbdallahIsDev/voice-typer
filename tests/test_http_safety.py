@@ -36,7 +36,6 @@ from voice_typer.server._http_safety import (
     build_secure_opener,
 )
 
-
 # ---------------------------------------------------------------------------
 # DE-64: HTTPError.url is redacted
 # ---------------------------------------------------------------------------
@@ -276,6 +275,6 @@ class TestHttpsOnlyHTTPHandler:
     def test_loopback_set_is_documented(self):
         """The loopback exemption set must contain exactly the three
         documented loopback hosts (no more, no less)."""
-        assert _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS == frozenset(
+        assert frozenset(
             {"localhost", "127.0.0.1", "::1"}
-        )
+        ) == _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS

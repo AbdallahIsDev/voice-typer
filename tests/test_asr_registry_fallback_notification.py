@@ -50,10 +50,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from voice_typer.server.asr_registry import AsrBackendRegistry
-
 
 # ── Helpers ────────────────────────────────────────────────────────────
 

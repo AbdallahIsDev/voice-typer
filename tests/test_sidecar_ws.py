@@ -56,6 +56,7 @@ This module exercises:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
 import time
@@ -66,7 +67,6 @@ import pytest
 websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
-
 
 # ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -124,7 +124,10 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     # ``loop.stop``, which would kill the test framework's loop if we
     # used the running one.
     loop = asyncio.new_event_loop()
-    server._ws_loop = loop
+    # YJ-51 / YJ-FIX-C2-rework (review Issue 5): the production write
+    # ``server._ws_loop = loop`` was deleted (zero readers — the
+    # per-connection ``_push_to_ws`` closure captures its own ``loop``).
+    # This test-side write is also dead — removed.
 
     fake_ws_1 = _make_fake_websocket_for_close()
     fake_ws_2 = _make_fake_websocket_for_close()
@@ -189,7 +192,9 @@ def test_graceful_shutdown_stops_loop_within_budget(monkeypatch) -> None:
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     loop = asyncio.new_event_loop()
-    server._ws_loop = loop
+    # YJ-51 / YJ-FIX-C2-rework (review Issue 5): the production write
+    # ``server._ws_loop = loop`` was deleted (zero readers). This
+    # test-side write is also dead — removed.
 
     fake_ws = MagicMock()
 
@@ -328,7 +333,9 @@ def test_graceful_shutdown_drains_inflight_dispatch_futures(monkeypatch) -> None
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
     loop = asyncio.new_event_loop()
-    server._ws_loop = loop
+    # YJ-51 / YJ-FIX-C2-rework (review Issue 5): the production write
+    # ``server._ws_loop = loop`` was deleted (zero readers). This
+    # test-side write is also dead — removed.
 
     # Simulate an in-flight dispatch future: a 200ms handler.
     import concurrent.futures
@@ -556,12 +563,10 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
 
     dispatch = MagicMock()
 
-    try:
-        await sidecar_ws._handle_connection(ws, server, dispatch)
-    except Exception:
         # Cleanup exceptions from the writer task teardown are
         # acceptable — we only care that no auth_failed frame was sent.
-        pass
+        with contextlib.suppress(Exception):
+            await sidecar_ws._handle_connection(ws, server, dispatch)
 
     # No auth_failed frame should have been sent on a successful auth.
     auth_failed_frames = [f for f in sent_frames if "auth_failed" in f]

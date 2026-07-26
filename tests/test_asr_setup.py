@@ -84,7 +84,7 @@ class TestDownloadParakeetWeightsCapturesTraceback:
             raising=False,
         )
 
-        result = download_parakeet_weights(progress_callback=lambda msg: None)
+        result = download_parakeet_weights(progress_callback=lambda msg: None, force=True)
         assert isinstance(result, tuple)
         assert len(result) == 3, "GT-15: download_parakeet_weights must return a 3-tuple."
         success, reason, exc_info = result
@@ -114,7 +114,7 @@ class TestDownloadParakeetWeightsCapturesTraceback:
         )
 
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.asr_setup"):
-            download_parakeet_weights(progress_callback=lambda msg: None)
+            download_parakeet_weights(progress_callback=lambda msg: None, force=True)
 
         error_records = [
             r for r in caplog.records if r.levelno == logging.ERROR and "download attempts failed" in r.getMessage()
@@ -158,7 +158,7 @@ class TestDownloadParakeetWeightsIntegrityCheckLogsDetails:
         monkeypatch.setattr(asr_setup, "_cleanup_failed_cache", lambda repo_id: None)
 
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.asr_setup"):
-            result = download_parakeet_weights(progress_callback=lambda msg: None)
+            result = download_parakeet_weights(progress_callback=lambda msg: None, force=True)
 
         success, reason, exc_info = result
         assert success is False

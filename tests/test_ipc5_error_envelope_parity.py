@@ -239,14 +239,18 @@ class TestTcpErrorEnvelopes:
 
     def test_tcp_invalid_json_returns_invalid_payload_code(self, authenticated_client):
         """Invalid JSON on the TCP socket must return
-        ``{"type":"error","data":{"code":"invalid_payload","message":
+        ``{"type":"error","data":{"code":"client.invalid_payload",
+        "legacy_code":"invalid_payload","message":
         "invalid JSON"}}`` — matching the WS path.
         """
         client, _ = authenticated_client
         _send_raw(client, "{not valid json")
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        # PI-23: namespaced form is canonical; legacy_code alias is
+        # preserved for one release cycle.
+        assert resp["data"]["code"] == "client.invalid_payload"
+        assert resp["data"]["legacy_code"] == "invalid_payload"
         assert resp["data"]["message"] == "invalid JSON"
 
     def test_tcp_dispatch_exception_returns_internal_error_code(self, authenticated_client, monkeypatch):
@@ -263,7 +267,10 @@ class TestTcpErrorEnvelopes:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "internal_error"
+        # PI-16: production emits the namespaced form (per EC-FIX-4 /
+        # G4-M-22 migration). The legacy bare ``internal_error`` is no
+        # longer emitted by the dispatch loop or handler catch-alls.
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
     def test_tcp_rate_limit_returns_rate_limited_code(self, authenticated_client, monkeypatch):
@@ -285,7 +292,10 @@ class TestTcpErrorEnvelopes:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "rate_limited"
+        # PI-23: namespaced form is canonical; legacy_code alias is
+        # preserved for one release cycle.
+        assert resp["data"]["code"] == "client.rate_limited"
+        assert resp["data"]["legacy_code"] == "rate_limited"
         assert resp["data"]["message"] == "rate limit exceeded; backing off"
 
 
@@ -322,11 +332,16 @@ class TestWsErrorEnvelopes:
         # ``tests/tauri/test_sidecar_ws_integration.py``.
         expected = {
             "type": "error",
-            "data": {"code": "invalid_payload", "message": "invalid JSON"},
+            "data": {
+                # PI-23: namespaced form is canonical.
+                "code": "client.invalid_payload",
+                "legacy_code": "invalid_payload",
+                "message": "invalid JSON",
+            },
         }
         # The TCP path's envelope (from ``TestTcpErrorEnvelopes``)
         # must match this exactly.
-        assert expected["data"]["code"] == "invalid_payload"
+        assert expected["data"]["code"] == "client.invalid_payload"
         assert expected["data"]["message"] == "invalid JSON"
 
     def test_ws_dispatch_exception_returns_internal_error_code(self):
@@ -344,7 +359,9 @@ class TestWsErrorEnvelopes:
         result = asyncio.run(dispatch({"type": "get_status", "data": {}}, MagicMock()))
 
         assert result["type"] == "error"
-        assert result["data"]["code"] == "internal_error"
+        # PI-16: production emits the namespaced form (per EC-FIX-4 /
+        # G4-M-22 migration).
+        assert result["data"]["code"] == "server.internal_error"
         # IPC-5: the message is now "internal error" (was "dispatch
         # raised" pre-IPC-5) so the WS path matches the TCP path
         # verbatim.
@@ -379,7 +396,10 @@ class TestWsErrorEnvelopes:
             result = asyncio.run(dispatch({"type": "get_status", "data": {}}, MagicMock()))
 
         assert result["type"] == "error"
-        assert result["data"]["code"] == "rate_limited"
+        # PI-23: namespaced form is canonical; legacy_code alias is
+        # preserved for one release cycle.
+        assert result["data"]["code"] == "client.rate_limited"
+        assert result["data"]["legacy_code"] == "rate_limited"
         assert result["data"]["message"] == "rate limit exceeded; backing off"
 
 
@@ -395,18 +415,33 @@ class TestTcpWsEnvelopeParity:
     EXPECTED_ENVELOPES = {
         "invalid_json": {
             "type": "error",
-            "data": {"code": "invalid_payload", "message": "invalid JSON"},
+            "data": {
+                # PI-23: namespaced form is canonical; legacy_code alias
+                # is preserved for one release cycle.
+                "code": "client.invalid_payload",
+                "legacy_code": "invalid_payload",
+                "message": "invalid JSON",
+            },
         },
         "rate_limited": {
             "type": "error",
             "data": {
-                "code": "rate_limited",
+                "code": "client.rate_limited",
+                "legacy_code": "rate_limited",
                 "message": "rate limit exceeded; backing off",
             },
         },
+        # PI-16: ``internal_error`` is now emitted in the namespaced
+        # form ``server.internal_error`` (EC-FIX-4 / G4-M-22 migration).
+        # PI-23: ``rate_limited`` and ``invalid_payload`` are now also
+        # emitted in the namespaced form (``client.rate_limited`` /
+        # ``client.invalid_payload``) on the dispatch path; the parity
+        # test asserts the namespaced form. A backward-compat
+        # ``legacy_code`` alias is preserved for one release cycle (see
+        # ``voice_typer/server/ipc/validation.py``).
         "internal_error": {
             "type": "error",
-            "data": {"code": "internal_error", "message": "internal error"},
+            "data": {"code": "server.internal_error", "message": "internal error"},
         },
     }
 
@@ -460,7 +495,7 @@ class TestTcpWsEnvelopeParity:
             # shape directly here; the live integration test in
             # tests/tauri/test_sidecar_ws_integration.py covers the
             # full path.
-            assert expected["data"]["code"] == "invalid_payload"
+            assert expected["data"]["code"] == "client.invalid_payload"
             assert expected["data"]["message"] == "invalid JSON"
             return
 

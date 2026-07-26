@@ -34,8 +34,19 @@ class TestModelIntegrityWarnsOnEmptyHashes:
 
     Tests pin:
     - ``verify_model_integrity`` logs a WARNING containing "NO-OP"
-      when the manifest's ``files`` dict is empty.
-    - ``_verify_qwen_model_hashes`` (qwen_engine) does the same.
+      when the manifest's ``files`` dict is empty (for HuggingFace
+      repos — ``revision`` is a SHA pin, so the empty-files state is
+      a "to-be-populated" placeholder that soft-passes).
+    - For local models (``revision == "local"``, e.g. qwen) with an
+      empty ``files`` dict, ``verify_model_integrity`` HARD-FAILs
+      (NF-R18-9) because there's no upstream SHA pin — a tampered
+      local directory would load unchecked. The pre-G4-H-33
+      ``_verify_qwen_model_hashes`` helper soft-passed (the divergent
+      helper was the root cause of G4-H-33: it made the security
+      module's hard-fail branch dead code for the qwen path). G4-H-33
+      deleted the helper and routed qwen through
+      ``verify_model_integrity``, so the NF-R18-9 hard-fail is now
+      honoured.
     """
 
     def test_security_logs_warning_when_files_empty(self, tmp_path, caplog):
@@ -64,24 +75,68 @@ class TestModelIntegrityWarnsOnEmptyHashes:
             "the integrity check is effectively disabled."
         )
 
-    def test_qwen_logs_warning_when_files_empty(self, tmp_path, caplog):
-        from voice_typer.server import security
-        from voice_typer.server.qwen_engine import _verify_qwen_model_hashes
+    def test_qwen_hard_fails_when_files_empty(self, tmp_path, caplog):
+        """G4-H-33 / NF-R18-9: ``verify_model_integrity`` (the canonical
+        verifier that replaced the deleted ``_verify_qwen_model_hashes``
+        helper) must HARD-FAIL for a local qwen model when the manifest's
+        ``files`` dict is empty.
 
-        # Create a fake qwen model dir with a config.json
+        Pre-G4-H-33, the divergent ``_verify_qwen_model_hashes`` helper
+        soft-passed on empty ``pinned_files`` — but
+        ``security.verify_model_integrity`` hard-fails in that case
+        (NF-R18-9). The soft-pass made the security module's hard-fail
+        branch dead code for the qwen path, so a tampered local Qwen
+        model directory would load with NO content hash verification.
+        G4-H-33 deleted the helper and routed qwen through
+        ``verify_model_integrity``, so the NF-R18-9 hard-fail is now
+        honoured.
+
+        This test pins the new contract: with the real qwen manifest
+        entry (``revision: "local"``, ``files: {}``),
+        ``verify_model_integrity`` returns False and emits an ERROR
+        (not WARNING) explaining the hard-fail.
+        """
+        from voice_typer.server import security
+        from voice_typer.server.security import verify_model_integrity
+
+        # Create a fake qwen model dir with config.json + a model file
+        # (safetensors) so the structural checks pass and we reach the
+        # empty-files hard-fail branch (NF-R18-9).
         model_dir = tmp_path / "fake-qwen"
         model_dir.mkdir()
         (model_dir / "config.json").write_text("{}")
+        (model_dir / "model.safetensors").write_bytes(b"fake")
 
-        # Patch MODEL_HASHES to return an empty files dict for qwen
-        with patch.object(security, "MODEL_HASHES", {"qwen": {"files": {}}}), caplog.at_level(logging.WARNING):
-            result = _verify_qwen_model_hashes(str(model_dir))
+        # Patch MODEL_HASHES with the real qwen manifest entry shape
+        # (revision: "local", files: {}). This is the actual state of
+        # model_hashes.json for the qwen entry — operators who want to
+        # load a local qwen model MUST populate the files dict with
+        # the expected SHA-256 hashes (the soft-pass branch's INFO
+        # logs from a prior run with the correct model print them).
+        fake_manifest = {"qwen": {"revision": "local", "files": {}}}
+        with patch.object(security, "MODEL_HASHES", fake_manifest), caplog.at_level(logging.ERROR):
+            result = verify_model_integrity(local_dir=str(model_dir), repo_id="qwen")
 
-        assert result is True  # soft pass
-        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("NO-OP" in r.getMessage() for r in warnings), (
-            "_verify_qwen_model_hashes must emit a WARNING containing 'NO-OP' "
-            "when the qwen manifest's files dict is empty."
+        # NF-R18-9: HARD-FAIL — empty files + revision="local" means
+        # no upstream SHA pin and no pinned hashes, so a tampered
+        # directory would load unchecked. Return False so the caller
+        # refuses to load.
+        assert result is False, (
+            "NF-R18-9 / G4-H-33: verify_model_integrity must HARD-FAIL "
+            "(return False) for a local qwen model with an empty files "
+            "dict — there is no upstream SHA pin (revision='local'), so "
+            "the empty-files soft-pass would let a tampered directory "
+            "load unchecked. The deleted _verify_qwen_model_hashes "
+            "helper used to soft-pass here (the G4-H-33 root cause); "
+            "the canonical verifier must NOT."
+        )
+        # Must have emitted an ERROR (not WARNING) about the hard-fail.
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any("hard-FAIL" in r.getMessage() or "hard_fail" in r.getMessage().lower() for r in errors), (
+            "NF-R18-9 / G4-H-33: verify_model_integrity must emit an ERROR "
+            "containing 'hard-FAIL' for a local qwen model with an empty "
+            "files dict, so operators see at default log levels that the "
+            "integrity check refused to soft-pass."
         )
 
     def test_model_hashes_json_currently_populated(self):

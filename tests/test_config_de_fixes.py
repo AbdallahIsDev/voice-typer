@@ -15,15 +15,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import pytest
-
 from voice_typer.server import config as config_mod
-from voice_typer.server.config import Config, _CURRENT_SCHEMA_VERSION
+from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config
 
 
 @pytest.fixture(autouse=True)
@@ -334,7 +332,6 @@ class TestDE28CredentialStoreExceptionsAreSanitised:
         # ``from voice_typer.server import credential_store``.
         import voice_typer.server as server_pkg
 
-        original_cs = getattr(server_pkg, "credential_store", None)
         monkeypatch.setattr(server_pkg, "credential_store", fake_cs, raising=False)
         # Also patch the sys.modules entry so the ``from ... import``
         # in _save_locked picks up the fake.

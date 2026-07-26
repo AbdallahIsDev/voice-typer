@@ -191,7 +191,22 @@ class TestAccessibilityIpcBehavioral:
     controllable ``AXIsProcessTrusted``. It then dispatches the
     ``check_accessibility`` IPC command and verifies the response is
     ``accessibility_status`` with the expected ``granted`` value.
+
+    ZR-45 (2026-07-25): ``check_accessibility`` was REMOVED from the
+    Python ``_COMMAND_REGISTRY`` because the Tauri host now handles it
+    via a dedicated Rust command (``check_accessibility`` in
+    ``src-tauri/src/commands/``). The Python-side handler was dead code
+    — the Tauri host never bridged the IPC call. These tests are kept
+    for historical context and skipped because the IPC handler no
+    longer exists; the equivalent coverage lives in the Rust-side
+    Tauri tests.
     """
+
+    _SKIP_REASON = (
+        "ZR-45: check_accessibility moved from Python IPC to Tauri Rust host; "
+        "Python handler was dead code (Tauri never bridged the call). Coverage "
+        "now lives in src-tauri Rust tests."
+    )
 
     def _make_server(self):
         """Build a minimal IPCServer with a mock app + service."""
@@ -205,8 +220,22 @@ class TestAccessibilityIpcBehavioral:
         server = IPCServer.__new__(IPCServer)
         server.app = app
         server.service = MagicMock()
+        # NH-50: ``_dispatch`` acquires ``self._dispatch_lock`` for
+        # state-mutating handlers (``check_accessibility`` is NOT in
+        # ``_READONLY_COMMANDS``). The test bypasses ``__init__`` via
+        # ``__new__`` (for speed — full ``__init__`` builds the
+        # authenticated socket, worker pool, command-handler cache, etc.),
+        # so we must set up the minimal instance attrs that ``_dispatch``
+        # touches. Without this, ``_dispatch`` raises
+        # ``AttributeError: 'IPCServer' object has no attribute
+        # '_dispatch_lock'`` and the test fails before the handler ever
+        # runs. ``RLock`` matches the production type (a handler that
+        # re-enters ``_dispatch`` on the same thread via
+        # ``event_bus.publish`` must not self-deadlock).
+        server._dispatch_lock = RLock()
         return server
 
+    @pytest.mark.skip(reason=_SKIP_REASON)
     def test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos(self, monkeypatch):
         # Import IPCServer FIRST so ipc_server.py fully loads (including
         # all handler mixins). Importing system_handlers directly first
@@ -251,6 +280,7 @@ class TestAccessibilityIpcBehavioral:
         # equivalent of the meta-test's "AXIsProcessTrusted in src" check).
         assert fake_lib.AXIsProcessTrusted.called, "PLAT-030: handler must call AXIsProcessTrusted() on macOS."
 
+    @pytest.mark.skip(reason=_SKIP_REASON)
     def test_handler_returns_false_when_axistrusted_returns_zero(self, monkeypatch):
         """Sanity: when AXIsProcessTrusted returns 0, granted must be False."""
         from voice_typer.server.handlers import system_handlers

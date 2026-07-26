@@ -47,17 +47,20 @@ def _make_manager():
 
 
 def test_delayed_restore_signature_accepts_four_args() -> None:
-    """The signature must accept a 4th ``_pending_entry`` parameter."""
+    """The signature must accept a 4th ``pending_entry`` parameter."""
     from voice_typer.server import clipboard as cb
 
     sig = inspect.signature(cb.ClipboardManager._delayed_restore)
     params = list(sig.parameters.values())
-    # self, snapshot, pasted_text, delay, _pending_entry
+    # self, snapshot, pasted_text, delay, pending_entry
     assert len(params) >= 5, (
         f"_delayed_restore must accept 4 args + self (5 params), got {len(params)}: {[p.name for p in params]}"
     )
-    assert params[4].name == "_pending_entry", (
-        f"4th positional arg must be named '_pending_entry', got {params[4].name!r}"
+    # Accept either ``pending_entry`` (current) or ``_pending_entry``
+    # (legacy naming) — the leading underscore is a private-vs-public
+    # convention only and does not affect the call site.
+    assert params[4].name in {"pending_entry", "_pending_entry"}, (
+        f"4th positional arg must be named 'pending_entry' or '_pending_entry', got {params[4].name!r}"
     )
 
 
@@ -157,7 +160,7 @@ def test_delayed_restore_skips_when_entry_already_taken_by_atexit() -> None:
 
 def test_spawn_site_passes_four_args() -> None:
     """The paste() method must spawn the thread with 4 positional args
-    (including the _pending_entry). This catches a regression where
+    (including the pending_entry). This catches a regression where
     the spawn site is reverted to 3 args.
     """
     import re
@@ -165,18 +168,32 @@ def test_spawn_site_passes_four_args() -> None:
 
     from voice_typer.server import clipboard as cb
 
-    src = Path(cb.__file__).read_text(encoding="utf-8")
-    # Find the spawn site.
-    m = re.search(
-        r"threading\.Thread\(\s*target=self\._delayed_restore,\s*args=\(([^)]+)\)",
-        src,
-        re.DOTALL,
+    # The clipboard package was split (ARCH-11): the spawn site may live
+    # in ``__init__.py`` or in a submodule (e.g. ``manager.py``). Walk
+    # all .py files in the package and look for the spawn.
+    pkg_dir = Path(cb.__file__).parent
+    candidates = sorted(pkg_dir.glob("*.py"))
+
+    found_args = None
+    for path in candidates:
+        src = path.read_text(encoding="utf-8")
+        m = re.search(
+            r"threading\.Thread\(\s*target=self\._delayed_restore,\s*args=\(([^)]+)\)",
+            src,
+            re.DOTALL,
+        )
+        if m is not None:
+            found_args = m.group(1)
+            break
+
+    assert found_args is not None, (
+        "Could not find _delayed_restore thread spawn site in any clipboard package file"
     )
-    assert m is not None, "Could not find _delayed_restore thread spawn site"
-    args_blob = m.group(1)
     # Count identifiers / placeholders in the args tuple.
-    args = [a.strip() for a in args_blob.split(",") if a.strip()]
+    args = [a.strip() for a in found_args.split(",") if a.strip()]
     assert len(args) == 4, (
-        f"Spawn site must pass 4 args (snapshot, expected, delay, _pending_entry); got {len(args)}: {args}"
+        f"Spawn site must pass 4 args (snapshot, expected, delay, pending_entry); got {len(args)}: {args}"
     )
-    assert "_pending_entry" in args, f"Spawn site must include _pending_entry as 4th arg; got: {args}"
+    assert "_pending_entry" in args or "pending_entry" in args, (
+        f"Spawn site must include pending_entry as 4th arg; got: {args}"
+    )

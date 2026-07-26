@@ -48,7 +48,7 @@ class TestSaveTemplates:
     def test_missing_templates_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_save_templates({}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "templates"
         fake_service.save_templates.assert_not_called()
 
@@ -56,14 +56,14 @@ class TestSaveTemplates:
         """``templates`` must be a list — dict/string/int are rejected."""
         resp = ipc_server._handle_save_templates({"templates": {"not": "a list"}}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "templates"
         fake_service.save_templates.assert_not_called()
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_save_templates(None, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.save_templates.assert_not_called()
 
     def test_empty_list_returns_ack_with_zero(self, ipc_server, fake_service):

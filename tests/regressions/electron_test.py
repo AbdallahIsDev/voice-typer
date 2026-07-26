@@ -12,6 +12,7 @@ state the monolith provided.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -90,13 +91,21 @@ class TestElectronNotificationIpcEndpoint:
         app = MagicMock()
         app._config_mutation_lock = __import__("threading").RLock()
         server = IPCServer.__new__(IPCServer)
+        server._dispatch_lock = threading.RLock()
         server.app = app
         server.service = MagicMock()
 
         # Dispatch with non-dict data
         resp = server._dispatch({"type": "show_electron_notification", "data": "not a dict", "id": "test"})
         assert resp["type"] == "error"
-        assert "data: object" in resp["data"]["message"]
+        # DE-36: the validation helper now emits the namespaced
+        # ``client.invalid_payload`` as the primary ``code`` (with the
+        # legacy bare ``invalid_payload`` preserved in ``legacy_code``).
+        # Accept either form so the test survives the one-release-cycle
+        # migration window.
+        assert resp["data"]["code"].endswith("invalid_payload"), (
+            f"expected code endswith 'invalid_payload', got {resp['data']['code']!r}"
+        )
 
 
 class TestElectronNotificationFieldValidation:
@@ -129,6 +138,7 @@ class TestElectronNotificationFieldValidation:
         app = MagicMock()
         app._config_mutation_lock = RLock()
         server = IPCServer.__new__(IPCServer)
+        server._dispatch_lock = threading.RLock()
         server.app = app
         server.service = MagicMock()
         return server
@@ -144,7 +154,11 @@ class TestElectronNotificationFieldValidation:
             }
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: code is now namespaced as ``client.invalid_field``
+        # (legacy bare form preserved in ``legacy_code``). Accept either.
+        assert resp["data"]["code"].endswith("invalid_field"), (
+            f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
+        )
         assert resp["data"]["field"] == "duration_ms"
         # The message must NOT contain Python's internal ValueError text.
         assert "invalid literal" not in resp["data"]["message"]
@@ -160,7 +174,11 @@ class TestElectronNotificationFieldValidation:
             }
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: code is now namespaced as ``client.invalid_field``
+        # (legacy bare form preserved in ``legacy_code``). Accept either.
+        assert resp["data"]["code"].endswith("invalid_field"), (
+            f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
+        )
         assert resp["data"]["field"] == "critical"
 
     def test_non_string_title_is_rejected(self):
@@ -174,7 +192,11 @@ class TestElectronNotificationFieldValidation:
             }
         )
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        # DE-36: code is now namespaced as ``client.invalid_field``
+        # (legacy bare form preserved in ``legacy_code``). Accept either.
+        assert resp["data"]["code"].endswith("invalid_field"), (
+            f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
+        )
         assert resp["data"]["field"] == "title"
 
     def test_duration_ms_is_clamped_to_24h(self):

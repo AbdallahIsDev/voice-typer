@@ -37,6 +37,11 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     server.app.quit = MagicMock()
     # push is called by start() — make it a no-op.
     server.push = MagicMock()
+    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # ``_make_dispatch`` to run (creates a real ThreadPoolExecutor so
+    # ``loop.run_in_executor`` doesn't fail the ``wrap_future``
+    # isinstance assertion on a MagicMock.submit() return).
+    server._ws_dispatch_pool = None
 
     # Set the auth token.
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token-" + "a" * 32)
@@ -80,13 +85,25 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
 
 
 async def test_sidecar_rejects_bad_token(monkeypatch):
-    """Wrong token → sidecar closes the connection."""
+    """Wrong token → sidecar sends ``auth_failed`` error frame, then closes.
+
+    RT-FIX-9 / EC-11 (cross-transport parity, 2026-07-24): the WS path
+    now mirrors the TCP path's ``auth_failed`` error frame BEFORE
+    closing the WS with code 1008. Pre-EC-FIX-3 the WS path closed with
+    1008 and sent NO error frame; now both transports emit the same
+    ``{"type":"error","data":{"code":"auth_failed",...}}`` frame before
+    closing so clients can branch on the error code without sniffing
+    the close reason.
+    """
     from voice_typer.server import sidecar_ws
 
     server = MagicMock()
     server._dispatch = MagicMock()
     server.app = MagicMock()
     server.push = MagicMock()
+    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # ``_make_dispatch`` to run.
+    server._ws_dispatch_pool = None
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
 
@@ -103,7 +120,16 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
         # Connect with the wrong token.
         async with websockets.connect(f"ws://127.0.0.1:{port}") as client:
             await client.send(json.dumps({"type": "auth", "token": "wrong-token"}))
-            # The sidecar should close the connection.
+            # RT-FIX-9 / EC-11: the sidecar now sends an ``auth_failed``
+            # error frame BEFORE closing the WS with code 1008. Read
+            # the error frame first, then expect the connection to
+            # close on the next recv().
+            raw = await asyncio.wait_for(client.recv(), timeout=2.0)
+            err = json.loads(raw)
+            assert err["type"] == "error"
+            assert err["data"]["code"] in ("auth_failed", "server.auth_failed")
+            # The next recv() MUST raise ConnectionClosed (the sidecar
+            # closed the WS with code 1008 after sending the error frame).
             with pytest.raises(websockets.exceptions.ConnectionClosed):
                 await client.recv()
 
@@ -119,6 +145,9 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.push = MagicMock()
+    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # ``_make_dispatch`` to run.
+    server._ws_dispatch_pool = None
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
 
@@ -140,7 +169,11 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
             raw = await asyncio.wait_for(client.recv(), timeout=2.0)
             err = json.loads(raw)
             assert err["type"] == "error"
-            assert err["data"]["code"] == "invalid_payload"
+            # The dispatch loop emits the namespaced form (``client.*``);
+            # the ``legacy_code`` alias carries the bare form for one
+            # release cycle so older clients can still branch on it.
+            assert err["data"]["code"] == "client.invalid_payload"
+            assert err["data"].get("legacy_code") == "invalid_payload"
 
             # The connection must still be open — send a real command.
             await client.send(json.dumps({"type": "get_status", "data": {}, "id": 1}))

@@ -182,8 +182,14 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.low_volume_warned is True
 
         # Recovery: feed high RMS so EMA rises above threshold.
-        for _ in range(20):
-            analyzer.update_live_rms(0.5)
+        # Use 1 chunk (not 20) so EMA ends at ~0.025 (alpha * 0.5 = 0.025),
+        # which is above LOW_VOLUME_THRESHOLD (0.005) but low enough that
+        # the second low-volume episode (50 chunks of 0.001) can bring
+        # EMA back below threshold and trigger the warning again.
+        # With 20 chunks of 0.5, EMA would converge to ~0.32 and the
+        # second episode would need ~64 chunks to drop below 0.005
+        # (more than the test's 50-chunk budget).
+        analyzer.update_live_rms(0.5)
         assert analyzer.low_volume_warned is False, "Recovery must unlatch the warning flag"
         assert analyzer.low_volume_chunks == 0
 

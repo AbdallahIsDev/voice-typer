@@ -71,12 +71,26 @@ class TestXV88DeadCodeRemoved:
         iteration. Before the fix, the dead duplicate block added a
         second call site. After the fix, the function body must
         contain exactly ONE call to ``_secure_atomic_write``.
+
+        PI-8: the call is now routed through ``self._user_store.save(
+        self._data)`` (the new :class:`PersistedJSON` helper), which
+        internally calls ``_secure_atomic_write`` exactly once per
+        ``save()`` invocation. So the XV-88 "no dead duplicate" intent
+        is preserved iff ``_save_user`` contains exactly ONE call site
+        — either the direct ``_secure_atomic_write(...)`` form OR the
+        ``self._user_store.save(...)`` form (NOT both, NOT zero).
         """
         src = _save_user_src()
-        assert src.count("_secure_atomic_write(") == 1, (
+        direct_count = src.count("_secure_atomic_write(")
+        helper_count = src.count("self._user_store.save(")
+        total = direct_count + helper_count
+        assert total == 1, (
             "_save_user must call _secure_atomic_write exactly once "
-            "(the live retry loop). A second call site indicates the "
-            "dead duplicate block was re-introduced.\n--- source ---\n"
+            "(either directly OR via self._user_store.save — the live "
+            "retry loop). A count of 0 means the persistence call was "
+            "lost; a count >1 indicates the dead duplicate block was "
+            f"re-introduced. direct={direct_count}, helper={helper_count}, "
+            f"total={total}.\n--- source ---\n"
             + src
         )
 

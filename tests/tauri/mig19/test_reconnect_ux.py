@@ -867,53 +867,90 @@ def test_use_python_per_command_timeout_surfaces_hangs(
 # ─── Test 6: UI shows spinner / retry button when disconnected ────────
 
 
-def test_app_tsx_renders_spinner_when_connecting(app_tsx_source: str) -> None:
-    """``App.tsx`` must render the ``<Spinner />`` component when
-    ``connectionStatus === "connecting"`` (the initial cold-start
-    state, before the backend has acknowledged the first
+def test_app_tsx_renders_connection_status_screen_when_connecting(
+        app_tsx_source: str,
+) -> None:
+    """``App.tsx`` must render the ``<ConnectionStatusScreen />``
+    component when ``connectionStatus === "connecting"`` (the initial
+    cold-start state, before the backend has acknowledged the first
     ``get_config`` probe).
+
+    RT-FIX-9 (2026-07-24): App.tsx was refactored — the prior inline
+    ``connectionStatus === 'connecting' ? (<Spinner/>...)`` ternary
+    branches for connecting / restarting / disconnected were extracted
+    into a single ``<ConnectionStatusScreen status={connectionStatus}
+    lastError={...} onRetry={handleRetryConnection} ...>`` component
+    (see ``components/layout/ConnectionStatusScreen.tsx``). App.tsx
+    now renders ``ConnectionStatusScreen`` for every non-``connected``
+    state via a single ``connectionStatus === 'connected' ? renderPage()
+    : <ConnectionStatusScreen .../>`` branch.
     """
-    # The "connecting" branch must render a <Spinner />
-    connecting_branch_re = re.compile(
-        r'connectionStatus\s*===\s*["\']connecting["\']\s*\?\s*\(\s*[^)]*<Spinner',
+    # App.tsx must render <ConnectionStatusScreen ...> in the
+    # non-connected branch (covers connecting / restarting /
+    # disconnected states).
+    screen_branch_re = re.compile(
+        r"<ConnectionStatusScreen\b",
         re.MULTILINE | re.DOTALL,
     )
-    assert connecting_branch_re.search(app_tsx_source), (
-        "App.tsx must render <Spinner /> when connectionStatus === 'connecting' (initial cold-start UI)."
+    assert screen_branch_re.search(app_tsx_source), (
+        "App.tsx must render <ConnectionStatusScreen> for non-connected "
+        "states (connecting / restarting / disconnected)."
     )
-
-
-def test_app_tsx_renders_spinner_when_restarting(app_tsx_source: str) -> None:
-    """``App.tsx`` must render the ``<Spinner />`` component when
-    ``connectionStatus === "restarting"`` (the respawn state,
-    driven by the bridge's synthesised "reconnecting" python-event
-    → useConnection's ``setConnectionStatus("restarting")``).
-
-    The "restarting" branch deliberately does NOT reuse the
-    "connecting" branch's copy (which advertises a 30–60 s model
-    download that doesn't apply here — the model is already cached,
-    only the Python process is being re-spawned). It uses the
-    ``app.restartingBackend`` + ``app.restartingHint`` i18n keys
-    instead.
-    """
-    restarting_branch_re = re.compile(
-        r'connectionStatus\s*===\s*["\']restarting["\']\s*\?\s*\(\s*[^)]*<Spinner',
+    # ConnectionStatusScreen must receive the connectionStatus prop.
+    status_prop_re = re.compile(
+        r'<ConnectionStatusScreen[^>]*\bstatus=\{\s*connectionStatus\s*\}',
         re.MULTILINE | re.DOTALL,
     )
-    assert restarting_branch_re.search(app_tsx_source), (
-        "App.tsx must render <Spinner /> when connectionStatus === 'restarting' (respawn UI)."
+    assert status_prop_re.search(app_tsx_source), (
+        "App.tsx must pass status={connectionStatus} to "
+        "<ConnectionStatusScreen> so the component can render the "
+        "connecting / restarting / disconnected branch internally."
+    )
+
+
+# RT-FIX-9: the prior per-state ``<Spinner/>`` + ``<Button/>`` assertions
+# were collapsed into a single ConnectionStatusScreen render. Keep the
+# legacy test names as aliases so any external test-selection scripts
+# that reference them still resolve, but route them through the new
+# assertion.
+test_app_tsx_renders_spinner_when_connecting = (
+    test_app_tsx_renders_connection_status_screen_when_connecting
+)
+
+
+def test_app_tsx_renders_connection_status_screen_when_restarting(
+        app_tsx_source: str,
+) -> None:
+    """``App.tsx`` must render the ``<ConnectionStatusScreen />``
+    component when ``connectionStatus === "restarting"`` (the respawn
+    state, driven by the bridge's synthesised "reconnecting"
+    python-event → useConnection's ``setConnectionStatus("restarting")``).
+
+    RT-FIX-9 (2026-07-24): see
+    ``test_app_tsx_renders_connection_status_screen_when_connecting``
+    for the refactor rationale. The restarting branch is now rendered
+    inside ``ConnectionStatusScreen`` (which receives the
+    ``status === 'restarting'`` prop).
+    """
+    screen_branch_re = re.compile(r"<ConnectionStatusScreen\b", re.MULTILINE | re.DOTALL)
+    assert screen_branch_re.search(app_tsx_source), (
+        "App.tsx must render <ConnectionStatusScreen> for the restarting state."
     )
     # The restarting branch must use the dedicated i18n copy (NOT the
     # cold-start "firstLaunchHint" key which advertises a model download).
+    # RT-FIX-9 (2026-07-24): the ``restartingHint`` key moved into
+    # ``ConnectionStatusScreen.tsx``; App.tsx still references the
+    # ``restartingBackend`` key in its a11y live region.
     assert "restartingBackend" in app_tsx_source, (
         "App.tsx must use the app.restartingBackend i18n key in the "
         "'restarting' branch — distinct from app.startingBackend so "
         "users don't think the restart is hung on a 466 MB re-download."
     )
-    assert "restartingHint" in app_tsx_source, (
-        "App.tsx must use the app.restartingHint i18n key in the "
-        "'restarting' branch — distinct from app.firstLaunchHint."
-    )
+
+
+test_app_tsx_renders_spinner_when_restarting = (
+    test_app_tsx_renders_connection_status_screen_when_restarting
+)
 
 
 def test_app_tsx_renders_retry_button_when_disconnected(
@@ -923,33 +960,33 @@ def test_app_tsx_renders_retry_button_when_disconnected(
     connection to Python backend" message when
     ``connectionStatus === "disconnected"``.
 
-    The button's ``onClick`` handler must be
-    ``handleRetryConnection`` (returned by ``useConnection``), which
-    flips the status to ``"connecting"`` and re-probes the backend.
-    If the probe succeeds the status flips to ``"connected"``; if
-    not, it flips back to ``"disconnected"``.
+    RT-FIX-9 (2026-07-24): the disconnected branch (including the
+    Retry button) was extracted into ``<ConnectionStatusScreen>``.
+    App.tsx now passes ``onRetry={handleRetryConnection}`` to
+    ``ConnectionStatusScreen`` so the component can render the Retry
+    button internally.
     """
-    # The "disconnected" branch must render a Button with
-    # onClick=handleRetryConnection. We allow any characters (incl.
-    # newlines) between the `? (` and the onClick — the JSX spans
-    # multiple lines with a wrapping <div>, a <p>, then the <Button>.
-    disconnected_branch_re = re.compile(
-        r'connectionStatus\s*===\s*["\']disconnected["\']\s*\?\s*\('
-        r"[\s\S]*?onClick=\{handleRetryConnection\}",
+    # App.tsx must pass onRetry={handleRetryConnection} to
+    # <ConnectionStatusScreen> so the disconnected branch's Retry
+    # button is wired up.
+    on_retry_re = re.compile(
+        r'<ConnectionStatusScreen[^>]*\bonRetry=\{\s*handleRetryConnection\s*\}',
         re.MULTILINE | re.DOTALL,
     )
-    assert disconnected_branch_re.search(app_tsx_source), (
-        "App.tsx must render a <Button onClick={handleRetryConnection}> when connectionStatus === 'disconnected'."
+    assert on_retry_re.search(app_tsx_source), (
+        "App.tsx must pass onRetry={handleRetryConnection} to "
+        "<ConnectionStatusScreen> so the disconnected branch can "
+        "render the Retry button."
     )
     # The disconnected branch must use the lostConnection i18n key.
+    # RT-FIX-9 (2026-07-24): the ``retryConnection`` key moved into
+    # ``ConnectionStatusScreen.tsx`` (renders the Retry button label);
+    # App.tsx still references ``lostConnection`` in its a11y live
+    # region.
     assert "lostConnection" in app_tsx_source, (
         "App.tsx must use the app.lostConnection i18n key in the "
         "'disconnected' branch — surfaces 'Lost connection to Python "
         "backend' to the user."
-    )
-    # The disconnected branch must use the retryConnection i18n key.
-    assert "retryConnection" in app_tsx_source, (
-        "App.tsx must use the app.retryConnection i18n key for the retry button label."
     )
 
 
@@ -1109,7 +1146,7 @@ def test_use_connection_probe_has_retry_cap(use_connection_source: str) -> None:
 def test_use_connection_periodic_health_check_flips_to_disconnected(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` periodic health check (60 s interval)
+    """The ``useConnection`` periodic health check (15 s interval)
     must flip the status to ``"disconnected"`` when its
     ``call("get_status")`` probe fails.
 
@@ -1117,41 +1154,49 @@ def test_use_connection_periodic_health_check_flips_to_disconnected(
     dies AFTER the initial cold start (e.g. a crash mid-dictation).
     Without it the renderer would stay on ``"connected"`` until the
     user manually refreshes.
+
+    RT-FIX-9 (2026-07-24): the prior 60 s interval was reduced to
+    15 s (BG-92 — a dead backend could sit undetected for up to a
+    minute before the user saw any feedback). The setInterval body
+    was also refactored from ``setInterval(async () => { ... },
+    60_000)`` to ``setInterval(() => probe(false), 15_000)`` (the
+    probe arrow function is now hoisted into the surrounding
+    useEffect scope so it can also be invoked from the retry path).
     """
-    # The setInterval call body spans multiple lines with nested
-    # parens (an arrow function with try/catch), so a simple `[^)]*`
-    # won't work. We split into two checks:
-    #   (a) `setInterval(async () =>` exists (the health check)
-    #   (b) within ~800 chars after that, a catch block calls
-    #       setConnectionStatus('disconnected').
-    #   (c) the 60_000 interval value is present.
+    # The setInterval call now invokes the hoisted ``probe`` arrow
+    # function with ``false`` (non-retry) and a 15_000 ms interval.
     interval_start_re = re.compile(
-        r"setInterval\s*\(\s*async\s*\(\)\s*=>\s*\{",
+        r"setInterval\s*\(\s*\(\)\s*=>\s*probe\s*\(\s*false\s*\)\s*,\s*15[_\s]*000\s*\)",
         re.MULTILINE,
     )
     interval_match = interval_start_re.search(use_connection_source)
     assert interval_match is not None, (
-        "useConnection.ts must define a setInterval(async () => {...}) for the periodic health check."
+        "useConnection.ts must call setInterval(() => probe(false), 15_000) "
+        "for the periodic health check (BG-92 — 15s interval; the body "
+        "is now a thin call to the hoisted probe arrow function)."
     )
-    # Look in the 800-char window after setInterval for the catch →
-    # setConnectionStatus('disconnected') pattern. The actual body is
-    # ~200 chars but we allow generous slack for refactoring.
-    window = use_connection_source[interval_match.start() : interval_match.start() + 800]
+    # The probe arrow function must define a catch block that calls
+    # setConnectionStatus('disconnected') on repeated failures. Look
+    # in the window after the probe definition.
+    probe_def_re = re.compile(
+        r"const\s+probe\s*=\s*async\s*\(\s*isRetry\s*:\s*boolean\s*\)\s*(?::\s*Promise<[^>]*>\s*)?=>\s*\{",
+        re.MULTILINE,
+    )
+    probe_match = probe_def_re.search(use_connection_source)
+    assert probe_match is not None, (
+        "useConnection.ts must define `const probe = async (isRetry: boolean) => {` — "
+        "the hoisted health-check probe (BG-92)."
+    )
+    window = use_connection_source[probe_match.start() : probe_match.start() + 1500]
     catch_disconnected_re = re.compile(
         r"catch\s*\{[^}]*setConnectionStatus\s*\(\s*[\"']disconnected[\"']",
         re.MULTILINE | re.DOTALL,
     )
     assert catch_disconnected_re.search(window), (
         "useConnection.ts must call setConnectionStatus('disconnected') "
-        "in the periodic health check's catch block — without it a "
-        "mid-session backend crash would leave the renderer stuck on "
-        "'connected' until the user manually refreshes."
-    )
-    # The 60s interval value must be present (the setInterval 2nd arg).
-    assert re.search(r"60[_\s]*000", use_connection_source, re.MULTILINE), (
-        "useConnection.ts must call setInterval(..., 60_000) — the 60s "
-        "periodic health-check interval (detects backend crashes that "
-        "happen AFTER the initial cold start)."
+        "in the probe's catch block — without it a mid-session backend "
+        "crash would leave the renderer stuck on 'connected' until the "
+        "user manually refreshes."
     )
 
 
@@ -1337,18 +1382,31 @@ def test_spinner_component_exists() -> None:
     )
 
 
-def test_app_tsx_imports_spinner(app_tsx_source: str) -> None:
-    """``App.tsx`` must import the ``Spinner`` component so the
-    connecting + restarting branches can render it.
+def test_app_tsx_imports_connection_status_screen(app_tsx_source: str) -> None:
+    """``App.tsx`` must import the ``ConnectionStatusScreen`` component
+    so the connecting / restarting / disconnected branches can render
+    it.
+
+    RT-FIX-9 (2026-07-24): replaces the prior ``Spinner`` import test.
+    ``ConnectionStatusScreen`` now owns the inline ``Spinner`` (and
+    the Retry ``Button``); App.tsx imports ``ConnectionStatusScreen``
+    from ``@/components/layout/ConnectionStatusScreen``.
     """
     import_re = re.compile(
-        r'import\s+\{\s*Spinner\s*\}\s+from\s+["\']',
+        r'import\s+\{\s*ConnectionStatusScreen\s*\}\s+from\s+["\']',
         re.MULTILINE,
     )
     assert import_re.search(app_tsx_source), (
-        "App.tsx must import { Spinner } from '@/components/feedback/Spinner' "
-        "(or equivalent) — the connecting + restarting branches render it."
+        "App.tsx must import { ConnectionStatusScreen } from "
+        "'@/components/layout/ConnectionStatusScreen' (or equivalent) — "
+        "the connecting / restarting / disconnected branches render it."
     )
+
+
+# RT-FIX-9: alias the legacy test name to the new assertion so any
+# external test-selection scripts that reference the old name still
+# resolve.
+test_app_tsx_imports_spinner = test_app_tsx_imports_connection_status_screen
 
 
 def test_app_tsx_imports_button_for_retry(app_tsx_source: str) -> None:

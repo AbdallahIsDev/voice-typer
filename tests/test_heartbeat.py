@@ -12,8 +12,8 @@ The fix (RW-10) adds:
      ``self._last_heartbeat_at = time.monotonic()``.
   2. A daemon thread (``_heartbeat_loop``) that wakes every 5 seconds
      and calls ``_check_heartbeat_timeout``.  If more than
-     ``_HEARTBEAT_TIMEOUT_SECONDS`` (24 missed heartbeats at the
-     default 120s timeout) have elapsed since the last heartbeat,
+     ``_HEARTBEAT_TIMEOUT_SECONDS`` (9 missed heartbeats at the
+     default 45s timeout — PI-30 reduced from 120s/24 misses) have elapsed since the last heartbeat,
      the watchdog calls ``self.app.quit()`` — which runs the shared
      ``_do_cleanup()`` path from RW-3 (restores volume, flushes
      recovery, releases the mutex, closes PortAudio).

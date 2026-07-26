@@ -242,23 +242,33 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     the module namespace and confirm the call raises — but that's
     exactly the regression this test pins, so the source-string check
     is the most direct detection.
+
+    ZR-60: the secure-clear call sites were extracted from
+    ``Recorder.start`` into ``Recorder._secure_clear_session_caches``
+    (the orchestrator just delegates). The source-string check now
+    inspects the helper method — the regression it pins (broad
+    ``except Exception:`` swallowing a ``NameError`` from a missing
+    ``_secure_clear_array`` import) is still prevented as long as the
+    helper's source keeps the narrowed ``(OSError, ValueError)`` clause.
     """
     from voice_typer.server.recording import Recorder
 
-    src = inspect.getsource(Recorder.start)
+    # ZR-60: secure-clear call sites live in the helper (extracted from
+    # ``Recorder.start`` to keep ``start()`` a thin orchestrator).
+    src = inspect.getsource(Recorder._secure_clear_session_caches)
     # The secure-clear call sites must be present (regression check for
     # CR-21 itself: the import fix means the call no longer raises
     # NameError, so the call sites must still be there).
     assert "_secure_clear_array(self._cached_resampled)" in src, (
-        "Recorder.start must call _secure_clear_array on _cached_resampled"
+        "Recorder._secure_clear_session_caches must call _secure_clear_array on _cached_resampled"
     )
     assert "_secure_clear_array(self._cached_no_resample_arr)" in src, (
-        "Recorder.start must call _secure_clear_array on _cached_no_resample_arr"
+        "Recorder._secure_clear_session_caches must call _secure_clear_array on _cached_no_resample_arr"
     )
     # Extract the secure-clear try/except block (the lines around the
     # ``_secure_clear_array`` call sites).  We can't just check that
-    # ``except Exception:`` is absent from the whole ``start()`` source
-    # because ``start()`` has several other ``except Exception:`` clauses
+    # ``except Exception:`` is absent from the whole helper source
+    # because the helper has several other ``except Exception:`` clauses
     # for unrelated concerns (device probing, audio stream teardown, etc.)
     # that are out of scope for CR-21.
     lines = src.split("\n")
@@ -296,14 +306,14 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
         f"expected exactly two `except` clauses in the secure-clear block, got:\n{block_src}"
     )
     assert "except Exception:" not in block_src, (
-        "Recorder.start must NOT use bare ``except Exception:`` around the "
+        "Recorder._secure_clear_session_caches must NOT use bare ``except Exception:`` around the "
         "_secure_clear_array calls — that swallows NameError-class import "
         "bugs (CR-21 regression). Use a narrowed clause like "
         "``except (OSError, ValueError):``.\n"
         f"secure-clear block:\n{block_src}"
     )
     assert "except (OSError, ValueError):" in block_src, (
-        "Recorder.start must narrow the secure-clear except clause to "
+        "Recorder._secure_clear_session_caches must narrow the secure-clear except clause to "
         "``(OSError, ValueError)`` (CR-21 fix).\n"
         f"secure-clear block:\n{block_src}"
     )

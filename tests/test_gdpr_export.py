@@ -14,7 +14,8 @@ Fix-D adds a new ``service.export_gdpr_bundle()`` method that:
 2. Includes every personal-data artifact (history.db,
    voice-typer-recovery.json, config.json, corrections.json,
    vocabulary.json, templates.json, mic-test-*.wav,
-   voice-typer.log, crash-*.dmp).
+   voice-typer.log + rotated backups (PI-4),
+   crash_diagnostics.<PID>.txt + python_crash.<PID>.txt (PI-5)).
 3. Includes the raw (un-redacted) transcript text from history.db.
 4. Returns ``{"success": bool, "path": str}`` (mirrors
    ``export_diagnostics``).
@@ -27,6 +28,7 @@ FAIL until Fix-D lands the new method.
 from __future__ import annotations
 
 import json
+import os
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -75,7 +77,21 @@ def _seed_personal_data(tmp_path: Path) -> None:
     (tmp_path / "voice-typer-templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
     (tmp_path / "mic-test-20240101-120000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     (tmp_path / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
-    (tmp_path / "crash-20240101-120000.dmp").write_bytes(b"\x00\x01\x02MDMP")
+    # PI-4: rotated log backups produced by RotatingFileHandler(backupCount=5)
+    # in voice_typer/server/log.py:911-915.  Per XZ-PII-01 / XZ-PRIV-04 these
+    # may contain user-spoken text, so they MUST be included in the export.
+    (tmp_path / "voice-typer.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
+    (tmp_path / "voice-typer.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
+    # PI-5: real crash files (not the fictional ``crash-*.dmp``).
+    #   * ``crash_diagnostics.<PID>.txt`` — Windows VEH handler (crash_handler.py:722)
+    #   * ``python_crash.<PID>.txt``     — Python excepthook marker (crash_handler.py:1190)
+    _pid = os.getpid()
+    (tmp_path / f"crash_diagnostics.{_pid}.txt").write_text(
+        f"VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n"
+    )
+    (tmp_path / f"python_crash.{_pid}.txt").write_text(
+        f"Python excepthook marker for PID {_pid}\ntraceback with secret='pii'\n"
+    )
 
 
 def _seed_model_artifacts(tmp_path: Path) -> None:
@@ -276,6 +292,80 @@ def test_export_gdpr_bundle_includes_log(tmp_path) -> None:
             assert any(n.endswith(".log") or "voice-typer.log" in n for n in names), (
                 f"voice-typer.log not in export: {names}"
             )
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
+    """PI-4: the zip must contain voice-typer.log.{1,2} rotated backups.
+
+    ``RotatingFileHandler(backupCount=5)`` in ``voice_typer/server/log.py``
+    produces ``voice-typer.log.1`` .. ``voice-typer.log.5``.  Per
+    XZ-PII-01 / XZ-PRIV-04 these backups may contain user-spoken text
+    via ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs,
+    so the GDPR Art. 20 export must include them.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        result = svc.export_gdpr_bundle()
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            assert "voice-typer.log.1" in names, (
+                f"voice-typer.log.1 (rotated backup) not in export: {names} (PI-4)"
+            )
+            assert "voice-typer.log.2" in names, (
+                f"voice-typer.log.2 (rotated backup) not in export: {names} (PI-4)"
+            )
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_includes_crash_files(tmp_path) -> None:
+    """PI-5: the zip must contain crash_diagnostics.<PID>.txt and
+    python_crash.<PID>.txt (the REAL crash file names written by
+    production code), not the fictional ``crash-*.dmp``.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        result = svc.export_gdpr_bundle()
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            assert any(n.startswith("crash_diagnostics.") and n.endswith(".txt") for n in names), (
+                f"crash_diagnostics.<PID>.txt not in export: {names} (PI-5)"
+            )
+            assert any(n.startswith("python_crash.") and n.endswith(".txt") for n in names), (
+                f"python_crash.<PID>.txt not in export: {names} (PI-5)"
+            )
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_is_atomic_no_partial_tmp(tmp_path) -> None:
+    """PI-14: on success, no ``.zip.tmp`` partial artifact should
+    remain in the config dir (the temp file is renamed into place
+    via ``os.replace``).
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        result = svc.export_gdpr_bundle()
+        assert result["success"] is True
+        # No leftover .zip.tmp file in the config dir.
+        leftover = list(tmp_path.glob("*.zip.tmp"))
+        assert leftover == [], (
+            f"PI-14: leftover .zip.tmp partial artifact after successful "
+            f"export (should have been os.replace'd): {leftover}"
+        )
+        # The final zip exists.
+        assert Path(result["path"]).exists()
     finally:
         mp.undo()
 

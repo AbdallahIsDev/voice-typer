@@ -645,28 +645,29 @@ def test_tray_locale_command_wired_in_system_handlers(
 def test_dynamic_microphone_list_api_present_but_noop(
     tray_py_source,
 ) -> None:
-    """NEW-CQ-008: ``TrayIcon.set_microphones`` API is preserved (no-op).
+    """NEW-CQ-008 / RT-FIX-9 (2026-07-24): ``TrayIcon.set_microphones``
+    API MUST be present.
 
-    The microphone list is no longer rendered in the tray menu (the
-    write-only cache was removed in NEW-CQ-008). The API is kept for
-    IPC parity — the sidecar's startup_tasks.py + service.py still
-    call it, so removing it would break the call sites. The tray
-    must NOT crash on the call.
+    Originally added in NEW-CQ-008 as a no-op (the write-only cache
+    had been removed). RT-FIX-9: the API was re-activated in UX-2
+    (FIX-10) — it now caches the microphone device list (accepting
+    ``list[dict] | None``) and invalidates the menu cache so the
+    Microphones ▸ submenu reflects the new device set. The signature
+    was widened to accept ``None`` (normalized to ``[]``) so callers
+    never have to special-case a missing list.
     """
-    assert "def set_microphones(self, mics: list[dict]) -> None:" in tray_py_source, (
-        "TrayIcon must define set_microphones(mics) — the API is "
-        "preserved for IPC parity even though it's a no-op (NEW-CQ-008)."
-    )
-    # The body must be a documented no-op (just `pass` after the docstring).
+    # The function MUST be defined on TrayIcon. The signature now
+    # accepts ``list[dict] | None`` (UX-2 / FIX-10 — was ``list[dict]``
+    # in the NEW-CQ-008 no-op era).
     set_mics_match = re.search(
-        r"def set_microphones\(self, mics: list\[dict\]\) -> None:\s*"
-        r'"""[^"]*?NEW-CQ-008[^"]*?"""\s*pass',
+        r"def set_microphones\(self,\s*mics:\s*list\[dict\]\s*(?:\|\s*None)?\)\s*->\s*None:",
         tray_py_source,
-        re.DOTALL,
     )
     assert set_mics_match, (
-        "set_microphones must be a documented no-op (NEW-CQ-008) — the "
-        "docstring must mention NEW-CQ-008 and the body must be `pass`."
+        "TrayIcon must define set_microphones(mics: list[dict] | None) -> None "
+        "— the API is preserved for IPC parity (NEW-CQ-008) and was "
+        "re-activated in UX-2 / FIX-10 to cache the mic list + invalidate "
+        "the menu cache."
     )
 
 
@@ -688,20 +689,40 @@ def test_dynamic_microphone_list_wired_in_startup_tasks() -> None:
 
 
 def test_dynamic_microphone_list_wired_in_service() -> None:
-    """ADR-0020 §6.5: service.py also calls tray.set_microphones.
+    """ADR-0020 §6.5: the service package also calls tray.set_microphones.
 
     The runtime microphone watcher (hotplug) calls
-    ``tray.set_microphones`` from ``service.py`` so a newly-plugged
-    USB mic is propagated (even though the tray no-op's the call,
-    the in-window microphone picker still receives the event via
-    the same enumeration pipeline).
+    ``tray.set_microphones`` from within the ``voice_typer/server/service/``
+    package so a newly-plugged USB mic is propagated (the in-window
+    microphone picker receives the event via the same enumeration
+    pipeline).
+
+    RT-FIX-9 (2026-07-24): ``voice_typer/server/service.py`` was split
+    into a package (``voice_typer/server/service/``); the
+    ``set_microphones`` call site now lives in
+    ``service/microphone_test.py`` (the runtime mic-test handler that
+    enumerates + propagates the device list to the tray).
     """
-    assert SERVICE_PY.exists(), f"service.py not found: {SERVICE_PY}"
-    src = SERVICE_PY.read_text(encoding="utf-8")
-    assert "set_microphones" in src, (
-        "service.py must call tray.set_microphones(mics) — the runtime "
-        "microphone watcher propagates hotplug events to the tray (and, "
-        "via the same enumeration pipeline, to the in-window UI)."
+    # The service package MUST exist (split from the prior service.py).
+    service_pkg = PROJECT_ROOT / "voice_typer" / "server" / "service"
+    assert service_pkg.is_dir(), f"service package not found: {service_pkg}"
+    # The set_microphones call MUST appear somewhere in the service
+    # package (any submodule — currently service/microphone_test.py).
+    found = False
+    for py_file in service_pkg.rglob("*.py"):
+        try:
+            src = py_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "set_microphones" in src:
+            found = True
+            break
+    assert found, (
+        "the voice_typer/server/service/ package must call "
+        "tray.set_microphones(mics) somewhere (currently in "
+        "service/microphone_test.py) — the runtime microphone watcher "
+        "propagates hotplug events to the tray (and, via the same "
+        "enumeration pipeline, to the in-window UI)."
     )
 
 

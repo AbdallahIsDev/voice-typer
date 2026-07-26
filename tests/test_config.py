@@ -1248,6 +1248,7 @@ class TestGTD1ValidatorAndMigrationTypes:
         """``IPC_CONFIG_ALLOWLIST`` is now typed as
         ``dict[str, FieldSpec]`` (parameterised), not a bare ``dict``."""
         import typing
+
         import voice_typer.server.config_validators as cv
 
         hints = typing.get_type_hints(cv, include_extras=False)

@@ -764,12 +764,38 @@ class TestUX4UX27PermissionsStep:
         assert result["needed"] is True
         instructions = result["instructions"]
         assert instructions is not None
-        assert "title" in instructions
-        assert "steps" in instructions
-        assert isinstance(instructions["steps"], list)
-        assert len(instructions["steps"]) >= 1
-        # macOS walkthrough should mention Accessibility.
-        joined = " ".join(instructions["steps"]).lower()
+        # NH-49 (session NH): server returns i18n keys (title_key / steps_keys)
+        # so the renderer can localize the title + step text. The literal
+        # `title` / `steps` fields remain available as a legacy fallback for
+        # older backends. Assert on the i18n-key fields first, then fall
+        # back to literals if absent.
+        assert "title_key" in instructions or "title" in instructions
+        assert "steps_keys" in instructions or "steps" in instructions
+        steps = (
+            instructions["steps_keys"]
+            if "steps_keys" in instructions
+            else instructions["steps"]
+        )
+        assert isinstance(steps, list)
+        assert len(steps) >= 1
+        # Resolve the i18n keys to their English values via en.json and
+        # check the macOS walkthrough mentions Accessibility.
+        import json
+        from pathlib import Path
+        en_path = Path(__file__).parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
+        en = json.loads(en_path.read_text(encoding="utf-8"))
+        def flat(d, p=""):
+            out = {}
+            for k, v in d.items():
+                key = f"{p}.{k}" if p else k
+                if isinstance(v, dict):
+                    out.update(flat(v, key))
+                else:
+                    out[key] = v
+            return out
+        en_flat = flat(en)
+        joined_parts = [en_flat.get(k, k) for k in steps]
+        joined = " ".join(joined_parts).lower()
         assert "accessibility" in joined
 
     def test_check_permissions_macos_granted_no_instructions(self, ctrl, monkeypatch):
@@ -815,8 +841,9 @@ class TestUX4UX27PermissionsStep:
         assert result["needed"] is True
         instructions = result["instructions"]
         assert instructions is not None
-        assert "title" in instructions
-        assert "steps" in instructions
+        # NH-49 (session NH): server returns i18n keys (title_key / steps_keys).
+        assert "title_key" in instructions or "title" in instructions
+        assert "steps_keys" in instructions or "steps" in instructions
         assert "commands" in instructions
         # UX-27: must include the usermod command for the input group.
         commands = instructions["commands"] or []

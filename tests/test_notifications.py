@@ -67,15 +67,24 @@ class TestCriticalNotificationsBypassToggle:
     def test_recording_stop_failure_uses_notify_safety(self):
         rc_py = REPO_ROOT / "voice_typer" / "server" / "recording_controller.py"
         src = rc_py.read_text(encoding="utf-8")
-        assert "Could not stop recording" in src
-        idx = src.index("Could not stop recording")
+        # Fix-B (DE-36 / i18n extraction): the English notification
+        # string was moved from the call site to ``i18n.py`` under the
+        # key ``notify.recording_controller.stop_failed``. The source
+        # file now references the i18n key (not the literal English
+        # string). The call site still uses ``notify_safety(...)`` so
+        # the critical-notification bypass behavior is preserved.
+        assert "notify.recording_controller.stop_failed" in src
+        idx = src.index("notify.recording_controller.stop_failed")
         block = src[idx - 200 : idx + 200]
         assert "notify_safety(" in block
 
     def test_model_load_failure_uses_notify_safety(self):
         src = _read_ux018(MODEL_MANAGER_PY)
-        assert "Could not load the speech model" in src
-        idx = src.index("Could not load the speech model")
+        # Fix-B (DE-36 / i18n extraction): the English notification
+        # string was moved from the call site to ``i18n.py`` under the
+        # key ``notify.model_manager.load_failed``.
+        assert "notify.model_manager.load_failed" in src
+        idx = src.index("notify.model_manager.load_failed")
         block = src[idx - 200 : idx + 200]
         assert "notify_safety(" in block
 
@@ -85,8 +94,13 @@ class TestNonCriticalNotificationsRespectToggle:
 
     def test_repaste_feedback_uses_notify(self):
         src = _read_ux018(APP_PY)
-        assert "Last transcription re-pasted" in src
-        idx = src.index("Last transcription re-pasted")
+        # Fix-B (DE-36 / i18n extraction): the English notification
+        # string was moved from the call site to ``i18n.py`` under the
+        # key ``notify.app.repaste_done``. The call site still uses
+        # ``notify(...)`` (not ``notify_safety``) so the toggle-respect
+        # behavior is preserved.
+        assert "notify.app.repaste_done" in src
+        idx = src.index("notify.app.repaste_done")
         block = src[idx - 200 : idx + 100]
         assert "notify(" in block or 'notify("' in block
 

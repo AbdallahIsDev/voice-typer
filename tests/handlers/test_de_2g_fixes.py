@@ -45,10 +45,8 @@ Covers five findings from the comprehensive Group 4 review:
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock
 
 import pytest
-
 
 # ────────────────────────────────────────────────────────────────────────────
 # DE-6: set_config must NOT persist failed model/backend config

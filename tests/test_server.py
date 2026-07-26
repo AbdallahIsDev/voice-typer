@@ -1391,15 +1391,25 @@ class TestRateLimiter:
         # 6th in the same second is rejected despite burst being 200
         assert rl.allow(now=0.0) is False
 
-    def test_reject_counter_tracks_rejections(self):
+    def test_allow_increments_rejected_count_atomically(self):
+        """SEC-6 / YJ-61: ``allow()`` atomically increments
+        ``rejected_count`` when it returns ``False``. The separate
+        ``reject()`` no-op was deleted (it was kept only for backward
+        compatibility with callers that no longer exist). This test
+        confirms the counter is incremented as a side-effect of the
+        5 rejected ``allow()`` calls, not by any external bookkeeping.
+        """
         from voice_typer.server.ipc_server import _RateLimiter
 
         rl = _RateLimiter(burst=2, sustained_per_sec=2, window=1.0)
+        # First 2 calls consume the budget.
         for _ in range(2):
             rl.allow(now=0.0)
+        # Next 5 calls exceed the budget and must be rejected. SEC-6:
+        # each rejected ``allow()`` increments ``_rejected`` atomically
+        # inside the same lock acquisition as the deque check.
         for _ in range(5):
-            if not rl.allow(now=0.0):
-                rl.reject()
+            assert rl.allow(now=0.0) is False
         assert rl.rejected_count == 5
 
     def test_thread_safe(self):

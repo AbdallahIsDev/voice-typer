@@ -131,8 +131,15 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_SH = PROJECT_ROOT / "scripts" / "build" / "compile_native.sh"
 BUILD_NATIVE_LISTENER_LINUX_SH = PROJECT_ROOT / "scripts" / "build" / "build_native_listener_linux.sh"
 LINUX_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "linux-key-listener.c"
-NATIVE_HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys.py"
-HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "hotkeys.py"
+# Phase 4.5 / ARCH-045: ``native_hotkeys`` and ``hotkeys`` were split
+# from god-modules into packages. The tests below read the package
+# ``__init__.py`` (which re-exports the public surface) and the
+# relevant submodule (``linux_backend.py`` for LinuxEvdevHotkey,
+# ``factory.py`` for create_hotkey_backend) so the assertions still
+# match the post-split source layout.
+NATIVE_HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys" / "__init__.py"
+NATIVE_HOTKEYS_PKG_DIR = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys"
+HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "hotkeys" / "factory.py"
 POSTINST_SH = PROJECT_ROOT / "scripts" / "linux" / "postinst"
 POSTINST_RPM_SH = PROJECT_ROOT / "scripts" / "linux" / "postinst.rpm"
 INSTALL_PERMISSIONS_PY = PROJECT_ROOT / "scripts" / "linux" / "install_permissions.py"
@@ -329,14 +336,15 @@ class TestSubprocessSpawn:
         )
 
     def test_spawn_pipes_stdout_for_wire_protocol(self, linux_env, monkeypatch, tmp_path):
-        """stdout=PIPE, stderr=STDOUT, stdin=DEVNULL.
+        """stdout=PIPE, stderr=STDOUT, stdin=PIPE (G4-H-31 watchdog).
 
         stdout MUST be piped — the reader thread reads line-delimited
         wire-protocol events (READY / KEY_DOWN / MOD_DOWN / ERROR)
         from it. stderr is redirected to stdout so error output is
-        visible in the same stream. stdin is DEVNULL (the binary
-        doesn't read commands from stdin — it's event-driven via
-        evdev ``poll()`` on /dev/input/event* fds).
+        visible in the same stream. stdin is PIPE (G4-H-31) so the
+        watchdog can write ``PING\\n`` to detect a stuck reader via
+        the ``PONG\\n`` response; the binary is still event-driven
+        for hotkey detection (poll on /dev/input/event* fds).
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
         fake_bin = tmp_path / "linux-key-listener"
@@ -360,8 +368,15 @@ class TestSubprocessSpawn:
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
-        assert kwargs.get("stdin") == subprocess.DEVNULL, (
-            "stdin must be DEVNULL — the binary is event-driven (poll on /dev/input/event* fds), not command-driven"
+        # G4-H-31: stdin is now PIPE (was DEVNULL) so the watchdog can
+        # write ``PING\n`` to the binary's stdin and verify it's alive
+        # via the ``PONG\n`` response. The binary is still event-driven
+        # for hotkey detection (poll on /dev/input/event* fds); the
+        # PING/PONG channel is a separate liveness probe.
+        assert kwargs.get("stdin") == subprocess.PIPE, (
+            "stdin must be PIPE — G4-H-31 added a PING/PONG watchdog that writes "
+            "to the binary's stdin every 30s to detect a stuck reader (the binary "
+            "responds with PONG\\n); was DEVNULL before the watchdog was added"
         )
 
     def test_spawn_uses_start_new_session_on_linux(self, linux_env, monkeypatch, tmp_path):
@@ -532,9 +547,15 @@ class TestBinaryDiscovery:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_BINARY", raising=False)
         monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
 
-        # The dev-mode path is <module_dir>/native/linux-key-listener.
-        module_dir = NATIVE_HOTKEYS_PY.resolve().parent
-        expected_dev_path = module_dir / "native" / "linux-key-listener"
+        # The dev-mode path is <server_dir>/native/linux-key-listener.
+        # ``binary_path.py`` computes this as
+        # ``Path(__file__).resolve().parent.parent / "native"``, i.e.
+        # it goes UP from ``native_hotkeys/`` to ``server/`` before
+        # descending into ``native/``. ``NATIVE_HOTKEYS_PY`` points at
+        # the package ``__init__.py`` (Phase 4.5 / ARCH-045 split), so
+        # we mirror the source's ``.parent.parent`` traversal here.
+        server_dir = NATIVE_HOTKEYS_PY.resolve().parent.parent
+        expected_dev_path = server_dir / "native" / "linux-key-listener"
 
         real_is_file = Path.is_file
 
@@ -1086,14 +1107,34 @@ class TestSidecarOwnership:
         assert "server" in NATIVE_HOTKEYS_PY.parts
 
     def test_native_hotkeys_module_defines_linux_backend(self):
-        """``native_hotkeys.py`` defines ``SubprocessHotkeyBackend`` + ``LinuxEvdevHotkey``."""
-        src = NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")
+        """``native_hotkeys`` (package) defines ``SubprocessHotkeyBackend`` + ``LinuxEvdevHotkey``.
+
+        Phase 4.5 / ARCH-045 split the original ``native_hotkeys.py``
+        god-module into a package: ``SubprocessHotkeyBackend`` now lives
+        in ``base.py`` and ``LinuxEvdevHotkey`` in ``linux_backend.py``.
+        Both are re-exported from ``native_hotkeys/__init__.py``. We
+        read the package directory and assert the class definitions are
+        present somewhere in the package (not just re-exported from
+        elsewhere).
+        """
+        # Read the package __init__.py + the two submodules that define
+        # the classes. The __init__.py re-exports them but doesn't define
+        # them (the ``class`` keyword lives in the submodules).
+        assert NATIVE_HOTKEYS_PY.is_file(), (
+            f"native_hotkeys package __init__.py must exist: {NATIVE_HOTKEYS_PY}"
+        )
+        parts: list[str] = [NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")]
+        for sub in ("base.py", "linux_backend.py"):
+            sub_path = NATIVE_HOTKEYS_PKG_DIR / sub
+            if sub_path.is_file():
+                parts.append(sub_path.read_text(encoding="utf-8"))
+        src = "\n".join(parts)
         assert "class SubprocessHotkeyBackend" in src, (
-            "native_hotkeys.py must define SubprocessHotkeyBackend (the base class "
+            "native_hotkeys package must define SubprocessHotkeyBackend (the base class "
             "that spawns the native binary via subprocess.Popen)"
         )
-        assert "class LinuxEvdevHotkey" in src, "native_hotkeys.py must define LinuxEvdevHotkey (the Linux subclass)"
-        assert "subprocess.Popen" in src, "native_hotkeys.py must use subprocess.Popen to spawn the binary"
+        assert "class LinuxEvdevHotkey" in src, "native_hotkeys package must define LinuxEvdevHotkey (the Linux subclass)"
+        assert "subprocess.Popen" in src, "native_hotkeys package must use subprocess.Popen to spawn the binary"
 
     def test_linux_backend_uses_linux_binary_name(self, linux_env):
         """``_BINARY_NAMES["linux"]`` is ``linux-key-listener`` (matches the tauri.conf resource).
@@ -1111,7 +1152,7 @@ class TestSidecarOwnership:
     def test_hotkeys_factory_tries_native_backend_first(self, linux_env):
         """``hotkeys.create_hotkey_backend`` tries ``create_native_backend`` first.
 
-        ``hotkeys.py::create_hotkey_backend`` calls
+        ``hotkeys/factory.py::create_hotkey_backend`` calls
         ``native_hotkeys.create_native_backend`` before falling back
         to legacy backends. On Linux, when the native binary IS
         available, this returns a ``LinuxEvdevHotkey`` (wrapped in
@@ -1120,20 +1161,24 @@ class TestSidecarOwnership:
         assert HOTKEYS_PY.is_file()
         src = HOTKEYS_PY.read_text(encoding="utf-8")
         assert "create_native_backend" in src, (
-            "hotkeys.py must call create_native_backend (the native-first factory — NATIVE-001)"
+            "hotkeys/factory.py must call create_native_backend (the native-first factory, NATIVE-001)"
         )
-        # LinuxEvdevHotkey is defined in native_hotkeys.py, not hotkeys.py.
-        # hotkeys.py references it via create_native_backend (which returns it).
-        # XPLAT-13 removed the stale docstring reference; check native_hotkeys.py instead.
-        native_src = HOTKEYS_PY.parent / "native_hotkeys.py"
-        if native_src.is_file():
-            nsrc = native_src.read_text(encoding="utf-8")
-            assert "LinuxEvdevHotkey" in nsrc, (
-                "native_hotkeys.py must define LinuxEvdevHotkey (the Linux native backend)"
-            )
+        # LinuxEvdevHotkey is defined in the native_hotkeys package
+        # (linux_backend.py), not in hotkeys/factory.py. The factory
+        # references it via create_native_backend (which returns it).
+        # XPLAT-13 removed the stale docstring reference; check the
+        # native_hotkeys package __init__.py + linux_backend.py instead.
+        native_init = HOTKEYS_PY.parent.parent / "native_hotkeys" / "__init__.py"
+        native_linux = HOTKEYS_PY.parent.parent / "native_hotkeys" / "linux_backend.py"
+        for native_src_path in (native_init, native_linux):
+            if native_src_path.is_file():
+                nsrc = native_src_path.read_text(encoding="utf-8")
+                assert "LinuxEvdevHotkey" in nsrc, (
+                    f"{native_src_path.name} must define/reference LinuxEvdevHotkey (the Linux native backend)"
+                )
         # The factory must fall back to WaylandHotkey on Wayland
         # sessions when the native binary is missing.
-        assert "WaylandHotkey" in src, "hotkeys.py must reference WaylandHotkey (the Wayland legacy fallback)"
+        assert "WaylandHotkey" in src, "hotkeys/factory.py must reference WaylandHotkey (the Wayland legacy fallback)"
 
     def test_native_factory_returns_linux_backend_on_linux(self, linux_env, monkeypatch, tmp_path):
         """``create_native_backend`` returns a ``LinuxEvdevHotkey`` on Linux when the binary exists.
@@ -1144,6 +1189,14 @@ class TestSidecarOwnership:
         ``create_native_backend(hotkey_str)``, which calls
         ``get_native_binary_path()`` — if the binary is found and
         ``is_linux()`` is True, a ``LinuxEvdevHotkey`` is returned.
+
+        CR-002 (fail-closed): ``verify_native_binary_or_skip`` returns
+        False when the manifest entry is missing or has an empty sha256.
+        The dummy binary written to ``tmp_path`` has no manifest entry,
+        so without monkeypatching the factory would fail-closed and
+        return None. We monkeypatch ``verify_native_binary_or_skip`` to
+        return True so the Linux code path is exercised (the manifest
+        verification itself is tested in ``tests/test_native_manifest_*``).
         """
         # Make the binary discoverable.
         native_dir = tmp_path / "native"
@@ -1152,9 +1205,23 @@ class TestSidecarOwnership:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_BINARY", raising=False)
         monkeypatch.setenv("VOICE_TYPER_NATIVE_DIR", str(native_dir))
 
+        # CR-002: the dummy binary has no manifest entry, so
+        # ``verify_native_binary_or_skip`` would fail-closed and return
+        # False. Monkeypatch it to return True so the Linux code path is
+        # exercised (the manifest verification is tested elsewhere).
+        # Patch BOTH the ``binary_path`` module attribute AND the
+        # ``factory`` module's imported reference (factory.py does
+        # ``from .binary_path import verify_native_binary_or_skip``).
+        from voice_typer.server.native_hotkeys import binary_path as bp
+        from voice_typer.server.native_hotkeys import factory as nh_factory
+
+        monkeypatch.setattr(bp, "verify_native_binary_or_skip", lambda _path: True)
+        monkeypatch.setattr(nh_factory, "verify_native_binary_or_skip", lambda _path: True)
+
         backend = linux_env.create_native_backend("<f8>")
         assert backend is not None, (
-            "create_native_backend must return a backend on Linux when the binary is discoverable"
+            "create_native_backend must return a backend on Linux when the binary is discoverable "
+            "(CR-002 fail-closed is bypassed via monkeypatched verify_native_binary_or_skip)"
         )
         assert isinstance(backend, linux_env.LinuxEvdevHotkey), (
             f"create_native_backend must return a LinuxEvdevHotkey on Linux; got {type(backend).__name__}"

@@ -138,6 +138,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading  # noqa: F401 — re-exported for _make_ipc_server _dispatch_lock
 from pathlib import Path
 from threading import RLock
 from unittest.mock import MagicMock, patch
@@ -187,6 +188,11 @@ def _make_ipc_server():
     app = MagicMock()
     app._config_mutation_lock = RLock()
     server = IPCServer.__new__(IPCServer)
+    # G4-H-30 / IPC-001: ``IPCServer.__init__`` creates ``_dispatch_lock``
+    # as a ``threading.RLock``. ``__new__`` skips ``__init__``, so the
+    # attribute is missing and ``_dispatch`` raises ``AttributeError``.
+    # Create it explicitly so the dispatch path can acquire the lock.
+    server._dispatch_lock = threading.RLock()
     server.app = app
     server.service = MagicMock()
     return server
@@ -379,45 +385,15 @@ class TestWsRsRenamesElectronNotificationToNotification:
     Phase 0-L gate).
     """
 
-    def test_ws_rs_has_electron_notification_alias_branch(self):
-        """``ws.rs`` MUST contain a branch that detects
-        ``event_type == "electron_notification"`` and emits the payload
-        under the ``notification`` name.
-
-        This is the CR-8 backward-compat alias: a new UI subscribing to
-        ``notification`` keeps working even if an old Python sidecar
-        (still emitting ``electron_notification``) is rolling-upgraded
-        in. The alias fires on all platforms (the WS bridge code is
-        platform-independent).
-        """
-        src = _read(WS_RS)
-        # The exact branch form (from ws.rs:143-145):
-        #   if event_type == "electron_notification" {
-        #       let _ = app_for_reader.emit("notification", payload.clone());
-        #   }
-        assert 'event_type == "electron_notification"' in src, (
-            "ws.rs must have a backward-compat alias branch that detects "
-            "'electron_notification' and re-emits under 'notification'."
-        )
-        assert 'emit("notification"' in src, (
-            "ws.rs must emit under the canonical 'notification' name in the electron_notification alias branch."
-        )
-
-    def test_ws_rs_alias_branch_emits_notification_with_payload(self):
-        """The alias branch must emit ``notification`` WITH the payload
-        (``payload.clone()``), not just an empty event. Otherwise the
-        webview's notification handler receives no title/message and the
-        banner renders blank on Linux (libnotify posts a notification
-        with an empty summary + body, which most DEs either suppress or
-        show as an empty bubble)."""
-        src = _read(WS_RS)
-        # Confirm the alias emits with payload.clone() — the canonical
-        # form per ws.rs:144.
-        assert 'emit("notification", payload.clone())' in src or 'emit("notification", payload)' in src, (
-            "ws.rs alias branch must emit 'notification' WITH the payload "
-            "(payload.clone()), not just an empty event — otherwise the "
-            "Linux banner renders blank (libnotify posts an empty summary)."
-        )
+    # GT-E3-6: ``test_ws_rs_has_electron_notification_alias_branch`` and
+    # ``test_ws_rs_alias_branch_emits_notification_with_payload`` were
+    # REMOVED — the legacy ``electron_notification`` → ``notification``
+    # alias branch was deleted from ``ws.rs`` (the Python sidecar now
+    # publishes ``notification`` directly, and ``electron_notification``
+    # is no longer in ``ALLOWED_EVENT_TYPES`` so legacy frames are dropped
+    # earlier with a ``[WS-READER] dropping unknown event type:`` log).
+    # The tests asserted the presence of removed functionality; keeping
+    # them red would block CI without catching any real regression.
 
     def test_ws_rs_does_not_rename_relaunch_app(self):
         """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
@@ -896,17 +872,27 @@ class TestSourceInspectionBeltAndBraces:
         UI code.
 
         PVT-2 cleanup: the per-type ``match`` arm was REMOVED — the
-        bridge now uses ``let emit_name = event_type;`` (direct
-        assignment). This preserves the passthrough behavior (every
-        event type is forwarded under its own name) AND removes the
-        ``relaunch_electron`` → ``relaunch_app`` rename (the Python
-        sidecar now publishes ``relaunch_app`` directly)."""
+        bridge now uses ``let emit_name = translate_event_name(event_type);``
+        (extracted to a unit-testable helper, PVT-G5-062). This preserves
+        the passthrough behavior (every event type is forwarded under its
+        own translated name) AND removes the ``relaunch_electron`` →
+        ``relaunch_app`` rename (the Python sidecar now publishes
+        ``relaunch_app`` directly). GT-E3-6 further removed the legacy
+        ``electron_notification`` alias branch (the Python sidecar now
+        publishes ``notification`` directly)."""
         src = _read(WS_RS)
-        assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", src), (
-            "ws.rs must forward every event type unchanged via "
-            "`let emit_name = event_type;` (PVT-2 cleanup — the per-type "
-            "match arm was removed; this is what carries the legacy "
-            "'electron_notification' name through unchanged on Linux)."
+        # GT-E3-6 / PVT-G5-062: ``let emit_name = event_type;`` was
+        # replaced by ``let emit_name = translate_event_name(event_type);``.
+        # Accept both forms so the test stays green if the helper is
+        # inlined back into a direct assignment.
+        assert re.search(
+            r"let\s+emit_name\s*=\s*(?:translate_event_name\(event_type\)|event_type)\s*;",
+            src,
+        ), (
+            "ws.rs must forward every event type via "
+            "`let emit_name = translate_event_name(event_type);` "
+            "(PVT-G5-062 extraction; PVT-2 cleanup removed the per-type "
+            "match arm; GT-E3-6 removed the electron_notification alias)."
         )
 
     def test_system_handlers_publishes_notification_event(self):

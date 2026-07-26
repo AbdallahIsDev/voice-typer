@@ -639,7 +639,17 @@ class TestRW8HoistedImports:
 
     def test_event_bus_publish_not_called_in_process_audio_chunk(self):
         """RW-8: _process_audio_chunk must NOT call event_bus.publish
-        directly — it must enqueue via self._event_queue.put instead."""
+        directly — it must enqueue via self._event_queue.put instead.
+
+        ZR-60: the ``self._event_queue.put_nowait`` call site was
+        extracted from ``_process_audio_chunk`` into
+        ``_detect_and_emit_clipping`` (which the orchestrator
+        delegates to). The regression guard now inspects BOTH the
+        orchestrator and the clipping helper — the original intent
+        (no direct ``event_bus.publish`` from the audio worker, only
+        ``self._event_queue.put*``) is preserved as long as the
+        clipping helper uses ``put_nowait``.
+        """
         from voice_typer.server.recording import Recorder
 
         src = inspect.getsource(Recorder._process_audio_chunk)
@@ -647,8 +657,15 @@ class TestRW8HoistedImports:
             "RW-8: _process_audio_chunk must not call event_bus.publish "
             "directly — route through self._event_queue.put instead"
         )
-        assert "self._event_queue.put" in src, (
-            "RW-8: _process_audio_chunk must enqueue events via "
+        # ZR-60: the put_nowait call site lives in the clipping helper
+        # (extracted from _process_audio_chunk).
+        clipping_src = inspect.getsource(Recorder._detect_and_emit_clipping)
+        assert "event_bus.publish" not in clipping_src, (
+            "RW-8: _detect_and_emit_clipping must not call event_bus.publish "
+            "directly — route through self._event_queue.put instead"
+        )
+        assert "self._event_queue.put" in clipping_src, (
+            "RW-8: _detect_and_emit_clipping must enqueue events via "
             "self._event_queue.put"
         )
 

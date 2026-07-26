@@ -17,10 +17,8 @@ Covers:
     per-call literal rebuilt the set every time).
 """
 
-import importlib
 import re
 import sys
-import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 

@@ -459,10 +459,14 @@ class TestGt66PeriodicInfoSummary:
     every 60s of wall-clock time, if any counter incremented >0 since
     the last summary, log::
 
-        log.info('[rate-limit] %d suppressed occurrences of %r in last 60s',
+        log.info('[rate-limit] %d suppressed occurrences of %s in last 60s',
                  delta, key)
 
-    The summary is routed through the module logger
+    YJ-45: the format string uses ``%s`` (NOT ``%r``) so the counter key
+    appears in the log line WITHOUT inner ``repr()`` quotes — keeping
+    the line grep-friendly (``grep '<key>' log`` finds it instead of
+    ``grep "'<key>'" log``). The summary is routed through the module
+    logger
     (``voice_typer.server.log_rate_limit``) so it's always visible at
     the file handler's INFO level regardless of the caller's logger
     level.  The first suppressed occurrence seeds the timer (so the
@@ -517,14 +521,32 @@ class TestGt66PeriodicInfoSummary:
         )
         msg_text = summaries[0].getMessage()
         assert "11 suppressed occurrences" in msg_text, f"expected delta=11 in summary; got {msg_text!r}"
-        assert repr(msg) in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
+        # YJ-45: the counter key is formatted with %s (not %r), so it
+        # appears in the message WITHOUT inner repr() quotes. Asserting
+        # the bare key (not ``repr(msg)``) keeps the line grep-friendly.
+        #
+        # YJ-FIX-C2-rework (review Issue 3): the previous assertion
+        # ``assert msg in msg_text`` was too weak — ``msg`` is always a
+        # substring of ``repr(msg)``, so the test PASSED with BOTH
+        # ``%s`` (YJ-45 fix) AND ``%r`` (reverted). The added
+        # ``repr(msg) not in msg_text`` assertion makes the test FAIL
+        # if production code reverts to ``%r``, pinning the YJ-45 fix.
+        assert msg in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
+        assert repr(msg) not in msg_text, (
+            f"YJ-45 regression: log line contains repr() quotes "
+            f"(production code reverted %s → %r): {msg_text!r}"
+        )
         assert "in last 60s" in msg_text
 
     def test_summary_resets_delta_after_emission(self, monkeypatch, caplog):
         """After an INFO summary fires, the per-key delta is reset to 0.
-        The next summary (after another 60s) reports only the delta
-        accumulated SINCE the previous summary — not the cumulative
-        total since process start.
+
+        PI-25: with deadline-based cadence, the second summary fires on
+        the *first* call after the next deadline — so its delta reflects
+        only the occurrences accumulated SINCE the previous fire (here:
+        1, from count=12 alone), not the cumulative total since process
+        start (which would be 13).  The 1 vs. 13 distinction is what
+        proves the reset.
         """
         logger = FakeLogger()
         msg = "gt-66-reset-test"
@@ -554,8 +576,14 @@ class TestGt66PeriodicInfoSummary:
         first = summaries[0].getMessage()
         second = summaries[1].getMessage()
         assert "10 suppressed occurrences" in first, f"first summary: {first!r}"
-        assert "3 suppressed occurrences" in second, (
-            f"GT-66 regression: delta not reset after first summary; second summary should report 3, got: {second!r}"
+        # PI-25: the second summary fires on the first call after the
+        # deadline (count=12 at t=122), so its delta is 1 — NOT the
+        # cumulative count of 13.  The "1" proves the delta was reset
+        # after the first summary emission.
+        assert "1 suppressed occurrences" in second, (
+            f"GT-66 regression: delta not reset after first summary; "
+            f"second summary should report 1 (delta since previous fire, "
+            f"not cumulative 13), got: {second!r}"
         )
 
     def test_summary_does_not_fire_within_same_window(self, monkeypatch, caplog):
@@ -588,6 +616,14 @@ class TestGt66PeriodicInfoSummary:
     def test_summary_per_key_independent(self, monkeypatch, caplog):
         """Each counter key has its own summary cadence — a summary for
         key A does not reset key B's delta.
+
+        PI-25: per-key independence means each key has its OWN deadline
+        state.  When both keys are seeded at the same time (t=0) and
+        both cross their deadlines simultaneously (t=61), BOTH keys
+        fire their own summaries — that is the correct behavior.  The
+        test previously expected only key A to fire, which would only
+        be true if the cadence were GLOBAL (a single shared timer); the
+        contract is per-key, so both fire.
         """
         logger = FakeLogger()
         msg_a = "gt-66-key-a"
@@ -610,10 +646,32 @@ class TestGt66PeriodicInfoSummary:
             log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
 
         summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
-        assert len(summaries) == 1, (
-            f"expected 1 summary (key A only); got {len(summaries)}: {[r.message for r in summaries]!r}"
+        # PI-25: both keys were seeded at t=0 and both cross their
+        # 60s deadlines at t=61, so both fire — per-key independence
+        # means each key fires on its own cadence, not "first key wins".
+        assert len(summaries) == 2, (
+            f"expected 2 summaries (both keys fire on their own cadence); "
+            f"got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
-        assert repr(msg_a) in summaries[0].getMessage()
+        summary_msgs = [s.getMessage() for s in summaries]
+        # YJ-45: counter key is formatted with %s (not %r), so the bare
+        # key appears in the message WITHOUT repr() quotes. Pin the fix
+        # with both a positive (``msg in m``) and negative
+        # (``repr(msg) not in m``) check per key.
+        assert any(msg_a in m for m in summary_msgs), (
+            f"key A summary missing; got: {summary_msgs!r}"
+        )
+        assert any(msg_b in m for m in summary_msgs), (
+            f"key B summary missing; got: {summary_msgs!r}"
+        )
+        assert all(repr(msg_a) not in m for m in summary_msgs if msg_a in m), (
+            f"YJ-45 regression: key A summary line contains repr() quotes "
+            f"(production code reverted %s → %r): {summary_msgs!r}"
+        )
+        assert all(repr(msg_b) not in m for m in summary_msgs if msg_b in m), (
+            f"YJ-45 regression: key B summary line contains repr() quotes "
+            f"(production code reverted %s → %r): {summary_msgs!r}"
+        )
 
 
 # ── 9. GT-B1-12: counter dict capped at 1024 with LRU eviction ────────
@@ -741,11 +799,11 @@ class TestGtB1_12LRUEviction:
         logger = FakeLogger()
         for i in range(10):
             log_rate_limited(logger, logging.ERROR, f"reset-test-{i}", every_n=100)
-        log_rate_limit._RATE_LIMIT_LAST_SUMMARY[(logger.name, "x")] = 1.0
+        log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE[(logger.name, "x")] = 1.0
         log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[(logger.name, "x")] = 5
 
         reset()
 
         assert not log_rate_limit._RATE_LIMIT_COUNTS
-        assert not log_rate_limit._RATE_LIMIT_LAST_SUMMARY
+        assert not log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE
         assert not log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY

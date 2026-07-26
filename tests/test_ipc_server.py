@@ -36,14 +36,12 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-
 from voice_typer.server.ipc_server import (
+    _READONLY_COMMANDS,
     CommandHandler,
     IPCServer,
     ResponseEnvelope,
-    _READONLY_COMMANDS,
 )
-
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -149,7 +147,6 @@ class TestGT29DispatchTableTyped:
         # (NOT ``dict`` itself), so verify the alias resolves to a
         # subscripted generic dict origin — i.e. it's the documented
         # ``dict[str, object]`` shape, not some other type.
-        import types as _types
 
         assert ResponseEnvelope is not None
         # PEP 585 generic alias: ``dict[str, object].__origin__ is dict``.

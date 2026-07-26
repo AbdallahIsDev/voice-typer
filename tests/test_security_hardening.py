@@ -609,13 +609,12 @@ class TestSecureFileWrites:
             source = f.read()
         assert "_secure_atomic_write" in source
 
-    def test_security_restart_token_uses_secure_write(self):
-        """SEC-003: generate_restart_token uses _secure_atomic_write."""
-        import voice_typer.server.security as mod
-
-        with open(mod.__file__) as f:
-            source = f.read()
-        assert "_secure_atomic_write" in source
+    # PI-3 (IMPROVE-mode run PI): ``test_security_restart_token_uses_secure_write``
+    # removed — the ``generate_restart_token`` function it pinned was dead code
+    # (imported into ``app.py`` but never called in production) and has been
+    # deleted from ``voice_typer/server/security.py``. The other tests in this
+    # class still verify ``_secure_atomic_write`` usage across
+    # ``duck_crash_recovery``, ``onboarding``, and ``autostart_launcher``.
 
 
 # ─── SEC-audit-008: Audio Buffer Zeroing ──────────────────────────────────
@@ -690,10 +689,9 @@ class TestSecureReadUsage:
             source = f.read()
         assert "_secure_read_text" in source
 
-    def test_security_verify_restart_uses_secure_read(self):
-        """SEC-002: verify_restart_token uses _secure_read_text."""
-        import voice_typer.server.security as mod
-
-        with open(mod.__file__) as f:
-            source = f.read()
-        assert "_secure_read_text" in source
+    # PI-3 (IMPROVE-mode run PI): ``test_security_verify_restart_uses_secure_read``
+    # removed — the ``verify_restart_token`` function it pinned was dead code
+    # (imported into ``app.py`` but never called in production) and has been
+    # deleted from ``voice_typer/server/security.py``. The other tests in this
+    # class still verify ``_secure_read_text`` usage across ``vocabulary``,
+    # ``text_cleanup``, ``config``, and ``duck_crash_recovery``.

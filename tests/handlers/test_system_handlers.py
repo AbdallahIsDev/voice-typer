@@ -147,13 +147,13 @@ class TestSetTrayLocale:
         """
         resp = ipc_server._handle_set_tray_locale("not-a-dict", {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
 
     def test_wrong_type_locale_returns_invalid_field_error(self, ipc_server):
         """``locale`` not a string → ``code: invalid_field`` error."""
         resp = ipc_server._handle_set_tray_locale({"locale": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "locale"
 
     def test_missing_locale_uses_default(self, ipc_server, monkeypatch):
@@ -252,17 +252,22 @@ class TestShowElectronNotification:
             "critical": True,
         }
 
-    def test_non_dict_data_returns_generic_error(self, ipc_server):
-        """Non-dict ``data`` → plain error (no field/code, just message)."""
+    def test_non_dict_data_returns_invalid_payload_error(self, ipc_server):
+        """Non-dict ``data`` → ``code: client.invalid_payload`` error.
+
+        The shared ``_validate_dict_payload`` helper rejects non-dict
+        payloads with the namespaced ``client.invalid_payload`` code
+        (DE-36) and a ``"data must be an object"`` message.
+        """
         resp = ipc_server._handle_show_electron_notification("not-a-dict", {})
         assert resp["type"] == "error"
-        assert "data: object" in resp["data"]["message"]
+        assert resp["data"]["code"] == "client.invalid_payload"
 
     def test_invalid_title_type_returns_invalid_field(self, ipc_server):
         """``title`` not a string → ``code: invalid_field, field: title``."""
         resp = ipc_server._handle_show_electron_notification({"title": 123, "message": "x"}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
 
     def test_invalid_critical_type_rejects_truthy_string(self, ipc_server):
@@ -275,7 +280,7 @@ class TestShowElectronNotification:
         """
         resp = ipc_server._handle_show_electron_notification({"critical": "false"}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "critical"
 
     def test_invalid_duration_ms_rejects_bool(self, ipc_server):
@@ -287,7 +292,7 @@ class TestShowElectronNotification:
         """
         resp = ipc_server._handle_show_electron_notification({"duration_ms": True}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "duration_ms"
 
     def test_duration_ms_clamped_to_24h_cap(self, ipc_server, monkeypatch):

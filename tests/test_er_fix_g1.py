@@ -51,7 +51,6 @@ class TestSchedulePeriodicRetention:
         try:
             called_event = threading.Event()
             call_count = {"n": 0}
-            real_apply_retention = db.apply_retention
 
             def _spy_apply_retention(*args, **kwargs):
                 call_count["n"] += 1
@@ -205,7 +204,6 @@ class TestConfigSaveBackupSkip:
         """The second of two identical saves must NOT read ``config.json``
         for the backup check — ``_last_saved_bytes`` short-circuits the
         entire backup block."""
-        from voice_typer.server import config as config_mod
         from voice_typer.server.config import Config
 
         cfg = Config(hotkey="<f3>")
@@ -494,11 +492,10 @@ class TestSecureAtomicWriteDurability:
         from voice_typer.server import secure_file_io
 
         fsync_count = {"n": 0}
-        real_fsync = os.fsync
 
         def _counting_fsync(fd):
             fsync_count["n"] += 1
-            # Don't actually call real_fsync — we only care about the
+            # Don't actually call real fsync — we only care about the
             # call count, and the test file is in tmp_path which is
             # already durable enough for test purposes.
 

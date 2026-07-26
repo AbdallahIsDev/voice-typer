@@ -17,7 +17,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from voice_typer.server import permissions
 from voice_typer.server.permissions import (
     MicrophonePermissionState,
@@ -49,7 +48,7 @@ class TestPyobjcCacheBasics:
         """The first probe sets the cache to a concrete bool."""
         result = _is_pyobjc_available()
         assert isinstance(result, bool)
-        assert permissions._PYOBJC_AVAILABLE == result
+        assert result == permissions._PYOBJC_AVAILABLE
 
     def test_subsequent_probes_return_cached_value(self):
         """Calling ``_is_pyobjc_available`` twice returns the same value
@@ -57,7 +56,7 @@ class TestPyobjcCacheBasics:
         first = _is_pyobjc_available()
         second = _is_pyobjc_available()
         assert first == second
-        assert permissions._PYOBJC_AVAILABLE == first
+        assert first == permissions._PYOBJC_AVAILABLE
 
     def test_reset_clears_cache(self):
         """``reset_pyobjc_cache`` resets the cache to ``None``."""

@@ -66,8 +66,11 @@ class TestOnboardingCheckPermissions:
         # Windows / unknown) or a dict with title / steps / commands
         # (macOS / Linux when permission is still needed).
         if data["instructions"] is not None:
-            assert "title" in data["instructions"]
-            assert "steps" in data["instructions"]
+            # NH-49 (session NH): server returns i18n keys (title_key /
+            # steps_keys) for the renderer to localize. Accept either the
+            # i18n-key form or the legacy literal form.
+            assert "title_key" in data["instructions"] or "title" in data["instructions"]
+            assert "steps_keys" in data["instructions"] or "steps" in data["instructions"]
             assert "commands" in data["instructions"]
 
     def test_check_permissions_does_not_invoke_service(self):
@@ -115,9 +118,27 @@ class TestOnboardingCheckPermissions:
         assert data["state"] == "denied"
         assert data["needed"] is True
         assert data["instructions"] is not None
-        assert "input" in " ".join(data["instructions"]["steps"]).lower() or "udev" in (
-            " ".join(data["instructions"].get("commands") or []).lower()
-        )
+        # NH-49 (session NH): server returns i18n keys (steps_keys) for the
+        # renderer to localize. Resolve them via en.json before checking.
+        import json
+        from pathlib import Path
+        _en_path = Path(__file__).parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
+        _en = json.loads(_en_path.read_text(encoding="utf-8"))
+        def _flat(d, p=""):
+            out = {}
+            for k, v in d.items():
+                key = f"{p}.{k}" if p else k
+                if isinstance(v, dict):
+                    out.update(_flat(v, key))
+                else:
+                    out[key] = v
+            return out
+        _en_flat = _flat(_en)
+        _steps_keys = data["instructions"].get("steps_keys") or data["instructions"].get("steps") or []
+        _resolved = [_en_flat.get(k, k) for k in _steps_keys]
+        _joined = " ".join(_resolved).lower()
+        _cmds = " ".join(data["instructions"].get("commands") or []).lower()
+        assert "input" in _joined or "udev" in (_joined + " " + _cmds)
 
     def test_check_permissions_windows_returns_not_needed(self, monkeypatch):
         """On Windows, no permission is needed — ``needed=False``,
@@ -197,7 +218,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         resp = server._handle_onboarding_set_microphone({"mic_id": 123}, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field" or resp["data"].get("legacy_code") == "invalid_field"
         assert resp["data"]["field"] == "mic_id"
 
     def test_set_microphone_rejects_list(self):
@@ -207,7 +228,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         resp = server._handle_onboarding_set_microphone({"mic_id": ["a", "b"]}, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field" or resp["data"].get("legacy_code") == "invalid_field"
         assert resp["data"]["field"] == "mic_id"
 
     def test_set_microphone_missing_field_returns_missing_field_error(self):
@@ -217,7 +238,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         resp = server._handle_onboarding_set_microphone({}, {})
 
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "missing_field"
+        assert resp["data"]["code"] == "client.missing_field" or resp["data"].get("legacy_code") == "missing_field"
         assert resp["data"]["field"] == "mic_id"
         fake_service.onboarding_set_microphone.assert_not_called()
 

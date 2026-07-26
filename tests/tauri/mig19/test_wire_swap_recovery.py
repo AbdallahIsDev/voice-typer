@@ -546,12 +546,30 @@ def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str) -> None:
 def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
     """The supervisor trigger must be gated on ``!shutting_down`` — otherwise
     a normal app quit (which closes the WS) would spuriously respawn
-    the sidecar DURING shutdown."""
-    assert "state_for_reader.shutting_down.load" in ws_source, (
+    the sidecar DURING shutdown.
+
+    RT-FIX-9 (2026-07-24): the reader's local state handle was renamed
+    from ``state_for_reader`` to ``state_for_cleanup`` (the cleanup
+    path that checks ``shutting_down`` is in the post-loop cleanup
+    block, not the inline reader block). The test now accepts either
+    name.
+    """
+    # The shutdown check MUST reference a ``shutting_down.load(...)``
+    # call on a state handle local to the reader task. The local is
+    # named ``state_for_cleanup`` post-RT-FIX-9 (was
+    # ``state_for_reader`` pre-RT-FIX-9).
+    assert re.search(
+        r"state_for_(?:reader|cleanup)\.shutting_down\.load\s*\(",
+        ws_source,
+    ), (
         "WS reader must check shutting_down before triggering supervisor — "
         "a clean app quit would otherwise cause a spurious respawn"
     )
-    assert "if !state_for_reader.shutting_down.load" in ws_source, (
+    # The supervisor trigger must be inside a `if !shutting_down` guard.
+    assert re.search(
+        r"if\s*!\s*state_for_(?:reader|cleanup)\.shutting_down\.load",
+        ws_source,
+    ), (
         "supervisor trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
     )
 
@@ -660,6 +678,12 @@ def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> Non
     so the clear runs after the inner future resolves, regardless of
     Ok/Err. The ``app.restart()`` paths return ``!`` (never type) so
     the clear is unreachable there but harmless.
+
+    RT-FIX-9 (2026-07-24): the inner call was wrapped in
+    ``AssertUnwindSafe(respawn_inner(...)).catch_unwind()`` (GT-9 —
+    catch panics inside ``respawn_inner`` so the flag is cleared in
+    the panic arm too). The local binding is now ``inner_result``
+    (was ``result`` pre-GT-9).
     """
     # The clear must use SeqCst (matches the acquire ordering).
     assert "respawn_in_progress.store(false, Ordering::SeqCst)" in supervisor_source, (
@@ -669,11 +693,18 @@ def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> Non
     )
     # The clear must come AFTER respawn_inner resolves (so the
     # inner body's MutexGuards are dropped first, maintaining the
-    # "drop guards before await" Send-safety pattern).
-    assert "let result = respawn_inner" in supervisor_source, (
-        "supervisor must bind respawn_inner's result to a local "
-        "before clearing the flag — this guarantees the clear runs AFTER "
-        "the inner body resolves (Ok or Err)"
+    # "drop guards before await" Send-safety pattern). The local
+    # binding is now ``inner_result`` (GT-9 — wraps the call in
+    # AssertUnwindSafe so a panic in respawn_inner clears the flag
+    # in the catch_unwind Err arm).
+    assert re.search(
+        r"let\s+inner_result\s*=\s*AssertUnwindSafe\s*\(\s*respawn_inner\s*\(",
+        supervisor_source,
+    ), (
+        "supervisor must bind respawn_inner's result (wrapped in "
+        "AssertUnwindSafe(...).catch_unwind()) to a local before clearing "
+        "the flag — this guarantees the clear runs AFTER the inner body "
+        "resolves (Ok or Err) AND on panic (GT-9)."
     )
 
 
@@ -857,11 +888,27 @@ def test_rust_ws_client_enforces_max_message_and_frame_size(ws_source: str) -> N
     - ``max_message_size``: rejects a fragmented message whose
       reassembled total > 1 MiB (prevents the bypass of sending a
       10 MiB message as 10 x 1 MiB fragments).
+
+    RT-FIX-9 (2026-07-24): tungstenite 0.27 marked ``WebSocketConfig``
+    as ``#[non_exhaustive]``, so we can no longer construct it via a
+    struct expression. The two fields are now set via assignment on a
+    ``Default::default()`` instance (``ws_config.max_message_size =
+    Some(MAX_FRAME_BYTES);``). The test now matches the assignment
+    form (was struct-expression form).
     """
-    assert "max_message_size: Some(MAX_FRAME_BYTES)" in ws_source, (
+    # max_message_size MUST be set to Some(MAX_FRAME_BYTES) via
+    # assignment (tungstenite 0.27 non_exhaustive config — see ws.rs
+    # XZ-CC-10 comment).
+    assert re.search(
+        r"\.max_message_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
+        ws_source,
+    ), (
         "Rust WS client must set max_message_size = Some(MAX_FRAME_BYTES) — guards against fragmented-message bypass"
     )
-    assert "max_frame_size: Some(MAX_FRAME_BYTES)" in ws_source, (
+    assert re.search(
+        r"\.max_frame_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
+        ws_source,
+    ), (
         "Rust WS client must set max_frame_size = Some(MAX_FRAME_BYTES) — "
         "rejects single frames > 1 MiB at the transport layer"
     )
@@ -1178,9 +1225,25 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
         "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
         "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
     )
-    # The direct assignment proves generic fan-out (no per-type rename).
-    assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", ws_source), (
-        "ws.rs must forward every event type unchanged via "
-        "`let emit_name = event_type;` (PVT-2 cleanup — no per-type "
-        "rename arm)."
+    # RT-FIX-9 (2026-07-24): ws.rs was refactored — the prior
+    # ``let emit_name = event_type;`` direct assignment was replaced
+    # by ``let emit_name = translate_event_name(event_type);``
+    # (PVT-G5-062 — extracted the snake→kebab bubble_* renames into
+    # a unit-testable function). The translate function has an
+    # ``other => other`` arm so any event NOT in the rename table is
+    # forwarded under its own name (preserving the original
+    # "no silent rename of unknown events" invariant).
+    assert re.search(
+        r"let\s+emit_name\s*=\s*translate_event_name\s*\(\s*event_type\s*\)\s*;",
+        ws_source,
+    ), (
+        "ws.rs must compute `emit_name` via `translate_event_name(event_type)` "
+        "(PVT-G5-062 — single unit-testable rename table). The prior "
+        "`let emit_name = event_type;` direct assignment was refactored."
+    )
+    # The translate function MUST have an `other => other` arm so any
+    # event name not in the rename table passes through unchanged.
+    assert re.search(r"other\s*=>\s*other\s*,", ws_source), (
+        "translate_event_name must have an `other => other` forward-compat "
+        "passthrough arm (unknown event names flow through unchanged)."
     )

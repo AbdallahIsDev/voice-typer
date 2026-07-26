@@ -64,7 +64,7 @@ class TestDownloadModelValidation:
         """``{"model": 123}`` → ``code: invalid_field, field: model``."""
         resp = ipc_server._handle_download_model({"model": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "model"
         fake_service.download_model.assert_not_called()
 
@@ -72,7 +72,7 @@ class TestDownloadModelValidation:
         """``{"model": ["small.en"]}`` → ``code: invalid_field``."""
         resp = ipc_server._handle_download_model({"model": ["small.en"]}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "model"
         fake_service.download_model.assert_not_called()
 
@@ -88,7 +88,7 @@ class TestDownloadModelValidation:
         """
         resp = ipc_server._handle_download_model("not-a-dict", {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.download_model.assert_not_called()
 
 
@@ -101,14 +101,14 @@ class TestDeleteModelValidation:
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_delete_model({"model": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "model"
         fake_service.delete_model.assert_not_called()
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_delete_model(None, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.delete_model.assert_not_called()
 
 
@@ -130,14 +130,14 @@ class TestImportModelValidation:
         """
         resp = ipc_server._handle_import_model({"dir_path": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "dir_path"
         fake_service.import_model.assert_not_called()
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_import_model(["not", "a", "dict"], {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.import_model.assert_not_called()
 
 
@@ -151,7 +151,7 @@ class TestMicrophoneTestStartValidation:
         """``{"mic_id": 123}`` → ``code: invalid_field, field: mic_id``."""
         resp = ipc_server._handle_microphone_test_start({"mic_id": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "mic_id"
         fake_service.microphone_test_start.assert_not_called()
 
@@ -159,7 +159,7 @@ class TestMicrophoneTestStartValidation:
         """``{"filters": "not-a-list"}`` → ``code: invalid_field, field: filters``."""
         resp = ipc_server._handle_microphone_test_start({"filters": "not-a-list"}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "filters"
         fake_service.microphone_test_start.assert_not_called()
 
@@ -191,7 +191,7 @@ class TestLevelMonitorStartValidation:
     def test_non_string_mic_id_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_level_monitor_start({"mic_id": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "mic_id"
         fake_service.level_monitor_start.assert_not_called()
 
@@ -227,7 +227,7 @@ class TestSetEscCancelPausedValidation:
         """
         resp = ipc_server._handle_set_esc_cancel_paused({"paused": "true"}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "paused"
 
     def test_int_paused_returns_invalid_field_error(self, ipc_server, fake_app):
@@ -240,13 +240,13 @@ class TestSetEscCancelPausedValidation:
         """
         resp = ipc_server._handle_set_esc_cancel_paused({"paused": 1}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "paused"
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_app):
         resp = ipc_server._handle_set_esc_cancel_paused("not-a-dict", {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
 
 
 # ── 7. get_history ───────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ class TestGetHistoryValidation:
         """
         resp = ipc_server._handle_get_history({"limit": [50]}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "limit"
         fake_service.get_history.assert_not_called()
 
@@ -281,7 +281,7 @@ class TestGetHistoryValidation:
         """``{"offset": {"x": 0}}`` → ``code: invalid_field, field: offset``."""
         resp = ipc_server._handle_get_history({"offset": {"x": 0}}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "offset"
 
     def test_bool_limit_accepted_due_to_int_subclass(self, ipc_server, fake_service):
@@ -337,14 +337,14 @@ class TestGetFavoritesValidation:
     def test_list_limit_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_get_favorites({"limit": [50]}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "limit"
         fake_service.get_favorites.assert_not_called()
 
     def test_dict_offset_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_get_favorites({"offset": {"x": 0}}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "offset"
 
 
@@ -358,14 +358,14 @@ class TestSearchHistoryValidation:
         """``{"query": 123}`` → ``code: invalid_field, field: query``."""
         resp = ipc_server._handle_search_history({"query": 123}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "query"
         fake_service.search_history.assert_not_called()
 
     def test_list_limit_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_search_history({"limit": [50]}, {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_field"
+        assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "limit"
 
     def test_non_dict_payload_pre_coerced_to_defaults(self, ipc_server, fake_service):
@@ -402,14 +402,14 @@ class TestToggleDictationValidation:
         """A non-None non-dict payload (e.g. a string) is rejected."""
         resp = ipc_server._handle_toggle_dictation("not-a-dict", {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.toggle_dictation.assert_not_called()
 
     def test_non_dict_list_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         """A list payload is rejected."""
         resp = ipc_server._handle_toggle_dictation(["not", "a", "dict"], {})
         assert resp["type"] == "error"
-        assert resp["data"]["code"] == "invalid_payload"
+        assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.toggle_dictation.assert_not_called()
 
     def test_none_payload_pre_coerced_to_empty_dict(self, ipc_server, fake_service):

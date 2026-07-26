@@ -43,7 +43,7 @@ Covers the five clipboard-package findings from the Group 4
 
 from __future__ import annotations
 
-import os
+import contextlib
 import subprocess
 import sys
 import time
@@ -62,7 +62,6 @@ from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Display-env isolation (XS-22) — autouse fixture mirroring the pattern
@@ -622,7 +621,7 @@ class TestDE62WindowsRestoreReturnsFalseOnAllFailures:
         """DE-62: all SetClipboardData calls fail → return False."""
         snap = ClipboardSnapshot(
             platform="windows",
-            items=[(_CF_UNICODETEXT := 13, "CF_UNICODETEXT", b"hello\0")],
+            items=[(_cf_unicodetext := 13, "CF_UNICODETEXT", b"hello\0")],
             captured_at=0.0,
         )
         windll, user32, _ = _install_fake_windll_for_restore(
@@ -825,11 +824,8 @@ class TestDE63AtexitDoesNotRaceDaemonRestore:
 
         # Daemon claims the entry (removes it under the lock) — this
         # is what _delayed_restore does BEFORE calling snapshot.restore().
-        with clip_mod._pending_restores_lock:
-            try:
-                clip_mod._pending_restores.remove(entry)
-            except ValueError:
-                pass
+        with clip_mod._pending_restores_lock, contextlib.suppress(ValueError):
+            clip_mod._pending_restores.remove(entry)
 
         # Now atexit fires. It should see an EMPTY list (daemon already
         # claimed its entry) and NOT call snapshot.restore().
@@ -908,7 +904,6 @@ class TestDE63AtexitDoesNotRaceDaemonRestore:
 
         restore_call_count = {"count": 0}
         atexit_call_count = {"count": 0}
-        barrier_lock = MagicMock()
 
         def _spy_restore(*args, **kwargs):
             restore_call_count["count"] += 1
@@ -964,8 +959,10 @@ class TestDE60SourceStringPin:
         # The source MUST contain a ``recopy_text`` local that prefers
         # ``pasted_text`` over ``self._last_copied_text``.
         # We look for the pattern in the re-copy block.
+        # Note: pattern does NOT require parentheses around the ternary —
+        # the production code uses bare ``a if cond else b`` form.
         m = re.search(
-            r"recopy_text\s*=\s*\(\s*pasted_text\s+if\s+pasted_text\s+is\s+not\s+None\s+else\s+self\._last_copied_text\s*\)",
+            r"recopy_text\s*=\s*pasted_text\s+if\s+pasted_text\s+is\s+not\s+None\s+else\s+self\._last_copied_text",
             manager_src,
         )
         assert m is not None, (
