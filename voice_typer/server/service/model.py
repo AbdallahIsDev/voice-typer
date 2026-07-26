@@ -10,15 +10,11 @@ import logging
 import secrets
 import threading
 import time
-from typing import TYPE_CHECKING
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.service._base import ServiceMixinBase
 from voice_typer.server.service._helpers import _find_symlink_in_tree
-
-if TYPE_CHECKING:
-    from voice_typer.server.service import DownloadResult
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +22,40 @@ log = logging.getLogger(__name__)
 # renderer polls ~every 2s; a 5s TTL cuts filesystem syscall rate ~60% with
 # no user-visible staleness (cache is invalidated on download/delete).
 _MODEL_STATUS_CACHE_TTL_S = 5.0
+
+# XA-13-C1: user-facing messages for each ``download_parakeet_weights``
+# reason code. The service layer unpacks the ``(success, reason, exc_info)``
+# 3-tuple and maps the short reason code to a human-readable message so
+# the renderer's error toast / tray notification tells the user WHAT
+# went wrong ("not enough disk space") rather than the raw code
+# ("disk_space_insufficient").
+#
+# Keys mirror the reason codes documented in
+# ``asr_setup.download_parakeet_weights`` (see that function's docstring
+# for the full list). Unknown reason codes fall back to a generic
+# "Download failed: <reason>" message at the call site.
+_PARAKEET_REASON_MESSAGES: dict[str, str] = {
+    "huggingface_consent_false": (
+        "HuggingFace consent not given. Enable HuggingFace downloads in "
+        "Settings to download the Parakeet model."
+    ),
+    "huggingface_hub_missing": (
+        "huggingface_hub is not installed. Install it with "
+        "`pip install huggingface_hub` and try again."
+    ),
+    "disk_space_insufficient": (
+        "Not enough disk space to download the Parakeet model (~2.5 GB). "
+        "Free up space and try again."
+    ),
+    "download_retry_exhausted": (
+        "Download failed after multiple retries. Check your network "
+        "connection and try again."
+    ),
+    "integrity_check_failed": (
+        "Downloaded model failed integrity verification. The cached "
+        "files may be corrupt — the cache was cleared; please retry."
+    ),
+}
 
 
 class ModelMixin(ServiceMixinBase):
@@ -644,7 +674,7 @@ class ModelMixin(ServiceMixinBase):
             }
         return None
 
-    def download_model(self, model_name: str) -> "DownloadResult":
+    def download_model(self, model_name: str) -> dict[str, object]:
         """Download a model weight file via HuggingFace.
 
         UX-005: Downloads the specified model (tiny.en, small.en, medium.en,
@@ -653,6 +683,14 @@ class ModelMixin(ServiceMixinBase):
         can update its progress bar and status text in real time, and
         fires a tray notification on completion / failure.
         Returns a result dict with success status.
+
+        DT-49: the return annotation is widened from the
+        ``DownloadResult`` TypedDict union (removed) to
+        ``dict[str, object]`` to match the actual runtime shape. The
+        implementation returns plain ``dict`` literals (not TypedDict
+        instances); the TypedDict union gave no real protection and
+        caused 3 baselined ``bad-return`` pyrefly errors. The runtime
+        shape is verified by ``tests/test_service_fixes.py``.
 
         NEW-MODEL-001: now supports the turbo + distilled variants via
         :mod:`voice_typer.server.model_registry`.  The repo_id is
@@ -1096,10 +1134,69 @@ class ModelMixin(ServiceMixinBase):
                 _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
                 from voice_typer.server.asr_setup import download_parakeet_weights
 
-                # asr_setup.download_parakeet_weights() doesn't expose
-                # progress; we emit start/finish events.
+                # XA-13-C1: surface silent failures. Previously the
+                # service called ``download_parakeet_weights()`` with no
+                # arguments and discarded the return value, so every
+                # failure (consent gate, missing huggingface_hub, disk
+                # space, retry exhaustion, integrity check) was logged
+                # as "complete" and pushed to the UI as 100% progress +
+                # "downloaded successfully". The user saw a green
+                # success toast but no model files were fetched.
+                #
+                # Now we:
+                #   1. Forward ``config=self._app.config`` so the consent
+                #      gate inside ``download_parakeet_weights`` passes
+                #      (the upstream ``_require_huggingface_consent``
+                #      check above already verified consent; this is
+                #      defense-in-depth).
+                #   2. Forward a ``progress_callback`` that bridges the
+                #      function's progress messages to the renderer's
+                #      ``download_progress`` event bus.
+                #   3. Unpack the ``(success, reason, exc_info)`` 3-tuple
+                #      and short-circuit to a structured error return on
+                #      failure, mapping the reason code to a
+                #      user-facing message via ``_PARAKEET_REASON_MESSAGES``.
+                #
+                # The unpack is defensive: some legacy / test fakes
+                # return a bare ``bool`` rather than the 3-tuple. Treat
+                # truthy → success, falsy → failure with reason
+                # "unknown" so the test fakes don't break.
+                def _parakeet_progress(message: str) -> None:
+                    # Map the function's textual progress messages to
+                    # the renderer's ``download_progress`` event. We
+                    # don't know the byte-count, so we leave the rich
+                    # metadata fields unset and just forward the status.
+                    _push_progress(50, message)
+
                 _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
-                download_parakeet_weights()
+                dpw_result = download_parakeet_weights(
+                    config=self._app.config,
+                    progress_callback=_parakeet_progress,
+                )
+                # Defensive unpack: handle both the documented 3-tuple
+                # and the legacy/test bare-bool shape.
+                if isinstance(dpw_result, tuple):
+                    success, reason, _exc_info = dpw_result
+                else:
+                    success = bool(dpw_result)
+                    reason = "" if success else "unknown"
+                if not success:
+                    msg = _PARAKEET_REASON_MESSAGES.get(
+                        reason, f"Download failed: {reason}"
+                    )
+                    log.error(
+                        "[SERVICE] Parakeet download failed (reason=%s): %s",
+                        reason,
+                        msg,
+                    )
+                    _push_progress(0, msg)
+                    _notify(APP_NAME, f"Failed to download {model_name}: {msg}")
+                    return {
+                        "success": False,
+                        "error": msg,
+                        "reason": reason,
+                        "model": model_name,
+                    }
                 log.info("[SERVICE] Parakeet download complete")
                 _push_progress(100, "Parakeet download complete")
                 # NEW-PERF-004: invalidate the tray models submenu cache.

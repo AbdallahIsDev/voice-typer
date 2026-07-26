@@ -117,8 +117,8 @@ class StatusMixin(ServiceMixinBase):
                 "degraded": processor.is_degraded,
                 "degraded_reasons": processor.degraded_reasons,
                 "latency_ms": processor.total_latency_ms,
-                "vad_backend": "silero" if getattr(app.config, "use_silero_vad", True) else "rms",
-                "sample_rate": getattr(app.config, "sample_rate", 16000),
+                "vad_backend": "silero" if app.config.use_silero_vad else "rms",
+                "sample_rate": app.config.sample_rate,
             }
         return {
             "filter_chain": [],
