@@ -347,12 +347,30 @@ jobs:
         # run, and Codecov PR comments rely on the upload landing. Without
         # `always()` a single failing test would silently suppress the
         # coverage diff for the entire PR.
+        # S5-CR-71: only the Linux × Python 3.12 leg uploads coverage. The
+        # Windows + macOS legs run pytest with --cov but DO NOT upload —
+        # their coverage.xml is per-OS noisy (different stub paths, different
+        # optional deps installable) and Codecov's per-OS coverage deltas
+        # would drown the canonical Linux signal. Documenting here so future
+        # maintainers don't try to "fix" the asymmetry by removing the
+        # `matrix.os == 'ubuntu-22.04'` filter.
+        # S5-CR-71: fail_ci_if_error flipped to `true` now that
+        # CODECOV_TOKEN is wired. Pre-fix the `false` value meant a broken
+        # upload (e.g. 401 from a missing token on a fork PR, 502 from
+        # Codecov outage, malformed coverage.xml) silently passed — the
+        # coverage diff on the PR would just be missing with no signal.
+        # With `true`, broken uploads fail the build so the regression is
+        # visible. Forks without CODECOV_TOKEN secret: codecov-action@v5
+        # supports OIDC-based tokenless upload for public repos, so a
+        # missing token degrades to tokenless mode (which still uploads)
+        # rather than failing — but if tokenless upload is also broken we
+        # want to know.
         if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          fail_ci_if_error: true
 
       # XS-86: coverage ratchet. The fixed --cov-fail-under=65 floor
       # only catches catastrophic drops below 65%; this step catches
@@ -1424,3 +1442,94 @@ jobs:
             voice_typer/client/dist/*.deb
             voice_typer/client/dist/*.rpm
             voice_typer/client/dist/*.AppImage
+
+  # S5-CR-72: centralized failure-notification job. Pre-fix every workflow
+  # lacked a top-level notify step — a failed test job, a failed build-windows,
+  # a failed build-linux etc. each posted to the GitHub Actions check status
+  # but there was no consolidated "the build is broken" signal. Maintainers
+  # had to scroll the Actions tab to discover failures.
+  #
+  # This job runs `if: always()` (so it executes even when upstream jobs
+  # fail) and emits a `::error::` annotation summarizing which jobs failed
+  # — visible at the top of the workflow run summary page. Skipped jobs
+  # (e.g. slow-tests on a PR, pip-audit-weekly on a push) are filtered out
+  # so they don't generate noise.
+  #
+  # To wire a real notification channel (Slack / Microsoft Teams / email),
+  # add a step below using `rtCamp/action-slack-notify@v2` (Slack) or
+  # `mmellado/teams-notify@v1` (Teams) gated on the same `FAILURE_COUNT > 0`
+  # condition. The required webhook URL should be stored as a repo secret
+  # (e.g. SLACK_WEBHOOK_URL). The current implementation intentionally
+  # ships without a third-party action so the workflow stays usable in
+  # air-gapped / sandboxed CI environments.
+  notify:
+    name: Notify on failure
+    # `always()` so the job runs even when one of `needs` failed. Skipped
+    # upstream jobs (e.g. build-windows on a schedule run) won't block —
+    # the step below filters them out.
+    if: always()
+    # List every job whose failure should fire a notification. jobs not
+    # listed here (pip-audit-weekly, slow-tests) already have their own
+    # issue-on-failure step; including them would double-notify.
+    needs: [test, client-build, version-check, branding-check, build-native, build-macos-universal, build-windows, build-macos, build-linux]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Summarize job results
+        id: summarize
+        run: |
+          set -euo pipefail
+          # Build a Markdown summary table of every needed job's result.
+          # GitHub Actions exposes needs.<job>.result as one of:
+          #   'success' | 'failure' | 'cancelled' | 'skipped'
+          {
+            echo "## Job results"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| test | ${{ needs.test.result }} |"
+            echo "| client-build | ${{ needs.client-build.result }} |"
+            echo "| version-check | ${{ needs.version-check.result }} |"
+            echo "| branding-check | ${{ needs.branding-check.result }} |"
+            echo "| build-native | ${{ needs.build-native.result }} |"
+            echo "| build-macos-universal | ${{ needs.build-macos-universal.result }} |"
+            echo "| build-windows | ${{ needs.build-windows.result }} |"
+            echo "| build-macos | ${{ needs.build-macos.result }} |"
+            echo "| build-linux | ${{ needs.build-linux.result }} |"
+          } >> $GITHUB_STEP_SUMMARY
+
+          # Count only failures (skipped/cancelled are not actionable here).
+          FAILURE_COUNT=0
+          for r in \
+              "${{ needs.test.result }}" \
+              "${{ needs.client-build.result }}" \
+              "${{ needs.version-check.result }}" \
+              "${{ needs.branding-check.result }}" \
+              "${{ needs.build-native.result }}" \
+              "${{ needs.build-macos-universal.result }}" \
+              "${{ needs.build-windows.result }}" \
+              "${{ needs.build-macos.result }}" \
+              "${{ needs.build-linux.result }}"; do
+            if [ "$r" = "failure" ]; then
+              FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+          done
+          echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Emit failure annotation
+        if: steps.summarize.outputs.failure_count != '0'
+        run: |
+          echo "::error::${{ steps.summarize.outputs.failure_count }} upstream job(s) failed in this workflow run. See the Job results table in the run summary for per-job status. To wire Slack/Teams/email notifications, see the S5-CR-72 comment in .github/workflows/build.yml."
+          # Exit non-zero so the notify job itself shows as a red X in the
+          # GitHub Actions UI — the visual signal maintainers scan for.
+          # The build is already failed by the upstream job; this exit code
+          # just makes the notify job red too so it's not mistaken for "all
+          # clear".
+          exit 1
+
+      - name: All green
+        if: steps.summarize.outputs.failure_count == '0'
+        run: |
+          echo "::notice::All upstream jobs passed or were skipped — build is green."

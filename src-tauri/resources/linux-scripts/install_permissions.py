@@ -68,6 +68,18 @@ XKB_CONF_SOURCE = Path(__file__).resolve().parent / "00-voice-typer-capslock.con
 MANIFEST_DIR = Path("/var/lib/voice-typer")
 MANIFEST_PATH = MANIFEST_DIR / "permissions-manifest.json"
 
+# Root directory scanned as a defensive fallback when removing the
+# per-user autostart ``.desktop`` file during uninstall (S2-CR-69).
+# Defaults to ``/home`` (typical Linux multi-user layout); tests
+# monkeypatch this constant to redirect the scan at a temp dir.
+HOME_ROOT_SCAN = Path("/home")
+
+# Filename of the per-user autostart entry that Voice Typer creates
+# (via the OS's autostart mechanism, not by this script). On uninstall
+# we remove it so the DE doesn't keep trying to launch the (now-deleted)
+# binary on every login.
+AUTOSTART_DESKTOP_NAME = "voice-typer.desktop"
+
 INPUT_GROUP = "input"
 
 # Polkit-stable path: the polkit policy hard-codes this absolute path
@@ -582,6 +594,91 @@ def install() -> None:
     log("")
 
 
+# ─── Autostart .desktop cleanup (S2-CR-69) ─────────────────────────────────
+
+
+def _unlink_autostart_desktop_at(home_dir: Path) -> None:
+    """Remove the per-user autostart ``.desktop`` file under ``home_dir``.
+
+    Looks for ``<home_dir>/.config/autostart/voice-typer.desktop`` and
+    unlinks it if present. Silent no-op if absent. Logs a non-fatal
+    warning on ``OSError`` (e.g. permission denied — common when the
+    uninstaller runs as root but a home dir is owned by a service
+    account whose ``.config`` is mode 0700).
+
+    Called by ``_remove_autostart_desktop`` once per candidate home
+    directory (the manifest's ``target_user`` plus every entry under
+    ``HOME_ROOT_SCAN`` as a defensive fallback).
+    """
+    desktop_path = home_dir / ".config" / "autostart" / AUTOSTART_DESKTOP_NAME
+    try:
+        if not desktop_path.exists():
+            return
+    except (OSError, PermissionError) as exc:
+        # ``Path.exists()`` typically returns False on EACCES, but
+        # some platforms surface the error. Treat as "not removable"
+        # and continue with the rest of the scan.
+        log(f"WARNING: cannot stat autostart .desktop at {desktop_path} (skipping): {exc}")
+        return
+    try:
+        desktop_path.unlink()
+        log(f"Removed autostart .desktop at {desktop_path}")
+    except OSError as exc:
+        log(f"WARNING: failed to remove autostart .desktop at {desktop_path}: {exc}")
+
+
+def _remove_autostart_desktop(target_user: str) -> None:
+    """Remove the per-user autostart ``.desktop`` file for ``target_user``.
+
+    Resolves the user's home directory via ``pwd.getpwnam`` and unlinks
+    the ``.desktop`` file. As a defensive fallback for multi-user
+    systems (and for cases where ``target_user`` is empty, ``"root"``,
+    or unknown), also scans ``HOME_ROOT_SCAN/*`` (defaults to ``/home/*``)
+    and removes any stray ``voice-typer.desktop`` files.
+
+    Behaviour:
+    - ``target_user`` empty or ``"root"`` → skip ``pwd.getpwnam``
+      lookup (root doesn't have a per-user autostart entry; an empty
+      value means the manifest was missing or had no ``target_user``).
+    - ``pwd.getpwnam`` raises ``KeyError`` → log a non-fatal warning
+      and continue to the ``HOME_ROOT_SCAN`` fallback scan.
+    - Fallback scan: iterates ``HOME_ROOT_SCAN/*``, skips entries
+      whose ``is_dir()`` raises ``PermissionError`` / ``OSError``
+      (e.g. a service-account home dir we can't read).
+
+    All errors are non-fatal — the uninstaller must not abort the
+    rest of the cleanup just because one user's ``.desktop`` file
+    couldn't be removed.
+    """
+    if target_user and target_user != "root":
+        try:
+            pw = pwd.getpwnam(target_user)
+        except KeyError:
+            log(f"WARNING: cannot resolve home dir for user '{target_user}' — relying on /home scan")
+        else:
+            _unlink_autostart_desktop_at(Path(pw.pw_dir))
+
+    # Defensive fallback: scan HOME_ROOT_SCAN/* for stray .desktop files.
+    # This catches cases where target_user was empty / "root" / unknown,
+    # the user was deleted, or the manifest was missing.
+    try:
+        if not HOME_ROOT_SCAN.is_dir():
+            return
+    except (OSError, PermissionError):
+        return
+    try:
+        for entry in HOME_ROOT_SCAN.iterdir():
+            try:
+                if not entry.is_dir():
+                    continue
+            except (OSError, PermissionError) as exc:
+                log(f"WARNING: cannot stat {entry} during /home scan (skipping): {exc}")
+                continue
+            _unlink_autostart_desktop_at(entry)
+    except (OSError, PermissionError) as exc:
+        log(f"WARNING: failed to scan {HOME_ROOT_SCAN} for stray .desktop files: {exc}")
+
+
 # ─── Uninstall ─────────────────────────────────────────────────────────────
 
 
@@ -599,6 +696,16 @@ def uninstall() -> None:
             manifest = json.loads(MANIFEST_PATH.read_text())
         except json.JSONDecodeError:
             log("WARNING: manifest is corrupt — removing known paths unconditionally")
+
+    # S2-CR-69: remove the per-user autostart .desktop entry so the DE
+    # doesn't keep trying to launch the (now-deleted) binary on every
+    # login. Runs after the manifest is read (so we know the
+    # ``target_user``) and before backups are restored (so a failure
+    # here doesn't skip the rest of the cleanup). Passes ``""`` when
+    # the manifest is missing/corrupt — ``_remove_autostart_desktop``
+    # then falls back to scanning ``HOME_ROOT_SCAN/*``.
+    autostart_target_user = manifest.get("target_user", "") if manifest else ""
+    _remove_autostart_desktop(autostart_target_user)
 
     # Remove udev rule
     if UDEV_RULE_PATH.exists():

@@ -21,6 +21,7 @@ Usage:
     python bench/bench_streaming.py --words 10000 --chunk-size 20
     python bench/bench_streaming.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -95,8 +96,9 @@ def bench_streaming_assembler(total_words: int, chunk_size: int) -> dict:
         # committed_text together must be well under that. 1% of budget
         # is a healthy ceiling.
         "budget_500ms_margin_pct": round(
-            (500_000 - per_chunk_us[int(len(per_chunk_us) * 0.99)]
-             - commit_read_us[int(len(commit_read_us) * 0.99)]) / 500_000 * 100.0,
+            (500_000 - per_chunk_us[int(len(per_chunk_us) * 0.99)] - commit_read_us[int(len(commit_read_us) * 0.99)])
+            / 500_000
+            * 100.0,
             1,
         ),
     }
@@ -125,14 +127,20 @@ def main() -> int:
     print(f"  Chunks measured   : {result['n_chunks']}")
     print()
     print("  add_words (per chunk):")
-    print(f"    p50 / p99 / max : {result['add_words_p50_us']} / "
-          f"{result['add_words_p99_us']} / {result['add_words_max_us']} µs")
+    print(
+        f"    p50 / p99 / max : {result['add_words_p50_us']} / "
+        f"{result['add_words_p99_us']} / {result['add_words_max_us']} µs"
+    )
     print("  committed_text (per read):")
-    print(f"    p50 / p99 / max : {result['committed_text_p50_us']} / "
-          f"{result['committed_text_p99_us']} / {result['committed_text_max_us']} µs")
+    print(
+        f"    p50 / p99 / max : {result['committed_text_p50_us']} / "
+        f"{result['committed_text_p99_us']} / {result['committed_text_max_us']} µs"
+    )
     print()
-    print(f"  500ms chunk margin: {result['budget_500ms_margin_pct']}% "
-          f"({'PASS' if result['budget_500ms_margin_pct'] > 0 else 'FAIL'})")
+    print(
+        f"  500ms chunk margin: {result['budget_500ms_margin_pct']}% "
+        f"({'PASS' if result['budget_500ms_margin_pct'] > 0 else 'FAIL'})"
+    )
     return 0
 
 

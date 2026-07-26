@@ -134,9 +134,35 @@ jobs:
           file src-tauri/resources/prewarm-aarch64-apple-darwin
 
       - name: Build native listener (aarch64)
+        # S4-CR-31: pre-fix this step called the wrapper
+        # `build_native_listener_macos.sh` which invokes `compile_native.sh`
+        # with NO --arch arg → defaults to `universal` → builds BOTH arm64
+        # + x86_64 slices and lipo's them into a single fat binary ON THE
+        # arm64 runner. That fat binary was then uploaded as the aarch64
+        # artifact and re-uploaded as the universal binary in the
+        # build-tauri-universal job — meaning the x86_64 leg's listener was
+        # never used. Worse, when the universal job re-ran the wrapper, it
+        # produced ANOTHER universal binary on the arm64 host, but if the
+        # Rosetta 2 install failed silently the x86_64 slice would be missing
+        # → the universal .dmg ships an arm64-only native listener (Intel
+        # Macs crash with "bad CPU type in executable").
+        #
+        # Fix: invoke `compile_native.sh --arch arm64` directly to build a
+        # single-arch arm64 binary. The x86_64 leg builds its own single-arch
+        # x86_64 binary; the build-tauri-universal job lipo-creates them
+        # into a guaranteed-2-arch universal binary.
         run: |
-          scripts/build/build_native_listener_macos.sh
-          file src-tauri/resources/native/macos-key-listener
+          bash scripts/build/compile_native.sh --arch arm64
+          # compile_native.sh writes to voice_typer/server/native/macos-key-listener.
+          # Copy into src-tauri/resources/native/ so the artifact upload path
+          # below matches the pre-existing path expectation.
+          mkdir -p src-tauri/resources/native
+          cp voice_typer/server/native/macos-key-listener src-tauri/resources/native/macos-key-listener
+          # Rename the per-arch slice so the build-tauri-universal job can
+          # download BOTH arch artifacts without filename collision.
+          mv src-tauri/resources/native/macos-key-listener src-tauri/resources/native/macos-key-listener-arm64
+          file src-tauri/resources/native/macos-key-listener-arm64
+          lipo -info src-tauri/resources/native/macos-key-listener-arm64
 
       - name: Upload aarch64 artifacts
         uses: actions/upload-artifact@v5
@@ -145,7 +171,7 @@ jobs:
           path: |
             src-tauri/bin/python-sidecar-aarch64-apple-darwin
             src-tauri/resources/prewarm-aarch64-apple-darwin
-            src-tauri/resources/native/macos-key-listener
+            src-tauri/resources/native/macos-key-listener-arm64
           if-no-files-found: error
           retention-days: 14
 
@@ -223,6 +249,28 @@ jobs:
           scripts/build/build_prewarm_macos.sh x86_64
           file src-tauri/resources/prewarm-x86_64-apple-darwin
 
+      # S4-CR-31: pre-fix the x86_64 leg did NOT build the native listener
+      # at all — only the aarch64 leg built it (as a single-arch arm64 binary
+      # via the wrapper script). The build-tauri-universal job then re-ran
+      # the wrapper on the arm64 host, producing ANOTHER arm64 binary and
+      # bundling THAT into the "universal" .dmg. Intel Macs got a "bad CPU
+      # type in executable" crash when the Tauri host tried to spawn
+      # resources/native/macos-key-listener.
+      #
+      # Fix: build a single-arch x86_64 listener here via `--arch x86_64`.
+      # compile_native.sh passes `-target x86_64-apple-macos11.0` to swiftc
+      # so the resulting binary runs natively on Intel Macs without Rosetta 2.
+      # The build-tauri-universal job lipo-creates this with the arm64 slice
+      # from the aarch64 leg into a guaranteed-2-arch universal binary.
+      - name: Build native listener (x86_64)
+        run: |
+          bash scripts/build/compile_native.sh --arch x86_64
+          mkdir -p src-tauri/resources/native
+          cp voice_typer/server/native/macos-key-listener src-tauri/resources/native/macos-key-listener
+          mv src-tauri/resources/native/macos-key-listener src-tauri/resources/native/macos-key-listener-x86_64
+          file src-tauri/resources/native/macos-key-listener-x86_64
+          lipo -info src-tauri/resources/native/macos-key-listener-x86_64
+
       - name: Upload x86_64 artifacts
         uses: actions/upload-artifact@v5
         with:
@@ -230,6 +278,7 @@ jobs:
           path: |
             src-tauri/bin/python-sidecar-x86_64-apple-darwin
             src-tauri/resources/prewarm-x86_64-apple-darwin
+            src-tauri/resources/native/macos-key-listener-x86_64
           if-no-files-found: error
           retention-days: 14
 
@@ -318,24 +367,65 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: macos-aarch64-binaries
-          path: .
+          # S4-CR-31: download into a per-arch subdir to avoid filename
+          # collision on `macos-key-listener-*` with the x86_64 download.
+          path: /tmp/macos-aarch64
 
       - name: Download x86_64 artifacts
         uses: actions/download-artifact@v5
         with:
           name: macos-x86_64-binaries
-          path: .
+          path: /tmp/macos-x86_64
 
       - name: Place artifacts in src-tauri/
+        # S4-CR-31: pre-fix this step RE-BUILT the native listener on the
+        # arm64 host via `scripts/build/build_native_listener_macos.sh`,
+        # producing an arm64-only binary (or a Rosetta-broken universal)
+        # that got bundled into the "universal" .dmg. Now we lipo-create
+        # the two per-arch listener artifacts built by build-aarch64 +
+        # build-x86_64 into a guaranteed-2-arch universal binary, matching
+        # the build-macos-universal job in build.yml (the Electron path).
         run: |
-          mkdir -p src-tauri/bin src-tauri/resources/native
-          mv python-sidecar-aarch64-apple-darwin src-tauri/bin/
-          mv python-sidecar-x86_64-apple-darwin src-tauri/bin/
-          mv prewarm-aarch64-apple-darwin src-tauri/resources/
-          mv prewarm-x86_64-apple-darwin src-tauri/resources/
-          # The macos-key-listener from build-aarch64 is single-arch; for a
-          # universal build, re-build it natively here (the runner is arm64).
-          scripts/build/build_native_listener_macos.sh
+          set -euo pipefail
+          mkdir -p src-tauri/bin src-tauri/resources src-tauri/resources/native
+          mv /tmp/macos-aarch64/python-sidecar-aarch64-apple-darwin src-tauri/bin/
+          mv /tmp/macos-x86_64/python-sidecar-x86_64-apple-darwin src-tauri/bin/
+          mv /tmp/macos-aarch64/prewarm-aarch64-apple-darwin src-tauri/resources/
+          mv /tmp/macos-x86_64/prewarm-x86_64-apple-darwin src-tauri/resources/
+          # S4-CR-31: lipo-create the per-arch listener slices into a
+          # universal binary. Hard-assert both input slices exist AND are
+          # different arches — mirrors the CR-011 assertion in
+          # build.yml::build-macos-universal.
+          ARM_LISTENER=/tmp/macos-aarch64/macos-key-listener-arm64
+          X86_LISTENER=/tmp/macos-x86_64/macos-key-listener-x86_64
+          test -x "$ARM_LISTENER" || { echo "MISSING: $ARM_LISTENER"; exit 1; }
+          test -x "$X86_LISTENER" || { echo "MISSING: $X86_LISTENER"; exit 1; }
+          echo "Input slice arches:"
+          lipo -info "$ARM_LISTENER"
+          lipo -info "$X86_LISTENER"
+          ARM_ARCH="$(lipo -info "$ARM_LISTENER" | awk '{print $NF}')"
+          X86_ARCH="$(lipo -info "$X86_LISTENER" | awk '{print $NF}')"
+          if [ "$ARM_ARCH" = "$X86_ARCH" ]; then
+            echo "ERROR: both input listener slices are the same arch ($ARM_ARCH) — S4-CR-31 fix regressed."
+            echo "  build-aarch64 + build-x86_64 must pass --arch arm64 / --arch x86_64 to compile_native.sh."
+            exit 1
+          fi
+          lipo -create "$ARM_LISTENER" "$X86_LISTENER" \
+            -output src-tauri/resources/native/macos-key-listener
+          chmod +x src-tauri/resources/native/macos-key-listener
+          # Verify the universal binary contains BOTH architectures.
+          UNIVERSAL_INFO="$(lipo -info src-tauri/resources/native/macos-key-listener)"
+          echo "$UNIVERSAL_INFO"
+          file src-tauri/resources/native/macos-key-listener
+          echo "$UNIVERSAL_INFO" | grep -q "x86_64" || {
+            echo "ERROR: universal listener is missing x86_64 slice — S4-CR-31 regressed."
+            exit 1
+          }
+          echo "$UNIVERSAL_INFO" | grep -q "arm64" || {
+            echo "ERROR: universal listener is missing arm64 slice — S4-CR-31 regressed."
+            exit 1
+          }
+          echo "OK: universal listener contains both x86_64 + arm64 slices."
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
       # WR-17: generate placeholder Tauri icons + binary stubs if they
@@ -361,6 +451,36 @@ jobs:
           # macOS host (Linux/Windows-only files don't exist here).
           cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
+
+      # S1-CR-100: smoke test the bundled sidecar binary AFTER cargo tauri build.
+      # Pre-fix the macOS Tauri workflow never executed the sidecar — a Nuitka
+      # flag change that broke `--version` (argparse exits 0 without acquiring
+      # the single-instance lock per ipc_server.py:2796-2815) would only
+      # surface during a release cut. We test the aarch64 sidecar slice since
+      # the runner is arm64 (the x86_64 slice requires Rosetta 2 which is
+      # already installed for the build-x86_64 leg). Runs in <2s.
+      - name: Smoke test sidecar binary (--version, aarch64 slice)
+        run: |
+          set -euo pipefail
+          BIN="src-tauri/bin/python-sidecar-aarch64-apple-darwin"
+          if [[ ! -x "$BIN" ]]; then
+            echo "ERROR: sidecar binary not found at $BIN — cannot smoke test."
+            exit 1
+          fi
+          echo "Invoking: $BIN --version"
+          output=$("$BIN" --version 2>&1) || rc=$?
+          rc=${rc:-0}
+          echo "Output: $output"
+          echo "Exit code: $rc"
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::error::Sidecar --version exited with code $rc (expected 0). The frozen binary is broken."
+            exit 1
+          fi
+          if ! echo "$output" | grep -Eq 'voice-typer|VoiceTyper|voice_typer'; then
+            echo "::error::Sidecar --version output did not contain the project name. Output: $output"
+            exit 1
+          fi
+          echo "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
       - name: Codesign nested Mach-O binaries (S1-CR-37)
         if: ${{ env.MAC_SIGNING_IDENTITY != '' }}

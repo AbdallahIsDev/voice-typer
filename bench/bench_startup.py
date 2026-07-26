@@ -13,6 +13,7 @@ Usage:
 
 The results are printed in a format suitable for pasting into README.md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -69,6 +70,7 @@ def measure_import_time() -> float:
     t0 = time.perf_counter()
     # Import the tray module — this is the first thing that runs.
     import voice_typer.server.tray  # noqa: F401
+
     t1 = time.perf_counter()
     return (t1 - t0) * 1000  # ms
 

@@ -85,7 +85,11 @@
           "xclip"
         ],
         "desktopTemplate": "voice-typer.desktop.template",
+        // Tauri v2 key (WITH "Script" suffix). v1 used `postInstall` (no suffix).
+        // Agents: do NOT rename to the v1 short form — it will break the build.
         "postInstallScript": "../scripts/linux/postinst",
+        // Tauri v2 key (WITH "Script" suffix). v1 used `preRemove` (no suffix).
+        // Agents: do NOT rename to the v1 short form — it will break the build.
         "preRemoveScript": "../scripts/linux/prerm"
       },
       "rpm": {
@@ -97,8 +101,17 @@
           "wl-clipboard",
           "xclip"
         ],
+        // Tauri v2 key (WITH "Script" suffix). v1 used `postInstall` (no suffix).
+        // Agents: do NOT rename to the v1 short form — it will break the build.
         "postInstallScript": "../scripts/linux/postinst.rpm",
+        // Tauri v2 key (WITH "Script" suffix). v1 used `preRemove` (no suffix).
+        // Agents: do NOT rename to the v1 short form — it will break the build.
         "preRemoveScript": "../scripts/linux/prerm.rpm"
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
       }
     },
     "macOS": {
@@ -119,7 +132,7 @@
           "name": "bin/python-sidecar",
           "cmd": "bin/python-sidecar",
           "sidecar": true,
-          "args": true
+          "args": ["--ws"]
         }
       ]
     }

@@ -20,6 +20,7 @@ Usage:
     python bench/bench_vad.py --iterations 5000 --include-silero
     python bench/bench_vad.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -145,8 +146,7 @@ def main() -> int:
         if silero is not None:
             results.append(silero)
         else:
-            print("NOTE: Silero VAD unavailable — skipping (production degrades to RMS-only).",
-                  file=sys.stderr)
+            print("NOTE: Silero VAD unavailable — skipping (production degrades to RMS-only).", file=sys.stderr)
 
     if args.json:
         json.dump(results, sys.stdout, indent=2)
@@ -169,8 +169,7 @@ def main() -> int:
         # negligible (<100µs typically).
         budget_us = 30000
         margin = round((budget_us - r["p99_us"]) / budget_us * 100.0, 1)
-        print(f"  30ms budget : {'PASS' if margin > 0 else 'FAIL'} "
-              f"(p99={r['p99_us']}µs, margin={margin}%)")
+        print(f"  30ms budget : {'PASS' if margin > 0 else 'FAIL'} (p99={r['p99_us']}µs, margin={margin}%)")
     return 0
 
 

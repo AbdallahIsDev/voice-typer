@@ -27,7 +27,7 @@ use tauri::menu::{
     CheckMenuItemBuilder, IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem,
     SubmenuBuilder,
 };
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Listener, Manager};
 use tauri::image::Image;
 
@@ -198,6 +198,27 @@ fn empty_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<R>> {
     MenuBuilder::new(app).items(&[&item]).build()
 }
 
+/// S3-CR-8: predicate that decides whether a tray icon event should
+/// trigger the show + focus main-window path. Extracted from the
+/// `on_tray_icon_event` closure so the button filter is unit-testable
+/// (constructing a `TrayIconEvent` and asserting on the predicate is
+/// much simpler than spinning up a real Tauri app + tray in a test).
+///
+/// Returns `true` ONLY for `TrayIconEvent::Click` with
+/// `button == MouseButton::Left`. Right-click, middle-click, double-
+/// click, mouse-enter, mouse-move, and mouse-leave all return `false`
+/// — the OS / Tauri handles those (right-click opens the bound
+/// `.menu(...)`, etc.).
+fn is_focus_main_window_event(event: &TrayIconEvent) -> bool {
+    matches!(
+        event,
+        TrayIconEvent::Click {
+            button: MouseButton::Left,
+            ..
+        }
+    )
+}
+
 /// Create the tray icon, attach the initial empty menu, set tooltip +
 /// icon, and wire menu-click + left-click handlers. Also subscribes to
 /// the `tray_menu` event to rebuild the menu on demand.
@@ -251,7 +272,25 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // GT-B4-7: log the raw event at debug so a future regression
             // in tray click handling surfaces in the rotating log.
             log::debug!("[TRAY] icon click event: {:?}", event);
-            if let TrayIconEvent::Click { .. } = event {
+            // S3-CR-8 fix: only show + focus the main window on LEFT
+            // click. The previous `TrayIconEvent::Click { .. }` pattern
+            // matched left, right, AND middle click without filtering,
+            // so right-clicking the tray icon (which the OS uses to open
+            // the context menu on Windows/Linux) would race with menu
+            // display — the main window stole focus from the menu, and
+            // on some WMs the menu flashed and disappeared. Middle
+            // click is intentionally ignored too (no binding for it).
+            //
+            // Tauri v2's `TrayIconEvent::Click` carries `button:
+            // MouseButton` + `button_state: MouseButtonState`; we
+            // delegate to the `is_focus_main_window_event` predicate
+            // (extracted for unit-testability) so the show/focus path
+            // only fires for left-clicks. Right-click falls through to
+            // the OS default (Tauri v2 opens the bound `.menu(...)`
+            // automatically on right-click on Windows + Linux; on macOS
+            // the menu opens on left-click by default, so this branch
+            // is a no-op there but harmless).
+            if is_focus_main_window_event(&event) {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
                     if let Err(e) = window.show() {
                         log::warn!("[TRAY] show failed: {}", e);
@@ -517,5 +556,92 @@ mod tests {
         let serialized = serde_json::to_string(&args).expect("serialize");
         assert!(serialized.contains("\"cmd\":\"tray_click\""));
         assert!(serialized.contains("\"id\":\"\""));
+    }
+
+    // ── S3-CR-8: tray click button filter (left-click only) ──────────
+    //
+    // The `on_tray_icon_event` closure delegates to
+    // `is_focus_main_window_event` to decide whether to show + focus
+    // the main window. These tests construct synthetic
+    // `TrayIconEvent::Click` variants with each `MouseButton` value and
+    // assert the predicate is true ONLY for `Left`. The test
+    // construction mirrors the upstream Tauri test at
+    // `tauri-2.11.5/src/tray/mod.rs::tray_event_json_serialization`.
+
+    /// Build a minimal `TrayIconEvent::Click` with the given button.
+    /// All other fields use defaults (zero position, zero rect, Down
+    /// button_state, "test" id) — the predicate only inspects `button`,
+    /// so the other fields' values don't affect the test outcome.
+    fn make_click_event(button: MouseButton) -> TrayIconEvent {
+        use tauri::tray::MouseButtonState;
+        use tauri::{PhysicalPosition, Rect};
+        TrayIconEvent::Click {
+            button,
+            button_state: MouseButtonState::Down,
+            id: tauri::tray::TrayIconId::new("test"),
+            position: PhysicalPosition::default(),
+            rect: Rect::default(),
+        }
+    }
+
+    #[test]
+    fn test_focus_predicate_true_for_left_click() {
+        let event = make_click_event(MouseButton::Left);
+        assert!(
+            is_focus_main_window_event(&event),
+            "left-click on tray icon must trigger show+focus main window (S3-CR-8)"
+        );
+    }
+
+    #[test]
+    fn test_focus_predicate_false_for_right_click() {
+        let event = make_click_event(MouseButton::Right);
+        assert!(
+            !is_focus_main_window_event(&event),
+            "right-click must NOT trigger show+focus — it opens the context menu (S3-CR-8)"
+        );
+    }
+
+    #[test]
+    fn test_focus_predicate_false_for_middle_click() {
+        let event = make_click_event(MouseButton::Middle);
+        assert!(
+            !is_focus_main_window_event(&event),
+            "middle-click must NOT trigger show+focus — no binding for it (S3-CR-8)"
+        );
+    }
+
+    #[test]
+    fn test_focus_predicate_false_for_double_click() {
+        // Even a left-button DoubleClick must NOT trigger the show+focus
+        // path — only single left-click does. Double-clicking the tray
+        // icon is reserved for future use (no current binding); treating
+        // it as a focus trigger would fire show+focus twice in rapid
+        // succession (once for Click, once for DoubleClick).
+        use tauri::{PhysicalPosition, Rect};
+        let event = TrayIconEvent::DoubleClick {
+            button: MouseButton::Left,
+            id: tauri::tray::TrayIconId::new("test"),
+            position: PhysicalPosition::default(),
+            rect: Rect::default(),
+        };
+        assert!(
+            !is_focus_main_window_event(&event),
+            "double-click must NOT trigger show+focus — only single left-click (S3-CR-8)"
+        );
+    }
+
+    #[test]
+    fn test_focus_predicate_false_for_enter_event() {
+        use tauri::{PhysicalPosition, Rect};
+        let event = TrayIconEvent::Enter {
+            id: tauri::tray::TrayIconId::new("test"),
+            position: PhysicalPosition::default(),
+            rect: Rect::default(),
+        };
+        assert!(
+            !is_focus_main_window_event(&event),
+            "mouse-enter must NOT trigger show+focus (S3-CR-8)"
+        );
     }
 }

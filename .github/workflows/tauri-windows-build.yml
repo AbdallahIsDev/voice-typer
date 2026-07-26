@@ -45,6 +45,21 @@ on:
         required: false
         default: false
         type: boolean
+      # S5-CR-74: surface PYBS pin as a workflow_call input so the
+      # tauri-build.yml orchestrator can pass through pybs_date / pybs_version
+      # from its own workflow_dispatch inputs (allowing per-dispatch PYBS bump
+      # without editing the workflow file). Defaults match the runbook's pinned
+      # CPython 3.12.8 / 20241219 release.
+      pybs_date:
+        description: "python-build-standalone release date (YYYYMMDD)"
+        required: false
+        default: "20241219"
+        type: string
+      pybs_version:
+        description: "CPython version (e.g. 3.12.8)"
+        required: false
+        default: "3.12.8"
+        type: string
   workflow_dispatch:
     inputs:
       pybs_date:
@@ -78,9 +93,15 @@ permissions:
   contents: read
 
 env:
-  # Pin to match the runbook. Override via workflow_dispatch inputs.
-  PYBS_DATE: ${{ github.event.inputs.pybs_date || '20241219' }}
-  PYBS_VERSION: ${{ github.event.inputs.pybs_version || '3.12.8' }}
+  # S5-CR-74: PYBS pin now sourced from BOTH the workflow_call `inputs`
+  # context (used when tauri-build.yml passes pybs_date / pybs_version
+  # through) AND the workflow_dispatch `github.event.inputs` context (used
+  # when this workflow is dispatched directly from the Actions UI). The
+  # `inputs` context is populated for both trigger types on Actions runners
+  # since 2024, but we keep the github.event.inputs fallback for older
+  # self-hosted runner versions.
+  PYBS_DATE: ${{ inputs.pybs_date || github.event.inputs.pybs_date || '20241219' }}
+  PYBS_VERSION: ${{ inputs.pybs_version || github.event.inputs.pybs_version || '3.12.8' }}
   PYBS_TRIPLE: x86_64-pc-windows-msvc
   RUST_TARGET: x86_64-pc-windows-msvc
 
@@ -105,6 +126,11 @@ jobs:
       # (empty on PR/fork builds without secrets → signing steps skip).
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      # S10-CC-1: disable clcache at job level so Nuitka/SCons subprocess
+      # inherits it. Step-level `$env:CLCACHE_DISABLE = "1"` doesn't
+      # propagate to the C compiler subprocess, causing torch module C
+      # compilation to hang indefinitely and timeout after 90 min.
+      CLCACHE_DISABLE: "1"
 
     steps:
       - name: Checkout
@@ -297,20 +323,32 @@ jobs:
             Write-Error "Native listener binary not built"; exit 1
           }
 
-      - name: Sign sidecar + prewarm (optional — ADR-0020 §13.1)
+      # S1-CR-99: sign sidecar + prewarm + native listener. Pre-fix the loop
+      # only covered python-sidecar + prewarm; the native windows-key-listener.exe
+      # was bundled into the NSIS installer UNSIGNED. SmartScreen on Windows 11
+      # treats unsigned binaries inside a signed installer as suspicious and
+      # pops a "Windows protected your PC" dialog on first launch — defeating
+      # the value of signing the outer installer. Adding the native listener
+      # to the same foreach loop keeps every Mach-O/PE binary the bundle ships
+      # signed with the same Authenticode cert.
+      - name: Sign sidecar + prewarm + native listener (optional — ADR-0020 §13.1)
         if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
         run: |
           # Write the PFX (base64-encoded in the secret) to a temp file
-          # and sign both binaries with signtool + an RFC-3161 timestamp.
+          # and sign every binary with signtool + an RFC-3161 timestamp.
           $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
           Write-Host "Using signtool: $signtool"
           foreach ($exe in @(
                 "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe",
-                "src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe"
+                "src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe",
+                "src-tauri\resources\native\windows-key-listener.exe"
           )) {
+            if (-not (Test-Path $exe)) {
+              Write-Error "Cannot sign missing binary: $exe"; exit 1
+            }
             & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
                 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
@@ -429,6 +467,63 @@ jobs:
               "${{ steps.artifacts.outputs.nsis_path }}"
           & $signtool verify /pa /v "${{ steps.artifacts.outputs.nsis_path }}"
           Remove-Item $pfxPath -Force
+
+      # S1-CR-99: sign the MSI installer. Pre-fix only the NSIS installer
+      # was signed — the MSI (produced by `cargo tauri build` via the WiX
+      # bundler) shipped unsigned, so enterprises that prefer MSI for SCCM /
+      # Intune deployment hit SmartScreen on every install. Tauri does NOT
+      # automatically invoke signCommand on the MSI (it only signs the
+      # NSIS bundle when `bundle.windows.signCommand` is set); we sign the
+      # MSI explicitly here when the secrets are present. Skipped silently
+      # if the MSI wasn't produced (e.g. cargo tauri build only emitted NSIS).
+      - name: Sign the final MSI installer (optional — ADR-0020 §13.1)
+        if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' && steps.artifacts.outputs.msi_path != '' }}
+        shell: pwsh
+        run: |
+          $msi = "${{ steps.artifacts.outputs.msi_path }}"
+          if (-not (Test-Path $msi)) {
+            Write-Host "MSI not produced by cargo tauri build — skipping MSI signing."
+            exit 0
+          }
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $msi
+          if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for MSI: $msi"; exit 1 }
+          & $signtool verify /pa /v $msi
+          Remove-Item $pfxPath -Force
+
+      # S1-CR-100: smoke test the bundled sidecar binary after `cargo tauri build`.
+      # Pre-fix the Tauri workflows only ran `objdump -p` / `ldd` static checks on
+      # the sidecar — no execution. A Nuitka flag change or Cargo dep bump that
+      # broke the sidecar's `--version` flag (argparse exit path) would only
+      # surface during a release cut. The smoke test here invokes the bundled
+      # sidecar with `--version` (which exits 0 via argparse without acquiring
+      # the single-instance lock per ipc_server.py:2796-2815) and asserts the
+      # output contains the project name + version — proving the binary
+      # actually runs on the host OS, not just that it has the right ELF/PE
+      # headers. Gated on the sidecar existing (it always does after the build
+      # step above) and runs in <2s.
+      - name: Smoke test sidecar binary (--version)
+        shell: pwsh
+        run: |
+          $sidecar = "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path $sidecar)) {
+            Write-Error "Sidecar binary not found at $sidecar — cannot smoke test."; exit 1
+          }
+          Write-Host "Invoking: $sidecar --version"
+          $output = & $sidecar --version 2>&1
+          $rc = $LASTEXITCODE
+          Write-Host "Output: $output"
+          Write-Host "Exit code: $rc"
+          if ($rc -ne 0) {
+            Write-Error "Sidecar --version exited with code $rc (expected 0). The frozen binary is broken."; exit 1
+          }
+          if (-not ($output -match 'voice-typer|VoiceTyper|voice_typer')) {
+            Write-Error "Sidecar --version output did not contain the project name. Output: $output"; exit 1
+          }
+          Write-Host "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
       - name: Upload NSIS installer artifact
         uses: actions/upload-artifact@v5

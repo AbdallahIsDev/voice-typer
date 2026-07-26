@@ -58,5 +58,8 @@
     }
   },
   "forwardPorts": [8080],
+  "mounts": [
+    "source=voice-typer-node-modules,target=${containerWorkspaceFolder}/voice_typer/client/node_modules,type=volume"
+  ],
   "remoteUser": "vscode"
 }

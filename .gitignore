@@ -21,6 +21,9 @@ voice_typer/client/src/renderer/dist/
 /dist/
 *.tsbuildinfo
 
+# electron-vite cached transpiled config (auto-generated from electron.vite.config.ts)
+voice_typer/client/electron.vite.config.*.mjs
+
 # Runtime/debug output
 *.log
 runtime_log*.txt

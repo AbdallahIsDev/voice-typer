@@ -29,6 +29,7 @@ Requires: numpy. Does NOT require scipy, RNNoise, or any optional dep
 measures the filters that ARE available, and reports the degraded
 state so a regression in the degraded path is also visible).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -71,6 +72,7 @@ def _make_config(noise_suppression: str = "none") -> object:
 
     try:
         import scipy  # noqa: F401
+
         scipy_available = True
     except ImportError:
         scipy_available = False
@@ -80,13 +82,15 @@ def _make_config(noise_suppression: str = "none") -> object:
         # Disable every IIR / scipy-dependent filter so the chain
         # still produces non-None output. NoiseGate is sample-by-sample
         # Python (no scipy) so it stays on.
-        overrides.update({
-            "noise_filter_highpass": False,
-            "noise_filter_notch": False,
-            "noise_filter_eq": False,
-            "noise_filter_compressor": False,
-            "noise_filter_limiter": False,
-        })
+        overrides.update(
+            {
+                "noise_filter_highpass": False,
+                "noise_filter_notch": False,
+                "noise_filter_eq": False,
+                "noise_filter_compressor": False,
+                "noise_filter_limiter": False,
+            }
+        )
 
     class _DictConfig:
         def __init__(self, overrides: dict) -> None:
@@ -208,10 +212,7 @@ def main() -> int:
     args = parser.parse_args()
 
     rates = [args.rate] if args.rate is not None else [16000, 48000]
-    results = [
-        bench_filter_chain(rate, args.duration, args.chunk_samples, args.noise_suppression)
-        for rate in rates
-    ]
+    results = [bench_filter_chain(rate, args.duration, args.chunk_samples, args.noise_suppression) for rate in rates]
 
     if args.json:
         json.dump(results, sys.stdout, indent=2)
@@ -240,8 +241,7 @@ def main() -> int:
         # OWN latency (sum of per-filter); the benchmark does not
         # include resample latency (handled by AudioProcessor).
         budget_ok = r["total_latency_ms"] < 15.0 and r["realtime_margin_pct"] > 0
-        print(f"  ADR-0009 §11     : {'PASS' if budget_ok else 'FAIL'} "
-              f"(latency<15ms & realtime margin>0)")
+        print(f"  ADR-0009 §11     : {'PASS' if budget_ok else 'FAIL'} (latency<15ms & realtime margin>0)")
     return 0
 
 

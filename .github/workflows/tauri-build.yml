@@ -65,6 +65,23 @@ on:
         required: false
         default: false
         type: boolean
+      # S5-CR-74: surface python-build-standalone pin as workflow_dispatch
+      # inputs so a maintainer can bump the PYBS release per-dispatch WITHOUT
+      # editing the workflow file. Passed through to tauri-windows-build.yml's
+      # workflow_call inputs (which also accept these as workflow_dispatch
+      # inputs with the same defaults). The Linux Tauri workflow auto-fetches
+      # the latest PYBS release via the GitHub API (no pin needed); the macOS
+      # Tauri workflow uses the system Python via setup-python@v7.
+      pybs_date:
+        description: "python-build-standalone release date (YYYYMMDD) — Windows only"
+        required: false
+        default: "20241219"
+        type: string
+      pybs_version:
+        description: "CPython version (e.g. 3.12.8) — Windows only"
+        required: false
+        default: "3.12.8"
+        type: string
 
 # A single release build should never be cancelled mid-flight — but two
 # manual dispatches for the same platform SHOULD cancel the older one so
@@ -91,6 +108,11 @@ jobs:
     with:
       target: ${{ github.event.inputs.target }}
       sign: ${{ fromJSON(github.event.inputs.sign) }}
+      # S5-CR-74: pass through PYBS pin so a maintainer can bump the
+      # python-build-standalone release per-dispatch without editing
+      # tauri-windows-build.yml's defaults.
+      pybs_date: ${{ github.event.inputs.pybs_date }}
+      pybs_version: ${{ github.event.inputs.pybs_version }}
     # Per-platform workflow must NOT be triggered on push (per ADR-0020 §15).
     # If the per-platform workflow file is missing or has `if: false` at the
     # top level, this call is a no-op (GitHub Actions will skip it).

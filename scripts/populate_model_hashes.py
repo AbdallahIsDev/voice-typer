@@ -49,6 +49,7 @@ The script is idempotent: re-running with no upstream changes is a no-op.
 It NEVER modifies the ``revision`` field of any entry — only the ``files``
 dict.  It preserves the ``_comment`` metadata key verbatim.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -93,6 +94,7 @@ LOCAL_REVISION_VALUES = {"local"}
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+
 def _http_get(url: str) -> bytes:
     """Fetch ``url`` with retries; raise on final failure."""
     last_exc: Exception | None = None
@@ -122,13 +124,9 @@ def _list_repo_files(repo: str, revision: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"Tree API for {repo}@{revision} returned non-JSON: {raw[:200]!r}"
-        ) from exc
+        raise RuntimeError(f"Tree API for {repo}@{revision} returned non-JSON: {raw[:200]!r}") from exc
     if not isinstance(data, list):
-        raise RuntimeError(
-            f"Tree API for {repo}@{revision} returned {type(data).__name__}, expected list"
-        )
+        raise RuntimeError(f"Tree API for {repo}@{revision} returned {type(data).__name__}, expected list")
     # The tree API includes directory entries (``type == "directory"``) — skip
     # them; we only hash files.
     return [entry for entry in data if entry.get("type") == "file"]
@@ -148,15 +146,11 @@ def _fetch_file_sha256(repo: str, revision: str, path: str) -> str:
         for line in blob.decode("utf-8", errors="replace").splitlines():
             line = line.strip()
             if line.startswith("oid sha256:"):
-                oid = line[len("oid sha256:"):]
+                oid = line[len("oid sha256:") :]
                 if len(oid) == 64 and all(c in "0123456789abcdef" for c in oid):
                     return oid
-                raise RuntimeError(
-                    f"LFS pointer for {repo}/{path} has malformed oid: {oid!r}"
-                )
-        raise RuntimeError(
-            f"LFS pointer for {repo}/{path} is missing the oid sha256 line: {blob!r}"
-        )
+                raise RuntimeError(f"LFS pointer for {repo}/{path} has malformed oid: {oid!r}")
+        raise RuntimeError(f"LFS pointer for {repo}/{path} is missing the oid sha256 line: {blob!r}")
 
     # Regular file — hash the raw bytes.
     return hashlib.sha256(blob).hexdigest()
@@ -165,6 +159,7 @@ def _fetch_file_sha256(repo: str, revision: str, path: str) -> str:
 # ---------------------------------------------------------------------------
 # Manifest update
 # ---------------------------------------------------------------------------
+
 
 def _is_hf_repo(entry: dict[str, Any]) -> bool:
     """True if the entry represents a HuggingFace repo (not a local model)."""
@@ -185,9 +180,7 @@ def _ordered_files(files: dict[str, str]) -> dict[str, str]:
 # exactly (required by test_model_hashes_fallback_matches_json).  We anchor
 # the rewrite on the comment that introduces the fallback to make it robust
 # to indentation changes.
-_FALLBACK_ANCHOR = (
-    "# Hardcoded fallback — mirrors model_hashes.json so that even if the JSON\n"
-)
+_FALLBACK_ANCHOR = "# Hardcoded fallback — mirrors model_hashes.json so that even if the JSON\n"
 
 
 def _format_fallback_literal(manifest: dict[str, Any]) -> str:
@@ -213,7 +206,7 @@ def _format_fallback_literal(manifest: dict[str, Any]) -> str:
         for path, digest in files.items():
             line = f'                "{path}": "{digest}",'
             if len(line) > ruff_line_length:
-                line = f'{line}  # noqa: E501'
+                line = f"{line}  # noqa: E501"
             lines.append(line)
         lines.append("            },")
         lines.append("        },")
@@ -235,28 +228,23 @@ def _sync_security_fallback(manifest: dict[str, Any]) -> bool:
     if anchor_idx == -1:
         raise RuntimeError(
             "Could not find fallback anchor comment in security.py — "
-            "has the file been refactored? The script needs the marker:\n"
-            + _FALLBACK_ANCHOR
+            "has the file been refactored? The script needs the marker:\n" + _FALLBACK_ANCHOR
         )
     return_idx = src.find("    return {\n", anchor_idx)
     if return_idx == -1:
-        raise RuntimeError(
-            "Could not find multi-line 'return {' after fallback anchor in security.py"
-        )
+        raise RuntimeError("Could not find multi-line 'return {' after fallback anchor in security.py")
     # The fallback dict's closing brace is the first ``\n    }\n`` after the
     # return — inner per-repo and per-files braces either have more leading
     # whitespace (8 or 12 spaces) or are followed by a comma, so they never
     # match this pattern.
     close_idx = src.find("\n    }\n", return_idx)
     if close_idx == -1:
-        raise RuntimeError(
-            "Could not find closing brace of fallback dict in security.py"
-        )
+        raise RuntimeError("Could not find closing brace of fallback dict in security.py")
     # Replace [return_idx : close_idx + len("\n    }")] with the new literal.
     # The new literal already ends with "    }\n", so we slice off the
     # matched "\n    }\n" entirely from the original.
     new_literal = _format_fallback_literal(manifest)
-    new_src = src[:return_idx] + new_literal + src[close_idx + len("\n    }\n"):]
+    new_src = src[:return_idx] + new_literal + src[close_idx + len("\n    }\n") :]
     if new_src == src:
         return False
     SECURITY_PATH.write_text(new_src, encoding="utf-8")
@@ -331,10 +319,7 @@ def populate_manifest(
             entry["files"] = new_files
             added = set(new_files) - set(old_files)
             removed = set(old_files) - set(new_files)
-            changed = {
-                k for k in set(old_files) & set(new_files)
-                if old_files[k] != new_files[k]
-            }
+            changed = {k for k in set(old_files) & set(new_files) if old_files[k] != new_files[k]}
             if added:
                 print(f"        + {len(added)} new file(s)")
             if removed:
@@ -362,6 +347,7 @@ def populate_manifest(
         if manifest_changed:
             print("[DRY-RUN] Manifest would be updated. Diff (first 60 lines):")
             import difflib
+
             diff = difflib.unified_diff(
                 original_text.splitlines(keepends=True),
                 new_text.splitlines(keepends=True),
@@ -406,6 +392,7 @@ def populate_manifest(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Populate file-level SHA-256 hashes in model_hashes.json.",
@@ -432,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         "--no-security-sync",
         action="store_true",
         help="Do NOT update the hardcoded fallback dict in security.py "
-             "(default: keep it in sync with the JSON manifest).",
+        "(default: keep it in sync with the JSON manifest).",
     )
     args = parser.parse_args(argv)
 

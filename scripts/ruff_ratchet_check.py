@@ -289,7 +289,7 @@ def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False)
     if f_rule_total > 0:
         print(
             f"NOTE: {f_rule_total} F-rule (pyflakes) violation(s) omitted from the "
-            "baseline per docs/ruff-ratchet.md §\"Step 1\" (F-rules hard-fail at 0; "
+            'baseline per docs/ruff-ratchet.md §"Step 1" (F-rules hard-fail at 0; '
             "the ratchet does not track a non-zero F-rule floor). Fix them before "
             "committing — F-rules are real bugs (unused imports, undefined names, "
             "unused variables, redefinitions)."

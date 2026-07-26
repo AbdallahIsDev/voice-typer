@@ -30,6 +30,7 @@ def generate_test_audio(duration_seconds: float = 5.0, sample_rate: int = 16000)
 def bench_model_load(model_size: str, device: str) -> float:
     """Benchmark model loading time. Returns seconds."""
     from voice_typer.server.transcription import TranscriptionEngine
+
     t0 = time.perf_counter()
     TranscriptionEngine(model_size=model_size, device=device)
     elapsed = time.perf_counter() - t0
@@ -49,7 +50,7 @@ def bench_transcription(model_size: str, device: str, iterations: int = 5) -> di
         text = engine.transcribe_with_fallback(audio)
         elapsed = time.perf_counter() - t0
         latencies.append(elapsed)
-        print(f"  iteration {i+1}/{iterations}: {elapsed:.3f}s -> {text[:50]!r}")
+        print(f"  iteration {i + 1}/{iterations}: {elapsed:.3f}s -> {text[:50]!r}")
 
     latencies.sort()
     return {

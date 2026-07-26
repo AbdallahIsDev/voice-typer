@@ -66,8 +66,18 @@ test mock pattern.
   cold `sys.modules` every time), parses per-module self/cumulative
   microseconds, and writes a report. This is the only honest way to measure
   import latency; in-process re-imports are contaminated by cached C
-  extensions. Output saved to `scripts/coldstart_BEFORE.txt` and
-  `scripts/coldstart_AFTER.txt`.
+  extensions. The BEFORE / AFTER snapshots referenced throughout this
+  report are **runtime-generated artifacts** (not committed to the repo);
+  regenerate them on demand via the script's `--output` flag:
+
+  ```
+  python scripts/profile_imports.py --target voice_typer.server.tray \
+      --runs 5 --output scripts/coldstart_AFTER.txt
+  ```
+
+  (The `coldstart_BEFORE.txt` snapshot was produced the same way against
+  the pre-optimization tree, prior to the §4 changes; it is not
+  reproducible from the current tree.)
 
 ### 2.2 Environment
 
@@ -129,14 +139,25 @@ A small, stateless lazy-module proxy:
 ```python
 class _LazyModule:
     """Transparent proxy that defers `import <name>` to first attribute access."""
-    __slots__ = ("_module_name",)
-    def __init__(self, module_name): ...
-    def _resolve(self): return importlib.import_module(self._module_name)
-    def __getattr__(self, name): return getattr(self._resolve(), name)
-    def __setattr__(self, name, value): setattr(self._resolve(), name, value)
-    def __delattr__(self, name): delattr(self._resolve(), name)
 
-def lazy_module(name): return _LazyModule(name)
+    __slots__ = ("_module_name",)
+
+    def __init__(self, module_name): ...
+    def _resolve(self):
+        return importlib.import_module(self._module_name)
+
+    def __getattr__(self, name):
+        return getattr(self._resolve(), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._resolve(), name, value)
+
+    def __delattr__(self, name):
+        delattr(self._resolve(), name)
+
+
+def lazy_module(name):
+    return _LazyModule(name)
 ```
 
 **Key design property:** the proxy stores **no cached module** — every
@@ -166,7 +187,15 @@ unchanged.
 - **No call-site changes** — `build_menu()` still does `pystray.MenuItem(...)`,
   `pystray.Menu.SEPARATOR`, etc.
 
-### 4.4 Modified: `voice_typer/server/recording.py`
+### 4.4 Modified: `voice_typer/server/recording/` (package; was `recording.py`)
+
+> **Note:** the original target of this change was the flat module
+> `voice_typer/server/recording.py`. That module has since been
+> refactored into the `voice_typer/server/recording/` package
+> (see `recorder.py`, `buffer.py`, `device_manager.py`, `resampling.py`,
+> `exceptions.py`, `_recorder_split.py`). The lazy-`sounddevice` proxy
+> pattern described below still applies — it now lives in the package's
+> `__init__.py` (re-exported for backwards compatibility).
 
 - Added `from __future__ import annotations` so the
   `self._stream: Optional[sd.InputStream]` annotation becomes a string.
@@ -181,7 +210,7 @@ unchanged.
 |-----------------------|------------------|------------------------------------|
 | `voice_typer/server/tray.py`        | `pystray`        | `TrayIcon.start()`                 |
 | `voice_typer/server/tray_menu.py`   | `pystray`        | `build_menu()`                     |
-| `voice_typer/server/recording.py`   | `sounddevice`    | `Recorder.start/stop/_resolve_device` etc. |
+| `voice_typer/server/recording/` (package; was `recording.py`)   | `sounddevice`    | `Recorder.start/stop/_resolve_device` etc. |
 
 ---
 
@@ -277,9 +306,31 @@ clean `git stash` of this task's changes.
 
 - `bench/COLDSTART_REPORT.md` — this file.
 - `scripts/profile_imports.py` — reusable import profiler (fresh subprocess).
-- `scripts/coldstart_BEFORE.txt` — baseline profile (before optimization).
-- `scripts/coldstart_AFTER.txt` — post-optimization profile.
 - `voice_typer/server/_lazy_import.py` — new lazy-module proxy helper.
 - `voice_typer/server/tray.py` — `pystray` made lazy.
 - `voice_typer/server/tray_menu.py` — `pystray` made lazy.
-- `voice_typer/server/recording.py` — `sounddevice` made lazy.
+- `voice_typer/server/recording/` (package; was `recording.py`) —
+  `sounddevice` made lazy.
+
+### Runtime-generated (not committed to the repo)
+
+The following artifacts are produced on demand by
+`scripts/profile_imports.py` and are **not** checked into git. They are
+referenced throughout this report as BEFORE / AFTER snapshots of the
+import-time profile. Regenerate them with:
+
+```
+# AFTER snapshot (current tree):
+python scripts/profile_imports.py --target voice_typer.server.tray \
+    --runs 5 --output scripts/coldstart_AFTER.txt
+
+# BEFORE snapshot (only reproducible against the pre-optimization tree,
+# checked out prior to the §4 changes):
+python scripts/profile_imports.py --target voice_typer.server.tray \
+    --runs 5 --output scripts/coldstart_BEFORE.txt
+```
+
+- `scripts/coldstart_BEFORE.txt` — baseline profile (before optimization;
+  runtime-generated, not committed).
+- `scripts/coldstart_AFTER.txt` — post-optimization profile
+  (runtime-generated, not committed).
