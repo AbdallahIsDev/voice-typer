@@ -1,0 +1,542 @@
+// types/ipc/push_events.ts
+//
+// All Python-push-event interfaces + the `PythonPushEvent` discriminated
+// union.
+//
+// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+// No behaviour change vs. the original file — pure structural refactor.
+//
+// Imports `ErrorCodes` from `./enums.ts` for the `ErrorEvent` payload.
+
+import type { ErrorCodes } from "./enums";
+
+// ── Push events from Python (no id field) ─────────────────────────
+
+export interface StatusChangeEvent {
+	type: "status_change";
+	data: { status: string };
+}
+
+// PVT-G5-010 (part 4): ErrorEvent now mirrors the actual Python error
+// envelope. The server emits one of these shapes via `_send_error(...)`:
+//   - {type:"error", data:{code:"unknown_command", message, command?}}
+//   - {type:"error", data:{code:"invalid_field"|"missing_field", message, field?}}
+//   - {type:"error", data:{code:"unknown_tray_item", id?}} (no `message`)
+//   - {type:"error", data:{code:"internal_error"|"rate_limited", message}}
+// `code` is always present (REQUIRED); `message` is conventionally present
+// but omitted for `unknown_tray_item` (GT-F2-7: made OPTIONAL on the TS
+// side to match the emitter reality). The 4 optional fields cover all
+// variants without forcing callers to narrow on `code` first.
+//
+// Note: this is the module-local ErrorEvent (Python IPC). It does NOT
+// collide with the global DOM `ErrorEvent` used by `addEventListener`
+// in `globalErrorHandler.ts` — that file does not import this type and
+// resolves `ErrorEvent` to the lib.dom.d.ts declaration.
+export interface ErrorEvent {
+	type: "error";
+	data: {
+		code: ErrorCodes;
+		// GT-F2-7: `message` is OPTIONAL — the `unknown_tray_item`
+		// emitter in `voice_typer/server/ipc_server.py` pushes
+		// `{type:"error", data:{code:"unknown_tray_item", id?}}`
+		// with NO `message` field (only `id` identifies the bad
+		// tray item). All other emitters include `message`.
+		// Previously REQUIRED here, forcing callers to either lie
+		// (asserting `message: string` on a value that's
+		// `undefined` at runtime) or narrow on `code` first.
+		message?: string;
+		field?: string;
+		command?: string;
+		id?: string | number;
+	};
+}
+
+// PVT-G5-010 (part 3): the dead `TranscriptionPartialEvent` type was
+// REMOVED. No `event_bus.publish({"type": "transcription_partial"})`
+// exists anywhere in the Python tree — the partial-transcription path
+// in `dictation_pipeline.py` only publishes `transcription_final`. The
+// old type was a phantom contract that gave a false impression of an
+// IPC event that never fires. Do NOT re-add it without also wiring up
+// a publisher (`event_bus.publish({"type":"transcription_partial", ...})`).
+// The compile-time guard in `types/__tests__/ipc-types.test.ts` will
+// fail tsc if this is re-added (the union length assertion drops by 1).
+
+// PVT-G5-010 (part 1): `transcription_final` payload nests inside `data`
+// (matching `voice_typer/server/dictation_pipeline.py:911`), NOT at the
+// root. The old shape declared `text: string` at the root — a type lie.
+// Runtime reader `Home.tsx:428` already accesses `data?.text`, so this
+// fix aligns the type with the wire format AND the existing consumer.
+export interface TranscriptionFinalEvent {
+	type: "transcription_final";
+	data: { text: string; duration_ms?: number };
+}
+
+// PVT-G5-010 (part 2): the Python emitters for `recording_started` and
+// `recording_stopped` push bare `{type: ...}` frames — they never send
+// `timestamp` or `duration_ms`. The old type claimed they were present,
+// so any code reading `event.timestamp` would get `undefined` at runtime.
+// (`useSoundFeedback.ts:48,52` subscribes to both but accesses no fields,
+// so the field removal is API-safe.)
+export interface RecordingStartedEvent {
+	type: "recording_started";
+}
+
+export interface RecordingStoppedEvent {
+	type: "recording_stopped";
+}
+
+// NEW-IPC-002 (d-review): the dead `ModelLoadedEvent` type was REMOVED.
+// The server never published `model_loaded` via `event_bus.publish(...)`
+// (the only `model_loaded` symbol in the Python tree is a LOCAL log variable
+// in `recording_controller.py:145`), and ZERO renderer code subscribed to
+// `"model_loaded"` (no `usePythonEvent("model_loaded", ...)` call sites).
+// Keeping the type gave a false impression of an IPC contract that didn't
+// exist. Do NOT re-add it without also wiring up BOTH a publisher
+// (`event_bus.publish({"type":"model_loaded",...})`) AND a subscriber
+// (`usePythonEvent("model_loaded", ...)`). The compile-time guard in
+// `types/__tests__/ipc-types.test.ts` will fail tsc if this is re-added.
+
+/** Pushed after every successful set_config so the renderer can
+ * update UI-local state (font-scale, theme, etc.) immediately
+ * without needing a full get_config round-trip. */
+export interface ConfigChangedEvent {
+	type: "config_changed";
+	/** The validated subset of fields that were actually applied. */
+	data: Record<string, unknown>;
+}
+
+/** Pushed when the backend detects Esc during hotkey capture mode.
+ *  The backend consumes the key at the OS level (RegisterHotKey), so the
+ *  DOM keydown event never reaches the renderer — this event tells the
+ *  HotkeyPicker to exit capture mode. */
+export interface HotkeyCaptureCancelEvent {
+	type: "hotkey_capture_cancel";
+}
+
+/** Pushed when history records change through a path OUTSIDE the
+ * current renderer page (clear/delete/restore/star from another window,
+ * the tray menu, or a CLI tool). Renderer pages that cache history
+ * (Home, History, Dashboard) subscribe to this and invalidate their
+ * caches so they don't show ghost records. `reason` is one of
+ * "cleared" | "deleted" | "restored" | "favorite_toggled". */
+export interface HistoryChangedEvent {
+	type: "history_changed";
+	data: { reason: string };
+}
+
+// ── Additional Python push events (PVT-G5-060 / PVT-G5-061) ───────
+//
+// The Python backend emits 24+ distinct event `type` literals (see
+// `voice_typer/server/event_bus.py:36-95`). The previous union typed
+// only 9 of them — the rest flowed through `onEvent` untyped, so a
+// `usePythonEvent("paste_failed", ...)` call had no compile-time
+// guarantee that `paste_failed` was a real event name (a typo like
+// `"past_failed"` would silently never fire).
+//
+// The events below use `data: Record<string, unknown>` for payloads
+// whose shape we haven't audited field-by-field. The goal here is to
+// make the `type` literal itself type-safe (so a typo is a compile
+// error), not to fully specify every payload. Future agents can
+// tighten individual `data` shapes as needed (e.g. promote
+// `DownloadProgressEvent.data` to `{ received: number; total: number;
+// percent: number }` once the wire shape is verified).
+
+// PVT-G5-060: emitted on every client connect
+// (`voice_typer/server/ipc_server.py:1311-1326`) with a snapshot of the
+// backend AppState so the renderer can hydrate its connection state
+// without a round-trip. Today NO renderer subscribes to this — the
+// connect-time snapshot is silently dropped. Wiring a
+// `usePythonEvent("state_changed", …)` subscriber in `useConnection.ts`
+// is a follow-up (out of FA9 scope).
+export interface StateChangedEvent {
+	type: "state_changed";
+	data: Record<string, unknown>;
+}
+
+// PVT-G5-061: the 18 most important missing event types. Each one is
+// emitted by at least one `event_bus.publish(...)` call in the Python
+// tree and consumed by at least one `usePythonEvent(...)` call in the
+// renderer (verified via `rg 'usePythonEvent\("..."'`).
+
+/** Paste-to-active-window failed (Linux/macOS paste path); renderer
+ *  surfaces a toast. Emitted from `paste_controller.py`. */
+export interface PasteFailedEvent {
+	type: "paste_failed";
+	data: Record<string, unknown>;
+}
+
+/** HuggingFace model download progress (chunk counter). Emitted from
+ *  `model_downloader.py`. Consumed by `Home.tsx:402`. */
+export interface DownloadProgressEvent {
+	type: "download_progress";
+	data: Record<string, unknown>;
+}
+
+/** Generic user-facing notification (title + body + severity). Emitted
+ *  from various handler mixins. */
+export interface NotificationEvent {
+	type: "notification";
+	data: Record<string, unknown>;
+}
+
+/** A learned vocabulary correction suggestion surfaced for the user to
+ *  accept/reject. Emitted from `vocabulary_suggester.py`. */
+export interface VocabularySuggestionEvent {
+	type: "vocabulary_suggestion";
+	data: Record<string, unknown>;
+}
+
+/** The set of available microphones changed (hot-plug / unplug).
+ *  Emitted from `mic_watcher.py`. */
+export interface MicrophonesChangedEvent {
+	type: "microphones_changed";
+	data: Record<string, unknown>;
+}
+
+/** A `test_microphone` request finished — renderer shows the recorded
+ *  duration + RMS. Emitted from `microphone_handlers.py`. */
+export interface MicrophoneTestCompleteEvent {
+	type: "microphone_test_complete";
+	data: Record<string, unknown>;
+}
+
+/** A raw audio clip is being pushed (e.g. for the waveform display or
+ *  for clipboard copy). Emitted from `recording_controller.py`. */
+export interface AudioClipEvent {
+	type: "audio_clip";
+	data: Record<string, unknown>;
+}
+
+/** The tray menu config changed — renderer can refresh its in-app
+ *  mirror. Emitted from `tray.py`. */
+export interface TrayMenuEvent {
+	type: "tray_menu";
+	data: Record<string, unknown>;
+}
+
+/** Request that the renderer switch to a different page. Emitted from
+ *  tray menu clicks + onboarding flow. Consumed by `App.tsx:209`. */
+export interface NavigateEvent {
+	type: "navigate";
+	data: Record<string, unknown>;
+}
+
+/** Backend finished its startup sequence — renderer can hide the
+ *  loading splash. Emitted from `startup_sequence.py`. */
+export interface ReadyEvent {
+	type: "ready";
+	data: Record<string, unknown>;
+}
+
+// ── Bubble-window events ───────────────────────────────────────────
+// These are routed by `handle-message.ts` directly to the bubble
+// BrowserWindow (`webContents.send("bubble:...", ...)`) AND forwarded
+// to the main renderer via the `python-event` IPC channel. They're in
+// the union so renderer code that wants to observe bubble state (e.g.
+// Settings page showing "bubble visible: yes/no") can subscribe.
+
+export interface BubbleShowEvent {
+	type: "bubble_show";
+	data: Record<string, unknown>;
+}
+
+export interface BubbleHideEvent {
+	type: "bubble_hide";
+	data: Record<string, unknown>;
+}
+
+export interface BubbleSetStateEvent {
+	type: "bubble_set_state";
+	data: Record<string, unknown>;
+}
+
+export interface BubbleLevelEvent {
+	type: "bubble_level";
+	data: Record<string, unknown>;
+}
+
+export interface BubbleConfigEvent {
+	type: "bubble_config";
+	data: Record<string, unknown>;
+}
+
+// ── Lifecycle events (tray menu / shutdown flow) ───────────────────
+
+/** Tray "Open app" — Python asks Electron to show + focus the dashboard.
+ *  Routed by `handle-message.ts:68` → `showMainWindow()`. */
+export interface ShowWindowEvent {
+	type: "show_window";
+	data: Record<string, unknown>;
+}
+
+/** Tray "Quit" — Python is about to force-exit; close Electron too.
+ *  Routed by `handle-message.ts:74` → `app.quit()`. */
+export interface QuitAppEvent {
+	type: "quit_app";
+	data: Record<string, unknown>;
+}
+
+/** Tray "Restart" — Python's `restart_app()` pushes this BEFORE calling
+ *  `sys.exit(0)`. Routed by `handle-message.ts:78` → `relaunchApp()`.
+ *
+ *  EC-FIX-7 (addresses [EC-3]): the wire event was renamed from
+ *  `relaunch_electron` to `relaunch_app` on the Python+Tauri sides in
+ *  PVT-2. The renderer type now models `relaunch_app` as the canonical
+ *  event.
+ *
+ *  GT-55: the legacy `RelaunchElectronEvent` (type: "relaunch_electron")
+ *  was DELETED — verified the Python side emits ONLY `relaunch_app` now
+ *  (the `relaunch_electron` symbol survives only in historical comments
+ *  in `voice_typer/server/app.py` and `voice_typer/server/ipc_server.py`,
+ *  not as a wire event). The transition window for old sidecars has long
+ *  since closed. */
+export interface RelaunchAppEvent {
+	type: "relaunch_app";
+	data: Record<string, unknown>;
+}
+
+// ── GT-52: server-emitted push events previously missing from the union ─
+//
+// The Python backend emits these via `event_bus.publish(...)` but the
+// TS `PythonPushEvent` union never modelled them, so renderer code
+// subscribing via `usePythonEvent("tray_state", ...)` got no compile-time
+// type narrowing (the event was typed as `never` in the union, forcing
+// `as unknown as PythonPushEvent` casts — a Rule 26 violation). Added
+// here so the union matches the actual server emit surface.
+
+/** Pushed by `voice_typer/server/tray_menu.py:416` to update the tray
+ *  icon + tooltip. The Python emitter (`_push_tray_state`) only
+ *  includes `icon` and/or `tooltip` if non-null, and bails out if BOTH
+ *  are null — so at runtime the payload has at least one of the two,
+ *  but the TS type marks both optional to match the emitter's
+ *  conditional inclusion pattern. Consumed by the Tauri Rust host
+ *  (`src-tauri/src/sidecar/ws.rs`) which forwards to the OS tray. */
+export interface TrayStateEvent {
+	type: "tray_state";
+	data: { icon?: string; tooltip?: string };
+}
+
+/** Pushed by `voice_typer/server/service/model.py:596-605` when a model
+ *  download is refused because the user has not granted the required
+ *  consent (e.g. HuggingFace). The renderer surfaces a consent dialog
+ *  naming the provider + model; the message is shown verbatim. */
+export interface ConsentRequiredEvent {
+	type: "consent_required";
+	data: { provider: string; model: string; message: string };
+}
+
+/** Pushed by `voice_typer/server/parakeet_engine.py:910-915` when GPU
+ *  transcription fails and the engine falls back to CPU. `device` is
+ *  always `"cpu"` today; `reason` is the truncated exception message
+ *  (max 200 chars per the Python emitter). The renderer uses this to
+ *  show a one-time "transcription will be slower" banner. */
+export interface ParakeetCpuFallbackEvent {
+	type: "parakeet_cpu_fallback";
+	data: { device: string; reason: string };
+}
+
+// ── 3 server-emitted push events previously missing from the union ─
+//
+// The Python backend emits these via `event_bus.publish(...)` but the TS
+// `PythonPushEvent` union never modelled them, so renderer code
+// subscribing via `usePythonEvent("asr_backend_disabled", ...)` etc. got
+// no compile-time type narrowing (the events flowed through
+// `handleMessage`'s catch-all `broadcastToMainWindow("python-event", msg)`
+// path but were typed as `never` in the union, forcing
+// `as unknown as PythonPushEvent` casts — a Rule 26 violation).
+//
+// WIRE-SHAPE NOTE: unlike most other events in this union, the Python
+// emitters for `asr_backend_disabled` and `asr_last_resort_unloaded`
+// put the payload fields at the message ROOT (not under a `data` key).
+// Verified by reading the emitters at:
+//   - `voice_typer/server/asr_registry.py:531-538` (`asr_backend_disabled`)
+//   - `voice_typer/server/asr_registry.py:330-336` (`asr_last_resort_unloaded`)
+//   - `voice_typer/server/dictation_pipeline.py:919` (`llm_polish_failed`)
+// The TS interfaces below mirror the actual wire shape. If a future
+// Python refactor wraps these in a `data: { ... }` envelope, the TS
+// types must be updated to match (and the parity test in
+// `types/__tests__/ipc-types.test.ts` should be extended to assert the
+// field set).
+
+/** Pushed by `voice_typer/server/asr_registry.py:531-538` when an ASR
+ *  backend (e.g. whisper CUDA) auto-disables after repeated OOM / load
+ *  failures and the registry falls back to a different backend. The
+ *  renderer surfaces a one-time "ASR backend X disabled, falling back
+ *  to Y" banner so the user knows transcription may be slower or use
+ *  a different model.
+ *
+ *  Wire shape (fields at ROOT, NOT under `data` — see the note
+ *  above):
+ *    `{ "type": "asr_backend_disabled", "backend": "<name>",
+ *       "failure_count": <int>, "timestamp": "<iso-8601>" }` */
+export interface ASRBackendDisabledEvent {
+	type: "asr_backend_disabled";
+	/** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
+	backend: string;
+	/** Number of consecutive failures that triggered the disable. */
+	failure_count: number;
+	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+	timestamp: string;
+}
+
+/** Pushed by `voice_typer/server/asr_registry.py:330-336` when the
+ *  LAST-RESORT ASR backend is unloaded — i.e. no ASR backend is
+ *  available until the user manually restarts the app or reconfigures.
+ *  The renderer surfaces a critical "No ASR backend available — please
+ *  restart" banner so the user knows dictation is unavailable.
+ *
+ *  Wire shape (fields at ROOT, NOT under `data` — see the note
+ *  above):
+ *    `{ "type": "asr_last_resort_unloaded", "backend": "<name>",
+ *       "timestamp": "<iso-8601>" }` */
+export interface ASRLastResortUnloadedEvent {
+	type: "asr_last_resort_unloaded";
+	/** The last-resort backend's name that was just unloaded. */
+	backend: string;
+	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+	timestamp: string;
+}
+
+/** Pushed by `voice_typer/server/dictation_pipeline.py:919` when the
+ *  LLM polish step (the optional `ai_enhancement_enabled` path that
+ *  post-processes the raw transcription with grammar / style fixes)
+ *  raises an exception. The transcription itself is still delivered
+ *  to the user UN-polished (the `dictation_pipeline` swallows the
+ *  error and returns the original text), so this event is purely
+ *  informational — the renderer may surface a one-time toast like
+ *  "Polish unavailable — transcription shown raw".
+ *
+ *  Wire shape: the Python emitter publishes a bare
+ *  `{ "type": "llm_polish_failed" }` frame with NO payload fields.
+ *  Mirrors the shape of {@link RecordingStartedEvent} /
+ *  {@link HotkeyCaptureCancelEvent} (bare `{type}` frames with no
+ *  data). */
+export interface LLMPolishFailedEvent {
+	type: "llm_polish_failed";
+}
+
+// ── (resilient sidecar) lifecycle events ──────────────────────
+//
+// EC-FIX-7 (addresses [EC-14]): these events are NOT emitted by the Python
+// backend — they are synthesized by the host bridge (Tauri Rust
+// `src-tauri/src/sidecar/supervisor.rs` or Electron main) when the transport
+// layer detects a disconnect and enters the reconnect loop. They
+// are members of `PythonPushEvent` so renderer code can subscribe via
+// `usePythonEvent("reconnecting", ...)` without an `as unknown as
+// PythonPushEvent` cast (the unsafe cast was a rule #26 violation —
+// every IPC message must have a matching type definition).
+//
+// `reason` values currently emitted:
+//   - "tcp_disconnected" — the TCP socket closed unexpectedly
+//   - "ws_closed"        — the WebSocket closed with a non-1000 code
+//   - "heartbeat_timeout" — no PONG within the deadline
+//   - "reconnect_ok"     — (reconnected only) the new socket is live
+
+/** Pushed when the host bridge starts a reconnect attempt after a
+ *  transport drop. Consumed by `hooks/useConnection.ts:277`. */
+export interface ReconnectingEvent {
+	type: "reconnecting";
+	data: { reason: string };
+}
+
+/** Pushed when the host bridge successfully reconnected to the Python
+ *  backend. Consumed by `hooks/useConnection.ts:287`. */
+export interface ReconnectedEvent {
+	type: "reconnected";
+	data: { reason: string };
+}
+
+// NOTE: `usePythonEvent`'s `type` param (declared in
+// `hooks/usePython.ts`, owned by EC-FIX-20) should be narrowed to
+// `PythonPushEvent["type"]` so a typo like `usePythonEvent("past_failed", ...)`
+// fails at compile time instead of silently never firing. Currently the
+// `type` param is `string`, which lets any typo through and was the root
+// cause of the unsafe `as unknown as PythonPushEvent` casts noted in
+// [EC-14]. This file cannot perform that narrowing itself (the hook lives
+// in another sub-agent's file scope); it only exposes the union.
+export type PythonPushEvent =
+	| StatusChangeEvent
+	| ErrorEvent
+	| TranscriptionFinalEvent
+	| RecordingStartedEvent
+	| RecordingStoppedEvent
+	| ConfigChangedEvent
+	| HotkeyCaptureCancelEvent
+	| HistoryChangedEvent
+	| StateChangedEvent
+	| PasteFailedEvent
+	| DownloadProgressEvent
+	| NotificationEvent
+	| VocabularySuggestionEvent
+	| MicrophonesChangedEvent
+	| MicrophoneTestCompleteEvent
+	| AudioClipEvent
+	| TrayMenuEvent
+	| NavigateEvent
+	| ReadyEvent
+	| BubbleShowEvent
+	| BubbleHideEvent
+	| BubbleSetStateEvent
+	| BubbleLevelEvent
+	| BubbleConfigEvent
+	| ShowWindowEvent
+	| QuitAppEvent
+	| RelaunchAppEvent
+	// GT-52: three server-emitted events previously missing from the
+	// union. Each is published by `event_bus.publish(...)` in the
+	// Python tree (see the per-interface docstring for the emitter).
+	| TrayStateEvent
+	| ConsentRequiredEvent
+	| ParakeetCpuFallbackEvent
+	// three more server-emitted events previously missing from
+	// the union. Each is published by `event_bus.publish(...)` in the
+	// Python tree:
+	//   - `asr_backend_disabled`     — `asr_registry.py:531-538`
+	//   - `asr_last_resort_unloaded` — `asr_registry.py:330-336`
+	//   - `llm_polish_failed`        — `dictation_pipeline.py:919`
+	// See the per-interface docstrings for the wire shape (note: the
+	// first two put payload fields at the message ROOT, not under
+	// `data`).
+	| ASRBackendDisabledEvent
+	| ASRLastResortUnloadedEvent
+	| LLMPolishFailedEvent
+	| ReconnectingEvent
+	| ReconnectedEvent;
+
+// ── Auth frame (PVT-G5-063) ────────────────────────────────────────
+//
+// The Python backend (`voice_typer/server/sidecar_ws.py:177-231` and
+// `voice_typer/server/ipc_server.py:995-1210`) authenticates each new
+// TCP/WS connection by requiring the FIRST frame to be::
+//
+//     {"type": "auth", "token": "<session-token>"}
+//
+// The token is an HMAC compared with `hmac.compare_digest` against the
+// `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/Electron host at
+// spawn (ADR-0020 §3). On mismatch the socket is closed immediately.
+//
+// PVT-G5-063 (Medium): there is currently NO `protocol_version` field
+// on the auth frame or any other IPC message — version-skew detection
+// is post-hoc only (`code:"unknown_command"` / `disallowed_command`).
+// The agreed-upon forward shape is::
+//
+//     {
+//       "type": "auth",
+//       "token": "<session-token>",
+//       "protocol_version": 1
+//     }
+//
+// Both Python (the server) and Rust/Electron (the client) should reject
+// mismatched versions with a clear `code:"protocol_version_mismatch"`
+// error BEFORE the auth token is even checked, so a stale client
+// talking to a newer server gets a structured error instead of an
+// opaque auth failure.
+//
+// This is documented here (not exported as a separate `AuthFrame`
+// type) because no current renderer code constructs or parses auth
+// frames — that responsibility lives entirely in the Electron main
+// process (`voice_typer/client/src/main/python/tcp-connect.ts`) and
+// the Rust host (`src-tauri/src/sidecar/ws.rs`). When the
+// `protocol_version` field IS added to the wire, export an `AuthFrame`
+// interface here and type-annotate the auth-frame constructor in
+// `tcp-connect.ts` so future contributors get compile-time help.
