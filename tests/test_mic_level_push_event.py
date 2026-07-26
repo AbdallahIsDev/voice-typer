@@ -275,7 +275,7 @@ class TestTY18MicLevelNotPublishedWhenInactive:
         ``mic_level`` event."""
         import voice_typer.server.level_monitor as lm
 
-        holder = _wire_stream_with_callback_capture(monkeypatch)
+        _wire_stream_with_callback_capture(monkeypatch)
         captured = _patch_event_bus_publish(monkeypatch)
         lm.start_monitoring(mic_id=None)
         # Stop monitoring (sets _monitor_active=False).

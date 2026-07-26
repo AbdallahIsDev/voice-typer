@@ -677,7 +677,7 @@ class TestGt66PeriodicInfoSummary:
 # ── 9. GT-B1-12: counter dict capped at 1024 with LRU eviction ────────
 
 
-class TestGtB1_12LRUEviction:
+class TestGTB112LRUEviction:
     """GT-B1-12: ``_RATE_LIMIT_COUNTS`` is capped at ``_MAX_COUNTERS``
     (1024) entries with LRU eviction.  When eviction fires, a WARNING
     is logged through the module logger so the operator notices caller
