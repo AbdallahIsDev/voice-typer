@@ -366,7 +366,7 @@ Gate point 1 (Sidecar spawn via externalBin) was verified in Step 5 above. The r
 
 ---
 
-### Step 6.1 — WS + HMAC handshake (gate point 2, BOTH arches)
+### Step 6.1 — WS + bearer-token handshake (gate point 2, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -385,7 +385,7 @@ tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
 
 **Pass criteria (gate point 2)**: The log contains `[SIDECAR] server_started port=N`. The Tauri host's WS client connects to `ws://127.0.0.1:N` and sends the auth frame `{"type":"auth","token":"<64-char-hex>"}`. The sidecar accepts the token and the WS connection stays open (no `[AUTH] token rejected` log line).
 
-To verify HMAC rejection (negative test):
+To verify bearer-token rejection (negative test):
 
 ```bash
 # Manually connect with a wrong token — sidecar should close the socket.
@@ -963,7 +963,7 @@ echo "Wrote $REPORT"
 | §3 | Native `macos-key-listener` (Swift) build | `macos-key-listener` exists with correct Mach-O arch (host-arch OR universal) |
 | §4 | Tauri `.app` + `.dmg` build (`--target universal-apple-darwin`) | `cargo tauri build` produces both `.app` + `.dmg` with both prewarm arches + native listener in `Contents/Resources/` |
 | §5 | Install + smoke test (gate point 1: sidecar spawn) | `pgrep -lf python-sidecar` finds the host-arch sidecar within 5s of launch |
-| §6.1 | WS + HMAC handshake (gate point 2) | `[SIDECAR] server_started port=N` in log; wrong token rejected |
+| §6.1 | WS + bearer-token handshake (gate point 2) | `[SIDECAR] server_started port=N` in log; wrong token rejected |
 | §6.2 | `faster-whisper` transcribes (gate point 3) | Transcription appears in TextEdit within 5s; `libctranslate2.dylib` + `libiomp5.dylib` resolve |
 | §6.3 | `enigo` paste (gate point 4) | Short text via `enigo.text()`; long text via clipboard + `Cmd+V`; Accessibility permission granted |
 | §6.4 | `tauri-plugin-notification` (gate point 5) | macOS notification banner appears; `Info.plist` has `NSUserNotificationsUsageDescription` + `NSMicrophoneUsageDescription` |

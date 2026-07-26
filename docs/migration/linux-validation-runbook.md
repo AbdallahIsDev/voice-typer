@@ -635,7 +635,7 @@ The 9 mandatory checks (per ADR-0020 §"Phase 0 validation gate" — Phase 0-L).
 | # | Check | Step | Pass criteria |
 |---|---|---|---|
 | 1 | `externalBin` sidecar spawns via Tauri on X11 + Wayland | Step 5 / Step 6 | Tauri app launches; `~/.local/share/voice-typer/logs/sidecar.log` contains `[SIDECAR] server_started port=N`; `ps aux \| grep python-sidecar` shows one process |
-| 2 | WS + HMAC handshake works on X11 + Wayland | Step 5 (criterion 4) | Log shows `WS connected` + `auth ok`; wrong-token rejection logged as `auth rejected` |
+| 2 | WS + bearer-token handshake works on X11 + Wayland | Step 5 (criterion 4) | Log shows `WS connected` + `auth ok`; wrong-token rejection logged as `auth rejected` |
 | 3 | `faster-whisper` transcribes inside the Nuitka exe | Step 7 | Transcription appears in focused text field within 5s of releasing hotkey; log shows `model_loaded` |
 | 4 | `enigo` types on X11; clipboard + Ctrl+V fallback (via `wl-copy` + Ctrl+V) works on Wayland | Step 8 | Text appears in editor on BOTH session types; Wayland uses `_linux_copy` → `wl-copy` path in `clipboard.py` (ADR-0020 §6.6) |
 | 5 | `tauri-plugin-notification` posts via libnotify on X11 + Wayland | Step 9 | Notification appears in DE notification list on BOTH session types |

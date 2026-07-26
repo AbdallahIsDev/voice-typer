@@ -123,6 +123,8 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --nofollow-import-to=torch._inductor \
     --nofollow-import-to=torch.export \
     --nofollow-import-to=torch._functorch \
+    --nofollow-import-to=scipy._lib.cobyqa \
+    --nofollow-import-to=scipy._lib.array_api_extra.testing \
     --include-package=faster_whisper \
     --include-package=ctranslate2 \
     --include-package=voice_typer \

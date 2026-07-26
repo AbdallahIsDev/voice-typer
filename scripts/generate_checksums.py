@@ -28,17 +28,18 @@ def generate_checksums(dist_dir: Path) -> None:
         sys.exit(1)
 
     # Find all release artifacts (exe, zip, dmg, AppImage, deb, etc.)
+    # Previous filter was inverted — it `continue`d on every
+    # file matching release extensions, so SHA256SUMS.txt ended up
+    # listing only NON-release files (README, .build manifests, etc.).
+    # Now: append only files whose suffix matches a release extension,
+    # and skip SHA256SUMS.txt once so we don't hash the output file.
     extensions = {".exe", ".zip", ".dmg", ".AppImage", ".deb", ".rpm", ".tar.gz", ".whl"}
     artifacts = []
     for f in sorted(dist_dir.rglob("*")):
-        if f.is_file():
-            # Check if the file has a known release extension
+        if f.is_file() and f.name != "SHA256SUMS.txt":
             suffix = "".join(f.suffixes)  # handles .tar.gz
-            if any(suffix.endswith(ext) for ext in extensions) or f.name == "SHA256SUMS.txt":
-                continue
-            if f.name == "SHA256SUMS.txt":
-                continue
-            artifacts.append(f)
+            if any(suffix.endswith(ext) for ext in extensions):
+                artifacts.append(f)
 
     if not artifacts:
         print(f"No release artifacts found in {dist_dir}", file=sys.stderr)

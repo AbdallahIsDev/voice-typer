@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — implemented in `client/src/main/index.ts:532-627`.
+Accepted — implemented in `voice_typer/client/src/main/allowed-commands.ts` (canonical declaration moved from `index.ts` per R6-F10 — see `allowed-commands.ts` file header for the circular-dependency rationale).
 
 ## Date
 
@@ -35,25 +35,16 @@ SEC-018 (ADR-0014) authenticates the TCP connection itself. But authentication a
 
 Implement a **client-side command allowlist** in the Electron main process:
 
-1. **`ALLOWED_COMMANDS` Set:** A `Set<string>` in `client/src/main/index.ts` enumerates every IPC command the renderer is allowed to send. Commands are matched by their `type` field in the IPC message.
+1. **`ALLOWED_COMMANDS` Set:** A `Set<string>` in `voice_typer/client/src/main/allowed-commands.ts` enumerates every IPC command the renderer is allowed to send. Commands are matched by their `type` field in the IPC message.
 
-2. **Gate location:** The check is in `sendToPython()` (lines 624-627), immediately before the message is serialized and written to the TCP socket. If the command is not in the allowlist, the promise is rejected with `new Error("Disallowed IPC command: ${cmd}")`.
+2. **Gate location:** The check is in `sendToPython()` (`voice_typer/client/src/main/python/send-to-python.ts`), immediately before the message is serialized and written to the TCP socket. If the command is not in the allowlist, the promise is rejected with `new Error("Disallowed IPC command: ${cmd}")`.
 
-3. **Synchronization rule (CONTRIBUTING.md §6.4):** Any new command added to `_COMMAND_REGISTRY` in the Python backend MUST also be added to `ALLOWED_COMMANDS` in the Electron main process, AND to the renderer's type-safe `call()` wrapper in `types/ipc.ts`. A bidirectional parity test (`test_electron_ipc_and_build.py`) enforces this.
+3. **Synchronization rule (CONTRIBUTING.md §6.4):** Any new command added to `_COMMAND_REGISTRY` in the Python backend MUST also be added to `ALLOWED_COMMANDS` in `voice_typer/client/src/main/allowed-commands.ts`, AND to the renderer's type-safe `call()` wrapper (the `ipc.ts` module under `voice_typer/client/src/renderer/src/types/`). A bidirectional parity test (`tests/test_electron_ipc_and_build.py`) enforces this.
 
-4. **Exhaustive list:** The allowlist includes every command from `_COMMAND_REGISTRY` that the renderer should be able to invoke:
-   - Read-only: `get_status`, `get_config`, `get_defaults`, `get_history`, `search_history`, `get_today_stats`, `get_favorites`, `get_microphones`, `get_templates`, `get_vocabulary`, `get_prewarm_status`, `get_model_status`, `get_model_catalog`, `get_volume_backend_status`
-   - Mutation: `set_config`, `toggle_dictation`, `undo_last`, `delete_history`, `restore_history`, `clear_history`, `toggle_favorite`, `save_templates`, `save_vocabulary`
-   - Lifecycle: `restart_app`, `quit_app`
-   - Model management: `download_model`, `cancel_model_download`, `pause_model_download`, `resume_model_download`, `delete_model`, `import_model`, `test_llm_connection`
-   - Onboarding: `onboarding_is_first_run`, `onboarding_start`, `onboarding_get_step`, `onboarding_next_step`, `onboarding_prev_step`, `onboarding_set_microphone`, `onboarding_set_hotkey`, `onboarding_set_model`, `onboarding_skip`, `onboarding_apply`, `onboarding_get_microphones`, `onboarding_get_model_options`, `onboarding_get_hotkey_presets`
-   - Microphone test: `microphone_test_start`, `microphone_test_stop`, `microphone_test_cancel`, `microphone_test_status`, `microphone_test_get_level`
-   - Level monitor: `level_monitor_start`, `level_monitor_stop`, `level_monitor_status`
-   - Prewarm: `run_prewarm`, `open_prewarm_log`
-   - Misc: `set_esc_cancel_paused`, `set_tray_locale`, `export_diagnostics`, `check_accessibility`, `heartbeat`
+4. **Exhaustive list:** See `voice_typer/client/src/main/allowed-commands.ts` for the canonical list. Parity between the TS allowlist, the Rust `allowed_commands()` in `src-tauri/src/commands/sidecar_cmds.rs`, and the Python `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py` is enforced by `tests/test_security_doc_command_count.py`.
 
-5. **Not in the allowlist (intentionally):** Commands that should never originate from the renderer:
-   - `show_electron_notification` — pushed from Python, not invoked by renderer.
+5. **Not in the renderer allowlist (intentionally):** Commands that should never originate from the renderer:
+   - `show_electron_notification` — Not in the renderer allowlist (GT-32): the renderer never invokes this command; it remains in `_COMMAND_REGISTRY` (search for `_handle_show_electron_notification` in `voice_typer/server/ipc_server.py`) pending GT-FIX-05 cleanup. (It is a command on the request/response channel 1, NOT a push event — it was previously mis-categorized here as a push event; see YJ-64 for the correction.)
    - Internal dispatch commands that are server-side only.
 
 ## Consequences
@@ -72,10 +63,12 @@ Implement a **client-side command allowlist** in the Electron main process:
 
 ## References
 
-- `voice_typer/client/src/main/index.ts` lines 532-627 — `ALLOWED_COMMANDS` definition and gate.
+- `voice_typer/client/src/main/allowed-commands.ts` — `ALLOWED_COMMANDS` canonical declaration (moved from `index.ts` per R6-F10).
+- `voice_typer/client/src/main/python/send-to-python.ts` — `sendToPython()` gate implementation.
 - `voice_typer/server/ipc_server.py` — `_COMMAND_REGISTRY` definition.
-- `voice_typer/client/src/types/ipc.ts` — renderer type-safe `call()` wrapper.
+- The renderer's `ipc.ts` module (under `voice_typer/client/src/renderer/src/types/`) — type-safe `call()` wrapper.
 - `tests/test_electron_ipc_and_build.py` — parity test that `ALLOWED_COMMANDS` matches `_COMMAND_REGISTRY`.
+- `tests/test_security_doc_command_count.py` — three-way parity test (TS ↔ Rust ↔ Python) command counts and entries.
 - `CONTRIBUTING.md` §6.4 — synchronization rule documentation.
 - SECURITY.md — SEC-019 documentation.
 

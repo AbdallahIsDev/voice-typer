@@ -24,31 +24,55 @@ import shutil
 import sys
 from pathlib import Path
 
+# The diagnostic entry-point modules were moved from
+# ``scripts/diagnostics/`` to ``tests/manual/`` (CQ-016). Add the repo
+# root to ``sys.path`` so ``tests`` (and ``tests.manual``) are importable
+# as packages when this script is invoked directly via
+# ``python scripts/diagnostics.py`` (where ``scripts/`` is on the path
+# but the repo root is not).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 
 def run_f2():
-    """CQ-016: Delegate to scripts/diagnostics/diagnose_f2.py."""
-    from scripts.diagnostics.diagnose_f2 import main
+    """CQ-016: Delegate to tests/manual/diagnose_f2.py.
+
+    Updated import path — the module was moved from
+    ``scripts/diagnostics/`` to ``tests/manual/`` and exposes its
+    entry point as ``run`` (per tests/manual/README.md).
+    """
+    from tests.manual.diagnose_f2 import run as main
 
     main()
 
 
 def run_cublas():
-    """CQ-016: Delegate to scripts/diagnostics/cublas_fallback.py."""
-    from scripts.diagnostics.cublas_fallback import main
+    """CQ-016: Delegate to tests/manual/cublas_fallback.py.
+
+    Updated import path — see ``run_f2`` docstring.
+    """
+    from tests.manual.cublas_fallback import run as main
 
     main()
 
 
 def run_runtime():
-    """CQ-016: Delegate to scripts/diagnostics/runtime_proof.py."""
-    from scripts.diagnostics.runtime_proof import main
+    """CQ-016: Delegate to tests/manual/runtime_proof.py.
+
+    Updated import path — see ``run_f2`` docstring.
+    """
+    from tests.manual.runtime_proof import run as main
 
     main()
 
 
 def run_test_runner():
-    """CQ-016: Delegate to scripts/diagnostics/runtime_test_runner.py."""
-    from scripts.diagnostics.runtime_test_runner import main
+    """CQ-016: Delegate to tests/manual/runtime_test_runner.py.
+
+    Updated import path — see ``run_f2`` docstring.
+    """
+    from tests.manual.runtime_test_runner import main
 
     main()
 

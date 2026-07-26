@@ -40,7 +40,7 @@ that platform's target arch(s):
    - Nuitka sidecar exe builds from `python-build-standalone`.
    - `externalBin` sidecar spawns via Tauri; Rust reads `server_started`
      JSON from stdout and connects the WS.
-   - HMAC handshake: wrong token rejected; correct token accepted.
+   - Bearer-token handshake: wrong token rejected; correct token accepted.
    - `faster-whisper` `WhisperModel("tiny")` loads + transcribes inside
      the Nuitka exe (proves CTranslate2/DLLs/models).
    - `enigo` types text into a foreground window (Notepad / TextEdit /
@@ -327,7 +327,7 @@ Track every cutover (and rollback) in this section. Format:
 - [`signing-guide.md`](./signing-guide.md) — Windows Authenticode, macOS
   Developer ID + notarization + stapling, Linux unsigned + the
   no-auto-update audit (ADR-0020 §13 + §15).
-- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the 78-command
+- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the 61-command
   + 24-event wire contract (ADR-0020 §2 + §"Sidecar→UI Event Table").
 - [`../adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md)
   — the authoritative migration spec (Phase 5 + §"Reversibility").

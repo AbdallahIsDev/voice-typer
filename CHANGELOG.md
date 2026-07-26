@@ -3,6 +3,155 @@
 All notable changes to Voice Typer are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [Unreleased] - 2026-07-21
+
+### Architecture — post-2026-06-30 review round
+
+- **Native hotkey architecture (ADR-0008)** — finalized in this round. The
+  zero-command hotkey architecture now ships cross-platform native binaries
+  (Swift on macOS, C on Windows, C on Linux) with a 4-state fallback chain
+  to the legacy pynput/polling backends. CI builds all 3 native binaries on
+  their native platforms (`.github/workflows/build.yml`) and bundles them
+  into per-platform installers. See the `[Unreleased] - 2026-06-30` section
+  below for the four numbered gaps (CI build, macOS Accessibility onboarding,
+  Linux zero-command setup, runtime fallback chain) that this round closed.
+
+- **Tauri migration progress (ADR-0020)** — the Rust host now compiles. The
+  `SidecarState` struct literal bug was fixed so `cargo check` +
+  `cargo clippy` pass on a headless dev machine. The IPC allowlist was
+  narrowed (see "17-command allowlist narrowing" below) and the Rust↔TS
+  parity test (`tests/test_security_doc_command_count.py`) now passes. The
+  Phase 0 host-validation gate (Windows / macOS / Linux) is still pending
+  on real hosts — see the per-platform runbooks under `docs/migration/`.
+
+- **`recorder.py` decomposition** — the 3286-line `recorder.py` monolith
+  was split into a `voice_typer/server/recording/` package (`recorder.py`,
+  `buffer.py`, `device_manager.py`, `resampling.py`, `exceptions.py`,
+  `_recorder_split.py`). Public API unchanged; behavior preserved. See
+  `docs/rw04-recording-decomposition.md`.
+
+- **`ipc_server.py` decomposition** — the 2808-line `ipc_server.py` was
+  split: domain handlers extracted into `voice_typer/server/handlers/`
+  mixin modules (one per domain — `system_handlers.py`,
+  `model_handlers.py`, `dictation_handlers.py`, `repaste_handlers.py`,
+  `templates_handlers.py`, `onboarding_handlers.py`,
+  `microphone_test_handlers.py`, `vocabulary_automation_handlers.py`,
+  `vocabulary_handlers.py`, `privacy_handlers.py`, `config_handlers.py`,
+  `history_handlers.py`, `level_monitor_handlers.py`, `status_handlers.py`,
+  `microphone_handlers.py`), service logic extracted into
+  `voice_typer/server/service/` (`vocabulary.py`, `history.py`,
+  `onboarding.py`, `dictation.py`, `model.py`, `status.py`, `template.py`,
+  `microphone_test.py`), and shared dispatch / validation helpers extracted
+  into `voice_typer/server/ipc/` (`validation.py`, `transport.py`,
+  `history_bounds.py`, `rate_limiter.py`). The `_COMMAND_REGISTRY` dict is
+  the single source of truth for command→handler routing.
+
+- **`config.py` decomposition** — the 2131-line `config.py` monolith was
+  split: validation logic extracted into `config_validators.py` (1445
+  lines), file-IO safety extracted into `secure_file_io.py`, and the
+  `Config` class retained as the public API.
+
+- **`history_db.py` decomposition** — the 2486-line `history_db.py` monolith
+  was split into focused modules under the existing package layout. SQLite
+  WAL semantics, SEC-007 `0o600` file permissions, and the search/favorites/
+  retention APIs are all preserved.
+
+- **17-command allowlist narrowing ** — 17 stale
+  IPC command entries that no renderer code invoked were removed from all
+  three allowlists:
+  - `voice_typer/client/src/main/allowed-commands.ts` (TS renderer allowlist)
+  - `src-tauri/src/commands/sidecar_cmds.rs` `allowed_commands()` literal
+    (Rust host defense-in-depth allowlist)
+  - `voice_typer/server/ipc_server.py` `_COMMAND_REGISTRY` dict (Python
+    server-side dispatch table)
+
+  Removed commands: `apply_vocabulary_suggestion`, `check_accessibility`,
+  `delete_all_personal_data`, `dismiss_vocabulary_suggestion`,
+  `export_diagnostics`, `export_gdpr_bundle`, `get_audio_status`,
+  `get_rms_level`, `get_vocabulary_suggestions`, `level_monitor_status`,
+  `microphone_test_status`, `onboarding_get_model_catalog`,
+  `onboarding_get_step`, `onboarding_request_keyboard_permission`,
+  `refresh_microphones`, `show_electron_notification`, `test_llm_connection`.
+
+  The Python-side `_handle_*` methods are retained (tests still call them
+  directly via `ipc_server._handle_*`), but they are no longer reachable
+  via IPC dispatch. The new counts: TS allowlist = 59, Rust allowlist = 59,
+  Python registry = 61 (the +2 are `tray_click` and `shutdown`, which are
+  host-only commands the renderer never sends). The 4-way parity test
+  (`tests/test_security_doc_command_count.py` +
+  `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness`) now
+  passes; previously it failed.
+
+- **SidecarState struct literal fix** — the Rust host's
+  `SidecarState` struct literal was missing a field initializer, breaking
+  `cargo check`. Fixed; the Rust host now compiles end-to-end on Linux
+  (sandbox-validated). Windows / macOS host compilation still requires a
+  real Windows / macOS host (see `docs/migration/{windows,macos}-validation-
+  runbook.md`).
+
+- **Service mixin base class** — the 47 pyrefly errors in
+  `voice_typer/server/service/*.py` were resolved by introducing a
+  `ServiceMixin` base class that carries the shared `app` + `config`
+  references + a typed `service` accessor. Each domain service
+  (`service/history.py`, `service/vocabulary.py`, etc.) now inherits from
+  `ServiceMixin` instead of duck-typing `self.app.*` access. Behavior
+  unchanged; pyrefly now passes clean on the `service/` package.
+
+### New files
+- `docs/contributing/adding-an-ipc-command.md` — 11-touchpoint checklist for
+  adding a new IPC command. Replaces the 3-touchpoint list in
+  `CONTRIBUTING.md` §6.4.
+- `scripts/check-new-command.sh` — companion script that greps all 11
+  touchpoints for a given command name and reports which are missing +
+  flags any doc-count drift. Run as
+  `bash scripts/check-new-command.sh <cmd>`.
+
+### Modified files
+- `voice_typer/server/ipc_server.py` — `_COMMAND_REGISTRY` dict narrowed
+  from 78 → 61 entries (17 stale entries removed). The 17
+  `_handle_*` methods are retained (tests call them directly).
+- `src-tauri/src/commands/sidecar_cmds.rs` — `allowed_commands()` literal
+  narrowed from 76 → 59 entries (17 stale entries removed). Rust
+  ↔ TS parity test now passes.
+- `voice_typer/client/src/main/allowed-commands.ts` — TODO
+  comment block removed (work is now done). Replaced with a brief
+  concise `17 stale entries removed` comment.
+- `SECURITY.md` — doc count references updated (76 → 59 for the TS
+  allowlist count; 76 → 61 for the Python registry count; "All other 75
+  commands" → "All other 59 commands"). Also clarifies that BOTH
+  `tray_click` AND `shutdown` are host-only (previously only `tray_click`
+  was mentioned).
+- `docs/ARCHITECTURE.md` — `78-command` references updated to `61-command`
+  (3 references).
+- `CONTRIBUTING.md` — `73-command registry` reference updated to
+  `61-command registry`. "HMAC/bearer-token auth handshake"
+  phrase simplified to "bearer-token auth handshake".
+- `docs/migration/tauri-sidecar-bridge.md` — `78-command registry`
+  references updated to `61-command registry` (2 references).
+  "HMAC auth handshake" → "bearer-token auth handshake".
+- `docs/migration/{windows,macos,linux}-validation-runbook.md` —
+  "WS + HMAC handshake" headings updated to "WS + bearer-token handshake".
+  The parenthetical notes acknowledging the original ADR-0020
+  "HMAC" wording are preserved (the wire format is identical — only the
+  comparison function differs).
+- `docs/migration/cutover-playbook.md` — "HMAC handshake: wrong token
+  rejected" → "Bearer-token handshake: wrong token rejected".
+- `voice_typer/server/ipc/rate_limiter.py` — stale 6-line NOTE comment
+  about "kept in sync with `ipc_server.py`" deleted (the dedup is
+  complete).
+- `CHANGELOG.md` — this entry.
+
+### Tests
+- `tests/test_security_doc_command_count.py` — all 3 tests now PASS
+  (previously failed).
+- `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` —
+  PASSES (the 17 stale entries were causing `test_allowlist_matches_server
+  _commands` to fail because the Python registry had entries the TS
+  allowlist didn't, with no `rust_only_commands` exemption for them).
+- `tests/test_error_codes_registry.py` — still PASSES (unaffected by the
+  allowlist narrowing; the 17 removed commands didn't emit any error
+  codes that the registry test guards).
+
 ## [Unreleased] - 2026-06-30
 
 ### Added — Zero-Command Hotkey Architecture (ADR 0008)
@@ -10,7 +159,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - **Gap 1: Cross-platform CI build pipeline** — GitHub Actions `build.yml` now
   compiles all 3 native binaries (Swift on macOS, C on Windows, C on Linux)
   on their native platforms and bundles them into per-platform installers
-  (.exe / .dmg / .deb / .rpm / .AppImage).
+  (.exe /.dmg /.deb /.rpm /.AppImage).
 
 - **Gap 2: macOS Accessibility onboarding** — When the native binary detects
   missing Accessibility permission, Voice Typer shows a tray notification and
@@ -74,7 +223,7 @@ distinct to avoid duplicating the `## [Unreleased]` header.
 ### Migration notes
 - Existing users with `<f2>` in their config will keep `<f2>` (no forced migration)
 - New installs get the platform-aware default
-- To build native binaries: `bash scripts/build/compile_native.sh` (or .ps1 on Windows)
+- To build native binaries: `bash scripts/build/compile_native.sh` (or.ps1 on Windows)
 - macOS users granting Accessibility for the first time may need to re-grant after macOS updates
 - Linux users may need `sudo usermod -aG input $USER` then log out and back in
 

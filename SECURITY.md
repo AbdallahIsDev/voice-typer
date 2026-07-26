@@ -34,18 +34,24 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **76** commands listed in
+cannot invoke arbitrary commands — only the **61** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
 `tests/test_security_doc_command_count.py`); update the count there if entries
-are added or removed.
+are added or removed. The Tauri Rust host enforces a mirror allowlist
+(`allowed_commands()` in `src-tauri/src/commands/sidecar_cmds.rs`); the Rust ↔ TS
+entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **76** handlers.
-> Only `tray_click` is intentionally absent from the renderer allowlist — it is
-> a Rust-only command routed via `dispatch_inner` (the tray handler invokes it
-> directly, bypassing the allowlist gate). All other 75 commands are
+> `voice_typer/server/ipc_server.py` registers **78** handlers. 17 of those
+> are intentionally absent from the renderer allowlist: `tray_click` (a
+> Rust-only command routed via `dispatch_inner` — the tray handler invokes it
+> directly, bypassing the allowlist gate), `shutdown` (cooperative shutdown is
+> sent via `shutdown_sidecar` directly, NOT via the generic dispatch path),
+> and 17 stale entries that were removed from the renderer allowlist because
+> they were never invoked from any renderer code (see the docstring in
+> `allowed-commands.ts` for the full list). The remaining **61** handlers are
 > renderer-callable.
 
 ### Secret Redaction (SEC-003)
@@ -117,3 +123,26 @@ drops is rejected (ADR-0020 §6.4).
   Scheduler on Windows, `~/Library/LaunchAgents/com.voicetyper.plist`
   on macOS, `~/.config/autostart/voice-typer.desktop` on Linux). The
   tray menu itself has no autostart toggle.
+
+## Known Dependency Vulnerabilities (2026-07-25)
+
+### transformers 4.57.6 (pinned to <5.0)
+
+The `transformers` package is pinned to `>=4.50,<5.0` because
+`voice_typer/server/parakeet_engine.py` uses `AutoModelForTDT` which
+was removed in transformers 5.x. This pin blocks 4 RCE CVE fixes:
+
+- **CVE-2025-14929** (PYSEC-2025-217): X-CLIP checkpoint deserialization RCE.
+  No upstream fix available in any version. The X-CLIP conversion path
+  must not be used with untrusted model repos.
+- **CVE-2026-1839** (PYSEC-2026-2288): `Trainer._load_rng_state()` RCE.
+  Fix: transformers 5.0.0+.
+- **CVE-2026-4372** (PYSEC-2026-2289): Malicious `config.json` RCE.
+  Fix: transformers 5.3.0+.
+- **CVE-2026-5241** (PYSEC-2026-2290): LightGlue model loading RCE.
+  Fix: transformers 5.5.0+.
+
+**Mitigation:** Only download models from the allowlisted HuggingFace
+repos (see `asr_setup.py` allowlist). Do not load untrusted model
+checkpoints. Track migration to transformers 5.x in the upgrade-debt
+backlog.

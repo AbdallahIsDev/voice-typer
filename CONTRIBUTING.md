@@ -266,7 +266,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 73-command registry unchanged — CR-18 reconciliation 2026-07-19), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 78-command registry unchanged — CR-18 reconciliation 2026-07-19), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -330,7 +330,8 @@ voice-typer/
 │
 ├── docs/
 │   ├── ARCHITECTURE.md               # the big picture (READ THIS)
-│   ├── API.md                        # IPC message reference
+│   ├── ipc-reference.md              # IPC message reference (auto-generated from _COMMAND_REGISTRY + ALLOWED_COMMANDS)
+│   ├── python-api.md                 # Python class API reference (renamed from API.md)
 │   ├── PLATFORM_STATUS.md            # per-OS support matrix
 │   ├── home-directory.md             # ~/.voice-typer/ layout
 │   └── adr/                          # Architecture Decision Records

@@ -74,12 +74,21 @@ def _load_ruff_json(path: Path | None, stdin_data: str | None) -> list[dict[str,
 
     ruff emits a JSON array (one object per violation). An empty array
     means "no violations". ``path`` takes precedence over ``stdin_data``.
+
+    When the current file is missing, empty, or unparseable,
+    this function now exits with code 2 instead of silently returning
+    ``[]``. The previous behavior was a silent-pass hole: ``compare([])``
+    saw ``curr_total=0`` and reported "PASS (improved)" even though ruff
+    had never actually run. Empty stdin still returns ``[]`` to preserve
+    the documented "empty stdin = 0 violations" contract exercised by
+    ``tests/test_ruff_ratchet.py::TestCompareLogic::test_empty_stdin_treated_as_zero_violations``.
     """
     if path is not None:
         if not path.is_file():
             print(f"ERROR: current ruff JSON file not found: {path}")
             print("Did you forget to run `ruff check ... --output-format=json > ruff-current.json`?")
-            return []
+            print("Refusing to silently treat a missing file as 0 violations.")
+            sys.exit(2)
         raw = path.read_text(encoding="utf-8")
     elif stdin_data is not None:
         raw = stdin_data
@@ -89,15 +98,30 @@ def _load_ruff_json(path: Path | None, stdin_data: str | None) -> list[dict[str,
 
     raw = raw.strip()
     if not raw:
+        if path is not None:
+            # Empty file means ruff did not actually write output (e.g.
+            # the command crashed before serializing). Treat as a hard
+            # failure rather than silently reporting 0 violations.
+            print(f"ERROR: current ruff JSON file is empty: {path}")
+            print("Did the ruff command fail before writing output?")
+            print("Refusing to silently treat an empty file as 0 violations.")
+            sys.exit(2)
+        # Empty stdin = 0 violations. ruff emits `[]` (2 bytes) for the
+        # no-violations case; an empty stdin typically arises from a
+        # unit-test harness that explicitly passes empty input. We
+        # preserve the existing contract here so
+        # test_empty_stdin_treated_as_zero_violations continues to pass.
         return []
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"ERROR: failed to parse ruff JSON: {exc}")
-        return []
+        print("Refusing to silently treat unparseable input as 0 violations.")
+        sys.exit(2)
     if not isinstance(parsed, list):
         print(f"ERROR: expected a JSON array of violations, got {type(parsed).__name__}")
-        return []
+        print("Refusing to silently treat a non-array root as 0 violations.")
+        sys.exit(2)
     return parsed
 
 
@@ -243,8 +267,33 @@ def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False)
     guards are bypassed when ``force`` is True (intended for bootstrap
     or emergency re-baselining after a deliberate scope change); a
     warning is printed in that case.
+
+    F-rule (pyflakes) codes — F401, F811, F821, F841, etc.
+    — are stripped from the regenerated ``by_rule`` and ``total_count``
+    so the baseline never carries a non-zero F-rule floor. Per
+    ``docs/ruff-ratchet.md`` §"Step 1", F-rules must hard-fail at zero
+    tolerance: if any F-rule count > 0 appears in the current ruff
+    output, ``compare()`` sees ``b=0`` (baseline omits F-rules) vs
+    ``c>0`` and reports a per-rule REGRESSION. Locking a non-zero
+    F-rule count into the baseline would silently absorb future
+    regressions in unused-import / undefined-name / unused-variable
+    checks — exactly the hole this filter closes.
     """
-    new_total, new_by_rule = _summarize(current_violations)
+    _raw_total, raw_by_rule = _summarize(current_violations)
+
+    # Drop F-rule codes so the baseline never carries a
+    # non-zero F-rule floor (see docstring).
+    new_by_rule = {code: count for code, count in raw_by_rule.items() if not code.startswith("F")}
+    new_total = sum(new_by_rule.values())
+    f_rule_total = _raw_total - new_total
+    if f_rule_total > 0:
+        print(
+            f"NOTE: {f_rule_total} F-rule (pyflakes) violation(s) omitted from the "
+            "baseline per docs/ruff-ratchet.md §\"Step 1\" (F-rules hard-fail at 0; "
+            "the ratchet does not track a non-zero F-rule floor). Fix them before "
+            "committing — F-rules are real bugs (unused imports, undefined names, "
+            "unused variables, redefinitions)."
+        )
 
     # Preserve metadata fields from the existing baseline.
     metadata: dict[str, Any] = {}

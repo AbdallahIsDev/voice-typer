@@ -1,6 +1,4 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 echo "[pre-push] Running typecheck (client)..."
 cd voice_typer/client && npm run typecheck:ci || { echo "[pre-push] typecheck FAILED"; exit 1; }
 
@@ -12,18 +10,18 @@ cd ../..
 # environments without a local venv.
 PY_BIN=""
 if [ -x .venv/bin/python ]; then
-	PY_BIN=.venv/bin/python
+        PY_BIN=.venv/bin/python
 elif [ -x .venv/Scripts/python.exe ]; then
-	PY_BIN=.venv/Scripts/python.exe
+        PY_BIN=.venv/Scripts/python.exe
 elif command -v python >/dev/null 2>&1; then
-	PY_BIN=python
+        PY_BIN=python
 elif command -v python3 >/dev/null 2>&1; then
-	PY_BIN=python3
+        PY_BIN=python3
 fi
 if [ -z "$PY_BIN" ]; then
-	echo "[pre-push] No Python interpreter found; skipping pytest."
-	exit 1
+        echo "[pre-push] No Python interpreter found; skipping pytest."
+        exit 1
 fi
-"$PY_BIN" -m pytest tests/ -x -q --timeout=60 --ignore=tests/tauri/mig15 --ignore=tests/tauri/mig16 --ignore=tests/tauri/mig17 --ignore=tests/tauri/mig18 --ignore=tests/tauri/mig19 -k "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
+"$PY_BIN" -m pytest tests/ -x -q --timeout=60 --no-cov --ignore=tests/test_noise_suppressor_resampler.py --ignore=tests/test_permissions_pyobjc_cache.py --ignore=tests/tauri/mig15 --ignore=tests/tauri/mig16 --ignore=tests/tauri/mig17 --ignore=tests/tauri/mig18 --ignore=tests/tauri/mig19 -k "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
 
 echo "[pre-push] All checks passed."

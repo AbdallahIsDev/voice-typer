@@ -2,10 +2,18 @@
 
 ## Status
 
-**Documented as a v1 feature gap.** Not implemented in this round.
-This document outlines what a full GDPR Article 20 ("Right to data
-portability") export for Voice Typer would need to include, so a
-future implementer has a clear scope.
+**Implemented** via `service.export_gdpr_bundle()` (CR-88 / Fix-D).
+This document was originally a v1 feature-gap outline; it is now the
+operational reference for what the GDPR Art. 20 ("Right to data
+portability") export includes.
+
+`service.export_gdpr_bundle()` produces a single timestamped `.zip`
+at `<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip` containing every
+personal-data artifact the Python backend owns (the same set as
+`delete_all_personal_data`). The export is the user's OWN data
+verbatim — no redaction. Model weights are excluded (not personal
+data). Atomic zip write (PI-14): the zip is built to a `.zip.tmp`
+temp file and `os.replace`'d into place on success.
 
 Voice Typer is a **local-first** desktop utility. The only existing
 export, `service.export_diagnostics` (`service.py:1998`), produces a
@@ -14,25 +22,27 @@ for troubleshooting — it is *not* a GDPR Art. 20 export of personal
 data. Conflating the two would mislead users: a diagnostic bundle
 redacts transcript text, whereas a GDPR export must include it.
 
-## What a GDPR Art. 20 export should include
+## What the GDPR Art. 20 export includes
 
-The export should be a single `.zip` (or tarball) containing
-user-readable + machine-readable copies of every personal-data
-artifact Voice Typer stores locally. All paths are relative to the
-config dir (`_config_dir()`, typically `~/.config/voice-typer` on
-Linux, `%APPDATA%/voice-typer` on Windows, `~/Library/Application
+The export is a single `.zip` containing user-readable +
+machine-readable copies of every personal-data artifact Voice Typer
+stores locally. All paths are relative to the config dir
+(`_config_dir()`, typically `~/.config/voice-typer` on Linux,
+`%APPDATA%/voice-typer` on Windows, `~/Library/Application
 Support/voice-typer` on macOS).
 
 | Artifact | Path | Format | Notes |
 |---|---|---|---|
-| Transcription history | `history.db` | SQLite | Already structured; also export as JSON for portability. |
-| Crash-recovery buffer | `voice-typer-recovery.json` | JSON | Last 10 unpasted transcriptions (`crash_recovery.py`). |
-| User config + consent flags | `config.json` | JSON | Includes `onboarding_completed`, `auto_punctuation`, `recording_mode`, hotkey prefs, theme, language. **Redact** `llm_api_key` / cloud-engine credentials. |
-| User corrections | `voice-typer-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). |
-| Vocabulary / templates | `vocabulary.json`, `templates.json` | JSON | User-added entries. |
-| Microphone-test recordings | `<config_dir>/mic-test-*.wav` | WAV | Only if the user ran the mic-test page and the files still exist. |
-| Crash dumps | `<config_dir>/crash-*.dmp` | binary | OS-level crash dumps (Windows minidumps). |
-| Logs | `voice-typer.log` | text | Already PIIRedactionFilter-redacted; include as-is. |
+| Transcription history | `history.db` | SQLite | Already structured; also export as JSON for portability. Included in export. |
+| Crash-recovery buffer | `voice-typer-recovery.json` | JSON | Last 10 unpasted transcriptions (`crash_recovery.py`). Included in export. |
+| User config + consent flags | `config.json` | JSON | Includes `onboarding_completed`, `auto_punctuation`, `recording_mode`, hotkey prefs, theme, language. **Redact** `llm_api_key` / cloud-engine credentials. Included in export. |
+| User corrections | `voice-typer-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). Included in export. |
+| Vocabulary / templates | `vocabulary.json`, `templates.json` | JSON | User-added entries. Included in export. |
+| Microphone-test recordings | `<config_dir>/mic-test-*.wav` | WAV | Only if the user ran the mic-test page and the files still exist. Included in export. |
+| Logs (Python main) | `voice-typer.log` | text | Already PIIRedactionFilter-redacted; include as-is. Included in export. |
+| Logs (Python main, rotated) | `voice-typer.log.1`..`voice-typer.log.5` | text | PI-4: rotated backups matched by `voice-typer.log.*` glob. Included in export. |
+| Crash dumps (Windows VEH) | `<config_dir>/crash_diagnostics.*.txt` | text | PI-5: written by `crash_handler.py:722` as `crash_diagnostics.<PID>.txt`. The old `crash-*.dmp` glob was fictional. Included in export. |
+| Crash dumps (Python excepthook) | `<config_dir>/python_crash.*.txt` | text | PI-5: written by `crash_handler.py:1190` as `python_crash.<PID>.txt`. Included in export. |
 | Model artifacts | `<config_dir>/models/` | binary | Whisper / Parakeet / Qwen model weights. **Out of scope** for GDPR export (not personal data — publicly distributable weights). |
 | Voice recordings (live dictation) | — | — | Voice Typer does **not** persist raw audio from live dictation — audio is processed in-memory and discarded after transcription. Mic-test recordings are the only persisted audio. |
 
@@ -43,7 +53,9 @@ Support/voice-typer` on macOS).
 - **Renderer**: Settings → Privacy → "Export my data (GDPR Article 20)".
 - **Output**: a timestamped `.zip` at `_config_dir() /
   gdpr-export-YYYYMMDD-HHMMSS.zip` (and surface a save-dialog so the
-  user can move it elsewhere).
+  user can move it elsewhere). PI-14: written atomically via
+  `.zip.tmp` + `os.replace` so a partial/corrupt zip is never left
+  on disk.
 - **Audit log**: record the export timestamp in `config.json` under a
   new `last_gdpr_export_at` field (not personal data in itself, but
   useful for the user to see when they last exercised the right).
@@ -58,7 +70,7 @@ Support/voice-typer` on macOS).
 - It does not produce a machine-readable sidecar (just the redacted
   SQLite + log).
 
-## Out of scope for v1 (will not implement this round)
+## Out of scope
 
 - Cloud-side export (Voice Typer has no server-side personal data;
   the only cloud calls are model downloads + optional LLM polish,
@@ -70,5 +82,6 @@ Support/voice-typer` on macOS).
 ## Related findings
 
 - NEW-PRIV-008 — GDPR right-to-delete (see `gdpr-delete.md`).
+- PI-4 / PI-5 / PI-14 — privacy/GDPR hardening (this round).
 - NEW-PRIV-003 — Restart subprocess env inheritance (separate issue;
   same `docs/privacy/` folder).

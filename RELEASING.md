@@ -31,18 +31,25 @@ The version lives in two places that **must stay in sync**:
 | `pyproject.toml` | `version` | PEP 621 — the Python package version. |
 | `voice_typer/client/package.json` | `version` | The Electron app version (used by electron-builder for the NSIS / DMG / deb / rpm metadata). |
 
-Use `scripts/build/sync_versions.py` to bump both atomically:
+Use `scripts/build/sync_versions.py` to keep the version in sync. The
+workflow is: **edit `pyproject.toml`** (the single source of truth)
+**then run `--apply`** to propagate the new version to every other
+file (`voice_typer/__init__.py`, `voice_typer/client/package.json`,
+`voice_typer/client/electron-builder.yml`, `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml`).
 
 ```bash
-python scripts/build/sync_versions.py 1.2.0
-git diff pyproject.toml voice_typer/client/package.json
+# 1. Edit pyproject.toml and bump "version" under [project].
+# 2. Propagate the new version to every synced file:
+python scripts/build/sync_versions.py --apply
+git diff pyproject.toml voice_typer/client/package.json src-tauri/Cargo.toml
 ```
 
 The Tauri host (`src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json`)
-tracks the same version. `sync_versions.py` updates those too when run
-with `--include-tauri`; the Tauri stack is additive during the
-migration (see ADR-0020) so releases ship from the Electron stack until
-cutover.
+tracks the same version. `sync_versions.py` syncs the Tauri files by
+default (see `--apply` in `scripts/build/sync_versions.py --help`);
+the Tauri stack is additive during the migration (see ADR-0020) so
+releases ship from the Electron stack until cutover.
 
 ## 2. CHANGELOG
 
@@ -72,8 +79,8 @@ cd ../..
 # 3. Pre-commit hooks (ruff, biome, mypy, pyrefly, etc.).
 pre-commit run --all-files
 
-# 4. Verify versions are in sync.
-python scripts/build/sync_versions.py --verify
+# 4. Verify versions are in sync (CI mode — exits 1 on drift).
+python scripts/build/sync_versions.py --check
 
 # 5. Verify the git tree is clean.
 git status --porcelain
@@ -85,11 +92,12 @@ or red tree.
 ## 4. Tagging
 
 ```bash
-# Bump versions in pyproject.toml + package.json (and Cargo.toml/tauri.conf.json with --include-tauri).
-python scripts/build/sync_versions.py 1.2.0
+# 1. Edit pyproject.toml and bump "version" under [project] to 1.2.0.
+# 2. Propagate the new version to package.json, Cargo.toml, tauri.conf.json, etc.
+python scripts/build/sync_versions.py --apply
 
 # Commit the bump.
-git add pyproject.toml voice_typer/client/package.json
+git add pyproject.toml voice_typer/client/package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
 git commit -m "chore(release): bump to 1.2.0"
 
 # Update CHANGELOG.md (promote [Unreleased] → [1.2.0]).
@@ -124,7 +132,8 @@ release notes — the workflow does not auto-populate the body.
 ## 6. Post-release
 
 1. **Bump to the next dev version** if the next cycle is starting
-   immediately: `python scripts/build/sync_versions.py 1.3.0-dev`.
+   immediately: edit `pyproject.toml` to `1.3.0.dev0`, then run
+   `python scripts/build/sync_versions.py --apply`.
 2. **Open a tracking issue** for any known issues discovered during the
    release (tag them with the release milestone).
 3. **Watch the CI matrix** for the first 30 minutes after tag push —
@@ -137,7 +146,8 @@ For a hotfix against an already-released version:
 
 1. Branch off the tag: `git checkout -b hotfix/1.2.1 v1.2.0`.
 2. Apply the minimal fix + a regression test.
-3. Bump the patch version: `python scripts/build/sync_versions.py 1.2.1`.
+3. Bump the patch version: edit `pyproject.toml` to `1.2.1`, then run
+   `python scripts/build/sync_versions.py --apply`.
 4. Update `CHANGELOG.md` under a new `## [1.2.1]` heading.
 5. Commit, tag `v1.2.1`, push the tag.
 6. Cherry-pick the fix + CHANGELOG entry back to `main`.

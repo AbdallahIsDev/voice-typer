@@ -24,8 +24,15 @@ The Electron frontend and Python backend need a communication channel. Options c
 
 We chose **local TCP socket with JSON protocol** (option 4). The Python backend listens
 on `127.0.0.1:0` (OS-assigned port), writes the port to a known file, and the Electron
-client reads the port and connects. Messages are newline-delimited JSON with a simple
-`{type, payload}` envelope.
+client reads the port and connects. Messages are newline-delimited JSON with a
+`{type, data, id}` envelope. The `id` field is required on the request/response channel
+(channel 1) and omitted on the push-event channel (channel 2). See
+`docs/architecture/error-envelope-contract.md` and ADR-0020 §3 for the canonical
+contract. (YJ-37: this paragraph previously claimed the envelope was a two-field shape
+with a `payload` key — that was wrong. The field name "payload" is never used on the
+wire; every actual IPC frame uses `data` for the payload. The `id` field was added to
+support async request/response correlation and is documented in the error-envelope
+contract.)
 
 ## Consequences
 

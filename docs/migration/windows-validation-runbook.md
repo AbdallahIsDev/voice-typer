@@ -69,7 +69,7 @@ explanation in the cited section.
 
 # ─── §6 Execute the 9-point gate (record each result in §9) ─────────────
 17. §6.1 Sidecar spawn via externalBin        — log shows server_started
-18. §6.2 WS + HMAC handshake                  — auth accepted in log
+18. §6.2 WS + bearer-token handshake           — auth accepted in log
 19. §6.3 faster-whisper transcribe            — text appears in UI + History
 20. §6.4 enigo paste (short + long)           — text in Notepad
 21. §6.5 Toast notification                   — Windows toast appears
@@ -671,7 +671,7 @@ where `<N>` is an ephemeral port (e.g., 51234).
 - `sidecar terminated before server_started (code=Some(N))` → check
   `sidecar.log` for the Python traceback.
 
-### §6.2 WS + HMAC handshake
+### §6.2 WS + bearer-token handshake
 
 **VALIDATE ON WINDOWS HOST**
 
@@ -1309,7 +1309,7 @@ tracking issue.
 | # | Gate item | Pass? | Observed | Log excerpt |
 |---|---|---|---|---|
 | §6.1 | Sidecar spawn via externalBin | ☐ Pass ☐ Fail | server_started port=____ | `[SIDECAR] server_started port=...` |
-| §6.2 | WS + HMAC handshake | ☐ Pass ☐ Fail | auth accepted at T+__s | `[SIDECAR-WS] auth accepted` |
+| §6.2 | WS + bearer-token handshake | ☐ Pass ☐ Fail | auth accepted at T+__s | `[SIDECAR-WS] auth accepted` |
 | §6.3 | faster-whisper transcribe | ☐ Pass ☐ Fail | transcribed "____" in __s | model + device name from History |
 | §6.4 | enigo paste (short + long) | ☐ Pass ☐ Fail | short=__ long=__ | `[PASTE] injected N chars via enigo` |
 | §6.5 | Toast notification | ☐ Pass ☐ Fail | toast appeared at T+__s | screenshot of Action Center |
@@ -1782,7 +1782,7 @@ Expected:
   `python -m voice_typer.server.ipc_server --ws` instead of the
   `externalBin` sidecar.
 - The same `server_started` JSON appears on stdout; the same WS +
-  HMAC handshake (§6.2) runs.
+  bearer-token handshake (§6.2) runs.
 - Edits to `voice_typer/server/*.py` are picked up on the next
   `cargo tauri dev` restart (no Nuitka rebuild).
 
@@ -1849,7 +1849,7 @@ binaries; the human validator runs §6 against them.
 | §4 Tauri build | §7 | `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs` |
 | §5 Install + smoke | §Phase 0-W | (installer) |
 | §6.1 Sidecar spawn | §1 | `src-tauri/src/main.rs:169` (`spawn_sidecar_and_get_port`) |
-| §6.2 WS + HMAC | §3 | `voice_typer/server/sidecar_ws.py` |
+| §6.2 WS + bearer-token | §3 | `voice_typer/server/sidecar_ws.py` |
 | §6.3 faster-whisper | §4.5 (verify step) | `voice_typer/server/asr_setup.py` |
 | §6.4 enigo paste | §6.2 + §6.3 | `src-tauri/src/main.rs:660` (`paste_text`) |
 | §6.5 Toast | §6.1 | `tauri-plugin-notification` |

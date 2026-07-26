@@ -40,3 +40,20 @@ fi
 # lint-staged runs biome check --write on .ts/.tsx/.js/.jsx/.json/.css files.
 # It lives in voice_typer/client/node_modules.
 cd voice_typer/client && npx lint-staged
+
+# ── Step 3: pre-commit hooks (mypy, hotkey-reserved-sync, etc.) ──────
+# The .husky/pre-commit script previously ran only ruff (Step 1)
+# and lint-staged (Step 2), so 7 of the 9 hooks declared in
+# .pre-commit-config.yaml (mypy, trailing-whitespace, end-of-file-fixer,
+# check-yaml, check-json, check-merge-conflict, check-added-large-files,
+# mixed-line-ending, hotkey-reserved-sync) NEVER ran on commit. This
+# optional block wires `pre-commit run` in at the end so contributors who
+# have pre-commit installed get the full hook suite, while contributors who
+# haven't installed it are silently skipped (the `command -v` guard).
+cd ../..
+if command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --hook-stage commit --files $(git diff --cached --name-only --diff-filter=ACMR | tr '\n' ' ') || {
+    echo "[pre-commit] hook failures — see above"
+    exit 1
+  }
+fi
