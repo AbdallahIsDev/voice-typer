@@ -43,8 +43,6 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-
-
 ### HP-4. MIG-1.8 — Phase 1: Sidecar packaging & signing (per platform)
 
 **Status:** ❌ Not Fixed — out of scope (build scripts compile_native.sh / sync_versions.py not in any agent's file list)
@@ -173,15 +171,11 @@ plus the base repo's pre-existing comprehensive review.
 
 ## Base Set (original review.md — pre-existing open findings)
 
-# Comprehensive Review — Open Findings (partial/broken/not-implemented items)
-
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
 >
 > This file was filtered by verifier-agent on 2026-07-21 to REMOVE entries for fixes that were verified-done and KEEP only items that remain partial, broken, or not-implemented.
 
 ---
-
-## Quick-Win Batch (LOW RISK, HIGH VALUE — fix first)
 
 #### ARCH-5 — `service.py` (2,116 lines): 66-method facade
 - **Severity**: Medium
@@ -209,13 +203,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 72+ import sites across 65+ files, ~20 re-exported symbols. Every monkeypatch site must be migrated one-by-one. High risk of breaking tests. Cannot do in one shot confidently. ~1 day.
 - **Confidence for one-shot fix**: 50% — wide surface area, many tests.
 
-#### ARCH-10 — Circular import between `ipc_server.py` and `handlers/*.py`
-- **Severity**: Low
-- **Status**: Won't Fix — pattern is stable and documented (per review.md — circular import between ipc_server.py and handlers/*.py is intentional; cycle already broken via _log + ipc.validation imports)
-- **Description**: 13 handler mixins import `log` and `_validate_dict_payload` from `ipc_server.py`; `ipc_server.py` imports the mixins back. Cycle is broken by ordering (helpers defined before handler imports).
-- **Rationale for Won't Fix**: Pattern is stable and documented. Moving helpers to `ipc_helpers.py` would be cleaner but provides no runtime benefit.
-- **Effort**: None — Won't Fix by design.
-
 #### ARCH-12 — 164 `inspect.getsource` source-string tests across the codebase
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — out of scope (codebase-wide architectural concern about source-string tests; no single file locus)
@@ -223,13 +210,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Recommended fix**: Adopt project rule — "no new `inspect.getsource` tests; port existing ones when touching the code they pin." Chip away over time.
 - **Effort**: 🔴 **EXTRA HIGH** — 164+ calls across 30+ test files. Not a discrete task — it's a project-wide migration. Chip away individually when touching pinned code. Cannot be done in one shot.
 - **Confidence for one-shot fix**: 20% — cannot complete in one shot.
-
-#### ARCH-13 — TYPE_CHECKING back-references from controllers to `VoiceTyperApp`
-- **Severity**: Low
-- **Status**: Won't Fix — pattern is stable and documented (per review.md — TYPE_CHECKING back-references are intentional)
-- **Description**: 13 modules use `if TYPE_CHECKING:` to import `VoiceTyperApp` for type annotations. `VoiceTyperApp` IS the service locator.
-- **Rationale for Won't Fix**: Runtime cycle is already broken via lazy imports. Annotating against `AppProtocol` (already defined in `providers.py`) would be cleaner but provides no runtime benefit.
-- **Effort**: None — Won't Fix by design.
 
 ## Cross-Platform (all Pending)
 
@@ -262,14 +242,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 127+ sleep calls across 28+ files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~2 days.
 - **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
 
-#### TEST-4 — `test_server.py` (2,799 LOC) + `test_app.py` (2,484 LOC) are spaghetti test files
-- **Severity**: Low
-- **Status**: ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) — splitting 5,283 LOC of test code (tests/test_server.py 2,799 + tests/test_app.py 2,484) across tests/server/ submodules is a 1-2 day refactor; test files owned by Agent 7
-- **Description**: The two largest test files bundle many unrelated test classes with shared heavy fixtures.
-- **Recommended fix**: Split by domain into `tests/server/` submodules; share fixtures via `conftest.py`.
-- **Effort**: 🔴 **HIGH** — Requires careful separation of test classes, extraction of shared fixtures, and ensuring no breakage. ~1-2 days.
-- **Confidence for one-shot fix**: 50% — large files with many dependencies.
-
 #### TEST-5 — 12 modules >650 LOC with no dedicated test file
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -283,16 +255,6 @@ plus the base repo's pre-existing comprehensive review.
 **Bottom line for the next agent:** Do NOT trust "all green on Linux" as proof of cross-platform cutover.
 
 ---
-
-# Per-Session Consolidated Findings (Sessions 1–6)
-
-> Appended from per-session `review-N.md` reviews. Findings deduplicated by **name AND content**:
-> when a session-1 authoritative finding (real `voice_typer/` paths) already covers a root cause, later sessions'
-> entries point to it instead of re-listing. Sessions 2–6 agents used generic `src/voice_typing/` / `src/ui/` paths
-> that do NOT match this repo; their low-confidence items are explicitly flagged. Session 6 used its own `H-*` / `M-*` scheme.
-
-
-> IPCServer-duplicate (S1-CR-1) also reported in sessions 2-6 — included once here.
 
 ## Backend / IPC
 
@@ -315,37 +277,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Impact**: (1) Users who uninstall + reinstall get stale config / history / models. (2) Model cache (Whisper-large ~3 GB, Qwen3-ASR ~1.5 GB) orphaned on uninstall. (3) On macOS, launchd tries to spawn the deleted Python interpreter at next login. (4) On Windows, same with Run key / Task Scheduler.
 - **Proposed fix**: Linux: extend `prerm`/`prerm.rpm` to also `disable_autostart` and offer `--purge` semantics for user data. Windows NSIS: add an `nsis.installerHooks` uninstaller hook that calls a cleanup script. macOS: ship an `Uninstall Voice Typer.app` helper.
 - **Confidence**: High · **Found by**: R15
-
-
-
-### S1-CR-52 — README architecture tree is stale (flat files are now packages)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: High · **Status**: Pending
-- **Category**: Documentation / onboarding
-- **Location**: `README.md:404-431`
-- **Evidence**: README lists `recording.py`, `hotkeys.py`, `server_platform.py`, `prewarm.py / prewarm_scheduler_posix.py` as flat modules. Actual repo layout: `recording/`, `hotkeys/`, `server_platform/`, `prewarm/` are all packages.
-- **Impact**: New contributors following README's "Architecture" section will look for files that don't exist.
-- **Proposed fix**: Update README §"Architecture" tree to reflect package layout (or link to `docs/ARCHITECTURE.md`).
-- **Confidence**: High · **Found by**: R20
-
-### S1-CR-54 — ADR-0018 references a nonexistent test file
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Status**: Not Fixed
-- **Category**: Documentation / ADR accuracy
-- **Location**: `docs/adr/0018-heartbeat-watchdog.md:90`
-- **Evidence**: ADR-0018 §"References" cites `tests/test_ipc_server.py` as the home of `test_heartbeat_timeout_calls_quit()`. The file `tests/test_ipc_server.py` does NOT exist in the working tree (glob-confirmed). The real heartbeat test files are `tests/test_heartbeat.py` and `tests/test_heartbeat_force_exit.py`. The sibling ADR-0019 was fixed (its reference now points to the real `tests/test_ipc4_rate_limiter_dual_window.py`), but ADR-0018's broken reference was never corrected.
-- **Impact**: Contributors following the ADR's pointer to verify the watchdog test will hit a dead link. ADR accuracy regression vs ADR-0019.
-- **Proposed fix**: Update `docs/adr/0018-heartbeat-watchdog.md:90` to reference the real test file(s): `tests/test_heartbeat.py` (and/or `tests/test_heartbeat_force_exit.py`) and the actual test function name(s).
-- **Confidence**: High · **Found by**: Verifier (2026-07-24)
-
-## MEDIUM severity findings (41 unique)
-
-### S1-CR-58 — ADR 0010 §2.1 documentation drift (lists removed attrs as on AppProtocol)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/adr/0010-dependency-injection-boundary.md:67-74`
-- Evidence: Claims `_audio_processor`, `_volume_ducker`, `_config_mutation_lock` are on `AppProtocol`. `providers.py:92-99` documents them as REMOVED in TASK-2.
-- Fix: Update ADR 0010 §2.1 to remove them; mention `ServiceProtocol` methods that wrap those accesses. · **Found by**: R1
-
 
 ### S1-CR-65 — `apply_config_side_effects` 215-line branching method
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -377,18 +308,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: `Models.tsx` (1682 LOC) mixes model catalog fetching, download state machine, cloud provider config, model-family grouping, accordion UI, dialogs. `Settings.tsx` (1082) owns config state, debounced save, search-filter-with-tab-routing, reset dialog. `ThemeSettingsSection.tsx` (890) mixes oklch→sRGB color conversion, DOM-based color resolution, localStorage draft backup, hover-preview state, UI.
 - Fix: Split each large component into focused subcomponents (e.g., `ModelCatalogSection`, `ModelDownloadManager`, `CloudProviderSection`, `ModelImportDialog` for `Models.tsx`). Extract color math to `lib/color-utils.ts`. · **Found by**: R2
 
-### S1-CR-74 — Error envelope contract doc is stale (describes shape that doesn't match implementation)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/architecture/error-envelope-contract.md:9-21`
-- Evidence: Doc describes `{"id": 42, "ok": false, "message": "..."}` (TCP) and `{"id": 42, "ok": false, "code": "internal_error", "message": "internal error"}` (WS). Actual: `{"type": "error", "data": {"code": "internal_error", "message": "internal error"}, "id": 42}` for both paths. Doc's claimed TCP-vs-WS detail-level distinction doesn't exist.
-- Fix: Update doc to show actual shape used by both paths; remove false TCP-vs-WS distinction. · **Found by**: R3
-
-### S1-CR-76 — TS per-command timeouts are dead code — Rust's hardcoded 120s dispatch timeout always fires first
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `voice_typer/client/src/renderer/src/hooks/usePython.ts:38-44` vs `src-tauri/src/commands/sidecar_cmds.rs:47` + `src-tauri/src/util.rs:40`
-- Evidence: TS defines per-command timeouts (`download_model: 600_000`). But Rust has hardcoded `DISPATCH_TIMEOUT_SECS = 120`. For `download_model` (10min TS, 120s Rust), the Rust timeout fires at 120s → `invoke` rejects → user sees false-positive "dispatch timeout (120s)" error even though download still in progress.
-- Fix: Either make `DISPATCH_TIMEOUT_SECS` per-command on the Rust side (accept `timeout` arg in `DispatchArgs`), or document that Rust 120s is the hard cap. · **Found by**: R3
-
 ### S1-CR-78 — IPC protocol is unversioned — schema drift between Python/Rust/TS is undetectable at runtime
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Location: All IPC frames across `voice_typer/server/ipc/server.py`, `voice_typer/server/sidecar_ws.py`, `src-tauri/src/sidecar/ws.rs`, `src-tauri/src/commands/sidecar_cmds.rs`, `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
@@ -401,23 +320,11 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: `stop()` calls `self._tcp_worker_pool.shutdown(wait=False, cancel_futures=True)`. The accept loop reads `pool = self._tcp_worker_pool`, then calls `pool.submit(...)`. If `stop()` runs between the read and the submit, `pool.submit(...)` raises `RuntimeError("cannot schedule new futures after shutdown")`. The accept loop's outer `try/except OSError` does NOT catch `RuntimeError`. The just-accepted `conn` socket is leaked.
 - Fix: Wrap `pool.submit(...)` in `try/except RuntimeError: conn.close(); break`. · **Found by**: R9
 
-### S1-CR-82 — `_get_rate_limiter` TOCTOU — first-dispatch race creates distinct limiters
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/server/ipc/rate_limiter.py:240-246`
-- Evidence: Read-then-set is not atomic. With TCP worker pool at `max_workers=4` plus WS dispatch path, two simultaneous first-dispatch calls can both read `None`, both create a fresh `_RateLimiter`, both install theirs.
-- Fix: Protect with a per-server lock, or use `setattr`-if-absent via a sentinel. · **Found by**: R9
-
 ### S1-CR-84 — `clipboard._force_restore_pending_at_exit` can race a finishing daemon thread
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Location: `voice_typer/server/clipboard.py:62-98`, `:1215-1251`
 - Evidence: The atexit handler snapshots `_pending_restores` under the lock, then iterates the snapshot *outside* the lock calling `snapshot.restore()`. The `_delayed_restore` daemon thread does NOT remove its entry from `_pending_restores` (related to S1-CR-2). Concurrent `ClipboardSnapshot.restore()` calls from two threads race on Win32 `OpenClipboard`/`EmptyClipboard`/`SetClipboardData` and on macOS `NSPasteboard.clearContents`/`writeObjects_`.
 - Fix: Have `_delayed_restore` remove its entry from `_pending_restores` on completion (the docstring already claims this); re-check the atexit snapshot under the lock per-item. · **Found by**: R9
-
-### S1-CR-97 — `Config.save_strict()` exists but is NOT wired into `service.apply_config` — disk failures silently swallowed
-**Status:** ❌ Not Fixed — blocked on cross-agent file scope (file owned by another agent) — fix target voice_typer/server/service.py (apply_config wiring) not in agent_10 file list; service.py is orphan (not in any agent's list)
-- Location: `voice_typer/server/config.py:1061-1086`, `voice_typer/server/service.py:1408`
-- Evidence: `save_strict()` raises `RuntimeError` on disk failure. Its docstring explicitly says: "Wiring `apply_config` (in `service.py`) to call this instead of `save()` is a follow-up task — out of scope for this file." But `service.py:1408` still calls `app.config.save()` (non-strict). The IPC handler returns `{type: "ack"}` regardless of whether disk write succeeded.
-- Fix: Wire `service.apply_config` to call `save_strict()`; have the IPC handler surface disk failures. · **Found by**: R10
 
 ### S1-CR-98 — Committed ELF binary `voice_typer/server/native/linux-key-listener`
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -425,101 +332,11 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: CI workflow `build.yml:415-539 build-native` matrix already compiles all three binaries per-platform. The committed Linux binary is stale (built at some past commit). Windows and macOS binaries are NOT committed (only sources).
 - Fix: `git rm voice_typer/server/native/linux-key-listener`; add to `.gitignore`. · **Found by**: R14
 
-### S1-CR-99 — Windows Tauri workflow doesn't sign MSI installer or native `windows-key-listener.exe`
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `.github/workflows/tauri-windows-build.yml:238-290`
-- Evidence: `Sign sidecar + prewarm` (line 238-257) signs `python-sidecar-x86_64-pc-windows-msvc.exe` and `prewarm-x86_64-pc-windows-msvc.exe`. `Build the Tauri app` runs `cargo tauri build`. `Sign the final NSIS installer` signs NSIS only. NOT signed: the MSI installer and `src-tauri/resources/native/windows-key-listener.exe`.
-- Fix: Either set `WIN_SIGN_COMMAND` env to a signtool invocation and let Tauri sign during bundling, or extend the `Sign sidecar + prewarm` step's `foreach` loop to include `windows-key-listener.exe` and add a separate signtool step for the MSI. · **Found by**: R14
-
-### S1-CR-100 — Smoke tests NOT run after Tauri builds
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `.github/workflows/tauri-{windows,macos,linux}-build.yml`
-- Evidence: Legacy `build.yml:466-524` runs real smoke tests on native listener binaries. Tauri workflows do NOT run any of these. `tauri-linux-build.yml:231-271` only runs `objdump -p` / `ldd` static checks.
-- Fix: After `cargo tauri build` in each Tauri workflow, install the produced bundle in a sandboxed way and run a `--version` / `--help` smoke test against the bundled sidecar binary. · **Found by**: R14
-
-### S1-CR-101 — `bundle.windows.signCommand` requires undocumented `WIN_SIGN_COMMAND` env var
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `src-tauri/tauri.conf.json:82-84`
-- Evidence: `"signCommand": "${WIN_SIGN_COMMAND}"`. If `WIN_SIGN_COMMAND` is unset (the default in CI per `signing-guide.md`), Tauri silently skips signing. The env-var name is undocumented in `signing-guide.md`.
-- Fix: Either remove `signCommand` from tauri.conf.json and rely solely on post-build signtool, OR update signing-guide.md to document `WIN_SIGN_COMMAND`. · **Found by**: R15
-
-### S1-CR-102 — `targets: "all"` builds every target on every platform; no per-platform target trimming
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `src-tauri/tauri.conf.json:48`
-- Evidence: `"targets": "all"` tells Tauri to build every target the host platform supports: Windows → MSI + NSIS; macOS → DMG + `.app`; Linux → `.deb` + `.rpm` + AppImage.
-- Fix: Pin per-platform targets explicitly (e.g. `["deb", "appimage"]` for Linux dev builds). · **Found by**: R15
-
-### S1-CR-103 — macOS entitlements plist has 2 entitlements not documented in signing-guide
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `src-tauri/entitlements.plist:40-47`, `docs/migration/signing-guide.md:196-203`
-- Evidence: Plist ships 5 entitlements. Signing-guide documents only 3. Missing: `com.apple.security.cs.allow-unsigned-executable-memory`, `com.apple.security.automation.apple-events`.
-- Fix: Add the 2 missing entitlements to signing-guide.md table with the BUILD-N02 rationale. · **Found by**: R15
-
-### S1-CR-104 — Auto-update is not configured (documented decision, but creates poor update UX)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/auto-update-feature.md:1-11`, `src-tauri/tauri.conf.json:90-106`, `voice_typer/client/electron-builder.yml:7-15`
-- Evidence: Auto-update intentionally NOT wired (ADR-0020 §15). But: (1) `electron-builder.yml` still has a `publish: github` block — unconsumed dead config. (2) Users have NO auto-update mechanism. (3) No in-app "Check for updates" button.
-- Fix: Remove stale `publish: github` block from `electron-builder.yml`. Optionally add a simple "Check for updates" button that hits GitHub Releases API. · **Found by**: R15
-
-### S1-CR-106 — Wayland hotkey silently fails without `input` group + native binary; no UI remediation
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/server/hotkeys/factory.py:82-101`
-- Evidence: On a default Wayland session (Sway/Hyprland/gnome-shell) without native binary built and without manual socket wiring, the hotkey simply does not work. Factory logs but user has no in-app path to discover this.
-- Fix: In `WaylandHotkey.start`, after the 30-second pynput-fallback timer fires, emit a `tray.notify` warning guiding the user to install the native binary or wire up a socket client. · **Found by**: R17
-
-### S1-CR-108 — Hardcoded English strings in `useStatsShare.ts` shown in share image
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/client/src/renderer/src/hooks/useStatsShare.ts:36-37,49`
-- Evidence: `const modeDisplay = isCloud ? "Cloud" : "Offline"; const modeDetail = isCloud ? "Cloud API" : "Local Model"; fasterThanAvg: \`${fasterPercent}% faster than avg typer\``. Rendered into downloadable PNG. Arabic user sharing stats sees mixed Arabic + English.
-- Fix: Replace with i18n keys. · **Found by**: R18
-
-### S1-CR-109 — Hardcoded English in `App.tsx` (clipboard-failure fallback + "Copy path" button)
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `voice_typer/client/src/renderer/src/App.tsx:323, 338`
-- Evidence: Fallback message and action button label both hardcoded English.
-- Fix: Replace with i18n keys. · **Found by**: R18
-
-### S1-CR-110 — Hardcoded English `" chars"` substring in `History.tsx`
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/client/src/renderer/src/pages/History.tsx:397`
-- Evidence: `chars: stats.chars > 0 ? \` (${stats.chars.toLocaleString()} chars)\` : ""`. The literal `" chars"` is concatenated into i18n placeholder. Non-English users see " (1,234 chars)" in their otherwise-translated label.
-- Fix: Move to i18n key with plural/count interpolation. · **Found by**: R18
-
-### S1-CR-111 — Locale formatting uses `undefined` (browser default) instead of user-selected app locale
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `components/dashboard/StatCards.tsx:15`, `components/dashboard/ActivityList.tsx:18,20`, `pages/Dashboard.tsx:392,406`, `pages/History.tsx:397`
-- Evidence: Five call sites use `toLocaleString()` / `toLocaleDateString()` / `toLocaleTimeString()` with `undefined` (browser default), NOT user-selected app locale. Arabic user still sees dates/numbers in OS locale format.
-- Fix: Pass `getLocale()` (e.g., `n.toLocaleString(getLocale())`). · **Found by**: R18
-
 ### S1-CR-112 — 4 i18n helper scripts hardcode workspace path
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Location: `scripts/add_prewarm_i18n_keys.py:30`, `scripts/add_prewarm_log_i18n_keys.py:18`, `scripts/add_run_prewarm_i18n_keys.py:20`, `scripts/fix_i18n_remaining.py:5`
 - Evidence: `ROOT = Path("/home/z/my-project/voice-typer")`. Will fail when repo is cloned to any other path.
 - Fix: Use `Path(__file__).resolve().parent.parent` like the sibling scripts. · **Found by**: R18
-
-### S1-CR-113 — Orphan key `a11y.opensInNewTab` in 6 non-English locales
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `ar.json:999`, `de.json:999`, `fr.json:775`, `hi.json:999`, `ru.json:999`, `zh.json:999`
-- Evidence: Exists in 6 non-English locales but NOT in `en.json` and is never referenced in code.
-- Fix: Delete from all 6 locale files. · **Found by**: R18
-
-### S1-CR-114 — 2 `xfail(strict=False)` tests with no tracking issue
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `tests/test_shutdown_controller.py:148, 167`
-- Evidence: `strict=False` means the test can pass OR fail without breaking CI — placeholder for incomplete work. The reason references "primary agent will add" but provides no GitHub issue, PR number, or timeline.
-- Fix: Convert to `strict=True` or add a `# Tracking: #NNN` reference. · **Found by**: R12
-
-### S1-CR-115 — 9+ `pytest.mark.skip` markers "rewritten as vitest" — dead weight
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `tests/test_feature_hardening_regressions.py:1222-1436` (9 skips), `tests/test_consent_and_privacy.py:214-420` (10+ skips)
-- Evidence: Skip markers left in place "until the vitest is verified on CI" — but per S1-CR-33, several of those vitest files are themselves currently failing. Neither layer is enforcing the invariant.
-- Fix: Delete the skipped Python tests (dead code per their own reason text); fix the vitest rewrites so they actually enforce the invariants. · **Found by**: R12
-
-### S1-CR-116 — pyrefly version unpinned in CI — "hard gate" is non-reproducible
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `.github/workflows/build.yml:146`
-- Evidence: `uv pip install --system pyrefly` — no version pin. Locally get pyrefly 1.1.1 reporting 146 errors. CI may install a different version.
-- Fix: Pin pyrefly (e.g. `pyrefly==1.1.1`) in both `pyproject.toml [dev]` and `build.yml`. · **Found by**: R12
 
 ### S1-CR-117 — Duplicate dep declarations in `pyproject.toml` (main deps vs platform extras)
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -533,53 +350,11 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: Grep for `pre-commit` in `.github/workflows/` returns 0 matches. CI separately runs ruff, pyrefly, biome, typecheck, branding check. But `pre-commit-hooks` repo's hygiene checks (large-file detection, merge-conflict markers, mixed line endings, trailing whitespace, missing EOF newline) are NOT enforced in CI.
 - Fix: Add a `pre-commit run --all-files` step to either `build.yml` or `client-ci.yml`. · **Found by**: R14
 
-### S1-CR-119 — `tauri-build.yml` orchestrator aggregate step silently succeeds when all platforms skip
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `.github/workflows/tauri-build.yml:115-167`
-- Evidence: When all 3 per-platform workflows are skipped (current state — all have `if: false`), the `Download Windows/macOS/Linux installer` steps skip silently, and the `Upload aggregated artifact` step uploads an empty `aggregated/` directory without warning.
-- Fix: Add explicit `echo "::warning::All per-platform workflows are still gated behind Phase 0 — no installers were produced."` step when all three are skipped. · **Found by**: R14
-
-### S1-CR-120 — Caches present but coverage is uneven across jobs
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: All workflows under `.github/workflows/`
-- Evidence: cargo registry + `src-tauri/target` cached on Linux + Windows Tauri jobs but **NOT macOS Tauri**. ~5-8 min per job × 3 jobs = ~15-24 min wasted per run.
-- Fix: Add the same `actions/cache@v4` step used in `tauri-linux-build.yml:108-117` and `tauri-windows-build.yml:116-125` to `tauri-macos-build.yml`. · **Found by**: R14
-
-### S1-CR-121 — Filename typo: `docs/dublicated-text.md` should be `duplicated-text.md`
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/dublicated-text.md` (filename only)
-- Evidence: Filename uses "dublicated" (with 'b') instead of "duplicated" (with 'p'). File content does not contain the misspelling internally.
-- Fix: `git mv docs/dublicated-text.md docs/duplicated-text.md`. · **Found by**: R20
-
-### S1-CR-122 — ADR README index is stale (missing ADR-0020; "?" statuses for 4 ADRs that have explicit statuses)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/adr/README.md:6-27`
-- Evidence: (1) Table stops at ADR-0019; ADR-0020 exists on disk but not in index. (2) "Status" column shows `?` for ADRs 0008, 0009, 0010, 0011, 0012. Actual ADR files declare explicit statuses.
-- Fix: Add ADR-0020 row; update statuses for 0008/0009/0010/0012 from `?` to actual values. · **Found by**: R20
-
-### S1-CR-123 — README log rotation claim is stale (1MB × 2 vs actual 5 MiB × 5)
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `README.md:470`
-- Evidence: README says `Uses RotatingFileHandler (1MB max, 2 backups)`. Actual: `maxBytes=5 * 1024 * 1024, backupCount=5`.
-- Fix: Update README to `5 MiB max, 5 backups`. · **Found by**: R20
-
 ### S1-CR-124 — `docs/home-directory.md` log path and rotation are both wrong
 **Status:** ❌ Not Fixed — out of scope (code is correct, only docs wrong — docs owned by other agents)
 - Location: `docs/home-directory.md:48, 70, 132`
 - Evidence: Tree shows `├── logs/` `│   └── voice-typer.log` with "1 MB × 2 backups". Actual: log file written directly to `<DATA_DIR>/voice-typer.log` (no `logs/` subdir). Rotation is 5 MiB × 5.
 - Fix: Drop `logs/` from path; bump rotation numbers; point to `logging_setup.py`. · **Found by**: R20
-
-### S1-CR-125 — PLATFORM_STATUS.md references nonexistent `voice-typer setup` CLI subcommand
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/PLATFORM_STATUS.md:28`
-- Evidence: Status table row "Model download (CLI)" says `✅ voice-typer setup`. But `pyproject.toml:157` declares only one entry point: `voice-typer = "voice_typer.server.ipc_server:main"`. There is no `setup` subcommand in `ipc_server.py`.
-- Fix: Remove the "Model download (CLI) ✅" row or document the actual command. · **Found by**: R20
-
-### S1-CR-126 — PLATFORM_STATUS.md "Adding a new platform" references stale module paths
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `docs/PLATFORM_STATUS.md:203, 208-209`
-- Evidence: References `voice_typer/server/platform.py`, `voice_typer/server/native_hotkeys.get_native_binary_path()`, `voice_typer/server/hotkeys.py`. All are now packages, not flat modules.
-- Fix: Update dotted paths to point into actual packages. · **Found by**: R20
 
 ### S1-CR-127 — CHANGELOG.md references stale module paths
 **Status:** ⚠️ Partial — collateral fix from #221 — CHANGELOG.md IPC command counts updated; originally-flagged stale module paths already corrected to package form
@@ -593,42 +368,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: `Smart duck enabled (v2.2)` — `pyproject.toml:28` declares `version = "1.0.0"`. `prewarm.py + task_scheduler.py` — `prewarm.py` is now `prewarm/` package.
 - Fix: Drop `(v2.2)` tag or document; update `prewarm.py` → `prewarm/` package. · **Found by**: R20
 
-### S1-CR-129 — `docs/rw04-recording-decomposition.md` references a file that no longer exists
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `docs/rw04-recording-decomposition.md:11, 31, 60+`
-- Evidence: Doc says `voice_typer/server/recording.py was a 3,208-line god class`. Actual: `recording/` is now a package. Status is "In-progress (Wave 1 of 3)" but Wave 2 (AudioBuffer) is actually done.
-- Fix: Update status; mark doc as historical and link to current package layout. · **Found by**: R20
-
-### S1-CR-130 — `bench/COLDSTART_REPORT.md` references 3 missing artifacts
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `bench/COLDSTART_REPORT.md:279-281, 169, 184, 285`
-- Evidence: Lists `scripts/profile_imports.py` (MISSING), `scripts/coldstart_BEFORE.txt` (MISSING), `scripts/coldstart_AFTER.txt` (MISSING). Also references `voice_typer/server/recording.py` as flat file.
-- Fix: Restore missing artifacts or remove the "Artifacts" section. · **Found by**: R20
-
-### S1-CR-131 — `docs/rw9-god-class-decomposition.md` status table is stale
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `docs/rw9-god-class-decomposition.md:15-19`
-- Evidence: Status table says `app.py` line count at "Round-6 end" is 2314. Actual: `wc -l voice_typer/server/app.py` = 1179 lines.
-- Fix: Add a "Post-round-6 update" note with current line count, or regenerate the table. · **Found by**: R20
-
-### S1-CR-132 — Dev container README claims a `node_modules` named volume that doesn't exist
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `.devcontainer/README.md:74`, `.devcontainer/devcontainer.json`
-- Evidence: README says "Docker performance: ... The container uses a named volume for node_modules to mitigate this." But `devcontainer.json` (62 lines) defines **no `mounts` key and no `volumes` key** — there is no named volume. The claim is false.
-- Fix: Either add the named volume to `devcontainer.json` or remove the false claim from the README. · **Found by**: R20
-
-### S1-CR-134 — API.md `restart()` method name is stale
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `docs/API.md:26`
-- Evidence: Table row says `| restart() | — | None | Spawns a new process and quits the current one. Uses restart token for mutex bypass. |`. But `VoiceTyperApp` has no plain `restart()` method. Actual: `def restart_app(self) -> None:` at `app.py:924`.
-- Fix: Rename the table row to `restart_app()`. · **Found by**: R20
-
-### S1-CR-135 — SECURITY.md is silent on the Tauri sidecar WS auth path
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `SECURITY.md` (entire file, 78 lines)
-- Evidence: SECURITY.md describes SEC-018 token auth for the TCP path but does not mention the WebSocket bearer-token/HMAC auth added by ADR-0020 for the Tauri sidecar path.
-- Fix: Add a "### WS Authentication (ADR-0020, Tauri sidecar)" section to SECURITY.md. · **Found by**: R20
-
 ### S1-CR-136 — Crash report lacks reproduction hint and app/system context
 **Status:** ⚠️ Partial — bug_report.md side done (Diagnostic Bundle + Reproduction Hint sections added in FIX-1-REAPPLY); crash_handler.py VEH blurb + tray.py notification portions out of agent_01 scope
 - Location: `voice_typer/server/crash_handler.py:521-525, 568-622`
@@ -641,13 +380,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: ADR-0020:32 says 69. `sidecar_ws.md:13,26` says 68. ADR-0019:5 says 68. ARCHITECTURE.md:81 says "frozen for v1 at 68". Actual count (verified by grepping `_COMMAND_REGISTRY`): **73 entries**. All three documented numbers are stale.
 - Fix: Recount; update all references to the true value (73). · **Found by**: R20
 
-
-### S1-CR-139 — CONTRIBUTING.md project-structure section references stale modules
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `CONTRIBUTING.md:248-249`
-- Evidence: Lists `recording.py` and `hotkeys.py` as flat modules.
-- Fix: Update the tree to reflect packages. · **Found by**: R20
-
 ### S1-CR-140 — `docs/adr/0011-prewarm-architecture-analysis.md:9` references stale `prewarm.py`
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Evidence: Line 9 says `The prewarm module (voice_typer/server/prewarm.py)`. Actual: `voice_typer/server/prewarm/` is now a package.
@@ -657,12 +389,6 @@ plus the base repo's pre-existing comprehensive review.
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Evidence: Table row for `winreg` says `Used by: server/server_platform.py, task_scheduler.py`. `server_platform` is a package.
 - Fix: Update to `server/server_platform/` (package). · **Found by**: R20
-
-### S1-CR-142 — `_NativeBackendAdapter` does not propagate `_tray` to the legacy fallback backend
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/server/hotkey_dispatcher.py:87-88`
-- Evidence: `_tray` set on adapter only, not on legacy backend. If adapter swaps to legacy backend and legacy backend ever needs to show tray notification, it has no `_tray` attribute.
-- Fix: In `_swap_to_legacy`, after `self._legacy = legacy`, also set `self._legacy._tray = self._tray`. · **Found by**: R17
 
 ### S1-CR-143 — macOS `VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1` silently disables key-up delivery and key suppression
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -694,18 +420,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: Standalone manifest has NO `<dpiAware>` / `<dpiAwareness>` settings. PyInstaller-embedded manifest DOES (`voice-typer.spec:183-184` — `dpiAware=true/pm`, `dpiAwareness=PerMonitorV2`).
 - Fix: Either delete the unused standalone `voice-typer.manifest` file, or sync its contents with the PyInstaller-embedded manifest. · **Found by**: R15
 
-### S1-CR-148 — Leftover Electron artifacts in Tauri migration: `electron-builder.yml` + `publish: github`
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `voice_typer/client/electron-builder.yml` (entire file), `voice_typer/server/autostart_launcher.py`, `voice_typer/server/electron_launcher.py`, `voice_typer/server/_electron_build.py`
-- Evidence: Per `docs/migration/cutover-playbook.md:8-9`, Electron build path stays intact during mixed-mode period. However: `electron-builder.yml:7-15` has a `publish: github` block — unconsumed per `signing-guide.md:431`. Dead config that could mislead future maintainers.
-- Fix: Remove the `publish: github` block from `electron-builder.yml`. Launcher modules should remain until Tauri cutover completes. · **Found by**: R15
-
-### S1-CR-149 — Tauri config has no `bundle.windows.nsis` block; default NSIS install scope may be inconsistent
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `src-tauri/tauri.conf.json:82-84`
-- Evidence: `bundle.windows` has only `signCommand`. No `nsis` sub-block to configure install scope. Tauri v2's default NSIS install scope is `perMachine` (requires admin elevation). Legacy Electron NSIS config explicitly sets `perMachine: false` (per-user, no UAC). Tauri build will diverge.
-- Fix: Add `bundle.windows.nsis.installerScope: "user"` to match Electron path's per-user install. · **Found by**: R15
-
 ### S1-CR-150 — Dead parameter — backward-compat shim in single-caller API
 **Status:** ❌ Not Fixed — out of file scope (fix target useConnection.ts owned by Agent 10 — must remove dead currentPage param from hook signature AND call site atomically)
 - Location: `voice_typer/client/src/renderer/src/hooks/useConnection.ts:41-47,73`
@@ -721,23 +435,6 @@ plus the base repo's pre-existing comprehensive review.
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Evidence: Named `.tsx` but contains no JSX. Comment at lines 39-43 states: "named `.tsx` (not `.ts`) only because of historical extension-priority conventions; it no longer contains JSX."
 - Fix: Rename to `.ts`. · **Found by**: R2
-
-### S1-CR-153 — Repeated unsafe casts `window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined` in `Bubble.tsx`
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Location: `renderer/src/Bubble.tsx:205,245,268,342,399`
-- Evidence: Same inline cast 5 times.
-- Fix: Single `const api = window.bubble as BubbleWindowBubble | undefined` at top of component. · **Found by**: R2
-
-### S1-CR-154 — Beta build dependency: `electron-vite` pinned to `6.0.0-beta.1`
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- Location: `voice_typer/client/package.json:55`
-- Evidence: Beta version. Risk: breaking changes between beta and stable release, missing security patches, supply-chain uncertainty.
-- Fix: Track to a stable release or document rationale for the beta pin. · **Found by**: R2
-
-### S1-CR-155 — Stale compat re-export `main/index.ts:306-310`
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- Evidence: `export { APP_NAME } from "./branding";` with comment "APP_NAME is re-exported here to preserve the original lazy-import behaviour (the original `index.ts` imported it at line 1828, just before `app.whenReady()`)." The original monolithic index.ts (2321 LOC, pre-split) no longer exists.
-- Fix: Remove re-export; consumers (`./python/start-python.ts` and `./bootstrap.ts`) can import `APP_NAME` directly from `./branding`. · **Found by**: R2
 
 ### S1-CR-156 — Incomplete store adoption — prop drilling persists in `App.tsx:327-330`
 **Status:** ❌ Not Fixed — out of file scope (fix target Home.tsx owned by Agent 4 — must read recordingState + lastError from useAppStore instead of props)
@@ -803,34 +500,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 
 ---
 
-## Sub-agent coverage notes
-
-- **R16 (Audio pipeline)**: Timed out / context limit. Slice was partially covered by R3 (IPC/Rust), R4 (perf — verified RT-safe callback design, bounded queues, cached snapshots), R5 (memory — verified audio buffers bounded), R8 (errors — R8-1/R8-2 cover model integrity).
-- **R19 (Cross-platform)**: Failed — context deadline exceeded. Slice was partially covered by R3 (Tauri host), R13 (deps — macOS deps missing), R14 (CI/CD — per-arch configs), R15 (packaging — Linux postinst/prerm), R17 (hotkey — Wayland path).
-- All other 18 sub-agents returned comprehensive findings with coverage statements.
-
----
-
-## Bottom line
-
-The codebase has substantial prior engineering investment (RT-safe audio, secure atomic writes, keyring credential store, defense-in-depth security, comprehensive ADRs). However, the Tauri cutover migration (ADR-0020) is **half-finished** in multiple critical dimensions:
-
-1. **Tauri host-side integration broken end-to-end**: tray click handler (S1-CR-5), zombie leak (S1-CR-3), dispatch allowlist regression (S1-CR-4), Tauri config schema mismatch (S1-CR-12), missing per-arch configs (S1-CR-13), missing bundle resources (S1-CR-15).
-2. **Linux packaging broken under Tauri**: postinst/prerm hard-code legacy paths (S1-CR-39), no user-data cleanup on uninstall (S1-CR-43). (S1-CR-41 — RPM prerm.rpm legacy paths — was FIXED in commit `f99309c`.)
-3. **CI/CD quality gates are red**: ruff baseline out of sync (S1-CR-28), pyrefly baseline empty (S1-CR-30), 17 failing config tests (S1-CR-31), ~154 failing vitest tests (S1-CR-33), 14 failing i18n tests (S1-CR-49), 30 failing tray tests (S1-CR-7).
-4. **Privacy/consent regressions**: HuggingFace consent bypass (S1-CR-8), secret leak in diagnostics script (S1-CR-9), raw transcription in support bundle (S1-CR-23), GDPR delete/export incomplete (S1-CR-87, S1-CR-88).
-5. **Silent data-loss bug**: clipboard restore never runs (S1-CR-2) — every paste clobbers the user's clipboard.
-6. **Security supply-chain gap**: model integrity check bypassed on cache-hit (S1-CR-10, S1-CR-19), native binaries have no checksum (S1-CR-46).
-7. **Codebase debt**: duplicate IPCServer class (S1-CR-1), service.py mixed-concern god file (S1-CR-18), test baseline drift (S1-CR-28, S1-CR-30), stale docs (S1-CR-52 through S1-CR-141).
-
-The Critical/High findings (36 total) are the priority fix wave. Medium findings (105 total) are second-wave. Low findings are polish.
-
----
-
-## Backend / Architecture
-
-# CRITICAL findings (must fix this run)
-
 ### S2-CR-1 — Two parallel IPCServer implementations (~2900 LOC of dead duplicate code)
 - **Severity**: Critical
 - **Status**: ⚠️ Partial — dead-code ipc/server.py already deleted per CR-019; ipc_server.py retains canonical implementation; ipc/__init__.py re-exports from leaf submodules; further consolidation (reducing ipc_server.py to shim) blocked by 164 inspect.getsource tests + 3218-LOC file
@@ -842,18 +511,6 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 - **Proposed fix**: Convert `ipc_server.py` into a true thin shim (`from voice_typer.server.ipc import *` + explicit re-exports for non-`__all__` names). Delete the duplicated class body and helpers. Target ≤50 LOC. Verify all 47 test files that import from `voice_typer.server.ipc_server` still pass.
 - **Confidence**: High
 - **Source**: R1, R8, R9
-
-### S2-CR-2 — `service.py` (2364 LOC, 60+ methods) is a god-class facade
-- **Severity**: Critical
-- **Status**: ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
-- **Category**: Overall architecture / Spaghetti / monolith detection
-- **Location**: `voice_typer/server/service.py:85-2364`
-- **Evidence**: Single `VoiceTyperService` class with 60+ public methods spanning 12+ domains (download, status, dictation, config, history, microphones, lifecycle, templates, vocabulary, onboarding, model import/export, diagnostics). Reaches into 8+ private attributes of `self._app` despite docstring claiming "thin facade".
-- **Root cause**: ARCH-005 created the service as a "thin facade" but every new IPC handler added a service method. No per-domain service boundary.
-- **Impact**: Adding any new IPC command requires editing 3 places. The ServiceProtocol in providers.py enumerates 60+ methods that any fake service must stub. `apply_config` alone is 110 lines interleaving 6 concerns.
-- **Proposed fix**: Split into per-domain services: `ConfigService`, `HistoryService`, `MicrophoneService`, `ModelService`, `VocabularyService`, `TemplatesService`, `OnboardingService`, `AudioService`, `LifecycleService`. Each owns its domain's state and is injected into IPCServer. Start with `OnboardingService` (12 methods + 200 LOC, no cross-domain coupling) and `LifecycleService` (restart/quit/export_diagnostics) as proofs of concept.
-- **Confidence**: High
-- **Source**: R1, R9
 
 ### S2-CR-3 — `recorder.py` (2992 LOC) god-class with 432-LOC `_process_audio_chunk`
 - **Severity**: Critical
@@ -1303,29 +960,6 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 - **Confidence**: High
 - **Source**: R7
 
-### S2-CR-44 — `config.py:_validate_non_numeric_fields` is 295 LOC with 4 near-identical loops
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Refactoring / Maintainability
-- **Location**: `voice_typer/server/config.py:1469-1764`
-- **Evidence**: Method contains FOUR near-identical loops over `bool_fields` (1653-1675), `str_fields` (1679-1691), `int_fields` (1698-1730), `float_fields` (1735-1760). Each loop's tail is same 5-line pattern duplicated 6 times total.
-- **Root cause**: Four type-coercion paths share ~80% structure but were written as four independent loops.
-- **Proposed fix**: Extract a `_coerce_field(field_name, val, expected_type, defaults, warnings, *, coerce_fn=None, optional=False)` helper. Each loop becomes 3-line delegation. Or declare `FieldSpec(type, default, optional, coerce)` per field and iterate once.
-- **Confidence**: High
-- **Source**: R8
-
-### S2-CR-45 — `Config.load` is 390 LOC, impossible to test sub-concerns in isolation
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Maintainability
-- **Location**: `voice_typer/server/config.py:1075-1467`
-- **Evidence**: `Config.load` does: secure-read, schema-version forward-migration, four inline streaming-config clamp blocks each with own try/except, max-recording-time clamping, model_size validation, qwen_model_path validation + safe-dir check, corrections_path validation + path-traversal check, privacy warning, credential_store migration + keyring:// resolution, `_validate_non_numeric_fields` call, dataclass construction, audio-preset reapplication, exception handler with diagnostic file write.
-- **Root cause**: Classmethod that grew by accretion — every config hardening added another inline block.
-- **Impact**: Impossible to test individual sub-concerns in isolation. Any change risks breaking load path for ALL users.
-- **Proposed fix**: Extract focused helpers — `_migrate_schema(data, loaded_version)`, `_clamp_streaming_fields(data)`, `_validate_qwen_path(data)`, `_validate_corrections_path(data)`, `_resolve_keyring_refs(data)`. Body of `load` becomes 30-line orchestration.
-- **Confidence**: High
-- **Source**: R8
-
 ### S2-CR-46 — `_send_ctrl_v_win32` returns None, caller treats as bool — every Windows paste logs spurious "failed" warning
 - **Severity**: High
 - **Status**: ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -1652,30 +1286,6 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 - **Confidence**: High
 - **Source**: R13
 
-### S2-CR-77 — change_model mutates config + saves WITHOUT `_config_mutation_lock` (race with concurrent set_config)
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Concurrency & race conditions / Data integrity
-- **Location**: `voice_typer/server/model_manager.py:555-623` (`change_model`/`_change_model_impl`) + `voice_typer/server/handlers/config_handlers.py:100-119` (`_handle_set_config`)
-- **Evidence**: `_handle_set_config` calls `change_model` BEFORE `apply_config` acquires `_config_mutation_lock`. `_change_model_impl` mutates `app.config.asr_backend`/`model_size` and calls `app.config.save()` (disk write) under `_model_change_lock` (RLock), NOT `_config_mutation_lock`.
-- **Root cause**: change_model holds `_model_change_lock` for entire unload/load cycle but does NOT acquire `_config_mutation_lock`.
-- **Impact**: Two concurrent set_config IPC calls (or set_config racing with `_open_config_file`'s reload path, which DOES hold `_config_mutation_lock`) can interleave disk writes non-deterministically. config.json on disk can end up with torn state — e.g. `asr_backend="qwen"` but `model_size="medium"` (whisper size).
-- **Proposed fix**: Either (a) acquire `_config_mutation_lock` inside change_model (in addition to `_model_change_lock`), or (b) move config mutation + save OUT of change_model and into apply_config (which already holds the lock).
-- **Confidence**: Medium
-- **Source**: R14
-
-### S2-CR-78 — `active_transcriber()` reads legacy engine fields without `_model_change_lock` (race with change_model)
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Concurrency & race conditions
-- **Location**: `voice_typer/server/model_manager.py:179-190` (`active_transcriber`) + `:136-178` (`_sync_registry_from_fields`)
-- **Evidence**: `active_transcriber()` is called from transcription thread (DictationPipeline._transcribe), toggle thread (RecordingController._toggle_impl), and streaming worker. It reads three legacy engine fields (`self.transcriber`, `self._qwen_engine`, `self._parakeet_engine`) WITHOUT holding `_model_change_lock`. Concurrent `change_model` mutates these fields under lock.
-- **Root cause**: active_transcriber doesn't acquire `_model_change_lock`.
-- **Impact**: Torn read can return engine that change_model has just unloaded → RuntimeError → user-visible "Transcription failed" toast.
-- **Proposed fix**: Acquire `_model_change_lock` (read-mode) in `active_transcriber`, OR have `active_transcriber` go through `registry.get_active()` only (drop the `_sync_registry_from_fields` call — registry is already source of truth).
-- **Confidence**: Medium
-- **Source**: R14
-
 ### S2-CR-79 — `_pending_tcp` snapshot silently dropped on write failure / shutdown short-circuit
 - **Severity**: High
 - **Status**: ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
@@ -1704,43 +1314,6 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 
 ---
 
-# MEDIUM findings (97 total — must fix)
-
-**Architecture / Code quality (15)**: M-1 `apply_config_side_effects` should be private on ServiceProtocol · M-2 Vocabulary vs Templates handlers inconsistent validation · M-3 `event_bus` direct-push bypasses RT-thread deferral · M-4 ALLOWED_COMMANDS vs `_COMMAND_REGISTRY` manually synced · M-5 `dictation_pipeline._hide_or_idle_bubble` duplicated 4× · M-6 `dictation_pipeline._notify_failure_once` duplicated 4× · M-7 `dictation_pipeline._check_resources` (161 LOC) and `_copy_and_paste` (155 LOC) too long · M-8 `asr_registry.create` has 3 mutually-exclusive `*_kwargs` params · M-9 `history_db` 8 methods take `raise_on_error: bool = False` boolean flag · M-10 `service.get_config` and `get_defaults` duplicate 13-line keyring_status block · M-11 51 inline `try/except ImportError` patterns across 32 files (should use `_lazy_import`) · M-12 `_RateLimiter.reject` is a no-op kept for source-level test · M-13 `recorder._process_audio_chunk` 432 LOC · M-14 `level_monitor.start_test_recording` 120 LOC with 2 verbatim setup blocks · M-15 `config.py` mixes 5 concerns (IO/paths/migrations/dataclass/defaults).
-
-**Performance / Resource (8)**: M-16 RNNoise round-trip resample 16k↔48k (1-3% CPU) · M-17 `level_monitor` allocation-heavy RMS computation (120-180 allocs/sec) · M-18 `level_monitor` config wiring missing `noise_suppression_method` field (always uses RNNoise + full dynamics) · M-19 `recorder._process_audio_chunk` uses `np.count_nonzero` instead of `.any()` · M-20 `level_monitor` holds `_monitor_lock` during full filter chain · M-21 `volume_backends._lock` declared but never acquired (dead code) · M-22 `_deferred_executor` ThreadPoolExecutor never shut down · M-23 Three thread-spawn sites in `recorder` for device-disconnect (not registered with thread_registry).
-
-**Reliability / Scalability (8)**: M-24 History DB retention runs ONCE at startup (no periodic sweep) · M-25 `_pending_tcp` cap=1000 drops content-bearing events (transcription_final, vocabulary_suggestion) under high-frequency bubble_level spam · M-26 History DB queue overflow silently discards fire-and-forget writes (no user notification) · M-27 Qwen `transcribe()` releases lock during inference — race with change_model · M-28 supervisor fixed backoff with no jitter, no circuit breaker · M-29 TCP worker pool `max_workers=4` may delay legitimate connections · M-30 Recorder `_handle_device_disconnect` no backoff between retries · M-31 Heartbeat timeout 120s holds mic + ducked volume too long after Electron crash.
-
-**UX / Discoverability / Product Experience (20)**: M-32 "Auto Duck Volume" / "Duck Level" labels are audio-engineering jargon · M-33 Models.tsx `Save Key` button vs Settings debounced auto-save (inconsistent API key UX) · M-34 Settings → Troubleshooting and About → Resources overlap "Report a Bug" · M-35 Templates.tsx uses native `title` tooltip vs `InfoTooltip` component elsewhere · M-36 Settings → Troubleshooting "Re-run Setup Wizard" and "Reset to Defaults" share RefreshIcon · M-37 Vocabulary.tsx count footer uses `text-[10px] opacity-50` (WCAG violation, fixed in Settings but not Vocabulary) · M-38 ConfirmDialog default `title = t("common.confirm")` but no `common.confirm` key in any locale · M-39 Microphone.tsx "Active" badge misleading (mic not actually recording) · M-40 Templates.tsx has no count footer (Vocabulary has one) · M-41 Vocabulary autoDetectDesc references internal category names (circular) · M-42 App.tsx "Retry Connection" button has no in-flight feedback · M-43 Settings → Privacy "Agree to All" banner dense legal prose · M-44 Onboarding "Get Started" button same variant as "Continue" (no visual finish line) · M-45 Microphone.tsx empty state uses `opacity-30` (WCAG 1.4.11 violation) vs EmptyState.tsx `opacity-50` · M-46 Templates add/edit dialog matchMode Select has no InfoTooltip · M-47 About → Privacy and Settings → Privacy & Consent duplicate same topics with different wording · M-48 Onboarding step 3 doesn't warn about large model download size · M-49 Onboarding hotkey step doesn't mention custom hotkeys available in Settings · M-50 Onboarding step 4 says "may take a minute" — for medium.en it's 20+ minutes.
-
-**Accessibility / i18n (10)**: M-51 SearchField missing `aria-label` and `<label>` association · M-52 Home.tsx transcription preview `<p>` has no `aria-live` (screen-reader users never hear transcription) · M-53 `useSnackbar.showUndoableToast` defaults undo label to English "Undo" · M-54 `History.tsx` `toLocaleString()` uses host locale not app locale + hardcoded "chars" suffix · M-55 TitleBar.tsx back/forward SVGs hardcoded left/right arrows (don't flip in RTL) · M-56 App.tsx rounded-l-xl + border-r-0 use physical-direction CSS (don't flip in RTL) · M-57 Bubble.tsx `ml-1` uses physical margin (doesn't flip in RTL) · M-58 HotkeyPicker `aria-label` default is literal English "Hotkey picker" · M-59 a11y tests use source-inspection (regex on file contents) instead of behavioral · M-60 axe-core test disables color-contrast rule (no runtime verification).
-
-**Data integrity / Configuration (6)**: M-61 history_db migration not wrapped in explicit transaction (partial migration becomes permanent) · M-62 templates `save_templates` mutates in-memory BEFORE persist; failure swallowed · M-63 vocabulary CRUD methods mutate in-memory BEFORE persist; failure swallowed · M-64 `crash_recovery._load` uses `Path.read_text()` (follows symlinks; write side uses `_secure_atomic_write`) · M-65 `migrate.rs:merge_config` uses `std::fs::write` (non-atomic truncate+write) · M-66 Config schema_version preserved on load but unknown fields dropped — downgrade-then-upgrade round-trip loses v3+ fields.
-
-**Logging / Observability (5)**: M-67 Three `except Exception: log.debug` in `startup_sequence.py` swallow exceptions with no `exc_info=True` · M-68 `level_monitor` hot-path error uses raw `log.debug` instead of `log_rate_limited` · M-69 VEH crash handler writes only exception metadata (no MemoryHandler ring buffer) · M-70 TCP retry `console.warn` spam during slow startup (no rate limiting) · M-71 `_pending_tcp` cap-exceeded warning not rate-limited.
-
-**Testing infrastructure (3)**: M-72 tests/tauri/conftest.py asyncio-marker block redundant (pyproject has `asyncio_mode = "auto"`) · M-73 No `flaky` marker / no `pytest-rerunfailures` installed · M-74 `tests/test_e2e_pipeline.py` `E2EMockApp.__init__` writes `os.environ` directly (env-leak hazard).
-
-**Build / CI / Packaging (8)**: M-75 macOS signing order implicit (relies on `cargo tauri build` internal signing) · M-76 Nuitka version unpinned on macOS/Linux (Windows pins `nuitka==2.5.4`) · M-77 CI uses `uv pip install --system ".[test]"` not `uv pip sync requirements-lock.txt` (no hash verification) · M-78 Windows Tauri workflow has `actions/setup-node` but no `npm ci` step · M-79 Windows Tauri workflow signs NSIS but not MSI (enterprise GPO deployments blocked) · M-80 `tauri.conf.json` `bundle.windows.signCommand: "${WIN_SIGN_COMMAND}"` — env var never set · M-81 `electron-builder.yml` declares `publish: github` but every CI invocation passes `--publish never` · M-82 mypy defined in `.pre-commit-config.yaml` but never run in CI.
-
-**Dependency / Dead code (5)**: M-83 Dead `try/except ImportError` branches for 4 now-required deps (torch, huggingface_hub ×3, websockets) · M-84 Speex backend scaffolded but never wired into `process()` (UI exposes option that silently does nothing) · M-85 `"accelerate"` entry in mypy overrides list (dep removed) · M-86 `SINGLE_KEY_PRESETS` / `COMBO_PRESETS` deprecated exports, no callers · M-87 Deprecated config fields still shipped in `get_status()` IPC payload + dead `volume_duck_smart` update branch in `service.py:1158-1164`.
-
-**Audio / Hotkey / Tray / Cross-platform (5)**: M-88 Wayland hotkey socket falls back to `/tmp/voice-typer-hotkey.sock` (world-writable, symlink attack surface) · M-89 Linux reserved hotkey list missing `<super>`, `<alt>+<f2>`, `<ctrl>+<alt>+<f1>..<f7>` · M-90 Ring-buffer overflow drops audio silently (no real-time notification) · M-91 `electron-vite` pinned to `6.0.0-beta.1` (pre-release) · M-92 `requirements-lock.txt` has duplicate `huggingface-hub==0.36.2` entry.
-
-**Type safety (1)**: M-93 `providers.ServiceLocator` has 8 `Any` attrs (should be concrete types) · `native_adapter._NativeBackendAdapter.__init__(self, native_backend)` untyped · `vad_processor.VadProcessor.__init__(config: Any, vad_check_available_fn: Any | None)`.
-
-**Concurrency (2)**: M-94 `_esc_pending_capture_exit` plain bool mutated from 3 threads without lock (check-then-act race) · M-95 `sidecar_ws._ready_emitted` read-then-write with no lock (duplicate ready event tolerated but racy).
-
-**Misc (1)**: M-96 CONTRIBUTING.md coverage threshold says "60%" in 4 places (actual is 65%) · M-97 CHANGELOG.md "npm pins fixed" entry stale (claims typescript@^5.6.0, vite@^6.0.0, @types/node@^22.0.0; actual is typescript@^7.0.2, vite@^8.1.4, @types/node@^26.1.1).
-
----
-
-# LOW findings (49 total — may defer with `Won't Fix` + rationale)
-
-L-1 through L-49 (full list available in R-agent reports): includes items like `_hf_download_cache` no per-entry eviction (negligible), `tray_icon_cache` bounded by design, `_buffer_clear_queue` synchronous fallback acceptable, `_send_ctrl_v_win32` magic numbers (VK codes inline), `ipc_server` inline tunables, shadow declarations for tests, `use` statement ordering in `main.rs`, devcontainer prettier-vscode config (project uses Biome), `docs/dublicated-text.md` misspelling, ADR 0002/0003 duplicate titles, etc.
-
-
 ### S3-CR-1 — `_send_ctrl_v_win32` returns `None`; `paste()` always reports failure on Windows
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - **Severity:** Critical (user-facing incorrect failure state on every Windows paste)
@@ -1752,17 +1325,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Change signature to `-> bool`. Add `return True` after successful SendInput(4,...). Add `return False` on partial-success branch. Add `return True/False` on pynput fallback. Add an integration test that does NOT mock `_send_ctrl_v_win32` and asserts `paste()` returns True on SendInput-returns-4 path.
 - **Confidence:** High (R2, R18 — duplicated finding, merged)
 
-### S3-CR-2 — supervisor race with shutdown — zombie sidecar
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** Critical (zombie process holding mic + named mutex)
-- **Status:** Pending
-- **Locations:** `src-tauri/src/sidecar/supervisor.rs:42-100, 68-69`
-- **Evidence:** `respawn_inner` checks `state.shutting_down` at top of loop, sleeps up to 5000ms, then `spawn_sidecar_and_get_port(...)` WITHOUT re-checking `shutting_down` after sleep. `shutdown_sidecar` sets `shutting_down=true` and force-kills the OLD child, but supervisor then wakes and spawns a NEW sidecar.
-- **Root cause:** Missing second `shutting_down` check after sleep / before spawn.
-- **Impact:** Zombie sidecar process after window-close-during-recovery. New sidecar holds mic, native hotkey binary, Windows named mutex → next launch hits `ERROR_ALREADY_EXISTS`.
-- **Proposed fix:** Re-check `state.shutting_down` after sleep (return Ok if set). Also: kill the old child before installing the new one (related S3-CR-28). Add a `Drop` guard to clear `respawn_in_progress` on panic.
-- **Confidence:** High (R5, R12, R13)
-
 ### S3-CR-3 — 65+ existing test failures (CI red)
 **Status:** ❌ Not Fixed — too large / out of scope (tsconfig refactoring across 35+ test files exceeds 10-min ceiling)
 - **Severity:** Critical (CI cannot validate new changes)
@@ -1773,17 +1335,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Impact:** CI is red. New refactors can't be validated. Tests provide negative value.
 - **Proposed fix:** Per-file triage: restore missing symbols OR update tests if source was intentionally refactored. Backfill 25 missing i18n keys per locale (or add to `RW2_BACKFILLED_PENDING_TRANSLATION`). Update frozen command tables in `test_phase4_validation.py`. Update SECURITY.md command count. Fix native_hotkeys path assertion.
 - **Confidence:** High (R14, R19, R20)
-
-### S3-CR-4 — Linux Tauri bundle missing permission-setup scripts (hotkeys broken)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** Critical (Linux .deb/.rpm install silently breaks native hotkeys)
-- **Status:** Pending
-- **Locations:** `src-tauri/tauri.conf.json:58-68` (base bundle.resources); `src-tauri/tauri.linux-x86_64.conf.json`; `src-tauri/tauri.linux-aarch64.conf.json`; `scripts/linux/postinst:30-46`
-- **Evidence:** `bundle.resources` arrays list ONLY native key-listener binaries + prewarm binaries. They omit `scripts/linux/install_permissions.py`, `uninstall_permissions.py`, `99-voice-typer.rules`, `00-voice-typer-capslock.conf`, `voice-typer.polkit`. The postinst probes 5 candidate paths, all empty on Tauri v2 install — emits "WARNING: install_permissions.py not found" and exits 0.
-- **Root cause:** NF-R9-2 fix assumed the scripts would be bundled; bundling step was never wired.
-- **Impact:** Every Linux Tauri install silently skips input-group setup, udev rule, Caps Lock neutralization. Bundled `linux-key-listener` cannot read `/dev/input/event*` → native hotkeys fail with no error message.
-- **Proposed fix:** Add the 5 permission files to `bundle.resources` in both `tauri.linux-x86_64.conf.json` and `tauri.linux-aarch64.conf.json`, mapping to `resources/scripts/linux/`. The postinst path probe will then resolve.
-- **Confidence:** High (R17)
 
 ### S3-CR-5 — `prerm` hardcoded to legacy Electron path; never finds uninstall script
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -1797,7 +1348,7 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Confidence:** High (R17)
 
 ### S3-CR-6 — `noise_suppressor.py` deepfilternet/speex paths are silent passthrough
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
+**Status:** ❌ Not Fixed — deepfilternet/speex paths still passthrough in process() (only rnnoise wired) [re-verified 2026-07-27]
 - **Severity:** Critical (users in noisy environments get ZERO noise suppression)
 - **Status:** Pending
 - **Locations:** `voice_typer/server/audio_filters/noise_suppressor.py:141-152, 91-118, 120-139`; `voice_typer/server/audio_presets.py:50-58`
@@ -1808,7 +1359,7 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Confidence:** High (R4, R18)
 
 ### S3-CR-7 — Tauri tray menu checkmarks don't render (`"✓"` used as accelerator)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
+**Status:** ⚠️ Partial — CheckMenuItem API added but old accelerator+"✓" pattern still present in codebase [re-verified 2026-07-27]
 - **Severity:** Critical (users can't see which microphone is selected from tray)
 - **Status:** Pending
 - **Locations:** `src-tauri/src/tray.rs:75-79`
@@ -1818,19 +1369,8 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Use `tauri::menu::CheckMenuItem::with_id(app, &item.id, &item.label, item.checked.unwrap_or(false), !item.disabled)` for items where `checked.is_some()`. Use `MenuItemBuilder::with_id(...)` for the rest.
 - **Confidence:** High (R5, R18)
 
-### S3-CR-8 — Tauri tray right-click races with menu display (focus-steal)
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity:** Critical (right-click menu unreliable on Windows/Linux)
-- **Status:** Pending
-- **Locations:** `src-tauri/src/tray.rs:126-133`
-- **Evidence:** `TrayIconEvent::Click { .. }` matches left, right, AND middle click without filtering. Handler calls `window.show()` + `set_focus()` on every click. On right-click (which should open context menu), this races with menu display — window steals focus from menu.
-- **Root cause:** `TrayIconEvent::Click` in Tauri 2 carries `button: MouseButton` field that this code ignores.
-- **Impact:** Right-clicking tray icon to open menu may flash/fail to focus correctly on Windows and Linux; main window pops up unexpectedly on every right-click.
-- **Proposed fix:** Match on `TrayIconEvent::Click { button: MouseButton::Left, .. }` only. For right click, do nothing (Tauri auto-opens menu on right-click when `show_menu_on_left_click(false)`).
-- **Confidence:** High (R18)
-
 ### S3-CR-9 — Password-field detection is Windows-only (macOS/Linux paste into password fields)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
+**Status:** ⚠️ Partial — Windows-only UI Automation implementation; no macOS AXIsTextFieldSecure or Linux AT-SPI password role detection added [re-verified 2026-07-27]
 - **Severity:** Critical (security — voice dictation into password fields on macOS/Linux)
 - **Status:** Pending
 - **Locations:** `voice_typer/server/clipboard_target_safety.py:285-376` (whole module); `voice_typer/server/dictation_pipeline.py:890-1046`
@@ -1841,7 +1381,7 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Confidence:** High (R18)
 
 ### S3-CR-10 — `templates {clipboard}` substitution → LLM API exfiltration (privacy)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
+**Status:** ⚠️ Partial — template {clipboard} substitution still expands clipboard content; defense added at pipeline/LLM level (dictation_pipeline.py) but template.py still expands clipboard [re-verified 2026-07-27]
 - **Severity:** Critical (silent clipboard exfiltration to LLM API)
 - **Status:** Pending
 - **Locations:** `voice_typer/server/templates.py:40-57` (`substitute_variables`); `voice_typer/server/dictation_pipeline.py:164-174, 622, 662`
@@ -1910,17 +1450,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** `log.info("[RESTART] Restarting %s...", APP_NAME)`. One-line fix.
 - **Confidence:** High (R1, R13)
 
-### S3-CR-16 — `recorder.py` missing `_start_lock` (test failing, latent race)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High (CI red + latent race in production)
-- **Status:** Pending
-- **Locations:** `voice_typer/server/recording/recorder.py`; `tests/test_recording.py:1276-1298, 1484, 1496`
-- **Evidence:** `rg "_start_lock" voice_typer/server/` returns ZERO matches. `TestRec5StartLock` asserts `_start_lock` appears in `inspect.getsource(Recorder.__init__)`, `.start`, `.discard`, and that `r._start_lock` is a `threading.Lock`. VERIFIED FAILING. Tests at L1484, L1496 pin `Recorder._start_impl` source — method doesn't exist (renamed to `start`).
-- **Root cause:** REC-5 `_start_lock` was either never implemented or was removed without updating test.
-- **Impact:** Latent race: without `_start_lock`, concurrent `start()` and `discard()` calls can race on half-open stream state. 4 red tests.
-- **Proposed fix:** Either (a) implement `_start_lock` (add `self._start_lock = threading.Lock()` to `__init__` after L249; wrap body of `start()` and `discard()` in `with self._start_lock:`), OR (b) update/delete `TestRec5StartLock` if race is acceptable. Recommend (a).
-- **Confidence:** High (R1)
-
 ### S3-CR-17 — `recorder.py` 2992-LOC monolith (god class)
 **Status:** ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) (duplicate of #93) — recorder.py 4080 LOC god class; partial decomposition already done
 - **Severity:** High
@@ -1975,17 +1504,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Impact:** Extractions that MOVE methods off original class break `inspect.getsource(Recorder._process_audio_chunk)` tests. Even adding/removing comments can break module-level source-text tests.
 - **Proposed fix:** For each extraction (CR-17, S3-CR-18, S3-CR-19), keep public method on original class as 1-line delegate. For module-level tests, preserve pinned literal strings in module-level comments (replicate `recording/__init__.py:229-258` "static-source check echo" pattern). Long-term: migrate source-pinning tests to behavioral tests.
 - **Confidence:** High (R1, R14)
-
-### S3-CR-22 — `event_bus.py` deferred executor never shut down (worker thread leak)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High
-- **Status:** Pending
-- **Locations:** `voice_typer/server/event_bus.py:147-162`; absence of shutdown call in `shutdown_controller.py`
-- **Evidence:** `_deferred_executor: ThreadPoolExecutor` created lazily with `max_workers=1, thread_name_prefix="event-bus-publisher"`. Never `shutdown()` anywhere. ThreadPoolExecutor spawns NON-daemon worker threads by default.
-- **Root cause:** Module-global singleton executor with no explicit lifecycle management.
-- **Impact:** On `restart_app()`, old executor orphaned + new one created → worker thread leak. On normal exit, worker thread can block up to default join timeout (~5s) slowing shutdown.
-- **Proposed fix:** Add `shutdown_executor()` to `event_bus.py` calling `_deferred_executor.shutdown(wait=False, cancel_futures=True)`. Call from `shutdown_controller._do_cleanup()` after IPC server stop.
-- **Confidence:** High (R3)
 
 ### S3-CR-23 — `vocabulary.py` `apply_to_text` race condition (read without lock)
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
@@ -2045,28 +1563,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Before assigning new child, kill old one: `if let Some(old) = child_guard.take() { let _ = old.kill_tree().await; }`.
 - **Proposed fix:** Before assigning new child, kill old one: `if let Some(old) = child_guard.take() { let _ = old.kill_tree().await; }`.
 - **Confidence:** High (R13)
-
-### S3-CR-29 — supervisor: no circuit breaker on restart loop (infinite restart loop on broken install)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High
-- **Status:** Pending
-- **Locations:** `src-tauri/src/sidecar/supervisor.rs:112-115`; `src-tauri/src/main.rs:191-206`
-- **Evidence:** When backoff exhausted, supervisor unconditionally calls `app.restart()`. No counter persists across `app.restart()` invocations. If sidecar binary missing/corrupted/crashes immediately, same failure repeats: 5 attempts → `app.restart()` → new host → 5 attempts → `app.restart()` → ad infinitum.
-- **Root cause:** No counter persists across `app.restart()` invocations.
-- **Impact:** On broken install, app enters infinite restart loop — consuming CPU, spamming log file, making machine unresponsive. User has no way to know WHY it's restarting.
-- **Proposed fix:** Persist restart-attempt counter to `<config_dir>/restart_counter.json` before `app.restart()`. If counter ≥ 3, STOP loop and emit `respawn_failed` event with last spawn error so UI can show "Voice Typer could not start its backend. Last error: …. Please reinstall." Reset counter on successful `reconnected` event.
-- **Confidence:** High (R13)
-
-### S3-CR-30 — `asyncio.Queue.put_nowait` called from non-loop threads (WS corruption)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High (intermittent WS frame corruption / lost events)
-- **Status:** Pending
-- **Locations:** `voice_typer/server/sidecar_ws.py:388-402` (`_push_to_ws` subscriber)
-- **Evidence:** `event_bus.publish` called synchronously from ANY thread (audio worker, transcription thread, tray thread). `_push_to_ws` calls `outbound.put_nowait(event)` on `asyncio.Queue`. `asyncio.Queue.put_nowait` is NOT thread-safe — asyncio docs require all queue operations to run on loop thread.
-- **Root cause:** asyncio Queue mutated from non-loop threads.
-- **Impact:** Under contention (60 Hz bubble_level + concurrent transcription_final), queue's internal linked list can be corrupted → dropped events, stuck writer task, or `RuntimeError` taking down WS connection → respawn. Hard to reproduce.
-- **Proposed fix:** In `_push_to_ws`, capture loop at subscription time and enqueue via `loop.call_soon_threadsafe(outbound.put_nowait, event)`. Full-queue drop-oldest logic must also move into threadsafe callback.
-- **Confidence:** High (R12)
 
 ### S3-CR-31 — `ipc/server.py` stdin dispatch path has narrower exception handler (silent thread death)
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
@@ -2147,28 +1643,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Convert `CATEGORY_LABELS` to `getCategoryLabels()` function called at render time; update consumers (L656, 658, 665, 667) to call function.
 - **Confidence:** High (R7)
 
-### S3-CR-38 — `Models.tsx` 1682-LOC monolith (god component)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High
-- **Status:** Pending
-- **Locations:** `voice_typer/client/src/renderer/src/pages/Models.tsx` (1682 LOC)
-- **Evidence:** Single `ModelsPage` component owns: model catalog fetching, download lifecycle (7 useState fields), cloud-provider API key management for 3 providers, per-provider consent toggles, HuggingFace consent banner, model-import dialog, delete-model confirm, `testConnection` with 3-way duplicated fetch logic, benchmark UI duplicated twice. 23 useState hooks, 12 handler functions.
-- **Root cause:** Cohesive sub-sections never extracted.
-- **Impact:** Hard to test (every test must mock 7+ IPC endpoints). Re-renders expensive.
-- **Proposed fix:** Extract cohesive children: `<HuggingFaceConsentBanner>`, `<ModelFamilyAccordion>`, `<CloudProviderCard>`, `<BenchmarkSection>` (single source — currently duplicated). Extract `useModelDownload()` hook owning 7 progress-related useState fields.
-- **Confidence:** High (R7)
-
-### S3-CR-39 — `Settings.tsx` 1082-LOC monolith (write-pipeline entangled with render logic)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity:** High
-- **Status:** Pending
-- **Locations:** `voice_typer/client/src/renderer/src/pages/Settings.tsx` (1082 LOC)
-- **Evidence:** After extracting `*SettingsSection` children, page still owns: tab persistence + scroll-position preservation per tab, debounced/batched config-write pipeline with 5 refs + microtask scheduling (300+ LOC), search-to-tab auto-switch, render-phase sentinel for empty-state detection, inline Troubleshooting section (110 LOC).
-- **Root cause:** Write-pipeline logic never extracted to hook.
-- **Impact:** Update pipeline logic (300+ LOC) is highest-risk code in renderer — entangled with render logic, hard to unit-test.
-- **Proposed fix:** Extract `useSettingsConfig()` hook returning `{config, updateConfig, updateConfigDebounced, saving, saved, flushPendingUpdates}`. Extract `<TroubleshootingSection>` component.
-- **Confidence:** High (R7)
-
 ### S3-CR-40 — `ThemeSettingsSection.tsx` 890-LOC monolith (5 concerns mixed)
 **Status:** ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) — 890-LOC ThemeSettingsSection.tsx split into 5 modules requires creating new files outside assignment scope; risks breaking snapshot tests + React Fast Refresh boundary
 - **Severity:** High
@@ -2191,74 +1665,6 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Extract `useHotkeyCapture({ mode, value, onChange, occupiedHotkeys, onCaptureStart, onCaptureEnd })` custom hook. Extract `HotkeyPresetDropdown` sub-component. Extract `tryCommitHotkey(newValue, opts)` shared helper.
 - **Confidence:** High (R8)
 
----
-
-(Full Medium and Low findings truncated for brevity — captured in worklog.md and addressed by implementation sub-agents. The review.md tracks all 100 canonical findings with statuses updated as fixes land.)
-
-Key Medium findings (CR-42 through S3-CR-76):
-- S3-CR-42: `globalErrorHandler.ts` uses `require()` in ESM context (broken i18n)
-- S3-CR-43: i18n placeholders mismatch (`{percent}`, `{current}`, `{total}` not interpolated in 6 locales)
-- S3-CR-44: `tauri-bridge.ts` events cast via `as unknown as PythonPushEvent`
-- S3-CR-45: `a11y/axe-core.test.tsx` STUB_CONFIG drift from `VoiceTyperConfig`
-- S3-CR-46: `a11y/` directory has no utility modules (only test files using source-string regex)
-- S3-CR-47: `useNavigation.ts` mouse back/forward: `mouseup` + `preventDefault` cannot cancel X1/X2
-- S3-CR-48: `useStatsShare.ts` debug logging left in production
-- S3-CR-49: `recorder.py` reentrancy: `start()` not protected by lock
-- S3-CR-50: `rate_limiter.py` lazy-init race condition
-- S3-CR-51: `dispatch` 120s hang under race
-- S3-CR-52: post-auth socket no read timeout
-- S3-CR-53: `level_monitor.py` stop race
-- S3-CR-54: `crash_recovery.py` `_save_sync` no internal timeout
-- S3-CR-55: `Models.tsx` `isBenchmarking` dead state setter (perpetual stub)
-- S3-CR-56: `Templates.tsx` / `Vocabulary.tsx` `_requestDelete*` dead code (unreachable ConfirmDialog)
-- S3-CR-57: `Microphone.tsx` 100ms polling re-renders entire page tree
-- S3-CR-58: `Onboarding.tsx` no `cancelled` flag in init useEffect (setstate on unmounted)
-- S3-CR-59: `PrewarmAndUpdates.tsx` poll loop unmount leak
-- S3-CR-60: `RecordingSettingsSection.tsx` 4× duplicated `set_esc_cancel_paused` IPC call
-- S3-CR-61: `PrivacySettingsSection.tsx` duplicated export buttons (90 LOC copy-paste)
-- S3-CR-62: `ThemeSettingsSection.tsx` setState during render (init block)
-- S3-CR-63: `NumberInputStepper` `onInvalid` effect dep-array footgun
-- S3-CR-64: `SegmentedControl` radio `name` collision (no `useId`)
-- S3-CR-65: Settings section 7× duplicated label/items/visible boilerplate
-- S3-CR-66: `HotkeyPicker.tsx` IME composition not handled (`e.isComposing` not checked)
-- S3-CR-67: `SearchField.tsx` hardcoded English "Search..." placeholder
-- S3-CR-68: `RecordingSettingsSection.tsx` `DICTATION_KEY_PRESETS` hardcoded English labels
-- S3-CR-69: `HotkeyPicker.tsx` 5 hardcoded English error strings
-- S3-CR-70: `audio_filters/compressor.py` / `limiter.py` / `equalizer.py` / `noise_gate.py` per-sample Python loops (perf)
-- S3-CR-71: `ipc/rate_limiter.py` ADR-0019 doc drift (dual-window design not in ADR)
-- S3-CR-72: `audio_filters/base.py` `FilterChain.process` no try/except (single buggy filter kills session)
-- S3-CR-73: `recording/resampling.py` retry-after-timeout TOCTOU race
-- S3-CR-74: `hotkeys/wayland.py` socket TOCTOU window before chmod
-- S3-CR-75: `hotkeys/factory.py` + `native_adapter.py` duplicate platform-selection logic
-- S3-CR-76: `tray_menu.py:311-321` Tauri-side builder coupled to pystray
-
-Low findings (CR-77 through S3-CR-100):
-- S3-CR-77: `clipboard.py:1271-1290` `_send_keystroke_sequence` dead code
-- S3-CR-78: `history_db.py:662-675` empty try/pass block (dead code)
-- S3-CR-79: `clipboard.py:827, 969, 1253` 3 pinned UP037 ruff violations (quoted forward refs)
-- S3-CR-80: `config.py:867` `volume_duck_smart` DEPRECATED comment is wrong (field is live-wired)
-- S3-CR-81: `recorder.py:847` unnecessary `# type: ignore[no-untyped-def]` on `_make_vad_property`
-- S3-CR-82: `prewarm/__init__.py:116-127, 273-284` 9 unused stdlib re-binds
-- S3-CR-83: `clipboard.py:1271-1290` `_send_keystroke_sequence` dead code (DUPLICATE of S3-CR-77 — merged)
-- S3-CR-84: `container_detect.py:14` / `text_cleanup.py:239` `__import__("logging")` pattern
-- S3-CR-85: `_secrets.py:271, 286` `_user_extensions` set mutation without lock
-- S3-CR-86: `dictation_pipeline.py:248-252` finally block zeroes only top-level audio array
-- S3-CR-87: `hallucination.py:138-144` LogRecord construction for redaction (use `redact_pii` helper)
-- S3-CR-88: `audio_processor.py:102` private attr access (`new_chain._filters`)
-- S3-CR-89: `level_monitor.py:607` dead `list(_test_peak_history)` expression
-- S3-CR-90: `LiveQualityFeedback.tsx:22` dead `_volumeGood` variable
-- S3-CR-91: `TitleBar.tsx` redundant `<title>` inside aria-hidden SVGs
-- S3-CR-92: `ActivityList.tsx` no list virtualization / `maxItems` prop
-- S3-CR-93: 4 files contain stray `{" "}` literals
-- S3-CR-94: `ConfirmDialog.tsx` redundant `aria-label` on titled buttons
-- S3-CR-95: `ThemeSettingsSection.tsx:851-858` raw `<button>` "Reset colors" bypasses design system
-- S3-CR-96: `hotkey-utils.ts:18-31` deprecated `SINGLE_KEY_PRESETS` / `COMBO_PRESETS` aliases
-- S3-CR-97: `PrivacySettingsSection.tsx:334-341, 379-386` unsafe `window.window_` casts
-- S3-CR-98: `useSnackbar.tsx` file extension mismatch (no JSX, named .tsx)
-- S3-CR-99: `i18n.ts:280-283` `String.prototype.replace` `$` special char footgun
-- S3-CR-100: `i18n.ts:14-21` eager import of all 8 locale JSON files (600KB bundle bloat)
-
-
 ### S4-CR-1 — `ipc/` subpackage is dead-code parallel of `ipc_server.py` (~2,800 lines dead)
 **Status:** ❌ Not Fixed — out of file scope (dead code already removed per CR-019; further consolidation is the #91/#181 concern)
 - **Category**: Overall architecture / Dead code
@@ -2266,41 +1672,8 @@ Low findings (CR-77 through S3-CR-100):
 - **Location**: `voice_typer/server/ipc/server.py` (1,764 lines), `ipc/main.py` (389), `ipc/process_meta.py` (25), `ipc/push_events.py` (60), `ipc/transport.py` (duplicates `_TCPLineIO`), `ipc/rate_limiter.py` (duplicates `_RateLimiter`)
 - **Evidence**: Phase 4.5 / ARCH-045 split was started but never finished. Both `ipc_server.py` (2,609-line shim with full implementations) and `ipc/` package (parallel implementations) coexist. `pyproject.toml:157` registers `voice_typer.server.ipc_server:main` as the canonical entry; `providers.py:362` imports `IPCServer` from the shim; only `ipc/validation.py` and `ipc/history_bounds.py` are actually imported by handler mixins. ~2,238+ lines of unreachable code.
 - **Root cause**: Verified — refactor abandoned mid-way; the shim was retained with full body instead of becoming a re-export.
-- **Impact**: Dead code inflates codebase by ~5%; bug-fix drift already observed (the dead-code `ipc/server.py` has a TCP-teardown deadlock fix that the live `ipc_server.py` is missing — see S4-CR-2). Static analysis wastes cycles. Contributors reading the wrong copy get a false picture.
+- **Impact**: Dead code inflates codebase by ~5%; bug-fix drift already observed (the dead-code `ipc/server.py` has a TCP-teardown deadlock fix that the live `ipc_server.py` is missing). Static analysis wastes cycles. Contributors reading the wrong copy get a false picture.
 - **Proposed fix**: Delete `ipc/server.py`, `ipc/main.py`, `ipc/process_meta.py`, `ipc/push_events.py`. Move the genuinely-shared leaf helpers (`validation.py`, `history_bounds.py`, plus `_RateLimiter`, `_TCPLineIO`, `_pick_available_port`, `_push_event_now`) into the package, then have `ipc_server.py` import them (delete the inline copies). Add a regression test in `tests/test_dead_code_stays_removed.py`.
-- **Confidence**: High
-
-### S4-CR-2 — TCP-teardown deadlock fix lives only in dead-code copy (production deadlocks)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Backend architecture / Reliability
-- **Severity**: Critical
-- **Location**: `voice_typer/server/ipc_server.py:2193-2197` (`_send` finally) and `:608-613` (`_TCPLineIO.close`)
-- **Evidence**: Production `_send()` restores `settimeout(None)` in finally; `_TCPLineIO.close()` does not call `socket.shutdown()`. The dead-code duplicate `ipc/server.py:1696-1706` + `ipc/transport.py:120-133` has the fix: `settimeout(_prev_timeout)` and `conn.shutdown(SHUT_RDWR)` before close, with comments explaining the deadlock.
-- **Root cause**: Verified — fix was applied to dead-code copy by a contributor who believed it was the canonical implementation.
-- **Impact**: Production backend can deadlock during teardown when a dispatch thread is blocked in `recv` while another calls `close()`. Reader thread's BufferedReader holds its lock; close blocks indefinitely; worker never exits; process hangs with mic open and single-instance mutex held.
-- **Proposed fix**: Apply the two fixes to `ipc_server.py`: (1) capture `_prev_timeout` before `settimeout(_TCP_WRITE_TIMEOUT_SECONDS)`, restore `_prev_timeout` in finally; (2) call `self.conn.shutdown(socket.SHUT_RDWR)` (suppressed) before `self.conn.close()` and before `self._reader.close()`. Then delete the dead-code copies (CR-1) so the fix can't drift again.
-- **Confidence**: High
-
-### S4-CR-3 — `_delayed_restore` signature mismatch — every paste() silently broken
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Category**: Memory / Concurrency / UX
-- **Severity**: Critical
-- **Location**: `voice_typer/server/clipboard.py:1018-1023` (call site) + `:1215-1220` (signature)
-- **Evidence**: `paste()` spawns `_delayed_restore` thread with 4 positional args `(snapshot, expected, delay, _pending_entry)`, but `_delayed_restore(self, snapshot, pasted_text, delay)` accepts only 3. Thread immediately dies with `TypeError: _delayed_restore() takes 4 positional arguments but 5 were given`. Verified empirically. Tests at `tests/test_clipboard_borrow_restore.py:301/318` call `_delayed_restore` directly with 3 args, missing the bug.
-- **Root cause**: Verified — `_pending_entry` tuple was added to args without updating signature.
-- **Impact**: (1) User's original clipboard content (text, RTF, HTML, image, file list) is NEVER restored by the daemon thread after paste — transcription text stays on clipboard until process exit. (2) Memory leak — `_pending_restores` grows by one ClipboardSnapshot per paste, never cleared mid-session. Heavy-dictation user: ~400 snapshots lingering after an 8-hour workday.
-- **Proposed fix**: Update `_delayed_restore` signature to accept `pending_entry=None` and remove it from `_pending_restores` in `finally`. Add regression test that drives the production `paste()` path end-to-end and asserts the entry is removed from `_pending_restores` after the daemon thread completes.
-- **Confidence**: High
-
-### S4-CR-4 — `sidecar_ws.py` asyncio.Queue mutated cross-thread without `call_soon_threadsafe`
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Concurrency / Reliability
-- **Severity**: Critical
-- **Location**: `voice_typer/server/sidecar_ws.py:386-416` (`_push_to_ws`)
-- **Evidence**: `_push_to_ws` is registered as an `event_bus` subscriber; `event_bus.publish()` is called from many non-event-loop threads (transcription, hotkey, tray, IPC workers). `_push_to_ws` calls `outbound.full()`, `outbound.get_nowait()`, `outbound.put_nowait()` on an `asyncio.Queue`. asyncio.Queue is explicitly NOT thread-safe. No `loop.call_soon_threadsafe` anywhere in the file (grep-confirmed).
-- **Root cause**: Verified — WS path assumes all `publish` calls come from the asyncio event loop thread; this assumption is false.
-- **Impact**: Under concurrent publishers (transcription_final racing with bubble_level racing with state_changed), queue internal state corrupts. Symptoms: silently dropped events (transcription_final never reaches Tauri host → user sees no result), deadlocked writer task (writer's `await outbound.get()` never wakes), or hard asyncio loop crash killing the Tauri sidecar → respawn loop.
-- **Proposed fix**: Capture `loop = asyncio.get_running_loop()` at connection setup; in `_push_to_ws`, call `loop.call_soon_threadsafe(_enqueue_safe, outbound, event)` where `_enqueue_safe` does the full/get_nowait/put_nowait dance inside the event loop thread. Alternative: replace asyncio.Queue with stdlib `queue.Queue` consumed via `await loop.run_in_executor(None, outbound.get)`.
 - **Confidence**: High
 
 ### S4-CR-5 — Tauri capability over-grants the bubble window (regression of SEC-026 sandboxing)
@@ -2312,116 +1685,6 @@ Low findings (CR-77 through S3-CR-100):
 - **Root cause**: Verified — Electron path has SEC-026 (separate `preload/bubble.ts` exposing only `bubble:*` channels). The Tauri port did not replicate this sandboxing.
 - **Impact**: A compromised bubble renderer (alwaysOnTop waveform display) can: (1) dispatch arbitrary IPC commands (`set_config`, `quit_app`, `shutdown`); (2) read system clipboard (password exfiltration); (3) spawn additional python-sidecar processes (DoS); (4) close/hide the main window. Direct regression of the Electron path's hardening.
 - **Proposed fix**: Split into `main-runtime.json` (`"windows": ["main"]` with all current permissions) and `bubble-runtime.json` (`"windows": ["bubble"]` granting only `core:event:default`, `core:window:allow-start-dragging`, and the `bubble_*` commands). In Rust `dispatch`, add `window: tauri::Window` to the signature and reject calls where `window.label() != "main"`. Alternatively, set `withGlobalTauri: false` and expose `invoke` via scoped preload script.
-- **Confidence**: High
-
-### S4-CR-6 — `Onboarding.tsx` missing Permissions step (renderer out of sync with server's 6-step wizard)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: User onboarding / User flows / i18n
-- **Severity**: Critical
-- **Location**: `voice_typer/client/src/renderer/src/pages/Onboarding.tsx:263-420` vs `voice_typer/server/onboarding.py:42-49,125-141`
-- **Evidence**: Server's `OnboardingController` declares `_total_steps = 6` with step names `[Welcome, Microphone, Permissions, Hotkey, Model, Done]`. The i18n file has `onboarding.permissionsTitle`/`permissionsDescription`/etc. The IPC handler `_handle_onboarding_check_permissions` exists. But `Onboarding.tsx` only renders cases for `step.step === 0/1/2/3/4` mapping to Welcome/Mic/Hotkey/Model/Done — there is NO `step === 2 → Permissions` branch. `onboarding_check_permissions` IPC is never called from the renderer (grep-confirmed). When server reports step=2 with `step_name="Permissions"`, the renderer shows a Hotkey picker instead.
-- **Root cause**: Verified — frontend/server step-index mismatch. Permissions step was added server-side (UX-4/UX-27) but the renderer was never updated.
-- **Impact**: macOS users complete the wizard without granting Accessibility permission; Linux users without being added to the `input` group. They press their hotkey and nothing happens — exactly the silent failure the Permissions step was added to prevent. On Windows the step auto-passes but UI shows mismatched step names. Progress bar caps at 83% (5/6) and never reaches 100%.
-- **Proposed fix**: Add `step.step === 2 → Permissions` branch in Onboarding.tsx: call `onboarding_check_permissions` on mount, render `permissionsTitle` + `permissionsDescription` + platform-specific instructions + "Test hotkey" button. Shift Hotkey to step 3, Model to step 4, Done to step 5. Update `handleNext` accordingly. Branch on `step.step_name` instead of numeric index to prevent recurrence.
-- **Confidence**: High
-
-### S4-CR-7 — Undefined `--bg-card` CSS variable — SettingsSkeleton and ErrorBoundary are invisible
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: UX/UI consistency
-- **Severity**: Critical
-- **Location**: `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx:72,86` + `components/settings/SettingsSkeleton.tsx:32-35`
-- **Evidence**: Both files use `bg-(--bg-card)`. Grep across the entire client/src tree confirms `--bg-card` is NEVER defined — not in `index.css`, not in `themes.ts`, not in any theme preset. The defined variable is `--card` (`index.css:77`). SettingsSkeleton's animated placeholder bars have NO background color (transparent), so `animate-pulse` pulses between transparent and transparent — the skeleton is invisible. ErrorBoundary's error-message `<pre>` and the "Reload app" button hover state are also transparent.
-- **Root cause**: Verified — typo/renaming drift. Either `--bg-card` was renamed to `--card` and these call sites were missed, or the variable was never created.
-- **Impact**: Settings page shows no skeleton loading state — content pops in (the exact flash the skeleton was added to prevent per BACKLOG-008). The ErrorBoundary fallback (shown when a render crash occurs) has an invisible error-details panel and unstyled hover state on the secondary button — making the recovery UI look broken at the worst possible time.
-- **Proposed fix**: Replace all 5 occurrences of `bg-(--bg-card)` with `bg-(--bg-subtle)` (matches surrounding card styling in `SettingsSection.tsx`).
-- **Confidence**: High
-
-### S4-CR-8 — Transcription-text PII leak in no-client push path (INFO log)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Privacy / Observability
-- **Severity**: Critical
-- **Location**: `voice_typer/server/ipc_server.py:2252`
-- **Evidence**: `log.info("[IPC] no client; dropping %s event: %s", msg_type, msg)` — `msg` is the full IPC event dict. When the renderer is disconnected, server-initiated events (transcription_final, history_changed, paste_failed) reach this branch. The transcription_final event payload contains `{text: <user speech ≤200 chars>}` (per `event_bus.py` docstring). At INFO level this is written to the rotating voice-typer.log file. The PIIRedactionFilter only scrubs emails/phones/SSNs/CCs/API keys — NOT general transcribed speech.
-- **Root cause**: Verified — push() "no client" branch logs the entire msg payload for operator visibility, but payload can contain raw transcription text. PIIRedactionFilter does not cover free-form speech.
-- **Impact**: User's transcribed speech (potentially sensitive: names, addresses, medical info, dictated passwords) is written to disk in plaintext whenever Electron is disconnected (sleep/resume, dev-tools inspection, brief crash). Happens after every transient disconnect. Violates the project's privacy posture (SEC-009 redaction goal).
-- **Proposed fix**: Replace `msg` with a redacted summary: `log.info("[IPC] no client; dropping %s event (size=%d)", msg_type, len(str(msg)))`. For `transcription_final` specifically, never log the payload text at any level. Optionally route through `redact_pii()` if a preview is needed.
-- **Confidence**: High
-
-### S4-CR-9 — Unbounded Electron crash log (no rotation, no size cap)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Observability
-- **Severity**: Critical
-- **Location**: `voice_typer/client/src/main/bootstrap.ts:122-135, 158-161`
-- **Evidence**: `setupErrorHandlers()` uses `fs.appendFileSync(crashLogPath, line, ...)` for every `uncaughtException` AND `unhandledRejection`. No rotation, no size cap, no truncation. Python backend uses RotatingFileHandler (5 MiB × 5); Rust host uses RotatingFileWriter (5 MB × 5); Electron crash log has no equivalent.
-- **Root cause**: Verified — only the Python and Rust loggers have rotation; Electron crash log was added in SEC-021 without a rotation strategy.
-- **Impact**: In a crash-looping scenario (renderer regression triggering `unhandledRejection` on every window load), `electron-crashes.log` grows unbounded. On a long-running install with intermittent renderer crashes over months, the file can reach hundreds of MB. Disk exhaustion in the user's userData directory is possible.
-- **Proposed fix**: Add simple rotation: before append, stat the file; if size > 1 MiB, rename to `.1` (deleting prior `.1`). Or use `rotating-file-stream` npm module. Also separate the two event types: `electron-crashes.log` (uncaughtException only) and `electron-rejections.log` (unhandledRejection) so the crash log stays a useful signal.
-- **Confidence**: High
-
-### S4-CR-10 — Unbounded `startup-error.log` on repeated `app.start()` failures
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Observability
-- **Severity**: Critical
-- **Location**: `voice_typer/server/ipc_server.py:2585-2594` (and `:2444-2445`)
-- **Evidence**: When `app.start()` raises, the diagnostic block does `existing = diag_path.read_text(...)` then `_secure_atomic_write(diag_path, existing + buf.getvalue())`. Each subsequent `app.start()` failure APPENDS to `startup-error.log` rather than rotating or capping. By contrast, the construction-failure path (line 2445) overwrites the file with just the new content.
-- **Root cause**: Verified — `app.start()` failure path was written to preserve prior diagnostic context, but no bound is enforced.
-- **Impact**: In a misconfigured environment (bad GPU driver causing torch import crash on every launch), the file grows by ~2-5 KB per launch attempt. A user retrying 100 times accumulates ~500 KB; a cron-restarted service can accumulate MB per day. Combined with `crash_diagnostics.<PID>.txt` files (one per crash PID), repeated startup-failure loops can exhaust disk in the config dir.
-- **Proposed fix**: Cap the file at one entry: replace read-existing-then-append with a fresh `_secure_atomic_write(diag_path, buf.getvalue())` (matching the construction-failure path). If history is desired, write to `startup-error.<timestamp>.log` and prune to the most recent N=5 files. Same for `crash_diagnostics.*.txt` — prune older than 7 days.
-- **Confidence**: High
-
-### S4-CR-11 — HuggingFace consent bypass in `service.download_model` IPC
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Privacy & data protection
-- **Severity**: Critical
-- **Location**: `voice_typer/server/service.py:1903-2303` (`download_model`)
-- **Evidence**: The IPC handler `download_model` calls `snapshot_download(...)` directly for Whisper-family models and `download_parakeet_weights()` for Parakeet, with NO check of `config.huggingface_consent`. The only consent gate is in `voice_typer/server/transcription.py:835` inside `TranscriptionEngine._pre_download_model`, which is only invoked from `engine.load()` — not from the IPC download path. `asr_setup.download_parakeet_weights` also has no consent gate.
-- **Root cause**: Verified — consent gate lives in the engine load path, not the IPC download path; the two paths were never wired together.
-- **Impact**: Clicking "Download" on the Models page phones home to huggingface.co (revealing the user's IP to a US-headquartered third party) without the explicit GDPR Art. 13/44 consent that `huggingface_consent` was specifically designed to gate (NEW-PRIV-005). The consent dialog never appears when the user explicitly clicks Download — it only appears later if they switch backend and the engine tries to auto-load.
-- **Proposed fix**: In `service.download_model`, before `snapshot_download` and before `download_parakeet_weights()`, read `getattr(self._app.config, "huggingface_consent", False)`. If False, return `{"success": False, "error": "HuggingFace consent required", "consent_required": True}` and push a `consent_required` event so the renderer can show the consent dialog. Add a regression test asserting no `snapshot_download` is invoked when consent is False.
-- **Confidence**: High
-
----
-
-## HIGH findings
-
-### S4-CR-12 — `_handle_tray_click` skips `_validate_dict_payload` convention
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Backend architecture / Security
-- **Severity**: High
-- **Location**: `voice_typer/server/ipc_server.py:1999-2042`
-- **Evidence**: Production `_handle_tray_click` validates only that `data` is a dict and contains key "id", NOT that the value is a string. A non-string `id` (e.g. `{"id": 42}`, `{"id": null}`, `{"id": ["open"]}`) passes the check and is forwarded to `tray.dispatch_tray_action(item_id)`. The dead-code duplicate `ipc/server.py:1492-1502` correctly uses `_validate_dict_payload`.
-- **Impact**: Non-string `id` either raises an unhandled exception (caught by dispatcher's generic `except Exception`, returning a generic `internal_error`) or silently no-ops. Frontend gets an opaque error instead of the structured `invalid_field` envelope that ADR-0020 §2 promises.
-- **Proposed fix**: Replace the inline isinstance check with `_validate_dict_payload(data, {"id": {"type": str, "required": True}})`. Add a regression test exercising the non-string-id path.
-- **Confidence**: High
-
-### S4-CR-13 — respawn race: sidecar permanently dead after fast double-crash
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Reliability
-- **Severity**: High
-- **Location**: `src-tauri/src/sidecar/supervisor.rs:33-35, 82-94`; `src-tauri/src/sidecar/ws.rs:210-217`
-- **Evidence**: `respawn` acquires `respawn_in_progress` via compare_exchange(false→true) at entry and only clears it AFTER `respawn_inner` returns. `respawn_inner`, on success, spawns a new sidecar, calls `reconnect_ws` (which starts a new WS reader task), logs "respawn succeeded", and returns Ok(()). The new WS reader task runs concurrently. If the new sidecar dies immediately (native hotkey binary crash, model load OOM, port bind race), the new reader's WS closes, it enters the cleanup block at ws.rs:162-185, and then spawns `std::thread::spawn(... respawn(...).await ...)` at ws.rs:212-216. At this instant, `respawn_in_progress` is STILL true. The new reader's respawn sees the flag set, logs "respawn already in progress — skipping", and returns Ok(()). The reader task exits. Then line 34 clears the flag. Result: sidecar is dead, WS reader is dead, no one is respawning, the UI shows "reconnecting…" forever.
-- **Impact**: Sidecar permanently dead after a fast double-crash (crash-on-startup scenario). User must manually restart the entire app. Affects Tauri/WS path only; Electron/TCP path uses the heartbeat watchdog instead.
-- **Proposed fix**: Clear `respawn_in_progress` BEFORE returning Ok(()) from `respawn_inner` (move line 34 inside the inner function, before the `return Ok(())` at supervisor.rs:88). This is safe because the new WS reader task is already running and owns the new connection; a subsequent disconnect will correctly start a fresh respawn.
-- **Confidence**: High
-
-### S4-CR-14 — retry loop orphans the old sidecar process (no Drop kill)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Concurrency / Reliability
-- **Severity**: High
-- **Location**: `src-tauri/src/sidecar/supervisor.rs:62-100` (`respawn_inner` retry loop)
-- **Evidence**: The loop spawns a new sidecar (line 63), stores it in `state.child` (line 68-69), then calls `reconnect_ws` (line 82). If `reconnect_ws` returns Err, the loop continues to the next iteration (line 92). On the next iteration, a NEW child is spawned and stored, overwriting the OLD Some(child) — but `SidecarHandle` has NO Drop impl and the old child is never killed. The release-build variant `SidecarHandle::ShellPlugin(CommandChild)` does NOT kill the process on drop (Tauri's `CommandChild::kill` consumes self; drop is a no-op).
-- **Impact**: On retry, the orphaned sidecar process keeps running with the microphone stream open, global hotkeys registered, and volume ducked. Each retry iteration can orphan another process. After N retries, N orphaned sidecars compete for the same hotkeys and the microphone.
-- **Proposed fix**: Before overwriting `state.child` on retry, kill the old child: `if let Some(old) = child_guard.take() { let _ = tauri::async_runtime::block_on(old.kill_tree()); }`. Alternatively, impl Drop for SidecarHandle that calls kill_tree on drop.
-- **Confidence**: High
-
-### S4-CR-15 — `HotkeyDispatcher.restart` not atomic — failed restart leaves no hotkey
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Reliability
-- **Severity**: High
-- **Location**: `voice_typer/server/hotkey_dispatcher.py:273-290` (`restart`)
-- **Evidence**: `restart()` does `self._hotkey_backend.stop()` then `self._hotkey_backend = None` BEFORE calling `self.register()`. `register()` can fail: `create_hotkey_backend` can raise (binary not found, spec parse error), or RegisterHotKey can fail with "hotkey already in use by another app". `register()` catches exceptions (line 103-114) and shows a tray notification, but leaves `self._hotkey_backend = None`. The old backend was already stopped and set to None. The user now has NO dictation hotkey at all until they manually restart the app or pick a different hotkey.
-- **Impact**: User changes hotkey in Settings, new hotkey is rejected by the OS (e.g. Snipping Tool owns Win+Shift+S), user is left with no working hotkey. The tray notification says "pick a different hotkey in Settings" but the user may not see it. The app appears broken until manual intervention.
-- **Proposed fix**: Register the NEW backend BEFORE stopping the old one: `new_backend = create_hotkey_backend(hotkey_str); new_backend.start(callback); # only if start succeeds: old = self._hotkey_backend; self._hotkey_backend = new_backend; if old: old.stop()`. If new_backend.start() raises, catch it, show the tray notification, and KEEP the old backend running. Add a test verifying the old backend is still alive after a failed restart.
 - **Confidence**: High
 
 ### S4-CR-16 — No single-instance enforcement on macOS/Linux (POSIX)
@@ -2474,16 +1737,6 @@ Low findings (CR-77 through S3-CR-100):
 - **Proposed fix**: Add a `workflow_dispatch`-only "smoke" mode that runs `cargo check` + a Nuitka `--check` dry-run on every push to `main` for the Tauri Rust host, gated to Linux-only initially. Keep `cargo tauri build` (the bundle step) behind the existing `if: false` until Phase 0 passes.
 - **Confidence**: High
 
-### S4-CR-21 — `_secure_clear_array` undefined in `recorder.py` (SEC-audit-008 silently broken)
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Category**: Existing warnings / Memory / Privacy
-- **Severity**: High
-- **Location**: `voice_typer/server/recording/recorder.py:1226-1235`
-- **Evidence**: Code calls `_secure_clear_array(self._cached_resampled)` and `_secure_clear_array(self._cached_no_resample_arr)` with NO import. `_secure_clear_array` is defined in `recording/buffer.py:37` and re-exported by `recording/__init__.py`, but `recorder.py` uses a bare-name lookup. The surrounding `try/except Exception: pass` swallows the resulting `NameError`. `ruff --select F821` reports both call sites. The docstring at line 1221 says "_secure_clear_array is defined at recording.py:78" — recording.py doesn't exist (it's recording/buffer.py now).
-- **Impact**: SEC-audit-008's secure-zeroing of cached audio arrays NEVER executes. The previous session's audio lingers in process memory until the next GC pass frees the numpy arrays — exactly the security regression SEC-audit-008 was meant to fix. The try/except makes the failure invisible in tests.
-- **Proposed fix**: Add `from voice_typer.server.recording import _secure_clear_array` at the top of recorder.py. Tighten the `except` to `except (OSError, ValueError):` so a future NameError-class bug surfaces instead of being swallowed. Add a unit test that calls the secure-clear path and asserts the array is zeroed.
-- **Confidence**: High
-
 ### S4-CR-22 — `__all__` in `config_validators.py` lists 9 names that don't exist (F822 × 9)
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
 - **Category**: Existing warnings
@@ -2502,16 +1755,6 @@ Low findings (CR-77 through S3-CR-100):
 - **Evidence**: Baseline declares `total_count=3, by_rule={"UP037":3}`. Actual `ruff check voice_typer/server/ --output-format=json` returns 61 violations across 10 rule categories: E731:19, SIM105:12, E402:10, F822:9, N806:3, E501:2, F821:2, F841:2, UP022:1, F401:1. UP037 itself has 0 current violations. The ratchet script outputs `FAIL: total violation count grew from 3 to 61` with 10 per-rule regressions.
 - **Impact**: CI is either currently red (and someone is ignoring it) or has been bypassed. New violations can land without detection. The baseline file's own schema invariant trivially passes — masking the regression from the test suite.
 - **Proposed fix**: (a) Fix the 14 F-rule violations (real bugs — see S4-CR-21, S4-CR-22). (b) For the 47 style violations, either fix them in bulk via `ruff check --fix --unsafe-fixes` OR regenerate the baseline honestly.
-- **Confidence**: High
-
-### S4-CR-24 — `requirements-lock.txt` missing keyring + websockets + test/build/optional deps
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Dependency health
-- **Severity**: High
-- **Location**: `requirements-lock.txt`
-- **Evidence**: `requirements.txt` declares `keyring>=25.0,<26.0` and `websockets>=12.0,<14.0` as core deps. `requirements-lock.txt` (the hash-pinned reproducible lockfile) does NOT contain either — `grep -i keyring requirements-lock.txt` returns 0 matches, `grep -i websockets` returns 0. The lockfile also omits all test deps (pytest, pytest-asyncio, etc.), build deps (pyinstaller), and optional extras. Header says "Last regenerated: 2026-07-12" — 5+ months stale.
-- **Impact**: `pip install --require-hashes -r requirements-lock.txt` silently installs a broken environment: `credential_store.py` (imports keyring) and `sidecar_ws.py` (imports websockets) will crash with `ModuleNotFoundError` on first use. The hash-pinned lockfile — which exists specifically to provide reproducible secure installs — produces a non-functional environment.
-- **Proposed fix**: Regenerate via `pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml`. Verify the output includes keyring, websockets, and the test/build extras. Add a CI step that does `pip install --require-hashes -r requirements-lock.txt` and imports `voice_typer.server.credential_store` + `voice_typer.server.sidecar_ws` to catch future drift.
 - **Confidence**: High
 
 ### S4-CR-25 — 4 known CVEs in `transformers==4.57.6` (pin blocks fix)
@@ -2671,33 +1914,6 @@ Low findings (CR-77 through S3-CR-100):
 - **Proposed fix**: Add the legacy `~/.voice-typer` check at the top of `config_dir_from_env` (or in `config_dir` before delegating): `let legacy = home.map(|h| PathBuf::from(h).join(".voice-typer")); if let Some(p) = legacy { if p.exists() { return p; } }`. Mirror the `VOICE_TYPER_CONFIG_DIR` override check too. Add a Rust test that mirrors `tests/test_paths.py` to lock the resolution order.
 - **Confidence**: High
 
-### S4-CR-40 — `_secure_atomic_write` uses fixed tmp name → concurrent writes collide (EEXIST)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Data integrity
-- **Severity**: High
-- **Location**: `voice_typer/server/config.py:64-126`
-- **Evidence**: `tmp_path = path.with_suffix(path.suffix + ".tmp")` is a fixed name. With `O_EXCL` on POSIX, a second concurrent caller's `os.open(... O_EXCL)` fails with `EEXIST` → `except Exception` → `tmp_path.unlink()` (deletes the FIRST caller's tmp!) → re-raise. Two realistic concurrent callers: (a) `Config.save()` from the main thread after a settings change, and (b) `credential_store._write_plaintext_fallback()` from an IPC handler thread that just stored a new API key. Both target `config.json`. The second one's failure surfaces as `Config.save()` returning False (logged at ERROR level) and the user's setting silently not persisting.
-- **Impact**: Concurrent writes to the same JSON file (config.json, corrections.json, templates.json, vocabulary.json) can lose one of the writes silently. The pattern recurs in `vocabulary._save_user`, `templates._save`, `crash_recovery._save_sync`, `onboarding.mark_complete`, `duck_crash_recovery.save`, `autostart_launcher._write_pid_file` — all call `_secure_atomic_write`.
-- **Proposed fix**: Use `tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")` to get a unique tmp name per call; `os.close(fd)` then `os.open(tmp, O_WRONLY|O_TRUNC|O_NOFOLLOW)`. Alternatively, include `os.getpid()` + `threading.get_ident()` in the tmp suffix. Add a multithreaded regression test that hammers `Config.save()` from 4 threads and asserts no False return.
-- **Confidence**: High
-
-
-## Top Priorities (Critical, must-fix-this-run)
-
-1. **CR-1** — Tauri tray menu clicks emit a `dispatch` EVENT instead of invoking the `dispatch` COMMAND → tray menu is completely non-functional on the Tauri path. `[verified]`
-2. **CR-2** — Two parallel `IPCServer` implementations (`ipc_server.py` 2609 LOC + `ipc/server.py` 1764 LOC) — ~2650 LOC of dead/duplicate code from a half-finished Phase 4.5 split. Production imports from the OLD god-module; the NEW package's `IPCServer` is dead. `[verified]`
-3. **CR-3** — supervisor orphans the old Python sidecar process on WS-reconnect failure (no `kill_tree()` on the old `SidecarHandle` before reassignment; no `Drop` impl). Up to 5 zombie Python sidecars can accumulate per flap cycle. `[verified]`
-4. **CR-4** — Tauri v2 Linux `.deb` and `.rpm` bundles silently skip udev-rule / input-group / Caps Lock setup because `install_permissions.py` is NOT in `tauri.conf.json:bundle.resources`. Native hotkeys broken on EVERY Linux install. RPM `postinst.rpm` was never updated with the NF-R9-2 path-probe fix. `[verified]`
-5. **CR-5** — AudioProcessor filter chain resamples each chunk to 16 kHz, then `Recorder.stop()`/`snapshot()` resample AGAIN from device native rate → every dictation on non-16 kHz mics produces 3×-too-short garbage audio. `[verified by code-flow]`
-6. **CR-6** — SECURITY.md says "69" `ALLOWED_COMMANDS`, actual is 70 — test failing every CI run, blocking builds/releases. `[verified by test execution]`
-7. **CR-7** — Allowlist parity test failing: `tray_click`, `onboarding_check_permissions`, `onboarding_get_model_catalog` missing from Electron `ALLOWED_COMMANDS` — 3 renderer features are silent no-ops + CI broken. `[verified by test execution]`
-
-## Session 5 Findings
-
-Session 5 was a UX/UI-focused review covering accessibility (WCAG), visual polish, ARIA patterns, color contrast, and frontend component correctness. Findings from this session are organized under severity sub-headings below. No consolidated section header existed prior to this edit.
-
-## High-Severity Findings
-
 ### S5-CR-8 — ARCHITECTURE.md stale claims (4 sites)
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
 - **Severity**: High · **Category**: Documentation · **Status**: Pending
@@ -2724,15 +1940,6 @@ Session 5 was a UX/UI-focused review covering accessibility (WCAG), visual polis
 - **Root cause**: Sticky tab bar was added without the visual treatment Settings uses (bg-subtle + border). The 156px padding is a magic-number workaround.
 - **Impact**: When scrolling Models page, model card text bleeds through the transparent tab bar (janky, hard to read tab labels). 156px of dead space above PageHeading looks like a layout bug. Two pages with the same conceptual pattern (sticky tabs) look completely different.
 - **Proposed fix**: Make Models.tsx tab bar match Settings.tsx pattern: `<div className="sticky left-0 right-0 top-0 z-40 bg-(--bg-subtle) border-b border-border py-1.5">`. Change `pt-[156px]` → `pt-6`.
-
-### S5-CR-21 — Bubble recording/idle modes have no visible label (no mic icon, no "Recording" text)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: High · **Category**: Product Experience / discoverability · **Status**: Pending
-- **Location**: `voice_typer/client/src/renderer/src/Bubble.tsx:455-464` (idle) ; `:470-485` (recording)
-- **Evidence**: In `mode === "idle"` the bubble renders `<div className="flex h-6 items-center" />` — an EMPTY 24px-tall pill with no visible content (only an sr-only span for screen readers). In `mode === "recording"` it renders ONLY 7 vertical bars (`<span>` elements) with no text label, no mic icon, no "Recording" text. The bubble's only "label" is the `<output aria-label={t("bubble.recordingIndicatorAria")}>` which is invisible to sighted users. The mic button (lines 488-542) only renders when `behavior === "always_visible" && micButton !== false && clickToToggle !== false` — THREE separate config flags must all be ON.
-- **Root cause**: Bubble was designed as a pure abstract visualizer; no thought given to first-time-user legibility. The mic button's three-way AND gating means most users who enable "Always Visible" alone will see an empty pill with no obvious action.
-- **Impact**: New users seeing the always-visible bubble as an empty pill may not realize it's Voice Typer; they may try to click it (does nothing without the mic button enabled) and conclude the app is broken. During recording, the bars-only display is uninterpretable to anyone who hasn't read the docs — competitors like macOS Voice Control show "Listening" text.
-- **Proposed fix**: (a) In idle mode, render a tiny mic icon + "Ready" text inside the pill. (b) In recording mode, add a small "● REC" indicator or keep bars but add an sr-only + visible 1-line label. (c) Simplify the mic button gating: show it whenever `bubble_behavior === "always_visible"` (drop the two additional flags) — and enable all three by default for new users.
 
 ### S5-CR-22 — App connecting screen has hardcoded English 3-step status list
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
@@ -2774,110 +1981,30 @@ Session 5 was a UX/UI-focused review covering accessibility (WCAG), visual polis
 - **Severity**: Medium · **Category**: Spaghetti / monolith detection · **Location**: `voice_typer/server/transcription.py:1-1298`
 - **Proposed fix**: Extract `nvidia_dll_paths.py`, `model_downloader.py`, `gpu_memory.py`; `transcription.py` thin ≤900 LOC.
 
-### S5-CR-33 — `volume_backends.py` 1055 LOC puts 3 platform-specific classes in one file
-**Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
-- **Severity**: Medium · **Category**: Spaghetti / monolith detection · **Location**: `voice_typer/server/volume_backends.py:1-1055`
-- **Proposed fix**: Convert to `volume_backends/{__init__,windows,macos,linux}.py` package.
-
-### S5-CR-34 — `Models.tsx` 1682 LOC god component with 25+ useState and 16 callbacks
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Spaghetti / monolith detection · **Location**: `voice_typer/client/src/renderer/src/pages/Models.tsx:1-1682`
-- **Proposed fix**: Extract `pages/models/{utils.ts,LocalModelsPanel.tsx,CloudProvidersPanel.tsx,ConsentGate.tsx,BenchmarkPanel.tsx}`. `Models.tsx` thin ≤300 LOC.
-
-### S5-CR-35 — `Settings.tsx` 1082 LOC, search-to-tab logic not extracted
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Low (borderline) · **Category**: Spaghetti / monolith detection · **Location**: `voice_typer/client/src/renderer/src/pages/Settings.tsx:1-1082`
-- **Proposed fix**: Extract `hooks/useSettingsSearch.ts` + `pages/settings/searchHints.ts`.
-
 ### S5-CR-36 — `dispatch` loop responses can route to wrong client on Electron reconnect
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - **Severity**: Medium · **Category**: Concurrency & race conditions · **Location**: `voice_typer/server/ipc/server.py:839-949 + 1547-1730`
 - **Proposed fix**: Add optional `_tcp_client_override` parameter to `_send`; dispatch loop passes its local `client` ref.
-
-### S5-CR-37 — `event_bus.publish` → `asyncio.Queue.put_nowait` from non-asyncio thread (not thread-safe)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Concurrency & race conditions · **Location**: `voice_typer/server/sidecar_ws.py:388-402` + `event_bus.py:213-256`
-- **Proposed fix**: Use `loop.call_soon_threadsafe(outbound.put_nowait, event)` instead of `outbound.put_nowait(event)` directly.
-
-### S5-CR-38 — Config schema downgrade-safety: forward-compat path silently drops unknown fields on next save
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Configuration management / Data integrity · **Location**: `voice_typer/server/config.py:1075-1090`
-- **Proposed fix**: Before overwriting a newer-version config with an older-version save, create a backup `config.json.v{loaded_version}.bak`. Surface the version mismatch to the renderer via `last_load_warnings`.
-
-### S5-CR-39 — `crash_recovery.py:create_diagnostic_bundle` leaks user speech text via "Export diagnostics" button
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Privacy / Error handling · **Location**: `voice_typer/server/crash_recovery.py:584-593`
-- **Proposed fix**: Include only metadata (count, timestamps, pasted flag) in crash_recovery.json — omit text/transcription fields. Add a regression test asserting no transcription text appears in the bundle.
-
-### S5-CR-40 — `ipc_server.py main()` swallows diagnostic-write failures with `except Exception: pass`
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Observability / Error handling · **Location**: `voice_typer/server/ipc_server.py:2447-2448` and `:2596-2597`
-- **Proposed fix**: Replace with explicit stderr logging + last-resort `tempfile` write.
-
-### S5-CR-41 — 18+ `log.error("...: %s", exc)` calls lose traceback across engine/service/recorder modules
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Logging consistency / Observability · **Location**: `parakeet_engine.py:319, 454`; `qwen_engine.py:160, 163, 191, 197`; `asr_registry.py:184, 207, 285`; `service.py:1474, 2324, 2363`; `transcription.py:210`; `recorder.py:2887, 2918`; `vocabulary.py:202, 208, 215, 371`; `templates.py:141, 200`; `onboarding.py:110`; `crash_recovery.py:145, 649`; `task_scheduler.py:695`; `autostart_launcher.py:417`; `electron_launcher.py:170`; `clipboard.py:1107`
-- **Proposed fix**: Mechanical pass — replace `log.error("...: %s", exc)` with `log.exception("...")` in every site. ~18 one-line edits.
 
 ### S5-CR-42 — `prewarm.log` handler missing PII filter, session_id, bubble-level exclusion filter
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
 - **Severity**: Medium · **Category**: Logging consistency · **Location**: `voice_typer/server/prewarm/logging_setup.py:67-82`
 - **Proposed fix**: Attach the same three filters used by the main handler (`_SessionFilter`, `PIIRedactionFilter`, `_BubbleLevelExclusionFilter`), use shared `_FileFormatter`, and align rotation policy (5MB×5).
 
-### S5-CR-43 — `test_llm_connection` bypasses `llm_polish_consent` gate
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Security / Privacy · **Location**: `voice_typer/server/service.py:901-936` ; `voice_typer/server/llm_polish.py:170-190`
-- **Proposed fix**: In `service.test_llm_connection`, gate on `getattr(cfg, "llm_polish_consent", False)` BEFORE constructing the LLMPolisher. Return `{"success": False, "message": "LLM polish consent not given"}` when consent is False. Add a regression test.
-
-### S5-CR-44 — `<html lang="en">` hardcoded; `setLocale()` updates `dir` but NEVER `lang` — screen readers mispronounce non-English
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Localization / i18n · **Location**: `voice_typer/client/src/renderer/index.html:2` + `bubble.html:2` + `i18n/i18n.ts:93-101, 211-248`
-- **Proposed fix**: In `setLocale()`, after setting `dir`, also set `document.documentElement.lang = next`. In the module-load restore block, apply the same `document.documentElement.lang = _current_locale`.
-
 ### S5-CR-45 — 56+ physical-side CSS classes (`ml-`, `mr-`, `pl-`, `pr-`, `text-left`, `text-right`, `left-`, `right-`) block RTL mirroring
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - **Severity**: Medium · **Category**: Localization / i18n / Accessibility · **Location**: 30 files under `voice_typer/client/src/renderer/src/`
 - **Proposed fix**: Migrate the physical-side utilities to logical ones (`ml-*` → `ms-*`, `mr-*` → `me-*`, `pl-*` → `ps-*`, `pr-*` → `pe-*`, `text-left` → `text-start`, `text-right` → `text-end`, `left-*` → `start-*`, `right-*` → `end-*`).
-
-### S5-CR-46 — Dashboard `Intl.DateTimeFormat`/`NumberFormat` use browser locale, not user-selected UI locale
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Localization / i18n · **Location**: `voice_typer/client/src/renderer/src/components/dashboard/ActivityList.tsx:18-20` + `StatCards.tsx:15` + `Dashboard.tsx:116`
-- **Proposed fix**: Add a `getLocale()` import in ActivityList.tsx, StatCards.tsx, Dashboard.tsx. Pass `getLocale()` as the first arg to `toLocaleDateString`/`toLocaleTimeString`/`toLocaleString`. Replace `dateStr.slice(5)` with `new Intl.DateTimeFormat(getLocale(), {month: "short", day: "2-digit"}).format(new Date(dateStr))`.
 
 ### S5-CR-47 — Tauri `WindowBridge` missing 4 commands (`openLogs`, `exportTemplates`, `exportConfig`, `openModelImportDialog`)
 **Status:** ✅ Fixed (verified via Task Verification Gate this run)
 - **Severity**: Medium · **Category**: API & IPC contract stability · **Location**: `src-tauri/src/commands/mod.rs:16-23` + `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts:408-498`
 - **Proposed fix**: Add Rust `#[tauri::command]` functions for `export_templates`, `export_config`, `open_logs`, `open_model_import_dialog`. Register them in `main.rs:149 generate_handler!`. Wire them up in `lib/tauri-bridge.ts`.
 
-### S5-CR-48 — 5 stale file paths in README/CONTRIBUTING/ARCHITECTURE trees (`recording.py`, `hotkeys.py`, `server_platform.py`, `prewarm.py`, `corrections.json` all refactored into packages)
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Documentation · **Location**: `README.md:404, 412, 415, 430, 353+608`; `CONTRIBUTING.md:248`; `docs/ARCHITECTURE.md:17, 21`
-- **Proposed fix**: Update architecture trees to show packages: `recording/`, `hotkeys/`, `server_platform/`, `prewarm/`. Update `voice_typer/corrections.json` → `voice_typer/server/corrections.json`. Consider adding a CI test that asserts every file mentioned in README/CONTRIBUTING/ARCHITECTURE actually exists.
-
-### S5-CR-49 — ADR index missing ADR-0020; CONTRIBUTING.md lists 5 nonexistent ADR files (off-by-2 numbering)
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Documentation · **Location**: `CONTRIBUTING.md:290-294`; `docs/adr/README.md:8-27`; `docs/adr/0002-electron-migration.md`
-- **Proposed fix**: Add a row to `docs/adr/README.md` index for ADR-0020 with status "Accepted — migration in progress". Fix the duplicate title for ADR-0002. Update CONTRIBUTING.md L290-294 to the actual ADR numbers/names.
-
 ### S5-CR-50 — `sync_versions.py` misses `tauri.conf.json` — version drift when bumping
 **Status:** ❌ Not Fixed — out of file scope (fix target scripts/build/sync_versions.py orphan)
 - **Severity**: Medium · **Category**: Build pipeline · **Location**: `scripts/build/sync_versions.py:39-43, 135-156`
 - **Proposed fix**: Add `read_tauri_conf_version()` / `write_tauri_conf_version()` pair; include `src-tauri/tauri.conf.json` in `collect_versions()` + `apply_version()`.
-
-### S5-CR-51 — `electron-builder.yml` declares `publish:` for auto-update but no `electron-updater` runtime; Tauri `tauri-plugin-updater` explicitly not granted
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Packaging/installer/update · **Location**: `voice_typer/client/electron-builder.yml:11-15`; `src-tauri/capabilities/migrate-runtime.json:4`
-- **Proposed fix**: Either implement `electron-updater` integration OR remove the `publish:` block from electron-builder.yml until auto-update is actually wired. For Tauri path, decide explicitly: add `tauri-plugin-updater` OR document "manual updates only".
-
-### S5-CR-52 — `paste_text` Tauri command is 165-LOC god function with 4 platform branches inline
-**Status:** ✅ Fixed (verified via Task Verification Gate this run)
-- **Severity**: Medium · **Category**: Tauri/Rust host · **Location**: `src-tauri/src/commands/sidecar_cmds.rs:109-275`
-- **Proposed fix**: Extract to `commands/paste.rs` (or `paste_service` module): `pub async fn execute_paste(app, text) -> Result<(), String>` entry + `#[cfg(linux)] fn paste_wayland_clipboard(...)`, `fn paste_via_enigo_text(text)`, `fn paste_via_clipboard_and_ctrl_v(app, text)`, `#[cfg(windows)] fn capture_focus_guard()`, `#[cfg(windows)] async fn restore_focus_or_fallback(app, text, guard)`. The `#[tauri::command]` becomes a 5-line thin wrapper.
-
-### S5-CR-55 — macOS prewarm completion-event optimization missing (kqueue) — falls back to 1Hz polling
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Severity**: Medium · **Category**: Cross-platform / Performance · **Location**: `voice_typer/server/prewarm/completion_events.py:140-147`
-- **Proposed fix**: Implement `_wait_completion_macos(pid, timeout_s)` using `kqueue()` + `EVFILT_PROC` + `NOTE_EXIT`. Available since macOS 10.3+; no extra deps. Falls back to the polling loop on Python builds without `select.kqueue`.
 
 ### S5-CR-56 — macOS sidecar/prewarm binaries ship unsigned (Nuitka `--macos-signed-app-name` doesn't codesign)
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -3399,20 +2526,6 @@ Verbatim copy of session-1's `review.md`:
 **Related Files:** `voice_typer/server/clipboard.py`
 
 **Fix:** Convert to `voice_typer/server/clipboard/` package: `__init__.py` (~30 LOC, re-exports), `linux.py` (~310 LOC), `windows.py` (~150 LOC), `manager.py` (~900 LOC). Update ~14 test monkeypatch sites to patch new locations. Update 2 `inspect.getsource(clip_mod)` tests to either read `clipboard/manager.py` source OR keep `PLAT-CONTENT`/`PLAT-001`/`UIPI` strings in `__init__.py` as a docstring fragment.
-
----
-
-## PVT-24 — `volume_backends.py` (1055 LOC) — 3-platform monolith (Win/Mac/Linux in one file)
-
-**Status:** ❌ Not Fixed
-
-**Description:** Three unrelated platform-specific classes in one file with section dividers already marking the boundaries: `WinVolumeBackend` (~205 LOC), `_try_import_coreaudio` + `MacVolumeBackend` + 9 private helpers (~610 LOC), `LinuxVolumeBackend` (~205 LOC). The repo already follows the per-platform split pattern (`hotkeys/` is a package with `base.py` + per-platform impls). `voice_typer/server/volume_backend_base.py` already exists as the abstract base — the package structure is half-built but the concrete backends were never moved out of the single 1055-LOC file.
-
-**Severity:** 🟡 Medium (platform monolith)
-
-**Related Files:** `voice_typer/server/volume_backends.py`; `voice_typer/server/volume_backend_base.py`
-
-**Fix:** Convert to `voice_typer/server/volume_backends/` package: `__init__.py` (~20 LOC, re-exports), `windows.py` (~210 LOC), `macos.py` (~610 LOC), `linux.py` (~210 LOC). Zero test changes — public symbols re-exported, no `inspect.getsource` blockers, no monkeypatch blockers.
 
 ---
 
@@ -19467,21 +18580,6 @@ Block (b) is dead code — it appears to be the ORIGINAL CR-3 fix that was super
 **Fix:** Split the allowlists: TS keeps `relaunch_ack`/`heartbeat` (Electron needs them); Rust drops them (Rust host bypasses the gate). Update the parity test to accept the asymmetric sets with a documented exception.
 **Severity:** 🟡 Medium
 
-## DT-51 — `openElectronLogs` cleanup never executed (dead handler + type lie)
-**Status:** ⚠️ Partial — preload cleaned, window-namespace.ts cleaned, handler converted, but bridge.ts:58 still retains openElectronLogs type
-**Description:** `preload/index.ts:102-110` comment claims `openElectronLogs` was removed and lists cross-file cleanup (types/ipc.ts, tauri-bridge/window-namespace.ts, main/ipc/window-handlers.ts). But the cleanup was NEVER executed: `ipc.ts:858-862` STILL declares `openElectronLogs?`, `window-namespace.ts:208-226` STILL implements it, `window-handlers.ts:149` STILL has the dead `window:open-electron-logs` handler. Under Electron, `window.window_.openElectronLogs` is `undefined` (preload doesn't expose it) but the TS type claims it's present.
-**Root Cause:** Cleanup planned in the preload comment but only the preload itself was updated.
-**Impact:** Type-contract lie; dead handler still installed.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/preload/index.ts:102-110`
-- `voice_typer/client/src/renderer/src/types/ipc.ts:858-862`
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts:208-226`
-- `voice_typer/client/src/main/ipc/window-handlers.ts:149`
-
-**Fix:** Complete the planned cleanup — delete `openElectronLogs?` from ipc.ts, delete the impl from window-namespace.ts, delete the dead handler from window-handlers.ts.
-**Severity:** 🟡 Medium
-
 ## DT-52 — `setPosition` type mismatch across 4 layers
 **Status:** ❌ Not Fixed — setPosition type still `(pos: string)` in bubble_bridge.ts; not narrowed to "top" | "bottom"
 **Description:** Four layers, three different type contracts for `setPosition`: preload `_bubble-channels.ts:101` accepts `"top" | "bottom"` (narrowest), `types/ipc.ts:943` accepts `string` (widest), `tauri-bridge/bubble-namespace.ts:177` accepts `string`, Rust `bubble.rs:182` accepts `String` (validates at runtime). A caller passing "left" compiles against the shared TS type but type-errors at the Electron preload boundary; under Tauri it compiles AND invokes the Rust command, which errors at runtime.
@@ -19509,16 +18607,3 @@ Block (b) is dead code — it appears to be the ORIGINAL CR-3 fix that was super
 
 **Fix:** Move `bubble_coalesce_should_emit` to `sidecar/bubble_coalesce.rs`. Move restart_counter helpers to `platform/restart_counter.rs`. supervisor.rs owns ONLY respawn/backoff.
 **Severity:** 🟡 Medium
-
-## DT-54 — `_SHUTDOWN_ACK_TIMEOUT_SECONDS` dead code in sidecar_ws.py
-**Status:** ❌ Not Fixed — _SHUTDOWN_ACK_TIMEOUT_SECONDS still present as comment in sidecar_ws.py
-**Description:** `sidecar_ws.py:155` defines `_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0` but grep confirms it's referenced NOWHERE in the file. It exists only as documentation of the Rust host's behavior (`util.rs:26 SHUTDOWN_ACK_TIMEOUT_MS=2000`). It's a `float` value Python won't flag as dead.
-**Root Cause:** Comment-only constant that misleads readers into thinking Python enforces the timeout.
-**Impact:** If Rust changes the timeout, the Python constant silently drifts.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/sidecar_ws.py:155`
-- `src-tauri/src/util.rs:26`
-
-**Fix:** Delete `_SHUTDOWN_ACK_TIMEOUT_SECONDS` from sidecar_ws.py. Move the comment to a docstring referencing `src-tauri/src/util.rs::SHUTDOWN_ACK_TIMEOUT_MS` as the source of truth.
-**Severity:** 🟢 Low
