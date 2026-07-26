@@ -1,4 +1,4 @@
-import { Add01Icon, Mic02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Alert02Icon, Mic02Icon } from "@hugeicons/core-free-icons";
 import type { Meta, StoryObj } from "@storybook/react";
 import { EmptyState } from "./EmptyState";
 
@@ -59,4 +59,30 @@ export const CustomActionIcon: Story = {
 		onAction: () => {},
 	},
 	name: "Custom action icon",
+};
+
+// XA-2: ErrorVariant story. The `variant="error"` prop switches the
+// icon to Alert02Icon, tints the icon + ring with `--destructive`,
+// and sets `role="alert"` on the wrapper so screen readers announce
+// the load failure immediately (vs. the polite `role="status"` used
+// for genuine "no data yet" placeholders). Without this story the
+// error variant was invisible in the Storybook docs — designers and
+// QA had no canonical reference for what a load-failed empty state
+// should look like, which led to drift across pages.
+//
+// The variant is consumed by ConnectionStatusScreen, History,
+// Templates, Vocabulary, and Microphone (see XA-2 finding for the
+// full list). This story serves as the visual contract: any page
+// that renders `<EmptyState variant="error" />` should match this
+// appearance.
+export const ErrorVariant: Story = {
+	args: {
+		icon: Alert02Icon,
+		title: "Failed to load vocabulary",
+		description: "Check your connection and try again.",
+		actionLabel: "Retry",
+		onAction: () => {},
+		variant: "error",
+	},
+	name: "Error variant (load failed)",
 };

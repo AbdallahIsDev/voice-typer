@@ -218,7 +218,7 @@ function NumberInputStepper({
 			/>
 			<div
 				className={cn(
-					"absolute end-1 top-0 flex h-full w-8 flex-col",
+					"absolute inset-e-1 top-0 flex h-full w-8 flex-col",
 					"opacity-0 pointer-events-none transition-opacity duration-200",
 					"group-hover:opacity-100 group-hover:pointer-events-auto",
 					// PVT-020: reveal steppers whenever the input OR a stepper

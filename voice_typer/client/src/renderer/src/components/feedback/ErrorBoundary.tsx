@@ -41,6 +41,7 @@
 // and loses the structured component-tree trace).
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 
 interface ErrorBoundaryProps {
@@ -326,48 +327,40 @@ export class ErrorBoundary extends Component<
 						    affordance has the highest expected payoff. The
 						    destructive tint + soft background visually separate
 						    it from the secondary Try Again / Reload App actions. */}
-						<button
+						<Button
 							type="button"
+							variant="destructive"
 							onClick={this.handleResetSettings}
 							disabled={this.state.resetting}
-							className="rounded-lg border border-destructive/60 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"
 							title={t("errorBoundary.resetSettingsHint")}
 							aria-describedby="error-boundary-reset-hint"
 						>
 							{this.state.resetting
 								? t("errorBoundary.resetting")
 								: t("errorBoundary.resetSettings")}
-						</button>
-						<button
-							type="button"
-							onClick={this.handleReset}
-							className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-						>
+						</Button>
+						<Button type="button" variant="default" onClick={this.handleReset}>
 							{t("errorBoundary.tryAgain")}
-						</button>
-						<button
-							type="button"
-							onClick={this.handleReload}
-							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
-						>
+						</Button>
+						<Button type="button" variant="outline" onClick={this.handleReload}>
 							{t("errorBoundary.reloadApp")}
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							variant="outline"
 							onClick={this.handleCopyError}
-							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
 						>
 							{this.state.copied
 								? t("errorBoundary.copied")
 								: t("errorBoundary.copyError")}
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							variant="outline"
 							onClick={this.handleOpenLogs}
-							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
 						>
 							{t("errorBoundary.openLogs")}
-						</button>
+						</Button>
 					</div>
 					{this.state.resetFailed && (
 						<p className="text-xs text-destructive">

@@ -7,7 +7,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback } from "react";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
+import { cn, focusRing } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 
 const THEME_CYCLE: {
@@ -64,12 +64,16 @@ export function ThemeSwitch({
 			type="button"
 			onClick={handleClick}
 			className={cn(
-				"inline-flex items-center justify-center gap-2 rounded-full transition-[padding] duration-200 ease-out",
-				"hover:bg-black/5 dark:hover:bg-white/10",
+				"inline-flex items-center justify-center gap-2 rounded-md transition-[padding] duration-200 ease-out",
+				// XA-1: theme-aware hover (replaces the physical
+				// bg-black/5 dark:bg-white/10 pairing so custom + dark
+				// themes get a consistent hover wash).
+				"hover:bg-foreground/5",
 				// A11Y-2: visible focus indicator so keyboard users can see which
-				// theme-switch button is focused (the raw <button> previously had
-				// no focus-visible styling at all).
-				"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+				// theme-switch button is focused. Use the shared focusRing
+				// constant (ring-3 / ring-ring/30) for parity with the design-
+				// system Button instead of the thinner ring-2 / ring-ring/30.
+				focusRing,
 				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
 			)}
 			title={t("theme.switchTitle", { mode: label })}

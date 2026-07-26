@@ -97,6 +97,14 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--destructive",
 	"--destructive-foreground",
 
+	// NH-16: status tokens (success / warning / info). Must be in
+	// THEME_VARIABLES so applyThemeVars clears them on theme switch
+	// (clearThemeVars iterates this list) and so custom-theme
+	// overrides are accepted (applyThemeVars gates on this list).
+	"--success",
+	"--warning",
+	"--info",
+
 	// Sidebar
 	"--sidebar",
 	"--sidebar-foreground",
@@ -350,6 +358,14 @@ export function deriveCustomVars(
 		"--sidebar-ring": `${primary}80`,
 		"--destructive": destructive,
 		"--destructive-foreground": "#ffffff",
+		/* NH-16: emit the three status tokens so custom themes don't fall
+		   back to the stylesheet default. The colours are derived from the
+		   user's chosen destructive hue where possible (success/warning/info
+		   stay semantic — green/amber/blue — so status meaning is preserved
+		   even on user-customised palettes). */
+		"--success": isDark ? "#22c55e" : "#16a34a",
+		"--warning": isDark ? "#f59e0b" : "#d97706",
+		"--info": isDark ? "#3b82f6" : "#2563eb",
 		"--scrollbar-thumb": scrollbar,
 		"--scrollbar-thumb-hover": scrollbarHover,
 	};

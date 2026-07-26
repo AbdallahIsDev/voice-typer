@@ -211,10 +211,30 @@ export function useTemplates({
 	// wrong position (silent reordering / data loss).
 	const instantDeleteTemplate = useCallback(
 		async (tmpl: TemplateRow) => {
+			// Capture the pre-delete rows BEFORE the optimistic
+			// setTemplates call.  The ref is kept in sync by a
+			// useEffect that runs AFTER render commits, so once we
+			// call setTemplates(toRows(items)) the next render's
+			// effect will overwrite templatesRef.current with the
+			// post-delete list.  Holding the pre-delete rows in a
+			// local lets the catch branch restore the exact
+			// pre-delete state regardless of when the IPC rejects
+			// (mirrors the useVocabulary D2-FIX pattern).
+			const preDeleteRows = templatesRef.current;
 			try {
-				const items = rowsToTemplates(templatesRef.current);
+				const items = rowsToTemplates(preDeleteRows);
 				const originalIndex = tmpl.index;
 				const removed = items.splice(tmpl.index, 1)[0];
+				// Optimistic UI update: remove the row from React
+				// state BEFORE awaiting the IPC save so the list
+				// updates instantly.  Previously the UI stayed
+				// stale for the entire 100-500ms saveTemplates
+				// round-trip (plus another round-trip from
+				// loadRows below), which felt sluggish and could
+				// trigger duplicate-delete clicks.  On failure we
+				// restore from `preDeleteRows` before showing the
+				// error toast.
+				setTemplates(toRows(items));
 				// CR-052: await the IPC save so loadRows()
 				// below sees the post-delete state.
 				await saveTemplates(items, call);
@@ -264,6 +284,10 @@ export function useTemplates({
 				}
 				loadRows();
 			} catch (err) {
+				// Restore the pre-delete list so the UI matches the
+				// actual persisted state (the save failed so the
+				// backend still has the original list).
+				setTemplates(preDeleteRows);
 				console.error("Failed to delete template", err);
 				showSnack(t("templates.deleteFailed"), "error");
 			}

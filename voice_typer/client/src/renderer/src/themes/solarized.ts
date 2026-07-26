@@ -64,6 +64,12 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar (PVT-001: backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
 		"--scrollbar-thumb": "oklch(0.82 0.015 90)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.015 90)",
+		// NH-16: status tokens for light mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.62 0.17 149)",
+		"--warning": "oklch(0.7 0.16 70)",
+		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
 		"--background": "oklch(0.15 0.015 240)",
@@ -110,5 +116,11 @@ export const solarizedTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-5": "oklch(0.65 0.1 340)",
 		"--scrollbar-thumb": "oklch(0.3 0.015 240)",
 		"--scrollbar-thumb-hover": "oklch(0.4 0.015 240)",
+		// NH-16: status tokens for dark mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.7 0.16 149)",
+		"--warning": "oklch(0.78 0.15 70)",
+		"--info": "oklch(0.7 0.13 240)",
 	},
 };

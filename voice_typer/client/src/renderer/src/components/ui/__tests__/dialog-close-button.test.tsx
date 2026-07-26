@@ -66,10 +66,10 @@ describe("NH-21: DialogContent renders a visible close (X) button", () => {
 			</Dialog>,
 		);
 		const closeBtn = screen.getByRole("button", { name: "Close" });
-		// ``end-2 top-2`` are logical-property positioning utilities so the
+		// ``inset-e-2 top-2`` are logical-property positioning utilities so the
 		// button flips with the document direction (Arabic RTL).
 		expect(closeBtn.className).toContain("absolute");
-		expect(closeBtn.className).toContain("end-2");
+		expect(closeBtn.className).toContain("inset-e-2");
 		expect(closeBtn.className).toContain("top-2");
 	});
 

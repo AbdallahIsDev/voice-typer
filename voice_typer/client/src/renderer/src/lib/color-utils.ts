@@ -10,6 +10,15 @@
 // string never throws — it returns ``#000000`` instead.  This matches
 // the original contract in ThemeSettingsSection.tsx.
 //
+// XA-9-14: ``pickBestForeground`` and ``passesWCAG`` extend the
+// public API so the custom theme editor (and any future caller) can
+// compute the best foreground for a given background by trying a
+// list of candidates (e.g. ``["#ffffff", "#000000"]``) and picking
+// the one with the highest contrast ratio. This replaces the
+// hardcoded ``#ffffff`` for primary/accent/destructive foregrounds
+// that broke AA contrast on light primary colors (e.g. monokai
+// ``--primary: oklch(0.7 0.18 250)`` against white text → 2.5:1).
+//
 // PVT-043 / Task #20: ``contrastRatio`` (and its private
 // ``_relativeLuminance`` helper) implements the WCAG 2.1 contrast
 // ratio calculation so the custom theme editor can validate
@@ -20,9 +29,10 @@
 // (``_srgbGamma``, ``_cssColorToHexViaOklch``, ``_cssColorToHexViaDOM``,
 // ``_relativeLuminance``, ``_parseHex``) are NOT exported — they are
 // internal implementation details. Only the public API (``cssColorToHex``,
-// ``contrastRatio``) is exported. External callers were checked: the
-// only consumer outside this file (``ThemeSettingsSection.tsx``) had
-// a comment referencing these names but did not import them.
+// ``contrastRatio``, ``pickBestForeground``, ``passesWCAG``) is
+// exported. External callers were checked: the only consumer outside
+// this file (``ThemeSettingsSection.tsx``) had a comment referencing
+// these names but did not import them.
 
 // ── WCAG 2.1 contrast ───────────────────────────────────────────────
 //
@@ -267,4 +277,94 @@ export function cssColorToHex(color: string): string {
 	if (oklchHex) return oklchHex;
 
 	return "#000000";
+}
+
+// ── XA-9-14: foreground-selection helpers ────────────────────────────
+//
+// The custom theme editor (``themes.ts::deriveCustomVars``) previously
+// hardcoded ``#ffffff`` for ``--primary-foreground``,
+// ``--accent-foreground``, and ``--destructive-foreground`` regardless
+// of the corresponding background's lightness. That broke AA contrast
+// (4.5:1) on themes with light primary/accent/destructive colors —
+// e.g. monokai's ``--primary: oklch(0.7 0.18 250)`` against white
+// foreground = 2.5:1 (fails AA), but against black = 8.3:1 (passes
+// AAA). The two helpers below let the editor pick the best foreground
+// from a candidate list (typically ``["#ffffff", "#000000"]``) so the
+// 4.5:1 AA threshold is met even on light backgrounds.
+//
+// These are pure functions with no DOM dependency, so they can run in
+// the bootstrap module (before React mounts) and in Vitest unit tests
+// without jsdom.
+
+/**
+ * Default candidate list for ``pickBestForeground``. White + black
+ * covers ~99% of cases — any colour with luminance > 0.18 will pick
+ * black, any colour with luminance < 0.18 will pick white. Themes
+ * with very narrow luminance ranges (e.g. amoled dark) may want to
+ * pass a wider candidate list.
+ */
+export const DEFAULT_FOREGROUND_CANDIDATES: readonly string[] = [
+	"#ffffff",
+	"#000000",
+] as const;
+
+/**
+ * Pick the foreground colour from ``candidates`` that has the highest
+ * WCAG 2.1 contrast ratio against ``bg``.
+ *
+ * Falls back to ``"#000000"`` if ``candidates`` is empty (defensive —
+ * a caller passing an empty array would otherwise get ``undefined``
+ * from ``Math.max``). The caller is expected to pass at least one
+ * candidate; the default list (white + black) covers ~99% of cases.
+ *
+ * @param bg Hex colour (``#rgb`` or ``#rrggbb``) of the background.
+ * @param candidates List of hex colours to try as the foreground.
+ *                   Defaults to ``["#ffffff", "#000000"]``.
+ * @returns The candidate with the highest contrast ratio against ``bg``.
+ *          If two candidates tie, the FIRST one in the list wins
+ *          (so ``["#ffffff", "#000000"]`` prefers white when contrast
+ *          is equal — matching the prior hardcoded behaviour for
+ *          dark backgrounds).
+ */
+export function pickBestForeground(
+	bg: string,
+	candidates: readonly string[] = DEFAULT_FOREGROUND_CANDIDATES,
+): string {
+	if (candidates.length === 0) return "#000000";
+	// Biome lint/style/noNonNullAssertion: avoid `!` — the length check
+	// above guarantees index 0 exists, but biome can't prove it. Use a
+	// non-null assertion via explicit access + fallback to satisfy the
+	// linter without changing runtime behavior.
+	let best = candidates[0] ?? "#000000";
+	let bestRatio = -1;
+	for (const candidate of candidates) {
+		const ratio = contrastRatio(candidate, bg);
+		if (ratio > bestRatio) {
+			bestRatio = ratio;
+			best = candidate;
+		}
+	}
+	return best;
+}
+
+/**
+ * Check whether the WCAG 2.1 contrast ratio between ``fg`` and ``bg``
+ * meets or exceeds ``threshold``.
+ *
+ * Convenience wrapper around ``contrastRatio`` for the common
+ * comparison-against-threshold pattern. Use this in tests / validators
+ * to keep the intent readable:
+ *
+ *   ``if (!passesWCAG(fg, bg, 4.5)) warn("fails AA");``
+ *
+ * @param fg Hex colour of the foreground.
+ * @param bg Hex colour of the background.
+ * @param threshold Minimum contrast ratio (1–21). Common values:
+ *                  ``3`` (WCAG 1.4.11 UI / large text AA),
+ *                  ``4.5`` (WCAG AA normal text),
+ *                  ``7`` (WCAG AAA normal text).
+ * @returns ``true`` if ``contrastRatio(fg, bg) >= threshold``.
+ */
+export function passesWCAG(fg: string, bg: string, threshold: number): boolean {
+	return contrastRatio(fg, bg) >= threshold;
 }

@@ -32,6 +32,7 @@ import {
 	BubbleDismissButton,
 	BubbleMicButton,
 	type BubbleMode,
+	BubbleStopButton,
 	BubbleVisualizer,
 	FADEOUT_DURATION_MS,
 	HugeiconsIcon,
@@ -146,6 +147,18 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// sandboxed renderer (SEC-026) with no python.call, so it routes
 	// through the dedicated bubble:toggle-dictation channel.
 	const handleMicClick = useCallback(() => {
+		(
+			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
+		)?.toggleDictation?.();
+	}, []);
+
+	// XA-6-1 / XA-6-13: stop / retry button click → toggle dictation.
+	// Same channel as the mic button — when recording, toggle_dictation
+	// stops the recording and triggers transcription; when in error
+	// mode, it re-arms the dictation pipeline (effectively a retry).
+	// The visual affordance is differentiated in `BubbleStopButton`
+	// based on the parent-supplied `mode` (stop icon vs retry icon).
+	const handleStopClick = useCallback(() => {
 		(
 			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
 		)?.toggleDictation?.();
@@ -342,6 +355,12 @@ export function Bubble({ className: _className }: { className?: string }) {
 
 				{micButton && (
 					<BubbleMicButton mode={mode as BubbleMode} onClick={handleMicClick} />
+				)}
+				{(mode === "recording" || mode === "error") && (
+					<BubbleStopButton
+						onClick={handleStopClick}
+						mode={mode === "error" ? "error" : "recording"}
+					/>
 				)}
 				{dismissable && <BubbleDismissButton onClick={handleDismissClick} />}
 			</div>

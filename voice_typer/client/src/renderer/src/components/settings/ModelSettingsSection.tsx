@@ -271,7 +271,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 												? "•••••••• (configured)"
 												: t("settings.apiKeyPlaceholder")
 										}
-										className="w-56 pr-8"
+										className="w-56 pe-8"
 										aria-label={t("settings.apiKey")}
 									/>
 									<Button

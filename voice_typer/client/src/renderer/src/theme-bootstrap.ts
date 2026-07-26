@@ -155,3 +155,57 @@ export function applyBootstrapTheme(): void {
 // ``index.html``).  In tests / SSR the guard inside
 // ``applyBootstrapTheme`` makes this a no-op.
 applyBootstrapTheme();
+
+// ── XA-9-10: invalidate the cached theme when prefers-color-scheme ──
+// changes.
+//
+// PVT-018 / original FOUC fix: this module reads the cached theme mode
+// from localStorage ONCE at module-import time and applies it before
+// React mounts. When the user's OS switches between light/dark while
+// the app is running (e.g. "auto" mode on macOS, scheduled dark mode
+// at sunset), the browser fires a ``prefers-color-scheme`` change
+// event on ``window.matchMedia``. Without a listener, the cached
+// ``"system"`` mode would NOT track the OS change — the renderer
+// would stay in the old mode until the user manually toggled or
+// restarted the app.
+//
+// XA-9-10 (Low-Med): the original PVT-018 fix omitted this listener,
+// so users running in ``"system"`` mode saw their renderer fall out
+// of sync with the OS after a daytime/nighttime transition. The
+// listener re-applies the bootstrap (which re-reads ``resolveIsDark``
+// against the now-current matchMedia result) on every change.
+//
+// The listener is installed ONCE at module import and lives for the
+// lifetime of the renderer process. It's a no-op in tests / SSR
+// (the ``typeof window === "undefined"`` / ``window.matchMedia``
+// guards short-circuit).
+
+if (typeof window !== "undefined" && window.matchMedia) {
+	try {
+		const mql = window.matchMedia("(prefers-color-scheme: dark)");
+		// Check for ``addEventListener`` first — older Safari
+		// versions (< 14) only support the deprecated
+		// ``addListener`` API. The cast through ``unknown`` is
+		// deliberate: TS's ``MediaQueryList`` type only exposes
+		// ``addEventListener`` (the standard API), but the
+		// runtime object on old Safari has ``addListener``
+		// instead.
+		if (typeof mql.addEventListener === "function") {
+			mql.addEventListener("change", applyBootstrapTheme);
+		} else if (
+			typeof (mql as unknown as { addListener?: unknown }).addListener ===
+			"function"
+		) {
+			(
+				mql as unknown as {
+					addListener: (cb: () => void) => void;
+				}
+			).addListener(applyBootstrapTheme);
+		}
+	} catch (e) {
+		console.warn(
+			"[theme-bootstrap] failed to install prefers-color-scheme change listener:",
+			e,
+		);
+	}
+}

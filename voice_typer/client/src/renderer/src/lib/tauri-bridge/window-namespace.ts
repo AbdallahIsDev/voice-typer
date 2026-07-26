@@ -185,46 +185,6 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// G4-M-71 (Tauri parity, EC-FIX-6 / EC-13):
-		// under Electron the preload's `openElectronLogs` opens the
-		// userData dir (containing `electron-main.log` /
-		// `electron-renderer-errors.log` etc.) via
-		// `window:open-electron-logs`. The Tauri host now exposes a
-		// dedicated `open_host_logs` command
-		// (`commands/system_cmds.rs::open_host_logs`) that
-		// opens the Rust host log dir (`<config_dir>/logs/`)
-		// directly. It is registered in `main.rs` alongside
-		// `open_logs` (which opens the parent `<config_dir>/` root).
-		//
-		// The previous version aliased `openElectronLogs` to
-		// `open_logs` (the parent dir) as a stopgap pending the
-		// dedicated host-logs command — this swap changes the command name to
-		// `open_host_logs` so the Settings page's "View logs"
-		// affordance lands users in the actual log folder, not the
-		// config root.
-		//
-		// Return shape matches the Electron preload's
-		// `openElectronLogs` exactly (`{success, path?, error?}`).
-		openElectronLogs: async () => {
-			try {
-				const result = await tauri.core.invoke<{
-					success: boolean;
-					path?: string;
-					error?: string;
-				}>("open_host_logs");
-				return {
-					success: Boolean(result?.success),
-					path: result?.path,
-					error: result?.error,
-				};
-			} catch (e) {
-				return {
-					success: false,
-					error: e instanceof Error ? e.message : String(e),
-				};
-			}
-		},
-
 		// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in
 		// `ErrorBoundary.tsx`) to the Rust host for persistence.

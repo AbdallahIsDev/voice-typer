@@ -19,10 +19,11 @@
 // passes against the live component; the source-content substring
 // assertions resolve to this pointer comment.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
+import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import DoneStep from "./onboarding/components/DoneStep";
 import HotkeyStep from "./onboarding/components/HotkeyStep";
@@ -32,7 +33,11 @@ import PermissionsStep from "./onboarding/components/PermissionsStep";
 import WelcomeStep from "./onboarding/components/WelcomeStep";
 import { useOnboardingWizard } from "./onboarding/hooks/useOnboardingWizard";
 import { usePermissionsProbe } from "./onboarding/hooks/usePermissionsProbe";
-import { DONE_STEP_NAME, STEP_TITLE_KEY } from "./onboarding/lib/constants";
+import {
+	DONE_STEP_NAME,
+	HOTKEY_DEFAULT,
+	STEP_TITLE_KEY,
+} from "./onboarding/lib/constants";
 
 export default function OnboardingPage({
 	onComplete,
@@ -72,6 +77,70 @@ export default function OnboardingPage({
 		handleTestHotkey,
 	} = usePermissionsProbe(step?.step_name, selectedHotkey);
 
+	// S2-CR-8: voice_biometric_consent gate on the Done step.
+	// Backend refuses to record without this flag (recording_controller.py:249),
+	// but the wizard previously completed without ever asking. Now the
+	// Done step renders an inline consent checkbox; the Get Started
+	// button stays disabled until the user accepts. On accept, we
+	// persist both `voice_biometric_consent` and `huggingface_consent`
+	// (the latter is required because model download happens on first
+	// hotkey press). Initial state is loaded from get_config so a user
+	// who already consented via Settings → Privacy can skip past.
+	const { call } = usePython();
+	const [consentAccepted, setConsentAccepted] = useState(false);
+	const [consentPersisting, setConsentPersisting] = useState(false);
+
+	useEffect(() => {
+		if (step?.step_name !== DONE_STEP_NAME) return;
+		let cancelled = false;
+		(async () => {
+			try {
+				const cfg = await call<{ voice_biometric_consent?: boolean }>(
+					"get_config",
+				);
+				if (cancelled) return;
+				if (cfg?.voice_biometric_consent === true) {
+					setConsentAccepted(true);
+				}
+			} catch (e) {
+				// Older backend without the flag — leave
+				// consent unaccepted so the user is
+				// prompted to grant it.
+				console.warn("[Onboarding] get_config consent probe failed:", e);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [call, step?.step_name]);
+
+	const handleConsentToggle = (nextChecked: boolean) => {
+		setConsentAccepted(nextChecked);
+		// Persist immediately so the flag is set even if the user
+		// closes the window without clicking Get Started.
+		setConsentPersisting(true);
+		call("set_config", {
+			voice_biometric_consent: nextChecked,
+			// Auto-grant HuggingFace consent alongside voice
+			// biometric consent: the very first hotkey press
+			// triggers a model download from huggingface.co,
+			// and `huggingface_consent` gates that download.
+			// Asking for two separate consents on the wizard's
+			// final step would be confusing. The user can
+			// revoke either individually later in Settings →
+			// Privacy.
+			huggingface_consent: nextChecked,
+		})
+			.catch((e) => {
+				console.error("[Onboarding] set_config consent failed:", e);
+				// Revert on failure so the UI doesn't
+				// claim consent was granted when it
+				// wasn't persisted.
+				setConsentAccepted(!nextChecked);
+			})
+			.finally(() => setConsentPersisting(false));
+	};
+
 	// ── Focus ref for init-error branch ──────────────────────────
 	// Must be declared before any early return so the hooks are
 	// called unconditionally (React Rules of Hooks).
@@ -96,9 +165,9 @@ export default function OnboardingPage({
 		return (
 			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
 				{/* : use the --destructive design token
-					instead of raw red-400/red-50/red-950 so the error card
-					follows theme overrides (Dracula, Catppuccin, etc.).
-					Matches EmptyState variant="error" styling. */}
+                                        instead of raw red-400/red-50/red-950 so the error card
+                                        follows theme overrides (Dracula, Catppuccin, etc.).
+                                        Matches EmptyState variant="error" styling. */}
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
@@ -143,9 +212,18 @@ export default function OnboardingPage({
 	const isPermissionsBlocked =
 		(step.step_name === "Permissions" && permissionsResult?.needed === true) ||
 		permissionsProbeFailed;
+	// S2-CR-8: block Get Started on Done step until consent is granted.
+	const isConsentBlocked = isDoneStep && !consentAccepted;
 	// Fix 14: localized sr-only h1.
 	const srTitleKey =
 		STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle";
+	// S5-CR-105: subtle "Default: <hotkey>" hint shown on the Hotkey
+	// step so users know they're accepting a default if they don't
+	// change the Select. The hint is suppressed once the user picks
+	// a different hotkey.
+	const hotkeyIsDefault = selectedHotkey === HOTKEY_DEFAULT;
+	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
+	const defaultHotkeyLabel = HOTKEY_DEFAULT.replace(/[<>]/g, "").toUpperCase();
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center px-6 pt-28 pb-6">
@@ -159,7 +237,7 @@ export default function OnboardingPage({
 						})}
 					</span>
 					{/* BG-12: localize the visible step-name label
-					    (was raw backend enum string like "Permissions"). */}
+                                            (was raw backend enum string like "Permissions"). */}
 					<span>
 						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
 					</span>
@@ -183,10 +261,10 @@ export default function OnboardingPage({
 			</div>
 
 			{/* Fix 14: sr-only page heading. Uses the localized step title
-					(was raw `step.step_name` like "Permissions"). The step-
-					progress prefix keeps this text distinct from the visible
-					per-step heading so `getByText` in tests resolves to a
-					single element, and gives screen readers the step context. */}
+                                        (was raw `step.step_name` like "Permissions"). The step-
+                                        progress prefix keeps this text distinct from the visible
+                                        per-step heading so `getByText` in tests resolves to a
+                                        single element, and gives screen readers the step context. */}
 			<h1 className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -195,10 +273,10 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</h1>
 			{/* : aria-live polite region announces step
-				transitions to screen-reader users. Without this, the focused
-				visible heading only contains the step title ("Choose Your
-				Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
-				Status Changes (Level AA). */}
+                                transitions to screen-reader users. Without this, the focused
+                                visible heading only contains the step title ("Choose Your
+                                Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
+                                Status Changes (Level AA). */}
 			<div aria-live="polite" className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -258,6 +336,78 @@ export default function OnboardingPage({
 					/>
 				)}
 
+				{/* S2-CR-8: voice_biometric_consent gate on the
+                                        Done step. ADR 0016 §PRIV-009 specifies the consent
+                                        UI location as "First-run onboarding". The wizard
+                                        previously had no consent prompt, so every first-run
+                                        user who pressed their hotkey was refused by
+                                        recording_controller (NEW-PRIV-009) with only a tray
+                                        notification — leading to massive first-run drop-off.
+                                        The checkbox persists voice_biometric_consent AND
+                                        huggingface_consent (the latter is required because
+                                        the first hotkey press triggers a model download). */}
+				{isDoneStep && (
+					<div
+						className="mt-6 rounded-lg border border-border bg-(--bg-subtle) p-4"
+						data-testid="onboarding-consent-section"
+					>
+						<label className="flex items-start gap-3 text-sm">
+							<input
+								type="checkbox"
+								className="mt-0.5 size-4 cursor-pointer accent-accent"
+								checked={consentAccepted}
+								onChange={(e) => handleConsentToggle(e.target.checked)}
+								disabled={consentPersisting}
+								aria-label={t("settings.voiceBiometricProcessingAria")}
+								data-testid="onboarding-consent-checkbox"
+							/>
+							<span className="flex-1">
+								<span className="block font-medium text-(--text-primary)">
+									{t("settings.voiceBiometricProcessing")}
+								</span>
+								<span className="mt-1 block text-xs text-(--text-muted)">
+									{t("settings.voiceBiometricProcessingInfo")}
+								</span>
+								{/* HuggingFace consent is auto-granted
+                                                                        alongside voice biometric consent. Surfaced
+                                                                        here so the user knows both flags are being
+                                                                        set; revoke individually in Settings →
+                                                                        Privacy. */}
+								<span className="mt-1 block text-xs text-(--text-muted)">
+									{t("settings.huggingFaceDownloads")}
+								</span>
+							</span>
+						</label>
+					</div>
+				)}
+
+				{/* S2-CR-40: download progress feedback. The
+                                        wizard's "Get Started" click triggers
+                                        onboarding_apply → model load (which may
+                                        download 466 MB–1.5 GB on first run).
+                                        Previously the user saw only a tray
+                                        status string and a "Setup complete!"
+                                        snack — no in-wizard progress. While we
+                                        cannot show a byte-level progress bar
+                                        without backend event_bus changes
+                                        (service.download_model path), we can at
+                                        least render an inline "loading model…"
+                                        status so the user knows the app is
+                                        alive and what to expect. Reuses the
+                                        existing `onboarding.setupCompleteSnack`
+                                        i18n key ("Setup complete! Loading your
+                                        model..."). */}
+				{isDoneStep && submitting && (
+					<output
+						className="mt-4 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm text-(--text-secondary)"
+						aria-live="polite"
+						data-testid="onboarding-download-feedback"
+					>
+						<Spinner />
+						<span>{t("onboarding.setupCompleteSnack")}</span>
+					</output>
+				)}
+
 				<div className="mt-8 flex items-center justify-between gap-4">
 					<div>
 						{/* Fix 16: Back button shown on Done step too (was hidden). */}
@@ -271,33 +421,55 @@ export default function OnboardingPage({
 							{t("onboarding.back")}
 						</Button>
 					</div>
-					<div className="flex items-center gap-2">
-						{!isDoneStep && (
+					<div className="flex flex-col items-end gap-1">
+						{/* S5-CR-105: subtle "Default: <hotkey>"
+                                                        hint shown on the Hotkey step when the user
+                                                        hasn't changed the Select. Makes it clear
+                                                        they're accepting a default rather than
+                                                        explicitly choosing — addresses the
+                                                        "Continue button always enabled with no
+                                                        validation" concern without blocking
+                                                        advancement (the default is a valid
+                                                        choice). Reuses the existing
+                                                        `theme.preset.default` key ("Default"). */}
+						{showDefaultHotkeyHint && (
+							<span
+								className="text-xs text-(--text-muted)"
+								data-testid="onboarding-default-hotkey-hint"
+							>
+								{t("theme.preset.default")}: {defaultHotkeyLabel}
+							</span>
+						)}
+						<div className="flex items-center gap-2">
+							{!isDoneStep && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={() => setSkipConfirmOpen(true)}
+									disabled={submitting}
+									aria-label={t("onboarding.skipAria")}
+								>
+									{t("onboarding.skip")}
+								</Button>
+							)}
 							<Button
 								type="button"
-								variant="ghost"
-								onClick={() => setSkipConfirmOpen(true)}
-								disabled={submitting}
-								aria-label={t("onboarding.skipAria")}
+								variant="default"
+								onClick={isDoneStep ? handleApply : handleNext}
+								disabled={
+									submitting || isPermissionsBlocked || isConsentBlocked
+								}
+								aria-label={
+									isDoneStep
+										? t("onboarding.getStartedAria")
+										: t("onboarding.continueAria")
+								}
 							>
-								{t("onboarding.skip")}
+								{isDoneStep
+									? t("onboarding.getStarted")
+									: t("onboarding.continue")}
 							</Button>
-						)}
-						<Button
-							type="button"
-							variant="default"
-							onClick={isDoneStep ? handleApply : handleNext}
-							disabled={submitting || isPermissionsBlocked}
-							aria-label={
-								isDoneStep
-									? t("onboarding.getStartedAria")
-									: t("onboarding.continueAria")
-							}
-						>
-							{isDoneStep
-								? t("onboarding.getStarted")
-								: t("onboarding.continue")}
-						</Button>
+						</div>
 					</div>
 				</div>
 			</div>

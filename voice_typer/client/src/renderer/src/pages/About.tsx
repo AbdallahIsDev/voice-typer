@@ -40,6 +40,13 @@ const SECURITY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
 const CONTRIBUTING_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CONTRIBUTING.md";
+// XA-11-4: in-app changelog link so users can see what changed in the
+// installed version without leaving the app to browse the repo. Uses
+// the existing ``about.viewChangelog`` i18n key (already translated to
+// all supported locales). ``CHANGELOG.md`` is the canonical release
+// history at the repo root.
+const CHANGELOG_URL =
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CHANGELOG.md";
 // in-app documentation link. README.md is the
 // canonical entry point for user-facing docs in the repo; the /docs
 // folder holds deeper references (FEATURES.md, ADRs, debugging guide).
@@ -361,6 +368,17 @@ export default function AboutPage() {
 								rel="noreferrer noopener"
 							>
 								{t("about.documentationLink")}
+							</a>
+						</Button>
+						{/* XA-11-4: View Changelog button so users can see
+						 * what changed in the installed version. Links to
+						 * the canonical CHANGELOG.md at the repo root and
+						 * uses the existing ``about.viewChangelog`` i18n
+						 * key (already translated to all supported
+						 * locales). */}
+						<Button asChild variant="outline" size="sm">
+							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
+								{t("about.viewChangelog")}
 							</a>
 						</Button>
 						<Button asChild variant="outline" size="sm">

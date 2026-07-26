@@ -71,6 +71,12 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar (CR-061: added so light matches dark coverage.)
 		"--scrollbar-thumb": "oklch(0.78 0.02 75)",
 		"--scrollbar-thumb-hover": "oklch(0.7 0.02 75)",
+		// NH-16: status tokens for light mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.62 0.17 149)",
+		"--warning": "oklch(0.7 0.16 70)",
+		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
 		// Core
@@ -125,5 +131,11 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.3 0.02 40)",
 		"--scrollbar-thumb-hover": "oklch(0.4 0.02 40)",
+		// NH-16: status tokens for dark mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.7 0.16 149)",
+		"--warning": "oklch(0.78 0.15 70)",
+		"--info": "oklch(0.7 0.13 240)",
 	},
 };

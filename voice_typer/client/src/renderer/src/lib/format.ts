@@ -20,11 +20,10 @@
  *   - ``About.tsx`` still exports its own ``formatBytes`` /
  *     ``formatRelativeTime`` for the ``About.test.tsx`` unit tests.
  *     Those wrappers remain untouched.
- *   - ``Dashboard.tsx`` / ``StatCards.tsx`` / ``DownloadProgressBar.tsx``
- *     keep their own local ``formatBytes`` / ``formatSpeed`` /
- *     ``formatDuration`` / ``formatCompactNumber`` /
- *     ``formatRelativeTime`` / ``formatDateTime`` copies — see GT-33
- *     (session-6) note below.
+ *   - ``DownloadProgressBar.tsx`` previously kept its own local
+ *     ``formatBytes`` / ``formatSpeed`` — XA-20-7 consolidated them
+ *     into the shared exports below (``formatBytes`` already existed;
+ *     ``formatSpeed`` is new).
  *
  * ── Locale resolution ────────────────────────────────────────────────
  * Every helper accepts an optional ``locale`` parameter and falls back
@@ -33,17 +32,14 @@
  * tests to pin a specific locale (``formatVram(n, "en")``).
  *
  * ── GT-33 (session-6 dead-code purge) ────────────────────────────────
- * Previously this module also exported ``formatBytes``,
- * ``formatSpeed``, ``formatDuration``, ``formatCompactNumber``,
+ * Previously this module also exported ``formatCompactNumber``,
  * ``formatDateTime``, and ``formatRelativeTime``. None of those were
  * imported by any production file (verified by grep across
  * ``voice_typer/client/src/renderer``) — every call site
  * (``About.tsx``, ``Dashboard.tsx``, ``StatCards.tsx``,
  * ``DownloadProgressBar.tsx``) keeps its own private local copy that
  * DOES get called. The shared exports were dead. Deleted to collapse
- * the module to its two actually-imported exports:
- * ``compactNumber`` (Dashboard, StatCards) and ``formatVram``
- * (``lib/utils/models.ts`` re-export, LocalModelsPanel).
+ * the module.
  *
  *   - GT-E2-5 (session-6): the ``@deprecated`` tag on ``compactNumber``
  *     was also removed. ``compactNumber`` is the LIVE implementation
@@ -52,8 +48,22 @@
  *     ``@deprecated`` tag was a leftover from a migration plan that
  *     never landed — and now that ``formatCompactNumber`` is deleted,
  *     ``compactNumber`` is the canonical compact-number formatter.
+ *
+ * ── XA-20-7 / XA-20-8 (this fix) ─────────────────────────────────────
+ *   - ``formatBytes`` and ``formatSpeed`` are now the canonical exports
+ *     consumed by ``DownloadProgressBar.tsx`` (its local copies were
+ *     removed).
+ *   - ``formatDuration`` now resolves the ``h`` / ``m`` glyphs through
+ *     ``t()`` (``analytics.durationHours`` / ``durationMinutes`` /
+ *     ``durationHoursMinutes`` / ``durationZero``). When those keys are
+ *     missing from the active locale, it falls back to the existing
+ *     ``format.duration.hourShort`` / ``minuteShort`` keys (which ship
+ *     in all 8 locale files) so the function never returns a raw
+ *     translation key to the user. Sub-minute values round up to 1m
+ *     (matches the legacy StatCards behaviour); seconds are dropped
+ *     (matches the Dashboard / StatCards snapshot contracts).
  */
-import { getLocale, type Locale } from "@/i18n/i18n";
+import { getLocale, type Locale, t } from "@/i18n/i18n";
 
 // ── compactNumber (Dashboard / StatCards callers) ────────────────────
 
@@ -145,15 +155,38 @@ function resolveLocale(locale?: Locale): Locale {
  *   - ``formatVram(2048)`` → ``"2 GB"``
  *   - ``formatVram(1536)`` → ``"1.5 GB"``
  */
-/** Format bytes to human-readable string (e.g., "1.5 MB"). */
-export function formatBytes(bytes: number, locale?: Locale): string {
-	if (!Number.isFinite(bytes) || bytes < 0) {
-		return new Intl.NumberFormat(resolveLocale(locale), {
-			style: "unit",
-			unit: "byte",
-			unitDisplay: "narrow",
-			maximumFractionDigits: 0,
-		}).format(0);
+/**
+ * Format bytes to a human-readable string using locale-aware unit
+ * formatting (e.g. ``"1.5 MB"``, ``"500 KB"``, ``"12 B"``).
+ *
+ * XA-20-7: signature widened to accept ``null`` / ``undefined`` so
+ * ``DownloadProgressBar`` (which previously had its own local copy
+ * returning ``"—"`` for null) can migrate to this shared helper
+ * without an extra null-check at every call site. The null/undefined
+ * return value is ``"—"`` (matching the legacy DownloadProgressBar
+ * behaviour so the progress bar's secondary line stays readable when
+ * the size is unknown).
+ *
+ * Negative / non-finite inputs also return ``"—"`` (previously
+ * returned ``"0 B"`` — the new behaviour matches the legacy
+ * DownloadProgressBar copy and is more honest about the input being
+ * invalid).
+ *
+ * Examples (``en``):
+ *   - ``formatBytes(null)``    → ``"—"``
+ *   - ``formatBytes(undefined)`` → ``"—"``
+ *   - ``formatBytes(0)``       → ``"0 B"``
+ *   - ``formatBytes(500)``     → ``"500 B"``
+ *   - ``formatBytes(1024)``    → ``"1 KB"``
+ *   - ``formatBytes(1048576)`` → ``"1 MB"``
+ *   - ``formatBytes(1073741824)`` → ``"1 GB"``
+ */
+export function formatBytes(
+	bytes: number | null | undefined,
+	locale?: Locale,
+): string {
+	if (bytes == null || !Number.isFinite(bytes) || bytes < 0) {
+		return "—";
 	}
 	const loc = resolveLocale(locale);
 	const units: [number, Intl.NumberFormatOptions["unit"]][] = [
@@ -179,17 +212,142 @@ export function formatBytes(bytes: number, locale?: Locale): string {
 	}).format(0);
 }
 
-/** Format seconds to human-readable duration (e.g., "2m 30s"). */
+/**
+ * Format seconds to a human-readable duration using locale-aware
+ * glyphs (e.g. "2m", "1h 5m").
+ *
+ * XA-20-8: the previous implementation hardcoded English "h" / "m" /
+ * "s" suffixes. The new implementation resolves the suffixes through
+ * ``t()`` so non-English locales can localize them.
+ *
+ * Translation-key strategy (with graceful fallback):
+ *   1. Try ``analytics.durationZero`` / ``durationMinutes`` /
+ *      ``durationHours`` / ``durationHoursMinutes`` (the BG-9 contract
+ *      keys expected by ``Dashboard.test.tsx``). When present, these
+ *      give the locale full control over the format string (e.g.
+ *      Arabic could render "٥د" via ``{m}m`` + Arabic-Indic digits).
+ *   2. When those keys are MISSING (``t()`` returns the raw key), fall
+ *      back to the per-glyph ``format.duration.hourShort`` /
+ *      ``minuteShort`` keys that ship in all 8 locale files. This
+ *      guarantees the function never returns a raw key to the user.
+ *
+ * Behavioural changes vs the previous implementation:
+ *   - ``formatDuration(0)`` returns ``"0m"`` (was ``"0s"``).
+ *   - ``formatDuration(5)`` returns ``"1m"`` (was ``"5s"``) — sub-
+ *     minute values round UP to 1m, matching the legacy StatCards
+ *     storybook snapshot.
+ *   - Seconds are no longer included in the output (was ``"1h 27m 15s"``;
+ *     now ``"1h 27m"``). The dashboard / stat-card surface only ever
+ *     displayed hours+minutes; surfacing seconds was a UX regression.
+ *
+ * Examples (en):
+ *   - ``formatDuration(0)``    → ``"0m"``
+ *   - ``formatDuration(5)``    → ``"1m"``  (rounds up)
+ *   - ``formatDuration(120)``  → ``"2m"``
+ *   - ``formatDuration(3600)`` → ``"1h"``
+ *   - ``formatDuration(3900)`` → ``"1h 5m"``
+ *   - ``formatDuration(5235)`` → ``"1h 27m"``
+ */
 export function formatDuration(seconds: number): string {
-	if (!Number.isFinite(seconds) || seconds < 0) return "0s";
-	const h = Math.floor(seconds / 3600);
-	const m = Math.floor((seconds % 3600) / 60);
-	const s = Math.floor(seconds % 60);
-	const parts: string[] = [];
-	if (h > 0) parts.push(`${h}h`);
-	if (m > 0) parts.push(`${m}m`);
-	if (s > 0 || parts.length === 0) parts.push(`${s}s`);
-	return parts.join(" ");
+	if (!Number.isFinite(seconds) || seconds <= 0) {
+		const zeroKey = t("analytics.durationZero");
+		if (zeroKey !== "analytics.durationZero") {
+			return zeroKey;
+		}
+		// Fallback: build "0" + minute glyph from format.duration.*.
+		return `0${t("format.duration.minuteShort")}`;
+	}
+	// Sub-minute values round up to 1m (matches legacy StatCards
+	// snapshot; the previous implementation returned "5s" / "45s"
+	// which was a UX bug — the dashboard only ever showed h+m).
+	let totalMinutes: number;
+	if (seconds < 60) {
+		totalMinutes = 1;
+	} else {
+		totalMinutes = Math.floor(seconds / 60);
+	}
+	const h = Math.floor(totalMinutes / 60);
+	const m = totalMinutes % 60;
+	const hourGlyph = t("format.duration.hourShort");
+	const minuteGlyph = t("format.duration.minuteShort");
+	if (h === 0) {
+		const tmpl = t("analytics.durationMinutes", {
+			m: String(m),
+			count: String(m),
+		});
+		if (tmpl !== "analytics.durationMinutes") return tmpl;
+		return `${m}${minuteGlyph}`;
+	}
+	if (m === 0) {
+		const tmpl = t("analytics.durationHours", {
+			h: String(h),
+			count: String(h),
+		});
+		if (tmpl !== "analytics.durationHours") return tmpl;
+		return `${h}${hourGlyph}`;
+	}
+	const tmpl = t("analytics.durationHoursMinutes", {
+		h: String(h),
+		m: String(m),
+		count: String(h),
+	});
+	if (tmpl !== "analytics.durationHoursMinutes") return tmpl;
+	return `${h}${hourGlyph} ${m}${minuteGlyph}`;
+}
+
+/**
+ * Format a transfer rate (bytes per second) using locale-aware unit
+ * formatting.
+ *
+ * XA-20-7: extracted from ``DownloadProgressBar.tsx``'s local copy
+ * (which hardcoded English "B/s" / "KB/s" / "MB/s" / "GB/s" suffixes
+ * and used ``toFixed()`` directly). This implementation uses the
+ * platform ``Intl.NumberFormat`` API with ``style: "unit"`` so the
+ * digit grouping, decimal separator, and unit name all respect the
+ * user-selected UI locale.
+ *
+ * Returns ``"—"`` for null / negative / non-finite inputs (matches the
+ * legacy DownloadProgressBar behaviour so the progress bar's
+ * secondary line stays readable when the speed is unknown).
+ */
+export function formatSpeed(
+	bytesPerSecond: number | null | undefined,
+	locale?: Locale,
+): string {
+	if (
+		bytesPerSecond == null ||
+		bytesPerSecond < 0 ||
+		!Number.isFinite(bytesPerSecond)
+	) {
+		return "—";
+	}
+	const loc = resolveLocale(locale);
+	// Intl doesn't ship a "bytes per second" unit identifier, so we
+	// format the scalar with the matching byte-prefix unit and append
+	// "/s". This keeps the digit grouping / decimal separator
+	// locale-aware while preserving the "/s" suffix universally.
+	const units: [number, Intl.NumberFormatOptions["unit"]][] = [
+		[1024 ** 3, "gigabyte"],
+		[1024 ** 2, "megabyte"],
+		[1024, "kilobyte"],
+		[1, "byte"],
+	];
+	for (const [threshold, unit] of units) {
+		if (bytesPerSecond >= threshold) {
+			const formatted = new Intl.NumberFormat(loc, {
+				style: "unit",
+				unit,
+				maximumFractionDigits: threshold > 1 ? 1 : 0,
+			}).format(bytesPerSecond / threshold);
+			return `${formatted}/s`;
+		}
+	}
+	return `${new Intl.NumberFormat(loc, {
+		style: "unit",
+		unit: "byte",
+		unitDisplay: "narrow",
+		maximumFractionDigits: 0,
+	}).format(0)}/s`;
 }
 
 export function formatVram(mb: number, locale?: Locale): string {

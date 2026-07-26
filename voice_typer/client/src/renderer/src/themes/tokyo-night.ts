@@ -64,6 +64,12 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar (PVT-001: backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
 		"--scrollbar-thumb": "oklch(0.82 0.008 250)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.008 250)",
+		// NH-16: status tokens for light mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.62 0.17 149)",
+		"--warning": "oklch(0.7 0.16 70)",
+		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
 		"--background": "oklch(0.12 0.02 270)",
@@ -109,5 +115,11 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--scrollbar-thumb": "oklch(0.28 0.02 270)",
 		"--scrollbar-thumb-hover": "oklch(0.38 0.02 270)",
 		"--surface-page": "oklch(0.11 0.02 270)",
+		// NH-16: status tokens for dark mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.7 0.16 149)",
+		"--warning": "oklch(0.78 0.15 70)",
+		"--info": "oklch(0.7 0.13 240)",
 	},
 };

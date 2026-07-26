@@ -222,7 +222,7 @@ function MicToggleButton({
 					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
 					"hover:scale-105",
 					isRecording
-						? "bg-black/15 dark:bg-white/18 hover:bg-black/25 dark:hover:bg-white/28"
+						? "bg-foreground/15 hover:bg-foreground/25"
 						: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
 				)}
 			>

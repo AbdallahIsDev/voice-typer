@@ -82,7 +82,7 @@ export function PermissionsStep({
 									<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
 										{titleText}
 									</p>
-									<ol className="ml-4 list-decimal space-y-1 text-xs text-(--text-secondary)">
+									<ol className="ms-4 list-decimal space-y-1 text-xs text-(--text-secondary)">
 										{stepTexts.map((s) => (
 											<li key={s}>{s}</li>
 										))}

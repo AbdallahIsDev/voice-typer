@@ -1,7 +1,7 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
+import { cn, focusRing } from "@/lib/utils";
 import type { WindowBridge } from "@/types/ipc";
 
 interface TitleBarProps {
@@ -113,7 +113,10 @@ function TitleBarButton({
 				"no-drag press-scale group flex items-center justify-center",
 				"h-8 w-11.5",
 				"text-(--text-muted) transition-colors duration-75",
-				"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+				// XA-1: shared focusRing (ring-3 / ring-ring/30) so the
+				// title-bar focus ring matches the design-system Button's
+				// ring thickness instead of being visually thinner (ring-2).
+				focusRing,
 				isClose
 					? cn(
 							// PVT-022: replace hardcoded #C42B1C with the
@@ -188,8 +191,13 @@ export function TitleBar({
 					// w-10 which made it taller than the 32px title bar).
 					"no-drag press-scale flex h-8 w-8 items-center justify-center",
 					"text-(--text-muted)",
-					"hover:text-(--text-primary)",
-					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+					// XA-1: parity with sibling back/forward/help buttons —
+					// add rounded corners + transition + hover bg so the
+					// toggle snaps in consistently with its neighbors
+					// (previously the only TitleBar button without a hover bg).
+					"rounded transition-colors duration-75",
+					"hover:bg-foreground/5 hover:text-(--text-primary)",
+					focusRing,
 				)}
 			>
 				<HugeiconsIcon
@@ -215,7 +223,7 @@ export function TitleBar({
 					// consistent hover wash).
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
-					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+					focusRing,
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -241,7 +249,7 @@ export function TitleBar({
 					"text-(--text-muted) transition-colors duration-75",
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
-					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+					focusRing,
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -257,8 +265,8 @@ export function TitleBar({
 			</button>
 
 			{/* UX-8: discoverable "?" help button. Mirrors the "?"
-                            keyboard shortcut (handled in App.tsx) so mouse users and
-                            AT users can also open the keyboard-shortcut overlay. */}
+			    keyboard shortcut (handled in App.tsx) so mouse users and
+			    AT users can also open the keyboard-shortcut overlay. */}
 			<button
 				type="button"
 				onClick={onOpenHelp}
@@ -271,7 +279,7 @@ export function TitleBar({
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
-					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+					focusRing,
 				)}
 			>
 				<span aria-hidden className="text-[13px] font-semibold leading-none">

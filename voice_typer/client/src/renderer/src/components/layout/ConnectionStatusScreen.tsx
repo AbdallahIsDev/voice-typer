@@ -61,11 +61,29 @@ export function ConnectionStatusScreen({
 	const isConnecting = status === "connecting";
 	const isDisconnected = status === "disconnected";
 
+	// State-aware title so the user can tell apart "still starting"
+	// from "crashed and waiting for retry". The keys are localised in
+	// every locale JSON (en/ar/de/es/fr/hi/ru/zh) under the `app.*`
+	// namespace.
+	const title = isConnecting
+		? t("app.startingBackend")
+		: status === "restarting"
+			? t("app.restartingBackend")
+			: t("app.lostConnection");
+
+	// For disconnected: surface the raw error verbatim when present
+	// (it's the most actionable signal — e.g. "Python process exited
+	// with code 137"), otherwise fall back to the generic
+	// `lostConnectionHint`. For connecting / restarting: show the
+	// generic "this usually takes a few seconds" hint.
 	const description = isDisconnected
-		? lastError
-			? `${t("app.lostConnectionHint")} (${lastError})`
-			: t("app.lostConnectionHint")
+		? (lastError ?? t("app.lostConnectionHint"))
 		: t("app.restartingHint");
+
+	const progressPercent =
+		typeof connectingProgress === "number"
+			? Math.min(100, Math.max(0, Math.round(connectingProgress)))
+			: null;
 
 	return (
 		<div
@@ -79,7 +97,7 @@ export function ConnectionStatusScreen({
 			<EmptyState
 				variant="error"
 				icon={AlertCircleIcon}
-				title={t("app.lostConnection")}
+				title={title}
 				description={description}
 				actionLabel={isDisconnected ? t("app.retryConnection") : undefined}
 				onAction={isDisconnected ? onRetry : undefined}
@@ -88,21 +106,26 @@ export function ConnectionStatusScreen({
 				{isConnecting && (
 					<div className="mt-2 flex w-full flex-col items-center gap-3">
 						<Spinner />
-						{typeof connectingProgress === "number" && (
-							<div
-								className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-(--bg-subtle)"
-								role="progressbar"
-								aria-valuenow={Math.round(connectingProgress * 100)}
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-label={t("app.retryConnection")}
-							>
+						{progressPercent !== null && (
+							<div className="flex w-full max-w-xs flex-col items-center gap-1">
+								<span className="text-xs text-(--fg-subtle)" aria-live="polite">
+									{progressPercent}%
+								</span>
 								<div
-									className="h-full bg-primary transition-[width] duration-300 ease-out"
-									style={{
-										width: `${Math.min(100, Math.max(0, connectingProgress * 100))}%`,
-									}}
-								/>
+									className="h-1.5 w-full overflow-hidden rounded-full bg-(--bg-subtle)"
+									role="progressbar"
+									aria-valuenow={progressPercent}
+									aria-valuemin={0}
+									aria-valuemax={100}
+									aria-label={t("app.retryConnection")}
+								>
+									<div
+										className="h-full bg-primary transition-[width] duration-300 ease-out"
+										style={{
+											width: `${progressPercent}%`,
+										}}
+									/>
+								</div>
 							</div>
 						)}
 					</div>

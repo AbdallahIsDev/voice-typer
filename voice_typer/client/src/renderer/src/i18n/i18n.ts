@@ -342,6 +342,25 @@ export function useT(): typeof t {
  * F-4: When switching to an RTL locale (Arabic), sets
  * ``document.documentElement.dir = "rtl"`` so the entire UI flips
  * horizontally. Falls back to "ltr" for all other locales.
+ *
+ * Side effects beyond the renderer:
+ *   - NH-2: kicks off the async dynamic-import of the newly-selected
+ *     locale's translation table via ``ensureLocaleLoaded(next)`` so
+ *     ``t()`` stops falling back to English after a runtime locale
+ *     switch (previously the import was only triggered at module init
+ *     for the restored/detected locale).
+ *   - NH-3: pushes the locale to the Electron main process via
+ *     ``window.window_.setLocale?.(locale)`` so native dialogs render
+ *     in the user's selected language.
+ *   - NH-4: pushes the locale + renderer-known tray-menu labels to the
+ *     Python backend via ``window.python.call({ type:
+ *     "set_tray_locale", data: { locale, labels } })`` so tray-menu
+ *     items localise.
+ *
+ * Both IPC pushes are best-effort (the bridge surfaces may be missing
+ * during module-init or under Tauri), so ``setLocale`` must NOT crash
+ * when ``window.window_`` / ``window.python`` is undefined or when the
+ * IPC promise rejects.
  */
 export function setLocale(locale: Locale): void {
 	let next: Locale = locale;
@@ -350,6 +369,17 @@ export function setLocale(locale: Locale): void {
 		next = "en";
 	}
 	_currentLocale = next;
+
+	// NH-2: kick off the dynamic import for non-English locales so the new
+	// locale's strings are available without a page reload. Without this,
+	// switching to e.g. Arabic at runtime would update `dir`/`lang` (visible
+	// layout change) but `t()` would still return English until the user
+	// reloads the page. `ensureLocaleLoaded` is idempotent — if the chunk
+	// is already loaded or in-flight, this is a no-op. The promise it
+	// returns resolves later and triggers a subscriber notification
+	// (inside ensureLocaleLoaded), so subscribed components re-render with
+	// the now-available strings.
+	if (next !== "en") void ensureLocaleLoaded(next);
 
 	// F-4: Update document direction for RTL support.
 	try {
@@ -386,6 +416,127 @@ export function setLocale(locale: Locale): void {
 			console.warn("[i18n] locale subscriber callback failed:", e);
 		}
 	}
+
+	// NH-3 / NH-4: best-effort push to the main process + Python backend.
+	// The bridge surfaces may be missing (module-init scenario, Tauri host
+	// without these IPC channels) — the push helpers swallow rejections
+	// and sync throws so a locale-switch failure never breaks the UI.
+	pushLocaleToMainProcess(next);
+	pushLocaleToPythonBackend(next);
+}
+
+/**
+ * Best-effort push of the current locale to the Electron main process
+ * via the ``window.window_.setLocale(locale)`` IPC bridge (registered
+ * in ``main/ipc/window-handlers.ts`` as the ``i18n:set-locale``
+ * handler). The main process uses the pushed locale to localise native
+ * dialogs (single-instance error, critical-error dialog, model-folder
+ * picker, export save-as dialogs).
+ *
+ * No-op when the bridge is missing (Tauri host, module-init scenario
+ * where the preload bridge isn't installed yet). Rejections and sync
+ * throws are caught and logged via ``console.warn`` so a locale switch
+ * never crashes the renderer.
+ */
+function pushLocaleToMainProcess(locale: Locale): void {
+	try {
+		const bridge = (
+			globalThis as unknown as {
+				window_?: { setLocale?: (locale: string) => Promise<unknown> };
+			}
+		).window_;
+		const result = bridge?.setLocale?.(locale);
+		if (result && typeof (result as Promise<unknown>).then === "function") {
+			(result as Promise<unknown>).catch((e: unknown) => {
+				console.warn("[i18n] setLocale main-process push failed:", e);
+			});
+		}
+	} catch (e: unknown) {
+		console.warn("[i18n] setLocale main-process push failed:", e);
+	}
+}
+
+/**
+ * Best-effort push of the current locale + renderer-known tray-menu
+ * labels to the Python backend via the ``set_tray_locale`` IPC message.
+ * The backend uses the pushed locale + labels to localise the tray
+ * menu (see ``voice_typer/server/tray_i18n.py``).
+ *
+ * No-op when the bridge is missing (Tauri host, module-init scenario).
+ * Rejections and sync throws are caught and logged via ``console.warn``.
+ *
+ * The label map is built by the module-level {@link trayLabelsForLocale}
+ * helper (declared above).
+ */
+function pushLocaleToPythonBackend(locale: Locale): void {
+	try {
+		const bridge = (
+			globalThis as unknown as {
+				python?: {
+					call?: (msg: {
+						type: string;
+						data?: Record<string, unknown>;
+					}) => Promise<unknown>;
+				};
+			}
+		).python;
+		const result = bridge?.call?.({
+			type: "set_tray_locale",
+			data: { locale, labels: trayLabelsForLocale() },
+		});
+		if (result && typeof (result as Promise<unknown>).then === "function") {
+			(result as Promise<unknown>).catch((e: unknown) => {
+				console.warn("[i18n] setLocale Python-backend push failed:", e);
+			});
+		}
+	} catch (e: unknown) {
+		console.warn("[i18n] setLocale Python-backend push failed:", e);
+	}
+}
+
+/**
+ * React hook that returns the {@link tChoice} pluralization function
+ * bound to the current locale.
+ *
+ * XA-20-1 (Critical): ``tChoice()`` was implemented (PVT-082) but never
+ * wired into any component — every pluralized string in the renderer
+ * used the broken binary ``Singular`` / ``Plural`` key pattern, which
+ * (a) only works for English-like 2-form locales, (b) leaks English
+ * fallbacks for Slavic/Semitic locales that have 3-6 plural forms, and
+ * (c) cannot adapt to ``Intl.PluralRules`` categories (``zero`` /
+ * ``one`` / ``two`` / ``few`` / ``many`` / ``other``).
+ *
+ * Exposing a ``useTChoice()`` hook (mirroring the existing ``useT()``
+ * pattern) lowers the barrier for components to adopt proper CLDR
+ * pluralization. The hook subscribes to locale changes via
+ * ``useSyncExternalStore`` so the returned ``tChoice`` reference always
+ * resolves against the live current locale, and any component using it
+ * re-renders when the locale changes.
+ *
+ * Usage:
+ *   const tChoice = useTChoice();
+ *   tChoice("inbox.messages", 1)    // "You have 1 unread message."
+ *   tChoice("inbox.messages", 5)    // "You have 5 unread messages."
+ *   tChoice("inbox.messages", 2, { name: "Alice" })
+ *                                    // "You have 2 unread messages."
+ *
+ * Catalog keys (one entry per CLDR plural category the locale needs):
+ *   {
+ *     "inbox.messages_one":   "You have {count} unread message.",
+ *     "inbox.messages_other": "You have {count} unread messages.",
+ *     // Slavic example (Polish) — uses "few" + "many":
+ *     "inbox.messages_few":   "Masz {count} nieprzeczytane wiadomości.",
+ *     "inbox.messages_many":  "Masz {count} nieprzeczytanych wiadomości."
+ *   }
+ *
+ * The returned function is the same {@link tChoice} export — wrapping
+ * it in a hook purely exists to opt the calling component into
+ * locale-change re-renders (calling ``tChoice`` directly outside a
+ * hook would NOT trigger a re-render on locale change).
+ */
+export function useTChoice(): typeof tChoice {
+	useSyncExternalStore(subscribeLocale, getLocaleSnapshot, getLocaleSnapshot);
+	return tChoice;
 }
 
 /**

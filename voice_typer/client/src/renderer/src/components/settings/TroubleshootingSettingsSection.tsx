@@ -19,9 +19,9 @@ import {
 	ArrowTurnBackwardIcon,
 	Book02Icon,
 	Bug02Icon,
+	Delete02Icon,
 	File02Icon,
 	InformationCircleIcon,
-	RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
@@ -209,8 +209,8 @@ export const TroubleshootingSettingsSection = memo(
 						{reRunWizardLabel}
 					</Button>
 					{/* XA-4-9: visually separate the destructive Reset to Defaults
-						button from the 5 non-destructive buttons above with a
-						top border + padding so users don't click it by accident. */}
+                                                button from the 5 non-destructive buttons above with a
+                                                top border + padding so users don't click it by accident. */}
 					<div className="mt-4 border-t border-border pt-3">
 						<Button
 							variant="destructive"
@@ -220,7 +220,14 @@ export const TroubleshootingSettingsSection = memo(
 							title={t("settings.troubleshooting.resetToDefaultsHint")}
 						>
 							<HugeiconsIcon
-								icon={RefreshIcon}
+								// S5-CR-103: use a trash/delete icon
+								// for the destructive Reset to Defaults
+								// action so it's visually distinct from
+								// the non-destructive "Re-run Wizard"
+								// button (ArrowTurnBackwardIcon). The
+								// previous RefreshIcon was too similar
+								// to a benign "reload" affordance.
+								icon={Delete02Icon}
 								strokeWidth={2}
 								className="h-4 w-4"
 							/>

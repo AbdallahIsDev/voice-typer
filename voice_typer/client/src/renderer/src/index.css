@@ -40,6 +40,13 @@
 	--color-border: var(--border);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-destructive: var(--destructive);
+	/* NH-16: semantic status tokens for success / warning / info states.
+	   Mapping these here makes `bg-success`, `text-warning`, `border-info`,
+	   etc. available as Tailwind utility classes that follow the active
+	   theme's palette (light/dark/custom preset). */
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-info: var(--info);
 	--color-accent-foreground: var(--accent-foreground);
 	--color-accent: var(--accent);
 	--color-muted-foreground: var(--muted-foreground);
@@ -95,6 +102,15 @@
 	   default here that matches the near-white foreground used by all themes. */
 	--destructive: oklch(0.55 0.25 27);
 	--destructive-foreground: oklch(0.97 0 0);
+	/* NH-16: success/warning/info status tokens.
+	   These provide semantic colour classes (bg-success, text-warning,
+	   border-info) so components stop improvising with raw Tailwind
+	   palette colors (text-emerald-500, text-amber-700, bg-amber-400).
+	   Light-mode values pick vibrant green/amber/blue with sufficient
+	   contrast against the white background. */
+	--success: oklch(0.62 0.17 149);
+	--warning: oklch(0.7 0.16 70);
+	--info: oklch(0.62 0.14 240);
 	--border: oklch(0.92 0.004 286.32);
 	--input: oklch(0.92 0.004 286.32);
 	/* PVT-044: light-mode --ring was oklch(0.705 0.015 286.067) (light grey) which,
@@ -141,6 +157,12 @@
 	   override it. */
 	--destructive: oklch(0.55 0.25 27);
 	--destructive-foreground: oklch(0.97 0 0);
+	/* NH-16: success/warning/info status tokens for dark mode.
+	   Slightly brighter L and lower chroma than light mode so the
+	   tints read against the dark background. */
+	--success: oklch(0.7 0.16 149);
+	--warning: oklch(0.78 0.15 70);
+	--info: oklch(0.7 0.13 240);
 	--border: oklab(100% 0 -0.00011 / 0.05);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.552 0.016 285.938);

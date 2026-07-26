@@ -65,6 +65,12 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.82 0.004 0)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.004 0)",
+		// NH-16: status tokens for light mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.62 0.17 149)",
+		"--warning": "oklch(0.7 0.16 70)",
+		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
 		"--background": "oklch(0.11 0.006 0)",
@@ -110,5 +116,11 @@ export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-5": "oklch(0.65 0.12 40)",
 		"--scrollbar-thumb": "oklch(0.25 0.006 0)",
 		"--scrollbar-thumb-hover": "oklch(0.35 0.006 0)",
+		// NH-16: status tokens for dark mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.7 0.16 149)",
+		"--warning": "oklch(0.78 0.15 70)",
+		"--info": "oklch(0.7 0.13 240)",
 	},
 };

@@ -1,6 +1,6 @@
 /**
  * NumberInputStepper tests — covers BG-39 (RTL: physical `right-1` /
- * `pr-8` were replaced with logical `end-1` / `pe-8` so the steppers
+ * `pr-8` were replaced with logical `inset-e-1` / `pe-8` so the steppers
  * sit at the inline-end edge in both LTR and RTL locales).
  *
  * The tests assert on `className` strings because jsdom has no CSS
@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
-	it("uses logical `end-1` (not physical `right-1`) for the stepper container", () => {
+	it("uses logical `inset-e-1` (not physical `right-1`) for the stepper container", () => {
 		render(
 			<NumberInputStepper
 				value="1"
@@ -40,10 +40,10 @@ describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
 		expect(wrapper).toBeTruthy();
 		const stepperContainer = wrapper.querySelector(".absolute") as HTMLElement;
 		expect(stepperContainer).toBeTruthy();
-		// BG-39: physical `right-1` is gone; logical `end-1` is present
+		// BG-39: physical `right-1` is gone; logical `inset-e-1` is present
 		// so the steppers appear on the inline-end edge (right in LTR,
 		// left in RTL) without per-locale overrides.
-		expect(stepperContainer.className).toContain("end-1");
+		expect(stepperContainer.className).toContain("inset-e-1");
 		expect(stepperContainer.className).not.toMatch(/\bright-1\b/);
 	});
 

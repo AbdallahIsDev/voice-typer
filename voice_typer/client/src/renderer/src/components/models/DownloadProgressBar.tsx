@@ -70,7 +70,9 @@ export function DownloadProgressBar({
 			<div
 				className="h-1.5 w-full rounded-full bg-border overflow-hidden"
 				role="progressbar"
-				aria-label={t("models.download.progressAria")}
+				aria-label={t("models.download.progressAria", {
+					percent: String(Math.round(progress)),
+				})}
 				aria-valuemin={0}
 				aria-valuemax={100}
 				// NF-R15-17: throttle aria-valuenow to the nearest 10% so screen
@@ -87,20 +89,23 @@ export function DownloadProgressBar({
 				/>
 			</div>
 			<div className="flex items-center justify-between gap-3">
-				<p className="text-xs text-(--text-muted) flex-1 min-w-0 truncate">
+				<p
+					className="text-xs text-(--text-muted) flex-1 min-w-0 truncate"
+					aria-live="polite"
+				>
 					{status}
 					{downloadedBytes !== null && totalBytes !== null && (
-						<span className="ml-2 whitespace-nowrap">
+						<span className="ms-2 whitespace-nowrap">
 							· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
 						</span>
 					)}
 					{speedBps !== null && speedBps > 0 && (
-						<span className="ml-2 whitespace-nowrap">
+						<span className="ms-2 whitespace-nowrap">
 							· {formatSpeed(speedBps)}
 						</span>
 					)}
 					{etaSeconds !== null && etaSeconds > 0 && (
-						<span className="ml-2 whitespace-nowrap">
+						<span className="ms-2 whitespace-nowrap">
 							· {t("models.progress.eta", { time: formatEta(etaSeconds) })}
 						</span>
 					)}

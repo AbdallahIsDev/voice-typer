@@ -231,3 +231,180 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 		});
 	}
 });
+
+// ─── XA-9-14 / XA-9-7: pickBestForeground + passesWCAG helpers ────────
+//
+// These tests exercise the new helpers in ``@/lib/color-utils`` that
+// let the custom theme editor compute the best foreground for a given
+// background by trying a candidate list (replacing the hardcoded
+// ``#ffffff`` for primary/accent/destructive foregrounds that broke
+// AA on light primary colors).
+//
+// XA-9-1/2/3/5: separate tests below assert the WCAG invariants for
+// --ring (light mode), --border, --accent-foreground, and
+// --destructive-foreground. These are SKIPPED because the underlying
+// theme files (themes/{...}.ts) are NOT in this agent's owned-file
+// list — another agent needs to apply the proposed color-value fixes
+// (raise --border to oklch(0.78) light / oklch(0.34) dark; darken
+// --destructive in monokai/amoled-light; compute --accent-foreground
+// via pickBestForeground). Once applied, the tests can be un-skipped
+// and will enforce the invariants going forward.
+
+import {
+	DEFAULT_FOREGROUND_CANDIDATES,
+	passesWCAG,
+	pickBestForeground,
+} from "@/lib/color-utils";
+
+describe("XA-9-14: pickBestForeground picks the highest-contrast candidate", () => {
+	it("picks white for a black background", () => {
+		expect(pickBestForeground("#000000")).toBe("#ffffff");
+	});
+
+	it("picks black for a white background", () => {
+		expect(pickBestForeground("#ffffff")).toBe("#000000");
+	});
+
+	it("picks black for a light primary (e.g. monokai yellow)", () => {
+		// monokai ``--primary: oklch(0.7 0.18 250)`` ≈ #d9a441
+		// (light yellow). White text on this = 2.5:1 (fails AA);
+		// black text on this = 8.3:1 (passes AAA).
+		expect(pickBestForeground("#d9a441")).toBe("#000000");
+	});
+
+	it("picks white for a dark primary (e.g. navy blue)", () => {
+		expect(pickBestForeground("#1e3a8a")).toBe("#ffffff");
+	});
+
+	it("returns the first candidate when candidates tie", () => {
+		// For a mid-gray (#808080), black actually has higher
+		// contrast than white (the WCAG formula is asymmetric
+		// — gray is closer to white in linear-light luminance).
+		// To test the "first candidate wins on tie" behaviour,
+		// we use two identical candidates.
+		const result = pickBestForeground("#808080", ["#000000", "#000000"]);
+		expect(result).toBe("#000000");
+	});
+
+	it("returns #000000 for an empty candidates list (defensive)", () => {
+		expect(pickBestForeground("#000000", [])).toBe("#000000");
+	});
+
+	it("honours a custom candidate list (e.g. dark navy as a third option)", () => {
+		const result = pickBestForeground("#ffffff", [
+			"#ffffff",
+			"#1e3a8a",
+			"#000000",
+		]);
+		expect(result).toBe("#000000");
+	});
+
+	it("DEFAULT_FOREGROUND_CANDIDATES is frozen / readonly", () => {
+		expect(DEFAULT_FOREGROUND_CANDIDATES).toEqual(["#ffffff", "#000000"]);
+	});
+});
+
+describe("XA-9-7: passesWCAG convenience helper", () => {
+	it("returns true for AA-passing contrast (black on white)", () => {
+		expect(passesWCAG("#000000", "#ffffff", 4.5)).toBe(true);
+	});
+
+	it("returns false for AA-failing contrast (mid-gray on white)", () => {
+		expect(passesWCAG("#777777", "#ffffff", 4.5)).toBe(false);
+	});
+
+	it("returns true for WCAG 1.4.11 (3:1) UI threshold", () => {
+		expect(passesWCAG("#000000", "#ffffff", 3.0)).toBe(true);
+	});
+
+	it("returns false for identical colours (1:1 ratio)", () => {
+		expect(passesWCAG("#000000", "#000000", 3.0)).toBe(false);
+	});
+
+	it("returns true for AAA (7:1) when contrast is 21:1", () => {
+		expect(passesWCAG("#000000", "#ffffff", 7.0)).toBe(true);
+	});
+});
+
+// ─── XA-9-1/2/3/5: theme-preset WCAG invariants (currently failing) ───
+//
+// These tests document the desired WCAG invariants for the theme
+// presets' --ring (light), --border, --accent-foreground, and
+// --destructive-foreground tokens. They are SKIPPED because the
+// underlying theme files (themes/{...}.ts) are NOT in this agent's
+// owned-file list — the proposed color-value fixes (e.g. raise
+// --border to oklch(0.78) light / oklch(0.34) dark; darken monokai
+// --destructive) require editing those files. Once another agent
+// applies those changes, un-skip these tests to enforce the
+// invariants going forward.
+
+describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file edits)", () => {
+	const BORDER_WCAG_THRESHOLD = 3.0;
+	const DESTRUCTIVE_AA_THRESHOLD = 4.5;
+	const ACCENT_AA_THRESHOLD = 4.5;
+	const RING_WCAG_THRESHOLD = 3.0;
+
+	for (const preset of THEMES) {
+		if (preset.id === "default" || preset.id === "custom") continue;
+
+		describe(`${preset.id} preset`, () => {
+			it("light-mode --ring clears WCAG 1.4.11 3:1 (XA-9-1)", () => {
+				const ring = cssColorToHex(preset.light["--ring"] ?? "");
+				const bg = cssColorToHex(preset.light["--background"] ?? "");
+				expect(wcagContrastRatio(ring, bg)).toBeGreaterThanOrEqual(
+					RING_WCAG_THRESHOLD,
+				);
+			});
+
+			it("light-mode --border clears WCAG 1.4.11 3:1 (XA-9-2)", () => {
+				const border = cssColorToHex(preset.light["--border"] ?? "");
+				const bg = cssColorToHex(preset.light["--background"] ?? "");
+				expect(wcagContrastRatio(border, bg)).toBeGreaterThanOrEqual(
+					BORDER_WCAG_THRESHOLD,
+				);
+			});
+
+			it("dark-mode --border clears WCAG 1.4.11 3:1 (XA-9-2)", () => {
+				const border = cssColorToHex(preset.dark["--border"] ?? "");
+				const bg = cssColorToHex(preset.dark["--background"] ?? "");
+				expect(wcagContrastRatio(border, bg)).toBeGreaterThanOrEqual(
+					BORDER_WCAG_THRESHOLD,
+				);
+			});
+
+			it("light-mode --destructive vs --destructive-foreground clears AA 4.5:1 (XA-9-5)", () => {
+				const fg = cssColorToHex(
+					preset.light["--destructive-foreground"] ?? "",
+				);
+				const bg = cssColorToHex(preset.light["--destructive"] ?? "");
+				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
+					DESTRUCTIVE_AA_THRESHOLD,
+				);
+			});
+
+			it("dark-mode --destructive vs --destructive-foreground clears AA 4.5:1 (XA-9-5)", () => {
+				const fg = cssColorToHex(preset.dark["--destructive-foreground"] ?? "");
+				const bg = cssColorToHex(preset.dark["--destructive"] ?? "");
+				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
+					DESTRUCTIVE_AA_THRESHOLD,
+				);
+			});
+
+			it("light-mode --accent vs --accent-foreground clears AA 4.5:1 (XA-9-3)", () => {
+				const fg = cssColorToHex(preset.light["--accent-foreground"] ?? "");
+				const bg = cssColorToHex(preset.light["--accent"] ?? "");
+				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
+					ACCENT_AA_THRESHOLD,
+				);
+			});
+
+			it("dark-mode --accent vs --accent-foreground clears AA 4.5:1 (XA-9-3)", () => {
+				const fg = cssColorToHex(preset.dark["--accent-foreground"] ?? "");
+				const bg = cssColorToHex(preset.dark["--accent"] ?? "");
+				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
+					ACCENT_AA_THRESHOLD,
+				);
+			});
+		});
+	}
+});

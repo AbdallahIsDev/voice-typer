@@ -977,20 +977,19 @@ export function HotkeyPicker({
                                     cancel button during recording, so a second X would
                                     be redundant).
 
-                                    NOTE: the aria-label / title strings are inline
-                                    English rather than ``t("hotkeyPicker.clearAria", …)``
-                                    because the corresponding i18n keys are not yet in
-                                    the locale JSON files (out of scope for this
-                                    sub-agent). When the keys are added, switch to the
-                                    ``t()`` calls for translation. */}
+                                    Accessibility: aria-label and title are
+                                    localised via ``t("hotkeyPicker.clearAria",
+                                    { label })`` and ``t("hotkeyPicker.clearTitle")``.
+                                    Native translations exist in all 8 locale JSON
+                                    files. */}
 				{allowClear && value && !recording && (
 					<Button
 						variant="ghost"
 						size="sm"
 						className="h-7 w-7 p-0 text-(--text-muted)"
 						onClick={() => onChange("")}
-						aria-label={`Clear hotkey — ${ariaLabel}`}
-						title="Clear hotkey"
+						aria-label={t("hotkeyPicker.clearAria", { label: ariaLabel })}
+						title={t("hotkeyPicker.clearTitle")}
 					>
 						<HugeiconsIcon
 							icon={Cancel01Icon}
@@ -1014,7 +1013,7 @@ export function HotkeyPicker({
                                             turns red in the last 10 seconds for emphasis. */}
 					<span
 						className={cn(
-							"ml-2 tabular-nums",
+							"ms-2 tabular-nums",
 							secondsRemaining <= 10 && "text-destructive",
 						)}
 					>
@@ -1023,11 +1022,9 @@ export function HotkeyPicker({
 					{/* live modifier indicator. Mirrors
                                             the ``aria-keyshortcuts`` attribute on the
                                             capture button so visual users get the same
-                                            in-progress feedback screen readers do.
-                                            Inline English "Holding:" prefix — see the
-                                            note on the Clear button above re: i18n keys. */}
+                                            in-progress feedback screen readers do. */}
 					{heldModifiersLabel && (
-						<span className="ml-2">Holding: {heldModifiersLabel}</span>
+						<span className="ms-2">Holding: {heldModifiersLabel}</span>
 					)}
 				</output>
 			)}

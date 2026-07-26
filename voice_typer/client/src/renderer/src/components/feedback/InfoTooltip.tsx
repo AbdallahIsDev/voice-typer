@@ -7,6 +7,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { t } from "@/i18n/i18n";
+import { cn, focusRing } from "@/lib/utils";
 
 interface InfoTooltipProps {
 	/** Tooltip body text shown on hover/focus. */
@@ -42,13 +43,21 @@ export function InfoTooltip({ text, contextLabel }: InfoTooltipProps) {
 	// native button is a no-op here (the tooltip is already open from
 	// focus). Visual styling is overridden so the button looks identical to
 	// the previous <span> (no native button border/background).
+	//
+	// XA-3: use the shared focusRing (ring-3 / ring-ring/30) for parity
+	// with the design-system Button instead of the bespoke
+	// ring-2 / ring-ring/50 (thinner + more opaque than the rest of the
+	// app's focus rings).
 	return (
 		<TooltipProvider delayDuration={200}>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<button
 						type="button"
-						className="inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-help"
+						className={cn(
+							"inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 cursor-help",
+							focusRing,
+						)}
 						aria-label={ariaLabel}
 					>
 						<svg

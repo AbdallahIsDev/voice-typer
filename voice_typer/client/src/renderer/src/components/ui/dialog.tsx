@@ -1,6 +1,9 @@
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "#utils";
+import { t } from "@/i18n/i18n";
 
 function Dialog({
 	...props
@@ -39,6 +42,7 @@ function DialogOverlay({
 function DialogContent({
 	className,
 	size = "default",
+	children,
 	...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
 	size?: "default" | "sm";
@@ -54,7 +58,26 @@ function DialogContent({
 					className,
 				)}
 				{...props}
-			/>
+			>
+				{/* NH-21: visible close (X) button in the top-end corner of every
+				   dialog. Sighted users without keyboard expertise expect an X
+				   close button. Radix DialogPrimitive.Close auto-fires
+				   onOpenChange(false), so callers' existing close handlers
+				   (passed via <Dialog onOpenChange={...}>) receive the same
+				   signal as Escape / backdrop click. Uses logical-property
+				   positioning (`inset-e-2 top-2`) so the button flips with the
+				   document direction (Arabic RTL). */}
+				<DialogPrimitive.Close
+					data-slot="dialog-close-button"
+					aria-label={t("common.close")}
+					className={cn(
+						"absolute inset-e-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+					)}
+				>
+					<HugeiconsIcon icon={Cancel01Icon} />
+				</DialogPrimitive.Close>
+				{children}
+			</DialogPrimitive.Content>
 		</DialogPortal>
 	);
 }

@@ -77,6 +77,12 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.85 0 0)",
 		"--scrollbar-thumb-hover": "oklch(0.75 0 0)",
+		// NH-16: status tokens for light mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.62 0.17 149)",
+		"--warning": "oklch(0.7 0.16 70)",
+		"--info": "oklch(0.62 0.14 240)",
 	},
 	dark: {
 		// Core
@@ -132,5 +138,11 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.2 0 0)",
 		"--scrollbar-thumb-hover": "oklch(0.3 0 0)",
+		// NH-16: status tokens for dark mode. Semantic
+		// green/amber/blue so status meaning is preserved on
+		// this theme's palette (overrides the stylesheet default).
+		"--success": "oklch(0.7 0.16 149)",
+		"--warning": "oklch(0.78 0.15 70)",
+		"--info": "oklch(0.7 0.13 240)",
 	},
 };

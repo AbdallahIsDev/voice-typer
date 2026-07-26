@@ -203,7 +203,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 								/>
 								<div className="text-sm text-(--text-muted) space-y-1.5 min-w-0">
 									<p>{t("settings.privacy.consentBannerDesc")}</p>
-									<ul className="list-disc pl-4 space-y-0.5 text-xs">
+									<ul className="list-disc ps-4 space-y-0.5 text-xs">
 										<li>{t("settings.privacy.huggingFaceItem")}</li>
 										<li>{t("settings.privacy.cloudAsrItem")}</li>
 										<li>{t("settings.privacy.llmPolishItem")}</li>
@@ -444,14 +444,12 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 				clicking. Uses variant="destructive" because granting all cloud
 				+ biometric consents at once is a non-reversible-at-runtime
 				privacy action (revocation requires toggling each one off).
-				TODO: i18n — add settings.privacy.agreeConfirmTitle +
-				agreeConfirmMessage keys to en.json + all 7 other locale
-				files (XA-FIX-1 wave). Until then we ship the English
-				literals here so non-English users still see the dialog. */}
+				Title and message are localised via t("settings.privacy.agreeConfirm*")
+				— native translations exist in all 8 locale JSON files. */}
 			<ConfirmDialog
 				open={showAgreeConfirm}
-				title="Grant all 6 consents?"
-				message="This enables HuggingFace downloads, cloud transcription (OpenAI / Groq / Deepgram), and LLM text polishing all at once. You can revoke any consent individually below."
+				title={t("settings.privacy.agreeConfirmTitle")}
+				message={t("settings.privacy.agreeConfirmMessage")}
 				confirmLabel={t("settings.privacy.agreeToAll")}
 				cancelLabel={t("common.cancel")}
 				variant="destructive"

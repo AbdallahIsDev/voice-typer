@@ -139,10 +139,15 @@ export default function TemplatesPage() {
 							onAction={openAddDialog}
 						/>
 					) : filteredSortedTemplates.length === 0 ? (
+						// NH-15: search returned no matches — use the dedicated
+						// templates.noResults / templates.noResultsDescription
+						// keys instead of borrowing history.noResultsDescription
+						// (cross-module coupling) and the misleading
+						// templates.emptyTitle ("No templates yet").
 						<EmptyState
 							icon={File02Icon}
-							title={t("templates.emptyTitle")}
-							description={t("history.noResultsDescription")}
+							title={t("templates.noResults")}
+							description={t("templates.noResultsDescription")}
 						/>
 					) : (
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">

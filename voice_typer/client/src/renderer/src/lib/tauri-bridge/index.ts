@@ -30,7 +30,7 @@
 //                              (call dispatch + onEvent subscription with
 //                              relay).
 //   • `bubble-namespace.ts` — `createBubbleNamespace(tauri, windowLabel?):
-//                              MainRendererBubble | BubbleWindowBubble`
+//                              MainRendererBubbleMutators | BubbleWindowBubble`
 //                              (audio level stream + 6 mutators + 5 event
 //                              hooks; bubble-window-only methods gated by
 //                              `windowLabel` — EC-FIX-6 / EC-13).
@@ -115,7 +115,7 @@ export function installTauriBridge(): void {
 	const tauri = getTauri();
 	// EC-FIX-6 / EC-13 (SEC-026 regression): pass the current Tauri
 	// window label to `createBubbleNamespace` so the main renderer
-	// (label "main") gets only the `MainRendererBubble` subset (no
+	// (label "main") gets only the `MainRendererBubbleMutators` subset (no
 	// `onSetState` / `onConfig` / `resizeTo` / `toggleDictation` —
 	// matches `preload/index.ts`). The bubble window (label "bubble")
 	// gets the full `BubbleWindowBubble`. The minimal `TauriGlobal`

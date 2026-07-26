@@ -22,6 +22,12 @@
  * Cross-platform: uses the Web Audio API (OscillatorNode + GainNode)
  * which is provided by Chromium on every platform — no platform-specific
  * audio libraries required, no asset files needed.
+ *
+ * XA-12-16: subscribes to ``transcription_final`` and plays the
+ * ``complete`` cue so the user gets an audible confirmation that the
+ * transcription is ready to paste. Previously the only signal was the
+ * visual status pill changing color, which is easy to miss when the
+ * user has looked away from the window.
  */
 import { useEffect } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
@@ -36,12 +42,20 @@ export { initAudioContext, playSoundCue };
 
 /**
  * App-level hook that subscribes to recording_started / recording_stopped
- * events and plays the corresponding cue.  Mount this once at the App
- * root so it stays active regardless of which page is currently shown.
+ * / transcription_final / error events and plays the corresponding cue.
+ * Mount this once at the App root so it stays active regardless of which
+ * page is currently shown.
  *
  * PVT-fix-7: also subscribes to ``error`` events so the user gets an
  * audible alert when the backend reports a recording/transcription
  * failure. The error cue is a short low buzz (see ``sound-manager.ts``).
+ *
+ * XA-12-16: subscribes to ``transcription_final`` and plays the
+ * ``complete`` cue (two-note rising chime). This fires once per
+ * finalized transcription — the user hears an audible "done!" signal
+ * even when the window is hidden to the tray or the user is looking
+ * away. The subscription is mounted at the App root so it fires
+ * regardless of which page is currently shown.
  */
 export function useSoundFeedback(): void {
 	// Eagerly initialize the AudioContext on first mount.
@@ -56,6 +70,18 @@ export function useSoundFeedback(): void {
 
 	usePythonEvent("recording_stopped", (): (() => void) | undefined => {
 		playSoundCue("stop");
+		return undefined;
+	});
+
+	// XA-12-16: audible "transcription ready" cue. The
+	// transcription_final event fires once per finalized
+	// transcription (after the engine has produced the final text
+	// and the pipeline has pasted/committed it). The cue gives the
+	// user an audible confirmation that they can resume typing —
+	// particularly useful when the user has looked away from the
+	// window or the window is hidden to the tray.
+	usePythonEvent("transcription_final", (): (() => void) | undefined => {
+		playSoundCue("complete");
 		return undefined;
 	});
 

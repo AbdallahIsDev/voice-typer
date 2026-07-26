@@ -533,7 +533,9 @@
 			"templatesExported": "Modèles exportés : {filename}",
 			"configExported": "Configuration exportée : {filename}",
 			"exportFailedError": "Échec de l'exportation : {error}",
-			"fileFallback": "fichier"
+			"fileFallback": "fichier",
+			"agreeConfirmTitle": "Accepter les 6 consentements ?",
+			"agreeConfirmMessage": "Cela active les téléchargements HuggingFace, la transcription cloud (OpenAI / Groq / Deepgram) et le polissage de texte par LLM en une seule fois. Vous pouvez révoquer chaque consentement individuellement ci-dessous."
 		},
 		"troubleshooting": {
 			"title": "Dépannage",
@@ -875,7 +877,7 @@
 	"help": {
 		"title": "Raccourcis clavier",
 		"dictation": "Démarrer / arrêter la dictée",
-		"cancel": "Annuler l'enregistrement, ou fermer cette boîte de dialogue",
+		"cancel": "Annuler l'enregistrement (si activé dans les Paramètres), ou fermer cette boîte de dialogue",
 		"repaste": "Re-coller la dernière transcription",
 		"toggleSidebar": "Basculer la barre latérale",
 		"openSettings": "Ouvrir les Paramètres",
@@ -1120,7 +1122,9 @@
 		"matchModeExactLabel": "Exact",
 		"matchModeContainsLabel": "Contient",
 		"matchModeAria": "Match mode: {mode}",
-		"loading": "Loading templates…"
+		"loading": "Loading templates…",
+		"noResults": "Aucun résultat trouvé",
+		"noResultsDescription": "Essayez un autre terme de recherche ou effacez la recherche pour voir tous les modèles."
 	},
 	"analytics": {
 		"title": "Analytique",
@@ -1316,9 +1320,9 @@
 		"assignHint": "Appuyez sur une touche pour assigner, ou appuyez sur Échap pour annuler",
 		"defaultAriaLabel": "Hotkey picker",
 		"secondsRemainingSuffix": "({count}s)",
-		"clearAria": "Clear hotkey — {label}",
+		"clearAria": "Effacer le raccourci — {label}",
 		"holdingPrefix": "Holding: {modifiers}",
-		"clearTitle": "Clear hotkey"
+		"clearTitle": "Effacer le raccourci"
 	},
 	"activityList": {
 		"failedToCopy": "Échec de la copie",
@@ -1375,8 +1379,8 @@
 		"welcomeTitle": "Bienvenue dans Voice Typer",
 		"welcomeDescription": "Voice Typer est un utilitaire premium hors ligne de voix-vers-texte qui s'exécute dans la barre système. Appuyez sur un raccourci, parlez, et vos mots apparaissent comme du texte dans n'importe quelle application. Configurons quelques éléments pour commencer.",
 		"step1Item": "Choisissez votre microphone",
-		"step2Item": "Sélectionnez un raccourci clavier",
-		"step3Item": "Choisissez un modèle de transcription",
+		"step2Item": "Accorder l'autorisation de surveillance du clavier",
+		"step3Item": "Sélectionner un raccourci clavier",
 		"micTitle": "Choisissez votre microphone",
 		"micDescription": "Sélectionnez le microphone que vous souhaitez utiliser pour la dictée. Vous pourrez le changer ultérieurement dans les Paramètres.",
 		"micSelectAria": "Sélectionner le microphone",
@@ -1431,7 +1435,7 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"permissionsCheckFailed": "Impossible de vérifier l'autorisation — cliquez sur Actualiser pour réessayer.",
 		"step4Item": "Choisir un modèle de transcription",
 		"step5Item": "Terminer la configuration",
 		"refreshMics": "Actualiser les microphones",

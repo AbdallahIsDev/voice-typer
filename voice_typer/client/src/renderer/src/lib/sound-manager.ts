@@ -228,16 +228,24 @@ function getAudioContext(): AudioContext | null {
 /**
  * Synthesize and play a short audio cue via the Web Audio API.
  *
- * - "start":  rising 660Hz → 880Hz sine, 130ms (recording started)
- * - "stop":   falling 523Hz → 392Hz sine, 190ms (recording stopped)
- * - "error":  low 200Hz square buzz, 250ms with quick decay (recording
- *             error / transcription failure). The square waveform gives
- *             the harsh "buzz" character that distinguishes an error
- *             cue from the normal start/stop tones.
+ * - "start":    rising 660Hz → 880Hz sine, 130ms (recording started)
+ * - "stop":     falling 523Hz → 392Hz sine, 190ms (recording stopped)
+ * - "error":    low 200Hz square buzz, 250ms with quick decay (recording
+ *               error / transcription failure). The square waveform gives
+ *               the harsh "buzz" character that distinguishes an error
+ *               cue from the normal start/stop tones.
+ * - "complete": two-note rising chime 880Hz → 1175Hz sine, 220ms
+ *               (transcription finalized and ready to paste). XA-12-16:
+ *               gives the user an audible confirmation that the
+ *               transcription is ready — previously the only signal
+ *               was the visual status pill changing color, which is
+ *               easy to miss when the user has looked away.
  *
  * Returns true if the cue was successfully scheduled, false otherwise.
  */
-function playViaAudioContext(kind: "start" | "stop" | "error"): boolean {
+function playViaAudioContext(
+	kind: "start" | "stop" | "error" | "complete",
+): boolean {
 	const ctx = getAudioContext();
 	if (!ctx) return false;
 	if (ctx.state === "closed") return false;
@@ -268,6 +276,26 @@ function playViaAudioContext(kind: "start" | "stop" | "error"): boolean {
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.25);
+		} else if (kind === "complete") {
+			// XA-12-16: two-note rising chime (A5 → D6, 880Hz → 1175Hz)
+			// — a major-third interval that reads as a positive
+			// "done!" cadence. Triangle wave for a softer, less
+			// mechanical timbre than the square-wave error buzz.
+			// Total 220ms: 100ms on the first note, 120ms on the
+			// second, with a 5ms attack and 10ms release on each.
+			osc.type = "triangle";
+			osc.frequency.setValueAtTime(880, now);
+			osc.frequency.setValueAtTime(1175, now + 0.1);
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.exponentialRampToValueAtTime(0.14, now + 0.005);
+			gain.gain.setValueAtTime(0.14, now + 0.095);
+			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+			gain.gain.exponentialRampToValueAtTime(0.14, now + 0.105);
+			gain.gain.setValueAtTime(0.14, now + 0.21);
+			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+			osc.connect(gain).connect(ctx.destination);
+			osc.start(now);
+			osc.stop(now + 0.22);
 		} else {
 			osc.frequency.setValueAtTime(523, now);
 			osc.frequency.exponentialRampToValueAtTime(392, now + 0.1);
@@ -350,7 +378,9 @@ function getFallbackAudio(): HTMLAudioElement | null {
 	return _fallbackAudio;
 }
 
-function playViaHtmlAudio(kind: "start" | "stop" | "error"): boolean {
+function playViaHtmlAudio(
+	kind: "start" | "stop" | "error" | "complete",
+): boolean {
 	const audio = getFallbackAudio();
 	if (!audio) return false;
 	try {
@@ -359,7 +389,14 @@ function playViaHtmlAudio(kind: "start" | "stop" | "error"): boolean {
 		// third base64 WAV asset — the AudioContext square-wave path
 		// above is the primary error cue; this is only the fallback
 		// for environments where Web Audio is unavailable.
-		audio.src = kind === "start" ? START_BEEP_WAV : STOP_BEEP_WAV;
+		// XA-12-16: "complete" kind reuses START_BEEP_WAV (rising
+		// pitch) as a positive-sounding fallback — the AudioContext
+		// two-note chime above is the primary complete cue.
+		if (kind === "start" || kind === "complete") {
+			audio.src = START_BEEP_WAV;
+		} else {
+			audio.src = STOP_BEEP_WAV;
+		}
 		audio.volume = 0.15;
 		audio.currentTime = 0;
 		// .play() returns a Promise; if it rejects (autoplay blocked),
@@ -395,7 +432,9 @@ function playViaHtmlAudio(kind: "start" | "stop" | "error"): boolean {
  * Safe to call from any context (renderer, tests, SSR) — silently
  * no-ops if audio is unavailable or disabled.
  */
-export function playSoundCue(kind: "start" | "stop" | "error"): void {
+export function playSoundCue(
+	kind: "start" | "stop" | "error" | "complete",
+): void {
 	if (!isEnabled()) return;
 
 	// Ensure the AudioContext is initialized so the gesture listener

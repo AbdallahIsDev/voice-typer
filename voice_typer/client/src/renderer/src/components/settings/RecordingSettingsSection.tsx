@@ -259,7 +259,11 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 
 					<SettingRow
 						label={recordingModeLabel}
-						info={t("settings.hotkeySection.recordingModeInfo")}
+						// S2-CR-34: use the corrected tooltip text that
+						// names the visible SegmentedControl labels
+						// ("Tap to Record" / "Push to Talk") instead of
+						// the legacy "Toggle" wording that didn't match.
+						info={t("settings.hotkeySection.recordingModeInfoSearch")}
 					>
 						<SegmentedControl
 							options={recordingModeOptions}
@@ -333,8 +337,8 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</SettingRow>
 
 					{/* NEW-UX-029: Audio cue on record start/stop for accessibility
-					and confirmation.  Especially useful for blind users who
-					can't see the visual indicator change. */}
+                                        and confirmation.  Especially useful for blind users who
+                                        can't see the visual indicator change. */}
 					<SettingRow
 						label={soundFeedbackLabel}
 						info={t("settings.hotkeySection.soundFeedbackInfo")}
@@ -368,9 +372,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								<span className="text-sm text-(--text-muted)">s</span>
 							</div>
 							{/* Helper text: valid range. Always shown so the user
-								knows the bounds before they type. */}
+                                                                knows the bounds before they type. */}
 							{/* XA-4-5: i18n the range hint + inline parse/range errors
-								(previously hardcoded English literals). */}
+                                                                (previously hardcoded English literals). */}
 							<span className="text-xs text-(--text-muted)">
 								{t("settings.hotkeySection.rangeHintSeconds", {
 									min: "3",
@@ -411,7 +415,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								<span className="text-sm text-(--text-muted)">min</span>
 							</div>
 							{/* XA-4-5: i18n the range hint + inline parse/range errors
-								(previously hardcoded English literals). */}
+                                                                (previously hardcoded English literals). */}
 							<span className="text-xs text-(--text-muted)">
 								{t("settings.hotkeySection.rangeHintMinutes", {
 									min: "5",
@@ -432,9 +436,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</SettingRow>
 
 					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
-					    stop_on_silence_seconds — auto-stop already resets on every speech
-					    detection, so "silence after speech" needs no separate control.
-					    Do NOT re-add this setting. */}
+                                            stop_on_silence_seconds — auto-stop already resets on every speech
+                                            detection, so "silence after speech" needs no separate control.
+                                            Do NOT re-add this setting. */}
 				</SettingsSection>
 			)}
 		</>

@@ -209,7 +209,7 @@ export function LocalModelsPanel({
 							value={family.id}
 							className="border-border data-open:bg-transparent"
 						>
-							<AccordionTrigger className="px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-black/2 dark:hover:bg-white/5 data-open:bg-transparent">
+							<AccordionTrigger className="px-3.5 py-2.5 text-sm font-semibold text-(--text-primary) hover:no-underline hover:bg-foreground/5 data-open:bg-transparent">
 								{family.name}
 							</AccordionTrigger>
 							<AccordionContent className="px-0 pb-0 divide-y divide-border">
