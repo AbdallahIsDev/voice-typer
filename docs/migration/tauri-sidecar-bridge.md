@@ -1,6 +1,6 @@
 # Tauri + Python Sidecar Migration — Bridge Architecture
 
-**Status**: Phase 0-W scaffolding + Rust host compilation + Phase 3 UI port implemented (2026-07-16). Phase 0-W validation gate (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host.
+**Status**: Phase 0-W scaffolding + Rust host compilation + Phase 3 UI port implemented (2026-07-16). Phase 0-W validation gate (Nuitka exe + Tauri spawn + WS + bearer-token auth + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host.
 
 **Reference ADR**: [`docs/adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md) (cross-platform rewrite).
 
@@ -10,7 +10,7 @@
 
 | File | Change | Purpose |
 |---|---|---|
-| `voice_typer/server/sidecar_ws.py` (NEW, see file) | New module | WebSocket server side of the Tauri↔Python bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 61-command registry unchanged), reuses the ADR-0019 rate limiter, handles `{"type":"shutdown"}` cooperative shutdown, caps frames at 1 MiB. |
+| `voice_typer/server/sidecar_ws.py` (NEW, see file) | New module | WebSocket server side of the Tauri↔Python bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 63-command registry unchanged — DT-19 reconciliation 2026-07-24), reuses the ADR-0019 rate limiter, handles `{"type":"shutdown"}` cooperative shutdown, caps frames at 1 MiB. |
 | `voice_typer/server/prewarm_resolver.py` (NEW, ~213 lines) | New module | `resolve_prewarm_exe()` shared by Windows Task Scheduler + macOS LaunchAgent + Linux systemd user timer. Resolves the frozen `prewarm-<triple>[.exe]` via env var, Tauri resource dir, PyInstaller paths, or dev fallback. |
 | `voice_typer/server/ipc_server.py` (modified) | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate | `--ws` sets `TAURI_SIDECAR=1` and delegates to `sidecar_ws.run()`. Under `TAURI_SIDECAR=1`: (a) `_heartbeat_loop` thread is NOT started (supervisor replaces ADR-0018); (b) `VoiceTyperSingleInstance` Win32 mutex is NOT acquired (Tauri's `single-instance` plugin replaces it). Electron path unchanged. |
 | `voice_typer/server/native_hotkeys/` package (modified — `binary_path.py`) | `VOICE_TYPER_NATIVE_DIR` env-var path | New lookup path between `VOICE_TYPER_NATIVE_BINARY` (single-file override) and the dev source-tree path. Tauri host sets this to `resourceDir/native/` so the Nuitka-frozen sidecar finds the native binaries in production. |
@@ -191,7 +191,7 @@ The Rust host checks `VOICE_TYPER_SIDECAR_DEV=1` and spawns `python -m voice_typ
 
 See ADR-0020 "What stays / what moves / what is removed" for the full scope boundary. Summary:
 
-- **Python sidecar**: 100% of the existing `voice_typer/server/` modules stay unchanged. Only `ipc_server.py` gets the `--ws` flag + `TAURI_SIDECAR=1` gate; `native_hotkeys/` package gets one new env-var path; `task_scheduler.py` gets one Tauri-aware branch. The 61-command registry, 24-event bus, handlers, ASR pipeline, audio filter chain, tray logic (pystray — works under Tauri because the sidecar inherits the desktop session), hotkey subsystem, prewarm, crash recovery — all stay verbatim.
+- **Python sidecar**: 100% of the existing `voice_typer/server/` modules stay unchanged. Only `ipc_server.py` gets the `--ws` flag + `TAURI_SIDECAR=1` gate; `native_hotkeys/` package gets one new env-var path; `task_scheduler.py` gets one Tauri-aware branch. The 63-command registry (DT-19 reconciliation 2026-07-24: corrected from a stale "61" citation), 24-event bus, handlers, ASR pipeline, audio filter chain, tray logic (pystray — works under Tauri because the sidecar inherits the desktop session), hotkey subsystem, prewarm, crash recovery — all stay verbatim.
 - **Rust host**: NEW. Replaces the Electron main process (`client/src/main/` — 209 lines in `index.ts` plus sibling modules under `client/src/main/{windows,python,ipc,bootstrap,state}/`) + `electron_launcher.py` (318 lines) + `autostart_launcher.py` (801 lines) on the Tauri path. Electron path is 100% intact as a reversible fallback.
 - **React bridge**: NEW (`tauri-bridge/` package, entry point `tauri-bridge/index.ts` — see file). The renderer code (`usePython.ts`, all pages, all components) is unchanged on both paths for the `python` namespace and supervisor events. **`bubble` mutators + export/dialog APIs are implemented** in `src-tauri/src/commands/bubble.rs` (see file) + `export.rs` (see file) (see MIG-1.1 + MIG-1.2 wiring tables above) — the renderer is unchanged and those features are functional under Tauri subject to host-validation of the native window/dialog rendering.
 

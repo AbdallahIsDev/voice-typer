@@ -127,7 +127,7 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Volume ducking — macOS | `pyobjc-framework-CoreAudio` | Unchanged | No change. |
 | Volume ducking — Linux | (no native backend today — `volume_backends/linux.py` returns a no-op) | Unchanged | Documented limitation; out of scope. |
 | Config file permissions | Win NTFS ACLs (default) · POSIX `0o600`/`0o700` | Unchanged | `config.py::_secure_atomic_write` stays in Python. |
-| IPC auth | TCP session token (ADR-0014, HMAC, first-frame `{"type":"auth","token":...}`) | WebSocket session token (same scheme, same env var `VOICE_TYPER_IPC_TOKEN`) | See §3. |
+| IPC auth | TCP session token (ADR-0014, bearer-token literal-match — historically referred to as "HMAC"; see §3 ZR-56 reconciliation, first-frame `{"type":"auth","token":...}`) | WebSocket session token (same scheme, same env var `VOICE_TYPER_IPC_TOKEN`) | See §3. |
 | IPC rate limit | Per-connection rate limiter (ADR-0019, 200 burst / 60 sustained msg/s) | **Must port** to the WebSocket server side | ADR-0019 was written for TCP; the limiter logic in `ipc_server.py` must be reused on the WS accept path. See §10. |
 | Heartbeat watchdog | ADR-0018: Electron sends `heartbeat` every 5s, Python watchdog quits after 120s of silence | **Removed** on Tauri path (Rust supervisor replaces it). Stays on Electron fallback path. | See §2 + §10. |
 | Code signing — Windows | Authenticode (`signtool`) via electron-builder `WIN_CSC_LINK` | Authenticode (`signtool`) for both `python-sidecar-*.exe` and `prewarm-*.exe` + Tauri host | See §13. |
@@ -151,7 +151,7 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 
 **Phase 0-W (Windows):**
 - Freeze a working Python backend with **Nuitka** against a `python-build-standalone` interpreter, producing a single `python-sidecar-x86_64-pc-windows-msvc.exe`, and bundle it as a Tauri `externalBin`.
-- Confirm on a Windows 10 + Windows 11 test machine: sidecar spawns on app launch, **localhost WebSocket** comms work over an **ephemeral `127.0.0.1:0` port** + **HMAC token**, sidecar auto-stops with the app, `kill_children` cleans the tree.
+- Confirm on a Windows 10 + Windows 11 test machine: sidecar spawns on app launch, **localhost WebSocket** comms work over an **ephemeral `127.0.0.1:0` port** + **bearer-token auth** (historically referred to as "HMAC token" — see §3 ZR-56 reconciliation), sidecar auto-stops with the app, `kill_children` cleans the tree.
 - Confirm `faster-whisper` / `CTranslate2` loads and transcribes inside the sidecar.
 - Confirm `enigo` injects transcribed text into a foreground window (Notepad).
 - Confirm `tauri-plugin-notification` shows a toast.
@@ -270,7 +270,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
   Fail the launch if the configured bind is not loopback.
 - On respawn Rust generates a **new** token and respawns the sidecar (which binds a fresh `:0`); token rotation per §3.
 
-#> **Frozen command contract (61 commands):** the sidecar IPC command table in §2 enumerates exactly **61 commands** — the baseline established after the Tauri/Rust allowlist narrowing (S3-CR-3). The frozen set lives in `tests/tauri/mig19/test_phase4_validation.py::EXPECTED_COMMANDS` and MUST NOT grow without (1) a new `_handle_<cmd>` mixin, (2) an ADR addendum, (3) a `_validate_dict_payload` schema, and (4) a dispatch-errors test.
+#> **Frozen command contract (63 commands):** the sidecar IPC command table in §2 enumerates exactly **63 commands** — the baseline established after the Tauri/Rust allowlist narrowing (S3-CR-3) and the subsequent IPC-1 reconciliation (ZR-45 cleanup + `relaunch_ack` add). The frozen set lives in `tests/tauri/mig19/test_phase4_validation.py::EXPECTED_COMMANDS` and MUST NOT grow without (1) a new `_handle_<cmd>` mixin, (2) an ADR addendum, (3) a `_validate_dict_payload` schema, and (4) a dispatch-errors test. (DT-19 reconciliation 2026-07-24: earlier drafts of this ADR cited "61 commands"; the actual `len(_COMMAND_REGISTRY)` is 63 — see `docs/ipc-reference.md` and `tests/test_security_doc_command_count.py`.)
 
 ## 2. Sidecar←UI Command Table (channel 1, extracted from `ipc_server._COMMAND_REGISTRY`)
 
@@ -356,7 +356,18 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 
 > **Note on ADR-0018 reconciliation:** ADR-0018 (Electron-Alive Heartbeat Watchdog) stays in force for the Electron fallback path. Under Tauri, Rust supervisor + WS-close detection + backoff) replaces the 120-second-heartbeat-timeout watchdog. The two paths are mutually exclusive per build: the Tauri build defines `TAURI_SIDECAR=1` (or equivalent) and the Python sidecar, on seeing that env var, **disables** the `_heartbeat_loop` thread at startup so the watchdog does not false-positive during a slow WS-only reconnect. The Electron build keeps ADR-0018 unchanged.
 
-### 3. HMAC token lifecycle (cross-platform)
+### 3. Bearer token lifecycle (cross-platform)
+
+> **ZR-56 reconciliation (2026-07-24):** this section was originally titled
+> "HMAC token lifecycle". The implementation never used HMAC — the Rust host
+> generates a 256-bit bearer token via `secrets.token_bytes(32)` and the
+> Python sidecar compares it via `hmac.compare_digest` (constant-time
+> *comparison only* — no key derivation, no signing). The `hmac`/`sha2`
+> crates are explicitly NOT pulled into the Rust host (see `src-tauri/Cargo.toml`
+> comment). The historical "HMAC" wording was carried over from ADR-0014's
+> original design and propagated through the runbooks; the heading is corrected
+> here to match the actual implementation. Downstream docs (`docs/migration/*`,
+> `CONTRIBUTING.md`) have been similarly reconciled.
 
 - Generated by Rust at startup: `secrets.token_bytes(32)` → hex. **Not** reused from any file. Same scheme as ADR-0014 (TCP IPC session-token auth) — the env var name `VOICE_TYPER_IPC_TOKEN` is reused verbatim so no Python code change is needed.
 - Passed to the sidecar **only** via env `VOICE_TYPER_IPC_TOKEN` at spawn (not CLI, not a file).
@@ -670,7 +681,7 @@ Today the tray icon is `pystray` (Win32 / AppKit / GTK), with menu logic in `tra
 - `clipboard-manager:allow-read-text` / `write-text` / `clear`
 - `notification:allow-notify`
 - `single-instance:default`
-- **Exactly ONE generic Rust command** bridges the webview to the sidecar — do **not** write a per-command `tauri::command` for each of the 67 commands. The webview calls `invoke('dispatch',{cmd,data})`; Rust forwards the envelope over WS, awaits the response keyed by a per-request id, and returns it:
+- **Exactly ONE generic Rust command** bridges the webview to the sidecar — do **not** write a per-command `tauri::command` for each of the 63 commands. The webview calls `invoke('dispatch',{cmd,data})`; Rust forwards the envelope over WS, awaits the response keyed by a per-request id, and returns it:
 
   ```rust
   #[tauri::command]

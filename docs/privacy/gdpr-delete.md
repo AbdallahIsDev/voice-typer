@@ -66,8 +66,11 @@ cannot reach into `userData` to unlink files.
 The Electron host must expose a `deleteAllPersonalData` IPC handler
 that unlinks these files. The renderer's "Erase all my data" button
 should call BOTH the Python service's `delete_all_personal_data` AND
-this Electron-side cleaner. **(TODO: future work — not yet
-implemented.)**
+this Electron-side cleaner. **(PI-6 partial: the unlink helper
+`deleteElectronPersonalDataLogs()` is implemented in
+`voice_typer/client/src/main/logging/structuredLogger.ts` and
+re-exported from the `logging/` barrel — the IPC handler wiring +
+renderer button call site remain future work.)**
 
 Per XZ-LOG-03 the Electron loggers have no PII redaction, so
 dictated-text fragments may be present in these files.
@@ -115,8 +118,10 @@ A robust implementation should:
 - Cloud-side deletion (no server-side personal data exists).
 - Secure-delete on CoW filesystems (requires per-filesystem
   detection; document instead).
-- Electron-side `deleteAllPersonalData` IPC handler (TODO: future
-  work — see "Electron logs gap" above).
+- Electron-side `deleteAllPersonalData` IPC handler + renderer
+  button call site (PI-6 partial: the unlink helper exists in
+  `voice_typer/client/src/main/logging/structuredLogger.ts` — see
+  "Electron logs gap" above).
 
 ## Related findings
 

@@ -16247,3 +16247,899 @@ Block (b) is dead code — it appears to be the ORIGINAL CR-3 fix that was super
 
 **Fix:** Move `bubble_coalesce_should_emit` to `sidecar/bubble_coalesce.rs`. Move restart_counter helpers to `platform/restart_counter.rs`. supervisor.rs owns ONLY respawn/backoff.
 **Severity:** 🟡 Medium
+
+---
+
+## Session Findings
+
+### Findings from Session 2 (FZ - Architecture & Code Quality)
+
+## FZ-1 — `recorder.py` (4076 LOC, 68 methods, 727-LOC `start()`) is a god-class monolith packing ≥10 disjoint responsibilities
+**Status:** 🚫 Won't Fix — too large (multi-day refactor; deferred to dedicated refactor sprint)
+**Description:** `voice_typer/server/recording/recorder.py` is the single largest production file in the project. It bundles device discovery, sample-rate negotiation, pre-roll capture, SPSC ring buffer + audio worker thread, IPC event worker thread, device health-checker thread, VAD state machine + caching, audio processing pipeline orchestration, session lifecycle, buffer/cache management, resampling, and audio-quality statistics — all in one `Recorder` class. The `start()` method alone is 727 LOC with a "CRITICAL — DO NOT RESTRUCTURE" banner. `_process_audio_chunk` is 510 LOC. `__init__` is 370 LOC initializing 50+ instance attributes across 10 concerns. A partial Phase 4.5 / ARCH-045 extraction already moved ~1500 LOC into 5 sibling modules (`device_manager.py`, `buffer.py`, `resampling.py`, `exceptions.py`, `_recorder_split.py`), and `_recorder_split.py`'s own docstring documents the unfinished split plan — the work simply stalled.
+**Root Cause:** Historical accretion; every audio feature added methods/state to the same class. The partial Phase 4.5 split focused on extracting methods rather than state, leaving the god-class intact.
+**Impact:** Every audio bug fix lands in one of these mega-methods. New contributors cannot hold `start()` in their head. 24 test files directly target this subsystem; any restructure requires coordinated test migration (the existing `recording/__init__.py` custom `_RecordingModule` class — 90 LOC of `__getattr__`/`__setattr__` routing — exists solely for this, tracked as CR-67 / TECH-DEBT OPEN).
+**Progress:** None yet. Investigation complete; split plan documented.
+**Related Files:**
+- `voice_typer/server/recording/recorder.py`
+- `voice_typer/server/recording/__init__.py`
+- `voice_typer/server/recording/_recorder_split.py`
+
+**Fix:** Convert `recorder.py` into a `recorder/` subpackage: `recorder.py` (thin facade ~400 LOC), `capture.py` (ring buffer + audio worker), `event_worker.py`, `vad_session.py`, `pipeline.py` (decompose `_process_audio_chunk`), `session.py` (decompose `start()`/`stop()`). Resolve CR-67 first by migrating test patches to target submodules directly, then delete `_RecordingModule`. Migration order: (1) CR-67 test migration, (2) extract `event_worker.py`, (3) extract `capture.py`, (4) extract `vad_session.py`, (5) decompose `_process_audio_chunk`, (6) decompose `start()`/`stop()` (highest risk, do last). Each step preserves the public `Recorder` API via re-exports.
+**Severity:** 🔴 Critical
+
+## FZ-2 — `ipc_server.py` (3245 LOC) mixes 6 distinct concerns in one `IPCServer` class
+**Status:** 🚫 Won't Fix — too large (~1-day refactor; deferred)
+**Description:** Despite `handlers/` mixins already extracting `_handle_<cmd>` bodies, `IPCServer` still packs DI/wiring, lifecycle, TCP transport (646 LOC including a 380-LOC `_handle_tcp_connection`), heartbeat watchdog, stdin loop + dispatcher, and a 440-LOC `_send` method with 5 distinct branches. The 173-LOC `_COMMAND_REGISTRY` table is inline. The CLI entry point (`main`, 260 LOC) lives in the same module as the dispatcher.
+**Root Cause:** Historical accretion. The 15 handler mixins were extracted but the transport/heartbeat/output paths were left in place because they touch `self._lock` / `self._tcp_client` / `self._pending_tcp`.
+**Impact:** `_send` is a 440-LOC method with 5 branches; any change to the pending-buffer drain must be reasoned about across 3 re-merge paths. Adding a new transport requires editing this file in 4 places.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/ipc_server.py`
+
+**Fix:** Convert `ipc_server.py` → `ipc_server/` package with mixin composition: `server.py` (skeleton + `_COMMAND_REGISTRY`), `lifecycle.py`, `tcp_transport.py`, `heartbeat.py`, `stdin_loop.py`, `output.py` (the 440-LOC `_send`), `inline_handlers.py`, `cli.py`. Each mixin owns its lock-acquisition boundaries. Backward compat via `__init__.py` re-export of `IPCServer`.
+**Severity:** 🔴 Critical
+
+## FZ-3 — `config.py` (2698 LOC) mixes 6 distinct concerns (schema, paths, purge, file lock, migrations, coercion)
+**Status:** 🚫 Won't Fix — too large (~1-day refactor; deferred)
+**Description:** `Config` dataclass (1880 LOC) itself mixes schema definition (510 LOC), I/O (470 LOC), migration runner (200 LOC), and field coercion/validation (575 LOC). Plus 715 LOC of module-level functions for platform defaults, path safety, config-directory management + GDPR purge, cross-process file lock, and schema migrations. `purge_user_data` and `_acquire_config_lock` have nothing to do with the dataclass but live here for import-cycle reasons.
+**Root Cause:** File started as a single dataclass and accreted every config-related concern.
+**Impact:** Editing the schema requires touching a 510-LOC block. I/O methods cannot be unit-tested without the schema. `purge_user_data` and `_acquire_config_lock` are imported by `app.py` and `single_instance.py` — pulling those callers transitively pulls the entire 2698-LOC module.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/config.py`
+- `voice_typer/server/_paths.py` (circular import)
+
+**Fix:** Convert to `config/` package: `schema.py` (dataclass only), `defaults.py`, `paths.py` (rename existing `_paths.py` to `_app_paths.py`), `purge.py`, `file_lock.py`, `io.py`, `migration.py`, `coercion.py`. Resolve the `_paths.py` cycle by having `_paths.py` import from `config.paths`.
+**Severity:** 🔴 Critical
+
+## FZ-4 — `level_monitor.py` (1586 LOC) is a god-module with 27 `global` statements and ~25 module-level mutable globals
+**Status:** 🚫 Won't Fix — too large (would require test isolation rework; deferred)
+**Description:** No class. All state lives at module scope: `_monitor_lock`, `_monitor_stream`, `_monitor_active`, `_monitor_level`, `_monitor_peak`, `_test_chunks`, `_test_raw_chunks`, `_test_filters`, `_test_peak_history`, etc. The file's own section headers confirm two distinct subsystems sharing one stream + one worker: continuous level monitoring + ad-hoc mic test recording. 27 `global` statements mutate module state from inside functions.
+**Root Cause:** Two features were force-fitted to share ONE `sounddevice.InputStream` (to avoid a Windows MME device conflict) and the implementation never encapsulated the shared state in a class.
+**Impact:** Every test that touches `level_monitor` must monkey-patch module globals and remember to reset them in teardown — there is no "fresh instance" path. The `_test_*` state and `_monitor_*` state are guarded by the SAME `_monitor_lock`, so a long `stop_test_recording` blocks `get_level`. Module-level globals make this impossible to run two instances in one process (e.g. for parallel testing).
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/level_monitor.py`
+
+**Fix:** Convert to a `level_monitor/` package with two classes sharing a private stream owner: `_stream_owner.py` (`_LevelStreamOwner`), `monitoring.py` (`LevelMonitor`), `test_recording.py` (`TestRecorder`), `_worker.py`, `_secure_clear.py`. The `__init__.py` keeps the existing function names as module-level shims delegating to a process-wide singleton for back-compat.
+**Severity:** 🔴 Critical
+
+## FZ-5 — `history_db.py` (2738 LOC) `HistoryDB` class packs 7 distinct responsibilities
+**Status:** 🚫 Won't Fix — too large (~1-day refactor; deferred)
+**Description:** Writer-thread infrastructure (320 LOC), write-connection setup (100 LOC), schema + migration (360 LOC incl. 234-LOC `_init_db_schema`), read-connection pool (120 LOC), write-submission API (285 LOC), CRUD (265 LOC), retention (320 LOC incl. 136-LOC `apply_retention`), queries (330 LOC), maintenance (95 LOC). Plus module-level `_BatchableInsert`, `HistoryDBError`, FTS query helpers.
+**Root Cause:** The original `HistoryDB` was a thin wrapper around `sqlite3`. Each new feature (FTS5 search, retention, batchable inserts, single-writer thread, count cache, secure corruption recovery) added methods to the same class because they all needed the writer thread and the connection pool. No abstraction layer was introduced between "queue + writer thread infrastructure" and "domain queries".
+**Impact:** The 234-LOC `_init_db_schema` contains FTS5 virtual-table definition, triggers, indexes, and `schema_meta` table — all in one SQL string. Any change to the writer thread requires touching the same class as `add_transcription` and `search`. Test isolation is poor: every test that calls `HistoryDB()` spawns a real daemon thread.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/history_db.py`
+
+**Fix:** Convert to a package; keep `HistoryDB` as a thin facade for backward compat. Submodules: `_payloads.py`, `_fts.py`, `schema.py`, `migrations.py`, `writer.py`, `connections.py`, `retention.py`, `queries.py`.
+**Severity:** 🔴 Critical
+
+## FZ-6 — `ThemeSettingsSection.tsx` (1258 LOC) is a monolithic settings section with 4 mixed concerns + 5 sub-sections
+**Status:** ⚠️ Partial — local `contrastRatio` duplicate deleted (FZ-17); full split deferred (multi-file refactor)
+**Description:** Single memo()'d component (~800 LOC of component body) plus 340 LOC of module-level helpers split across 5 distinct concerns: WCAG contrast-ratio helpers, hex regex + AA threshold constants, `_getContrastPair` mapping table, localStorage draft backup helpers, theme color readers. 13 inline event handlers. 4 distinct sub-sections rendered in JSX (Color Scheme, Theme Preset selector, Custom Theme toggle, Custom Theme color picker, Text Size). Two render-path IIFEs that defeat memo() on children.
+**Root Cause:** Extracted from a larger `Settings.tsx` monolith but the extraction stopped at the section boundary. All theme-domain helpers, the custom-theme-editor state machine, the WCAG contrast calculation, the localStorage crash-recovery draft, AND the rendering of every sub-section all stayed in one file.
+**Impact:** Any state change in the custom-theme editor re-renders the entire 1258-LOC tree. WCAG contrast logic is impossible to unit-test in isolation. Two inline IIFEs produce fresh closures on every render, defeating memo() on children.
+**Progress:** Local `contrastRatio` duplicate deletion planned (FZ-17). Full split into `theme-settings/` subfolder deferred.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/lib/color-utils.ts`
+
+**Fix:** Split into `theme-settings/{colorContrast.ts, themeDraftStorage.ts, themeColorReaders.ts, useCustomThemeEditor.ts, useThemePresetHover.ts, ColorSchemeRow.tsx, ThemePresetRow.tsx, CustomThemeEditor.tsx, TextSizeRow.tsx}` + thin orchestrator `ThemeSettingsSection.tsx` (~120 LOC).
+**Severity:** 🔴 Critical
+
+## FZ-7 — `HotkeyPicker.tsx` (1037 LOC) fuses capture state machine, keyboard event handling, validation, countdown timer, conflict detection, and UI in one component
+**Status:** ⚠️ Partial — `checkHotkeyConflict` helper extraction planned (FZ-18); full hook+component split deferred
+**Description:** 1037 LOC single function component with NO sub-components. 4 useState + 14 useRef + 6 useEffect + 11 useCallback. 6 distinct responsibilities fused: capture session state machine, always-attached keyboard listener wiring, key event handler logic (handleKeyDown 100 LOC, handleKeyUp 85 LOC), validation + commit logic, countdown timer, conflict detection (DUPLICATE-001 block copy-pasted 3×).
+**Root Cause:** Pure functions were extracted to `hotkey-utils.ts` / `hotkey-validation.ts` but the STATEFUL capture-session logic was never extracted into a hook. Every subsequent fix piled more refs and useCallback logic into the same component body.
+**Impact:** Stale-closure avoidance via refs is brittle. 3× duplicated conflict-detection block is a bug magnet. Component cannot be unit-tested without firing real KeyboardEvents.
+**Progress:** `checkHotkeyConflict` extraction planned (FZ-18). Full hook + sub-component split deferred.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx`
+
+**Fix:** Extract `useHotkeyCapture.ts` hook (~350-400 LOC), `checkHotkeyConflict.ts` (15 LOC), `HotkeyCaptureButton.tsx`, `HotkeyPresetMenu.tsx`, `HotkeyClearButton.tsx`, `HotkeyCaptureHint.tsx`. `HotkeyPicker.tsx` becomes a ~50-LOC orchestrator.
+**Severity:** 🔴 Critical
+
+## FZ-8 — 280 `inspect.getsource` source-string tests across 69 Python test files (GREW from 164/30)
+**Status:** 🚫 Won't Fix — too large (project-wide migration; deferred to dedicated test-quality sprint)
+**Description:** 280 occurrences of `inspect.getsource` across 69 Python test files (the directive cited "164+ across 30+ files" — the count has GROWN, not shrunk). Top offenders: `tests/regressions/audio_test.py` (22), `tests/test_electron_ipc_and_build.py` (13), `tests/test_recorder_worker_lifecycle.py` (12), `tests/test_platform_and_config.py` (11), `tests/test_recording_and_audio.py` (10), `tests/test_dead_code_stays_removed.py` (9). These tests assert on the literal source text of production functions rather than on observable behavior.
+**Root Cause:** Bug-fix-driven tests assert on structural source text ("ensure this function still contains a try/except line") rather than behavior. Each fix added one or two `inspect.getsource(...)` + `assert "..." in src` lines, and nobody pruned them.
+**Impact:** Refactoring any of the 69 production modules — renaming a variable, splitting a function, reformatting — breaks source-string tests in unrelated-looking test files. This is the single largest source of refactoring friction in the suite and the reason FZ-1 through FZ-5 are deferred.
+**Progress:** None yet.
+**Related Files:** 69 test files (see above)
+
+**Fix:** Replace each `inspect.getsource(...)` + substring assertion with a behavioral test (call the function with a fixture input, assert on output/side effect). For the few cases where a structural guarantee is genuinely required (e.g. "no `eval` in this module"), use AST inspection (`ast.walk`) rather than raw source substring matching. Prioritize the top-10 offenders. Target: <30 occurrences suite-wide.
+**Severity:** 🔴 Critical
+
+---
+
+## High Findings
+
+## FZ-9 — Rust `ALLOWED_EVENT_TYPES` allowlist is missing 8 event types that Python publishes and TS subscribes to (silent frame drops on Tauri)
+**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
+**Description:** The Rust `ALLOWED_EVENT_TYPES` const at `src-tauri/src/sidecar/ws.rs:73-109` omits `state_changed`, `error`, `mic_level`, `llm_polish_failed`, `device_lost`, `asr_backend_disabled`, `asr_last_resort_unloaded`, and `audio_clip`. Python publishes all of these via `event_bus.publish(...)`. The Rust WS reader drops frames not in the allowlist (`log::warn!("[WS-READER] dropping unknown event type:")`). The TS renderer subscribes to all of these via `usePythonEvent(...)`. Result: on Tauri, 3 currently-broken renderer features: (1) connection hydration on reconnect (`state_changed`), (2) recording-error UI feedback + error sound (`error`), (3) Microphone page live level meter (`mic_level`).
+**Root Cause:** The Rust allowlist was authored against the G4-H-32 spec list + an "additional known server-published events" extension block, but these 8 event types were missed. Drift documented in `voice_typer/server/event_bus.py:155` ("drift happened twice").
+**Impact:** Real UX regression on Tauri: bubble's dismiss × button is a silent no-op, recording-start failure shows no feedback, Microphone page level meter never updates.
+**Progress:** Fix applied: added all 8 event types to `ALLOWED_EVENT_TYPES`. (Also FZ-10 replaces the linear-scan `.contains()` with HashSet for hot-path performance — `bubble_level` arrives at 60 Hz.)
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+
+**Fix:** Add `"state_changed"`, `"error"`, `"mic_level"`, `"llm_polish_failed"`, `"device_lost"`, `"asr_backend_disabled"`, `"asr_last_resort_unloaded"`, `"audio_clip"` to `ALLOWED_EVENT_TYPES`. Long-term: introduce a shared event-catalogue artifact + parity test (FZ-26).
+**Severity:** 🔴 High
+
+## FZ-10 — `ALLOWED_EVENT_TYPES` linear-scan `.contains()` runs on every WS frame (60 Hz for `bubble_level`)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `ALLOWED_EVENT_TYPES` is a `&[&str]` of ~40 entries; `.contains()` does a linear scan. This runs on EVERY inbound WS frame, and `bubble_level` arrives at ~60 Hz → 60 × ~40 = ~2,400 string comparisons/sec just to allowlist.
+**Root Cause:** Convenience of literal slice syntax; perf cost was not profiled. The hot-path nature (60 Hz on `bubble_level`) was overlooked.
+**Impact:** ~2,400 string-comparison ops/sec sustained while the bubble is visible. Not measurable CPU% on a desktop, but it is the hottest single line in the WS reader loop.
+**Progress:** Fix applied: replaced const slice with `OnceLock<HashSet<&str>>` for O(1) lookup.
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+
+**Fix:** Use `phf::Set<&'static str>` (compile-time perfect hash) or `OnceLock<HashSet<&str>>`. Chose HashSet to avoid adding a new dependency.
+**Severity:** 🔴 High
+
+## FZ-11 — `bubble_signal_ready` Rust command inverts the trust direction (rejects the bubble window, accepts only main)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** Electron's `bubble:ready` handler accepts the signal FROM the bubble window (`assertFromBubble`). The Rust `bubble_signal_ready` command does the OPPOSITE: it rejects the bubble window and accepts only the main window (`require_main_window`). The only production caller is `bubble-main.tsx:38`, which runs in the bubble renderer. The Rust command's body (`app.emit_to("bubble", "bubble:ready", ())`) is also semantically different from the Electron handler (which records `state._bubblePageReady = true`).
+**Root Cause:** The Tauri port INVERTED the trust direction.
+**Impact:** On Tauri, `bubble_signal_ready` rejects with `disallowed_window` envelope. The `.catch(...)` logs `[bubble IPC] bubble_signal_ready failed: ...` to console.
+**Progress:** Fix applied: dropped `require_main_window(&window)?`; replaced with assertion that the calling window IS the bubble window (mirror Electron's `assertFromBubble`).
+**Related Files:**
+- `src-tauri/src/commands/bubble.rs`
+- `voice_typer/client/src/renderer/src/bubble-main.tsx` (caller — no change needed)
+
+**Fix:** Drop `require_main_window(&window)?` from `bubble_signal_ready`. Optionally assert the calling window's label is "bubble".
+**Severity:** 🔴 High
+
+## FZ-12 — `bubble:dismiss` IPC channel has no main-process handler (silent no-op)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** The preload exposes a `dismiss()` method that sends `ipc.send("bubble:dismiss")`. There is NO `ipcMain.on("bubble:dismiss", ...)` handler anywhere. The comment at `_bubble-channels.ts:217-219` explicitly admits this: "Until F11 adds the handler, this IPC send is a no-op (no listener registered on the main side) — safe by Electron's default ipcMain behavior." `Bubble.tsx:174-194` wires the "×" button to call `api?.dismiss?.()` with a type-widening cast because `BubbleWindowExtras` does NOT declare `dismiss`.
+**Root Cause:** BG-96 implemented the renderer + preload half of the dismiss feature but deferred the main-process handler to "F11" (a follow-up ticket that never landed).
+**Impact:** User-visible bug: clicking the "×" dismiss button on the bubble overlay sends an IPC message that is silently dropped. The user sees no effect.
+**Progress:** Fix applied: added `ipcMain.on("bubble:dismiss", ...)` handler that calls `hideBubbleWindow()`. Added `dismiss: () => void` to `BubbleWindowExtras` type. Removed the `& { dismiss?: () => void }` widening cast in `Bubble.tsx`.
+**Related Files:**
+- `voice_typer/client/src/main/ipc/bubble-handlers.ts`
+- `voice_typer/client/src/renderer/src/types/ipc/bubble_bridge.ts`
+- `voice_typer/client/src/renderer/src/Bubble.tsx`
+
+**Fix:** Register `ipcMain.on("bubble:dismiss", ...)` that calls `hideBubbleWindow()` (after `assertFromBubble`). Declare `dismiss: () => void` on `BubbleWindowExtras`. Remove the cast in `Bubble.tsx`.
+**Severity:** 🔴 High
+
+## FZ-13 — `bubble:hidden` listener is registered directly in `bubble-window.ts` (cross-cutting IPC concern, global side-effect)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `hideBubbleWindow()` registers `ipcMain.once("bubble:hidden", onHidden)` and the rapid-toggle guard in `showBubbleWindow()` calls `ipcMain.removeAllListeners("bubble:hidden")` — a GLOBAL side-effect that removes ALL listeners on that channel. The "bubble:hidden" channel is hardcoded in 4 places (3 in `bubble-window.ts` + 1 in `preload/_bubble-channels.ts`). All other bubble-* IPC channel handlers live in `ipc/bubble-handlers.ts` EXCEPT this one.
+**Root Cause:** `hideBubbleWindow` needs the renderer's "exit-animation done" signal, and the renderer sends it via IPC. Whoever wrote it placed the listener at the call site rather than registering it once in `bubble-handlers.ts`.
+**Impact:** `ipcMain.removeAllListeners("bubble:hidden")` is a global side-effect that can swallow unrelated listeners. Channel-name string is hardcoded in 4 places. `bubble-window.ts` depends on `ipcMain` from electron — an otherwise-unnecessary import.
+**Progress:** Fix applied: moved `bubble:hidden` listener registration to `bubble-handlers.ts`. `bubble-window.ts` exposes a callback registration (`onHideAnimationComplete(cb)`); `bubble-handlers.ts` registers `ipcMain.on("bubble:hidden", ...)` once and forwards to the current callback. Removed the global `removeAllListeners` call.
+**Related Files:**
+- `voice_typer/client/src/main/ipc/bubble-handlers.ts`
+- `voice_typer/client/src/main/windows/bubble-window.ts`
+
+**Fix:** Move `bubble:hidden` listener into `bubble-handlers.ts`. `bubble-window.ts` exposes `onHideAnimationComplete(cb)`; `bubble-handlers.ts` registers the listener once and forwards. Replaces `removeAllListeners` with `clearCurrentCallback()`.
+**Severity:** 🔴 High
+
+## FZ-14 — IPC channel-name strings hardcoded as literals across 8+ TS files (no shared contract module)
+**Status:** 🚫 Won't Fix — too large (~50 literal sites to migrate; deferred to dedicated IPC-contract sprint)
+**Description:** Every IPC channel name is a hand-typed string literal duplicated between preload (sender) and main process (receiver). 16 distinct channel prefixes, each duplicated 2-7× as inline literals. Examples: `"python-call"`, `"python-event"`, `"window:minimize"`, `"history:export"`, `"bubble:move-by"`, `"bubble:resize"`, `"bubble:draggable"` (7 non-test sites), `"bubble:hidden"` (7 non-test sites). No shared `IpcChannel` constants module exists.
+**Root Cause:** Pre-existing pattern from the original monolithic `index.ts`; the REF-2 split into per-domain handler files preserved the inline literals rather than extracting a shared channel-name registry. The Tauri bridge added a third copy of each name (snake_case Rust commands).
+**Impact:** A typo in any one of these literals silently breaks IPC at runtime with no compile-time error. Channel renames require manual find/replace across 2-3 sites with no safety net. The Tauri/Electron naming-convention split compounds the divergence risk.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/preload/{index.ts, _bubble-channels.ts}`
+- `voice_typer/client/src/main/ipc/{bubble-handlers.ts, window-handlers.ts, export-handlers.ts, python-call-handler.ts}`
+- `voice_typer/client/src/main/windows/{bubble-window.ts, main-window.ts}`
+- `voice_typer/client/src/main/python/handle-message.ts`
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/bubble-namespace.ts`
+- `src-tauri/src/commands/bubble.rs`
+- `src-tauri/src/sidecar/ws.rs`
+
+**Fix:** Introduce `src/shared/ipc-channels.ts` exporting `const IPC_CHANNEL = { PYTHON_CALL: "python-call", PYTHON_EVENT: "python-event", WINDOW_MINIMIZE: "window:minimize", BUBBLE_MOVE_BY: "bubble:move-by", ... } as const`. Replace every inline literal with the constant. Add a vitest test asserting every `ipcMain.handle/on` channel has a matching `ipcRenderer.invoke/send` constant.
+**Severity:** 🔴 High
+
+## FZ-15 — `ipcMain.on` listeners in `bubble-handlers.ts` use TypeScript annotations that DO NOT validate runtime shape
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `ipcMain.on("bubble:move-by", (event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => ...)` — the TypeScript annotations are compile-time hints only. Electron's `ipcMain.on` listener signature types its second argument as `any`. A compromised renderer (or a hand-crafted `ipcRenderer.send` call from devtools) can pass `{ deltaX: "not-a-number" }` and the destructure + `Math.min`/`Math.max` calls would silently coerce strings. Same risk for `bubble:resize`, `bubble:set-position`, `bubble:draggable`. Contrast with `window-handlers.ts:236-252` which DOES use `typeof payload?.field === "string"` narrowing — that pattern was applied inconsistently.
+**Root Cause:** Inconsistent application of the existing `typeof`-narrowing pattern.
+**Impact:** False type-safety confidence. The `bubble:resize` handler's `clampBubbleSize(width, height)` would NaN-propagate if width/height are strings, potentially shrinking the bubble to `MIN_BUBBLE_W × MIN_BUBBLE_H` (40×24) — a DoS / visual bug.
+**Progress:** Fix applied: every `ipcMain.on`/`ipcMain.handle` listener in `bubble-handlers.ts` now uses `unknown` payload + `typeof` narrowing (mirror `window-handlers.ts:236-252` pattern).
+**Related Files:**
+- `voice_typer/client/src/main/ipc/bubble-handlers.ts`
+
+**Fix:** Adopt the `typeof`-narrowing pattern from `window-handlers.ts:236-252` uniformly: `ipcMain.on("bubble:move-by", (event, payload: unknown) => { if (!assertFromBubble(event)) return; if (typeof payload !== "object" || payload === null) return; const { deltaX, deltaY } = payload as Record<string, unknown>; if (typeof deltaX !== "number" || typeof deltaY !== "number") return; ... });`
+**Severity:** 🔴 High
+
+## FZ-16 — `handle-message.ts` uses unsafe `as` casts for `msg.id` and `errData.message` (inconsistent GT-D2-6 narrowing)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `state.pendingRequests.get(msg.id as number)` and `state.pendingRequests.delete(msg.id as number)` use unsafe casts. The file's own comment at line 53 acknowledges the prior `any` usage. The fix was applied ONLY to `code` (line 58-59), NOT to `message` (line 43) or `id` (lines 37, 39). `msg.id as number` is especially dangerous because `Map.get("abc")` (string key) returns `undefined` even if a number key `123` exists — a malformed Python reply with `id: "123"` (string) would silently drop the response, leaving the renderer hanging until its 15s/120s timeout fires.
+**Root Cause:** Inconsistent application of the GT-D2-6 narrowing rule. The `code` field was fixed but `message` and `id` were left as bare `as` casts.
+**Impact:** Two type-safety holes: (a) `msg.id as number` — string id silently drops the response; (b) `errData.message as string | undefined` — non-string `message` gets coerced via `String(...)` producing unreadable error messages.
+**Progress:** Fix applied: replaced `msg.id as number` with `typeof msg.id === "number"` guard; replaced `errData.message as string | undefined` with `typeof errData.message === "string" ? errData.message : "Unknown error"`.
+**Related Files:**
+- `voice_typer/client/src/main/python/handle-message.ts`
+
+**Fix:** Apply the GT-D2-6 `typeof`-narrowing pattern uniformly to `id` and `message`.
+**Severity:** 🔴 High
+
+## FZ-17 — `contrastRatio` defined TWICE in production code (ThemeSettingsSection.tsx local copy is stale duplicate of `lib/color-utils.ts`)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `lib/color-utils.ts:118` exports `contrastRatio(fg, bg): number` (extracted under ticket PVT-043). `ThemeSettingsSection.tsx:100` defines a local `contrastRatio(fg, bg): number | null` — same WCAG 2.1 formula. The `ThemeSettingsSection.tsx` line-64 comment literally says: "Defined locally because @/lib/color-utils doesn't currently export a contrast helper. If a future refactor adds contrastRatio to color-utils.ts, the local copy here can be deleted in favour of the import." But color-utils.ts HAS exported `contrastRatio` since PVT-043. The comment is stale; the local copy is dead-duplicate code. Also duplicated: `_relativeLuminance` and `_parseHex` (local `_parseHex6` only handles `#rrggbb`).
+**Root Cause:** Cross-sub-agent refactor left a stale "TODO" comment that was never revisited.
+**Impact:** Two implementations of the same WCAG formula can drift. Bug fixes apply to one but not the other.
+**Progress:** Fix applied: deleted local `contrastRatio`, `_relativeLuminance`, `_parseHex6`, `_srgbChannelToLinear` from `ThemeSettingsSection.tsx`. Imported `contrastRatio` from `@/lib/color-utils`. Updated call sites to handle the `number` (not `number | null`) return type.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/lib/color-utils.ts`
+
+**Fix:** Delete `ThemeSettingsSection.tsx:64-107`. Import `{ contrastRatio }` from `@/lib/color-utils`. Audit the 6 call sites — replace `if (ratio === null) ...` guards with direct numeric checks (the lib version returns 0 for invalid input, never null).
+**Severity:** 🔴 High
+
+## FZ-18 — `checkHotkeyConflict` block copy-pasted 3× in `HotkeyPicker.tsx`
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** The same 8-line conflict-detection block appears 3 times: in `commitModifierOnlyCombo` (lines 503-510), in `commitFullCombo` (lines 569-576), and in `DropdownMenuItem onSelect` (lines 938-947). The 3 sites have slightly different surrounding context (sites 1+2 call `resetCaptureSession`; site 3 doesn't) but the core check + error message is identical.
+**Root Cause:** DUPLICATE-001 was added as a feature flag across all 3 commit paths independently.
+**Impact:** If the conflict-detection logic ever needs to change (e.g. supporting modifier-wildcards, or showing which other setting conflicts), all 3 sites must be patched in lockstep. The error message i18n key (`hotkeyValidation.alreadyInUse`) is hardcoded 3×.
+**Progress:** Fix applied: extracted `checkHotkeyConflict(newHotkey, value, occupiedHotkeys): string | null` into `components/hotkey/checkHotkeyConflict.ts`. Updated all 3 call sites to one-liners.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx`
+- `voice_typer/client/src/renderer/src/components/hotkey/checkHotkeyConflict.ts` (NEW)
+
+**Fix:** Extract `checkHotkeyConflict(newHotkey, value, occupiedHotkeys): string | null` into `components/hotkey/checkHotkeyConflict.ts`. The 3 call sites become one-liners: `const conflict = checkHotkeyConflict(newHotkey, value, occupiedHotkeys); if (conflict) { setError(conflict); resetCaptureSession(); return; }`.
+**Severity:** 🔴 High
+
+## FZ-19 — `paste.rs` (760 LOC) + `paste_text` Tauri command are dead in production
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `commands/mod.rs:7-12` explicitly documents: "GT-E3-1 (note): `paste_text` + `paste.rs` are dead in PRODUCTION traffic (Python sidecar does its own paste internally). Retained because tests source-grep the signature + DevTools uses." The `paste_text` Tauri command is registered in `main.rs:224`'s `generate_handler!` list, but production never invokes it (the Python sidecar handles paste internally per ADR-0020). It exists solely to keep test source-grep coverage and DevTools experimentation. 760 LOC of non-trivial platform-specific code (Win32 focus-restore, Wayland detection, clipboard save/restore) is dead in production but must be kept in sync with the Python paste path's behavior.
+**Root Cause:** Code retained past its production lifetime because the deletion is gated on coordinating with the test suite + DevTools.
+**Impact:** 760 LOC of dead code that every contributor must read past when navigating `commands/`. The `paste_text` registration in `main.rs:224` misleads new contributors into thinking paste flows through the Rust host. The `enigo` dependency is effectively dead in production (only the deprecated paste path uses it).
+**Progress:** Fix applied: deleted `paste.rs`, removed `paste_text` from `generate_handler!`, removed the `paste` mod declaration, updated `tests/tauri/mig15-19/` source-grep tests to assert the symbol's ABSENCE. The `enigo` dependency left in `Cargo.toml` for now (other Tauri code may transitively need it; verify with `cargo tree`).
+**Related Files:**
+- `src-tauri/src/commands/paste.rs` (DELETED)
+- `src-tauri/src/commands/mod.rs`
+- `src-tauri/src/main.rs`
+- `tests/tauri/mig15-19/` (source-grep tests updated)
+
+**Fix:** Delete `paste.rs`, remove `pub(crate) mod paste;` from `commands/mod.rs`, remove `paste_text` from `main.rs::generate_handler!`, remove the `paste_text` import. Update the mig15-19 source-grep tests to assert the symbol's ABSENCE.
+**Severity:** 🔴 High
+
+## FZ-20 — `atomic_write_bytes` is misplaced in `migrate.rs` (used by supervisor + export, nothing to do with migration)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `atomic_write_bytes` is a generic fs-write helper (temp + fsync + rename) that has NOTHING to do with Electron migration. It is imported and used by 2 non-migration callers: `sidecar/supervisor.rs:25` (writes restart-counter JSON) and `commands/export.rs:134, :463, :508` (writes exported config/templates files; also tested in 3 test cases at `export.rs:440-510`).
+**Root Cause:** Helper-accretion — first caller's module became the permanent home for a generic utility.
+**Impact:** (1) Logical coupling: editing `migrate.rs`'s atomic-write contract appears to risk the migration when it actually risks supervisor + export too. (2) Misleading module boundary. (3) `migrate.rs` cannot be deleted even if migration completes, because non-migration code depends on it.
+**Progress:** Fix applied: moved `atomic_write_bytes` (and its tests) from `migrate.rs` to `util.rs`. Updated imports in `supervisor.rs` and `export.rs`.
+**Related Files:**
+- `src-tauri/src/migrate.rs`
+- `src-tauri/src/util.rs`
+- `src-tauri/src/sidecar/supervisor.rs` (import update)
+- `src-tauri/src/commands/export.rs` (import update)
+
+**Fix:** Move `atomic_write_bytes` (and its `#[cfg(test)]` tests) to `src-tauri/src/util.rs`. Update the 2 imports.
+**Severity:** 🔴 High
+
+## FZ-21 — `kill_process_tree` is misplaced in `state.rs` (process-control primitive, belongs in `platform/process.rs`)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `kill_process_tree(pid: u32)` is platform-specific shell-out code (Windows: `taskkill /F /T /PID`; Unix: `pgrep -P`/`kill` tree walk). It lives in `state.rs` next to `SidecarHandle`/`SidecarState`. Meanwhile `src-tauri/src/platform/process.rs` already owns the related process-control helper `register_kill_on_parent_exit`. The docstring at `state.rs:181-188` even says the function is called from `spawn.rs` cleanup paths — i.e. it's a process-control primitive, not state.
+**Root Cause:** `kill_process_tree` was originally written for `SidecarHandle::kill_tree` and stayed in `state.rs` when it was promoted to `pub(crate)` for `spawn.rs`.
+**Impact:** Two modules now own process-control primitives — a contributor adding a new kill variant has to know to look in both `state.rs` and `platform/process.rs`.
+**Progress:** Fix applied: moved `kill_process_tree` (and its 2 unit tests) from `state.rs` to `platform/process.rs`. `SidecarHandle::kill_tree` in `state.rs` now delegates via `crate::platform::process::kill_process_tree`.
+**Related Files:**
+- `src-tauri/src/state.rs`
+- `src-tauri/src/platform/process.rs`
+
+**Fix:** Move `kill_process_tree` (and its 2 unit tests) to `platform/process.rs`. Keep `SidecarHandle::kill_tree` in `state.rs` — it delegates to the moved function.
+**Severity:** 🔴 High
+
+## FZ-22 — POSIX reaper subprocess doesn't call `setsid()` (Ctrl-C kills both host and reaper)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** The `pre_exec` closure body for the POSIX reaper subprocess is `Ok(())` — it does NOT call `setsid()`. The comment explicitly says: "FALLBACK: use the shell itself to call setsid… For now, we skip `setsid()` here and rely on the shell's own session handling." Consequence: the reaper subprocess remains in the Tauri host's process group. A terminal Ctrl-C (SIGINT) is delivered to every process in the host's process group — both the host AND the reaper die simultaneously. The reaper therefore cannot kill the sidecar after a Ctrl-C because the reaper itself is dead.
+**Root Cause:** `libc` and `nix` crates were not in `src-tauri/Cargo.toml`; the comment admits the deferral.
+**Impact:** Ctrl-C in a terminal-launched `cargo tauri dev` session leaves the Python sidecar (and its native hotkey binary grandchild) running with mic/hotkeys held until the user manually `pkill -f python-sidecar`.
+**Progress:** Fix applied: added `libc = "0.2"` to `[dependencies]` in `src-tauri/Cargo.toml`. Replaced the empty `pre_exec` closure with `unsafe { libc::setsid() as i32 }`.
+**Related Files:**
+- `src-tauri/src/platform/process.rs`
+- `src-tauri/Cargo.toml`
+
+**Fix:** Add `libc = "0.2"` to `[dependencies]` and replace the empty `pre_exec` closure with `unsafe { libc::setsid() as i32 }`.
+**Severity:** 🔴 High
+
+## FZ-23 — `shutdown_controller.py` (1488 LOC) is a god-module mixing 5 separable concerns
+**Status:** 🚫 Won't Fix — too large (~5 new files; deferred)
+**Description:** Single `ShutdownController` class mixes: generic timeout helpers (115 LOC), watchdog (50 LOC), POSIX signal handling (95 LOC), Win32 console handling (90 LOC), 14 teardown step methods (520 LOC), core orchestration (300 LOC).
+**Root Cause:** RW-9 god-class decomposition extracted shutdown from `VoiceTyperApp` but stopped at a single class — it should have produced 5-6 focused modules.
+**Impact:** Every change to (e.g.) the Win32 console handler requires re-reading 600 LOC of unrelated teardown code. The 1488-LOC file is above most linters' maintainability thresholds.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/shutdown_controller.py`
+
+**Fix:** Split into `_timeout_utils.py`, `_shutdown_watchdog.py`, `_signal_handlers.py`, `_win32_console.py`, `teardown_steps.py` (or `_teardown/` package). `shutdown_controller.py` keeps `__init__`, `_do_cleanup`, `quit`, `_atexit_*` (~300 LOC) and delegates to the extracted modules.
+**Severity:** 🔴 High
+
+## FZ-24 — `ws.rs` (1187 LOC) mixes WS transport with supervisor scheduling and event-protocol concerns
+**Status:** 🚫 Won't Fix — too large (3 new files; deferred; FZ-9/FZ-10 address the most urgent ws.rs issues)
+**Description:** Mixes supervisor-scheduler plumbing (85 LOC: `trigger_respawn_off_thread`, `respawn_supervisor_sender`, `RESPAWN_SUPERVISOR_TX`, `cleanup_and_trigger_respawn`), event-protocol tables (67 LOC: `ALLOWED_EVENT_TYPES` const + `translate_event_name`), heartbeat watchdog (110 LOC: `spawn_heartbeat_task`), WS transport proper (~600 LOC), plus tests (~220 LOC).
+**Root Cause:** The original 585-line `reconnect_ws` god-function was partially split, but the split stopped at phase helpers. The supervisor-trigger plumbing and event-protocol tables were left in place.
+**Impact:** Today's `ws.rs` has 5 distinct responsibilities and 1187 LOC — every WS-transport bugfix requires re-reading supervisor-scheduler code and the heartbeat state machine.
+**Progress:** None yet (FZ-9 + FZ-10 address the urgent allowlist issues within this file).
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+
+**Fix:** Split into `respawn_scheduler.rs` (supervisor plumbing), `event_protocol.rs` (allowlist + translate), `heartbeat.rs`. `ws.rs` keeps `ws_connect`, `queue_auth_and_store_ws_tx`, `spawn_writer_task`, `wait_for_auth_ok`, `spawn_reader_task`, `reconnect_ws` (~600 LOC).
+**Severity:** 🔴 High
+
+## FZ-25 — `WindowWithPython` local interface in `usePython.ts` bypasses the global Window augmentation (5 inline bridge-shape redefinitions)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** A global Window augmentation is declared in `types/ipc/bubble_bridge.ts:185-191`: `declare global { interface Window { python?: PythonBridge; window_?: WindowBridge; bubble?: MainRendererBubbleMutators; } }`. Yet 5 renderer modules re-declare their own inline shapes and use `as unknown as` to bypass the global augmentation: `usePython.ts:11-19`, `i18n/i18n.ts:443-447`, `i18n/i18n.ts:473-482`, `lib/globalErrorHandler.ts:207-211`, `hooks/models/useModelFolder.ts:120-129`. `usePython.ts`'s local `EventCallback` accepts a looser `{type, data}` shape than the canonical `PythonPushEvent` discriminated union, so handlers registered via this cast are NOT compile-checked against the union. Type-safety gradually erodes.
+**Root Cause:** Each site was written defensively to avoid coupling to the global augmentation (in case the import graph doesn't pull in `bubble_bridge.ts`).
+**Impact:** Type-safety hole. The `PythonPushEvent` discriminated union (32+ event types) is bypassed by `usePython.ts:205`'s cast, so typos in event-type strings passed to `api.call({type, data})` are not caught. The 5 inline interface declarations are all subtly different — a future change to `WindowBridge` won't propagate to these call sites.
+**Progress:** Fix applied: deleted the local `WindowWithPython` interface in `usePython.ts`. Use the global `window.python` directly. Replaced the 4 other inline casts with direct `window.window_?.setLocale?.(...)` / `window.window_?.openLogs?.(...)` / `window.window_?.openModelImportDialog?.(...)` / `window.python?.call?.(...)` access.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/hooks/usePython.ts`
+- `voice_typer/client/src/renderer/src/i18n/i18n.ts`
+- `voice_typer/client/src/renderer/src/lib/globalErrorHandler.ts`
+- `voice_typer/client/src/renderer/src/hooks/models/useModelFolder.ts`
+
+**Fix:** Delete the local `WindowWithPython` interface in `usePython.ts`. Use `window.python` directly. Apply the same simplification to the 4 other sites.
+**Severity:** 🔴 High
+
+## FZ-26 — `usePython.call()` `type` parameter is plain `string`, NOT constrained to `PythonRequest["type"]` (asymmetric type safety)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `types/ipc/requests.ts` declares a 14-member `PythonRequest` discriminated union — but `usePython.call()` signature is `async <T = unknown>(type: string, data?: Record<string, unknown>): Promise<T>`. The `type` parameter is plain `string`, NOT constrained to `PythonRequest["type"]`. A typo like `call("get_congif")` compiles cleanly. By contrast, `usePythonEvent` IS properly typed: `export function usePythonEvent<K extends PythonPushEvent["type"]>(...)`. Push-event subscriptions get compile-time typo detection but request calls do not. Asymmetric type safety.
+**Root Cause:** The original `ResponseData<T>` mapped type was removed (XZ-CC-16) for having zero consumers, but the type parameter constraint on `call()` was never tightened to fill the gap.
+**Impact:** (1) Typos in IPC command names surface only at runtime (often as silent 30s timeouts). (2) The 14 typed request interfaces in `requests.ts` are pure documentation — reviewers may falsely assume the type system catches mismatches.
+**Progress:** Fix applied: tightened `call()` signature to constrain `type` to `PythonRequest["type"]` and `data` to the per-command payload shape. Kept the loose overload as a 2nd signature for forward-compat with backend-added commands (mirrors the `usePythonEvent` pattern).
+**Related Files:**
+- `voice_typer/client/src/renderer/src/hooks/usePython.ts`
+- `voice_typer/client/src/renderer/src/types/ipc/requests.ts`
+
+**Fix:** Tighten the `call()` signature: `async <T = unknown, K extends PythonRequest["type"] = PythonRequest["type"]>(type: K, data?: Extract<PythonRequest, { type: K }>["data"]): Promise<T>;` Keep the loose overload as a 2nd signature for forward-compat.
+**Severity:** 🔴 High
+
+## FZ-27 — `thiserror` declared in `Cargo.toml` but NEVER used; all 40+ Rust errors are `Result<T, String>`
+**Status:** 🚫 Won't Fix — too large (40+ site migration; deferred to dedicated error-handling sprint)
+**Description:** `src-tauri/Cargo.toml:67` declares `thiserror = "2"` but it is never imported anywhere in `src-tauri/src/`. Zero `#[derive(... Error ...)]`, zero `impl std::error::Error`. Meanwhile every command handler + sidecar helper uses `Result<T, String>` (40+ sites confirmed by grep). Errors are constructed via `format!("...")`, `.map_err(|e| e.to_string())`, or `"...".to_string()`.
+**Root Cause:** `thiserror` was added to `Cargo.toml` (presumably anticipating a proper error enum) but never actually wired up.
+**Impact:** Callers cannot programmatically distinguish error variants (e.g. "sidecar not connected" vs "WS send failed" vs "dispatch timeout" vs "server error [code]"). Every consumer must do string-substring matching, which is brittle to log-message edits. Stack/source info from underlying `io::Error` / `serde_json::Error` is lost. The declared `thiserror` dep also bloats the release binary + compile time for no benefit.
+**Progress:** None yet.
+**Related Files:**
+- `src-tauri/Cargo.toml`
+- All `src-tauri/src/commands/*.rs`
+- `src-tauri/src/sidecar/*.rs`
+- `src-tauri/src/platform/*.rs`
+- `src-tauri/src/state.rs`
+
+**Fix:** Define a `HostError` enum in a new `src-tauri/src/error.rs` using `thiserror`. Add `impl Serialize for HostError` that emits the existing `{"type":"error","data":{"code":..., "message":...}}` shape (Tauri v2 supports `invoke` rejection with any serializable value). Migrate command handlers first (mechanical), then sidecar helpers.
+**Severity:** 🔴 High
+
+## FZ-28 — `16000` (Whisper sample rate) hardcoded as a literal across 30+ production sites
+**Status:** 🚫 Won't Fix — too large (30+ site migration across 7+ modules; deferred)
+**Description:** Whisper's 16 kHz requirement is hardcoded as `16000` across 30+ sites: `config.py:803`, `transcription.py:74` (defines `_WHISPER_SAMPLE_RATE = 16000` but never imports it elsewhere), `transcription.py:590`, `level_monitor.py:120,561,563,950`, `qwen_engine.py:379,572`, `parakeet_engine.py:665,705,798,845,1122,1150`, `audio_chain_builder.py:23,129`, `audio_processor.py:139`, `microphone_test_recorder.py:300`, `service/status.py:129`, `cloud_engines.py:178`, `vad.py:216,255,292,354`, `recording/recorder.py:524,1523-1525,2185,3532,3564,3574`, all 7 `audio_filters/*.py` constructors, `server_platform/microphone_list.py:119`.
+**Root Cause:** Whisper's 16 kHz requirement is universal domain knowledge that pre-dates the codebase; engineers inline `16000` rather than reaching for a shared constant. `transcription.py` even defines `_WHISPER_SAMPLE_RATE` but it is module-local and never imported elsewhere.
+**Impact:** If Whisper ever accepts 8 kHz / 24 kHz, every site must be hunted down. A wrong literal in one site (e.g. parakeet's `len(audio) / 16000`) silently miscalculates duration. The `16000 / 44100 / 48000` triple in `recorder.py` and `level_monitor.py` is already a known source of bugs.
+**Progress:** None yet.
+**Related Files:** 30+ files (see above)
+
+**Fix:** Promote `voice_typer/server/transcription.py:_WHISPER_SAMPLE_RATE` (or a new `voice_typer/server/_audio_constants.py`) to export `WHISPER_SAMPLE_RATE = 16000`, `SILERO_VAD_SAMPLE_RATES = frozenset({8000, 16000})`, `RNNOISE_SAMPLE_RATE = 48000`, `NATIVE_MIC_RATES = frozenset({8000, 16000, 44100, 48000})`. Update all 30+ call sites and default-argument sites to import.
+**Severity:** 🔴 High
+
+## FZ-29 — IPC command allowlist (`ALLOWED_COMMANDS`) hardcoded THREE times across Rust / TS / Python (60+ entries each)
+**Status:** 🚫 Won't Fix — too large (requires contract-file codegen; deferred)
+**Description:** Three independent language runtimes each need a static allowlist at module-load time: Rust (`src-tauri/src/commands/sidecar_cmds.rs:158-240` literal `&[&str]` array of 60+ commands), TS (`voice_typer/client/src/main/allowed-commands.ts:70-206` `Set<string>` of 60+ commands), Python (`voice_typer/server/ipc_server.py:2086-2200+` `_COMMAND_REGISTRY` dict[str, str]). There is no shared schema source — instead a parity test (`test_security_doc_command_count.py`) backstops the manual duplication. The Rust file's own comment at `sidecar_cmds.rs:153-157` admits: "all three layers now stay in sync. The parity test enforces count + exact-entry equality across all three."
+**Root Cause:** Three independent language runtimes each need a static allowlist at module-load time. No shared schema source.
+**Impact:** Adding a new command requires editing 3 files in lockstep. The comment trail documents at least 4 historical drift incidents (missing `quit_app`/`restart_app`, missing `onboarding_check_permissions`, stale entries that broke runtime). The parity test catches *count + equality* but not *intent* — adding the wrong command to all three passes the test.
+**Progress:** None yet.
+**Related Files:**
+- `src-tauri/src/commands/sidecar_cmds.rs`
+- `voice_typer/client/src/main/allowed-commands.ts`
+- `voice_typer/server/ipc_server.py`
+
+**Fix:** Define the command set ONCE in a machine-readable contract file (e.g. `docs/contracts/commands.json`). Generate the Rust `&[&str]`, TS `Set<string>`, Python `_COMMAND_REGISTRY` keys via a build-time codegen step.
+**Severity:** 🔴 High
+
+## FZ-30 — `ALLOWED_EVENT_TYPES` allowlist duplicated between Rust host and Python publisher (drift already happened twice)
+**Status:** 🚫 Won't Fix — too large (requires shared event-catalogue + codegen; deferred; FZ-9 addresses the immediate symptom)
+**Description:** The Python sidecar publishes events under snake_case names; the Rust host allowlists them defensively. There is no single contract file enumerating the valid event types — the Rust literal is the de-facto spec, and the Python `event_bus.publish` call sites are the de-facto producers. The comment at `event_bus.py:155` explicitly documents that drift has occurred twice historically. The Rust allowlist has TWO blocks (lines 74-79 "G4-H-32 spec list verbatim" and 80-108 "Additional known server-published events") — itself a two-tier duplication where the "spec" and "actual" lists disagree.
+**Root Cause:** No shared contract artifact.
+**Impact:** When Python adds a new event, the Rust allowlist must be updated in lockstep or the event is silently dropped at the WS reader. FZ-9 is a concrete instance of this drift (8 missing event types).
+**Progress:** FZ-9 fixes the immediate symptom (added the 8 missing types). Long-term contract-file solution deferred.
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+- `voice_typer/server/event_bus.py`
+
+**Fix:** Define the event-type registry ONCE in Python as `KNOWN_EVENT_TYPES: frozenset[str]`. Have the Python sidecar emit this list at WS handshake. The Rust host builds its `ALLOWED_EVENT_TYPES` from the handshake response + a static "extra-safe" superset. Add a parity test.
+**Severity:** 🔴 High
+
+## FZ-31 — RMS calculator `float(np.sqrt(np.mean(np.square(...))))` copy-pasted across 11 sites in 8 files
+**Status:** 🚫 Won't Fix — moderate scope (11 sites; deferred to cleanup sprint)
+**Description:** Every transcription engine (qwen, parakeet, whisper/transcription), the level monitor, the audio-quality analyzer, the microphone test recorder, and the streaming chunker independently compute the same RMS-from-samples formula. There are TWO dtype variants (`np.float32` for live mic levels, `np.float64` for offline analysis) and ONE variant that uses `audio_chunk**2` instead of `np.square` — i.e. three near-identical formulas that drift in numerical precision.
+**Root Cause:** Each engine module was written independently, copy-pasting the formula. The `audio_quality.py` comment at line 178 shows this duplication has already caused one dead-code bug.
+**Impact:** A future precision fix must be applied to 11 sites. The `vad.py:322` variant using `audio_chunk**2` produces different dtype/precision results than the others — silent inconsistency between RMS values used for VAD vs. for hallucination rejection.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/transcription.py:823`
+- `voice_typer/server/level_monitor.py:1009`
+- `voice_typer/server/audio_quality.py:210`
+- `voice_typer/server/qwen_engine.py:409,475`
+- `voice_typer/server/microphone_test_recorder.py:359`
+- `voice_typer/server/streaming.py:186`
+- `voice_typer/server/parakeet_engine.py:732,870,1173`
+- `voice_typer/server/vad.py:322`
+
+**Fix:** Add `def compute_rms(audio: np.ndarray, *, dtype=np.float64) -> float` to a shared module (`voice_typer/server/audio_math.py` or extend `asr_utils.py`). Update all 11 call sites.
+**Severity:** 🔴 High
+
+## FZ-32 — `tests/test_history_and_models.py` (1235 LOC) is a catch-all mixing ~10 domains across ~30 classes
+**Status:** 🚫 Won't Fix — too large (split into 11 domain packages; deferred to test-quality sprint)
+**Description:** Class roster spans ≥10 domains: history_db, history_retention, history_search, history_restore, cloud_engines, vocabulary, corrections, audio_resample, tray_icon, onboarding, templates, settings_controller (SVC*), model_manager, config_validators, perf, main_module_docs.
+**Root Cause:** Bug-fix-driven accretion. Each ticket (SVC2..SVC11, PERF21, etc.) parked its regression test in whichever file the author was editing, and "history_and_models" became the default dumping ground.
+**Impact:** A developer changing `history_db.py` must scroll past 30 unrelated classes to find the 4 that actually test their module. The filename lies about its contents. Inverse lookup (find tests for production module X) requires grepping the whole tree.
+**Progress:** None yet.
+**Related Files:**
+- `tests/test_history_and_models.py`
+
+**Fix:** Split into domain packages mirroring production modules: `tests/history/test_db_errors.py`, `tests/history/test_retention.py`, `tests/history/test_search.py`, `tests/vocabulary/test_save_retry.py`, `tests/cloud_engines/test_open_timeout.py`, etc. (11 packages total — see FZ-A14 Finding 2 for the full map).
+**Severity:** 🔴 High
+
+## FZ-33 — 38 Python functions exceed 100 LOC (8 exceed 250 LOC)
+**Status:** 🚫 Won't Fix — too large (38 functions across many files; deferred)
+**Description:** Top offenders: `startup_sequence.run` (547 LOC), `ipc_server._send` (434 LOC), `crash_recovery.create_diagnostic_bundle` (384 LOC), `ipc_server._handle_tcp_connection` (382 LOC), `app.py __init__` (357 LOC), `dictation_pipeline.run` (347 LOC), `clipboard/manager.paste` (345 LOC), `config_applier.apply_config_side_effects` (322 LOC), `sidecar_ws._handle_connection` (319 LOC), `parakeet_engine.load` (296 LOC), `config.load` (288 LOC), `config_applier.apply_config` (260 LOC). 30+ more functions in the 100-260 LOC range.
+**Root Cause:** Several god-methods survived earlier refactors because they grew organically as new branches were appended.
+**Impact:** Long functions are hard to unit-test in isolation, hard to read, and frequently grow further. `apply_config_side_effects` already has CR-65 step 2 documented as "future refactor" — the debt is acknowledged but unfixed.
+**Progress:** None yet.
+**Related Files:** Many — see above
+
+**Fix:** Extract per-concern helpers (the config-applier docstring already proposes a `ConfigSideEffect` protocol + handler list; `ipc_server._send` should split transport-write, shutdown-suppression, and rate-limit into separate helpers).
+**Severity:** 🔴 High
+
+---
+
+## Medium Findings
+
+## FZ-34 — Duplicate methods on `service/__init__.py` shadow mixin methods (dead code + drift risk)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `_keyring_status`, `get_config`, `get_defaults` are defined BYTE-FOR-BYTE IDENTICALLY on BOTH `VoiceTyperService` (in `__init__.py` class body) AND `ConfigMutationMixin` (in `config_service.py`). Python's MRO resolves `service.get_config()` to `VoiceTyperService.get_config` (the subclass body wins), so the three methods on `ConfigMutationMixin` are dead code. By contrast, the four mutating methods (`apply_config`, `apply_config_side_effects`, `change_model`, `set_active_backend`) WERE properly removed from `__init__.py` and live ONLY on `ConfigMutationMixin` — so the extraction was completed for mutators but left half-finished for readers.
+**Root Cause:** The `ConfigMutationMixin` was extracted as part of "DT-26 / Phase 4.5 spaghetti split" but the three config-read methods were NOT removed from the composition root.
+**Impact:** A developer editing `ConfigMutationMixin.get_config` will see no effect (silent shadow). The two copies can drift. `ConfigMutationMixin`'s docstring claims ownership of these methods but the runtime reality contradicts the docstring.
+**Progress:** Fix applied: deleted the three duplicate methods from `service/__init__.py`. They now resolve via MRO to `ConfigMutationMixin`. Added a regression test asserting `VoiceTyperService.get_config is ConfigMutationMixin.get_config` (identity check).
+**Related Files:**
+- `voice_typer/server/service/__init__.py`
+- `voice_typer/server/service/config_service.py`
+
+**Fix:** DELETE the three duplicate methods (`_keyring_status`, `get_config`, `get_defaults`) from `voice_typer/server/service/__init__.py:245-308`. Add a regression test asserting identity.
+**Severity:** 🟡 Medium
+
+## FZ-35 — Duplicate `_GDPR_PERSONAL_FILES` / `_GDPR_PERSONAL_GLOBS` constants on `service/__init__.py` shadow `PrivacyMixin` (privacy/compliance risk)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** The two class-level constants `_GDPR_PERSONAL_FILES` (10-entry tuple of personal-data file names) and `_GDPR_PERSONAL_GLOBS` (5-entry tuple of glob patterns) — together with their ~60-line combined comment blocks — are defined BYTE-FOR-BYTE IDENTICALLY on BOTH `VoiceTyperService` (in `__init__.py:152-195`) AND `PrivacyMixin` (in `privacy.py:48-111`). MRO lookup `self._GDPR_PERSONAL_FILES` (from inside `PrivacyMixin.delete_all_personal_data` at `privacy.py:298`) resolves to `VoiceTyperService._GDPR_PERSONAL_FILES` (subclass body wins), so the `PrivacyMixin` declarations are dead code.
+**Root Cause:** Same as FZ-34 — `PrivacyMixin` was extracted but the GDPR file-list constants were not removed from `__init__.py`.
+**Impact:** **Privacy/compliance risk**: A developer who adds a new personal-data file (e.g. a new `whisper-cache.json` containing user-trained adapter weights) and edits only `PrivacyMixin._GDPR_PERSONAL_FILES` (the intuitive location) will NOT see the addition take effect — the `__init__.py` shadow copy wins via MRO and the new file silently survives GDPR Art. 17 delete.
+**Progress:** Fix applied: deleted the duplicate declarations from `service/__init__.py:132-195`. Added a regression test asserting identity.
+**Related Files:**
+- `voice_typer/server/service/__init__.py`
+- `voice_typer/server/service/privacy.py`
+
+**Fix:** DELETE the duplicate `_GDPR_PERSONAL_FILES` and `_GDPR_PERSONAL_GLOBS` declarations (and their comment blocks) from `voice_typer/server/service/__init__.py:132-195`. Add a regression test asserting identity.
+**Severity:** 🟡 Medium
+
+## FZ-36 — `reset_config_to_defaults` lives in `PrivacyMixin` but is config-mutation domain
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `PrivacyMixin` hosts three methods with distinct domains: `delete_all_personal_data` (GDPR Art. 17), `export_gdpr_bundle` (GDPR Art. 20), and `reset_config_to_defaults` (factory reset). `reset_config_to_defaults` does NOT delete personal data from logs / crash archives / mic-test recordings / keychain — its own docstring lists what it explicitly does NOT touch. Its actual responsibility is config-mutation (it acquires `_config_mutation_lock`, calls `Config.save_strict()`, invalidates cached engines — the same pattern as `ConfigMutationMixin.apply_config`), not privacy.
+**Root Cause:** `reset_config_to_defaults` was bundled into `PrivacyMixin` because the original god class grouped it with GDPR methods under a "destructive config operation" theme.
+**Impact:** `privacy.py` is 759 LOC because of a method that doesn't belong. A developer looking for "where is factory reset?" would intuitively check `config_service.py` first, not `privacy.py`.
+**Progress:** Fix applied: moved `reset_config_to_defaults` (privacy.py:427-566) to `config_service.py` as a method on `ConfigMutationMixin`. Updated both files' docstrings.
+**Related Files:**
+- `voice_typer/server/service/privacy.py`
+- `voice_typer/server/service/config_service.py`
+
+**Fix:** Move `reset_config_to_defaults` (privacy.py:427-566) to `config_service.py` as a method on `ConfigMutationMixin`.
+**Severity:** 🟡 Medium
+
+## FZ-37 — Dead `_apply_audio_preset` re-export in `service/_helpers.py` (third copy exists in `config_applier.py`)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `_apply_audio_preset` is defined in `_helpers.py:11-37` AND in `voice_typer/server/config_applier.py:215` (a third copy exists in `config_applier.py` — that one is the production copy). Grep confirms the `_helpers.py` copy is: imported only by `__init__.py:38`, re-exported in `__all__` (`__init__.py:358`), NEVER CALLED by any non-test code. The ADR `docs/adr/0009-audio-filter-chain-architecture.md:495` even documents that `service._apply_audio_preset` was "moved to `audio_presets.py`" — but the dead re-export was never removed.
+**Root Cause:** The function was originally on the god-class `service.py`; when audio-preset logic was centralized, the legacy re-export was kept "just in case".
+**Impact:** Two source-of-truth definitions of preset-name → filter-settings mapping. Pollutes the package's `__all__` public API with a private (`_`-prefixed) symbol that does nothing.
+**Progress:** Fix applied: deleted `_apply_audio_preset` from `_helpers.py`. Removed it from the `__init__.py:38` import and from `__all__`.
+**Related Files:**
+- `voice_typer/server/service/_helpers.py`
+- `voice_typer/server/service/__init__.py`
+
+**Fix:** Delete `_apply_audio_preset` from `_helpers.py:11-37`. Remove it from the `__init__.py:38` import and from `__all__` (`__init__.py:358`).
+**Severity:** 🟡 Medium
+
+## FZ-38 — Stale module/class docstrings in `service/__init__.py` claim ownership of methods that now live on mixins
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** Module docstring lines 11-17 claim: "the original 2,116-line god class has been split into eight domain mixins plus this module (which owns the cross-cutting config / lifecycle / GDPR / diagnostics methods that don't belong to a single domain)." Reality: dedicated mixins (`ConfigMutationMixin`, `PrivacyMixin`, `DiagnosticsMixin`) now own most of those methods. `__init__.py` only ACTUALLY owns `__init__`, `restart`, `quit`, plus the THREE duplicated methods from FZ-34 (which should be removed). Class docstring lines 121-129 repeats the claim. Dead imports kept for backwards-compat re-exports: `import contextlib  # noqa: F401`, `import os  # noqa: F401`, `from voice_typer.server._secrets import redact_secret, redact_url  # noqa: F401`.
+**Root Cause:** Docstrings not updated when mixins were extracted; dead imports left in place.
+**Impact:** A new contributor reading the docstring forms a wrong mental model of where methods live, then is confused when grep shows them in `config_service.py`/`privacy.py`/`diagnostics.py`.
+**Progress:** Fix applied (after FZ-34/FZ-35): rewrote the module docstring to accurately reflect that `__init__.py` owns only `__init__`, `restart`, `quit`, and the TypedDicts. Deleted the 3 dead `# noqa: F401` imports.
+**Related Files:**
+- `voice_typer/server/service/__init__.py`
+
+**Fix:** After applying FZ-34/FZ-35, rewrite the module docstring. Delete the 3 dead `# noqa: F401` imports.
+**Severity:** 🟡 Medium
+
+## FZ-39 — `__all__` in `service/__init__.py` exports 4 private symbols that should not be public
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `__all__` exports 8 symbols, of which 4 are private (`_`-prefixed) implementation details: `_MODEL_STATUS_CACHE_TTL_S` (test seam), `_apply_audio_preset` (dead, FZ-37), `_find_symlink_in_tree` (used by `model.py:17` only), `ConfigApplier` (re-exported but the class lives in `voice_typer.server.config_applier`).
+**Root Cause:** The `__all__` was assembled to preserve backwards-compat with pre-split callers.
+**Impact:** Public API surface includes a stale re-export, a sibling-module class, and two private helpers that are really test seams. Harder to evolve the cache TTL or the symlink helper without "breaking" the public API.
+**Progress:** Fix applied: trimmed `__all__` to `["APP_NAME", "ForceCancelResult", "StatusResponse", "VoiceTyperService"]`. Moved `_MODEL_STATUS_CACHE_TTL_S` test-seam access to `from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S` in the 2 test files. Dropped `ConfigApplier`, `_find_symlink_in_tree`, `_apply_audio_preset` re-exports.
+**Related Files:**
+- `voice_typer/server/service/__init__.py`
+
+**Fix:** Trim `__all__` to 4 public symbols. Relocate test-seam imports.
+**Severity:** 🟡 Medium
+
+## FZ-40 — Dead `ensure_hf_env` re-export in `tray_models.py:146`
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `from voice_typer.server.asr_setup import ensure_hf_env  # noqa: F401 — re-exported for back-compat` — `rg 'tray_models\.ensure_hf_env|tray_models import.*ensure_hf_env'` returns zero matches across the entire repo (including tests). The function actually called at line 151 is `_ensure_hf_env_once()` (defined at lines 51-68), which performs its own lazy `from voice_typer.server.asr_setup import ensure_hf_env` at line 65 — so the top-of-function import on line 146 is dead.
+**Root Cause:** The line was added when the module was extracted (`tray.py` → `tray_models.py`) as a back-compat re-export, but the actual call site was later refactored.
+**Impact:** Minor — confuses readers and bypasses ruff F401 via `# noqa`. Sets a precedent that `# noqa: F401 — re-exported for back-compat` can be added without verification.
+**Progress:** Fix applied: deleted line 146.
+**Related Files:**
+- `voice_typer/server/tray_models.py`
+
+**Fix:** Delete line 146.
+**Severity:** 🟡 Medium
+
+## FZ-41 — Silent `except Exception:` blocks in `clipboard/manager.refresh_config` swallow config-lookup failures
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** Three sequential `except Exception:` blocks silently swallow and fall back to defaults:
+```python
+try:
+    self._clipboard_save_restore_enabled = bool(getattr(config, "clipboard_save_restore", True))
+except Exception:
+    self._clipboard_save_restore_enabled = True  # safe default
+```
+The subsequent `_cb.log.debug(...)` logs the *resulting state* but not that an exception occurred. (Contrast with `clipboard/__init__.py:332-344` and `clipboard/manager.py:288-296` which DO log the swallowed exception.)
+**Root Cause:** Defensive fail-open for `refresh_config()` — the function is called inside the config-mutation lock and must not raise. But the silent swallow means a broken Config attribute is invisible.
+**Impact:** If a future Config refactor introduces a property that raises, `refresh_config` will silently use stale defaults and the user will see "my settings don't apply until restart" with no log breadcrumb.
+**Progress:** Fix applied: added `_cb.log.warning("[CLIPBOARD] refresh_config: %s lookup failed — using safe default", field_name, exc_info=True)` inside each `except` block.
+**Related Files:**
+- `voice_typer/server/clipboard/manager.py`
+
+**Fix:** Add `_cb.log.warning(...)` inside each `except` block (mirrors `clipboard/manager.py:288-296`).
+**Severity:** 🟡 Medium
+
+## FZ-42 — Duplicated `# noqa: F401` comment in `ipc_server.py:116`
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `from voice_typer.server.ipc.validation import (  # noqa: F401  # noqa: F401` — the `# noqa: F401` comment is duplicated on the same line.
+**Root Cause:** Likely a merge-artifact or copy-paste from a nearby import block.
+**Impact:** Cosmetic — no functional effect, but signals inattention and may confuse linter-config readers.
+**Progress:** Fix applied: deleted the duplicate `# noqa: F401`.
+**Related Files:**
+- `voice_typer/server/ipc_server.py`
+
+**Fix:** Delete the duplicate `# noqa: F401`.
+**Severity:** 🟢 Low
+
+## FZ-43 — Stale `i18n.ts` header claims `setMainLocale` was removed, but the function still exists and is wired up
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `voice_typer/client/src/main/i18n.ts` header (lines 30-42) states: "DT-10 ... `setMainLocale()` was removed — it had zero production callers (the `i18n:set-locale` IPC handler that invoked it was removed in PVT-G5-068 and never restored)." But the body (lines 169-192) CONTRADICTS every claim: `let currentLocale: MainLocale = "en";` (still `let`, not `const`), `export function setMainLocale(locale: string): void { ... }` (still exported). And `ipc/window-handlers.ts:309-318` actively calls `setMainLocale(locale)` from the `i18n:set-locale` IPC handler (which was RE-ADDED by NH-3).
+**Root Cause:** When NH-3 re-added the i18n:set-locale handler and `setMainLocale`, the `i18n.ts` header was not updated to reflect that the function was restored.
+**Impact:** Future readers of `i18n.ts` will conclude (from the authoritative-looking header) that `setMainLocale` is dead code and may delete it — silently breaking native-dialog localization. The header is actively misleading.
+**Progress:** Fix applied: updated `i18n.ts:30-42` to state that `setMainLocale` was restored by NH-3 and is invoked by the `i18n:set-locale` IPC handler in `window-handlers.ts`. Removed the false claim that "native main-process dialogs always render in English."
+**Related Files:**
+- `voice_typer/client/src/main/i18n.ts`
+- `voice_typer/client/src/main/ipc/window-handlers.ts` (cross-reference)
+
+**Fix:** Update `i18n.ts:30-42` to state that `setMainLocale` was restored by NH-3. Remove the false claim about native dialogs.
+**Severity:** 🟡 Medium
+
+## FZ-44 — Dead `openElectronLogs` in `bridge.ts` + `window-namespace.ts` (DT-51 cleanup was incomplete)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `bridge.ts:58-62` declares `openElectronLogs?: () => Promise<...>`. `window-handlers.ts:22-26` comment claims: "DT-51: the sibling `window:open-electron-logs` handler was removed ... `openElectronLogs?` was removed from the `WindowBridge` type contract in `types/ipc.ts`." But `openElectronLogs?` is STILL declared in `bridge.ts:58-62` and STILL implemented in `window-namespace.ts:195-212`. The comment lies about the state of the code. Zero renderer callers (verified via `rg "openElectronLogs"`).
+**Root Cause:** The DT-51 cleanup deleted the Electron `window:open-electron-logs` IPC handler and the preload bridge entry, and the comment claims the type was also removed — but the type declaration and Tauri impl were left in place.
+**Impact:** (1) The Tauri bridge exposes `openElectronLogs` to renderer code but the Electron preload does NOT — so calling `window.window_?.openElectronLogs?.()` succeeds on Tauri and silently no-ops on Electron. (2) The misleading comment would lead a future contributor to believe the type was already cleaned up.
+**Progress:** Fix applied: deleted `openElectronLogs?` from `bridge.ts:58-62`. Deleted the Tauri impl in `window-namespace.ts:195-212`. Verified no renderer caller exists.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/types/ipc/bridge.ts`
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts`
+
+**Fix:** Delete `openElectronLogs?` from `bridge.ts:58-62`. Delete the Tauri impl in `window-namespace.ts:195-212`. Verify no caller exists.
+**Severity:** 🟡 Medium
+
+## FZ-45 — Dead `MainRendererBubble` backwards-compat alias in `bubble_bridge.ts`
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `bubble_bridge.ts:162-173` declares `export type MainRendererBubble = MainRendererBubbleMutators;` as a backwards-compat alias with a TODO: "remove this alias once all call sites have migrated to `MainRendererBubbleMutators`." Verified via `rg "MainRendererBubble\b"` — the only references are inside `bubble_bridge.ts` itself. Zero external importers. The alias is dead — the migration is complete but the cleanup TODO was never executed.
+**Root Cause:** A backwards-compat alias added during the DX-012 type split. The TODO says to remove it once callers migrate.
+**Impact:** Minor dead-code; the alias ships in the type declarations and misleads contributors who might use the old name.
+**Progress:** Fix applied: deleted line 173. Updated the two comment references at lines 120, 122 to say `MainRendererBubbleMutators` directly.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/types/ipc/bubble_bridge.ts`
+
+**Fix:** Delete line 173. Update the two comment references.
+**Severity:** 🟡 Medium
+
+## FZ-46 — Dead `KNOWN_PAGES` export in `router/routes.ts`
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `export const KNOWN_PAGES = new Set(Object.keys(ROUTES)) as Set<string>;` — Zero imports of `KNOWN_PAGES` anywhere in `src/` (verified via `rg "KNOWN_PAGES"`). Only references are in comments. The `as Set<string>` cast is also unnecessary.
+**Root Cause:** Legacy export from when `useNavigation.ts` consumed it directly. A prior cleanup consolidated page-list copies but left this export in place.
+**Impact:** Dead export ships in the production bundle (small) and misleads future contributors. `noUnusedLocals` doesn't catch exported-but-unused symbols.
+**Progress:** Fix applied: deleted line 48.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/router/routes.ts`
+
+**Fix:** Delete line 48. Run `tsc --noEmit` to confirm no caller breaks.
+**Severity:** 🟡 Medium
+
+## FZ-47 — `shutdown_sidecar` silently discards `try_send` error (inconsistent with `shutdown_sidecar_for_exit`)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `src-tauri/src/commands/sidecar_cmds.rs:720`: `let _ = ws_tx.try_send(Message::Text(frame.to_string().into()));` — silently discards the `try_send` error with no log line. The sibling `shutdown_sidecar_for_exit` in `state.rs:445-453` DOES log the same try_send failure with a `[EXIT-SHUTDOWN] try_send of shutdown frame failed (best-effort): {e}` warn. The `shutdown_sidecar` copy was apparently missed.
+**Root Cause:** Inconsistent error handling between the two cooperative-shutdown paths.
+**Impact:** A `TrySendError::Full` (channel capacity exhausted) or `TrySendError::Closed` (writer task exited) on the shutdown frame is invisible in the log — operators debugging a "sidecar didn't ack shutdown" report have no breadcrumb.
+**Progress:** Fix applied: mirrored the `shutdown_sidecar_for_exit` pattern — added `if let Err(e) = ws_tx.try_send(...) { log::warn!("[SHUTDOWN] try_send of shutdown frame failed (best-effort): {}", e); }`.
+**Related Files:**
+- `src-tauri/src/commands/sidecar_cmds.rs`
+
+**Fix:** Mirror the `shutdown_sidecar_for_exit` pattern with a `log::warn!` on `try_send` failure.
+**Severity:** 🟡 Medium
+
+## FZ-48 — `child.take().unwrap()` in `supervisor.rs:374` relies on implicit invariant
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `*child_guard = Some(child.take().unwrap());` — `.unwrap()` relies on the implicit invariant that the `if shutting_down` branch above is the only other place `child` could have been consumed. The project's own clippy gate (`Cargo.toml:124 unwrap_used = "warn"`) flags this line on every build. A future refactor that adds a third branch could silently make this `.unwrap()` panic while holding `state.child`'s `std::sync::Mutex` guard — poisoning the lock and taking down the supervisor.
+**Root Cause:** Convenience; the invariant holds today but is not enforced by types.
+**Impact:** Low immediate panic risk, but a latent footgun + a permanent clippy warning.
+**Progress:** Fix applied: replaced with `if let Some(c) = child.take() { *child_guard = Some(c); } else { log::error!("[SUPERVISOR] invariant violated: child was None inside install arm"); /* recovery */ }`.
+**Related Files:**
+- `src-tauri/src/sidecar/supervisor.rs`
+
+**Fix:** Use `if let Some(c) = child.take()` and fall through to an explicit error/log on the None path.
+**Severity:** 🟡 Medium
+
+## FZ-49 — Polling loop in `sidecar_cmds.rs` shutdown path wastes Tokio wakeups
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `src-tauri/src/commands/sidecar_cmds.rs:763-766`:
+```rust
+let deadline = Instant::now() + deadline_dur;
+while Instant::now() < deadline {
+    tokio::time::sleep(Duration::from_millis(SHUTDOWN_POLL_INTERVAL_MS)).await;
+}
+```
+The loop body does NO work — it just polls the deadline in `SHUTDOWN_POLL_INTERVAL_MS` increments. The equivalent dev-mode path in `src-tauri/src/state.rs:491` does this correctly with a single `tokio::time::sleep(deadline).await;`.
+**Root Cause:** Cut-and-paste from an older version of the shutdown path that was later fixed in `state.rs` but not here.
+**Impact:** Each dev-mode `shutdown_sidecar` call wakes the executor ~`SHUTDOWN_ACK_TIMEOUT_MS / SHUTDOWN_POLL_INTERVAL_MS` extra times for no work.
+**Progress:** Fix applied: replaced the 4-line while-loop with `tokio::time::sleep(deadline_dur).await;`.
+**Related Files:**
+- `src-tauri/src/commands/sidecar_cmds.rs`
+
+**Fix:** Replace the while-loop with `tokio::time::sleep(deadline_dur).await;`.
+**Severity:** 🟡 Medium
+
+## FZ-50 — `json_to_csv` in `export.rs` allocates a `Vec<String>` per row (200k+ allocations per 10k-row export)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** `src-tauri/src/commands/export.rs:178-190`:
+```rust
+for item in arr {
+    let row: Vec<String> = keys.iter().map(|k| { ... csv_escape(&v) }).collect();
+    out.push_str(&row.join(","));
+    out.push('\n');
+}
+```
+For a 10k-row history export with 20 columns, this allocates a `Vec<String>` of 20 entries 10,000 times (200,000 small heap allocations) plus 10k join-String allocations.
+**Root Cause:** Idiomatic iterator-chain style preferred over direct buffer writes.
+**Impact:** 200k+ allocations per large export; visible in profile as allocator pressure during the user-facing "Exporting…" flow.
+**Progress:** Fix applied: write each cell directly into `out` with a separator-aware loop — no per-row Vec, no join allocation.
+**Related Files:**
+- `src-tauri/src/commands/export.rs`
+
+**Fix:** Write each cell directly into `out` with `if i > 0 { out.push(','); }` + `out.push_str(&csv_escape(&v))`.
+**Severity:** 🟡 Medium
+
+## FZ-51 — `bubble-window.ts` (698 LOC) mixes 4 cohesive sub-responsibilities
+**Status:** 🚫 Won't Fix — moderate scope (3-file split); deferred (FZ-13 addresses the most urgent bubble-window.ts issue)
+**Description:** The file bundles: (a) Bubble positioning (~150 LOC pure geometry/screen queries with no BrowserWindow dependency), (b) Fullscreen detection (~30 LOC OS-detection concern), (c) BrowserWindow lifecycle (~230 LOC), (d) Show/hide animation + IPC orchestration (~250 LOC reaching DIRECTLY into `ipcMain`).
+**Root Cause:** REF-2 split extracted "bubble window stuff" as one unit without recognizing that positioning, fullscreen-detection, lifecycle, and animation are independent cohesion units.
+**Impact:** 698-LOC file is the second-largest in `main/`. Positioning helpers can't be reused by tests without loading the entire BrowserWindow creation path.
+**Progress:** FZ-13 addresses the most urgent issue (moving `bubble:hidden` listener to `bubble-handlers.ts`). Full split deferred.
+**Related Files:**
+- `voice_typer/client/src/main/windows/bubble-window.ts`
+
+**Fix:** Split into `windows/bubble-positioning.ts`, `windows/bubble-fullscreen.ts`, `windows/bubble-window.ts` (slimmed to ~520 LOC).
+**Severity:** 🟡 Medium
+
+## FZ-52 — `AudioFilterChain.tsx` (935 LOC) renders 7 filter groups (24 SettingRows) inline with a 90-LOC i18n useMemo
+**Status:** 🚫 Won't Fix — moderate scope (9-file split); deferred
+**Description:** 935 LOC single function component. 7 distinct filter groups rendered as inline JSX. Inline 90-LOC useMemo block that resolves ~48 i18n `t()` calls into a flat labels object — then a 50-LOC destructure that unpacks every label into a local `const`. Adding a new filter row requires editing BOTH blocks plus the JSX. 520+ LOC of near-identical SettingRow+RangeSlider blocks.
+**Root Cause:** The component was created to consolidate two duplicated call sites by literally pasting all 24 rows into one component instead of decomposing by filter group.
+**Impact:** Diffing a single filter's slider bounds requires scanning 700 LOC of JSX. Re-rendering: any change to ANY filter field re-renders the entire 24-row tree.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/audio/AudioFilterChain.tsx`
+
+**Fix:** Split into 7 filter-group sub-components + 1 labels hook + 1 constants module.
+**Severity:** 🟡 Medium
+
+## FZ-53 — `bubble-components.tsx` (823 LOC) is a multi-component file (plural name) that should be a directory
+**Status:** 🚫 Won't Fix — moderate scope (11-file split); deferred
+**Description:** The file name is plural ("bubble-components") and it indeed exports 4 components + 4 hooks + 3 type aliases + 7 constants + 2 helpers. `useAudioLevels` (180 LOC) is itself a small monolith: rAF loop, bar-color cache, MutationObserver for theme changes, AND a parallel "is recording" mirror of the state machine that duplicates logic from `useBubbleStateMachine`. Three of the four button components share an identical 1-line className string (copy-pasted 3×).
+**Root Cause:** The extraction from `Bubble.tsx` was a single-step "move everything that isn't the orchestrator into a sibling file" — the natural next step (split into a directory) was never taken.
+**Impact:** Consumers wanting only `BubbleDismissButton` import the entire 823-LOC module. The shared className string is a maintenance hazard.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/bubble-components.tsx`
+
+**Fix:** Convert to `bubble-components/` directory with `constants.ts`, `useThemeSync.ts`, `useAudioLevels.ts`, `useBubbleLifecycle.ts`, `useBubbleStateMachine.ts`, `BubbleVisualizer.tsx`, `BubbleIconButton.tsx` (shared primitive), `BubbleMicButton.tsx`, `BubbleStopButton.tsx`, `BubbleDismissButton.tsx`, `index.ts` (barrel).
+**Severity:** 🟡 Medium
+
+## FZ-54 — Default hotkey `"<caps_lock>"` hardcoded as literal in 5 server-side sites + 1 TS site
+**Status:** 🚫 Won't Fix — moderate scope (6 sites); deferred
+**Description:** `config.py:76` (canonical), `hotkey_dispatcher.py:122` (fallback — comment EXPLICITLY says "platform default (see config._default_hotkey_for_platform)"), `onboarding.py:69,307` (wizard state), `onboarding.py:404` (preset list), `client/src/renderer/src/pages/onboarding/lib/constants.ts:17` (TS-side copy). The TS file documents `HOTKEY_DEFAULT` as a local constant with no reference to the server-side `_default_hotkey_for_platform()`. The `hotkey_dispatcher.py` comment proves the maintainer is aware of the duplication.
+**Root Cause:** The default hotkey pre-dates the Python↔TS IPC bridge; each layer has its own copy.
+**Impact:** If the default hotkey changes, 5 Python sites + 1 TS site must be updated. The `hotkey_dispatcher.py` fallback would silently use the wrong default if `config.py` changes. The TS↔Python drift is invisible to any test.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/config.py`
+- `voice_typer/server/hotkey_dispatcher.py`
+- `voice_typer/server/onboarding.py`
+- `voice_typer/client/src/renderer/src/pages/onboarding/lib/constants.ts`
+
+**Fix:** Server side — import the canonical value in all 4 secondary sites. TS side — the renderer should learn the default via the existing `get_defaults` IPC call. Add a parity test that asserts `constants.ts::HOTKEY_DEFAULT === Config().hotkey`.
+**Severity:** 🟡 Medium
+
+## FZ-55 — `noise_filter_*` defaults duplicated between `Config` dataclass and `audio_chain_builder._DEFAULTS` test dict
+**Status:** 🚫 Won't Fix — moderate scope; deferred
+**Description:** `audio_chain_builder.py:143` comment: "Default values matching the Config class defaults (ADR 0007 §5)". The two dictionaries are byte-for-byte identical for 23 of 24 entries. `config.py:1208` even has a comment "ADR 0007: was 150, now 200 (matches OBS)" for `noise_filter_gate_hold_ms` — a default that was bumped from 150→200. If the same bump is ever made to another field, the `audio_chain_builder._DEFAULTS` dict will silently drift.
+**Root Cause:** `build_chain_from_dict` (used by tests) accepts a plain dict and uses `_DEFAULTS` for missing keys, because constructing a real `Config()` instance in unit tests was deemed too heavy.
+**Impact:** Changing a Config default silently breaks the `build_chain_from_dict` test path — tests will pass with the OLD default while production uses the NEW default. The `_DEFAULTS` dict has no parity test.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/config.py`
+- `voice_typer/server/audio_chain_builder.py`
+
+**Fix:** Replace `_DEFAULTS` with a `Config()` instance: `def build_chain_from_dict(config_dict, sample_rate=16000): cfg = Config(); for k, v in config_dict.items(): setattr(cfg, k, v); return build_chain(cfg, sample_rate=sample_rate)`.
+**Severity:** 🟡 Medium
+
+## FZ-56 — `vad_speech_threshold: 0.5` and `vad_silence_threshold: 0.3` duplicated as `getattr` fallback literals
+**Status:** 🚫 Won't Fix — small scope; deferred
+**Description:** `config.py:1109-1110` (canonical defaults) vs `vad_processor.py:177-178` (fallback literals in getattr): `self._speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)`. The `0.5` is a hardcoded fallback that must match `config.py:1109`'s `0.5` but is not imported from it.
+**Root Cause:** `vad_processor.py` accepts a config-like object (duck-typed) for testability; the `getattr` fallback was added so tests can pass a stub config.
+**Impact:** Drift between `config.py` defaults and `vad_processor` fallbacks. A test that constructs a minimal stub config will exercise a different threshold than production.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/config.py`
+- `voice_typer/server/vad_processor.py`
+
+**Fix:** Import the defaults: `from voice_typer.server.config import Config as _Config; _DEFAULT_VAD_SPEECH_THRESHOLD = _Config.vad_speech_threshold`.
+**Severity:** 🟡 Medium
+
+## FZ-57 — Platform-detection `sys.platform == "win32"` repeated inline despite `platform_utils.is_windows()` existing
+**Status:** 🚫 Won't Fix — moderate scope (8 sites); deferred
+**Description:** The codebase has TWO helper modules (`server_platform/platform_flags.py` and `platform_utils.py`) that both expose `is_windows()` / `is_macos()` / `is_linux()`. Yet ≥8 non-crash-handler modules still inline `sys.platform == "win32"`. `config_validators.py` even aliases `import sys as _sys` to do the same check.
+**Root Cause:** The helpers were introduced later but older modules were never migrated.
+**Impact:** A platform-detection bug fix must be applied to 8+ sites. The 2-helper-module split is itself a minor DRY smell.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/server_platform/{autostart,platform_flags,microphone_list}.py`
+- `voice_typer/server/{_paths,config_validators,autostart_launcher,microphone_watcher_coreaudio,credential_store,native_hotkeys/binary_path}.py`
+
+**Fix:** Migrate the 8 non-crash-handler sites to `from voice_typer.server.platform_utils import is_windows, is_macos, is_linux`. Consolidate the 2 helper modules. Add a lint/test that forbids `sys.platform ==` outside an allowlist.
+**Severity:** 🟡 Medium
+
+## FZ-58 — `test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)
+**Status:** 🚫 Won't Fix — too large (project-wide rename); deferred to test-quality sprint
+**Description:** 29+ test files named after tickets/bugs rather than production modules: `test_cr_fixes.py`, `test_er_fix_g1.py`, `test_er_fix_g2.py`, `test_er_fix_h.py`, `test_g_perf_reliability_fixes.py`, `test_hp7_empty_transcription_fix.py`, `test_i5_retry_fixes.py`, `test_ipc4_rate_limiter_dual_window.py`, `test_ipc5_error_envelope_parity.py`, `test_low_findings_batch.py`, `test_nh17_force_cancel_wording.py`, `test_nh23_onboarding_progress_persistence.py`, `test_perf_fixes.py`, `test_perf_review_fixes.py`, `test_remaining_fixes.py`, `test_xa6_bubble_error_visibility.py`, `test_ec4_python_command_registry_parity.py`, plus the `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` family.
+**Root Cause:** Tickets drive file creation, not module identity.
+**Impact:** Inverse lookup fails — to find tests for `credential_store.py` you must read `test_credential_store.py` AND `test_credential_store_de_fixes.py` AND `test_credential_store_outcome.py`. Bug-fix-named files rarely get pruned.
+**Progress:** None yet.
+**Related Files:** 29+ test files (see above)
+
+**Fix:** Merge each `*_de_fixes.py` / `*_xv_fixes.py` / `*_er_fixes.py` into its parent module test file. Rename ticket-named root files to module-named. Keep ticket IDs only in docstrings/pytest markers.
+**Severity:** 🟡 Medium
+
+## FZ-59 — `time.sleep` in 88 test files (top offender: 20 calls in `test_microphone_watcher.py`)
+**Status:** 🚫 Won't Fix — too large (88 files); deferred to test-quality sprint
+**Description:** 88 test files contain at least one `time.sleep`. Top offenders by call count: `test_microphone_watcher.py` (20), `test_hotkeys_win32.py` (18), `test_level_monitor.py` (15), `test_clipboard_win32_coverage.py` (11), `test_audio_callback.py` (9), `test_smart_duck_monitor.py` (8), `test_shutdown_pool_drain.py` (8), `test_recorder_worker_lifecycle.py` (8), `test_clipboard_restore_race.py` (8).
+**Root Cause:** Real-thread / real-process timing tests use wall-clock sleeps to wait for background workers. No central "wait_for_predicate" helper was adopted.
+**Impact:** Suite is slow and flaky. On a loaded CI runner, sleeps that are "just enough" on a dev box under-shoot and produce intermittent failures.
+**Progress:** None yet.
+**Related Files:** 88 test files (see above)
+
+**Fix:** Add a `wait_until(predicate, timeout=2.0, interval=0.01)` helper to `tests/conftest.py` and migrate the top 15 offenders. For thread-synchronization tests, prefer `threading.Event` with timeout over sleep+poll.
+**Severity:** 🟡 Medium
+
+## FZ-60 — `kill_process_tree` uses N+2 process spawns + 200ms blocking `thread::sleep` on the Tauri event loop
+**Status:** 🚫 Won't Fix — requires adding `nix` crate dependency + careful async migration; deferred
+**Description:** `src-tauri/src/state.rs:228-312` (now moved to `platform/process.rs` per FZ-21): each shell-out spawns a child process (~5-10ms on Linux). For N descendants, that's (1 + N + N) process spawns + a 200ms blocking `thread::sleep` on the calling thread. The function is called from `shutdown_sidecar_for_exit` via `block_on`, so it runs on the Tauri event-loop thread and blocks ALL event processing for 200ms + spawn overhead.
+**Root Cause:** `Command::new("pgrep")/("kill")` was used for portability simplicity instead of `nix` crate syscalls.
+**Impact:** ~200-300ms total event-loop freeze per shutdown, plus 3N process spawns.
+**Progress:** None yet (FZ-21 moved the function to the right module; the spawn-based implementation remains).
+**Related Files:**
+- `src-tauri/src/platform/process.rs` (post-FZ-21)
+
+**Fix:** Use the `nix` crate's `unistd::getpgid`/`sys::signal::kill` (or read `/proc/<pid>/task/<pid>/children` directly on Linux) to walk the process tree in-process via syscalls. Use `tokio::time::sleep` if called from an async context.
+**Severity:** 🟡 Medium
+
+---
+
+## Low Findings
+
+## FZ-61 — Stale `logError` docstring in `window-namespace.ts:214-242` (Rust command IS implemented)
+**Status:** ✅ Fixed (verified on Linux sandbox)
+**Description:** The renderer-side bridge comment claims: "The Rust command `renderer_log_error` is NOT YET IMPLEMENTED — the `.catch(() => {})` swallow is intentional ... TODO: implement `renderer_log_error` Rust command (see EC-13)." But `main.rs:244-245` registers the command AND `system_cmds.rs:258-262` implements it. The renderer's `logError` actually works on Tauri.
+**Root Cause:** The docstring was never updated when the Rust command landed.
+**Impact:** Misleading documentation; a future maintainer might believe the feature is unimplemented and re-implement it.
+**Progress:** Fix applied: updated the comment to reflect that `renderer_log_error` IS implemented (system_cmds.rs:258) and registered (main.rs:244). Kept the `.catch(() => {})` swallow as a defensive best-effort measure with reworded rationale.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts`
+
+**Fix:** Update the comment to reflect that `renderer_log_error` IS implemented.
+**Severity:** 🟢 Low
+
+## FZ-62 — `setLocale` missing from Tauri bridge (`window-namespace.ts`) — parity contract broken
+**Status:** 🚫 Won't Fix — low impact (tray labels still update via `set_tray_locale` Python IPC); deferred
+**Description:** The Electron preload (preload/index.ts:81) and main handler (window-handlers.ts:290) exist for `i18n:set-locale`; the Tauri bridge (window-namespace.ts) and the `WindowBridge` type (bridge.ts) do not. The renderer's `i18n.ts:445-448` uses an inline `as` cast + optional chaining to access `setLocale`, so on Tauri the call silently no-ops. The Python-side `set_tray_locale` IPC call DOES work on Tauri via `window.python.call`, so tray-menu labels still update.
+**Root Cause:** The Tauri bridge was never ported for the `i18n:set-locale` channel.
+**Impact:** On Tauri, the renderer's locale change does NOT push to a main-process handler. Native Tauri dialogs use the OS locale, not a main-process-pushed locale, so there is no direct user-visible dialog-localization regression. However, the parity contract is broken.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts`
+- `voice_typer/client/src/preload/index.ts`
+- `voice_typer/client/src/main/ipc/window-handlers.ts`
+
+**Fix:** Add a `setLocale` method to `createWindowNamespace` in `window-namespace.ts` that invokes a Rust command (e.g. `set_host_locale`) which stores the locale in `SidecarState`.
+**Severity:** 🟢 Low
+
+## FZ-63 — `MainRendererBubble` backwards-compat alias in `bubble_bridge.ts` — SEE FZ-45 (already fixed)
+
+## FZ-64 — Magic numbers in `main/` (process-exit backstops, TCP frame cap, IPC timeouts) should be named constants
+**Status:** 🚫 Won't Fix — low impact; deferred
+**Description:** `index.ts:148` (3000ms SIGTERM backstop), `bootstrap.ts:421` (2000ms production-exit backstop), `bubble-window.ts:336` (2000ms bubble reload), `tcp-connect.ts:178,180` (4 MB TCP frame cap duplicated between conditional and log string), `send-to-python.ts:201` (120000/15000 IPC timeouts). The two process-exit backstops use different values with no comment explaining the 1s discrepancy.
+**Root Cause:** Ad-hoc literals sprinkled across modules.
+**Impact:** A future change to "the process-exit backstop" requires grepping for `setTimeout` and reading each one's surrounding comment.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/main/{index,bootstrap,windows/bubble-window,python/tcp-connect,python/send-to-python}.ts`
+
+**Fix:** Add named constants to `src/main/constants.ts`: `PROCESS_EXIT_BACKSTOP_MS`, `SIGTERM_EXIT_BACKSTOP_MS`, `BUBBLE_RELOAD_BACKOFF_MS`, `TCP_FRAME_MAX_BYTES`, `IPC_TIMEOUT_SHORT_MS`, `IPC_TIMEOUT_LONG_MS`.
+**Severity:** 🟢 Low
+
+## FZ-65 — `var` in inline HTML bootstrap scripts (`index.html`, `bubble.html`)
+**Status:** 🚫 Won't Fix — trivial; deferred
+**Description:** `index.html:39` and `bubble.html:29` use `var locale, SUPPORTED, tag;` in inline i18n-locale bootstrap scripts that run BEFORE the React app mounts.
+**Root Cause:** Pre-ES6 syntax in inline scripts that predate the TS migration and live outside the bundler's TS pipeline.
+**Impact:** `var` is function-scoped (not block-scoped), leaking to global if hoisted. The two HTML files duplicate the same bootstrap logic verbatim.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/renderer/{index,bubble}.html`
+
+**Fix:** Convert `var` → `let`/`const` in both HTML files. Optionally extract to a shared `i18n-bootstrap.js` snippet.
+**Severity:** 🟢 Low
+
+## FZ-66 — 12+ underscore-prefixed test-only exports ship in production main-process modules
+**Status:** 🚫 Won't Fix — low impact (small bundle cost); deferred
+**Description:** At least 12 `_`-prefixed test-only exports ship in the production bundle: `_resetIpcBackpressureForTests`, `_LONG_RUNNING_COMMANDS_FOR_TEST`, `_resetNativeThemeListenerForTest`, `_resetRenderCrashTrackingForTest`, `_resetStopPythonFlagsForRestart`, `_resetTrayAvailableCache`, `_resetFileSizeCacheForTest`, `_getCachedFileSize`, `_setCachedFileSize`, `_clearCachedFileSize`, `_resetErrorHandlersDisposeForTest`.
+**Root Cause:** Test isolation pattern — production modules expose reset/inspection hooks so vitest tests can clear module-level caches between cases.
+**Impact:** Minor: production bundle carries ~12 small test-helper functions. Tree-shaking MIGHT elide them, but the exports are public.
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/client/src/main/python/send-to-python.ts`
+- `voice_typer/client/src/main/windows/main-window.ts`
+- `voice_typer/client/src/main/python/stop-python.ts`
+- `voice_typer/client/src/main/tray_available.ts`
+- `voice_typer/client/src/main/logging/fileSizeCache.ts`
+- `voice_typer/client/src/main/bootstrap.ts`
+
+**Fix:** Consider extracting test helpers into sibling `*.test-utils.ts` files excluded from the production build.
+**Severity:** 🟢 Low
+
+## FZ-67 — `MainRendererBubble` backwards-compat alias — SEE FZ-45 (already fixed)
+
+## FZ-68 — `paste.rs` dead code — SEE FZ-19 (already fixed)
+
+## FZ-69 — Inline IIFE render closures in `ThemeSettingsSection.tsx` and `HotkeyPicker.tsx` defeat `memo()` on children
+**Status:** 🚫 Won't Fix — addressed by the larger splits (FZ-6, FZ-7) which are themselves deferred
+**Description:** `ThemeSettingsSection.tsx:886-920` (SelectTrigger preview IIFE), `ThemeSettingsSection.tsx:940-974` (disabled-Custom SelectItem IIFE), `HotkeyPicker.tsx:898-909` (DropdownMenuTrigger label IIFE). These IIFEs produce fresh closures on every render, forcing reconciliation of the IIFE's output even when the parent's props haven't changed. The `ThemeSettingsSection` SelectTrigger IIFE even calls `document.documentElement.classList.contains("dark")` on every render — a DOM read that shouldn't be in the render path.
+**Root Cause:** IIFEs in JSX are a common React anti-pattern when the author wants to compute a value inline.
+**Impact:** Defeats `React.memo` on the parent. Layout-thrash risk from DOM reads in the render path.
+**Progress:** None yet (would be naturally resolved by FZ-6 and FZ-7 splits).
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx`
+
+**Fix:** Extract the IIFEs into named sub-components or `useMemo` hooks. Pass `isDark` as a prop from the parent instead of reading `document.documentElement.classList`.
+**Severity:** 🟢 Low
+

@@ -1,10 +1,23 @@
-# Voice Typer — Public API Reference
+# Voice Typer — Public API Reference (DEPRECATED — see python-api.md + ipc-reference.md)
 
-## Overview
-
-Voice Typer exposes its functionality through Python classes in
-`voice_typer.server/` and an IPC server for cross-process communication.
-This document covers the primary public API surfaces.
+> **NH-34 reconciliation (2026-07-24):** this file is **deprecated** and is
+> retained only for backward-link compatibility. The canonical references are:
+>
+> - **[`docs/python-api.md`](python-api.md)** — Python class API reference
+>   (`VoiceTyperApp`, `Recorder`, `TranscriptionEngine`, `Config`, etc.).
+>   Kept in sync with the actual class signatures by
+>   `tests/test_api_doc_accuracy.py`.
+> - **[`docs/ipc-reference.md`](ipc-reference.md)** — IPC message reference
+>   (auto-generated from `_COMMAND_REGISTRY` + `ALLOWED_COMMANDS` +
+>   `types/ipc/`). The 63-command / 24-event surface is enumerated there, not
+>   here.
+>
+> The tree comment in `CONTRIBUTING.md` previously described this file as the
+> "IPC message reference" — that annotation was stale (NH-34 root cause) and
+> has been corrected to point at `docs/ipc-reference.md`. The body content
+> below this notice is preserved verbatim from the pre-NH-34 state for any
+> inbound links that have not yet been updated; new content MUST go in
+> `docs/python-api.md` or `docs/ipc-reference.md`, not here.
 
 ---
 

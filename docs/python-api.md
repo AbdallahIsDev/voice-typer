@@ -20,10 +20,10 @@ model management, and IPC server.
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `__init__()` | — | — | Initializes app state, does NOT start services. |
-| `run()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. |
+| `start()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. (Renamed from the historical `run()` — see `def start` in `voice_typer/server/app.py`. The IPC command is also `start`.) |
 | `quit()` | — | `None` | Graceful shutdown: stops recording, restores volume, closes IPC, releases mutex. |
 | `toggle_dictation()` | — | `None` | Toggle dictation on/off. Thread-safe (serialized via `_toggle_lock`). |
-| `restart()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. |
+| `restart_app()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. (Renamed from the historical `restart()` — see `def restart_app` in `voice_typer/server/app.py:792`. The IPC command is also `restart_app`.) |
 
 ### Key Properties
 
@@ -72,7 +72,8 @@ Wraps faster-whisper CTranslate2 models for speech-to-text transcription.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `transcribe(audio, sample_rate)` | `audio: np.ndarray`, `sample_rate: int` | `str` | Transcribe audio to text. |
+| `load(progress_callback=None)` | `progress_callback: Callable[[float], None] \| None` | `None` | Load the model into memory. The optional callback receives a 0.0–1.0 progress fraction (used by the Models page progress bar). See `def load` in `voice_typer/server/transcription.py:308`. |
+| `transcribe(audio, audio_stats=None)` | `audio: np.ndarray`, `audio_stats: tuple[float, float, float] \| None` | `str` | Transcribe audio to text. `audio_stats` is the `(rms_db, peak_db, snr_db)` tuple from the recorder's level monitor — passed through so the engine can log quality telemetry alongside the transcription. See `def transcribe` in `voice_typer/server/transcription.py:798`. (The historical `transcribe(audio, sample_rate)` signature was removed when sample-rate normalization moved into `AudioBuffer` — the recorder now hands the engine an already-resampled array plus its `effective_sample_rate`.) |
 | `is_loaded` | — | `bool` | Whether a model is currently loaded in memory. |
 | `unload()` | — | `None` | Release the model from memory. |
 
@@ -88,10 +89,20 @@ Application configuration with type-safe access and atomic persistence.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `load()` | — | `None` | Load config from disk (secure read). |
-| `save()` | — | `None` | Persist config to disk (atomic write). |
-| `get(key, default)` | `key: str`, `default: Any` | `Any` | Get a config value with optional default. |
-| `set(key, value)` | `key: str`, `value: Any` | `None` | Set a config value and persist immediately. |
+| `Config.load()` | — | `Config` | Class method. Load config from disk (secure read) and return a populated `Config` instance. See `def load` in `voice_typer/server/config.py:1528`. |
+| `Config.save()` | — | `bool` | Persist this `Config` instance to disk (atomic write). Returns `True` on success, `False` on failure. See `def save` in `voice_typer/server/config.py:1351`. |
+| `Config.save_strict()` | — | `None` | Like `save()` but raises on failure instead of returning `False`. Used by callers that need fail-fast semantics (e.g. config wizards, schema migrations). See `def save_strict` in `voice_typer/server/config.py:1500`. |
+
+> **Note on `get` / `set` methods (removed).** Earlier drafts of this
+> document listed `Config.get(key, default)` and `Config.set(key, value)`.
+> Those methods **never existed** on the current `Config` class —
+> `Config` is a `@dataclass` (see `voice_typer/server/config.py:770`),
+> so callers read and write fields via ordinary attribute access
+> (`config.model_size`, `config.paste_on_stop = True`). To mutate a
+> field and persist, set the attribute then call `config.save()`
+> (or `config.save_strict()` for fail-fast). The historical `get`/`set`
+> names were a vestige of an earlier dict-backed prototype that was
+> replaced by the dataclass before the first public release.
 
 ### Key Configuration Keys
 

@@ -266,7 +266,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 63-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 63-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -580,39 +580,125 @@ particular:
 If you believe a control is wrong, open an issue tagged `security` and
 write a draft ADR (`docs/adr/template.md`) before changing code.
 
-### 6.4 IPC command parity (keep the three allowlists in lockstep)
+### 6.4 IPC command parity (keep the four allowlists in lockstep)
 
-Voice Typer's IPC surface is a **two-sided allowlist**: the Python
-backend only dispatches commands it knows about, and the Electron main
-process only *forwards* commands the renderer is allowed to send. A new
-command is useless — or, worse, silently blocked — unless **all three**
-of the following are updated together:
+Voice Typer's IPC surface is a **multi-layer allowlist**: the Python backend
+only dispatches commands it knows about, the Electron main process and the
+Tauri Rust host each only *forward* commands the renderer is allowed to send,
+and three docs must reflect the resulting counts in lockstep. A new command
+is useless — or, worse, silently blocked — unless **all 11 touchpoints** below
+are updated together.
 
-1. **Server command registry** — add the command + its handler to
-   `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py`
-   (≈ lines 1911–2030). This is what actually routes the inbound
-   `{"type": "…"}` message to a handler.
-2. **Electron main-process allowlist** — add the same command string to
-   `ALLOWED_COMMANDS` in `voice_typer/client/src/main/allowed-commands.ts`
-   (≈ lines 40–159). The main process refuses to forward any command
-   not in this list to the Python backend (SEC-002 lateral boundary).
-3. **Renderer type-safe wrapper** — add the command to the
-   `type`/response discriminated union in
-   `voice_typer/client/src/renderer/src/types/ipc.ts` so the renderer's
-   `call<T>()` helper can type-check requests and responses.
+> **ZR-48 reconciliation (2026-07-24):** an earlier draft of this section
+> listed only 3 touchpoints (Python registry + Electron allowlist + renderer
+> type union). The Tauri migration (ADR-0020) and the GT-32 allowlist
+> narrowing added 8 more touchpoints: a second host allowlist (Rust), a
+> renderer typed-Request interface, a renderer call site, and four doc-count
+> references that must stay in sync. The automated checker
+> `scripts/check-new-command.sh <cmd>` greps all 11 locations and reports
+> which are missing. Run it before opening a PR that adds or renames a
+> command.
 
-> **Common mistake (Finding 2):** adding a command to the server
-> registry *without* updating `ALLOWED_COMMANDS` means the renderer's
-> `call()` is rejected by the main process before it ever reaches
-> Python. This has happened 10 times in the past. When you add or
-> rename a command, grep for the command string across all three
-> locations and update each one.
+#### The 11 touchpoints (in update order)
 
-> **Regression guard:** `tests/test_electron_ipc_and_build.py` (and the
-> bidirectional parity test recommended in Finding 2) assert that
-> `_COMMAND_REGISTRY` and `ALLOWED_COMMANDS` stay in sync. If you add a
-> command to one side only, that test fails in CI — but adding this
-> section means you won't need the test to catch it first.
+1. **Python `_COMMAND_REGISTRY`** — add `"<cmd>": "_handle_<cmd>"` to the
+   `_COMMAND_REGISTRY` dict in `voice_typer/server/ipc_server.py`. This is
+   what actually routes the inbound `{"type": "…"}` message to a handler.
+2. **Python handler method** — implement `def _handle_<cmd>(self, data, resp)`
+   in `voice_typer/server/handlers/<domain>_handlers.py` (preferred) or
+   directly on `IPCServer` in `ipc_server.py` (rare — only for IPC-server-
+   owned state like `heartbeat` / `relaunch_ack`).
+3. **Python service method** — add the underlying `def <cmd>(self, ...)` to
+   `voice_typer/server/service/<domain>.py`. (Skip if the handler is pure
+   IPC-server state — see the existing `heartbeat` handler for the pattern.)
+4. **TS renderer allowlist** — add `"<cmd>"` to the `ALLOWED_COMMANDS` Set
+   in `voice_typer/client/src/main/allowed-commands.ts`. The Electron main
+   process refuses to forward any command not in this list (SEC-019 lateral
+   boundary on the Electron path).
+5. **Rust host allowlist** — add `"<cmd>"` to the `allowed_commands()`
+   literal in `src-tauri/src/commands/sidecar_cmds.rs`. The Tauri host's
+   `dispatch` command refuses to forward any command not in this list
+   (defense-in-depth backstop for a compromised-renderer attack on the
+   Tauri path — see ADR-0015).
+6. **TS discriminated union** — add a `type: "<cmd>"` literal to the
+   renderer Request union in
+   `voice_typer/client/src/renderer/src/types/ipc/requests.ts` so the
+   renderer's `call<T>()` helper can type-check requests and responses.
+   (Skip if the renderer uses an untyped `call<T>` — but typed is preferred.)
+7. **TS renderer call site** — add a `python.call("<cmd>", ...)` invocation
+   in the renderer code path that triggers the command. (Skip for host-only
+   commands like `tray_click` / `shutdown` — they originate from the Rust
+   host, never from the renderer.)
+8. **`SECURITY.md` doc count** — update the `only the **N** commands listed
+   in ALLOWED_COMMANDS` count (this is the renderer-reachable count, NOT the
+   registry count). Enforced by `tests/test_security_doc_command_count.py
+   ::test_security_md_documents_renderer_count_not_registry_count`.
+9. **`docs/ARCHITECTURE.md` doc count** — update the `N-command
+   _COMMAND_REGISTRY` references (3 occurrences). Enforced by
+   `scripts/check-new-command.sh` touchpoint 9.
+10. **`CONTRIBUTING.md` doc count** — update the `N-command registry
+    unchanged` count in the `sidecar_ws.py` row of the module table (this
+    section). Enforced by `scripts/check-new-command.sh` touchpoint 10.
+11. **`docs/migration/tauri-sidecar-bridge.md` doc count** — update the
+    `N-command registry` references (2 occurrences). Enforced by
+    `scripts/check-new-command.sh` touchpoint 11.
+
+If you are creating a brand-new handler file (not just adding to an existing
+one), also update `voice_typer/server/handlers/__init__.py` `__all__`.
+
+#### How to verify
+
+Run the automated checker from the repo root:
+
+```bash
+bash scripts/check-new-command.sh <cmd>
+```
+
+It greps each of the 11 touchpoints for the command name, reports which are
+missing, and verifies that the doc-count references match the actual source
+counts. Exit code 0 = all required touchpoints present; 1 = at least one
+missing or doc-count drift detected.
+
+Then run the parity tests to confirm:
+
+```bash
+python -m pytest tests/test_security_doc_command_count.py \
+                 tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness \
+                 -o addopts="" --tb=short
+```
+
+#### Hotkey backends + ASR engines (parallel touchpoints)
+
+Adding a new **hotkey backend** has its own (smaller) touchpoint set: see
+`voice_typer/server/hotkeys/factory.py` (registry) +
+`voice_typer/server/native_hotkeys/factory.py` (native backend registry) +
+the `hotkey_dispatcher.py` wiring. The factory functions are the single
+point of registration — grep `factory.py` for the existing backend names
+and add the new one alongside.
+
+Adding a new **ASR engine** has its own touchpoint set: see
+`voice_typer/server/asr_registry.py` (engine registry) +
+`voice_typer/server/providers.py` (provider factory) +
+`voice_typer/server/transcription.py` (engine dispatch). The
+`asr_registry.ENGINES` dict is the single point of registration.
+
+> **Common mistake (Finding 2):** adding a command to the server registry
+> *without* updating `ALLOWED_COMMANDS` means the renderer's `call()` is
+> rejected by the main process before it ever reaches Python. This has
+> happened 10 times in the past. When you add or rename a command, run
+> `bash scripts/check-new-command.sh <cmd>` and update each missing
+> touchpoint.
+
+> **Regression guards:**
+> - `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` —
+>   bidirectional parity between `_COMMAND_REGISTRY` and `ALLOWED_COMMANDS`.
+> - `tests/test_security_doc_command_count.py` — four-way parity:
+>   TS allowlist ↔ Rust allowlist ↔ Python `_COMMAND_REGISTRY` (with the
+>   `_HOST_ONLY_COMMANDS` delta for `tray_click` + `shutdown`) ↔
+>   `SECURITY.md` documented count.
+> - `scripts/check-new-command.sh` — pre-PR grep checker for all 11
+>   touchpoints (including the doc-count references the tests don't
+>   enforce).
 
 ---
 
