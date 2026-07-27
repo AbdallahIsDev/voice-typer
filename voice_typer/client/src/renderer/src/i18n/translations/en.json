@@ -393,6 +393,7 @@
 		"newVersionAvailable": "New version available: {version}",
 		"installedNewer": "Installed version ({installed}) is newer than latest release ({latest})",
 		"updateCheckFailed": "Failed to check for updates: {error}",
+		"httpError": "HTTP {status}",
 		"toggleSidebarValue": "Ctrl+B",
 		"navigateFieldsValue": "Tab / Shift+Tab",
 		"toggleSwitchesValue": "Space",
@@ -703,7 +704,9 @@
 			"rangeHintMinutes": "Range: {min}–{max} min",
 			"parseError": "Enter a whole number",
 			"rangeErrorSeconds": "Must be between {min} and {max}",
-			"rangeErrorMinutes": "Must be between {min} and {max}"
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"secondsSuffix": "s",
+			"minutesSuffix": "min"
 		},
 		"audioEnhancement": {
 			"title": "Audio Enhancement",

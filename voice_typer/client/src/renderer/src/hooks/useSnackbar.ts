@@ -42,6 +42,7 @@
 
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n/i18n";
 
 export type SnackbarType = "success" | "error" | "warning" | "info";
 
@@ -160,7 +161,7 @@ export function showUndoableToast(
 		timeoutMs?: number;
 	} = {},
 ): void {
-	const { undoLabel = "Undo", type = "warning", timeoutMs } = options;
+	const { undoLabel = t("common.undo"), type = "warning", timeoutMs } = options;
 	const duration = timeoutMs ?? SNACKBAR_DEFAULT_DURATION_MS[type];
 	const opts = {
 		duration,

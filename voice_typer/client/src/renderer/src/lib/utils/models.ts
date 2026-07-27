@@ -204,6 +204,18 @@ export function formatModelSize(size: string): string {
 	return size === "Variable" ? t("models.variable") : size;
 }
 
+const SPEED_I18N_MAP: Record<string, string> = {
+	Fastest: "models.speed.fastest",
+	Fast: "models.speed.fast",
+	Slow: "models.speed.slow",
+	Variable: "models.speed.variable",
+};
+
+export function formatModelSpeed(speed: string): string {
+	const key = SPEED_I18N_MAP[speed];
+	return key ? t(key) : speed;
+}
+
 // MDL-14: model display names are translated via the i18n catalog
 // (`models.displayNames.{name}`). The previous `getModelDisplayName(name)`
 // helper was DELETED because it had ZERO

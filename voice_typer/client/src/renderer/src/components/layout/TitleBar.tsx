@@ -173,7 +173,7 @@ export function TitleBar({
 			<button
 				type="button"
 				onClick={onToggleSidebar}
-				aria-label={`${t("a11y.toggleSidebar")} (Ctrl+B)`}
+				aria-label={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
 				// PVT-023: expose the keyboard shortcut via aria-keyshortcuts
 				// so AT users can discover it without inspecting the tooltip.
 				// "Control+B" matches the ARIA keyshortcuts spec format
@@ -181,10 +181,7 @@ export function TitleBar({
 				aria-keyshortcuts="Control+B"
 				// UX-17: surface the Ctrl+B keyboard shortcut in the
 				// tooltip so users discover the keyboard alternative.
-				// On macOS the shortcut is Cmd+B; we show Ctrl+B here
-				// for cross-platform simplicity (most Windows/Linux
-				// users, the dominant audience for Voice Typer).
-				title={`${t("a11y.toggleSidebar")} (Ctrl+B)`}
+				title={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
 				className={cn(
 					// Fix: sidebar toggle button height matches the TitleBar
 					// h-8 so the icon stays vertically centered (was h-10
@@ -214,7 +211,7 @@ export function TitleBar({
 				disabled={!canGoBack}
 				aria-label={t("a11y.goBack")}
 				// NF-R10-10: surface Alt+Left shortcut in the tooltip.
-				title={`${t("titleBar.back")} (Alt+←)`}
+				title={t("titleBar.backWithShortcut", { shortcut: "Alt+←" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
@@ -243,7 +240,7 @@ export function TitleBar({
 				disabled={!canGoForward}
 				aria-label={t("a11y.goForward")}
 				// NF-R10-10: surface Alt+Right shortcut in the tooltip.
-				title={`${t("titleBar.forward")} (Alt+→)`}
+				title={t("titleBar.forwardWithShortcut", { shortcut: "Alt+→" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import { t } from "@/i18n/i18n";
 import { formatVram } from "@/lib/format";
+import { formatModelSpeed } from "@/lib/utils/models";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
 
@@ -69,11 +70,11 @@ export function ModelStep({
 							<SelectItem
 								key={m.name}
 								value={m.name}
-								textValue={`${m.description} — ${m.size} (${m.speed})`}
+								textValue={`${m.description} — ${m.size} (${formatModelSpeed(m.speed)})`}
 							>
 								<span className="flex flex-wrap items-center gap-1.5">
 									<span>
-										{m.description} — {m.size} ({m.speed})
+										{m.description} — {m.size} ({formatModelSpeed(m.speed)})
 									</span>
 									{/* BG-100: per-option badge row showing VRAM
 									    requirement and language coverage. Both

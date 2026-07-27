@@ -330,7 +330,7 @@ export function getComboPresets(): { value: string; label: string }[] {
  * firmware keys); their text labels are kept for clarity.
  */
 export function formatHotkey(hotkey: string): string {
-	if (!hotkey) return "None";
+	if (!hotkey) return t("hotkey.none");
 	// macOS glyph table for the four primary modifiers. Applied only
 	// when the detected platform is darwin. Keys not in this map fall
 	// through to the text-label path below.
@@ -469,7 +469,7 @@ export function validateHotkey(
 		}
 		// Reject Fn on non-macOS platforms
 		if (!IS_MAC && (parts[0] === "fn" || parts[0] === "globe")) {
-			return `${t("hotkeyValidation.fnMacosOnly")}. On Windows/Linux, Fn isn't visible to apps.`;
+			return t("hotkey.errors.fnMacOnly");
 		}
 		// Accept any single key (including modifiers and caps_lock)
 		return null;
@@ -492,7 +492,7 @@ export function validateHotkey(
 	}
 	// Reject Fn in combos on non-macOS
 	if (!IS_MAC && parts.some((p) => p === "fn" || p === "globe")) {
-		return `${t("hotkeyValidation.fnMacosOnly")}.`;
+		return t("hotkey.errors.fnMacOnlyShort");
 	}
 	return null;
 }

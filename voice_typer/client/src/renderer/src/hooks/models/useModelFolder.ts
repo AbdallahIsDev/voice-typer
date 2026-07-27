@@ -182,8 +182,7 @@ export function useModelFolder({
 			const result = await call<OpenFolderResult>("open_models_folder");
 			if (result?.success) return;
 			showSnack(
-				result?.error ||
-					t("models.import.failed", { error: "Open folder failed" }),
+				result?.error || t("models.openFolderFailed"),
 				"warning",
 			);
 		} catch (err) {

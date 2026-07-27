@@ -16,6 +16,7 @@ import { APP_NAME } from "@/branding";
 import { Logo } from "@/components/layout/Logo";
 import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
+import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -80,32 +81,31 @@ const ALL_NAV_ITEMS: NavItem[] = [
 	...SYSTEM_NAV_ITEMS,
 ];
 
-// NF-R10-9: Per-page keyboard shortcuts surfaced in the nav item's
-// `title` tooltip so they're discoverable for both collapsed and
-// expanded sidebar states. Pages without a shortcut are omitted from
-// the map (no suffix appended to the tooltip).
-const NAV_SHORTCUTS: Partial<Record<Page, string>> = {
-	home: "Ctrl+H",
-	settings: "Ctrl+,",
-};
-
-// PVT-023: aria-keyshortcuts (ARIA spec format: "Modifier+Key") for
-// nav items that have a keyboard shortcut bound in App.tsx. Exposed
-// on the <button> so AT users can discover the shortcut without
-// inspecting the tooltip. Items without a shortcut omit the
-// attribute entirely (per the test contract).
+// NF-R10-9, XA-19-6: per-page keyboard shortcuts surfaced in the nav
+// item's `title` tooltip. Uses formatHotkey() for platform-aware labels
+// (e.g. "Ctrl+H" on Windows/Linux, "⌘H" on macOS) instead of hardcoded
+// English. Pages without a shortcut return undefined (no suffix appended).
 const NAV_KEYSHORTCUTS: Partial<Record<Page, string>> = {
 	home: "Control+h",
 	settings: "Control+,",
 };
+
+function navShortcut(page: Page): string | undefined {
+	switch (page) {
+		case "home":
+			return formatHotkey("<ctrl>+<h>");
+		case "settings":
+			return formatHotkey("<ctrl>+<,>");
+	}
+	return undefined;
+}
 
 /**
  * Resolve a group label via `t()` with a fallback to the English
  * literal. `t()` returns the raw key when neither the current locale
  * nor English has the key — we detect that case and fall back so the
  * UI shows a readable label and tests have a stable string to assert
- * on. Once `nav.group.main` / `.power` / `.system` land in the
- * translation files, the translated value wins automatically.
+ * on.
  */
 function navGroupLabel(labelKey: string, fallback: string): string {
 	const translated = t(labelKey);
@@ -290,7 +290,7 @@ export function Sidebar({
 										// of collapsed state) so keyboard users hovering
 										// focus can read the nav label, and include the
 										// shortcut when one exists.
-										const shortcut = NAV_SHORTCUTS[item.id];
+										const shortcut = navShortcut(item.id);
 										const navLabel = t(`nav.${item.id}`);
 										const navTitle = shortcut
 											? `${navLabel} (${shortcut})`

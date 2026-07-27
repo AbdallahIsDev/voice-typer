@@ -6,6 +6,7 @@ import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
+import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { useConnection } from "@/hooks/useConnection";
@@ -337,8 +338,6 @@ export default function App() {
 		}
 	}, [navigate, call, reloadThemeFromConfig]);
 
-	const formatHotkey = (h: string): string =>
-		h === "<caps_lock>" ? "Caps Lock" : h.replace(/[<>]/g, "").toUpperCase();
 	const dictationLabel = formatHotkey(config?.hotkey ?? "<f2>");
 	const repasteLabel = formatHotkey(config?.repaste_hotkey ?? "<ctrl>+<alt>+v");
 

@@ -63,11 +63,7 @@ export interface ModelCardActionsProps {
  * the i18n review sub-agent's findings).
  */
 function oneAtATimeTitle(): string {
-	const key = "models.download.oneAtATime";
-	const translated = t(key);
-	// `t()` returns the raw key when the translation is missing —
-	// avoid surfacing raw keys to the user.
-	return translated === key ? "Only one download at a time" : translated;
+	return t("models.download.oneAtATime");
 }
 
 /**

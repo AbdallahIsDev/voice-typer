@@ -22,7 +22,7 @@ interface SearchFieldProps {
 export function SearchField({
 	value,
 	onChange,
-	placeholder = "Search...",
+	placeholder = t("common.search"),
 	ariaLabel,
 }: SearchFieldProps) {
 	// M-51: always provide an accessible name. The magnifier icon is
