@@ -580,7 +580,7 @@
 		},
 		"fastStartup": "Démarrage rapide (préchauffage)",
 		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis la page À propos.",
-"keyring": {
+		"keyring": {
 			"secure": "Sécurisé",
 			"plaintext": "Texte brut",
 			"available": "Stocké en toute sécurité dans le trousseau système.",
@@ -1165,7 +1165,11 @@
 			"dictations": "Dictées",
 			"chars": "Caractères",
 			"duration": "Durée"
-		}
+		},
+		"durationZero": "0m",
+		"durationMinutes": "{m}m",
+		"durationHours": "{h}h",
+		"durationHoursMinutes": "{h}h {m}m"
 	},
 	"about": {
 		"title": "À propos",

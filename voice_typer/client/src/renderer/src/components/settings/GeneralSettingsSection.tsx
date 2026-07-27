@@ -43,19 +43,30 @@ const BUBBLE_BEHAVIOR_OPTIONS = [
         { value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
 ] as const;
 
-// UX-6 / TRAY-008: build a tray-menu label dict for a locale from the
-// renderer's existing translations. Only keys the current translation
-// actually defines are included; the server merges these over its English
-// defaults, so any key we omit falls back to English rather than breaking.
-// (The renderer does not yet carry full tray-menu strings for every
-// language, so this is a progressive improvement — it localizes the terms
-// we do have, e.g. Models / Microphone, into all 8 shipped locales.)
+// UX-6 / TRAY-008: build a tray-menu label dict for the CURRENT locale
+// from the renderer's existing translations. Only keys the current
+// translation actually defines are included; the server merges these
+// over its English defaults, so any key we omit falls back to English
+// rather than breaking. (The renderer does not yet carry full tray-menu
+// strings for every language, so this is a progressive improvement — it
+// localizes the terms we do have, e.g. Models / Microphone, into all 8
+// shipped locales.)
+//
+// NH-35: the parameter is intentionally omitted — the body reads the
+// module-level current locale via `t()` (which itself reads
+// `_currentLocale`), so passing a different locale here would have NO
+// effect on the output (it always returned translations for the
+// current locale, not the requested one). The previous `_locale`
+// parameter was misleading — a caller could have passed a different
+// locale and expected translations for THAT locale, but actually got
+// translations for whatever the current locale happened to be. The
+// signature now matches the behaviour.
 const TRAY_LABEL_KEY_MAP: Record<string, string> = {
         models: "models.title",
         microphones: "microphone.microphone",
 };
 
-function trayLabelsForLocale(_locale: Locale): Record<string, string> {
+function trayLabelsForLocale(): Record<string, string> {
         const labels: Record<string, string> = {};
         for (const [trayKey, i18nKey] of Object.entries(TRAY_LABEL_KEY_MAP)) {
                 const translated = t(i18nKey);
@@ -274,7 +285,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
                                                                                         type: "set_tray_locale",
                                                                                         data: {
                                                                                                 locale: v,
-                                                                                                labels: trayLabelsForLocale(v as Locale),
+                                                                                                labels: trayLabelsForLocale(),
                                                                                         },
                                                                                 });
                                                                         } catch (e) {

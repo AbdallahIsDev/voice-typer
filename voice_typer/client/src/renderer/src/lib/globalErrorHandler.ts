@@ -204,11 +204,10 @@ function _buildToastOptions(formattedError: string): {
 	// "View logs" action — opens the Python backend's log folder.
 	// The bridge method is optional (older preload scripts / Tauri
 	// bridge may not install it); silently skip when unavailable.
-	const windowApi = (
-		window as unknown as {
-			window_?: { openLogs?: () => Promise<unknown> };
-		}
-	).window_;
+	// Read directly from the globally-augmented ``window.window_``
+	// (declared in ``types/ipc/bubble_bridge.ts``) instead of
+	// re-declaring the bridge shape inline.
+	const windowApi = window.window_;
 	if (typeof windowApi?.openLogs === "function") {
 		opts.action = {
 			label: _safeT("errors.viewLogsAction", "View logs"),

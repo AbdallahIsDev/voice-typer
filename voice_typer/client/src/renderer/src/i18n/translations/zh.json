@@ -324,7 +324,11 @@
 			"dictations": "听写",
 			"chars": "字符",
 			"duration": "时长"
-		}
+		},
+		"durationZero": "0m",
+		"durationMinutes": "{m}m",
+		"durationHours": "{h}h",
+		"durationHoursMinutes": "{h}h {m}m"
 	},
 	"about": {
 		"title": "关于",

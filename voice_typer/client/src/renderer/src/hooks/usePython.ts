@@ -2,21 +2,34 @@
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { PythonPushEvent } from "@/types/ipc";
+import type { PythonRequest } from "@/types/ipc/requests";
+// ZR-23: import `installTauriBridge` so `subscribeBridgeReady` can
+// re-trigger the installer when `window.__TAURI__` appears AFTER the
+// initial module-import-time auto-install ran (which no-op'd because
+// `window.__TAURI__` wasn't yet present). The static import also
+// triggers the auto-install side effect once at module-load — that's
+// the existing behavior preserved.
+import { installTauriBridge } from "@/lib/tauri-bridge";
 
-type EventCallback = (event: {
-        type: string;
-        data?: Record<string, unknown>;
-}) => void;
-
-interface WindowWithPython {
-        python?: {
-                call: (msg: {
-                        type: string;
-                        data?: Record<string, unknown>;
-                }) => Promise<unknown>;
-                onEvent: (callback: EventCallback) => () => void;
-        };
-}
+/**
+ * NH-32: extracts the per-event ``data`` payload shape for a given
+ * PythonPushEvent ``type`` literal. For events with NO ``data`` field
+ * (e.g. ``RecordingStartedEvent``), this resolves to ``undefined`` —
+ * the handler is then typed as ``(data?: undefined) => ...`` so callers
+ * that ignore ``data`` still compile.
+ *
+ * The conditional ``extends { data: infer D }`` is necessary because
+ * ``Extract<PythonPushEvent, { type: K }>["data"]`` would be a
+ * compile-time error for events that have no ``data`` field at all
+ * (TS4.x's ``["data"]`` index access requires the key to exist on
+ * every member of the extracted union).
+ */
+type ExtractEventData<K extends PythonPushEvent["type"]> = Extract<
+        PythonPushEvent,
+        { type: K }
+> extends { data: infer D }
+        ? D
+        : undefined;
 
 // ─── CR-18: per-command timeout table ────────────────────────────────
 //
@@ -93,6 +106,63 @@ const COMMAND_TIMEOUTS: Record<string, number> = {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
+// ZR-27: runtime mirror of the `PythonPushEvent["type"]` union
+// declared in `types/ipc/push_events.ts`. TS can't enumerate union
+// members at runtime, so we maintain this set by hand. The dev-time
+// warning in `usePythonEvent` (below) consults this set to surface
+// typos like `usePythonEvent("past_failed", ...)` (intended
+// `"paste_failed"`) in the dev console.
+//
+// KEEP IN SYNC with the `PythonPushEvent` union in
+// `types/ipc/push_events.ts`. When a new event is added there, add
+// its `type` literal here too. The dev-time warning will surface
+// forgetfulness the first time a renderer subscribes to the new
+// event (the warning fires for unknown types — including ones added
+// to the TS union but not yet to this set).
+const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
+        "status_change",
+        "error",
+        "transcription_final",
+        "recording_started",
+        "recording_stopped",
+        "config_changed",
+        "hotkey_capture_cancel",
+        "history_changed",
+        "state_changed",
+        "paste_failed",
+        "download_progress",
+        "notification",
+        "vocabulary_suggestion",
+        "microphones_changed",
+        "microphone_test_complete",
+        "audio_clip",
+        "tray_menu",
+        "navigate",
+        "ready",
+        "bubble_show",
+        "bubble_hide",
+        "bubble_set_state",
+        "bubble_level",
+        "bubble_config",
+        "show_window",
+        "quit_app",
+        "relaunch_app",
+        "tray_state",
+        "consent_required",
+        "parakeet_cpu_fallback",
+        "asr_backend_disabled",
+        "asr_last_resort_unloaded",
+        "llm_polish_failed",
+        "reconnecting",
+        "reconnected",
+        // ZR-67 (TY-18): the new mic_level push event (coalesced at
+        // ≤30 Hz by the same level_monitor worker that publishes
+        // `bubble_level`). Subscribed to by
+        // `pages/microphone/hooks/useMicrophoneTest.ts` instead of
+        // the legacy 10 Hz `microphone_test_get_level` IPC poll.
+        "mic_level",
+]);
+
 /**
  * Returns the per-command timeout (ms) for the given IPC command name.
  * Falls back to {@link DEFAULT_COMMAND_TIMEOUT_MS} for unknown commands.
@@ -161,10 +231,46 @@ function subscribeBridgeReady(callback: () => void): () => void {
         // effect (which already ran with `bridgeReady=true` on the
         // initial render) does not re-run — so the no-op re-render is
         // harmless.
+        // ZR-23: also detect `window.__TAURI__` appearing AFTER the
+        // initial module-import-time auto-install. The auto-install in
+        // `tauri-bridge/index.ts` runs once at module load — if
+        // `window.__TAURI__` isn't yet present (rare timing edge under
+        // Tauri v2 with `withGlobalTauri: true`), the auto-install
+        // no-ops and `window.python` is never installed. The previous
+        // code polled `window.python` forever with NO mechanism to
+        // re-trigger the installer. We now re-invoke
+        // `installTauriBridge()` (idempotent — no-ops if not in Tauri
+        // mode or if already installed) when `window.__TAURI__` appears,
+        // which installs the three namespaces, and the next tick's
+        // `window.python` check then succeeds and notifies React.
         const interval = setInterval(() => {
                 if (typeof window.python !== "undefined") {
                         callback();
                         clearInterval(interval);
+                        return;
+                }
+                // ZR-23: Tauri global appeared after the auto-install
+                // no-op'd — re-trigger the installer. The installer is
+                // idempotent: if `isTauri()` still returns false (e.g.
+                // the global is partial), it no-ops again and the next
+                // tick retries.
+                const tauriGlobal = (
+                        window as unknown as { __TAURI__?: { core?: { invoke?: unknown } } }
+                ).__TAURI__;
+                if (tauriGlobal?.core?.invoke) {
+                        try {
+                                installTauriBridge();
+                        } catch (err) {
+                                // Defensive: a partially-mocked global
+                                // (e.g. in tests) could throw inside a
+                                // namespace installer. Surface the error
+                                // so it's debuggable instead of silently
+                                // looping forever.
+                                console.warn(
+                                        "[usePython] installTauriBridge retry failed:",
+                                        err,
+                                );
+                        }
                 }
         }, 100);
         return () => clearInterval(interval);
@@ -196,13 +302,41 @@ export function useBridgeReady(): boolean {
         );
 }
 
+/**
+ * Type of the ``call`` function returned by {@link usePython}.
+ *
+ * Two overloads — a strict one that narrows the ``data`` parameter
+ * against the {@link PythonRequest} discriminated union (so a typo in
+ * the command name or a wrong data shape surfaces at compile time for
+ * known commands), and a loose one that accepts any string +
+ * ``Record<string, unknown>`` for forward-compat with backend-added
+ * commands that haven't made it into the union yet. TypeScript picks
+ * the first matching overload, so known commands hit the strict
+ * overload and unknown commands fall through to the loose one.
+ *
+ * The strict overload's ``data`` parameter uses a conditional type so
+ * requests without a ``data`` field (e.g. ``GetConfigRequest``,
+ * ``GetStatusRequest``) resolve to ``undefined`` instead of erroring
+ * on the ``["data"]`` index — TypeScript can't index a union where
+ * some members lack the key.
+ */
+export type PythonCall = {
+        <T = unknown, K extends PythonRequest["type"] = PythonRequest["type"]>(
+                type: K,
+                data?: "data" extends keyof Extract<PythonRequest, { type: K }>
+                        ? Extract<PythonRequest, { type: K }>["data"]
+                        : undefined,
+        ): Promise<T>;
+        <T = unknown>(type: string, data?: Record<string, unknown>): Promise<T>;
+};
+
 export function usePython() {
         const call = useCallback(
                 async <T = unknown>(
                         type: string,
                         data?: Record<string, unknown>,
                 ): Promise<T> => {
-                        const api = (window as unknown as WindowWithPython).python;
+                        const api = window.python;
                         if (!api) throw new Error("Python bridge not available");
                         // CR-18: race the underlying bridge call against a per-command
                         // timeout so a hung trivial command (e.g. `get_status`) surfaces
@@ -266,7 +400,7 @@ export function usePython() {
                         return result as T;
                 },
                 [],
-        );
+        ) as PythonCall;
 
         // NEW-TS-015: previously this hook also returned ``isReady: !!api``.
         // That flag was always ``true`` in production because the preload
@@ -279,7 +413,7 @@ export function usePython() {
         //
         // If a future caller needs to distinguish "bridge installed" from
         // "bridge missing" (e.g. running outside Electron), they can do
-        // ``const api = (window as unknown as WindowWithPython).python`` and
+        // ``const api = window.python`` and
         // check ``!!api`` directly.  We don't expose a misleading flag.
         return { call };
 }
@@ -307,31 +441,27 @@ export function usePython() {
  * closure without re-subscribing on every render (only ``type`` and
  * ``bridgeReady`` are effect deps).
  *
- * The first overload is now generic (``<K extends
- * PythonPushEvent["type"]>``) so the handler's ``data`` parameter is
- * narrowed to the per-event payload shape declared in ``types/ipc.ts``
- * (e.g. ``TranscriptionFinalEvent.data: { text: string; duration_ms?:
- * number }``). Existing callers that pass an inline ``(data?:
- * Record<string, unknown>) => ...`` closure still compile because every
- * per-event ``data`` shape in ``types/ipc.ts`` is assignable to
- * ``Record<string, unknown>`` (they're all object literals). New callers
- * can opt into the narrowed shape by writing the handler param as
- * ``(data) => ...`` with no explicit type annotation — TS infers
- * ``K["data"]`` from the ``type`` argument.
+ * NH-32: the first overload is now generic AND narrows ``data`` to the
+ * per-event payload shape declared in ``types/ipc/push_events.ts`` (e.g.
+ * ``TranscriptionFinalEvent.data: { text: string; duration_ms?: number }``).
+ * For events with NO ``data`` field (e.g. ``RecordingStartedEvent``),
+ * ``ExtractEventData<K>`` resolves to ``undefined``, so the handler is
+ * typed as ``(data?: undefined) => ...`` — callers that ignore ``data``
+ * still compile. Existing callers that pass an explicit
+ * ``(data?: Record<string, unknown>) => ...`` closure still compile
+ * because every per-event ``data`` shape in ``types/ipc/push_events.ts``
+ * is assignable to ``Record<string, unknown>`` (they're all object
+ * literals), and function-param contravariance (strictFunctionTypes)
+ * makes a wider-accepting function assignable to a narrower-accepting
+ * one. New callers can opt into the narrowed shape by writing the
+ * handler param as ``(data) => ...`` with no explicit type annotation —
+ * TS infers ``ExtractEventData<K>`` from the ``type`` argument.
  */
 export function usePythonEvent<K extends PythonPushEvent["type"]>(
         type: K,
-        // The handler's `data` is typed as `Record<string, unknown> |
-        // undefined` (not narrowed to the per-event shape) because some
-        // PythonPushEvent members have no `data` field at all (e.g.
-        // RecordingStartedEvent), which makes
-        // `Extract<PythonPushEvent, {type: K}>["data"]` unsafe. The first
-        // overload's value is the compile-time typo check on `type` (a
-        // typo like `"past_failed"` no longer compiles). Narrowing the
-        // handler's `data` to the per-event shape would require every
-        // event in the union to declare a `data` field; that's a separate
-        // refactor.
-        handler: (data?: Record<string, unknown>) => (() => void) | undefined,
+        handler: (
+                data?: ExtractEventData<K>,
+        ) => (() => void) | undefined,
 ): void;
 /**
  * BG-84: overload accepting an arbitrary ``string`` for forward-compat
@@ -359,6 +489,30 @@ export function usePythonEvent(
         const handlerRef = useRef(handler);
         handlerRef.current = handler;
 
+        // ZR-27: dev-time typo warning. Overload 2 (above) accepts any
+        // `string` for forward-compat with backend-added events not yet
+        // in `PythonPushEvent`. The cost is that a typo like
+        // `usePythonEvent("past_failed", ...)` (intended
+        // `"paste_failed"`) silently falls through to Overload 2 and
+        // compiles — but the subscription never fires because the
+        // backend never emits `past_failed`. The `KNOWN_EVENT_TYPES`
+        // set below mirrors the `PythonPushEvent` union in
+        // `types/ipc/push_events.ts` (kept in sync manually — TS
+        // can't enumerate union members at runtime). When a `type`
+        // argument isn't in the set, emit a `console.warn` so the
+        // typo surfaces in the dev console (and the Electron
+        // main-process log via `webContents.on("console-message")`).
+        // The warning is dev-only — production builds skip the check
+        // (`import.meta.env.DEV` is `false` in production per Vite).
+        if (import.meta.env.DEV && !KNOWN_EVENT_TYPES.has(type)) {
+                console.warn(
+                        `[usePythonEvent] subscribing to unknown event "${type}" — ` +
+                                `if this is a typo, fix it; if it's a new backend event, ` +
+                                `add it to PythonPushEvent in types/ipc/push_events.ts ` +
+                                `and to KNOWN_EVENT_TYPES in hooks/usePython.ts`,
+                );
+        }
+
         // CR-6: track `window.python` presence so the effect re-runs when the
         // bridge becomes available after mount. Previously the effect's only
         // dependency was `[type]`, so if `window.python` was unset at mount
@@ -373,7 +527,7 @@ export function usePythonEvent(
                 // `bridgeReady` in the dep array (below) is what makes React
                 // re-run this effect once the bridge comes online.
                 if (!bridgeReady) return;
-                const api = (window as unknown as WindowWithPython).python;
+                const api = window.python;
                 if (!api) return; // defensive double-check (bridgeReady mirrors window.python presence)
 
                 // PVT-G5-019: capture the most recent handler-returned cleanup
@@ -403,7 +557,18 @@ export function usePythonEvent(
                                 // correctly (e.g. stale `reloadHotkey` chains
                                 // are cancelled before a new one starts).
                                 runCleanup();
-                                currentCleanup = handlerRef.current(event.data);
+                                // `PythonPushEvent` is a discriminated union
+                                // where some members carry no `data` field at
+                                // all (e.g. `RecordingStartedEvent`). The
+                                // handler signature accepts
+                                // `Record<string, unknown> | undefined`, so we
+                                // safely widen via a cast — at runtime events
+                                // without `data` simply yield `undefined`,
+                                // matching the prior `EventCallback`-based
+                                // behaviour.
+                                currentCleanup = handlerRef.current(
+                                        (event as { data?: Record<string, unknown> }).data,
+                                );
                         }
                 });
 

@@ -13,8 +13,8 @@ import type { ErrorCodes } from "./enums";
 // ── Push events from Python (no id field) ─────────────────────────
 
 export interface StatusChangeEvent {
-	type: "status_change";
-	data: { status: string };
+        type: "status_change";
+        data: { status: string };
 }
 
 // PVT-G5-010 (part 4): ErrorEvent now mirrors the actual Python error
@@ -33,22 +33,22 @@ export interface StatusChangeEvent {
 // in `globalErrorHandler.ts` — that file does not import this type and
 // resolves `ErrorEvent` to the lib.dom.d.ts declaration.
 export interface ErrorEvent {
-	type: "error";
-	data: {
-		code: ErrorCodes;
-		// GT-F2-7: `message` is OPTIONAL — the `unknown_tray_item`
-		// emitter in `voice_typer/server/ipc_server.py` pushes
-		// `{type:"error", data:{code:"unknown_tray_item", id?}}`
-		// with NO `message` field (only `id` identifies the bad
-		// tray item). All other emitters include `message`.
-		// Previously REQUIRED here, forcing callers to either lie
-		// (asserting `message: string` on a value that's
-		// `undefined` at runtime) or narrow on `code` first.
-		message?: string;
-		field?: string;
-		command?: string;
-		id?: string | number;
-	};
+        type: "error";
+        data: {
+                code: ErrorCodes;
+                // GT-F2-7: `message` is OPTIONAL — the `unknown_tray_item`
+                // emitter in `voice_typer/server/ipc_server.py` pushes
+                // `{type:"error", data:{code:"unknown_tray_item", id?}}`
+                // with NO `message` field (only `id` identifies the bad
+                // tray item). All other emitters include `message`.
+                // Previously REQUIRED here, forcing callers to either lie
+                // (asserting `message: string` on a value that's
+                // `undefined` at runtime) or narrow on `code` first.
+                message?: string;
+                field?: string;
+                command?: string;
+                id?: string | number;
+        };
 }
 
 // PVT-G5-010 (part 3): the dead `TranscriptionPartialEvent` type was
@@ -67,8 +67,8 @@ export interface ErrorEvent {
 // Runtime reader `Home.tsx:428` already accesses `data?.text`, so this
 // fix aligns the type with the wire format AND the existing consumer.
 export interface TranscriptionFinalEvent {
-	type: "transcription_final";
-	data: { text: string; duration_ms?: number };
+        type: "transcription_final";
+        data: { text: string; duration_ms?: number };
 }
 
 // PVT-G5-010 (part 2): the Python emitters for `recording_started` and
@@ -78,11 +78,11 @@ export interface TranscriptionFinalEvent {
 // (`useSoundFeedback.ts:48,52` subscribes to both but accesses no fields,
 // so the field removal is API-safe.)
 export interface RecordingStartedEvent {
-	type: "recording_started";
+        type: "recording_started";
 }
 
 export interface RecordingStoppedEvent {
-	type: "recording_stopped";
+        type: "recording_stopped";
 }
 
 // NEW-IPC-002 (d-review): the dead `ModelLoadedEvent` type was REMOVED.
@@ -100,9 +100,9 @@ export interface RecordingStoppedEvent {
  * update UI-local state (font-scale, theme, etc.) immediately
  * without needing a full get_config round-trip. */
 export interface ConfigChangedEvent {
-	type: "config_changed";
-	/** The validated subset of fields that were actually applied. */
-	data: Record<string, unknown>;
+        type: "config_changed";
+        /** The validated subset of fields that were actually applied. */
+        data: Record<string, unknown>;
 }
 
 /** Pushed when the backend detects Esc during hotkey capture mode.
@@ -110,7 +110,7 @@ export interface ConfigChangedEvent {
  *  DOM keydown event never reaches the renderer — this event tells the
  *  HotkeyPicker to exit capture mode. */
 export interface HotkeyCaptureCancelEvent {
-	type: "hotkey_capture_cancel";
+        type: "hotkey_capture_cancel";
 }
 
 /** Pushed when history records change through a path OUTSIDE the
@@ -120,8 +120,8 @@ export interface HotkeyCaptureCancelEvent {
  * caches so they don't show ghost records. `reason` is one of
  * "cleared" | "deleted" | "restored" | "favorite_toggled". */
 export interface HistoryChangedEvent {
-	type: "history_changed";
-	data: { reason: string };
+        type: "history_changed";
+        data: { reason: string };
 }
 
 // ── Additional Python push events (PVT-G5-060 / PVT-G5-061) ───────
@@ -149,8 +149,8 @@ export interface HistoryChangedEvent {
 // `usePythonEvent("state_changed", …)` subscriber in `useConnection.ts`
 // is a follow-up (out of FA9 scope).
 export interface StateChangedEvent {
-	type: "state_changed";
-	data: Record<string, unknown>;
+        type: "state_changed";
+        data: Record<string, unknown>;
 }
 
 // PVT-G5-061: the 18 most important missing event types. Each one is
@@ -161,71 +161,71 @@ export interface StateChangedEvent {
 /** Paste-to-active-window failed (Linux/macOS paste path); renderer
  *  surfaces a toast. Emitted from `paste_controller.py`. */
 export interface PasteFailedEvent {
-	type: "paste_failed";
-	data: Record<string, unknown>;
+        type: "paste_failed";
+        data: Record<string, unknown>;
 }
 
 /** HuggingFace model download progress (chunk counter). Emitted from
  *  `model_downloader.py`. Consumed by `Home.tsx:402`. */
 export interface DownloadProgressEvent {
-	type: "download_progress";
-	data: Record<string, unknown>;
+        type: "download_progress";
+        data: Record<string, unknown>;
 }
 
 /** Generic user-facing notification (title + body + severity). Emitted
  *  from various handler mixins. */
 export interface NotificationEvent {
-	type: "notification";
-	data: Record<string, unknown>;
+        type: "notification";
+        data: Record<string, unknown>;
 }
 
 /** A learned vocabulary correction suggestion surfaced for the user to
  *  accept/reject. Emitted from `vocabulary_suggester.py`. */
 export interface VocabularySuggestionEvent {
-	type: "vocabulary_suggestion";
-	data: Record<string, unknown>;
+        type: "vocabulary_suggestion";
+        data: Record<string, unknown>;
 }
 
 /** The set of available microphones changed (hot-plug / unplug).
  *  Emitted from `mic_watcher.py`. */
 export interface MicrophonesChangedEvent {
-	type: "microphones_changed";
-	data: Record<string, unknown>;
+        type: "microphones_changed";
+        data: Record<string, unknown>;
 }
 
 /** A `test_microphone` request finished — renderer shows the recorded
  *  duration + RMS. Emitted from `microphone_handlers.py`. */
 export interface MicrophoneTestCompleteEvent {
-	type: "microphone_test_complete";
-	data: Record<string, unknown>;
+        type: "microphone_test_complete";
+        data: Record<string, unknown>;
 }
 
 /** A raw audio clip is being pushed (e.g. for the waveform display or
  *  for clipboard copy). Emitted from `recording_controller.py`. */
 export interface AudioClipEvent {
-	type: "audio_clip";
-	data: Record<string, unknown>;
+        type: "audio_clip";
+        data: Record<string, unknown>;
 }
 
 /** The tray menu config changed — renderer can refresh its in-app
  *  mirror. Emitted from `tray.py`. */
 export interface TrayMenuEvent {
-	type: "tray_menu";
-	data: Record<string, unknown>;
+        type: "tray_menu";
+        data: Record<string, unknown>;
 }
 
 /** Request that the renderer switch to a different page. Emitted from
  *  tray menu clicks + onboarding flow. Consumed by `App.tsx:209`. */
 export interface NavigateEvent {
-	type: "navigate";
-	data: Record<string, unknown>;
+        type: "navigate";
+        data: Record<string, unknown>;
 }
 
 /** Backend finished its startup sequence — renderer can hide the
  *  loading splash. Emitted from `startup_sequence.py`. */
 export interface ReadyEvent {
-	type: "ready";
-	data: Record<string, unknown>;
+        type: "ready";
+        data: Record<string, unknown>;
 }
 
 // ── Bubble-window events ───────────────────────────────────────────
@@ -236,28 +236,28 @@ export interface ReadyEvent {
 // Settings page showing "bubble visible: yes/no") can subscribe.
 
 export interface BubbleShowEvent {
-	type: "bubble_show";
-	data: Record<string, unknown>;
+        type: "bubble_show";
+        data: Record<string, unknown>;
 }
 
 export interface BubbleHideEvent {
-	type: "bubble_hide";
-	data: Record<string, unknown>;
+        type: "bubble_hide";
+        data: Record<string, unknown>;
 }
 
 export interface BubbleSetStateEvent {
-	type: "bubble_set_state";
-	data: Record<string, unknown>;
+        type: "bubble_set_state";
+        data: Record<string, unknown>;
 }
 
 export interface BubbleLevelEvent {
-	type: "bubble_level";
-	data: Record<string, unknown>;
+        type: "bubble_level";
+        data: Record<string, unknown>;
 }
 
 export interface BubbleConfigEvent {
-	type: "bubble_config";
-	data: Record<string, unknown>;
+        type: "bubble_config";
+        data: Record<string, unknown>;
 }
 
 // ── Lifecycle events (tray menu / shutdown flow) ───────────────────
@@ -265,15 +265,15 @@ export interface BubbleConfigEvent {
 /** Tray "Open app" — Python asks Electron to show + focus the dashboard.
  *  Routed by `handle-message.ts:68` → `showMainWindow()`. */
 export interface ShowWindowEvent {
-	type: "show_window";
-	data: Record<string, unknown>;
+        type: "show_window";
+        data: Record<string, unknown>;
 }
 
 /** Tray "Quit" — Python is about to force-exit; close Electron too.
  *  Routed by `handle-message.ts:74` → `app.quit()`. */
 export interface QuitAppEvent {
-	type: "quit_app";
-	data: Record<string, unknown>;
+        type: "quit_app";
+        data: Record<string, unknown>;
 }
 
 /** Tray "Restart" — Python's `restart_app()` pushes this BEFORE calling
@@ -291,8 +291,8 @@ export interface QuitAppEvent {
  *  not as a wire event). The transition window for old sidecars has long
  *  since closed. */
 export interface RelaunchAppEvent {
-	type: "relaunch_app";
-	data: Record<string, unknown>;
+        type: "relaunch_app";
+        data: Record<string, unknown>;
 }
 
 // ── GT-52: server-emitted push events previously missing from the union ─
@@ -312,8 +312,8 @@ export interface RelaunchAppEvent {
  *  conditional inclusion pattern. Consumed by the Tauri Rust host
  *  (`src-tauri/src/sidecar/ws.rs`) which forwards to the OS tray. */
 export interface TrayStateEvent {
-	type: "tray_state";
-	data: { icon?: string; tooltip?: string };
+        type: "tray_state";
+        data: { icon?: string; tooltip?: string };
 }
 
 /** Pushed by `voice_typer/server/service/model.py:596-605` when a model
@@ -321,8 +321,8 @@ export interface TrayStateEvent {
  *  consent (e.g. HuggingFace). The renderer surfaces a consent dialog
  *  naming the provider + model; the message is shown verbatim. */
 export interface ConsentRequiredEvent {
-	type: "consent_required";
-	data: { provider: string; model: string; message: string };
+        type: "consent_required";
+        data: { provider: string; model: string; message: string };
 }
 
 /** Pushed by `voice_typer/server/parakeet_engine.py:910-915` when GPU
@@ -331,8 +331,8 @@ export interface ConsentRequiredEvent {
  *  (max 200 chars per the Python emitter). The renderer uses this to
  *  show a one-time "transcription will be slower" banner. */
 export interface ParakeetCpuFallbackEvent {
-	type: "parakeet_cpu_fallback";
-	data: { device: string; reason: string };
+        type: "parakeet_cpu_fallback";
+        data: { device: string; reason: string };
 }
 
 // ── 3 server-emitted push events previously missing from the union ─
@@ -370,13 +370,13 @@ export interface ParakeetCpuFallbackEvent {
  *    `{ "type": "asr_backend_disabled", "backend": "<name>",
  *       "failure_count": <int>, "timestamp": "<iso-8601>" }` */
 export interface ASRBackendDisabledEvent {
-	type: "asr_backend_disabled";
-	/** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
-	backend: string;
-	/** Number of consecutive failures that triggered the disable. */
-	failure_count: number;
-	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
-	timestamp: string;
+        type: "asr_backend_disabled";
+        /** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
+        backend: string;
+        /** Number of consecutive failures that triggered the disable. */
+        failure_count: number;
+        /** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+        timestamp: string;
 }
 
 /** Pushed by `voice_typer/server/asr_registry.py:330-336` when the
@@ -390,11 +390,11 @@ export interface ASRBackendDisabledEvent {
  *    `{ "type": "asr_last_resort_unloaded", "backend": "<name>",
  *       "timestamp": "<iso-8601>" }` */
 export interface ASRLastResortUnloadedEvent {
-	type: "asr_last_resort_unloaded";
-	/** The last-resort backend's name that was just unloaded. */
-	backend: string;
-	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
-	timestamp: string;
+        type: "asr_last_resort_unloaded";
+        /** The last-resort backend's name that was just unloaded. */
+        backend: string;
+        /** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+        timestamp: string;
 }
 
 /** Pushed by `voice_typer/server/dictation_pipeline.py:919` when the
@@ -412,7 +412,7 @@ export interface ASRLastResortUnloadedEvent {
  *  {@link HotkeyCaptureCancelEvent} (bare `{type}` frames with no
  *  data). */
 export interface LLMPolishFailedEvent {
-	type: "llm_polish_failed";
+        type: "llm_polish_failed";
 }
 
 // ── (resilient sidecar) lifecycle events ──────────────────────
@@ -435,15 +435,28 @@ export interface LLMPolishFailedEvent {
 /** Pushed when the host bridge starts a reconnect attempt after a
  *  transport drop. Consumed by `hooks/useConnection.ts:277`. */
 export interface ReconnectingEvent {
-	type: "reconnecting";
-	data: { reason: string };
+        type: "reconnecting";
+        data: { reason: string };
 }
 
 /** Pushed when the host bridge successfully reconnected to the Python
  *  backend. Consumed by `hooks/useConnection.ts:287`. */
 export interface ReconnectedEvent {
-	type: "reconnected";
-	data: { reason: string };
+        type: "reconnected";
+        data: { reason: string };
+}
+
+// ZR-67 / TY-18: a coalesced microphone-level push event published by
+// `voice_typer/server/level_monitor.py` via the same bounded-queue +
+// worker pattern as `bubble_level` (≤30 Hz). Consumed by
+// `pages/microphone/hooks/useMicrophoneTest.ts` instead of the legacy
+// 10 Hz `microphone_test_get_level` IPC poll. The payload mirrors the
+// dict returned by the legacy IPC handler so the renderer's
+// `setLevel` / `setPeak` / `setMicMonitoring` setState calls work
+// unchanged.
+export interface MicLevelEvent {
+        type: "mic_level";
+        data: { level: number; peak: number; active: boolean };
 }
 
 // NOTE: `usePythonEvent`'s `type` param (declared in
@@ -455,53 +468,56 @@ export interface ReconnectedEvent {
 // [EC-14]. This file cannot perform that narrowing itself (the hook lives
 // in another sub-agent's file scope); it only exposes the union.
 export type PythonPushEvent =
-	| StatusChangeEvent
-	| ErrorEvent
-	| TranscriptionFinalEvent
-	| RecordingStartedEvent
-	| RecordingStoppedEvent
-	| ConfigChangedEvent
-	| HotkeyCaptureCancelEvent
-	| HistoryChangedEvent
-	| StateChangedEvent
-	| PasteFailedEvent
-	| DownloadProgressEvent
-	| NotificationEvent
-	| VocabularySuggestionEvent
-	| MicrophonesChangedEvent
-	| MicrophoneTestCompleteEvent
-	| AudioClipEvent
-	| TrayMenuEvent
-	| NavigateEvent
-	| ReadyEvent
-	| BubbleShowEvent
-	| BubbleHideEvent
-	| BubbleSetStateEvent
-	| BubbleLevelEvent
-	| BubbleConfigEvent
-	| ShowWindowEvent
-	| QuitAppEvent
-	| RelaunchAppEvent
-	// GT-52: three server-emitted events previously missing from the
-	// union. Each is published by `event_bus.publish(...)` in the
-	// Python tree (see the per-interface docstring for the emitter).
-	| TrayStateEvent
-	| ConsentRequiredEvent
-	| ParakeetCpuFallbackEvent
-	// three more server-emitted events previously missing from
-	// the union. Each is published by `event_bus.publish(...)` in the
-	// Python tree:
-	//   - `asr_backend_disabled`     — `asr_registry.py:531-538`
-	//   - `asr_last_resort_unloaded` — `asr_registry.py:330-336`
-	//   - `llm_polish_failed`        — `dictation_pipeline.py:919`
-	// See the per-interface docstrings for the wire shape (note: the
-	// first two put payload fields at the message ROOT, not under
-	// `data`).
-	| ASRBackendDisabledEvent
-	| ASRLastResortUnloadedEvent
-	| LLMPolishFailedEvent
-	| ReconnectingEvent
-	| ReconnectedEvent;
+        | StatusChangeEvent
+        | ErrorEvent
+        | TranscriptionFinalEvent
+        | RecordingStartedEvent
+        | RecordingStoppedEvent
+        | ConfigChangedEvent
+        | HotkeyCaptureCancelEvent
+        | HistoryChangedEvent
+        | StateChangedEvent
+        | PasteFailedEvent
+        | DownloadProgressEvent
+        | NotificationEvent
+        | VocabularySuggestionEvent
+        | MicrophonesChangedEvent
+        | MicrophoneTestCompleteEvent
+        | AudioClipEvent
+        | TrayMenuEvent
+        | NavigateEvent
+        | ReadyEvent
+        | BubbleShowEvent
+        | BubbleHideEvent
+        | BubbleSetStateEvent
+        | BubbleLevelEvent
+        | BubbleConfigEvent
+        | ShowWindowEvent
+        | QuitAppEvent
+        | RelaunchAppEvent
+        // GT-52: three server-emitted events previously missing from the
+        // union. Each is published by `event_bus.publish(...)` in the
+        // Python tree (see the per-interface docstring for the emitter).
+        | TrayStateEvent
+        | ConsentRequiredEvent
+        | ParakeetCpuFallbackEvent
+        // three more server-emitted events previously missing from
+        // the union. Each is published by `event_bus.publish(...)` in the
+        // Python tree:
+        //   - `asr_backend_disabled`     — `asr_registry.py:531-538`
+        //   - `asr_last_resort_unloaded` — `asr_registry.py:330-336`
+        //   - `llm_polish_failed`        — `dictation_pipeline.py:919`
+        // See the per-interface docstrings for the wire shape (note: the
+        // first two put payload fields at the message ROOT, not under
+        // `data`).
+        | ASRBackendDisabledEvent
+        | ASRLastResortUnloadedEvent
+        | LLMPolishFailedEvent
+        | ReconnectingEvent
+        | ReconnectedEvent
+        // ZR-67 / TY-18: coalesced mic-level push event (≤30 Hz).
+        // See `MicLevelEvent` above for the wire shape + emitter.
+        | MicLevelEvent;
 
 // ── Auth frame (PVT-G5-063) ────────────────────────────────────────
 //

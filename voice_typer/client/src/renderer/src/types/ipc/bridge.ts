@@ -50,16 +50,6 @@ export interface WindowBridge {
 		data: unknown,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	openLogs?: () => Promise<{ success: boolean; error?: string }>;
-	// G4-M-71: open the ELECTRON log folder (userData dir) in the OS
-	// file manager. Distinct from `openLogs` above (which opens the
-	// Python backend's log dir). Optional because the Tauri bridge
-	// doesn't currently implement it (Tauri's `open_logs` command
-	// opens only one folder); the Electron preload always installs it.
-	openElectronLogs?: () => Promise<{
-		success: boolean;
-		path?: string;
-		error?: string;
-	}>;
 	// G4-M-69: forward a renderer-caught error (e.g. from React's
 	// `componentDidCatch`) to the main process for persistence in
 	// `electron-renderer-errors.log`. The sandboxed renderer can't
@@ -82,4 +72,12 @@ export interface WindowBridge {
 		path?: string;
 		error?: string;
 	}>;
+	// Push the renderer's current locale to the main process so it can
+	// localise native dialogs (single-instance error, critical-error
+	// dialog, model-folder picker, export save-as dialogs). Registered
+	// in `main/ipc/window-handlers.ts` as the `i18n:set-locale` IPC
+	// handler. Optional because the Tauri bridge does not currently
+	// install it (Tauri-side dialogs are localised via the OS locale,
+	// not a renderer-pushed value).
+	setLocale?: (locale: string) => Promise<unknown>;
 }

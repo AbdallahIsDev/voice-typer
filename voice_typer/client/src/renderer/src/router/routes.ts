@@ -45,8 +45,6 @@ export const ROUTES: Record<Page, RouteDef> = {
 	onboarding: { page: "onboarding" },
 };
 
-export const KNOWN_PAGES = new Set(Object.keys(ROUTES)) as Set<string>;
-
 /**
  * Type guard: narrows an unknown/string value to `Page`. Accepts
  * `unknown` so callers can validate untrusted JSON (e.g. localStorage

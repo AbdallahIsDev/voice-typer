@@ -44,7 +44,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useT } from "@/i18n/i18n";
-import { cssColorToHex } from "@/lib/color-utils";
+import { contrastRatio, cssColorToHex } from "@/lib/color-utils";
 import { cn } from "@/lib/utils";
 import {
 	applyThemeVars,
@@ -61,50 +61,14 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-// ── WCAG contrast-ratio helpers ───────────────────────────
-// Defined locally because ``@/lib/color-utils`` (owned by another
-// sub-agent) doesn't currently export a contrast helper.  If a future
-// refactor adds ``contrastRatio`` to ``color-utils.ts``, the local
-// copy here can be deleted in favour of the import — the public
-// surface is the same.
-
-/** Parse a 6-digit ``#rrggbb`` hex string into RGB components. */
-function _parseHex6(hex: string): { r: number; g: number; b: number } | null {
-	const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
-	if (!m) return null;
-	const n = Number.parseInt(m[1], 16);
-	return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
-}
-
-/** Linearise an sRGB channel value in [0, 1] for relative-luminance calc. */
-function _srgbChannelToLinear(c: number): number {
-	return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-/** WCAG 2.x relative luminance of a hex colour, or ``null`` if unparseable. */
-function _relativeLuminance(hex: string): number | null {
-	const rgb = _parseHex6(hex);
-	if (!rgb) return null;
-	const r = _srgbChannelToLinear(rgb.r / 255);
-	const g = _srgbChannelToLinear(rgb.g / 255);
-	const b = _srgbChannelToLinear(rgb.b / 255);
-	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/**
- * WCAG 2.x contrast ratio between two hex colours.  Returns ``null``
- * when either colour is unparseable (so callers can skip the warning
- * UI gracefully).  Range is 1.0 (identical colours) to 21.0 (black vs
- * white).  AA requires ≥ 4.5:1 for normal text, ≥ 3:1 for large text.
- */
-function contrastRatio(fg: string, bg: string): number | null {
-	const l1 = _relativeLuminance(fg);
-	const l2 = _relativeLuminance(bg);
-	if (l1 === null || l2 === null) return null;
-	const lighter = Math.max(l1, l2);
-	const darker = Math.min(l1, l2);
-	return (lighter + 0.05) / (darker + 0.05);
-}
+// ── WCAG contrast-ratio helpers ─────────────────────────────────────
+// `contrastRatio` (and its private `_relativeLuminance` /
+// `_parseHex` helpers) live in ``@/lib/color-utils`` and are imported
+// above. The lib version returns ``number`` (never ``null``) — it
+// clamps unparseable input to black so callers don't need a null
+// guard. The local ``_getContrastPair`` helper below stays here
+// because it's specific to the custom-theme editor's row mapping
+// (no other caller wants it).
 
 /**
  * Defensive accessor for ``ThemePreset.nameKey``.
@@ -926,17 +890,17 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* render a DISABLED "Custom
-                                                                (use toggle below)" SelectItem when the saved
-                                                                preset is 'custom'.  Without this, the dropdown's
-                                                                trigger showed a blank value when the preset was
-                                                                'custom' (the SelectItem list filtered 'custom'
-                                                                out), making it look like the dropdown was broken.
-                                                                The disabled item is non-selectable — users
-                                                                toggle the custom theme via the switch below
-                                                                the dropdown.  Always rendered so the trigger's
-                                                                selected value always has a matching SelectItem
-                                                                (Radix Select otherwise warns about a missing
-                                                                value). */}
+								(use toggle below)" SelectItem when the saved
+								preset is 'custom'.  Without this, the dropdown's
+								trigger showed a blank value when the preset was
+								'custom' (the SelectItem list filtered 'custom'
+								out), making it look like the dropdown was broken.
+								The disabled item is non-selectable — users
+								toggle the custom theme via the switch below
+								the dropdown.  Always rendered so the trigger's
+								selected value always has a matching SelectItem
+								(Radix Select otherwise warns about a missing
+								value). */}
 							{(() => {
 								const customThemeDef = THEMES.find((t) => t.id === "custom");
 								if (!customThemeDef) return null;
@@ -973,7 +937,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								);
 							})()}
 							{/* Built-in presets (excluding 'custom' — handled
-                                                                by the disabled item above). */}
+								by the disabled item above). */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -1009,9 +973,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-                                When ON, theme_preset is forced to 'custom' and the color
-                                picker appears.  When OFF, the preset reverts to the
-                                previously-selected preset. */}
+				When ON, theme_preset is forced to 'custom' and the color
+				picker appears.  When OFF, the preset reverts to the
+				previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -1080,6 +1044,11 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								customDraft,
 								customEditorMode,
 							);
+							// `contrastRatio` from `@/lib/color-utils` returns a
+							// `number` (never `null`) — unparseable input is
+							// clamped to black. Only the row-mapping
+							// (`_getContrastPair`) can return `null`, which
+							// signals "no contrast check applies to this row".
 							const ratio =
 								contrastPair === null
 									? null
@@ -1116,9 +1085,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										</p>
 									</div>
 									{/* contrast warning icon — shown
-                                                                                when the row's relevant colour pair falls below
-                                                                                the WCAG AA 4.5:1 threshold.  Tooltip shows the
-                                                                                actual ratio and the AA requirement. */}
+										when the row's relevant colour pair falls below
+										the WCAG AA 4.5:1 threshold.  Tooltip shows the
+										actual ratio and the AA requirement. */}
 									{showContrastWarning && ratioRounded !== null && (
 										<TooltipProvider delayDuration={200}>
 											<Tooltip>
@@ -1210,12 +1179,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-                                                Part C5: the previously-broken "#888" 3-digit hex in
-                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-                                                so the validator accepts the payload — no more "Failed to
-                                                save settings" toast.
-                                                Part C6: button is disabled while the draft already matches
-                                                the defaults (re-enables the moment the user edits a color). */}
+						Part C5: the previously-broken "#888" 3-digit hex in
+						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+						so the validator accepts the payload — no more "Failed to
+						save settings" toast.
+						Part C6: button is disabled while the draft already matches
+						the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

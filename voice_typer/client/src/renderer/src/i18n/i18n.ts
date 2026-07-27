@@ -440,12 +440,12 @@ export function setLocale(locale: Locale): void {
  */
 function pushLocaleToMainProcess(locale: Locale): void {
 	try {
-		const bridge = (
-			globalThis as unknown as {
-				window_?: { setLocale?: (locale: string) => Promise<unknown> };
-			}
-		).window_;
-		const result = bridge?.setLocale?.(locale);
+		// Read directly from the globally-augmented ``window.window_``
+		// (declared in ``types/ipc/bubble_bridge.ts``) instead of
+		// re-declaring the bridge shape inline via an
+		// ``as unknown as { window_?: ... }`` cast. The cast was
+		// structurally identical but duplicated the type contract.
+		const result = window.window_?.setLocale?.(locale);
 		if (result && typeof (result as Promise<unknown>).then === "function") {
 			(result as Promise<unknown>).catch((e: unknown) => {
 				console.warn("[i18n] setLocale main-process push failed:", e);
@@ -470,17 +470,11 @@ function pushLocaleToMainProcess(locale: Locale): void {
  */
 function pushLocaleToPythonBackend(locale: Locale): void {
 	try {
-		const bridge = (
-			globalThis as unknown as {
-				python?: {
-					call?: (msg: {
-						type: string;
-						data?: Record<string, unknown>;
-					}) => Promise<unknown>;
-				};
-			}
-		).python;
-		const result = bridge?.call?.({
+		// Read directly from the globally-augmented ``window.python``
+		// (declared in ``types/ipc/bubble_bridge.ts``) instead of
+		// re-declaring the bridge shape inline via an
+		// ``as unknown as { python?: ... }`` cast.
+		const result = window.python?.call?.({
 			type: "set_tray_locale",
 			data: { locale, labels: trayLabelsForLocale() },
 		});

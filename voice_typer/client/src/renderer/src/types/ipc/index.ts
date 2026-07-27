@@ -19,8 +19,7 @@
 //   - ./vocabulary    — VocabularyData, VocabularyEntry
 //   - ./bridge        — PythonBridge, WindowBridge
 //   - ./bubble_bridge — MainRendererBubbleMutators, BubbleEventSubscriptions,
-//                       BubbleWindowExtras, BubbleWindowBubble,
-//                       MainRendererBubble alias + the
+  //                       BubbleWindowExtras, BubbleWindowBubble + the
 //                       `declare global { Window }` augmentation
 //   - ./model_status  — ModelStatusEntry, ModelStatusMap, DiskInfo
 //   - ./permissions   — PermissionsResult, AutostartStatus,

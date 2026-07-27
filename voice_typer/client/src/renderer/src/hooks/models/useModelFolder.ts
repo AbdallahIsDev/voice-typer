@@ -117,16 +117,10 @@ export function useModelFolder({
 
 	// ── Action: handleImportModel ───────────────────────────────────
 	const handleImportModel = useCallback(async () => {
-		const api = (
-			window as unknown as {
-				window_?: {
-					openModelImportDialog?: () => Promise<{
-						canceled: boolean;
-						path?: string;
-					}>;
-				};
-			}
-		).window_;
+		// Read directly from the globally-augmented ``window.window_``
+		// (declared in ``types/ipc/bubble_bridge.ts``) instead of
+		// re-declaring the bridge shape inline.
+		const api = window.window_;
 		if (!api?.openModelImportDialog) {
 			showSnack(t("a11y.importNotAvailableOutsideElectron"), "warning");
 			return;

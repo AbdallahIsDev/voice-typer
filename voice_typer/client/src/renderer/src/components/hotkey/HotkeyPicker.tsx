@@ -11,6 +11,7 @@ import {
 import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import { checkHotkeyConflict } from "./checkHotkeyConflict";
 import {
 	formatHotkeyLabel,
 	getModifierCodeMap,
@@ -479,7 +480,7 @@ export function HotkeyPicker({
 		// In single mode, only a SINGLE modifier is allowed (the dictation
 		// key is one key). If the user held 2+ modifiers, show an error
 		// referencing the full attempted combo and stay in capture mode.
-		if (mode === "single" && mods.length > 1) {					const label = formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
+		if (mode === "single" && mods.length > 1) {                                     const label = formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
 			setError(
 				t("hotkeyValidation.dictationKeyMustBeSingle", { label }),
 			);
@@ -497,14 +498,17 @@ export function HotkeyPicker({
 			resetCaptureSession();
 			return;
 		}
-		// DUPLICATE-001: reject if another setting already uses this hotkey.
-		// Skip the check when the hotkey hasn't actually changed (the
-		// user is re-selecting the current value).
-		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
-			const label = formatHotkeyLabel(newHotkey);
-			setError(
-				t("hotkeyValidation.alreadyInUse", { label }),
-			);
+		// Reject if another setting already uses this hotkey.
+		// The check is skipped when the user is re-selecting the
+		// current value (no actual change).
+		const conflict = checkHotkeyConflict(
+			newHotkey,
+			value,
+			occupiedHotkeys,
+			t,
+		);
+		if (conflict) {
+			setError(conflict);
 			resetCaptureSession();
 			return;
 		}
@@ -563,14 +567,17 @@ export function HotkeyPicker({
 			resetCaptureSession();
 			return;
 		}
-		// DUPLICATE-001: reject if another setting already uses this hotkey.
-		// Skip the check when the hotkey hasn't actually changed (the
-		// user is re-selecting the current value).
-		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
-			const label = formatHotkeyLabel(newHotkey);
-			setError(
-				t("hotkeyValidation.alreadyInUse", { label }),
-			);
+		// Reject if another setting already uses this hotkey.
+		// The check is skipped when the user is re-selecting the
+		// current value (no actual change).
+		const conflict = checkHotkeyConflict(
+			newHotkey,
+			value,
+			occupiedHotkeys,
+			t,
+		);
+		if (conflict) {
+			setError(conflict);
 			resetCaptureSession();
 			return;
 		}
@@ -932,17 +939,20 @@ export function HotkeyPicker({
 									onSelect={() => {
 										const newValue =
 											mode === "single" ? `<${opt.value}>` : opt.value;
-										// DUPLICATE-001: reject if another setting already uses this hotkey.
-										// Skip the check when the hotkey hasn't actually changed (the
-										// user is re-selecting the current value).
-										if (
-											newValue !== value &&
-											occupiedHotkeys?.includes(newValue)
-										) {
-									const label = formatHotkeyLabel(newValue);
-									setError(
-										t("hotkeyValidation.alreadyInUse", { label }),
-									);
+										// Reject if another setting already uses this
+										// hotkey. The check is skipped when the user is
+										// re-selecting the current value (no actual
+										// change). The dropdown has no capture session
+										// to reset, so we just surface the error and
+										// bail.
+										const conflict = checkHotkeyConflict(
+											newValue,
+											value,
+											occupiedHotkeys,
+											t,
+										);
+										if (conflict) {
+											setError(conflict);
 											return;
 										}
 										const validationError = validateHotkey(newValue, mode);
@@ -969,18 +979,18 @@ export function HotkeyPicker({
 					</DropdownMenu>
 				)}
 				{/* Clear button — lets the user unset a
-                                    hotkey without having to capture a new one. Only
-                                    shown when ``allowClear`` is true, a hotkey is
-                                    currently assigned, and we're not in the middle of
-                                    capture (the capture button itself toggles to a
-                                    cancel button during recording, so a second X would
-                                    be redundant).
+				    hotkey without having to capture a new one. Only
+				    shown when ``allowClear`` is true, a hotkey is
+				    currently assigned, and we're not in the middle of
+				    capture (the capture button itself toggles to a
+				    cancel button during recording, so a second X would
+				    be redundant).
 
-                                    Accessibility: aria-label and title are
-                                    localised via ``t("hotkeyPicker.clearAria",
-                                    { label })`` and ``t("hotkeyPicker.clearTitle")``.
-                                    Native translations exist in all 8 locale JSON
-                                    files. */}
+				    Accessibility: aria-label and title are
+				    localised via ``t("hotkeyPicker.clearAria",
+				    { label })`` and ``t("hotkeyPicker.clearTitle")``.
+				    Native translations exist in all 8 locale JSON
+				    files. */}
 				{allowClear && value && !recording && (
 					<Button
 						variant="ghost"
@@ -1008,8 +1018,8 @@ export function HotkeyPicker({
 				>
 					{t("hotkeyPicker.assignHint")}
 					{/* countdown timer. Shown the whole
-                                            time so the user knows how long they have;
-                                            turns red in the last 10 seconds for emphasis. */}
+					    time so the user knows how long they have;
+					    turns red in the last 10 seconds for emphasis. */}
 					<span
 						className={cn(
 							"ms-2 tabular-nums",
@@ -1019,9 +1029,9 @@ export function HotkeyPicker({
 						({secondsRemaining}s)
 					</span>
 					{/* live modifier indicator. Mirrors
-                                            the ``aria-keyshortcuts`` attribute on the
-                                            capture button so visual users get the same
-                                            in-progress feedback screen readers do. */}
+					    the ``aria-keyshortcuts`` attribute on the
+					    capture button so visual users get the same
+					    in-progress feedback screen readers do. */}
 					{heldModifiersLabel && (
 						<span className="ms-2">{t("hotkeyValidation.holding")}: {heldModifiersLabel}</span>
 					)}

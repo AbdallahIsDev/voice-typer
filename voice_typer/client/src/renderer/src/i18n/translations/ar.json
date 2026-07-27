@@ -324,7 +324,11 @@
 			"dictations": "إملاءات",
 			"chars": "أحرف",
 			"duration": "المدة"
-		}
+		},
+		"durationZero": "0m",
+		"durationMinutes": "{m}m",
+		"durationHours": "{h}h",
+		"durationHoursMinutes": "{h}h {m}m"
 	},
 	"about": {
 		"title": "حول",
@@ -1227,7 +1231,7 @@
 			"closeQuote": "علامة اقتباس مغلقة",
 			"newLine": "سطر جديد",
 			"newParagraph": "فقرة جديدة",
-"hyphen": "واصلة",
+			"hyphen": "واصلة",
 			"dash": "شرطة",
 			"ellipsis": "حذف",
 			"openParen": "قوس مفتوح",

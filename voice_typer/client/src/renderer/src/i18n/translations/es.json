@@ -324,7 +324,11 @@
 			"dictations": "Dictados",
 			"chars": "Caracteres",
 			"duration": "Duración"
-		}
+		},
+		"durationZero": "0m",
+		"durationMinutes": "{m}m",
+		"durationHours": "{h}h",
+		"durationHoursMinutes": "{h}h {m}m"
 	},
 	"about": {
 		"title": "Acerca de",

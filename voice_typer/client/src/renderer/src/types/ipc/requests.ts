@@ -16,6 +16,43 @@ export interface GetConfigRequest {
 	type: "get_config";
 }
 
+// ``set_config`` is the primary config-update RPC. The renderer uses
+// it directly via ``call('set_config', diff)`` from a dozen call sites
+// (useSettingsConfig, useModelConfig, useTheme, useGlobalKeyboardShortcuts,
+// Onboarding, useMicrophoneTest, useMicrophoneData, …). Declared here
+// so the strict ``call()`` overload in ``usePython`` can validate the
+// diff at the type level.
+export interface SetConfigRequest {
+	type: "set_config";
+	data: Record<string, unknown>;
+}
+
+// Connection-readiness probe used by ``useConnection`` and the
+// ``usePython`` error-envelope tests. Returns
+// ``{ type: "status", data: { connected: boolean, … } }``. No payload.
+export interface GetStatusRequest {
+	type: "get_status";
+}
+
+// Microphone VU-meter monitor RPCs used by ``useMicrophoneTest``.
+// ``level_monitor_start`` begins a 10 Hz push of ``level_update``
+// events for the given mic; ``level_monitor_stop`` tears it down.
+export interface LevelMonitorStartRequest {
+	type: "level_monitor_start";
+	data: { mic_id: string };
+}
+
+export interface LevelMonitorStopRequest {
+	type: "level_monitor_stop";
+}
+
+// One-shot level read used to seed the VU meter before the first
+// ``microphone_test_complete`` event arrives. Returns
+// ``{ rms: number; peak: number }``.
+export interface MicrophoneTestGetLevelRequest {
+	type: "microphone_test_get_level";
+}
+
 // NEW-IPC-009 / NEW-MISMATCH-002: removed ``UpdateConfigRequest``.
 // The server command is ``set_config`` (not ``update_config``), and
 // the renderer uses untyped ``call<T>('set_config', data)`` directly
@@ -116,7 +153,14 @@ export type PythonRequest =
 	// new endpoints — see GetHistoryCountRequest /
 	// GetTranscriptionTextRequest above for the rationale.
 	| GetHistoryCountRequest
-	| GetTranscriptionTextRequest;
+	| GetTranscriptionTextRequest
+	// Commonly-used commands that were missing from the union.
+	// See the individual interface declarations above for rationale.
+	| SetConfigRequest
+	| GetStatusRequest
+	| LevelMonitorStartRequest
+	| LevelMonitorStopRequest
+	| MicrophoneTestGetLevelRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //

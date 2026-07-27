@@ -20,28 +20,28 @@
  * re-implement keyboard-move correctly.
  */
 import {
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
+        useCallback,
+        useEffect,
+        useLayoutEffect,
+        useRef,
+        useState,
 } from "react";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { BubbleWindowBubble } from "@/types/ipc";
 import {
-	BubbleDismissButton,
-	BubbleMicButton,
-	type BubbleMode,
-	BubbleStopButton,
-	BubbleVisualizer,
-	FADEOUT_DURATION_MS,
-	HugeiconsIcon,
-	Mic02Icon,
-	TRANSCRIBING_DOT_COUNT,
-	tf,
-	useBubbleLifecycle,
-	useBubbleStateMachine,
+        BubbleDismissButton,
+        BubbleMicButton,
+        type BubbleMode,
+        BubbleStopButton,
+        BubbleVisualizer,
+        FADEOUT_DURATION_MS,
+        HugeiconsIcon,
+        Mic02Icon,
+        TRANSCRIBING_DOT_COUNT,
+        tf,
+        useBubbleLifecycle,
+        useBubbleStateMachine,
 } from "./bubble-components";
 
 // S1-CR-153: previously every effect/callback in this file re-cast
@@ -55,7 +55,7 @@ import {
 // (SEC-026): the bubble renderer's preload script is intentionally
 // minimal and the type augmentation lives in `@/types/ipc/bubble_bridge`.
 function getBubbleApi(): BubbleWindowBubble | undefined {
-	return window.bubble as BubbleWindowBubble | undefined;
+        return window.bubble as BubbleWindowBubble | undefined;
 }
 
 // PVT-048 / BG-30: keyboard-based bubble repositioning was previously
@@ -86,290 +86,277 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // re-adding the handler.
 
 export function Bubble() {
-	const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
-	const pillRef = useRef<HTMLDivElement>(null);
-	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
+        const pillRef = useRef<HTMLDivElement>(null);
+        const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-	// `draggable` toggles the native CSS drag-region on the pill.
-	const [draggable, setDraggable] = useState(true);
-	// UX-10: whether to show the mic button (always_visible + both
-	// toggles on). Driven by `bubble:config` from the Python backend.
-	const [micButton, setMicButton] = useState(false);
-	// BG-96: whether to show the dismiss '×' button. Shown whenever
-	// the bubble is in `always_visible` mode (the only mode where the
-	// user needs to manually dismiss the bubble — `show_on_record`
-	// auto-hides when recording stops). Driven by `bubble:config`.
-	const [dismissable, setDismissable] = useState(false);
+        // `draggable` toggles the native CSS drag-region on the pill.
+        const [draggable, setDraggable] = useState(true);
+        // UX-10: whether to show the mic button (always_visible + both
+        // toggles on). Driven by `bubble:config` from the Python backend.
+        const [micButton, setMicButton] = useState(false);
+        // BG-96: whether to show the dismiss '×' button. Shown whenever
+        // the bubble is in `always_visible` mode (the only mode where the
+        // user needs to manually dismiss the bubble — `show_on_record`
+        // auto-hides when recording stops). Driven by `bubble:config`.
+        const [dismissable, setDismissable] = useState(false);
 
-	// PVT-067: lifecycle + state machine extracted to hooks.
-	const _isVisible = useBubbleLifecycle(dotRefs);
-	const {
-		mode,
-		animState,
-		setAnimState,
-		exitTick,
-		setExitTick: _setExitTick,
-	} = useBubbleStateMachine();
-	// `_isVisible` is consumed inside useBubbleLifecycle (gates the rAF
-	// loop). We acknowledge it here so eslint doesn't flag it as unused.
-	void _isVisible;
+        // PVT-067: lifecycle + state machine extracted to hooks.
+        const _isVisible = useBubbleLifecycle(dotRefs);
+        const {
+                mode,
+                animState,
+                setAnimState,
+                exitTick,
+                setExitTick: _setExitTick,
+        } = useBubbleStateMachine();
+        // `_isVisible` is consumed inside useBubbleLifecycle (gates the rAF
+        // loop). We acknowledge it here so eslint doesn't flag it as unused.
+        void _isVisible;
 
-	// Sync `draggable` from the main process (Settings page toggle).
-	useEffect(() => {
-		const api = getBubbleApi();
-		if (!api) return;
-		const off = api.onDraggable((d: boolean) => setDraggable(d));
-		return off;
-	}, []);
+        // Sync `draggable` from the main process (Settings page toggle).
+        useEffect(() => {
+                const api = getBubbleApi();
+                if (!api) return;
+                const off = api.onDraggable((d: boolean) => setDraggable(d));
+                return off;
+        }, []);
 
-	// UX-10: receive bubble-relevant config from the (sandboxed)
-	// backend. The bubble renderer has no get_config, so the Python
-	// backend pushes bubble_behavior / bubble_click_to_toggle /
-	// bubble_mic_button via the dedicated bubble:config channel. We
-	// show the mic button only when all three conditions are met.
-	//
-	// (The theme_preset / custom_theme / theme_mode fields of the same
-	// payload are handled inside `useBubbleLifecycle` → `useThemeSync`
-	// — PVT-017.)
-	useEffect(() => {
-		const api = getBubbleApi();
-		if (!api?.onConfig) return;
+        // UX-10: receive bubble-relevant config from the (sandboxed)
+        // backend. The bubble renderer has no get_config, so the Python
+        // backend pushes bubble_behavior / bubble_click_to_toggle /
+        // bubble_mic_button via the dedicated bubble:config channel. We
+        // show the mic button only when all three conditions are met.
+        //
+        // (The theme_preset / custom_theme / theme_mode fields of the same
+        // payload are handled inside `useBubbleLifecycle` → `useThemeSync`
+        // — PVT-017.)
+        useEffect(() => {
+                const api = getBubbleApi();
+                if (!api?.onConfig) return;
 
-		const off = api.onConfig((cfg) => {
-			const behavior = cfg.bubble_behavior;
-			const clickToToggle = cfg.bubble_click_to_toggle;
-			const micButton = cfg.bubble_mic_button;
-			const enabled =
-				behavior === "always_visible" &&
-				micButton !== false &&
-				clickToToggle !== false;
-			setMicButton(enabled);
-			// BG-96: dismiss button shown whenever the bubble is
-			// in always_visible mode (regardless of the mic-button
-			// toggles — the user needs a way to manually dismiss
-			// an always-visible bubble even when the mic button is
-			// disabled).
-			setDismissable(behavior === "always_visible");
-		});
-		return off;
-	}, []);
+                const off = api.onConfig((cfg) => {
+                        const behavior = cfg.bubble_behavior;
+                        const clickToToggle = cfg.bubble_click_to_toggle;
+                        const micButton = cfg.bubble_mic_button;
+                        const enabled =
+                                behavior === "always_visible" &&
+                                micButton !== false &&
+                                clickToToggle !== false;
+                        setMicButton(enabled);
+                        // BG-96: dismiss button shown whenever the bubble is
+                        // in always_visible mode (regardless of the mic-button
+                        // toggles — the user needs a way to manually dismiss
+                        // an always-visible bubble even when the mic button is
+                        // disabled).
+                        setDismissable(behavior === "always_visible");
+                });
+                return off;
+        }, []);
 
-	// UX-10: mic button click → toggle dictation. The bubble is a
-	// sandboxed renderer (SEC-026) with no python.call, so it routes
-	// through the dedicated bubble:toggle-dictation channel.
-	const handleMicClick = useCallback(() => {
-		getBubbleApi()?.toggleDictation?.();
-	}, []);
+        // UX-10: mic button click → toggle dictation. The bubble is a
+        // sandboxed renderer (SEC-026) with no python.call, so it routes
+        // through the dedicated bubble:toggle-dictation channel.
+        const handleMicClick = useCallback(() => {
+                getBubbleApi()?.toggleDictation?.();
+        }, []);
 
-	// XA-6-1 / XA-6-13: stop / retry button click → toggle dictation.
-	// Same channel as the mic button — when recording, toggle_dictation
-	// stops the recording and triggers transcription; when in error
-	// mode, it re-arms the dictation pipeline (effectively a retry).
-	// The visual affordance is differentiated in `BubbleStopButton`
-	// based on the parent-supplied `mode` (stop icon vs retry icon).
-	const handleStopClick = useCallback(() => {
-		getBubbleApi()?.toggleDictation?.();
-	}, []);
+        // XA-6-1 / XA-6-13: stop / retry button click → toggle dictation.
+        // Same channel as the mic button — when recording, toggle_dictation
+        // stops the recording and triggers transcription; when in error
+        // mode, it re-arms the dictation pipeline (effectively a retry).
+        // The visual affordance is differentiated in `BubbleStopButton`
+        // based on the parent-supplied `mode` (stop icon vs retry icon).
+        const handleStopClick = useCallback(() => {
+                getBubbleApi()?.toggleDictation?.();
+        }, []);
 
-	// BG-96: dismiss button click → send `bubble:dismiss` IPC. The
-	// main-process handler is owned by F11 (see return report). Until
-	// F11 adds the handler, this IPC send is a no-op (Electron's
-	// default ipcMain behavior is to silently drop messages with no
-	// registered handler). The `dismiss` method is added to the bubble
-	// preload (preload/bubble.ts) but not yet to the
-	// BubbleWindowBubble type (ipc.ts is owned by another agent), so
-	// we cast to a wider type that includes the optional `dismiss`
-	// method. When F11 (or a future type extension) adds `dismiss` to
-	// BubbleWindowBubble, this cast can be removed.
-	const handleDismissClick = useCallback(() => {
-		// BG-96: `dismiss` is exposed by the bubble preload but not yet on
-		// the public `BubbleWindowBubble` type (ipc.ts is owned by another
-		// agent). We widen via the local helper so the call is still
-		// type-checked at the boundary. When the type is extended, the
-		// intersection here can be removed.
-		const api = getBubbleApi() as
-			| (BubbleWindowBubble & { dismiss?: () => void })
-			| undefined;
-		api?.dismiss?.();
-	}, []);
+        // BG-96: dismiss button click → send `bubble:dismiss` IPC. The
+        // main-process handler (in bubble-handlers.ts) routes the message
+        // to `hideBubbleWindow()`. The `dismiss` method is declared optional
+        // on `BubbleWindowExtras` (the Tauri bridge does not yet implement
+        // it), so optional chaining guards the call.
+        const handleDismissClick = useCallback(() => {
+                getBubbleApi()?.dismiss?.();
+        }, []);
 
-	// Auto-resize BrowserWindow to fit the pill content exactly.
-	// BUBBLE-FIX-5.2: useLayoutEffect so resize IPC arrives before paint.
-	// BUBBLE-FIX-SHOW-RESIZE: depends on BOTH animState AND mode so
-	// resize runs when the pill content size changes between modes.
-	useLayoutEffect(() => {
-		if (animState === "exit") return;
-		const el = pillRef.current;
-		if (!el) return;
-		const w = Math.ceil(el.offsetWidth);
-		const h = Math.ceil(el.offsetHeight);
-		getBubbleApi()?.resizeTo?.(w + 1, h + 1);
-		void mode; // semantic dep — pill content size changes between modes
-	}, [animState, mode]);
+        // Auto-resize BrowserWindow to fit the pill content exactly.
+        // BUBBLE-FIX-5.2: useLayoutEffect so resize IPC arrives before paint.
+        // BUBBLE-FIX-SHOW-RESIZE: depends on BOTH animState AND mode so
+        // resize runs when the pill content size changes between modes.
+        useLayoutEffect(() => {
+                if (animState === "exit") return;
+                const el = pillRef.current;
+                if (!el) return;
+                const w = Math.ceil(el.offsetWidth);
+                const h = Math.ceil(el.offsetHeight);
+                getBubbleApi()?.resizeTo?.(w + 1, h + 1);
+                void mode; // semantic dep — pill content size changes between modes
+        }, [animState, mode]);
 
-	// Fading → exit transition. When the transcribing content fade-out
-	// completes, trigger the bubble exit animation. For non-transcribing
-	// modes, exit is triggered immediately. `exitTick` guarantees re-run
-	// even when mode doesn't change.
-	useEffect(() => {
-		if (exitTick === 0) return;
+        // Fading → exit transition. When the transcribing content fade-out
+        // completes, trigger the bubble exit animation. For non-transcribing
+        // modes, exit is triggered immediately. `exitTick` guarantees re-run
+        // even when mode doesn't change.
+        useEffect(() => {
+                if (exitTick === 0) return;
 
-		if (mode === "fading") {
-			fadeOutTimerRef.current = setTimeout(() => {
-				setAnimState("exit");
-			}, FADEOUT_DURATION_MS);
-		} else if (mode !== "transcribing") {
-			setAnimState("exit");
-		}
-		return () => {
-			if (fadeOutTimerRef.current !== null) {
-				clearTimeout(fadeOutTimerRef.current);
-				fadeOutTimerRef.current = null;
-			}
-		};
-	}, [mode, exitTick, setAnimState]);
+                if (mode === "fading") {
+                        fadeOutTimerRef.current = setTimeout(() => {
+                                setAnimState("exit");
+                        }, FADEOUT_DURATION_MS);
+                } else if (mode !== "transcribing") {
+                        setAnimState("exit");
+                }
+                return () => {
+                        if (fadeOutTimerRef.current !== null) {
+                                clearTimeout(fadeOutTimerRef.current);
+                                fadeOutTimerRef.current = null;
+                        }
+                };
+        }, [mode, exitTick, setAnimState]);
 
-	// Animation-end callback — when exit CSS transition completes,
-	// tell the main process it's safe to hide() the BrowserWindow.
-	// After the enter animation completes, re-sync the window size to
-	// the pill content (handles edge cases where the initial
-	// useLayoutEffect ran before layout settled).
-	const handleAnimEnd = useCallback(() => {
-		const api = getBubbleApi();
-		if (animState === "exit") {
-			setAnimState("");
-			api?.hideComplete?.();
-		} else if (animState === "enter") {
-			setAnimState("");
-			const el = pillRef.current;
-			if (el) {
-				const w = Math.ceil(el.offsetWidth);
-				const h = Math.ceil(el.offsetHeight);
-				api?.resizeTo?.(w + 1, h + 1);
-			}
-		}
-	}, [animState, setAnimState]);
+        // Animation-end callback — when exit CSS transition completes,
+        // tell the main process it's safe to hide() the BrowserWindow.
+        // After the enter animation completes, re-sync the window size to
+        // the pill content (handles edge cases where the initial
+        // useLayoutEffect ran before layout settled).
+        const handleAnimEnd = useCallback(() => {
+                const api = getBubbleApi();
+                if (animState === "exit") {
+                        setAnimState("");
+                        api?.hideComplete?.();
+                } else if (animState === "enter") {
+                        setAnimState("");
+                        const el = pillRef.current;
+                        if (el) {
+                                const w = Math.ceil(el.offsetWidth);
+                                const h = Math.ceil(el.offsetHeight);
+                                api?.resizeTo?.(w + 1, h + 1);
+                        }
+                }
+        }, [animState, setAnimState]);
 
-	const transcribingDots = Array.from(
-		{ length: TRANSCRIBING_DOT_COUNT },
-		(_, i) => i,
-	);
+        const transcribingDots = Array.from(
+                { length: TRANSCRIBING_DOT_COUNT },
+                (_, i) => i,
+        );
 
-	return (
-		<output
-			aria-live="polite"
-			aria-atomic="true"
-			// BG-95: state-aware aria-label so screen-reader users
-			// hear the current bubble mode ("recording" /
-			// "transcribing" / "error" / "idle") instead of always
-			// hearing "recording". The "fading" mode is a brief
-			// transcribing → exit transition; it shares the
-			// transcribing label. The idle label is the catch-all
-			// for any unexpected future mode.
-			aria-label={
-				mode === "recording"
-					? t("bubble.recordingIndicatorAria")
-					: mode === "transcribing" || mode === "fading"
-						? t("bubble.transcribingAria")
-						: mode === "error"
-							? t("bubble.errorIndicatorAria")
-							: t("bubble.idleIndicatorAria")
-			}
-			className={cn(
-				"inline-flex items-center justify-center",
-				animState === "enter" && "animate-bubble-enter",
-				animState === "exit" && "animate-bubble-exit",
-			)}
-			onAnimationEnd={handleAnimEnd}
-		>
-			<div
-				ref={pillRef}
-				className={cn(
-					"inline-flex items-center gap-3 rounded-full",
-					"border border-zinc-200 dark:border-white/10",
-					"bg-white dark:bg-zinc-900",
-					"px-4 py-2.5",
-					draggable ? "drag-region" : "no-drag",
-				)}
-			>
-				{mode === "transcribing" ? (
-					<div className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-						<span>{t("bubble.transcribingLabel")}</span>
-						{transcribingDots.map((i) => (
-							<span
-								key={i}
-								className="inline-block h-1 w-1 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400"
-								style={{
-									animationDelay: `${i * 0.2}s`,
-									animationDuration: "1.2s",
-								}}
-							/>
-						))}
-					</div>
-				) : mode === "fading" ? (
-					<div
-						className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300"
-						style={{
-							opacity: 0,
-							transform: "translateY(-4px)",
-							transition: `opacity ${FADEOUT_DURATION_MS}ms ease-out, transform ${FADEOUT_DURATION_MS}ms ease-out`,
-						}}
-					>
-						<span>{t("bubble.transcribingLabel")}</span>
-					</div>
-				) : mode === "idle" ? (
-					<>
-						{/* A11Y: sr-only announcement so screen-reader users hear
+        return (
+                <output
+                        aria-live="polite"
+                        aria-atomic="true"
+                        // BG-95: state-aware aria-label so screen-reader users
+                        // hear the current bubble mode ("recording" /
+                        // "transcribing" / "error" / "idle") instead of always
+                        // hearing "recording". The "fading" mode is a brief
+                        // transcribing → exit transition; it shares the
+                        // transcribing label. The idle label is the catch-all
+                        // for any unexpected future mode.
+                        aria-label={
+                                mode === "recording"
+                                        ? t("bubble.recordingIndicatorAria")
+                                        : mode === "transcribing" || mode === "fading"
+                                                ? t("bubble.transcribingAria")
+                                                : mode === "error"
+                                                        ? t("bubble.errorIndicatorAria")
+                                                        : t("bubble.idleIndicatorAria")
+                        }
+                        className={cn(
+                                "inline-flex items-center justify-center",
+                                animState === "enter" && "animate-bubble-enter",
+                                animState === "exit" && "animate-bubble-exit",
+                        )}
+                        onAnimationEnd={handleAnimEnd}
+                >
+                        <div
+                                ref={pillRef}
+                                className={cn(
+                                        "inline-flex items-center gap-3 rounded-full",
+                                        "border border-zinc-200 dark:border-white/10",
+                                        "bg-white dark:bg-zinc-900",
+                                        "px-4 py-2.5",
+                                        draggable ? "drag-region" : "no-drag",
+                                )}
+                        >
+                                {mode === "transcribing" ? (
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                                                <span>{t("bubble.transcribingLabel")}</span>
+                                                {transcribingDots.map((i) => (
+                                                        <span
+                                                                key={i}
+                                                                className="inline-block h-1 w-1 animate-bounce rounded-full bg-zinc-500 dark:bg-zinc-400"
+                                                                style={{
+                                                                        animationDelay: `${i * 0.2}s`,
+                                                                        animationDuration: "1.2s",
+                                                                }}
+                                                        />
+                                                ))}
+                                        </div>
+                                ) : mode === "fading" ? (
+                                        <div
+                                                className="flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                                                style={{
+                                                        opacity: 0,
+                                                        transform: "translateY(-4px)",
+                                                        transition: `opacity ${FADEOUT_DURATION_MS}ms ease-out, transform ${FADEOUT_DURATION_MS}ms ease-out`,
+                                                }}
+                                        >
+                                                <span>{t("bubble.transcribingLabel")}</span>
+                                        </div>
+                                ) : mode === "idle" ? (
+                                        <>
+                                                {/* A11Y: sr-only announcement so screen-reader users hear
                                                     "Transcription complete." when the bubble transitions to
                                                     idle (always_visible mode). The empty div below is
                                                     preserved as a zero-width sibling so Bubble.test.tsx's
                                                     `emptyContainer.textContent === ""` assertion still
                                                     passes — querySelector returns the first match in DOM
                                                     order, which is the empty div. */}
-						<div className="flex h-6 items-center" />
-						<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
-							<HugeiconsIcon
-								icon={Mic02Icon}
-								strokeWidth={2}
-								className="w-3 h-3 text-(--text-muted)"
-							/>
-							<span className="text-[10px] font-medium text-(--text-muted)">
-								{tf("bubble.idleLabel", "Ready")}
-							</span>
-						</div>
-						<span className="sr-only">{t("a11y.transcriptionComplete")}</span>
-					</>
-				) : mode === "error" ? (
-					// PVT fix: surface a red "⚠ Error" label so the user
-					// can see something went wrong (e.g. backend crash,
-					// mic permission revoked). Uses the destructive
-					// token so it inherits theme-preset colors.
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
-							aria-hidden
-						/>
-						<span className="text-[10px] font-medium text-destructive">
-							{tf("bubble.errorLabel", "⚠ Error")}
-						</span>
-					</div>
-				) : (
-					<BubbleVisualizer dotRefs={dotRefs} />
-				)}
+                                                <div className="flex h-6 items-center" />
+                                                <div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
+                                                        <HugeiconsIcon
+                                                                icon={Mic02Icon}
+                                                                strokeWidth={2}
+                                                                className="w-3 h-3 text-(--text-muted)"
+                                                        />
+                                                        <span className="text-[10px] font-medium text-(--text-muted)">
+                                                                {tf("bubble.idleLabel", "Ready")}
+                                                        </span>
+                                                </div>
+                                                <span className="sr-only">{t("a11y.transcriptionComplete")}</span>
+                                        </>
+                                ) : mode === "error" ? (
+                                        // PVT fix: surface a red "⚠ Error" label so the user
+                                        // can see something went wrong (e.g. backend crash,
+                                        // mic permission revoked). Uses the destructive
+                                        // token so it inherits theme-preset colors.
+                                        <div className="flex h-6 items-center gap-1.5 px-2">
+                                                <span
+                                                        className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
+                                                        aria-hidden
+                                                />
+                                                <span className="text-[10px] font-medium text-destructive">
+                                                        {tf("bubble.errorLabel", "⚠ Error")}
+                                                </span>
+                                        </div>
+                                ) : (
+                                        <BubbleVisualizer dotRefs={dotRefs} />
+                                )}
 
-				{micButton && (
-					<BubbleMicButton mode={mode as BubbleMode} onClick={handleMicClick} />
-				)}
-				{(mode === "recording" || mode === "error") && (
-					<BubbleStopButton
-						onClick={handleStopClick}
-						mode={mode === "error" ? "error" : "recording"}
-					/>
-				)}
-				{dismissable && <BubbleDismissButton onClick={handleDismissClick} />}
-			</div>
-		</output>
-	);
+                                {micButton && (
+                                        <BubbleMicButton mode={mode as BubbleMode} onClick={handleMicClick} />
+                                )}
+                                {(mode === "recording" || mode === "error") && (
+                                        <BubbleStopButton
+                                                onClick={handleStopClick}
+                                                mode={mode === "error" ? "error" : "recording"}
+                                        />
+                                )}
+                                {dismissable && <BubbleDismissButton onClick={handleDismissClick} />}
+                        </div>
+                </output>
+        );
 }
 
 export default Bubble;

@@ -30,17 +30,17 @@ import { makeListener, type TauriGlobal } from "./detect";
 
 /** Rust-side result envelope for `export_*` commands. */
 interface ExportResult {
-	success?: boolean;
-	path?: string;
-	canceled?: boolean;
-	error?: string;
+        success?: boolean;
+        path?: string;
+        canceled?: boolean;
+        error?: string;
 }
 
 /** Return shape preserved across all four export methods (Electron parity). */
 type ExportReturn = Promise<{
-	success: boolean;
-	path?: string;
-	error?: string;
+        success: boolean;
+        path?: string;
+        error?: string;
 }>;
 
 /**
@@ -58,31 +58,31 @@ type ExportReturn = Promise<{
  * @param cmd   Rust command name, e.g. `"export_history"`.
  */
 function makeExportCommand(tauri: TauriGlobal, cmd: string) {
-	return async (data: unknown, format?: "json" | "csv"): ExportReturn => {
-		try {
-			const result = await tauri.core.invoke<ExportResult>(
-				cmd,
-				format ? { data, format } : { data },
-			);
-			if (result?.canceled) {
-				// User dismissed the save dialog — matches Electron's
-				// `{success: false}` (no error, no path).
-				return { success: false };
-			}
-			if (result?.error) {
-				return { success: false, error: result.error };
-			}
-			return {
-				success: Boolean(result?.success),
-				path: result?.path,
-			};
-		} catch (e) {
-			return {
-				success: false,
-				error: e instanceof Error ? e.message : String(e),
-			};
-		}
-	};
+        return async (data: unknown, format?: "json" | "csv"): ExportReturn => {
+                try {
+                        const result = await tauri.core.invoke<ExportResult>(
+                                cmd,
+                                format ? { data, format } : { data },
+                        );
+                        if (result?.canceled) {
+                                // User dismissed the save dialog — matches Electron's
+                                // `{success: false}` (no error, no path).
+                                return { success: false };
+                        }
+                        if (result?.error) {
+                                return { success: false, error: result.error };
+                        }
+                        return {
+                                success: Boolean(result?.success),
+                                path: result?.path,
+                        };
+                } catch (e) {
+                        return {
+                                success: false,
+                                error: e instanceof Error ? e.message : String(e),
+                        };
+                }
+        };
 }
 
 /**
@@ -94,151 +94,130 @@ function makeExportCommand(tauri: TauriGlobal, cmd: string) {
  * we query the current maximized state and forward it to the consumer.
  */
 export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
-	const tauriWindow = tauri.window.getCurrentWindow();
-	return {
-		minimize: () => tauriWindow.minimize(),
-		toggleMaximize: async () => {
-			await tauriWindow.toggleMaximize();
-			return tauriWindow.isMaximized();
-		},
-		close: () => tauriWindow.close(),
-		isMaximized: () => tauriWindow.isMaximized(),
-		onMaximizedChanged: (callback) =>
-			makeListener<boolean>(
-				(handler) =>
-					tauriWindow.onResized(async () => {
-						const maximized = await tauriWindow.isMaximized();
-						handler(maximized);
-					}),
-				callback,
-			),
+        const tauriWindow = tauri.window.getCurrentWindow();
+        return {
+                minimize: () => tauriWindow.minimize(),
+                toggleMaximize: async () => {
+                        await tauriWindow.toggleMaximize();
+                        return tauriWindow.isMaximized();
+                },
+                close: () => tauriWindow.close(),
+                isMaximized: () => tauriWindow.isMaximized(),
+                onMaximizedChanged: (callback) =>
+                        makeListener<boolean>(
+                                (handler) =>
+                                        tauriWindow.onResized(async () => {
+                                                const maximized = await tauriWindow.isMaximized();
+                                                handler(maximized);
+                                        }),
+                                callback,
+                        ),
 
-		// MIG-1.1: invoke the Rust `export_history` command, which opens
-		// `tauri-plugin-dialog`'s save dialog and writes the file. The
-		// renderer call sites (History.tsx export button) are unchanged
-		// because the return shape matches Electron's `history:export`
-		// IPC handler (`{success, path?, error?}`).
-		exportHistory: makeExportCommand(tauri, "export_history"),
+                // MIG-1.1: invoke the Rust `export_history` command, which opens
+                // `tauri-plugin-dialog`'s save dialog and writes the file. The
+                // renderer call sites (History.tsx export button) are unchanged
+                // because the return shape matches Electron's `history:export`
+                // IPC handler (`{success, path?, error?}`).
+                exportHistory: makeExportCommand(tauri, "export_history"),
 
-		// MIG-1.1: invoke the Rust `export_vocabulary` command. Same
-		// return-shape mapping as `exportHistory`. The renderer call
-		// site (Vocabulary.tsx export button) is unchanged.
-		exportVocabulary: makeExportCommand(tauri, "export_vocabulary"),
+                // MIG-1.1: invoke the Rust `export_vocabulary` command. Same
+                // return-shape mapping as `exportHistory`. The renderer call
+                // site (Vocabulary.tsx export button) is unchanged.
+                exportVocabulary: makeExportCommand(tauri, "export_vocabulary"),
 
-		// CR-33 (NEW-PRIV-007): GDPR right-to-export for templates.
-		// Invokes the Rust `export_templates` command (save-file dialog
-		// + JSON write). Same return-shape mapping as `exportHistory`.
-		// The renderer call site (Templates.tsx export button) is
-		// unchanged on both Electron and Tauri paths.
-		exportTemplates: makeExportCommand(tauri, "export_templates"),
+                // CR-33 (NEW-PRIV-007): GDPR right-to-export for templates.
+                // Invokes the Rust `export_templates` command (save-file dialog
+                // + JSON write). Same return-shape mapping as `exportHistory`.
+                // The renderer call site (Templates.tsx export button) is
+                // unchanged on both Electron and Tauri paths.
+                exportTemplates: makeExportCommand(tauri, "export_templates"),
 
-		// CR-33 (NEW-PRIV-007): GDPR right-to-export for the full
-		// config. API keys are redacted by the Python sidecar before
-		// the data reaches this command. Same shape as
-		// `exportTemplates`.
-		exportConfig: makeExportCommand(tauri, "export_config"),
+                // CR-33 (NEW-PRIV-007): GDPR right-to-export for the full
+                // config. API keys are redacted by the Python sidecar before
+                // the data reaches this command. Same shape as
+                // `exportTemplates`.
+                exportConfig: makeExportCommand(tauri, "export_config"),
 
-		// CR-33 (UX-008): open the Voice Typer log directory in the OS
-		// file manager. Invokes the Rust `open_logs` command which
-		// shells out to `explorer.exe` / `open` / `xdg-open`. The
-		// renderer call site (Settings.tsx viewLogs button) is
-		// unchanged on both paths.
-		openLogs: async () => {
-			try {
-				const result = await tauri.core.invoke<{
-					success: boolean;
-					path?: string;
-					error?: string;
-				}>("open_logs");
-				return {
-					success: Boolean(result?.success),
-					error: result?.error,
-				};
-			} catch (e) {
-				return {
-					success: false,
-					error: e instanceof Error ? e.message : String(e),
-				};
-			}
-		},
+                // CR-33 (UX-008): open the Voice Typer log directory in the OS
+                // file manager. Invokes the Rust `open_logs` command which
+                // shells out to `explorer.exe` / `open` / `xdg-open`. The
+                // renderer call site (Settings.tsx viewLogs button) is
+                // unchanged on both paths.
+                openLogs: async () => {
+                        try {
+                                const result = await tauri.core.invoke<{
+                                        success: boolean;
+                                        path?: string;
+                                        error?: string;
+                                }>("open_logs");
+                                return {
+                                        success: Boolean(result?.success),
+                                        error: result?.error,
+                                };
+                        } catch (e) {
+                                return {
+                                        success: false,
+                                        error: e instanceof Error ? e.message : String(e),
+                                };
+                        }
+                },
 
-		// CR-33 (MODEL-IMPORT): native folder picker for HuggingFace
-		// model imports. Invokes the Rust `open_model_import_dialog`
-		// command which uses `tauri-plugin-dialog`'s folder picker.
-		// The renderer call site (Models.tsx import button) is
-		// unchanged on both paths.
-		openModelImportDialog: async () => {
-			try {
-				const result = await tauri.core.invoke<{
-					canceled: boolean;
-					path?: string;
-				}>("open_model_import_dialog");
-				return {
-					canceled: Boolean(result?.canceled),
-					path: result?.path,
-				};
-			} catch {
-				// Surface errors as a canceled pick with no path — the
-				// renderer treats both shapes the same (no-op on cancel
-				// / error).
-				return { canceled: true };
-			}
-		},
+                // CR-33 (MODEL-IMPORT): native folder picker for HuggingFace
+                // model imports. Invokes the Rust `open_model_import_dialog`
+                // command which uses `tauri-plugin-dialog`'s folder picker.
+                // The renderer call site (Models.tsx import button) is
+                // unchanged on both paths.
+                openModelImportDialog: async () => {
+                        try {
+                                const result = await tauri.core.invoke<{
+                                        canceled: boolean;
+                                        path?: string;
+                                }>("open_model_import_dialog");
+                                return {
+                                        canceled: Boolean(result?.canceled),
+                                        path: result?.path,
+                                };
+                        } catch {
+                                // Surface errors as a canceled pick with no path — the
+                                // renderer treats both shapes the same (no-op on cancel
+                                // / error).
+                                return { canceled: true };
+                        }
+                },
 
-		// G4-M-71 (EC-13 / SA-10): open the Rust host log directory
-		// (config dir / logs/) in the OS file manager. Invokes the
-		// existing Rust `open_host_logs` command. Distinct from
-		// `openLogs` above (which opens the Python backend log dir).
-		// The type contract (WindowBridge.openElectronLogs?) allows
-		// both paths to omit the implementation; the Tauri bridge
-		// always installs it.
-		openElectronLogs: async () => {
-			try {
-				const result = await tauri.core.invoke<{
-					success: boolean;
-					path?: string;
-					error?: string;
-				}>("open_host_logs");
-				return {
-					success: Boolean(result?.success),
-					error: result?.error,
-				};
-			} catch (e) {
-				return {
-					success: false,
-					error: e instanceof Error ? e.message : String(e),
-				};
-			}
-		},
+		// FZ-44: `openElectronLogs` removed from the WindowBridge interface
+		// (dead code — the Rust host's `open_host_logs` command is
+		// accessed directly via `invoke` when needed).
 
-		// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
-		// renderer-caught error (e.g. React's `componentDidCatch` in
-		// `ErrorBoundary.tsx`) to the Rust host for persistence.
-		// Under Electron this routes via `renderer:log-error` IPC and
-		// the main process appends to `electron-renderer-errors.log`.
-		// The Rust command `renderer_log_error` is NOT YET
-		// IMPLEMENTED — the `.catch(() => {})` swallow is
-		// intentional and matches the ErrorBoundary's own
-		// `logError(...).catch(...)` swallow pattern: the
-		// `console.error("[ErrorBoundary] Caught render error:", ...)`
-		// call has ALREADY surfaced the error to the dev-tools +
-		// main-process console-forwarding path, so a missing /
-		// failing persistence command must never crash the
-		// ErrorBoundary itself.
-		//
-		// TODO: implement `renderer_log_error` Rust command to
-		// persist renderer errors under Tauri (see EC-13). Once
-		// implemented, this call will start persisting to disk
-		// automatically — no renderer code change required.
-		logError: (payload) =>
-			tauri.core.invoke<void>("renderer_log_error", payload).catch(() => {
-				// Best-effort: never let the persistence path
-				// crash the ErrorBoundary. The
-				// `console.error` in `componentDidCatch` already
-				// surfaced the error to the dev-tools +
-				// main-process console forwarding path, so a
-				// missing / failing Rust command is invisible
-				// to the user (intentional — see comment above).
-			}),
-	};
+                // G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
+                // renderer-caught error (e.g. React's `componentDidCatch` in
+                // `ErrorBoundary.tsx`) to the Rust host for persistence.
+                // Under Electron this routes via `renderer:log-error` IPC and
+                // the main process appends to `electron-renderer-errors.log`.
+                //
+                // ZR-6: implemented at `commands/system_cmds.rs::renderer_log_error`
+                // (GT-35), registered in `main.rs:244-245` (`renderer_log_error`
+                // entry in the `generate_handler!` list). The Rust command
+                // serializes the payload via `serde_json::to_string` and writes
+                // it to the host file log via `log::error!("[RENDERER_ERROR] {}")`
+                // (rotating 5 MB × 5 file logger in `platform/logging.rs`).
+                //
+                // The `.catch(() => {})` swallow is intentional and matches
+                // the ErrorBoundary's own `logError(...).catch(...)` swallow
+                // pattern: the `console.error("[ErrorBoundary] Caught render
+                // error:", ...)` call has ALREADY surfaced the error to the
+                // dev-tools + main-process console-forwarding path, so a
+                // failing persistence command must never crash the
+                // ErrorBoundary itself.
+                logError: (payload) =>
+                        tauri.core.invoke<void>("renderer_log_error", payload).catch(() => {
+                                // Best-effort: never let the persistence path
+                                // crash the ErrorBoundary. The
+                                // `console.error` in `componentDidCatch` already
+                                // surfaced the error to the dev-tools +
+                                // main-process console forwarding path, so a
+                                // failing Rust command is invisible
+                                // to the user (intentional — see comment above).
+                        }),
+        };
 }

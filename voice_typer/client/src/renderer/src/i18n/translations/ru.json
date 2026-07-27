@@ -324,7 +324,11 @@
 			"dictations": "Диктовки",
 			"chars": "Символы",
 			"duration": "Длительность"
-		}
+		},
+		"durationZero": "0m",
+		"durationMinutes": "{m}m",
+		"durationHours": "{h}h",
+		"durationHoursMinutes": "{h}h {m}m"
 	},
 	"about": {
 		"title": "О программе",
