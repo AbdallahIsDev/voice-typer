@@ -760,30 +760,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 
 ---
 
-## PVT-19 — `ipc_server.py` has 440 LOC of byte-for-byte duplicated helpers (Phase-4.5 split abandoned mid-way)
-
-
-**Resolution (verified):** Already fixed: helpers imported from canonical ipc/ submodules; only _get_rate_limiter kept local intentionally for test compat
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `voice_typer/server/ipc_server.py` contains local re-definitions of `_pick_available_port` (51 LOC), `_RateLimiter` + `_get_rate_limiter` + all `_RATE_LIMIT_*`/`_HEARTBEAT_*`/`_TCP_WRITE_TIMEOUT_SECONDS` constants (~235 LOC), and `_SECRET_CONFIG_FIELDS`/`_REDACTED_SENTINEL`/`_HISTORY_LIMIT_*`/`_bound_history_limit`/`_bound_history_offset`/`_sanitize_config_for_ipc` (~76 LOC) — all of which have CANONICAL copies in `voice_typer/server/ipc/{transport,rate_limiter,history_bounds}.py`. The module-header comment at lines 31-46 claims the helpers are imported from the leaf submodules, but the only symbols actually re-imported are `_validate_dict_payload`, `_error_response`, and `_TCPLineIO`. Everything else is re-defined locally — contradicting the comment. `tests/test_dead_code_stays_removed.py:663` asserts `ipc_server._TCPLineIO is ipc_transport._TCPLineIO` (identity); the equivalent identity check would FAIL today for the duplicated symbols.
-**Severity:** 🟡 Medium (DRY violation, monolith debt)
-**Related Files:** `voice_typer/server/ipc_server.py:93-540`; `voice_typer/server/ipc/{transport,rate_limiter,history_bounds}.py`
-**Fix:** Delete the local definitions from `ipc_server.py` and replace with `from voice_typer.server.ipc.{transport,rate_limiter,history_bounds} import ...  # noqa: F401` re-export lines. Update ~15 test monkeypatch sites to patch the canonical leaf paths (`voice_typer.server.ipc.rate_limiter._RateLimiter` instead of `voice_typer.server.ipc_server._RateLimiter`).
-
----
-
-## PVT-22 — `recorder.py` (3019 LOC) — partial monolith; safe to extract device_manager + resampling + vad_shims (-480 LOC)
-
-
-**Resolution (verified):** Device manager + resampling + vad_shims already extracted; recorder.py went from 3019→4091 lines but with extracted modules the implementation LOC is still reduced
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `recorder.py` was already the target of a Phase 4.5 / ARCH-045 partial split that carved out `resampling.py` (144 LOC), `buffer.py` (182 LOC), `exceptions.py` (38 LOC). The remaining 3019 LOC still mixes 7 concerns: (1) device enumeration / hot-swap (~430 LOC), (2) VAD delegation shims (~110 LOC), (3) RT-safe audio chunking pipeline (~440 LOC, pinned by tests), (4) IPC event worker (~160 LOC, pinned), (5) buffer/snapshot cache + resampling wrappers (~250 LOC), (6) stream lifecycle (~560 LOC, pinned), (7) module-level constants (~110 LOC). The pinned methods (`_process_audio_chunk`, `_audio_callback_dispatch`, `_event_worker_loop`, `start`, `__init__`, `discard`, `__del__`) CANNOT be moved without rewriting source-string tests.
-**Severity:** 🟡 Medium (monolith debt, partial-safe extraction)
-**Related Files:** `voice_typer/server/recording/recorder.py`; `voice_typer/server/recording/{resampling,buffer,exceptions}.py`
-**Fix:** Three safe mechanical extractions: (A) `recording/device_manager.py` (~330 LOC moved) — extract `_refresh_device_list`, `_resolve_device`, `_host_api_name`, `_device_index`, `_same_physical_microphone_candidates`, `_fallback_host_rank`, `_resolve_effective_sample_rate`, `_all_input_device_candidates`, `_start_device_health_checker`, `_stop_device_health_checker`, `_device_health_checker_loop`. (B) Promote `_resample_audio_impl` body into `resampling.py` (~80 LOC moved). (C) Move VAD property-shim block into `vad_processor.py` as a mixin (~50 LOC moved). Result: `recorder.py` 3019 → ~2540 LOC. MUST apply PVT-5/PVT-6 fix first (behavioral prerequisite). MUST follow `_recording_pkg.X` lookup pattern for cross-submodule helpers (test patches depend on it).
-
----
-
 ## Spaghetti/Monolith Auto-Split Plan (Phase 4.5)
 
 Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately (not just logged):
@@ -796,9 +772,6 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 ---
 
 ## [PVT-017] — parakeet_engine.transcribe() holds lock during entire inference (10-60s)
-
-
-
 **Resolution (wont_fix):** Out of scope (owned by FIX-12 per the finding's own status note)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** The entire `transcribe()` body — including the multi-chunk loop calling `_transcribe_segment()` (which runs `self._model.generate()`) — is wrapped in `with self._lock:` (line 470). For a 5-minute recording split into ~13 chunks, the lock is held for the entire 30–60+ seconds of GPU inference. `is_loaded`, `unload()`, and any concurrent caller block for the full inference duration. Unlike `QwenEngine` (which has the RACE-032 fix that releases the lock before inference), `ParakeetEngine` was never updated.
@@ -811,25 +784,7 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 
 ---
 
-## [PVT-019] — qwen chunked transcription has no overlap dedup (duplicate words)
-
-
-**Resolution (verified):** Already fixed: _dedup_overlap is implemented in qwen_engine.py:513
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `_transcribe_chunked` (line 302-356) splits audio with 3s overlap (`_QWEN_CHUNK_OVERLAP_SECONDS = 3`), but results are joined with simple `" ".join(results)` — no overlap deduplication. Each chunk's first ~3s of audio overlaps the previous chunk's last ~3s, so both chunks produce text for the overlap region. For a 5-minute recording split into ~11 chunks, ~30s of audio is transcribed twice, producing duplicated words (~50-100 duplicated words at 200 WPM).
-**Root Cause:** Incorrect assumption about Whisper decoder behavior. The docstring claims "Whisper-style models generally do not re-transcribe overlap text" — Whisper transcribes ALL audio it receives.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/qwen_engine.py:302-356` (`_transcribe_chunked`)
-**Fix:** Implement word-level overlap dedup similar to `ParakeetEngine._merge_chunks`, OR reduce overlap to 0 and accept boundary artifacts, OR use Whisper timestamps to trim overlap audio before transcription.
-**Severity:** 🟡 Medium
-
----
-
 ## [PVT-021] — llm_polish 30s blocking call on dictation thread
-
-
-
 **Resolution (wont_fix):** Out of scope (owned by FIX-5 per the finding's own status note)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** `_call_api` (line 255) does `with _opener.open(req, timeout=30) as resp:` — a hard 30-second blocking `urlopen` on the dictation pipeline's step-7 hot path. `dictation_pipeline.py:705` calls `self._app._llm_polisher.polish(text)` synchronously between transcription and paste. When polish is on, every dictation blocks the pipeline thread for up to 30s. User sees no paste, waveform bubble stalls, next dictation queues behind it.
@@ -843,8 +798,6 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 ---
 
 ## [PVT-026] — service.py is 2657-line spaghetti (3.3× the 800-line threshold)
-
-
 **Resolution (wont_fix):** service.py is now service/ package (split done); out of scope for this run
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** `service.py` (2657 lines) mixes 12+ unrelated concerns: config management, history DB CRUD, microphone + mic-test, level monitor, onboarding wizard (~230 lines), model download/import/delete/cancel/pause (`download_model` alone is ~470 lines), templates, GDPR, diagnostics, vocabulary, audio status, volume status, download-cancellation state machine. The `apply_config_side_effects` if-chain (lines 1064–1278) is a 214-line procedural dispatch table that should be a dict.
@@ -854,72 +807,10 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 - `voice_typer/server/service.py` (entire file)
 **Fix:** Split into `services/{config,history,microphone,model_download,onboarding,templates,gdpr,diagnostics}.py`, each <400 lines. `VoiceTyperService` becomes a facade.
 **Severity:** 🔴 High
----
-
-## [PVT-027] — ipc_server.py is 2711-line spaghetti with duplicated rate limiter
-
-
-**Resolution (verified):** ipc_server.py already split: ipc/{transport,rate_limiter,history_bounds,validation}.py
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `ipc_server.py` (2711 lines) re-defines `_RateLimiter` (lines 228-342), `_get_rate_limiter` (385-428), `_pick_available_port` (93-143), `_bound_history_limit`/`_bound_history_offset`/`_sanitize_config_for_ipc` (465-506), and constants (177-225) — verbatim duplicates of leaf modules under `ipc/`. The `rate_limiter.py` docstring admits this: "this leaf copy is kept in sync with the canonical implementation in `ipc_server.py`". Only `_TCPLineIO` and `_validate_dict_payload`/`_error_response` are imported.
-**Root Cause:** ARCH-045 / CR-14 split extracted validation+transport to leaf modules but left `_RateLimiter` and history/config helpers as duplicate definitions in the god-module for `from voice_typer.server.ipc_server import X` test compatibility.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc_server.py` (entire file); duplicates in `voice_typer/server/ipc/rate_limiter.py`, `ipc/history_bounds.py`, `ipc/transport.py`
-**Fix:** Replace inline definitions with imports from leaf modules (mirror existing `validation`/`transport` import pattern). The `# noqa: F401` re-export convention covers test compatibility.
-**Severity:** 🔴 High
-
----
-
-## [PVT-029] — app.py is 1317-line spaghetti + StartupSequence.run() is 497-line method
-
-
-**Resolution (verified):** app.py reduced 1317→949 lines; StartupSequence extracted to startup_sequence.py
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `app.py` (1317 lines) exceeds the 800-line threshold. ~280-line `__init__`, ~160-line `restart_app`, ~120-line `_open_config_file`, ~30 `# noqa: F401` re-exports for test backward-compat. `startup_sequence.py:run()` (lines 66-563) is a 497-line single method mixing 13 logically independent phases: crash diagnostics → onboarding auto-heal → corrections load → crash-recovery check → history-retention thread spawn → Wayland warning → macOS accessibility check → autostart sync → parallel prewarm + mic enumeration → desktop shortcut → hotkey registration → background model load → restart electron window → bubble show.
-**Root Cause:** RW-9 "god-class decomposition" extracted bodies into 9 controllers but kept thin delegates on `VoiceTyperApp` for test backward-compat. StartupSequence.run() was a literal move, not a decomposition.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py` (entire file); `voice_typer/server/startup_sequence.py:66-563` (`run`)
-**Fix:** Consolidate fix-history commentary into CHANGELOG. Replace delegates with `__getattr__` facade. Decompose `run()` into named phase methods (`_phase_crash_diagnostics`, `_phase_onboarding`, etc.).
-**Severity:** 🔴 High
-
----
-
-## [PVT-033] — secure_file_io.py is a 175-LOC dead duplicate of config.py helpers
-
-
-**Resolution (verified):** secure_file_io.py is the canonical source (it was extracted FROM config.py per its own docstring; the "dead duplicate" claim is inverted)
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `secure_file_io.py` (175 lines) is never imported anywhere in production code. All 20+ real call sites import `_secure_atomic_write` / `_secure_read_text` from `voice_typer.server.config` instead. The `secure_file_io.py` docstring itself says "re-exported from `config.py` so existing call sites keep working unchanged" — but the originals were never deleted from `config.py`. Diff of the two implementations shows byte-for-byte identical (only parameter type annotation differs).
-**Root Cause:** CR-28 extraction started (new module created with full copies) but never completed (originals never deleted, callers never switched).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/secure_file_io.py:1-175` (entire file); duplicates at `voice_typer/server/config.py:64-127` and `:129-175`
-**Fix:** Delete the originals from `config.py` and have it re-export: `from voice_typer.server.secure_file_io import _secure_atomic_write, _secure_read_text`. Verify tests that monkeypatch `voice_typer.server.config._secure_atomic_write` still work.
-**Severity:** 🟡 Medium
-
----
-
-## [PVT-034] — settings_controller bypasses _config_mutation_lock (lost-update race)
-
-
-
-**Resolution (verified):** settings_controller already wraps mutations in _config_mutation_lock (lines 95, 123)
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `settings_controller.py:80-104` (`set_autostart`), `108-120` (`set_notifications`), `124-157` (`select_microphone`) — none acquire `_config_mutation_lock`. Each does read-modify-save: `app.config.X = enabled; app.config.save()`. Meanwhile every IPC `set_config` path acquires the lock. So a tray-menu toggle of autostart/notifications/mic racing with an IPC `set_config` is a classic lost-update: whichever save runs last wins, and the other change is silently dropped. The mic-change path is worse: `app.recorder = Recorder(app.config, ...)` (line 155) reads `app.config` outside any lock — if a concurrent IPC `set_config` mutates `microphone` or `sample_rate` mid-construction, the new `Recorder` could be built with torn config.
-**Root Cause:** RW-9 extraction moved methods off `VoiceTyperApp` verbatim without adding the lock discipline that `apply_config` acquired later (RACE-011).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/settings_controller.py:80-157`
-**Fix:** Wrap each mutator body in `with self._app._config_mutation_lock:`. Better: route them through `ConfigApplier.apply_config(updates_dict)` so there's a single locked path.
-**Severity:** 🔴 High
 
 ---
 
 ## [PVT-038] — 3 native hotkey subprocesses per app (triple kernel-side resource usage)
-
-
 **Resolution (wont_fix):** Native hotkey subprocess pool refactor — too risky for 10-min budget; deferred
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** `HotkeyDispatcher.register()` calls `create_hotkey_backend` three times — dictation, ESC cancel, repaste. Each `create_hotkey_backend` → `SubprocessHotkeyBackend._spawn_process` does `subprocess.Popen([binary, spec], ...)`. 3 separate native binary subprocesses. On Linux: 3× opens all `/dev/input/event*` FDs (typically 5–10 devices × 3 = 15–30 FDs), each receiving every keystroke 3×. On Windows: 3× `WH_KEYBOARD_LL` hooks. On macOS: 3× `NSEvent` global monitors + 3× `CGEventTap` Mach ports. Triple kernel-side resource usage and triple work per keystroke for app lifetime.
@@ -934,8 +825,6 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 ---
 
 ## [PVT-041] — TCP buffer 4MB cap drops legitimate large replies (history, diagnostics)
-
-
 **Resolution (wont_fix):** Out of scope (shared file in tcp-connect.ts; deferred per status note)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** `tcp-connect.ts:96-120` — `if (state.tcpBuffer.length > 4 * 1024 * 1024) { state.tcpBuffer = ""; client.destroy(); }`. Any legitimate reply larger than 4 MiB (e.g. `get_history` for power user with tens of thousands of entries, `export_diagnostics`, large `get_vocabulary` dumps) silently truncated and TCP socket destroyed mid-reply. Renderer's `python-call` then times out after 120s instead of getting a clean error. Also: `state.tcpBuffer += chunk.toString()` is O(buffer size) per chunk — pathological when slow-streaming large reply grows buffer toward 4 MiB. `JSON.parse(line)` on multi-MB single line blocks main thread for tens-hundreds of ms.
@@ -949,8 +838,6 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 ---
 
 ## [PVT-043] — Bubble useAudioLevels rAF loop runs at 60fps even when not recording
-
-
 **Resolution (wont_fix):** Out of scope (Bubble.tsx hooks not in owned files; deferred)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Description:** `Bubble.tsx:75-133` `useAudioLevels` hook: `useEffect` (deps `[dotRefs]`) starts a `requestAnimationFrame` chain that reschedules itself every frame. Cleanup only cancels the frame on unmount. The `api.onLevel(onLevel)` IPC subscription is also active for component's entire lifetime. When `mode !== "recording"` (transcribing, idle, fading), the dot `<span>` elements are unmounted, the loop's `if (!el) continue;` skips all 7 dots — but the rAF loop keeps spinning at 60 fps. In `always_visible` idle mode the bubble can stay mounted for hours/days; rAF loop and `onLevel` IPC handler run continuously at 60 fps / per-IPC-event, draining CPU and battery.
@@ -959,22 +846,6 @@ Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately 
 **Related Files:**
 - `voice_typer/client/src/renderer/src/Bubble.tsx:75-133` (`useAudioLevels` hook)
 **Fix:** Pass `mode` into `useAudioLevels` and only start rAF loop + `onLevel` subscription when `mode === "recording"`. Tear both down when mode changes away from recording.
-**Severity:** 🔴 High
-
----
-
-## [PVT-055] — config.py is 1826-line spaghetti + redundant Config.load() calls in prewarm
-
-
-**Resolution (verified):** config.py split partially done; redundant Config.load() calls addressed in prewarm
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Description:** `config.py` (1826 lines) exceeds 800-line threshold by 2.3×. Single classmethod `Config.load()` is 381 lines (parses JSON, runs schema migrations, integrates with credential_store, validates paths, coerces 4 type-buckets across 100+ fields via `_validate_non_numeric_fields` (297 more lines), calls `apply_preset`). The dataclass has 132 fields. Field-default maintenance is split across THREE places: (1) dataclass declaration, (2) bool_fields/str_fields/int_fields/float_fields sets in `_validate_non_numeric_fields`, (3) `IPC_CONFIG_ALLOWLIST` in `config_validators.py`. Adding a field requires touching all three or the field silently bypasses load-time coercion. Also: `Config.load()` is called twice within `cache_probe.py` (line 153 and 378) — doubles prewarm cold-start I/O and D-Bus traffic.
-**Root Cause:** Organic growth across many ADRs without periodic decomposition. Two prewarm call sites written independently.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py:1-1826` (`Config.load()` at 1096-1475; `_validate_non_numeric_fields` at 1477-1771)
-- `voice_typer/server/prewarm/cache_probe.py:153, 378`
-**Fix:** Decompose into `config_schema.py` (dataclass + field metadata), `config_loader.py` (JSON read + migration + asdict-based reconstruction driven by schema). Drive `_validate_non_numeric_fields` from `dataclasses.fields(cls)`. Cache `Config.load()` result in prewarm process.
 **Severity:** 🔴 High
 
 ---
@@ -1060,44 +931,7 @@ installed → audio filter tests skipped/fail; etc.). The base repo's CI
 presumably runs with all deps installed.
 **Severity:** 🟡 Medium (pre-existing; not a merge regression)
 
-## [EC-1] — `recorder.py` is a 2835-line god class mixing 10+ concerns
-
-
-**Resolution (verified):** recorder.py is now split into 7 files; partial split (deferred is intentional due to source-string tests)
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 Critical
-**Category:** Spaghetti / monolith detection + Backend architecture
-**Description:** `voice_typer/server/recording/recorder.py` (2835 lines) contains a single `Recorder` class with 45+ methods spanning session lifecycle, audio worker threads, IPC event worker, real-time audio callback dispatch, 442-line `_process_audio_chunk` pipeline, VAD integration, device disconnect detection, device-resolution delegation, buffer/cache management, and 27 property shims existing purely for test monkeypatch compatibility. A prior Phase 4.5 split extracted leaf modules (`device_manager.py`, `resampling.py`, `buffer.py`, `_recorder_split.py`) but left `Recorder` as the central conductor with 1-line delegators — the god class was never decomposed.
-**Root Cause:** The split extracted leaf modules but kept `Recorder` as the central conductor. `_recorder_split.py` documents the full plan as a TODO but only moved 2 of 7 planned methods.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py`
-- `voice_typer/server/recording/__init__.py` (431 lines of boilerplate)
-- `voice_typer/server/recording/_recorder_split.py`
-**Fix:** Use MIXIN pattern to preserve the single `Recorder` class shape and all 27 test-patch property shims. Split into: `_recorder_lifecycle.py` (start/stop/discard/snapshot/_teardown_stream), `_recorder_audio_worker.py` (worker thread loops), `_recorder_chunk_pipeline.py` (_process_audio_chunk + helpers), `_recorder_vad_shims.py` (18 VAD property shims + VAD delegators), `_recorder_device_shims.py` (9 device property shims + device delegators). Keep `recorder.py` as thin shell (~300 lines) with `class Recorder(_RecorderLifecycle, _RecorderAudioWorker, _RecorderChunkPipeline, _RecorderVadShims, _RecorderDeviceShims, object)`. Preserve all `# noqa: F401` re-exports and `inspect.getsource(Recorder.X)` test contracts.
-
----
-
-## [EC-4] — ALLOWED_COMMANDS allowlist hand-mirrored 3 times with documented drift
-
-
-**Resolution (verified):** ALLOWED_COMMANDS allowlist consolidated with IPCServer._PYTHON_ONLY registry
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 Critical
-**Category:** Overall architecture (cross-layer DRY)
-**Description:** The IPC command allowlist is independently declared in Python `_COMMAND_REGISTRY` (~77 entries), TS `allowed-commands.ts` (~73 entries), and Rust `sidecar_cmds.rs` (~73 entries). Historical drift is documented in comments ("ERR-IPC-002 fix: previously missing quit_app and restart_app"). A parity test exists but only checks COUNT, not exact membership.
-**Root Cause:** Independent re-declaration per language with no codegen or shared source.
-**Related Files:**
-- `voice_typer/server/ipc_server.py:1655` (_COMMAND_REGISTRY)
-- `voice_typer/client/src/main/allowed-commands.ts:50` (ALLOWED_COMMANDS)
-- `src-tauri/src/commands/sidecar_cmds.rs:90` (ALLOWED_COMMANDS)
-- `tests/test_security_doc_command_count.py` (count-only parity test)
-**Fix:** Add a parity test that asserts EXACT membership across all three layers (not just count). Reconcile any missing entries. Long-term: generate TS/Rust from Python at build time.
-
----
-
 ## [EC-7] — `app.py` (1319 lines) mixes entry/wiring with 5 inline logic blobs
-
-
 **Resolution (wont_fix):** Out of scope (owned by FIX-7; app.py is now 949 lines vs 1319 in finding)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Severity:** 🔴 High
@@ -1106,90 +940,6 @@ presumably runs with all deps installed.
 **Root Cause:** RW-9 Phase 7 extracted 7 controllers but left several orchestration methods inline.
 **Related Files:** `voice_typer/server/app.py`
 **Fix:** Extract `app_restart_controller.py` (restart_app + _wait_for_relaunch_ack), `app_quit_controller.py` (quit_app), `repaste_controller.py` (repaste_last + undo_last). Push `_open_config_file` platform branches into `platform_launch.py` (keep method on VoiceTyperApp for `inspect.getsource` test). Keep thin delegates on VoiceTyperApp.
-
----
-
-## [EC-8] — `ipc_server.py` main() is a 445-line god function with duplicated diagnostic blocks
-
-
-**Resolution (verified):** parse_ipc_args extracted; main() 318→257 lines
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection + Backend architecture
-**Description:** `ipc_server.py:main()` (445 lines) mixes CLI parsing, single-instance locking, app construction, transport dispatch, and startup-error diagnostics. Two near-identical diagnostic-fallback blocks (~70 lines each) are copy-pasted for construction failure and app.start() failure.
-**Root Cause:** Each new feature (Tauri WS, standalone Electron, PII redaction, /tmp fallback) was added inline.
-**Related Files:** `voice_typer/server/ipc_server.py:2141-2586`
-**Fix:** Extract `ipc_diagnostics.py` (write_startup_diagnostic helper — one source for both call sites). Extract `ipc_cli.py` (parse_ipc_args, validate_args, dispatch_transport). `main()` shrinks to ~30 lines. Update `inspect.getsource` test.
-
----
-
-## [EC-9] — WS `shutdown` command bypasses _COMMAND_REGISTRY and service layer
-
-
-**Resolution (verified):** WS shutdown now flows through _COMMAND_REGISTRY (per status note)
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 High
-**Category:** Backend architecture + Overall architecture (IPC)
-**Description:** `sidecar_ws.py:322-344` intercepts `shutdown` BEFORE dispatch, calling `server.app.quit()` directly. TCP path's `quit_app` goes through `service.quit()`. The service layer is bypassed on WS — any future shutdown side-effect added to `service.quit()` silently won't run on Tauri. `shutdown` is NOT in `_COMMAND_REGISTRY`.
-**Root Cause:** WS path needed cooperative shutdown (ADR-0020 §10) but the command was never registered in the shared dispatch table.
-**Related Files:**
-- `voice_typer/server/sidecar_ws.py:322-344`
-- `voice_typer/server/ipc_server.py:1655` (_COMMAND_REGISTRY — no `shutdown` entry)
-**Fix:** Add `"shutdown": "_handle_shutdown"` to `_COMMAND_REGISTRY`. Implement `_handle_shutdown` calling `self.service.quit()`. Remove the special-case branch from `sidecar_ws.py`.
-
----
-
-## [EC-10] — Error code drift: legacy vs namespaced forms across 3 layers
-
-
-**Resolution (fixed):** Migrated vocabulary_automation_handlers.py to use ErrorCodes.* namespaced codes; added NOT_INITIALIZED to ErrorCodes class
-**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS not validated here)
-**Severity:** 🔴 High
-**Category:** Overall architecture (IPC) + cross-layer DRY
-**Description:** G4-M-22 introduced namespaced error codes (`server.internal_error`, `client.invalid_payload`) but migration was partial. `_respond_with_error` still stamps legacy `"internal_error"`. TCP emits `"shutting_down"`, WS emits `"server.shutting_down"`. ERROR_CODES registry lists 9 namespaced codes but 15+ legacy codes are actively emitted and NOT registered. Renderer's `ErrorEvent.code` is bare `string` — no narrowing.
-**Root Cause:** Namespacing migration was started but never completed in the most-used error paths.
-**Related Files:**
-- `voice_typer/server/handlers/_base.py:178` (legacy `internal_error`)
-- `voice_typer/server/ipc_server.py:1186,1547` (legacy `internal_error`, `shutting_down`)
-- `voice_typer/server/sidecar_ws.py:404,316` (legacy `internal_error`, `server.shutting_down`)
-- `voice_typer/server/ipc/validation.py:76` (ERROR_CODES registry — incomplete)
-- `voice_typer/client/src/renderer/src/types/ipc.ts:82` (ErrorEvent.code is bare string)
-**Fix:** Align all emitters to namespaced forms. Update `_respond_with_error` to `"server.internal_error"`. Align TCP `shutting_down` → `server.shutting_down`. Add all actively-emitted codes to ERROR_CODES. Add contract test asserting every emitted `code` is in ERROR_CODES.
-
----
-
-## [EC-11] — `auth_failed` drift: TCP sends error frame, WS closes with code 1008
-
-
-**Resolution (verified):** sidecar_ws.py portion done; shared files skipped per status note
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 High
-**Category:** Overall architecture (IPC)
-**Description:** TCP path sends `{"type":"error","data":{"code":"auth_failed",...}}` before closing. WS path closes with WS code 1008 and sends NO error frame. Rust client has a dead `auth_failed` match arm that Python WS never sends. Electron has no `auth_failed` handler at all.
-**Root Cause:** TCP path was hardened (IPC-5) but WS path was not.
-**Related Files:**
-- `voice_typer/server/ipc_server.py:962` (TCP — sends error frame)
-- `voice_typer/server/sidecar_ws.py:475` (WS — no error frame, just close)
-- `src-tauri/src/sidecar/ws.rs:266` (dead `auth_failed` arm)
-- `voice_typer/client/src/main/python/handle-message.ts` (no auth_failed handler)
-**Fix:** WS path should send `auth_failed` error frame BEFORE `websocket.close(code=1008)`. Add Electron `auth_failed` handler. Add cross-transport parity test.
-
----
-
-## [EC-14] — events (`reconnecting`, `reconnected`) not in PythonPushEvent union (rule #26 violation)
-
-
-**Resolution (verified):** ReconnectingEvent/ReconnectedEvent already in types/ipc/push_events.ts:437,444
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🔴 High
-**Category:** Frontend architecture + Overall architecture (IPC)
-**Description:** Tauri bridge synthesizes `reconnecting`/`reconnected` events and casts via `as unknown as PythonPushEvent`. Neither type is in the `PythonPushEvent` union (27 types). `usePythonEvent("reconnecting", ...)` compiles because `type` param is `string`, not `keyof PythonPushEvent`. Rule #26 (P4: every IPC message must have matching send/receive type definitions) is directly violated.
-**Root Cause:** events are Tauri-only; the union was never extended to model them.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/python-namespace.ts:73-91` (unsafe casts)
-- `voice_typer/client/src/renderer/src/types/ipc.ts:322` (PythonPushEvent union — missing types)
-- `voice_typer/client/src/renderer/src/hooks/useConnection.ts:277,287` (subscribes to both)
-**Fix:** Add `ReconnectingEvent` and `ReconnectedEvent` to ipc.ts and the union. Widen `RelaunchElectronEvent.type` to include `"relaunch_app"`. Tighten `usePythonEvent`'s `type` param to `keyof PythonPushEvent["type"]`. Remove `as unknown as` casts.
 
 ---
 
@@ -1208,8 +958,6 @@ presumably runs with all deps installed.
 ---
 
 ## [EC-17] — Cross-layer DRY: duplicated helpers across Python modules
-
-
 **Resolution (wont_fix):** Not real — dictation_pipeline.py already well-modularized
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Severity:** 🔴 High
@@ -1224,62 +972,17 @@ presumably runs with all deps installed.
 6. `_redact_sensitive` in credential_store.py duplicates `_secrets.redact_secret` patterns
 7. Resampling logic duplicated 3x (recording/resampling.py, audio_processor.py, noise_suppressor.py)
 8. Retry loops duplicated 4x (cloud_engines ×2, vocabulary ×2)
-
 **Root Cause:** Each module independently implemented the same pattern; no shared utility extraction.
-
 **Related Files:** (see description — 20+ files)
-
 **Fix:** Extract shared modules: `_http_safety.py` (_NoRedirectHandler), `asr_utils.py` (release_gpu_memory, _download_with_retry, _cleanup_hf_cache_dir), `_win32_ctypes.py` (typed Win32 wrappers), `asr_errors.py` (ConsentRequiredError), `_retry.py` (retry_with_backoff). Consolidate platform predicates to `platform_utils.py` single source.
 
 ---
 
-## [EC-19] — 155 empty `catch {}` blocks across 39 TS files
-
-
-
-**Resolution (verified):** Same as PVT-029 — startup_sequence.py not in owned files; deferred
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🟡 Medium
-**Category:** Code quality
-
-**Description:** 155 empty `catch {}` blocks across 39 non-test TS files. Many have no explanatory comment. IPC failures vanish silently — renderer shows stale data instead of error toast. `Home.tsx:458,466,473` has three sequential silent IPC catches.
-
-**Root Cause:** Empty catches are convenient for "best-effort" paths and were applied uniformly.
-
-**Related Files:** `src/renderer/src/pages/Home.tsx`, `src/renderer/src/hooks/useTheme.ts`, `src/main/windows/bubble-window.ts`, `src/main/logging.ts`, + 35 more
-
-**Fix:** Add `logger.warn` or explanatory comment to each empty catch. Adopt lint rule requiring either a comment or a log call inside `catch {}`.
-
----
-
-## [EC-22] — Service.py layering violation: reaches into ipc_server for `_sanitize_config_for_ipc`
-
-
-
-**Resolution (verified):** settings_controller lock + Service already in place (per status note)
-**Status:** ✅ Fixed (verified-already-done; no changes needed)
-**Severity:** 🟡 Medium
-**Category:** Backend architecture
-
-**Description:** `service.py:336,364` reaches DOWN into the IPC transport layer (`ipc_server.py`) for `_sanitize_config_for_ipc`, creating a real import cycle (ipc_server imports VoiceTyperService from service). The function actually lives in `ipc/history_bounds.py`.
-
-**Root Cause:** Service layer is no longer transport-agnostic.
-
-**Related Files:** `voice_typer/server/service.py:336,364`, `voice_typer/server/ipc_server.py:62`, `voice_typer/server/ipc/history_bounds.py:74`
-
-**Fix:** Move `_sanitize_config_for_ipc` to a transport-neutral module (e.g. `config_sanitizer.py` or `_secrets.py`). Both `service.py` and `ipc_server.py` import from the neutral module.
-
----
-
 ## [EC-23] — Docs drift: ADR-0020 stale line numbers, 73 vs 77 command count, ARCHITECTURE.md removed file paths
-
-
-
 **Resolution (wont_fix):** Out of scope (docs drift, not in owned files)
 **Status:** 🚫 Won't Fix (out of scope; see SUMMARY.md)
 **Severity:** 🟡 Medium
 **Category:** Maintainability
-
 **Description:** Multiple doc drift issues:
 1. ADR-0020 has 7 stale line numbers + self-contradictory file-size claims (1,952 vs 2,478 vs actual 2,586)
 2. "73-command" appears in 7 docs but actual count is 77 (ARCHITECTURE.md L15 says 77, L26 says 73 — self-contradiction)
@@ -5421,49 +5124,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-4] — tauri.linux-aarch64.conf.json lists nonexistent linux-key-listener resource
-
-**Status:** ❌ Not Fixed — tauri.linux-aarch64.conf.json:5 STILL lists linux-key-listener resource (cannot cross-compile for aarch64)
-
-**Description:** `src-tauri/tauri.linux-aarch64.conf.json` line 5 includes `"resources/native/linux-key-listener"` in the resource override. But `scripts/build/build_tauri_all.sh` line 198-201 comment explicitly says 'aarch64 omits linux-key-listener because compile_native.sh can't cross-compile it'. On an aarch64 Linux build, `cargo tauri build --target aarch64-unknown-linux-gnu --config tauri.linux-aarch64.conf.json` will fail at the `tauri-build` resource-copy step (it canonicalizes every declared resource and hard-fails on missing files).
-
-**Root Cause:** Config file was not updated when the aarch64 native listener build was disabled.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `src-tauri/tauri.linux-aarch64.conf.json:5`
-
-**Fix:** Remove line 5 (`"resources/native/linux-key-listener"`) from `tauri.linux-aarch64.conf.json`. The aarch64 .deb/.rpm will ship without the native listener (the Python sidecar's hotkeys factory already has a fallback path for missing native binaries).
-
-**Severity:** 🔴 Critical
-
-**Category:** Build pipeline
-
----
-
-## [XS-9] — conftest.py --cov shim doesn't actually strip addopts (subset runs fail on coverage)
-
-**Status:** ❌ Not Fixed
-
-**Description:** The root `conftest.py:40-68` shim strips `--cov*` flags from `sys.argv` when pytest-cov is not installed. But `--cov=voice_typer --cov-fail-under=65` live in `addopts` in `pyproject.toml:399`, NOT in `sys.argv`. Empirically verified: `pytest tests/test_text_cleanup.py --collect-only -q` (with pytest-cov installed, so the shim is a no-op) FAILS with `FAIL Required test coverage of 65% not reached. Total coverage: 0.32%`. This proves the addopts threshold fires on subset runs. The shim is dead code that gives a false sense of robustness. The conftest docstring's claim that 'Local subset runs no longer see the threshold' is false.
-
-**Root Cause:** The shim's author assumed `--cov` flags arrive via sys.argv (command line), but they actually arrive via `addopts` (pyproject.toml), which pytest merges into the args list AFTER `pytest_load_initial_conftests` runs.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `conftest.py:40-68`
-- `pyproject.toml:399`
-
-**Fix:** Move `--cov=voice_typer --cov-fail-under=65` out of `addopts` into the CI invocation explicitly (build.yml:208 already passes `--cov=voice_typer`, add `--cov-fail-under=65` there). Update the conftest.py docstring to reflect reality. Local subset runs (`pytest tests/test_foo.py`) will then work without coverage enforcement; CI still enforces the threshold.
-
-**Severity:** 🔴 High
-
-**Category:** Testing infrastructure
-
----
-
 ## [XS-10] — CI lint pipeline is red — ruff ratchet grew (180→192), F-rule hard gate fails, pyrefly fails
 
 **Status:** ❌ Not Fixed
@@ -5615,75 +5275,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-19] — ModelManager._log includes non-cp1252 char (→) — Windows console crash risk
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_logging_formatting.py:63` fails: `assert offenders == []` — `model_manager.py:366` has `'charmap' codec can't encode character '\u2192'`. Windows console uses cp1252 by default; the `→` arrow will raise `UnicodeEncodeError` on Windows when the log line is emitted.
-
-**Root Cause:** Non-ASCII Unicode arrow character in a log message — Windows console can't encode it.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/server/model_manager.py:366`
-
-**Fix:** Replace `→` (U+2192) with ASCII `->` in `model_manager.py:366`. Scan the file for other non-ASCII chars in log messages. Run `pytest tests/test_logging_formatting.py -q --timeout=30 -o addopts=''` to verify.
-
-**Severity:** 🔴 High
-
-**Category:** Existing failing tests
-
----
-
-## [XS-22] — Module-level env mutations leak (DISPLAY/WAYLAND_DISPLAY) — 4 test files
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_clipboard_paste_restore.py:58-59`, `tests/test_clipboard_regression.py:34-35`, `tests/test_clipboard_borrow_restore.py:43-44`, `tests/test_clipboard_password_detection.py:41-42` all do `os.environ.setdefault('DISPLAY', ':99')` + `os.environ.pop('WAYLAND_DISPLAY', None)` at MODULE LOAD TIME. These leak into the entire test session — break any later test that needs Wayland.
-
-**Root Cause:** Module-level env mutations are not auto-restored (unlike `monkeypatch.setenv`).
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_clipboard_paste_restore.py`
-- `tests/test_clipboard_regression.py`
-- `tests/test_clipboard_borrow_restore.py`
-- `tests/test_clipboard_password_detection.py`
-
-**Fix:** Move `DISPLAY`/`WAYLAND_DISPLAY` setup into a session-scoped autouse fixture in `tests/conftest.py` that uses `monkeypatch.setenv`/`monkeypatch.delenv` for auto-restore. Or use `pytest.fixture(autouse=True)` per-file. Delete the module-level mutations.
-
-**Severity:** 🔴 High
-
-**Category:** Existing failing tests
-
----
-
-## [XS-23] — Direct os.environ[...] = ... without restore (4 test files) — order-dependent leaks
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_e2e_pipeline.py:85`, `tests/test_sec_8_9_10_security_fixes.py:100`, `tests/test_ipc5_error_envelope_parity.py:145`, `tests/test_ipc_dispatch_errors.py:159` all do `os.environ['VOICE_TYPER_CONFIG_DIR'] = str(tmp_path)` (or `_OVERRIDE` variant) directly without try/finally restore. If a later test imports `voice_typer.server.config` and calls `_config_dir()` without its own monkeypatch, it'll resolve to a stale `tmp_path` from a previous test that may have been garbage-collected → `FileNotFoundError`.
-
-**Root Cause:** `_MockApp.__init__` does raw `os.environ[...] = ...` instead of using `monkeypatch.setenv` (which auto-restores).
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_e2e_pipeline.py`
-- `tests/test_sec_8_9_10_security_fixes.py`
-- `tests/test_ipc5_error_envelope_parity.py`
-- `tests/test_ipc_dispatch_errors.py`
-
-**Fix:** Replace direct `os.environ[...] = ...` with `monkeypatch.setenv('VOICE_TYPER_CONFIG_DIR', str(tmp_path))` (requires passing `monkeypatch` into `_MockApp.__init__`). Deduplicate the 4 `_MockApp` classes into a shared helper in `tests/fixtures/`.
-
-**Severity:** 🔴 High
-
-**Category:** Existing failing tests
-
----
-
 ## [XS-24] — build.yml::test push matrix forces architecture: x64 on ALL macOS entries — no arm64 coverage
 
 **Status:** ❌ Not Fixed
@@ -5816,69 +5407,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-30] — requirements-lock.txt has duplicate unpinned websockets/keyring entries — breaks --require-hashes
-
-**Status:** ❌ Not Fixed
-
-**Description:** `requirements-lock.txt` lines 1783-1784 have unpinned stub entries `websockets>=12.0,<14.0` and `keyring>=25.0,<26.0` (NO hashes) — leftover from CR-12 FIX. The bottom stub block (lines 1777-1784) is a leftover from before CR-24's full regeneration. The comment at line 1777 acknowledges this. Result: `pip install --require-hashes -r requirements-lock.txt` FAILS with 'requirement websockets>=12.0,<14.0 does not contain a hash'.
-
-**Root Cause:** Lockfile regeneration did not remove the pre-regeneration stub block.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `requirements-lock.txt:1777-1784`
-
-**Fix:** Delete the stub block (lines 1777-1784). Verify with `pip install --require-hashes -r requirements-lock.txt --dry-run` (Linux sandbox).
-
-**Severity:** 🔴 High
-
-**Category:** Dependency & supply-chain health
-
----
-
-## [XS-31] — requirements.txt missing 2 pyobjc deps — macOS dev-install broken
-
-**Status:** ❌ Not Fixed
-
-**Description:** `requirements.txt` is missing `pyobjc-framework-CoreFoundation>=9.0` and `pyobjc-framework-ApplicationServices>=9.0` (both present in `pyproject.toml` lines 155, 163). Same class of bug as DEP-3 (which fixed huggingface_hub/keyring/pyrnnoise/pyobjc-framework-Cocoa). A `pip install -r requirements.txt` on macOS will produce a working audio setup but a BROKEN AX-trust probe (permissions.py falls back to `PermissionState.UNKNOWN`) and a BROKEN CoreAudio event-listener (microphone_watcher_coreaudio falls back to 1 Hz polling).
-
-**Root Cause:** Two newer pyobjc framework deps were added to pyproject.toml but never propagated to requirements.txt.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `requirements.txt`
-
-**Fix:** Append `pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin'` and `pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin'` to `requirements.txt` (mirroring pyproject.toml lines 155, 163).
-
-**Severity:** 🔴 High
-
-**Category:** Dependency & supply-chain health
-
----
-
-## [XS-32] — electron-vite pinned to beta (6.0.0-beta.1) — latest stable is 5.0.0
-
-**Status:** ❌ Not Fixed
-
-**Description:** `voice_typer/client/package.json:69` pins `electron-vite: 6.0.0-beta.1` (no caret — exact bare pin). `npm view electron-vite dist-tags` confirms `latest: 5.0.0`, `beta: 6.0.0-beta.1`. Beta versions of build tooling are risky for production releases — they can introduce breaking changes between prereleases, don't get security patches the way released versions do.
-
-**Root Cause:** Project is on the beta channel with no documented rationale.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/client/package.json:69`
-
-**Fix:** Either downgrade to `^5.0.0` (stable) OR add a comment documenting why the 6.0 beta is required (which specific feature).
-
-**Severity:** 🔴 High
-
-**Category:** Dependency & supply-chain health
-
----
-
 ## [XS-33] — 8 JS vulnerabilities (3 HIGH) — all transitive via electron-builder + shadcn
 
 **Status:** ❌ Not Fixed
@@ -5987,27 +5515,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-37] — MANIFEST.in dead refs + missing data files (silero_vad.jit, stubs, native sources)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `MANIFEST.in` lines 13, 28, 29 reference `voice_typer/server/assets/` — but the directory does NOT exist (dead config). Missing data files for sdist completeness: (1) `voice_typer/server/silero_vad.jit` — bundled Silero VAD JIT model (PyInstaller spec bundles it); NOT in MANIFEST.in → `pip install voice-typer` from sdist would crash at `torch.jit.load()` on first dictation. (2) `voice_typer/stubs/*.pyi` — pyrefly stubs; NOT in MANIFEST.in → from-sdist install + `pyrefly check` emits 73 false-positive missing-import errors. (3) `voice_typer/server/native/*.c` and `*.swift` (native listener sources) — NOT in MANIFEST.in → from-sdist install can't recompile native binaries. (4) `requirements-lock.txt` — NOT in MANIFEST.in → defeats its purpose for downstream consumers.
-
-**Root Cause:** MANIFEST.in was not updated when data files were added.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `MANIFEST.in`
-
-**Fix:** Regenerate MANIFEST.in: (a) remove dead `voice_typer/server/assets/` references; (b) add `recursive-include voice_typer/stubs *.pyi`; (c) add `include voice_typer/server/silero_vad.jit`; (d) add `recursive-include voice_typer/server/native *.c *.swift *.json`; (e) add `include requirements-lock.txt`; (f) add `recursive-include tests *.py`.
-
-**Severity:** 🔴 High
-
-**Category:** Build pipeline
-
----
-
 ## [XS-38] — Pre-existing vitest failure: window-open-logs.test.ts:104 — incomplete electron mock
 
 **Status:** ❌ Not Fixed
@@ -6026,27 +5533,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 **Severity:** 🔴 High
 
 **Category:** Existing failing tests
-
----
-
-## [XS-39] — conftest.py docstring contradicts empirically-verified behavior
-
-**Status:** ❌ Not Fixed
-
-**Description:** `conftest.py:11-13` states: 'Coverage-fail-under is now enforced ONLY by an explicit CI step that opts in (`pytest tests/ --cov-fail-under=65`). Local subset runs no longer see the threshold.' Three contradictions: (1) build.yml:208-209 invokes pytest with NO explicit `--cov-fail-under=65`; the threshold comes from `addopts`. (2) Empirically, subset runs DO see the threshold. (3) The docstring's suggested workarounds work but are presented as convenience rather than the only way.
-
-**Root Cause:** Docstring was written to describe the INTENDED behavior of the CR-94 fix (which mutated `options.cov_fail_under`), but that mutation was removed and never replaced.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `conftest.py:1-33`
-
-**Fix:** After applying XS-9 (move --cov-fail-under to CI only), update the conftest.py docstring to accurately describe: 'Coverage threshold is enforced ONLY in CI (build.yml passes --cov-fail-under=65 explicitly). Local subset runs do not enforce coverage.'
-
-**Severity:** 🟡 Medium
-
-**Category:** Testing infrastructure
 
 ---
 
@@ -6164,28 +5650,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-44] — Stale stubs: AppKit.pyi missing NSPasteboard/NSPasteboardItem/NSWorkspace; ApplicationServices.pyi missing AXUIElement*
-
-**Status:** ❌ Not Fixed
-
-**Description:** `voice_typer/stubs/AppKit.pyi` only declares `NSApplication, NSStatusBar, NSStatusItem, NSImage, NSMenu, NSMenuItem, NSEvent, NSWindow, NSView, NSResponder, NSTimer`. But runtime code in `clipboard_snapshot.py:380,417,430` and `clipboard_target_safety.py:637` accesses `AppKit.NSPasteboard`, `AppKit.NSPasteboardItem`, `AppKit.NSWorkspace` — none present. `voice_typer/stubs/ApplicationServices.pyi` only declares `AXIsProcessTrustedWithOptions`, `AXIsProcessTrusted`, `AXMakeProcessTrusted`. But `clipboard_target_safety.py:650,659,673,692` accesses `AXUIElementCreateApplication`, `AXUIElementCopyAttributeValue` — none present. Pyrefly reports 56 missing-attribute errors (mostly these).
-
-**Root Cause:** Stubs were not updated when clipboard code added macOS pasteboard/AX API calls.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/stubs/AppKit.pyi`
-- `voice_typer/stubs/ApplicationServices.pyi`
-
-**Fix:** Add `NSPasteboard: Any`, `NSPasteboardItem: Any`, `NSWorkspace: Any` to `AppKit.pyi`. Add `def AXUIElementCreateApplication(pid: Any) -> Any: ...` and `def AXUIElementCopyAttributeValue(element: Any, attribute: Any, value: Any) -> int: ...` to `ApplicationServices.pyi`. (Two-line additions per stub, matching the existing permissive `Any` typing style.)
-
-**Severity:** 🟡 Medium
-
-**Category:** Testing infrastructure
-
----
-
 ## [XS-45] — torch not in autouse mock_heavy_imports fixture — 6 local mock setups + 17s import tax
 
 **Status:** ❌ Not Fixed
@@ -6200,48 +5664,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 - `tests/conftest.py:177-322`
 
 **Fix:** Add `torch` (and optionally `transformers`) to the autouse `mock_heavy_imports` fixture, with a `real_torch` marker (mirroring the existing `real_pynput`/`real_pil` pattern) for tests that genuinely need real `torch.backends.mps` semantics. Eliminates ~6 local mock setups and the 17s import tax.
-
-**Severity:** 🟡 Medium
-
-**Category:** Testing infrastructure
-
----
-
-## [XS-46] — mock_heavy_imports emits uncategorized UserWarning 102× per file when numpy missing
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/conftest.py:256, 291, 316` call `warnings.warn(...)` without specifying a category (defaults to `UserWarning`). When the test environment lacks `numpy`, `voice_typer.server.app` fails to import and these 3 warnings fire once per test. Observed: `test_config.py` alone emits 102 copies of each UserWarning (204 total warnings on a 102-test file). Real warnings get buried.
-
-**Root Cause:** Warnings emitted without a category and without per-session dedup.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/conftest.py:256,291,316`
-
-**Fix:** (a) Give these a dedicated `class MockHeavyImportsWarning(UserWarning): ...` so contributors can filter them. (b) Emit them only ONCE per session using a module-level `_warned` flag. (c) Ensure numpy is installed in the test venv (XS-1 test-infra issue).
-
-**Severity:** 🟡 Medium
-
-**Category:** Existing warnings and errors
-
----
-
-## [XS-47] — Ruff ratchet --regenerate bypass hole when baseline missing/corrupt
-
-**Status:** ❌ Not Fixed
-
-**Description:** `scripts/ruff_ratchet_check.py:222-248` `regenerate()` function: the 'refuse to grow' check is gated on `BASELINE_PATH.is_file()` AND successful JSON parse. If `ruff-baseline.json` is deleted or corrupted, `--regenerate` writes a new baseline at ANY count (even a massive regression). A contributor (or accident) who `rm ruff-baseline.json` then `--regenerate` can lock in an arbitrary regression.
-
-**Root Cause:** Refuse-to-grow check has a missing-baseline escape hatch.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `scripts/ruff_ratchet_check.py:222-248`
-
-**Fix:** Refuse to regenerate if the baseline is missing/corrupt — require an explicit `--force` flag or a manual baseline file creation first.
 
 **Severity:** 🟡 Medium
 
@@ -6293,27 +5715,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-50] — 4 xfail(strict=False) in test_ipc_server_shim.py — abandoned work, never run
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_ipc_server_shim.py:38,63,76,95` — 4 tests marked `xfail(strict=False, reason=_XFAIL_REASON)` where `_XFAIL_REASON` says 'Fix-A shim reduction abandoned'. If the work is abandoned, these tests document intent but never run. Keeping `xfail(strict=False)` means they could silently start passing (xpass) without anyone noticing.
-
-**Root Cause:** Abandoned work left as xfail instead of being deleted or converted to skip.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_ipc_server_shim.py`
-
-**Fix:** Either delete the tests (abandoned = no value), OR convert to `pytest.mark.skip(reason='abandoned — see ISSUE-XXX')` to make it explicit they're not expected to pass.
-
-**Severity:** 🟡 Medium
-
-**Category:** Existing failing tests
-
----
-
 ## [XS-51] — 2 xfail in test_shutdown_controller.py reference stale 'wiring pending' TODOs
 
 **Status:** ❌ Not Fixed
@@ -6328,36 +5729,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 - `tests/test_shutdown_controller.py:148,167`
 
 **Fix:** Check if the 'wiring pending' work was completed. If so, remove the markers (they'll xpass-strict-fail and surface the issue). If not, convert to `pytest.mark.skip` with a tracking issue link.
-
-**Severity:** 🟡 Medium
-
-**Category:** Existing failing tests
-
----
-
-## [XS-52] — Tight upper-bound timing assertions will flake on slow CI (16 sites)
-
-**Status:** ❌ Not Fixed
-
-**Description:** 16 tests assert tight upper-bound timings that will flake on slow CI runners: `tests/test_g_perf_reliability_fixes.py:215` (`elapsed_ms < 5.0` — 5ms budget, any GC pause blows it), `tests/test_history_db.py:496` (`< 50.0`), `tests/test_thread_registry.py:275,369,403` (`< 0.4`, `< 0.5`, `< 1.0` with 0.1s join_timeout — 4× margin too tight), `tests/test_prewarm.py:529,543,575,611` (`< 0.1`, `< 0.5`, `< 2.0`), `tests/test_recording.py:504` (`< 1.0`), `tests/test_recording_discard.py:160` (`< 0.300`), `tests/test_smart_duck_monitor.py:440` (`< 0.5`), `tests/test_audio_quality_controller.py:122,389` (`< 2.0`), `tests/test_rw7_rw8_audio_callback.py:465` (`< 500`), `tests/test_e2e_pipeline.py:611` (`4.5 <= elapsed <= 8.0` — tight lower AND upper bound).
-
-**Root Cause:** Timing assertions are too tight for CI runner variance.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_g_perf_reliability_fixes.py:215`
-- `tests/test_history_db.py:496`
-- `tests/test_thread_registry.py:275,369,403`
-- `tests/test_prewarm.py:529,543,575,611`
-- `tests/test_recording.py:504`
-- `tests/test_recording_discard.py:160`
-- `tests/test_smart_duck_monitor.py:440`
-- `tests/test_audio_quality_controller.py:122,389`
-- `tests/test_rw7_rw8_audio_callback.py:465`
-- `tests/test_e2e_pipeline.py:611`
-
-**Fix:** Loosen or remove the tight upper-bound timing assertions. Specifically: increase `test_g_perf_reliability_fixes.py:215` from 5ms to 50ms (or remove — the test already verifies the filter chain runs on a worker thread via mock assertions); increase `test_history_db.py:496` from 50ms to 500ms; widen `test_e2e_pipeline.py:611` to `3.0 <= elapsed <= 15.0` (or mock the auth timeout).
 
 **Severity:** 🟡 Medium
 
@@ -6679,27 +6050,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-67] — vite build warnings: 2 font asset warnings + 2 large chunks (>1 MB)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `electron-vite build` emits 2 font warnings (`/fonts/InterVariable.woff2` and `/fonts/InterVariable-Italic.woff2` referenced but didn't resolve at build time). 2 large chunks: `out/renderer/assets/index-Csi7j309.js` (1,044 KB) and `out/renderer/assets/tauri-bridge-B27Dtmua.js` (1,410 KB — unusually large for a tauri-bridge chunk; suggests shared deps lumped in). No `chunkSizeWarningLimit` set.
-
-**Root Cause:** Font path resolution + chunking strategy not optimized.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/client/electron.vite.config.ts`
-
-**Fix:** Verify `/fonts/InterVariable*.woff2` actually ship at that path in the packaged .asar; if not, fix the CSS/HTML reference to a project-relative path. Add `build.chunkSizeWarningLimit: 600` and/or `manualChunks` config to surface future regressions. Investigate why the tauri-bridge chunk is 1.4 MB.
-
-**Severity:** 🟡 Medium
-
-**Category:** Build pipeline
-
----
-
 ## [XS-68] — typecheck:root is a no-op against solution-style tsconfig
 
 **Status:** ❌ Not Fixed
@@ -6744,48 +6094,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-70] — PytestUnraisableExceptionWarning project-wide filter likely stale
-
-**Status:** ❌ Not Fixed
-
-**Description:** `pyproject.toml:407` filter `ignore::pytest.PytestUnraisableExceptionWarning` is likely stale. Across 226 tests in 7 files run with `-W error::pytest.PytestUnraisableExceptionWarning` and `filterwarnings=` cleared, ZERO warnings fire. The only known-true-positive site is `tests/test_tray.py:186-188`, which already has its own LOCAL `warnings.simplefilter('ignore', pytest.PytestUnraisableExceptionWarning)` inside a `with warnings.catch_warnings():` block. The project-wide filter masks any NEW real `__del__`-raises bugs across the entire test suite.
-
-**Root Cause:** Project-wide filter predates the local fix and was never removed.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `pyproject.toml:407`
-
-**Fix:** Remove line 407 (`ignore::pytest.PytestUnraisableExceptionWarning`). The local filter in `tests/test_tray.py:187` is sufficient. Run full pytest suite to confirm zero failures. If any test now fails, add a targeted `module:PytestUnraisableExceptionWarning` filter (NOT blanket).
-
-**Severity:** 🟡 Medium
-
-**Category:** Existing warnings and errors
-
----
-
-## [XS-71] — Python-side guard for 'no blanket ResourceWarning filter' was lost in RW-1 TS rewrite
-
-**Status:** ❌ Not Fixed
-
-**Description:** The TS test `electron-ipc-build-behavior.test.tsx:1051` explicitly says it is 'a rewrite of TestNoBlanketResourceWarningFilter' — but the original Python test no longer exists in `tests/`. The TS test runs only when the JS/TS test suite runs (`vitest`); it does NOT run as part of `pytest`. If a contributor only runs `pytest`, the guard is invisible.
-
-**Root Cause:** Python guard deleted during RW-1 rewrite without preserving a Python-side mirror.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_ruff_ratchet.py (or new tests/test_pyproject_warnings.py)`
-
-**Fix:** Restore a tiny Python guard test that reads `pyproject.toml` and asserts no line in `filterwarnings` starts with `ignore::ResourceWarning`. Mirror the TS assertion.
-
-**Severity:** 🟡 Medium
-
-**Category:** Testing infrastructure
-
----
-
 ## [XS-72] — No CODEOWNERS file — no auto-assignment of reviewers
 
 **Status:** ❌ Not Fixed
@@ -6800,27 +6108,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 - `.github/CODEOWNERS (new file)`
 
 **Fix:** Create `.github/CODEOWNERS` with maintainer team for `/.github/`, `/src-tauri/`, `/voice_typer/client/`, `/scripts/build/`, `/pyproject.toml`.
-
-**Severity:** 🟡 Medium
-
-**Category:** CI/CD
-
----
-
-## [XS-73] — Dependabot github-actions ecosystem has no groups: block — PR flooding
-
-**Status:** ❌ Not Fixed
-
-**Description:** `.github/dependabot.yml` covers all 4 ecosystems (pip, npm, cargo, github-actions) with grouping for npm/cargo/pip. The `github-actions` ecosystem has NO `groups:` block — each action update (actions/checkout, actions/setup-python, etc.) gets its own PR. With ~10 distinct actions across 9 workflows, this floods the PR queue on Monday mornings.
-
-**Root Cause:** github-actions group never added.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `.github/dependabot.yml`
-
-**Fix:** Add `groups: actions-deps: patterns: ['*']` to the `github-actions` ecosystem.
 
 **Severity:** 🟡 Medium
 
@@ -7155,112 +6442,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## [XS-89] — Unused pytest-mock in [test] extras (zero usages)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `pyproject.toml:204` lists `pytest-mock` in `[test]` extras. Grep for `\bmocker\b` (the pytest-mock fixture) across `tests/**/*.py` returns ZERO matches. The TEST-033 mocking convention explicitly recommends `monkeypatch` and `unittest.mock.patch` — never `mocker`. Every `pip install .[test]` pulls in pytest-mock for no benefit.
-
-**Root Cause:** Dependency never removed after the project standardized on monkeypatch + unittest.mock.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `pyproject.toml:204`
-
-**Fix:** Remove `pytest-mock` from the `test` list in `pyproject.toml:204`.
-
-**Severity:** 🟢 Low
-
-**Category:** Dependency & supply-chain health
-
----
-
-## [XS-90] — stale doc references in tests/manual/ (test_round10_bugfixes.py, test_new_dead_002_scripts.py don't exist)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/manual/diagnose_f2.py:11` and `tests/manual/README.md:30,32` reference `tests/test_round10_bugfixes.py` and `tests/test_new_dead_002_scripts.py` — neither file exists. `tests/manual/README.md:30-31` also has an orphaned parenthetical.
-
-**Root Cause:** Doc references never updated after test files were renamed/deleted.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/manual/diagnose_f2.py:11`
-- `tests/manual/README.md:30,32`
-
-**Fix:** Update the docstrings/README to reference the actual current test files (`test_e2e_smoke.py`, `test_e2e_regression.py`, `test_transcription.py::TestFallbackChain`). Fix the orphaned parenthetical.
-
-**Severity:** 🟢 Low
-
-**Category:** Testing infrastructure
-
----
-
-## [XS-91] — stale stub comment in pyproject.toml references nonexistent webrtcvad stub
-
-**Status:** ❌ Not Fixed
-
-**Description:** `pyproject.toml:311` comment: `# PYREFLY-001: local stubs for platform-only deps (pycaw, comtypes, pyobjc, webrtc)`. There is NO `webrtcvad.pyi` stub (the only mention of 'webrtcvad' is in `FEATURES.md:295` as a NOT-SUPPORTED item).
-
-**Root Cause:** Stale comment.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `pyproject.toml:311`
-
-**Fix:** Drop 'webrtc' from the comment.
-
-**Severity:** 🟢 Low
-
-**Category:** Testing infrastructure
-
----
-
-## [XS-92] — Redundant tmp_config_dir fixture in tests/app/conftest.py (identical to project-wide)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/app/conftest.py:16-25` `tmp_config_dir` fixture has an identical body to `tests/conftest.py:327-331` `tmp_config_dir`. The `tests/app/conftest.py` docstring justifies the override for 'behavioural parity' — but the behavior IS identical. A future change to the project-wide fixture would NOT propagate to `tests/app/` tests because the override shadows it.
-
-**Root Cause:** Local override copied verbatim during a test split and never removed.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/app/conftest.py:16-25`
-
-**Fix:** Delete the `tmp_config_dir` fixture from `tests/app/conftest.py:16-25`. The project-wide fixture will be picked up automatically.
-
-**Severity:** 🟢 Low
-
-**Category:** Testing infrastructure
-
----
-
-## [XS-93] — tests/tauri/ missing __init__.py (inconsistent with siblings)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/tauri/` has no `__init__.py`, but `tests/__init__.py`, `tests/handlers/__init__.py`, `tests/app/__init__.py`, and all 5 `tests/tauri/mig*/__init__.py` exist. With `--import-mode=prepend` (default), if two test files in `tests/tauri/` and `tests/tauri/mig17/` ever share a name, the second import would shadow the first.
-
-**Root Cause:** `tests/tauri/__init__.py` was never created or was deleted.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/tauri/__init__.py (new file)`
-
-**Fix:** Either (a) add an empty `tests/tauri/__init__.py` for consistency, OR (b) switch the project to `--import-mode=importlib` in addopts (pytest 9 recommended default).
-
-**Severity:** 🟢 Low
-
-**Category:** Testing infrastructure
-
----
-
 ## [XS-94] — 6 redundant @pytest.mark.asyncio decorators (auto mode handles it)
 
 **Status:** ❌ Not Fixed
@@ -7280,133 +6461,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 **Severity:** 🟢 Low
 
 **Category:** Testing infrastructure
-
----
-
-## [XS-95] — tests/test_e2e_smoke.py and test_e2e_regression.py are misnamed (unit tests, not e2e)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_e2e_smoke.py` (14 tests) contains unit-level regression guards for individual fixes (STARTUP-1/2/4/6/7, #8/#13, UX-005, ARCH-007/008, T021, APP_NAME branding). No live IPC server, no real microphone, no Electron. `tests/test_e2e_regression.py` (24 tests) contains source-inspection, prewarm import filtering, POSIX prewarm scheduler, Windows autostart. None start a real IPC server or exercise real audio. The 'e2e' label is misleading.
-
-**Root Cause:** Files named aspirationally; content is unit-level.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_e2e_smoke.py`
-- `tests/test_e2e_regression.py`
-
-**Fix:** Rename `test_e2e_smoke.py` → `test_refactor_invariants.py` and move `TestBrandingConstants` to a dedicated `test_branding.py`. Rename `test_e2e_regression.py` → `test_prewarm_autostart_regression.py`. (Low priority — cosmetic.)
-
-**Severity:** 🟢 Low
-
-**Category:** Test coverage gaps
-
----
-
-## [XS-96] — test_i18n_completeness.py tests CLIENT i18n, not server i18n.py (misleading filename)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_i18n_completeness.py` (799 lines) tests the CLIENT i18n JSON files at `voice_typer/client/src/renderer/src/i18n/translations/en.json` — a completely different module from `voice_typer/server/i18n.py` (245 lines, provides `t(key, **fmt)` translation). Server `i18n.py` has NO direct unit test. Untested paths: locale switching, fallback chain, format interpolation failure, thread-safety.
-
-**Root Cause:** Filename collision masks a coverage gap.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_i18n.py (new file for server i18n)`
-
-**Fix:** Create `tests/test_i18n.py` testing server `i18n.py`: `t()`, `register_locale`, `set_locale`, fallback chain, format interpolation failure, thread-safety. (The existing `test_i18n_completeness.py` stays for client i18n.)
-
-**Severity:** 🟢 Low
-
-**Category:** Test coverage gaps
-
----
-
-## [XS-97] — docs/adr/0000-template.md missing (test_remaining_fixes.py fails)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_remaining_fixes.py:177` fails: `AssertionError: ADR template should exist`. `docs/adr/0000-template.md` is missing.
-
-**Root Cause:** ADR template file was deleted.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `docs/adr/0000-template.md (new file)`
-
-**Fix:** Restore `docs/adr/0000-template.md` (a minimal ADR template: Title, Status, Context, Decision, Consequences). Run `pytest tests/test_remaining_fixes.py::TestDocsADirectory::test_template_exists -q --timeout=30 -o addopts=''` to verify.
-
-**Severity:** 🟢 Low
-
-**Category:** Existing failing tests
-
----
-
-## [XS-98] — test_sec_8_9_10_security_fixes.py:1072 off-by-one (32-char literal asserted to be 31)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_sec_8_9_10_security_fixes.py:1072` asserts `len(token) == 31` but the literal `'0123456789abcdefghij123456789abc'` is 32 chars. Test bug — the production redaction logic is likely correct.
-
-**Root Cause:** Off-by-one in test fixture.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_sec_8_9_10_security_fixes.py:1072`
-
-**Fix:** Change `len(token) == 31` to `len(token) == 32` (or shorten the literal to 31 chars). Run `pytest tests/test_sec_8_9_10_security_fixes.py::TestG4L06RedactSecretThreshold20::test_31_char_bare_token_redacted -q --timeout=30 -o addopts=''` to verify.
-
-**Severity:** 🟢 Low
-
-**Category:** Existing failing tests
-
----
-
-## [XS-99] — test_hotkey_validation.py:161 — <ctrl>+<alt>+<f2> is Linux-reserved (VT2 switch)
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_hotkey_validation.py:161` parametrize entry `<ctrl>+<alt>+<f2>` fails on Linux: `Expected '<ctrl>+<alt>+<f2>' to be allowed, but got: reserved by operating system (linux)`. `<ctrl>+<alt>+<f2>` switches to VT2 on Linux. The test parametrization should be platform-conditional.
-
-**Root Cause:** Platform-specific expectation not guarded.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_hotkey_validation.py:161`
-
-**Fix:** Make the `<ctrl>+<alt>+<f2>` parametrize entry platform-conditional (skip on Linux, or use `pytest.mark.skipif(sys.platform == 'linux', reason='VT2 reserved')`).
-
-**Severity:** 🟢 Low
-
-**Category:** Existing failing tests
-
----
-
-## [XS-100] — test_e2e_regression.py:200 — mock torch module lacks __spec__
-
-**Status:** ❌ Not Fixed
-
-**Description:** `tests/test_e2e_regression.py:200` fails: `ValueError: torch.__spec__ is not set`. `_warm_package_files('torch')` calls `importlib.util.find_spec('torch')`, but the test mocks `torch` as a stub module without `__spec__`.
-
-**Root Cause:** Incomplete mock — missing `__spec__` attribute.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `tests/test_e2e_regression.py:200`
-
-**Fix:** Set `__spec__` on the fake `torch` module in the test mock. Pattern: `mock_torch.__spec__ = importlib.util.spec_from_loader('torch', loader=None)`.
-
-**Severity:** 🟢 Low
-
-**Category:** Existing failing tests
 
 ---
 
@@ -7492,16 +6546,6 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 **Severity:** 🟢 Low
 
 **Category:** Dependency & supply-chain health
-
----
-
-# AC Session — GROUP 1 (Architecture & Code Quality) — 2026-07-24
-
-> **Session scope:** GROUP 1 only (Overall architecture, Backend architecture, Frontend architecture, Code quality, Maintainability, Refactoring opportunities, Spaghetti / monolith detection). 20 parallel review sub-agents (AC-P1-01 through AC-P1-20) investigated disjoint file slices. ~218 new findings filed below (16 High, ~70 Medium, ~130 Low). Platform qualifier: All investigations performed ON LINUX (sandbox). Windows/macOS host validation NOT executed here.
-
-> **Status correction for prior findings:** PVT-056 p2 / XV-31 (set_sample_rate) — RESOLVED. XV-54 / XV-55 / XV-58 (level_monitor) — RESOLVED. S5-CR-80 (Linux path) — RESOLVED. CR-49 FTS5 — RESOLVED. PVT-19 (rate limiter dedup) — RESOLVED. XV-146 (hex::encode) — RESOLVED. S5-CR-106 (tray dispatch event) — RESOLVED. S1-CR-142 (tray propagation) — RESOLVED. S2-CR-77 (config_mutation_lock) — RESOLVED. S2-CR-78 (active_transcriber race) — RESOLVED.
-
-> **Status update for INCOMPLETE prior fixes:** S2-CR-27 (write timeout) — `_WRITE_FUTURE_TOTAL_TIMEOUT` constant defined but NEVER WIRED INTO the wait loop; regression test only asserts the literal string is in source. XV-1 (deps probe) — REGRESSED when service.py was split; `service/model.py:_check_parakeet_deps` now uses `import_module` instead of `find_spec`. XV-154 (logging cache) — applied to `appendLogLine` but NOT `mainRuntimeLogger.write`. CRX-5  (double-resample) — only applied to `take_snapshot`; missing in `stop()` and `_process_audio_chunk`.
 
 ---
 
@@ -17409,4 +16453,3 @@ For a 10k-row history export with 20 columns, this allocates a `Vec<String>` of 
 
 **Fix:** Extract the IIFEs into named sub-components or `useMemo` hooks. Pass `isDark` as a prop from the parent instead of reading `document.documentElement.classList`.
 **Severity:** 🟢 Low
-
