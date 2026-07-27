@@ -70,6 +70,27 @@ class TranscriberProtocol(Protocol):
     @property
     def loaded_via(self) -> str: ...
 
+    # AC-78: ``transcribe_words`` was missing from the protocol even
+    # though ``streaming.py:601, 668`` calls ``self.transcriber.transcribe_words(...)``
+    # and ``recording_controller.py:871`` does a ``hasattr`` check
+    # for it. Adding the method to the protocol means:
+    #   1. ``isinstance(backend, TranscriberProtocol)`` correctly
+    #      identifies backends that support streaming (the previous
+    #      protocol-membership check would silently fail for
+    #      backends that have ``transcribe_words`` but no protocol
+    #      declaration, leading to streaming being skipped).
+    #   2. Mock objects in tests that satisfy the protocol
+    #      declaration can no longer omit ``transcribe_words``
+    #      accidentally (pyrefly/mypy catch the omission at type-check
+    #      time, eliminating a class of integration-test flakiness).
+    #   3. The return-type signature documents the contract: a
+    #      sequence of word-level results (not just a str), which
+    #      the streaming pipeline relies on for partial-transcript
+    #      diffing.
+    def transcribe_words(
+        self, audio: np.ndarray, offset_seconds: float = 0.0
+    ) -> object: ...
+
 
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []

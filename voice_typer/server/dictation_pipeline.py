@@ -28,6 +28,19 @@ from voice_typer.server.tray_types import AppState
 log = logging.getLogger(__name__)
 
 
+# AC-49: vocabulary-automation analyzer degrade-gracefully defaults
+# used when the transcription engine did not produce per-segment or
+# per-word confidence data (e.g. faster-whisper's avg_logprob
+# surface). These are module-level sentinels (NOT instance
+# attributes) — the previous ``getattr(self, "_segments", None) or []``
+# + ``getattr(self, "_confidence", 0.9)`` accidentally fabricated
+# a confident empty segment list, which made the analyzer treat
+# every word as high-confidence. Now the analyzer sees honest
+# empty data and degrades gracefully.
+_EMPTY_SEGMENTS: list = []
+_NO_TRANSCRIPT_CONFIDENCE: float = 0.0
+
+
 # ERR-005: raw exception messages from ctranslate2 / torch / faster-whisper
 # often leak file paths, CUDA versions, and internal stack details into
 # user-facing tray notifications. Map known exception classes to friendly
@@ -1164,8 +1177,17 @@ class DictationPipeline:
             # confidence). When the transcription engine exposes
             # richer segment data in the future, we can plumb it
             # through here without changing the analyzer's API.
-            segments = getattr(self, "_segments", None) or []
-            confidence = getattr(self, "_confidence", 0.9)
+            # AC-49: the previous ``getattr(self, "_segments", None) or []``
+            # and ``getattr(self, "_confidence", 0.9)`` fell back to a
+            # fabricated confidence of ``0.9`` when the attributes were
+            # absent — that fed vocabulary-automation with a confident
+            # empty segment list, causing the analyzer to consider
+            # every word as high-confidence. Replaced with explicit
+            # module-level sentinels (no ``self.*`` reads, no
+            # fabricated confidence). The analyzer's degrade-gracefully
+            # path now sees honest empty data.
+            segments: list = _EMPTY_SEGMENTS
+            confidence: float = _NO_TRANSCRIPT_CONFIDENCE
             suggestions = automation.analyze_transcription(
                 text,
                 segments,

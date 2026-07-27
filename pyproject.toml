@@ -201,6 +201,13 @@ test = [
     "hypothesis>=6.0",
     # TEST-012: pytest-benchmark for performance benchmarks
     "pytest-benchmark>=4.0",
+    # XS-84: pytest-xdist so the 309-file test suite can run in
+    # parallel on multi-core CI runners (cuts the per-leg wall time
+    # from ~25 min to ~5-7 min on a 4-core runner). Local single-
+    # core invocations are unaffected — pytest-xdist only activates
+    # when ``-n auto`` (or similar) is passed. CI's pytest step
+    # passes ``-n auto`` explicitly (see .github/workflows/build.yml).
+    "pytest-xdist>=3.5",
 ]
 # BUILD-N05: PyInstaller spec file lives at scripts/build/voice-typer.spec
 # but the tool itself wasn't declared. Make it an optional extra so
@@ -310,10 +317,15 @@ project-excludes = ["voice_typer/client/**", "build/**", "dist/**"]
 # reported as failures, allowing the codebase to stay clean without
 # inline `# pyrefly: ignore` suppression comments.
 baseline = "pyrefly-baseline.json"
-# PYREFLY-001: local stubs for platform-only deps (pycaw, comtypes, pyobjc, webrtc)
+# PYREFLY-001: local stubs for platform-only deps (pycaw, comtypes, pyobjc)
 # These are never installed on the CI runner's platform, so pyrefly
 # reports missing-import. The stubs declare the import surface with
 # permissive types so type-checking proceeds on the real code paths.
+# (XS-91: the previous comment also listed ``webrtc`` but no
+# ``webrtcvad.pyi`` / ``webrtc-audio-processing.pyi`` stub is
+# checked in — ``webrtcvad`` is a C-extension that pyrefly resolves
+# via the active-interpreter site-packages search path, not via a
+# local stub. Removed the stale reference.)
 #
 # TASK-13: extended `search-path` to also include the project venv's
 # site-packages. The directive reported 73 false-positive

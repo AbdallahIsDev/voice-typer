@@ -824,6 +824,60 @@ class TestPythonExcepthook:
             # Must not raise — the original-hook failure is suppressed.
             sys.excepthook(type(exc), exc, exc.__traceback__)
 
+    def test_remove_restores_original(self, restore_excepthook):
+        """AC-90: ``remove_python_excepthook`` restores ``sys.excepthook``
+        to the value it had before ``install_python_excepthook`` ran.
+
+        Symmetric with ``install`` — the remove counterpart closes the
+        install/remove pair (the previous one-way ratchet left the
+        hook installed for the lifetime of the process, which made
+        test cleanup impossible).
+        """
+        original = sys.excepthook
+        crash_handler.install_python_excepthook()
+        assert sys.excepthook is crash_handler._crash_excepthook
+        crash_handler.remove_python_excepthook()
+        assert sys.excepthook is original
+
+    def test_remove_is_idempotent(self, restore_excepthook):
+        """AC-90: calling ``remove`` without a prior ``install`` is a
+        no-op (falls through to ``sys.__excepthook__`` if the
+        ``_original_excepthook`` slot was never set).
+
+        This is the test contract that proves the new function does
+        not crash on a fresh interpreter that never called install.
+        """
+        # No prior install. sys.excepthook is whatever the
+        # ``restore_excepthook`` fixture left it as.
+        before = sys.excepthook
+        crash_handler.remove_python_excepthook()
+        # If we never installed, restore falls through to
+        # ``sys.__excepthook__`` (Python's documented bootstrap
+        # default). If a prior test in the same session installed,
+        # the install already saved the original, so restore returns
+        # us to that original. Either way: no exception raised.
+        assert sys.excepthook is not None
+
+    def test_remove_then_reinstall_roundtrip(self, restore_excepthook):
+        """AC-90: the full install→remove→install roundtrip works.
+
+        This catches the failure mode where ``_original_excepthook``
+        is cleared on remove and a second install incorrectly
+        snapshots the crash hook as the new "original" (the same
+        idempotency bug that ``test_install_is_idempotent``
+        guards against).
+        """
+        original = sys.excepthook
+        crash_handler.install_python_excepthook()
+        crash_handler.remove_python_excepthook()
+        assert sys.excepthook is original
+        crash_handler.install_python_excepthook()
+        assert sys.excepthook is crash_handler._crash_excepthook
+        # The second install must NOT save the crash hook as the
+        # original — it should still be the same ``original`` from
+        # the first install.
+        assert crash_handler._original_excepthook is original
+
 
 # ─── _vectored_handler_impl (no-op on POSIX) ────────────────────────────
 

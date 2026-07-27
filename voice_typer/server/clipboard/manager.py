@@ -425,9 +425,23 @@ class ClipboardManager:
             finally:
                 if com_initialized:
                     with contextlib.suppress(Exception):
-                        import comtypes as _ct  # local re-import; safe inside finally
-
-                        _ct.CoUninitialize()
+                        # AC-123: the redundant local ``import comtypes
+                        # as _ct`` was removed; the top-of-function
+                        # import (line 377: ``import comtypes``) is
+                        # still in scope here. The original
+                        # ``import comtypes as _ct`` was a defensive
+                        # re-import to guard against an interpreter
+                        # corner case where ``comtypes`` was unbound
+                        # between the ``import`` at line 377 and the
+                        # ``finally`` block — but the module is bound
+                        # at function scope, so this re-import is
+                        # redundant. Using the top-of-function
+                        # ``comtypes.CoUninitialize()`` directly is
+                        # clearer and avoids a needless import call on
+                        # every paste attempt (CPython caches imports,
+                        # but the lookup overhead is still measurable
+                        # on the paste hot path).
+                        comtypes.CoUninitialize()
 
             return True
         except Exception:

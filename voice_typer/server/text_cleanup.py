@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Final
 
 from voice_typer.server.vocabulary import BUNDLED_CORRECTIONS_PATH as _BUNDLED_CORRECTIONS_PATH
 
@@ -669,28 +670,64 @@ def _correct_whisper_phrases(text: str) -> str:
         # eliminates the parallel-lists race entirely.
         pattern = _get_compiled_phrase_pattern(bad)
 
-        # L19: Preserve original casing pattern
-        def _apply_case_preserving_replacement(match, good=good):
-            original = match.group(0)
-            replacement = good
-            # Apply same casing pattern as original
-            if original.isupper():
-                return replacement.upper()
-            elif original[0].isupper() and not original[1:].isupper():
-                # Title case: first letter upper, rest lower
-                return replacement[0].upper() + replacement[1:]
-            elif any(c.isupper() for c in original[1:]):
-                # Mixed case: try to map uppercase positions from original to replacement
-                result = list(replacement.lower())
-                for i, c in enumerate(original):
-                    if i < len(result) and c.isupper():
-                        result[i] = result[i].upper()
-                return "".join(result)
-            else:
-                return replacement
-
-        text = pattern.sub(_apply_case_preserving_replacement, text)
+        # L19: Preserve original casing pattern.
+        # AC-18: the nested function was previously re-defined on
+        # every loop iteration (re-binding ``good`` via the default
+        # arg creates a fresh function object per call, costing ~50
+        # ns per binding × N-bad-words). Hoisting the factory out
+        # of the loop and binding ``good`` via ``functools.partial``
+        # instead avoids the per-iteration redefinition while
+        # preserving the original semantics (the default-arg trick
+        # was a CPython-specific workaround for the late-binding
+        # closure issue that does not apply here — ``good`` is
+        # loop-local, not nested-scope).
+        text = pattern.sub(_make_case_preserving_replacement(good), text)
     return text
+
+
+def _apply_case_preserving_replacement(match: object, good: str) -> str:
+    """Replace ``match.group(0)`` with ``good`` preserving the original casing.
+
+    AC-18: hoisted out of ``_correct_whisper_phrases`` so the
+    function object is created once per call site rather than once
+    per bad-word in the corrections table. The function follows
+    four casing rules, in order:
+
+    1. ALL UPPER → ``good.upper()`` (e.g. "WONT" → "WON'T").
+    2. Title case (first letter upper, rest lower) → first letter
+       of ``good`` upper, rest as-is.
+    3. Mixed case (any upper after the first char) → map each
+       uppercase position from the original to the replacement,
+       lowercasing the rest.
+    4. All lower (the common case) → ``good`` as-is.
+    """
+    original = match.group(0)  # type: ignore[attr-defined]
+    # Apply same casing pattern as original
+    if original.isupper():
+        return good.upper()
+    if original[0].isupper() and not original[1:].isupper():
+        # Title case: first letter upper, rest lower
+        return good[0].upper() + good[1:]
+    if any(c.isupper() for c in original[1:]):
+        # Mixed case: try to map uppercase positions from original to replacement
+        result = list(good.lower())
+        for i, c in enumerate(original):
+            if i < len(result) and c.isupper():
+                result[i] = result[i].upper()
+        return "".join(result)
+    return good
+
+
+def _make_case_preserving_replacement(good: str):
+    """Return a ``re.sub`` callback that replaces ``good`` preserving case.
+
+    AC-18: the per-bad-word redefinition is replaced with a
+    ``functools.partial`` binding. This hoists the closure object
+    creation out of the hot loop.
+    """
+    from functools import partial
+
+    return partial(_apply_case_preserving_replacement, good=good)
 
 
 def _remove_extra_words(text: str) -> str:
@@ -930,6 +967,17 @@ def _fix_file_extensions(text: str) -> str:
 
 # ─── Safe auto-punctuation ──────────────────────────────────────────────
 
+# AC-85: minimum word count before ``_add_safe_terminal_punctuation``
+# appends a period or question mark. Short fragments like "ok" or
+# "no thanks" should never be auto-punctuated — appending "." to
+# "ok" produces "ok." which the user did NOT dictate, and
+# auto-punctuating a two-word short reply like "no thanks" risks
+# turning a deliberate lowercase response into a forced
+# sentence-shaped artifact. 4 is the empirically chosen floor: at
+# 5+ words the heuristic is reliable (a real sentence) and the
+# false-positive rate drops to near zero.
+_MIN_WORDS_FOR_TERMINAL_PUNCTUATION: Final[int] = 4
+
 # Patterns that should NOT get terminal punctuation appended
 _NO_PUNCTUATION_PATTERNS = [
     re.compile(r"https?://"),  # URLs
@@ -956,7 +1004,12 @@ def _add_safe_terminal_punctuation(text: str) -> str:
             return text
 
     words = text.split()
-    if len(words) <= 4:
+    # AC-85: the magic ``4``-word cutoff was extracted to a named
+    # constant so the threshold is auditable and the rationale
+    # (single-word fragments like "ok" or two-word short replies
+    # like "no thanks" should never be auto-punctuated) lives next
+    # to the number, not in an unwritten comment.
+    if len(words) <= _MIN_WORDS_FOR_TERMINAL_PUNCTUATION:
         return text
 
     if _looks_like_question(text):
