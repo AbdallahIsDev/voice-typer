@@ -272,6 +272,26 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 
 #> **Frozen command contract (63 commands):** the sidecar IPC command table in §2 enumerates exactly **63 commands** — the baseline established after the Tauri/Rust allowlist narrowing (S3-CR-3) and the subsequent IPC-1 reconciliation (ZR-45 cleanup + `relaunch_ack` add). The frozen set lives in `tests/tauri/mig19/test_phase4_validation.py::EXPECTED_COMMANDS` and MUST NOT grow without (1) a new `_handle_<cmd>` mixin, (2) an ADR addendum, (3) a `_validate_dict_payload` schema, and (4) a dispatch-errors test. (DT-19 reconciliation 2026-07-24: earlier drafts of this ADR cited "61 commands"; the actual `len(_COMMAND_REGISTRY)` is 63 — see `docs/ipc-reference.md` and `tests/test_security_doc_command_count.py`.)
 
+> **TS-only exceptions parity contract:** The renderer TS `ALLOWED_COMMANDS`
+> set contains two commands that are intentionally absent from the Rust
+> host's `allowed_commands()` literal: `heartbeat` and `relaunch_ack`.
+> These commands are dispatched directly by the Rust host (the WS-reader
+> task sends `heartbeat` to the Python backend; the `relaunch_app` Tauri
+> command sends `relaunch_ack`) rather than flowing through the generic
+> `invoke('dispatch', ...)` path from the renderer. Keeping them out of
+> the Rust `allowed_commands()` literal closes the attack surface where a
+> compromised renderer could spoof watchdog ticks or prematurely release
+> the relaunch-wait event. The +2 TS-only delta is asserted by the
+> `_TS_ONLY_EXCEPTIONS` frozenset in
+> `tests/test_security_doc_command_count.py`. **Contract:** when a new
+> command is added that the Rust host dispatches directly (not via
+> `dispatch`), it MUST be (1) added to the TS `ALLOWED_COMMANDS` set,
+> (2) NOT added to the Rust `allowed_commands()` literal, (3) added to
+> the `_TS_ONLY_EXCEPTIONS` frozenset with a rationale comment, and (4)
+> documented in this ADR. When a TS-only exception is removed (the
+> command is deleted or routed through `dispatch` instead), it MUST be
+> removed from `_TS_ONLY_EXCEPTIONS` in the same PR.
+
 ## 2. Sidecar←UI Command Table (channel 1, extracted from `ipc_server._COMMAND_REGISTRY`)
 
 **63 commands registered (verified against `ipc_server._COMMAND_REGISTRY` — IPC-1 reconciliation; ZR-45 removed 14 stale entries that were never in the registry, plus the prior 71→61 reconciliation reflects the post-cleanup state)**; each maps to a `_handle_<cmd>` mixin in `handlers/*` (or, for the two IPC-server-resident handlers `heartbeat` and `relaunch_ack`, a method on `IPCServer` itself). Dispatch is generic: `getattr(self, _COMMAND_REGISTRY[cmd])` → `(data, resp)`. Request `{"type":<cmd>,"data":{...}}`; response `{"type":"result"|"error","data":{...},"code"?}`. Exact `data` fields per command are defined inside each `_handle_*` and re-validated by `ipc_server._validate_dict_payload` (locate by `def _validate_dict_payload` in `voice_typer/server/ipc/validation.py`) — **that function is the source of truth for command-payload shape and must be ported 1:1, not redesigned or relaxed**; line numbers drift, so locate each handler by `def _handle_<cmd>` in `handlers/*`.

@@ -63,6 +63,25 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > ↔ 61 TS ↔ 61 Rust, with the +2 host-only delta as the only
 > intentional divergence.)
 
+> **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
+> in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the
+> Rust host's `allowed_commands()` literal: `heartbeat` (RW-10 watchdog
+> tick — the Rust WS-reader task sends this directly to the Python
+> backend; the renderer never dispatches it) and `relaunch_ack` (PERF-005
+> relaunch ack — the `relaunch_app` Tauri command sends this directly to
+> release the relaunch-wait event; the renderer never dispatches it).
+> Keeping these out of the Rust allowlist closes the attack surface where
+> a compromised renderer could `invoke('dispatch', {cmd:'heartbeat'})` to
+> spoof watchdog ticks and mask backend hangs, or
+> `invoke('dispatch', {cmd:'relaunch_ack'})` to prematurely release the
+> relaunch-wait event and cause a race. The +2 TS-only delta is asserted
+> by the `_TS_ONLY_EXCEPTIONS` frozenset in
+> `tests/test_security_doc_command_count.py`. When a TS-only command is
+> added or removed, this frozenset MUST be updated in the same PR, and
+> the rationale (why the Rust host dispatches it directly rather than
+> going through the generic `dispatch` path) MUST be documented as a
+> comment in the frozenset entry.
+
 ### Secret Redaction (SEC-003)
 
 API keys (OpenAI, Groq, Deepgram, LLM) are never sent to the renderer in
