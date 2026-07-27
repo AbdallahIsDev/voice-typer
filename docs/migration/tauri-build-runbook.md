@@ -332,7 +332,7 @@ runs require per-platform host validation (Phase 0) first.
 | Sidecar build (Windows x86_64+aarch64) | `scripts/build/build_sidecar_windows.sh` | ✅ Nuitka `--standalone --onefile` against `python-build-standalone` cpython-3.12.x+x86_64-pc-windows-msvc. Includes ctranslate2/lib + ctranslate2.dll. `--windows-disable-console`. |
 | Sidecar build (macOS x86_64+aarch64) | `scripts/build/build_sidecar_macos.sh` | ✅ Nuitka with `--macos-create-bundle --macos-app-mode=background` (LSUIElement=true). Rosetta 2 fallback for x86_64 on Apple Silicon host. |
 | Sidecar build (Linux x86_64+aarch64) | `scripts/build/build_sidecar_linux.sh` | ✅ Nuitka with `--onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp`. qemu-user-static cross-build for aarch64 on x86_64 host. glibc ≤ 2.35 baseline check. |
-| Prewarm build (Windows) | `scripts/build/build_prewarm_windows.sh` | ✅ Nuitka freeze of `voice_typer/server/prewarm.py` into `resources/prewarm-<triple>.exe`. Separate `--onefile-tempdir-spec` from sidecar (no collision). |
+| Prewarm build (Windows) | `scripts/build/build_prewarm_windows.sh` | ✅ Nuitka freeze of `voice_typer/server/prewarm/__main__.py` into `resources/prewarm-<triple>.exe`. Separate `--onefile-tempdir-spec` from sidecar (no collision). |
 | Prewarm build (macOS) | `scripts/build/build_prewarm_macos.sh` | ✅ Same Nuitka pattern as macOS sidecar; `--macos-app-name=VoiceTyperPrewarm`. |
 | Prewarm build (Linux) | `scripts/build/build_prewarm_linux.sh` | ✅ Same Nuitka pattern as Linux sidecar. |
 | Native listener build (Windows) | `scripts/build/build_native_listener_windows.sh` | ✅ Wraps `scripts/build/compile_native.ps1` (PowerShell). Copies the compiled `windows-key-listener.exe` into `src-tauri/resources/native/`. |

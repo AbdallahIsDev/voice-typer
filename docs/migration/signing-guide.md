@@ -358,10 +358,10 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 
 | Script | Purpose | Wired in `tauri.conf.json` `bundle.linux` |
 |--------|---------|-------------------------------------------|
-| `scripts/linux/postinst` | `.deb` post-install: udev rule, `input` group, Caps Lock neutralization, `/var/lib/voice-typer/permissions-manifest.json`. | `deb.postInstall` |
-| `scripts/linux/prerm` | `.deb` pre-remove: clean up the manifest. | `deb.preRemove` |
-| `scripts/linux/postinst.rpm` | `.rpm` post-install (same as `postinst`, RPM syntax). | `rpm.postInstall` |
-| `scripts/linux/prerm.rpm` | `.rpm` pre-remove (same as `prerm`, RPM syntax). | `rpm.preRemove` |
+| `scripts/linux/postinst` | `.deb` post-install: udev rule, `input` group, Caps Lock neutralization, `/var/lib/voice-typer/permissions-manifest.json`. | `deb.postInstallScript` |
+| `scripts/linux/prerm` | `.deb` pre-remove: clean up the manifest. | `deb.preRemoveScript` |
+| `scripts/linux/postinst.rpm` | `.rpm` post-install (same as `postinst`, RPM syntax). | `rpm.postInstallScript` |
+| `scripts/linux/prerm.rpm` | `.rpm` pre-remove (same as `prerm`, RPM syntax). | `rpm.preRemoveScript` |
 | `scripts/linux/99-voice-typer.rules` | udev rule for the native hotkey binary. | Installed by `postinst`/`postinst.rpm`. |
 | `scripts/linux/00-voice-typer-capslock.conf` | X11 Caps Lock config. | Installed by `postinst`/`postinst.rpm`. |
 | `scripts/linux/voice-typer.polkit` | polkit policy for AppImage `pkexec`. | Used by the AppImage launcher. |
@@ -414,7 +414,7 @@ host source tree) + the docs/ADRs that reference `updater` for context.
 |------|--------|
 | `src-tauri/Cargo.toml` | ✅ **CLEAN** — no `tauri-plugin-updater` dependency. |
 | `src-tauri/tauri.conf.json` | ✅ **CLEAN** — no `plugins.updater` key. The `plugins` object contains only `notification`, `clipboard-manager`, `single-instance`, `shell`. |
-| `src-tauri/capabilities/migrate-runtime.json` | ✅ **CLEAN** — no `updater:*` permissions. The `permissions` array contains only `core:*`, `shell:*`, `notification:*`, `clipboard-manager:*` entries. |
+| `src-tauri/capabilities/main-runtime.json` | ✅ **CLEAN** — no `updater:*` permissions. The `permissions` array contains only `core:*`, `shell:*`, `notification:*`, `clipboard-manager:*` entries. `bubble-runtime.json` (the bubble-window sibling) was also audited in the same pass — it likewise contains no updater permissions. |
 | `src-tauri/src/main.rs` | ✅ **CLEAN** — no `updater` references (not touched by this sub-agent per task rules). |
 
 #### Doc references (NOT modified — context only)
@@ -438,7 +438,7 @@ should NOT add `tauri-plugin-updater` to:
 
 - `src-tauri/Cargo.toml` `[dependencies]`
 - `src-tauri/tauri.conf.json` `plugins.updater`
-- `src-tauri/capabilities/migrate-runtime.json` `permissions`
+- `src-tauri/capabilities/main-runtime.json` `permissions` (and `bubble-runtime.json`)
 
 If a future release decides to wire auto-update, file a new ADR
 (superseding the §15 decision) and update this audit section.

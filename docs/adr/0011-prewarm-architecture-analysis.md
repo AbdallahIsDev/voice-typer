@@ -10,7 +10,7 @@
 
 ### Prewarm Pipeline
 
-The prewarm module (`voice_typer/server/prewarm.py`) is a standalone Python script that reads ~7 GB of files into the OS standby cache (free RAM repurposed as a disk cache).
+The prewarm module (`voice_typer/server/prewarm/` package, entry point `python -m voice_typer.server.prewarm`; was `voice_typer/server/prewarm.py` prior to the package split) is a standalone Python script that reads ~7 GB of files into the OS standby cache (free RAM repurposed as a disk cache).
 
 **Pipeline stages:**
 

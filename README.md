@@ -385,7 +385,7 @@ Global hotkey detection on every platform uses the out-of-process native binary 
 
 When `paste_on_stop` is enabled, the app detects whether a text input is focused (via Win32 API on Windows; via the focused-window process name on macOS/Linux). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
 
-The paste keystroke is **terminal-aware**: the app checks the focused window's process name against `_TERMINAL_PROCESS_NAMES` in `voice_typer/server/clipboard.py` (Windows Terminal, Warp, Alacritty, iTerm2, Terminal.app, gnome-terminal, konsole, xfce4-terminal, …). For terminal targets it sends **Shift+Insert** (macOS uses Cmd+V); for every other focus target it sends Ctrl+V. If you're pasting into a terminal that doesn't accept either keystroke, use the terminal's "Paste" menu item.
+The paste keystroke is **terminal-aware**: the app checks the focused window's process name against `_TERMINAL_PROCESS_NAMES` in `voice_typer/server/clipboard/linux.py` (Windows Terminal, Warp, Alacritty, iTerm2, Terminal.app, gnome-terminal, konsole, xfce4-terminal, …). For terminal targets it sends **Shift+Insert** (macOS uses Cmd+V); for every other focus target it sends Ctrl+V. If you're pasting into a terminal that doesn't accept either keystroke, use the terminal's "Paste" menu item.
 
 The clipboard always gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
 
@@ -463,7 +463,7 @@ voice_typer/
 │   ├── cloud_engines.py   # Cloud ASR / LLM HTTP transports
 │   ├── streaming.py    # Streaming transcription with overlapping audio windows
 │   ├── text_cleanup.py # Post-transcription cleanup (dedup, misspellings, capitalization)
-│   ├── clipboard.py    # Clipboard copy + safe auto-paste (terminal-aware: Shift+Insert)
+│   ├── clipboard/     # Clipboard copy + safe auto-paste (package: manager, linux, windows; terminal-aware: Shift+Insert)
 │   ├── hotkeys/        # Hotkey backend abstraction package (Win32 native / pynput / Wayland fallback)
 │   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
 │   ├── ipc_server.py   # JSON-over-TCP IPC server for the Electron client (port 9876)
@@ -480,7 +480,7 @@ voice_typer/
 │   ├── templates.py     # Text templates
 │   ├── llm_polish.py    # Optional LLM-based transcription polish
 │   ├── vad.py           # Voice activity detection
-│   ├── volume_ducker.py / volume_backends.py  # System volume ducking
+│   ├── volume_ducker.py / volume_backends/  # System volume ducking (volume_backends is a package: linux/macos/windows)
 │   ├── task_scheduler.py  # Pre-warm task scheduler (Windows Task Scheduler / cron)
 │   ├── prewarm/        # Pre-warm orchestration (package: pipeline, cli, paths, cache_probe, …)
 │   ├── prewarm_scheduler_posix.py  # POSIX pre-warm scheduling (LaunchAgent / systemd user timer)
