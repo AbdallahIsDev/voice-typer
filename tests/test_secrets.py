@@ -278,9 +278,9 @@ class TestUrlAllowlist:
         assert not is_url_allowed("https://evil.example.com/exfiltrate")
         assert not is_url_allowed("https://192.168.1.50/steal")
 
-    def test_empty_url_allowed(self):
-        """Empty URLs fail later with a clearer HTTP error."""
-        assert is_url_allowed("") is True
+    def test_empty_url_rejected(self):
+        """Empty URLs are rejected (consistent with assert_url_allowed)."""
+        assert is_url_allowed("") is False
 
     def test_no_hostname_rejected(self):
         assert not is_url_allowed("javascript:alert(1)")

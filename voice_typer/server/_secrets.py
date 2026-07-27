@@ -509,12 +509,12 @@ def get_url_allowlist() -> frozenset[str]:
 def is_url_allowed(url: str) -> bool:
     """Return True if the URL's host is in the allowlist.
 
-    Empty URLs are considered allowed (they fail later with a clearer
-    error from the HTTP layer).  URLs with no hostname (e.g.
-    ``javascript:alert(1)``) are rejected.
+    Empty URLs are rejected (consistent with :func:`assert_url_allowed`
+    which raises ``ValueError`` on empty input).  URLs with no hostname
+    (e.g. ``javascript:alert(1)``) are also rejected.
     """
     if not url:
-        return True
+        return False
     try:
         parsed = urlparse(url)
     except (ValueError, TypeError):
