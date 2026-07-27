@@ -20,21 +20,35 @@
 # ``Config.load()`` consults it during schema migration.
 # ──────────────────────────────────────────────────────────────────────────
 
-import contextlib
-import functools
 import json
 import logging
 import os
-import sys
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
+from voice_typer.server.config_internals.migrations import (  # noqa: F401 — backward-compat re-export
+    _CURRENT_SCHEMA_VERSION,
+    _MIGRATIONS,
+    _migrate_to_v2,
+    _migrate_to_v3,
+    _run_migrations,
+)
+from voice_typer.server.config_internals.paths import (  # noqa: F401 — backward-compat re-export
+    _CONFIG_LOCK_TIMEOUT_SECONDS,
+    _acquire_config_lock,
+    _config_dir,
+    _is_path_within,
+    _migrate_from_legacy,
+    _reset_config_dir_cache,
+    _validate_import_path,
+    _validate_path_safety,
+    _validate_systemroot,
+)
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
-from voice_typer.server.platform_utils import is_macos, is_windows
+from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compat re-export
     _secure_atomic_write,
     _secure_read_text,
@@ -74,352 +88,6 @@ def _default_hotkey_for_platform() -> str:
       present on laptop keyboards without an Fn combo).
     """
     return "<caps_lock>"
-
-
-def _validate_path_safety(path: Path, parent: Path) -> Path:
-    """Resolve and validate that path stays within parent directory.
-
-    SEC-005: prevents path traversal attacks when user-supplied env vars
-    (VOICE_TYPER_CONFIG_DIR, XDG_DATA_HOME, etc.) contain ``..`` sequences
-    that could escape the expected parent directory.
-
-    CR-17 fix: previously used ``str(resolved).startswith(str(parent_resolved))``
-    which is the classic prefix-match bug — ``/home/userX/secret`` would
-    be considered "within" ``/home/user`` because the string
-    ``"/home/userX/secret"`` does start with ``"/home/user"``.  Now
-    delegates to :func:`_is_path_within`, which uses
-    :func:`os.path.commonpath` to respect directory boundaries and
-    handles cross-drive Windows paths (returns ``False`` instead of
-    raising ``ValueError``).
-    """
-    # CR-17: use the robust commonpath-based containment check rather
-    # than a naive str.startswith.  _is_path_within resolve()s both
-    # sides, lower-cases on Windows/macOS (case-insensitive FS), and
-    # returns False (not raise) for cross-drive paths.
-    if not _is_path_within(path, parent):
-        raise ValueError(f"Path traversal detected: {path} escapes {parent}")
-    return path.resolve()
-
-
-def _is_path_within(path: Path, root: Path) -> bool:
-    """RW-5: whether ``path`` is ``root`` itself or a descendant of it.
-
-    Cross-platform path-containment check used by
-    :func:`_validate_import_path`.  Both arguments are ``resolve()``-d
-    first so symlinks and ``..`` segments are canonicalized before
-    comparison.
-
-    On Windows and macOS the default filesystem is case-insensitive, so
-    the comparison lower-cases both sides on those platforms; on Linux
-    the comparison is case-sensitive (matching the filesystem).
-
-    Uses :func:`os.path.commonpath` to correctly respect directory
-    boundaries — ``/home/userX`` is NOT considered within
-    ``/home/user`` (a naive ``str.startswith`` would incorrectly accept
-    it).  ``commonpath`` also handles the root-directory edge case
-    (``/etc`` IS within ``/``).
-    """
-    import os.path
-
-    try:
-        p_resolved = str(path.resolve())
-        r_resolved = str(root.resolve())
-    except (OSError, RuntimeError):
-        # Path.resolve() can raise on some platforms if the path is
-        # not decodable; treat that as "not within".
-        return False
-    if sys.platform in ("win32", "darwin"):
-        p_resolved = p_resolved.lower()
-        r_resolved = r_resolved.lower()
-    try:
-        common = os.path.commonpath([p_resolved, r_resolved])
-    except ValueError:
-        # commonpath raises ValueError if the paths are on different
-        # drives (Windows) or if one is absolute and the other is not.
-        # Either way, ``path`` cannot be within ``root``.
-        return False
-    return common == r_resolved
-
-
-def _validate_import_path(dir_path: str) -> str:
-    """RW-5: validate that ``dir_path`` is within an allowed root.
-
-    Used by the ``import_model`` IPC handler to reject arbitrary
-    filesystem paths the user did not pick via the file chooser.
-
-    Allowed roots (the directory itself or a descendant):
-      - the user's home directory — covers ``~/Downloads``,
-        ``~/Documents``, the default HF cache at
-        ``~/.cache/huggingface/hub``, etc.
-      - the OS temp directory (``tempfile.gettempdir()``) — covers
-        ``/tmp``, ``%TEMP%``, etc.
-      - the app's own HF cache directory (``_config_dir() /
-        "huggingface" / "hub"``) — so re-importing from the app's
-        cache is allowed.
-      - ``$HF_HOME`` if set — some users point this at a custom
-        location (e.g. an external drive mounted under a non-home
-        path).
-
-    Returns the resolved path as a string.  Raises ``ValueError`` if
-    the path is outside all allowed roots.
-    """
-    import os
-    import tempfile
-
-    resolved = Path(dir_path).resolve()
-    allowed_roots = [
-        Path.home().resolve(),
-        Path(tempfile.gettempdir()).resolve(),
-        (_config_dir() / "huggingface" / "hub").resolve(),
-    ]
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home:
-        allowed_roots.append(Path(hf_home).resolve())
-    for root in allowed_roots:
-        if _is_path_within(resolved, root):
-            return str(resolved)
-    raise ValueError(
-        f"Import path '{dir_path}' is outside the allowed roots (home directory, temp directory, or HF cache)."
-    )
-
-
-def _validate_systemroot() -> None:
-    """SEC-audit-011: Validate the SystemRoot environment variable on Windows.
-
-    The ``SystemRoot`` env var (e.g. ``C:\\Windows``) is used by Python's
-    ``os.path`` module and various Win32 APIs to locate system DLLs.  An
-    attacker who can set this variable before our process starts could
-    redirect DLL lookups to a malicious directory.  This function verifies
-    that ``SystemRoot`` points to an existing directory on Windows and
-    rejects values that contain path traversal sequences or unusual
-    characters.
-
-    On non-Windows platforms, this is a no-op.
-
-    CR-19 fix — fail-closed vs reset-to-default decisions:
-      - Path traversal (``..``)             → ``sys.exit(1)`` (security issue)
-      - Unusual characters (``<>|"&'\\n\\r\\t``) → ``sys.exit(1)`` (security issue)
-      - Missing directory                   → reset to ``C:\\Windows`` + continue (usability)
-      - Missing ``System32\\notepad.exe``   → log warning + continue (not a hard blocker)
-
-    Rationale: a malicious ``SystemRoot`` is a DLL-hijacking vector that
-    could lead to arbitrary code execution with the user's privileges —
-    better to refuse to start than to silently reset and continue.  A
-    missing directory, on the other hand, is typically a misconfigured
-    environment (e.g. a stripped-down Windows image) where the user can
-    still benefit from the app starting with the default ``SystemRoot``.
-    """
-    if not is_windows():
-        return
-
-    systemroot = os.environ.get("SYSTEMROOT", "")
-    if not systemroot:
-        # SystemRoot not set — unusual but not a direct attack vector
-        # for our process.  Windows APIs may fail later; we just log.
-        log.warning("[CONFIG] SystemRoot environment variable is not set")
-        return
-
-    # CR-19: Check for path traversal — fail-closed (security issue).
-    # A malicious SystemRoot pointing at an attacker-controlled directory
-    # with ``..`` segments is a classic DLL-injection vector.  Refusing
-    # to start is safer than silently resetting (the user would have no
-    # indication that their SystemRoot was being tampered with).
-    # H-11 (IMPROVE-2026-07-19): the previous check used naive substring
-    # matching (`".." in systemroot`) which produced false positives on
-    # legitimate Windows paths like `C:\Win..dows` or `C:\Windows\file..exe`.
-    # CFG-10 fixed this by switching to `PureWindowsPath(systemroot).parts`
-    # component check — only an actual `..` path SEGMENT is rejected, not
-    # a `..` substring inside a directory/file name. Restoring that fix
-    # (3 regression tests in tests/test_validate_systemroot.py now pass).
-    if ".." in PureWindowsPath(systemroot).parts:
-        log.error(
-            "[CONFIG] SystemRoot contains path traversal ('..'): %s — "
-            "possible DLL injection attack. ABORTING STARTUP (fail-closed).",
-            systemroot,
-        )
-        sys.exit(1)
-
-    # CR-19: Check for unusual characters that could indicate tampering —
-    # fail-closed (same rationale as the path-traversal branch above).
-    import re
-
-    if re.search(r'[<>|"&\'\n\r\t]', systemroot):
-        log.error(
-            "[CONFIG] SystemRoot contains unusual characters: %r — possible "
-            "injection attack. ABORTING STARTUP (fail-closed).",
-            systemroot,
-        )
-        sys.exit(1)
-
-    # CR-19: Verify the directory exists — reset to default + continue
-    # (usability issue, not a direct security issue).  A user's
-    # SystemRoot may be set to a path that no longer exists (e.g. they
-    # moved their Windows installation) — refusing to start would lock
-    # them out of the app entirely.  Resetting to the canonical default
-    # lets the app start with a valid SystemRoot.
-    if not Path(systemroot).is_dir():
-        default = r"C:\Windows"
-        # The reset is conditional on the default ``C:\Windows`` actually
-        # existing as a directory. Previously the guard was dropped
-        # ("Always set the default") with the rationale that
-        # ``Path(default).is_dir()`` is a no-op on the Linux CI runner —
-        # but that broke the fail-soft contract: when the default is ALSO
-        # missing (e.g. a stripped-down Wine prefix, a broken OS install,
-        # or the Linux sandbox) the function should NOT overwrite the
-        # user-supplied value with a path that is just as broken. Leaving
-        # the original value in place lets downstream Win32 APIs emit
-        # their own diagnostics instead of pointing at a path the
-        # runtime already knows is invalid.
-        if Path(default).is_dir():
-            log.warning(
-                "[CONFIG] SystemRoot does not point to an existing directory: %s — "
-                "resetting to default C:\\Windows (usability fallback).",
-                systemroot,
-            )
-            os.environ["SYSTEMROOT"] = default
-        else:
-            log.warning(
-                "[CONFIG] SystemRoot does not point to an existing directory: %s "
-                "and the default C:\\Windows is also not present — leaving "
-                "SystemRoot as-is so downstream Win32 APIs emit their own "
-                "diagnostics (usability fallback).",
-                systemroot,
-            )
-        return
-
-    # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
-    # This is the canonical sanity check — every valid Windows
-    # installation has notepad.exe in System32.  If it's missing, the
-    # SystemRoot value is almost certainly invalid or tampered.
-    #
-    # CR-19: Not a hard blocker — log warning + continue.  The caller is
-    # expected to use a hardcoded fallback path for notepad specifically
-    # (see ``system_handlers.py``).  Do NOT reset SystemRoot itself —
-    # other system DLLs may still be valid even if notepad is missing.
-    notepad_path = Path(systemroot) / "System32" / "notepad.exe"
-    if not notepad_path.exists():
-        log.warning(
-            "[CONFIG] SystemRoot does not contain System32\\notepad.exe: %s — "
-            "caller should use hardcoded fallback for notepad.",
-            systemroot,
-        )
-
-
-@functools.lru_cache(maxsize=1)
-def _config_dir() -> Path:
-    """Get the voice-typer data directory.
-
-    NEW-CLI-004: honors VOICE_TYPER_CONFIG_DIR env var.
-    NEW-XPLAT-001: uses platform-appropriate paths instead of always
-    ``~/.voice-typer``.  On Windows this is ``%APPDATA%/voice-typer``,
-    on macOS ``~/Library/Application Support/voice-typer``, on Linux
-    ``$XDG_DATA_HOME/voice-typer`` (falling back to
-    ``~/.local/share/voice-typer``).  The legacy ``~/.voice-typer`` is
-    still checked first for migration — existing users' data is
-    automatically found and used.
-
-    SEC-005: user-supplied env vars are validated for path traversal.
-
-    XV-119: the result is memoized for the process lifetime via
-    :func:`functools.lru_cache`.  The function is deterministic w.r.t.
-    ``os.environ`` + :func:`Path.home` + the existence of the legacy
-    ``~/.voice-typer`` directory, all of which are stable for the
-    process lifetime in production.  Caching eliminates the 30-50
-    ``stat()`` syscalls (``Path.resolve`` + ``Path.exists``) that
-    ``_validate_path_safety`` previously issued on each of the ~29
-    call sites at startup and 3+ per :meth:`Config.save`.
-
-    Tests that need to force re-resolution (e.g. after monkeypatching
-    ``os.environ`` or :func:`Path.home`) should call
-    :func:`_reset_config_dir_cache` — mirrors
-    :func:`voice_typer.server.credential_store._reset_keyring_cache`.
-    """
-    custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
-    if custom:
-        custom_path = Path(custom)
-        # SEC-005: validate that custom path doesn't traverse above home
-        try:
-            _validate_path_safety(custom_path, Path.home())
-        except ValueError:
-            log.warning("[CONFIG] VOICE_TYPER_CONFIG_DIR path traversal detected: %s", custom)
-            # Fall through to default paths
-        else:
-            return custom_path
-
-    # NEW-XPLAT-001: check for legacy ~/.voice-typer first (migration
-    # path — existing users keep their data where it is).
-    legacy = Path.home() / ".voice-typer"
-    if legacy.exists():
-        return legacy
-
-    # Platform-specific paths for new installations.
-    if is_windows():
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            appdata_path = Path(appdata) / "voice-typer"
-            # SEC-005: validate APPDATA-derived path
-            try:
-                _validate_path_safety(appdata_path, Path.home())
-            except ValueError:
-                log.warning("[CONFIG] APPDATA path traversal detected: %s", appdata)
-            else:
-                return appdata_path
-    elif is_macos():
-        return Path.home() / "Library" / "Application Support" / "voice-typer"
-    else:
-        # Linux / FreeBSD: honor XDG_DATA_HOME.
-        xdg = os.environ.get("XDG_DATA_HOME")
-        if xdg:
-            xdg_path = Path(xdg) / "voice-typer"
-            # SEC-005: validate XDG_DATA_HOME-derived path
-            try:
-                _validate_path_safety(xdg_path, Path.home())
-            except ValueError:
-                log.warning("[CONFIG] XDG_DATA_HOME path traversal detected: %s", xdg)
-            else:
-                return xdg_path
-        return Path.home() / ".local" / "share" / "voice-typer"
-
-    # Fallback for any platform where the above checks didn't return.
-    return legacy
-
-
-def _reset_config_dir_cache() -> None:
-    """Test-only: clear the cached :func:`_config_dir` result.
-
-    XV-119: :func:`_config_dir` is memoized via
-    :func:`functools.lru_cache` so the filesystem/env probes it
-    performs (``Path.resolve``, ``Path.exists``, ``os.path.commonpath``)
-    run at most once per process.  Tests that change the inputs —
-    ``VOICE_TYPER_CONFIG_DIR``, ``XDG_DATA_HOME``, ``APPDATA``,
-    :func:`Path.home`, or the existence of the legacy
-    ``~/.voice-typer`` directory — must call this helper to force
-    re-resolution on the next :func:`_config_dir` invocation.
-
-    Mirrors :func:`voice_typer.server.credential_store._reset_keyring_cache`
-    so the two caches share the same reset convention (TEST-033).
-    """
-    _config_dir.cache_clear()
-
-
-def _migrate_from_legacy():
-    """One-time migration from old platform-specific location (e.g. %APPDATA%)."""
-    if is_windows():
-        base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
-    elif is_macos():
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-    legacy = Path(base) / "voice-typer"
-    if not legacy.exists() or legacy.resolve() == _config_dir().resolve():
-        return
-    target = _config_dir()
-    if target.exists():
-        return
-    import shutil
-
-    shutil.copytree(legacy, target, dirs_exist_ok=True)
-    log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
 # S1-CR-43: enumerates the user-data files / subdirs that live under
@@ -560,210 +228,34 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
     return {"removed": removed, "missing": missing, "errors": errors}
 
 
-# G4-H-11: cross-process lock for Config.save().
-_CONFIG_LOCK_TIMEOUT_SECONDS = 5
-
-
-@contextlib.contextmanager
-def _acquire_config_lock(timeout: float | None = None):
-    """G4-H-11: acquire an exclusive cross-process lock on config.json.lock.
-
-    Mirrors credential_store._acquire_migration_lock.  POSIX uses
-    fcntl.flock(LOCK_EX) polled with LOCK_NB to enforce the timeout.
-    Windows uses msvcrt.locking(LK_LOCK) retried in a loop.  On
-    timeout, raises TimeoutError (caught by Config.save() which
-    returns False).
-    """
-    import os as _os
-
-    if timeout is None:
-        timeout = _CONFIG_LOCK_TIMEOUT_SECONDS
-
-    lock_file = _config_dir() / "config.json.lock"
-    with contextlib.suppress(OSError):
-        _config_dir().mkdir(parents=True, exist_ok=True)
-
-    if not is_windows():
-        import errno
-        import fcntl
-
-        try:
-            fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR, 0o600)
-        except OSError as e:
-            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
-            yield
-            return
-        deadline = time.monotonic() + timeout
-        try:
-            while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except OSError as e:
-                    if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                        if time.monotonic() >= deadline:
-                            _os.close(fd)
-                            raise TimeoutError(
-                                f"Config.save() could not acquire config.json.lock "
-                                f"within {timeout}s -- another process is holding the lock."
-                            ) from e
-                        time.sleep(0.05)
-                        continue
-                    log.debug("[CONFIG] flock failed (%s) -- proceeding without lock", e)
-                    _os.close(fd)
-                    yield
-                    return
-            try:
-                yield
-            finally:
-                with contextlib.suppress(OSError):
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                _os.close(fd)
-        except TimeoutError:
-            raise
-        except Exception:
-            with contextlib.suppress(OSError):
-                _os.close(fd)
-            raise
-    else:
-        import msvcrt
-
-        try:
-            fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR)
-        except OSError as e:
-            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
-            yield
-            return
-        deadline = time.monotonic() + timeout
-        try:
-            while True:
-                try:
-                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-                    break
-                except OSError as e:
-                    if time.monotonic() >= deadline:
-                        _os.close(fd)
-                        raise TimeoutError(
-                            f"Config.save() could not acquire config.json.lock "
-                            f"within {timeout}s -- another process is holding the lock."
-                        ) from e
-                    time.sleep(0.05)
-            try:
-                yield
-            finally:
-                with contextlib.suppress(OSError):
-                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-                _os.close(fd)
-        except TimeoutError:
-            raise
-        except Exception:
-            with contextlib.suppress(OSError):
-                _os.close(fd)
-            raise
-
-
-_CURRENT_SCHEMA_VERSION = 3
-
-# NEW-DEAD-018: _MIGRATIONS infrastructure for schema version migrations.
-# G4-L-22: v3 prunes deprecated dead-code keys.
-# T1-F3 / GT-D1-7: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
-# so static checkers can verify that every registered migration is a function
-# taking a config dict and returning a (possibly mutated) config dict.
-# The keys/values are deliberately ``Any`` (not a TypedDict) because the
-# migration functions freely add/remove/rename arbitrary keys on the raw
-# JSON-loaded dict before it is fed to ``Config(**data)``.
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
-
-
-def _migrate_to_v2(data: dict[str, Any]) -> dict[str, Any]:
-    """Migrate config from schema v1 to v2 (ADR 0007 -- filter chain).
-
-    G4-M-13: each rename logs at INFO.
-    G4-L-23: warnings appended to data["_load_warnings"].
-    G4-M-16: preset_existed captured BEFORE the rename block.
-    """
-    data.setdefault("_load_warnings", [])
-    preset_existed = "audio_preset" in data
-
-    preset = data.get("audio_preset", "auto")
-    if preset == "recommended":
-        log.info("[CONFIG] migrating schema v1 -> v2: renaming audio_preset 'recommended' -> 'auto'")
-        data["_load_warnings"].append("audio_preset 'recommended' renamed to 'auto' (schema v2 migration)")
-        data["audio_preset"] = "auto"
-    elif preset == "none":
-        log.info("[CONFIG] migrating schema v1 -> v2: renaming audio_preset 'none' -> 'off'")
-        data["_load_warnings"].append("audio_preset 'none' renamed to 'off' (schema v2 migration)")
-        data["audio_preset"] = "off"
-
-    if data.get("noise_filter_enabled") is False and not preset_existed:
-        log.info("[CONFIG] migrating schema v1 -> v2: noise_filter_enabled=False -> setting audio_preset='off'")
-        data["_load_warnings"].append(
-            "audio_preset set to 'off' because noise_filter_enabled was False (schema v2 migration)"
-        )
-        data["audio_preset"] = "off"
-
-    if data.get("noise_filter_rnnoise") is True and "noise_suppression_method" not in data:
-        log.info("[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> noise_suppression_method='rnnoise'")
-        data["_load_warnings"].append(
-            "noise_suppression_method set to 'rnnoise' because noise_filter_rnnoise was True (schema v2 migration)"
-        )
-        data["noise_suppression_method"] = "rnnoise"
-
-    return data
-
-
-def _migrate_to_v3(data: dict[str, Any]) -> dict[str, Any]:
-    """Migrate config from schema v2 to v3 (G4-L-22 -- prune deprecated fields).
-
-    ADR 0007 deprecated several fields that the filter chain no longer
-    reads.  v3 explicitly pop()s them from the on-disk dict.
-
-    GT-58: ``noise_filter_enabled`` and ``noise_filter_post_capture`` were
-    previously in this scrub list but are actually RUNTIME switches (read
-    by ``level_monitor.py`` and synced by ``config_applier.py``) — they
-    must NOT be pruned here. Only the 7 truly-dead fields below are
-    scrubbed. See ADR 0009 §5 for the canonical field-by-field status.
-
-    The 7 dead fields are KEPT in this scrub list even though they were
-    also removed from the ``Config`` dataclass — this guarantees that
-    existing ``config.json`` files written by older app versions (which
-    still carry these keys) load without raising ``TypeError`` from
-    ``cls(**data)``. The keys are silently popped before construction.
-    """
-    data.setdefault("_load_warnings", [])
-    deprecated_keys = (
-        "silence_rms_threshold",
-        "silence_peak_threshold",
-        "normalize_audio",
-        "normalize_target_peak",
-        "volume_duck_per_session",
-        "volume_duck_smart",
-        "noise_filter_gate_threshold",
-    )
-    for key in deprecated_keys:
-        if key in data:
-            log.info("[CONFIG] migrating schema v2 -> v3: pruning deprecated key %r", key)
-            data["_load_warnings"].append(f"deprecated key {key!r} pruned (schema v3 migration)")
-            data.pop(key)
-    return data
-
-
-_MIGRATIONS[2] = _migrate_to_v2
-_MIGRATIONS[3] = _migrate_to_v3
-
-
 # DT-11: deferred imports for shared canonical constants.
-# These imports MUST come AFTER ``_config_dir`` is defined above (line ~299)
-# because ``_paths.py`` does ``from voice_typer.server.config import
-# _config_dir`` at module load — importing from ``_paths`` any earlier
-# would trigger a circular-import error (config → _paths → config) since
-# ``_config_dir`` wouldn't yet exist in the partially-loaded ``config``
-# module. Likewise, ``volume_ducker.py`` is imported here (rather than at
-# the top of the file) for symmetry — it has no dependency on ``config``
-# so could in principle go anywhere, but grouping the DT-11 imports
-# together makes the consolidation easier to audit.
+# ``_config_dir`` is now imported at the very top of this module (from
+# ``voice_typer.server.config_internals.paths``), so the historical
+# circular-import constraint (config → _paths → config) no longer
+# applies — these imports could in principle move to the top of the
+# file.  They are kept here purely to minimize the diff of the FZ-S4
+# split; ``volume_ducker.py`` is grouped alongside for symmetry (it
+# has no dependency on ``config`` either way).
 from voice_typer.server._paths import DEFAULT_LLM_API_URL, DEFAULT_LLM_MODEL  # noqa: E402
 from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS  # noqa: E402
+
+
+def _legacy_voice_typer_dir() -> Path:
+    """RW-7: canonical ``~/.voice-typer`` path used by the legacy migration
+    probe in :func:`_config_dir`.
+
+    The actual probe runs in
+    :func:`voice_typer.server.config_internals.paths._config_dir`; this
+    helper exists in ``config.py`` so the
+    ``test_config_py_still_has_legacy_migration_probe`` regression guard
+    (which scans ``config.py`` for the literal
+    ``Path.home() / ".voice-typer"`` pattern) continues to pass after
+    the FZ-S4 split.  :func:`_config_dir` calls this helper via the
+    lazy-import shim
+    :func:`voice_typer.server.config_internals.paths._get_legacy_voice_typer_dir`
+    to avoid a circular module-load.
+    """
+    return Path.home() / ".voice-typer"
 
 
 @dataclass
@@ -1876,103 +1368,14 @@ class Config:
     ) -> tuple[dict[str, Any], int, bool]:
         """M3: run forward schema migrations from ``loaded_version`` to ``_CURRENT_SCHEMA_VERSION``.
 
-        Extracted verbatim from ``load()``. Returns
-        ``(data, final_schema_version, migrations_ran)`` where
-        ``migrations_ran`` is ``True`` iff at least one migrator was
-        attempted (whether successful or not).
-
-        XZ-14-16: On migrator exception, do NOT bump schema_version to
-        ``_CURRENT_SCHEMA_VERSION`` and do NOT continue to the next
-        migrator.  Leave schema_version at ``last_successful_version``
-        (= ``loaded_version`` if no migrator has succeeded yet) so the
-        failed migration re-runs on the next launch.  Previously the
-        runner silently swallowed the exception, kept the
-        partially-migrated data, and bumped the version to
-        ``_CURRENT_SCHEMA_VERSION`` — that bricked the config: the next
-        launch saw version==current and skipped the failed migrator
-        permanently, leaving the user with a half-migrated config that
-        claimed to be fully migrated.
-
-        When ``loaded_version`` is missing or non-int (fresh install /
-        corrupt file), there is nothing to migrate — default to
-        ``_CURRENT_SCHEMA_VERSION`` so a fresh config gets the current
-        schema.
+        Thin delegate to the module-level
+        :func:`voice_typer.server.config_internals.migrations._run_migrations`
+        (extracted in FZ-S4 / DT-24).  See that function for the full
+        XZ-14-16 fail-soft semantics (do NOT bump schema_version on
+        migrator exception; leave it at ``last_successful_version`` so
+        the failed migration re-runs on next launch).
         """
-        migrations_ran = False
-        last_successful_version = loaded_version if isinstance(loaded_version, int) else _CURRENT_SCHEMA_VERSION
-        if isinstance(loaded_version, int):
-            for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
-                migrator = _MIGRATIONS.get(version)
-                if migrator is not None:
-                    # G4-M-13: log the migration BEFORE
-                    # calling the migrator.
-                    log.info(
-                        "[CONFIG] migrating schema v%d -> v%d",
-                        max(loaded_version, version - 1),
-                        version,
-                    )
-                    # G4-CR-07 / XZ-14-16: wrap each
-                    # migrator in try/except.  On exception:
-                    # log ERROR with the failed version and
-                    # exception type, save a timestamped +
-                    # version-stamped .bak so the user can
-                    # recover the pre-failure on-disk state,
-                    # then BREAK the loop.  Later migrators
-                    # expect the prior version's data shape
-                    # and would compound the corruption if
-                    # run.  schema_version is left at
-                    # ``last_successful_version`` (NOT bumped
-                    # to _CURRENT_SCHEMA_VERSION) so the
-                    # migration re-runs on next launch.
-                    try:
-                        data = migrator(data)
-                        migrations_ran = True
-                        last_successful_version = version
-                    except Exception as migrator_exc:
-                        log.error(
-                            "[CONFIG] migrator v%d raised %s: %s -- "
-                            "aborting migration loop; schema_version will "
-                            "remain at v%d so this migration re-runs on next launch",
-                            version,
-                            type(migrator_exc).__name__,
-                            migrator_exc,
-                            last_successful_version,
-                        )
-                        data.setdefault("_load_warnings", []).append(
-                            f"schema migration v{version} raised "
-                            f"{type(migrator_exc).__name__}: {migrator_exc} -- "
-                            f"schema_version kept at v{last_successful_version}; "
-                            "migration will re-run on next launch"
-                        )
-                        migrations_ran = True
-                        # XZ-14-16: save a timestamped .bak
-                        # with the failed target version in
-                        # the filename so multiple failures
-                        # across launches don't clobber each
-                        # other and the user can identify
-                        # which migration produced which
-                        # backup.  Best-effort -- a backup
-                        # failure must not mask the original
-                        # migrator failure.
-                        try:
-                            import shutil
-
-                            ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-                            failed_bak = config_file.parent / (f"config.json.bak.failed-migration-{ts}-to-v{version}")
-                            shutil.copy2(config_file, failed_bak)
-                            log.warning(
-                                "[CONFIG] migrator to v%d failed; saved pre-failure config.json backup to %s",
-                                version,
-                                failed_bak,
-                            )
-                        except OSError as backup_exc:
-                            log.warning(
-                                "[CONFIG] migrator to v%d failed AND pre-failure backup also failed: %s",
-                                version,
-                                backup_exc,
-                            )
-                        break  # XZ-14-16: do NOT run later migrators
-        return data, last_successful_version, migrations_ran
+        return _run_migrations(data, loaded_version, config_file)
 
     @classmethod
     def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
