@@ -276,7 +276,6 @@ class TestHotkeyCallbackChain:
         app.tray = MagicMock()
         app._busy_event.set()  # not busy
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = True
 
         # Simulate what GlobalHotKeys does: call the registered callback directly

@@ -42,7 +42,6 @@ class TestAppStateTransitions:
         app.recorder.start = MagicMock()
         app.tray = MagicMock()
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = True
 
         app._start_dictation()
@@ -77,7 +76,6 @@ class TestAppStateTransitions:
         monkeypatch.setattr(app_mod, "time", MagicMock())
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
 
         app.recorder = MagicMock()
         app.recorder.recording = True
@@ -99,7 +97,6 @@ class TestAppStateTransitions:
         app.clipboard.paste = MagicMock(return_value=False)
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
         app.models.transcriber.device_info = "cpu (int8)"
 
@@ -120,7 +117,6 @@ class TestAppStateTransitions:
         app.clipboard.paste = MagicMock(return_value=False)
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="can we test this this now")
         app.models.transcriber.device_info = "cuda/float16/small.en"
 
@@ -152,7 +148,6 @@ class TestAppStateTransitions:
         app.clipboard.paste = MagicMock(return_value=True)
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="secret text")
         app.models.transcriber.device_info = "cpu (int8)"
 
@@ -178,7 +173,6 @@ class TestAppStateTransitions:
     def test_transcribe_empty_result_no_clipboard(self, app):
         app.clipboard = MagicMock()
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="")
 
         app.recorder = MagicMock()
@@ -195,7 +189,6 @@ class TestAppStateTransitions:
         from voice_typer.server.tray_types import AppState
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(side_effect=Exception("model crash"))
 
         app.recorder = MagicMock()
@@ -241,7 +234,6 @@ class TestAppStateTransitions:
         ``TestTranscribeWithFallback`` in test_transcription.py.
         """
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         # WR-2: first call raises CUDA error, second call succeeds —
         # exercises the fallback path (production catches the exception
         # and retries; here the mock just returns the second value).
@@ -292,7 +284,6 @@ class TestAppStateTransitions:
         app.clipboard = MagicMock()
         app.clipboard.copy = MagicMock(return_value=True)
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="test")
         app.models.transcriber.device_info = "cpu (int8)"
         app.recorder = MagicMock()
@@ -326,7 +317,6 @@ class TestAppStateTransitions:
         app.clipboard = MagicMock()
         app.clipboard.copy = MagicMock(return_value=True)
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="test")
         app.models.transcriber.device_info = "cpu (int8)"
         app.recorder = MagicMock()
@@ -376,7 +366,6 @@ class TestAppStateTransitions:
         """After a transcription failure, pressing F2 should work again."""
         # Simulate: transcription failed, busy was cleared
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(
             side_effect=RuntimeError("cublas64_12.dll is not found or cannot be loaded")
         )
@@ -544,7 +533,6 @@ class TestStartupResilience:
         # ARCH-007: model load now goes through _sync_asr_registry +
         # _asr_registry.load_with_fallback. Mock the registry so we
         # can track when model loading happens.
-        app.models._sync_registry_from_fields = MagicMock()
         # ARCH-REFAC-003: assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
@@ -599,7 +587,6 @@ class TestStartupResilience:
     def test_start_dictation_retries_model_load(self, app):
         """When model not loaded, _start_dictation should try loading it."""
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = False
         app.models.transcriber.load = MagicMock()
         app.models.transcriber.device_info = "cpu (int8)"
@@ -622,7 +609,6 @@ class TestStartupResilience:
     def test_start_dictation_fails_gracefully_if_model_still_unavailable(self, app):
         """If model retry fails, should not attempt recording."""
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = False
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("still OOM"))
         app.tray = MagicMock()

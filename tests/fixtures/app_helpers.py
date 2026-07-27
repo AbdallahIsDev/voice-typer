@@ -68,10 +68,12 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
       cancel path should re-enable it).
     - ``instance.config.voice_biometric_consent = True`` so the
       recording path can be exercised (NEW-PRIV-009).
-    - ``instance.models.transcriber = MagicMock(is_loaded=True)`` and
-      ``_sync_registry_from_fields()`` so ``_start_dictation``'s
-      ``ensure_active_engine_loaded()`` doesn't try to create a fresh
-      ``TranscriptionEngine`` (ARCH-REFAC-003).
+    - ``instance.models.transcriber = MagicMock(is_loaded=True)`` so
+      ``_start_dictation``'s ``ensure_active_engine_loaded()`` doesn't
+      try to create a fresh ``TranscriptionEngine``. The ``transcriber``
+      attribute is a @property whose setter delegates to
+      ``self._registry.register(...)`` so the assignment keeps the
+      registry in sync automatically (ARCH-REFAC-003).
 
     Parameters
     ----------
@@ -107,14 +109,12 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
     instance.config.voice_biometric_consent = True
     # TranscriptionEngine is created in _do_startup (background), not
     # __init__. Set a mock transcriber for tests that need it.
-    # ARCH-REFAC-003: with the @property delegate removed, assigning to
-    # instance.models.transcriber no longer auto-syncs the registry —
-    # call _sync_registry_from_fields() so the registry knows about the
-    # mock and _start_dictation's ensure_active_engine_loaded() doesn't
-    # try to create a fresh TranscriptionEngine.
+    # The ``transcriber`` attribute is a @property whose setter delegates
+    # to ``self._registry.register("whisper", ...)`` — so this assignment
+    # keeps the registry in sync automatically and ensure_active_engine_loaded()
+    # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
-    instance.models._sync_registry_from_fields()
     return instance
 
 

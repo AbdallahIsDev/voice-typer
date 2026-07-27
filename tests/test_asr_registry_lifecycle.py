@@ -173,17 +173,21 @@ class TestAsrRegistryInitializedInAppInit:
         assert app.models.registry is not None
 
 
-class TestRegistrySyncNoChurnOnSameInstance:
-    """ARCH-047: _sync_registry_from_fields previously unconditionally
-    unregistered all backends and re-registered them, producing log
-    spam every time it was called. The fix skips the unregister+register
-    cycle when the registered instance is already the same object as
-    the legacy field.
+class TestLegacyFieldPropertyDelegatesToRegistry:
+    """ARCH-047: the three legacy engine attributes
+    (``transcriber`` / ``_qwen_engine`` / ``_parakeet_engine``) are now
+    ``@property`` accessors that delegate directly to
+    ``self._registry.get(...)`` — no mirrored state, no sync step.
+
+    Their ``@property.setter`` counterparts delegate to
+    ``self._registry.register(...)`` / ``unregister(...)`` so test code
+    that assigns to these attributes continues to work transparently.
+    These tests verify the setter's no-churn / unregister-on-None /
+    replace-on-change semantics that were previously implemented by the
+    (now-deleted) ``_sync_registry_from_fields`` method.
     """
 
-    def test_sync_no_churn_when_same_instance(self, monkeypatch):
-        """Re-calling _sync with the same instance must NOT log
-        'unregistered backend' / 'registered backend'."""
+    def _make_mm(self):
         from voice_typer.server.asr_registry import AsrBackendRegistry
         from voice_typer.server.model_manager import ModelManager
 
@@ -192,79 +196,94 @@ class TestRegistrySyncNoChurnOnSameInstance:
             asr_backend = "whisper"
 
         registry = AsrBackendRegistry(_Config())
-        # Bypass __init__ — we only need the registry + the 3 fields.
+        # Bypass __init__ — we only need the registry. The three legacy
+        # engine attributes are now @property accessors that delegate to
+        # ``registry.get(...)``, so they don't need to be initialized.
         mm = ModelManager.__new__(ModelManager)
         mm._registry = registry
         mm._app = None
-        mm.transcriber = None
-        mm._qwen_engine = None
-        mm._parakeet_engine = None
+        return mm, registry
 
-        # First sync: registers whisper (transcriber is None, so nothing
-        # actually gets registered — but the loop runs).
-        mm._sync_registry_from_fields()
-        # Set a transcriber instance and sync again — should register.
+    def test_setter_no_churn_when_same_instance(self, monkeypatch):
+        """Re-assigning the SAME instance must NOT log
+        'unregistered backend' / 'registered backend'."""
+        mm, registry = self._make_mm()
+
+        # Set a transcriber instance — should register.
         transcriber = object()
         mm.transcriber = transcriber
-        mm._sync_registry_from_fields()
         assert registry.get("whisper") is transcriber
 
-        # Now re-sync with the SAME instance — registry must NOT churn.
-        # We approximate "no churn" by checking the registered object
-        # identity is unchanged (the unregister/register pair would
-        # replace the dict entry, but with the same value the entry
-        # is identical). The real win is in the log volume.
-        mm._sync_registry_from_fields()
+        # Re-assign the SAME instance — registry must NOT churn. The
+        # setter short-circuits when ``current is value``, so no
+        # unregister/register pair fires. We approximate "no churn" by
+        # checking the registered object identity is unchanged.
+        mm.transcriber = transcriber
         assert registry.get("whisper") is transcriber
 
-    def test_sync_unregisters_when_field_becomes_none(self, monkeypatch):
-        """Setting a field back to None must unregister the backend."""
-        from voice_typer.server.asr_registry import AsrBackendRegistry
-        from voice_typer.server.model_manager import ModelManager
+    def test_setter_unregisters_when_value_becomes_none(self, monkeypatch):
+        """Assigning None must unregister the backend."""
+        mm, registry = self._make_mm()
 
-        class _Config:
-            asr_backend = "whisper"
-
-        registry = AsrBackendRegistry(_Config())
-        mm = ModelManager.__new__(ModelManager)
-        mm._registry = registry
-        mm._app = None
         mm.transcriber = object()
-        mm._qwen_engine = None
-        mm._parakeet_engine = None
-
-        mm._sync_registry_from_fields()
         assert registry.get("whisper") is mm.transcriber
 
-        # Field → None: must unregister.
+        # Value → None: must unregister.
         mm.transcriber = None
-        mm._sync_registry_from_fields()
         assert registry.get("whisper") is None
 
-    def test_sync_replaces_when_field_changes_instance(self, monkeypatch):
+    def test_setter_replaces_when_value_changes_instance(self, monkeypatch):
         """Changing the instance must unregister the old + register the new."""
-        from voice_typer.server.asr_registry import AsrBackendRegistry
-        from voice_typer.server.model_manager import ModelManager
+        mm, registry = self._make_mm()
 
-        class _Config:
-            asr_backend = "whisper"
-
-        registry = AsrBackendRegistry(_Config())
-        mm = ModelManager.__new__(ModelManager)
-        mm._registry = registry
-        mm._app = None
         old = object()
         mm.transcriber = old
-        mm._qwen_engine = None
-        mm._parakeet_engine = None
-
-        mm._sync_registry_from_fields()
         assert registry.get("whisper") is old
 
         new = object()
         mm.transcriber = new
-        mm._sync_registry_from_fields()
         assert registry.get("whisper") is new
+
+    def test_getter_delegates_to_registry(self, monkeypatch):
+        """The @property getter must read directly from the registry."""
+        mm, registry = self._make_mm()
+
+        # Initially the registry has no whisper backend.
+        assert mm.transcriber is None
+
+        # Register a backend directly via the registry and confirm the
+        # property reads it back.
+        obj = object()
+        registry.register("whisper", obj)
+        assert mm.transcriber is obj
+
+        # And the same delegation works for qwen / parakeet.
+        qwen_obj = object()
+        registry.register("qwen", qwen_obj)
+        assert mm._qwen_engine is qwen_obj
+        parakeet_obj = object()
+        registry.register("parakeet", parakeet_obj)
+        assert mm._parakeet_engine is parakeet_obj
+
+    def test_setter_handles_qwen_and_parakeet(self, monkeypatch):
+        """The @property setters for _qwen_engine / _parakeet_engine
+        delegate to ``register("qwen", ...)`` / ``register("parakeet", ...)``
+        just like the whisper setter."""
+        mm, registry = self._make_mm()
+
+        mm._qwen_engine = "qwen_value"
+        assert registry.get("qwen") == "qwen_value"
+        assert mm._qwen_engine == "qwen_value"
+
+        mm._parakeet_engine = "parakeet_value"
+        assert registry.get("parakeet") == "parakeet_value"
+        assert mm._parakeet_engine == "parakeet_value"
+
+        # None unregisters.
+        mm._qwen_engine = None
+        assert registry.get("qwen") is None
+        mm._parakeet_engine = None
+        assert registry.get("parakeet") is None
 
 
 # ── G4-CR-08: ModelManager.set_active_backend regression tests ──────

@@ -175,7 +175,6 @@ class TestTextCleanupConfig:
         app.clipboard.copy = MagicMock(return_value=True)
         app.clipboard.paste = MagicMock(return_value=False)
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
         app.recorder = MagicMock()
         app.recorder.recording = True

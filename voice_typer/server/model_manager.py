@@ -9,19 +9,18 @@ Architecture:
     VoiceTyperApp
         └── ModelManager
                 ├── AsrBackendRegistry (single source of truth)
-                ├── transcriber (whisper)       ← legacy field, mirrored from registry
-                ├── _qwen_engine                ← legacy field, mirrored from registry
-                └── _parakeet_engine            ← legacy field, mirrored from registry
+                ├── transcriber (whisper)       ← @property, delegates to registry
+                ├── _qwen_engine                ← @property, delegates to registry
+                └── _parakeet_engine            ← @property, delegates to registry
 
-The registry is the source of truth; the three fields are kept as
-backwards-compat mirrors. (ARCH-REFAC-003: the @property delegates
-that used to live on VoiceTyperApp and mirror these fields have
-been removed — callers now read ``app.models.transcriber`` /
-``app.models._qwen_engine`` / ``app.models._parakeet_engine``
-directly, and call ``app.models._sync_registry_from_fields()`` after
-mutating them so the registry stays consistent.) All mutations go
-through ModelManager methods, which keep the registry and the fields
-in sync.
+The registry is the single source of truth; the three legacy
+attributes are read-only ``@property`` accessors that delegate
+directly to ``self._registry.get(...)`` — there is no mirrored
+state and no sync step. Writes (``app.models.transcriber = ...``)
+flow through ``@property.setter`` methods that delegate to
+``self._registry.register(...)`` / ``self._registry.unregister(...)``
+so test code that assigns to these attributes continues to work
+transparently. All mutations go through ModelManager methods.
 
 Previously this concern lived in VoiceTyperApp as ~500 LOC across 8 methods:
     _load_transcription_engine_background, _fallback_to_whisper,
@@ -77,18 +76,12 @@ class ModelManager:
         # Callers can rely on it existing from the start.
         self._registry: AsrBackendRegistry = AsrBackendRegistry(app.config)
 
-        # Legacy engine fields — mirrored from the registry so callers
-        # that read app.models.transcriber / app.models._qwen_engine /
-        # app.models._parakeet_engine directly still work. The registry
-        # is the source of truth; these are kept in sync by
-        # _sync_legacy_fields(). (ARCH-REFAC-003: the @property
-        # delegates that used to live on VoiceTyperApp — and auto-sync
-        # the registry on assignment — have been removed; callers must
-        # now call ``app.models._sync_registry_from_fields()`` after
-        # writing to these fields.)
-        self.transcriber: Any | None = None
-        self._qwen_engine: Any | None = None
-        self._parakeet_engine: Any | None = None
+        # The three legacy engine attributes (``transcriber`` /
+        # ``_qwen_engine`` / ``_parakeet_engine``) are now ``@property``
+        # accessors defined further down — they delegate directly to
+        # ``self._registry.get(...)`` with no mirrored state. Writes go
+        # through their ``@property.setter`` methods which delegate to
+        # ``self._registry.register(...)`` / ``unregister(...)``.
 
         # Background model-load thread (tracked so toggle_dictation can
         # detect "loading in progress" and auto-start once finished).
@@ -154,48 +147,69 @@ class ModelManager:
         """Direct access to the underlying registry (rarely needed)."""
         return self._registry
 
-    def _sync_legacy_fields(self) -> None:
-        """Mirror registry state into the three legacy fields.
+    # The three legacy engine attributes are ``@property`` accessors that
+    # delegate directly to ``self._registry.get(...)`` — no mirrored
+    # state, no sync needed. Their setters delegate to
+    # ``self._registry.register(...)`` / ``unregister(...)`` so test
+    # code that does ``app.models.transcriber = MagicMock()`` continues
+    # to work transparently. Writing ``None`` unregisters the backend;
+    # writing a non-None value unregisters the old (if different) and
+    # registers the new (no churn when the same instance is reassigned).
+    @property
+    def transcriber(self) -> Any | None:
+        """The active Whisper transcriber (delegates to registry)."""
+        return self._registry.get("whisper")
 
-        Called after every registry mutation so ``app.models.transcriber``
-        etc. stay consistent with the registry without callers needing to
-        know about the registry.
+    @transcriber.setter
+    def transcriber(self, value: Any) -> None:
+        """Register the whisper backend (delegates to registry).
+
+        Writing ``None`` unregisters the backend; writing a non-None
+        value unregisters the old instance (if different) and registers
+        the new one. No churn when the same instance is reassigned.
         """
-        self.transcriber = self._registry.get("whisper")
-        self._qwen_engine = self._registry.get("qwen")
-        self._parakeet_engine = self._registry.get("parakeet")
-
-    def _sync_registry_from_fields(self) -> None:
-        """Re-populate the registry from the legacy fields.
-
-        Used when a code path writes to a legacy field directly (back-compat
-        with tests that do ``app.models.transcriber = MagicMock()``).
-        (ARCH-REFAC-003: this method used to be auto-invoked by the
-        @property delegates on VoiceTyperApp — it must now be called
-        explicitly after writing to a legacy field.) After this call,
-        the registry and the fields are consistent.
-
-        ARCH-047: previously this method unconditionally unregistered all
-        three backends and re-registered them, producing log spam
-        (``unregistered backend: whisper`` → ``registered backend: whisper``)
-        every time it was called. We now skip the unregister+register
-        cycle when the registered instance is already the same object
-        as the legacy field — the common case after the first sync.
-        """
-        for name, field_val in (
-            ("whisper", self.transcriber),
-            ("qwen", self._qwen_engine),
-            ("parakeet", self._parakeet_engine),
-        ):
-            current = self._registry.get(name)
-            if field_val is None:
+        if value is None:
+            self._registry.unregister("whisper")
+        else:
+            current = self._registry.get("whisper")
+            if current is not value:
                 if current is not None:
-                    self._registry.unregister(name)
-            elif current is not field_val:
-                # Only churn when the instance actually changed.
+                    self._registry.unregister("whisper")
+                self._registry.register("whisper", value)
+
+    @property
+    def _qwen_engine(self) -> Any | None:
+        """The active Qwen engine (delegates to registry)."""
+        return self._registry.get("qwen")
+
+    @_qwen_engine.setter
+    def _qwen_engine(self, value: Any) -> None:
+        """Register the qwen backend (delegates to registry)."""
+        if value is None:
+            self._registry.unregister("qwen")
+        else:
+            current = self._registry.get("qwen")
+            if current is not value:
                 if current is not None:
-                    self._registry.unregister(name)
-                self._registry.register(name, field_val)
+                    self._registry.unregister("qwen")
+                self._registry.register("qwen", value)
+
+    @property
+    def _parakeet_engine(self) -> Any | None:
+        """The active Parakeet engine (delegates to registry)."""
+        return self._registry.get("parakeet")
+
+    @_parakeet_engine.setter
+    def _parakeet_engine(self, value: Any) -> None:
+        """Register the parakeet backend (delegates to registry)."""
+        if value is None:
+            self._registry.unregister("parakeet")
+        else:
+            current = self._registry.get("parakeet")
+            if current is not value:
+                if current is not None:
+                    self._registry.unregister("parakeet")
+                self._registry.register("parakeet", value)
 
     def active_transcriber(self) -> Any | None:
         """Return the active transcriber (Parakeet, Qwen, or Whisper).
@@ -205,32 +219,26 @@ class ModelManager:
         self.config.asr_backend and tested three separate fields.
 
         CR-78: previously this method called ``_sync_registry_from_fields()``
-        on every read — which mutates the registry by re-importing state
-        from the three legacy engine fields (``self.transcriber`` /
-        ``self._qwen_engine`` / ``self._parakeet_engine``) — WITHOUT
-        holding ``_model_change_lock``.  A concurrent ``change_model``
-        call sets e.g. ``self._parakeet_engine = None`` then later
-        unregisters/registers in the registry; if ``active_transcriber``
-        interleaved between those two writes, the registry would be
-        re-synced from a half-mutated field set (one backend already
-        cleared, the others not), and the next ``get_active()`` would
-        return a stale or None reference.
+        on every read — which re-imported state from the three legacy
+        engine fields into the registry WITHOUT holding
+        ``_model_change_lock``.  A concurrent ``change_model`` could
+        leave the fields half-mutated, so the registry would be
+        re-synced from a stale snapshot and the next ``get_active()``
+        could return a stale or None reference.
 
-        The registry is the source of truth (see file-level docstring):
-        all production mutations go through ``ModelManager`` methods
-        which keep the registry and the fields in sync via the explicit
-        ``_sync_legacy_fields`` / ``_sync_registry_from_fields`` calls
-        inside ``change_model`` (now guarded by both
-        ``_config_mutation_lock`` and ``_model_change_lock`` per CR-77).
+        That race is now structurally impossible: the three legacy
+        attributes are ``@property`` accessors that delegate directly
+        to ``self._registry.get(...)`` with no mirrored state, so there
+        is no second source of truth to drift and no sync step to call.
         Reading via ``self._registry.get_active()`` directly is safe:
         ``AsrBackendRegistry`` is internally synchronized (its own
         ``_lock``), and any concurrent ``change_model`` either has not
         yet mutated the registry (so we read the old active backend,
         which is still valid) or has already finished (so we read the
         new one).  Test code that assigns to ``app.models.transcriber``
-        must call ``app.models._sync_registry_from_fields()`` explicitly
-        — that contract is already documented at the top of this file
-        and asserted by ``tests/test_app.py``.
+        now goes through the ``@property.setter`` which delegates to
+        ``self._registry.register(...)`` directly — no manual sync
+        call needed.
         """
         return self._registry.get_active()
 
@@ -317,7 +325,6 @@ class ModelManager:
             # can react; previously the bare-except in registry.create
             # swallowed the error.
             raise
-        self._sync_legacy_fields()
 
     # ── Loading ────────────────────────────────────────────────────────
 
@@ -344,7 +351,6 @@ class ModelManager:
         try:
             backend_name = self._app.config.asr_backend
             self._ensure_engine(backend_name)
-            self._sync_registry_from_fields()
 
             # Set tray state before heavy import so user sees progress
             self._app.tray.set_state(AppState.LOADING, "Loading model -- press F2 to queue...")
@@ -508,7 +514,6 @@ class ModelManager:
                     config=self._app.config,
                 ),
             )
-            self._sync_legacy_fields()
         else:
             existing.model_size = "tiny.en"
             existing._configured_model_size = "tiny.en"
@@ -518,8 +523,6 @@ class ModelManager:
             # engine already has a non-None config.
             if getattr(existing, "config", None) is None:
                 existing.config = self._app.config
-
-        self._sync_registry_from_fields()
 
         def on_progress(msg: str):
             self._app.tray.set_state(AppState.LOADING, msg)
@@ -844,7 +847,6 @@ class ModelManager:
         optimization) broke ``test_model_change_uses_config_device``.
         """
         # Unload old backend via registry
-        self._sync_registry_from_fields()
         self._registry.unload(old_backend)
         # #2 UNREGISTER the old backend so _ensure_engine
         # actually constructs a fresh one. Previously unload() only
@@ -879,8 +881,6 @@ class ModelManager:
         """
         # Create new engine object via registry.create()
         self._ensure_engine(new_backend)
-        # Sync registry and load
-        self._sync_registry_from_fields()
 
         def on_progress(msg: str):
             self._app.tray.set_state(AppState.LOADING, msg)
@@ -992,7 +992,6 @@ class ModelManager:
                     log.warning("[MODEL] config.save() returned False during set_active_backend")
                 # Pre-construct new backend (no load yet).
                 self._ensure_engine(backend)
-                self._sync_registry_from_fields()
             # _config_mutation_lock released. _model_change_lock still held.
             # Load the new backend.
 
@@ -1090,7 +1089,6 @@ class ModelManager:
             engine = self._registry.get(backend)
             if engine is None:
                 self._ensure_engine(backend)
-                self._sync_registry_from_fields()
                 engine = self._registry.get(backend)
             # TY-11: reload-after-idle-unload. If the engine exists but
             # has been unloaded by the idle-unload timer (is_loaded=False),
@@ -1302,7 +1300,7 @@ class ModelManager:
             minutes = getattr(self._app.config, "model_idle_unload_minutes", 0)
         except Exception:
             minutes = 0
-        if not isinstance(minutes, (int, float)) or minutes <= 0:
+        if not isinstance(minutes, int | float) or minutes <= 0:
             # Feature disabled — cancel any existing timer and return.
             self.cancel_idle_unload_timer()
             return

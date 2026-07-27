@@ -3,30 +3,17 @@
 from __future__ import annotations
 
 import atexit
-import contextlib
 import logging
 import logging.handlers
-import os
-import queue
-import re
-import signal
 import sys
 import threading
-import time
-import uuid
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
 from voice_typer.server import crash_handler as _crash_handler
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
-from voice_typer.server import (
-    i18n,  # NF-R16-1: server-side i18n for tray notifications
-    task_scheduler,
-)
-
 # numpy was eagerly imported at module top but never used directly in
 # this module. The eager import added ~250-335ms cumulative to every
 # cold start because numpy performs heavy C-extension initialization at
@@ -55,43 +42,25 @@ from voice_typer.server._security_attributes import (  # noqa: F401
 from voice_typer.server.audio_processor import AudioProcessor
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.clipboard import ClipboardCopyError, ClipboardManager
-from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
+from voice_typer.server.clipboard import ClipboardManager
+from voice_typer.server.config import Config, _config_dir
 from voice_typer.server.config_editor import ConfigEditorLauncher
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
-from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
-from voice_typer.server.log import (
-    close_devnull_files as _close_devnull_files,
-)
-from voice_typer.server.log import (
-    register_devnull_file as _register_devnull_file,
-)
-
 # CQ-029: use centralized platform helpers instead of raw sys.platform checks
-from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
 # create_launcher_shortcut + list_microphones are re-exported here (and consumed
 # from voice_typer.server.startup_tasks) so tests that monkeypatch
 # voice_typer.server.app.list_microphones / create_launcher_shortcut keep working.  # ruff: noqa: F401
-from voice_typer.server.server_platform import (
-    create_launcher_shortcut,
-    disable_autostart,
-    enable_autostart,
-    is_autostart_enabled,
-    list_microphones,
-)
 from voice_typer.server.streaming import (
     StreamingTranscriptionSession,  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 )
-from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 from voice_typer.server.thread_registry import ThreadRegistry
-from voice_typer.server.transcription import TranscriptionEngine
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
 from voice_typer.server.waveform import WaveformBubble
@@ -125,8 +94,6 @@ log = logging.getLogger(__name__)
 # SEC-audit-011: _validate_env_vars calls _validate_systemroot from
 # voice_typer.server.config to reject attacker-controlled SystemRoot values
 # that could enable DLL injection.  # ruff: noqa: F401
-from voice_typer.server.env_validation import _validate_env_vars  # noqa: E402
-from voice_typer.server.logging_setup import _setup_logging  # noqa: E402
 
 
 class VoiceTyperApp:

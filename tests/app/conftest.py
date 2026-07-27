@@ -46,14 +46,12 @@ def app(tmp_config_dir, monkeypatch):
     instance.config.voice_biometric_consent = True
     # TranscriptionEngine is now created in _do_startup (background), not __init__
     # Set a mock transcriber for tests that need it.
-    # ARCH-REFAC-003: with the @property delegate removed, assigning to
-    # instance.models.transcriber no longer auto-syncs the registry —
-    # call _sync_registry_from_fields() so the registry knows about the
-    # mock and _start_dictation's ensure_active_engine_loaded() doesn't
-    # try to create a fresh TranscriptionEngine.
+    # The ``transcriber`` attribute is a @property whose setter delegates
+    # to ``self._registry.register("whisper", ...)`` — so this assignment
+    # keeps the registry in sync automatically and ensure_active_engine_loaded()
+    # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
-    instance.models._sync_registry_from_fields()
     yield instance
     # WR-2: join the background model-load thread so it doesn't outlive
     # the test and touch a torn-down VoiceTyperApp. Best-effort — if the

@@ -191,7 +191,6 @@ class TestConfigEditHoldsMutationLock:
         app.config.voice_biometric_consent = True
         app.models.transcriber = MagicMock()
         app.models.transcriber.is_loaded = True
-        app.models._sync_registry_from_fields()
 
         editor_opened = threading.Event()
         editor_close = threading.Event()
@@ -451,10 +450,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
             finally:
                 config_mutation_lock.release()
 
-        threads = [
-            threading.Thread(target=setter, args=(f"<f{i + 1}>",))
-            for i in range(8)
-        ]
+        threads = [threading.Thread(target=setter, args=(f"<f{i + 1}>",)) for i in range(8)]
         for t in threads:
             t.start()
         for t in threads:
@@ -462,9 +458,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
 
         # All 8 setters completed without exception and the final
         # hotkey is one of the 8 values (no torn / corrupted state).
-        assert cfg.hotkey.startswith("<f"), (
-            f"GT-39: concurrent writes corrupted hotkey: {cfg.hotkey!r}"
-        )
+        assert cfg.hotkey.startswith("<f"), f"GT-39: concurrent writes corrupted hotkey: {cfg.hotkey!r}"
         assert cfg.model_size == "tiny.en"
         # The lock was contended at least once — proving it's actually
         # held during mutation, not a no-op. (On a single-core CI
@@ -532,6 +526,4 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
             "a regression that removes the lock would pass the "
             "GIL-only test above."
         )
-        assert first_released.is_set(), (
-            "GT-39: first holder did not release the lock cleanly"
-        )
+        assert first_released.is_set(), "GT-39: first holder did not release the lock cleanly"

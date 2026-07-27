@@ -106,7 +106,6 @@ class TestStartDictationBehavior:
         app.recorder.recording = False
         app.tray = MagicMock()
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = True
 
         app._start_dictation()
@@ -135,7 +134,6 @@ class TestStreamingIntegration:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = True
         app.tray = MagicMock()
         app.clipboard = MagicMock()
@@ -164,7 +162,6 @@ class TestStreamingIntegration:
         app.clipboard.paste = MagicMock(return_value=True)
 
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="batch text")
         app.models.transcriber.device_info = "cpu (int8)"
 
@@ -194,7 +191,6 @@ class TestStreamingIntegration:
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.models.transcriber = MagicMock()
-        app.models._sync_registry_from_fields()
         app.models.transcriber.is_loaded = True
         app.tray = MagicMock()
 
@@ -380,7 +376,6 @@ class TestModelLoadingQueue:
         app.models._ensure_engine = MagicMock()
         # ARCH-007: _load_transcription_engine_background now delegates
         # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
-        app.models._sync_registry_from_fields = MagicMock()
         # ARCH-REFAC-003: assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
@@ -406,8 +401,11 @@ class TestTryLoadModel:
     """
 
     def _setup_registry(self, app):
-        """Ensure the ASR registry exists and has the whisper backend registered."""
-        app.models._sync_registry_from_fields()
+        """No-op: the registry is now kept in sync by the @property setters
+        on ``app.models.transcriber`` / ``_qwen_engine`` / ``_parakeet_engine``
+        (assignments delegate to ``self._registry.register(...)``).
+        """
+        pass
 
     def test_try_load_success_sets_idle_state(self, app):
         """On successful load, tray state should be IDLE with device info."""
