@@ -15,6 +15,7 @@ history_db, etc. — a full dependency injection refactor is deferred
 import contextlib
 import logging
 import time
+import typing
 from typing import Any
 
 import numpy as np
@@ -89,6 +90,38 @@ def _lookup_local_whisper(app: Any) -> Any:
     except Exception:  # pragma: no cover — defensive
         log.debug("[PIPELINE] _lookup_local_whisper: registry.get raised", exc_info=True)
         return None
+
+
+@contextlib.contextmanager
+def _timed_stage(timings: dict[str, float], name: str) -> typing.Iterator[None]:
+    """Context manager that records a single stage's wall-clock duration.
+
+    ZR-64: replaces the 10 inline ``_stage_t0 = time.perf_counter()`` /
+    ``_<name>_ms = (time.perf_counter() - _stage_t0) * 1000`` blocks in
+    ``DictationPipeline.run`` with a single DRY primitive. Adding an
+    11th stage no longer requires hand-copying the 3-line pattern AND
+    hand-adding a variable to the consolidated ``[PIPE-PERF]`` log
+    format string — just wrap the stage call in
+    ``with _timed_stage(_timings, "<name>")`` and the dict entry
+    appears automatically.
+
+    Notes:
+      * The duration is recorded in *milliseconds* (matching the
+        previous inline pattern) so the consolidated log format
+        strings are unchanged.
+      * On exception, the duration up to the raise is still recorded
+        (the ``finally`` runs before the exception propagates) so a
+        ``[PIPE-PERF]`` line emitted from the ``except`` block has a
+        best-effort timing for the stage that failed.
+      * The dict is mutated in-place; callers pass a single dict
+        instance and read ``timings["<name>"]`` after the ``with``
+        block exits.
+    """
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        timings[name] = (time.perf_counter() - t0) * 1000
 
 
 class DictationPipeline:
@@ -181,12 +214,18 @@ class DictationPipeline:
             # Stage durations are collected and logged as a single
             # consolidated line at the end to reduce log verbosity.
             # Individual stage lines are available at DEBUG level.
-            _stage_t0 = time.perf_counter()
+            #
+            # ZR-64: stage timing is recorded via the ``_timed_stage``
+            # context manager (one entry per stage in ``_timings``) so
+            # adding an 11th stage is a one-line ``with`` instead of a
+            # 3-line ``_stage_t0`` / ``_<name>_ms =`` pair AND a
+            # hand-edited format string in the consolidated log below.
+            _timings: dict[str, float] = {}
 
             # Step 1: Transcribe (streaming finalize or direct)
-            text = self._transcribe()
+            with _timed_stage(_timings, "transcribe"):
+                text = self._transcribe()
 
-            _transcribe_ms = (time.perf_counter() - _stage_t0) * 1000
             _elapsed = time.perf_counter() - _t0
             log.info(
                 "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
@@ -196,7 +235,7 @@ class DictationPipeline:
             )
             log.debug(
                 "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",
-                _transcribe_ms,
+                _timings.get("transcribe", 0.0),
                 self._cycle_id,
             )
 
@@ -206,44 +245,36 @@ class DictationPipeline:
                 return
 
             # Step 3: Text cleanup
-            _stage_t0 = time.perf_counter()
-            text = self._clean_text(text)
-            _clean_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "clean"):
+                text = self._clean_text(text)
 
             # Step 4: Vocabulary correction
-            _stage_t0 = time.perf_counter()
-            text = self._apply_vocabulary(text)
-            _vocab_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "vocab"):
+                text = self._apply_vocabulary(text)
 
             # Step 5: Template matching
-            _stage_t0 = time.perf_counter()
-            text = self._apply_templates(text)
-            _tmpl_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "templates"):
+                text = self._apply_templates(text)
 
             # Step 6: Auto-punctuation
-            _stage_t0 = time.perf_counter()
-            text = self._apply_punctuation(text)
-            _punct_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "punct"):
+                text = self._apply_punctuation(text)
 
             # Step 7: LLM polish
-            _stage_t0 = time.perf_counter()
-            text = self._apply_llm_polish(text)
-            _llm_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "llm"):
+                text = self._apply_llm_polish(text)
 
             # Step 7b: AI enhancement (P4)
-            _stage_t0 = time.perf_counter()
-            text = self._apply_ai_enhancement(text)
-            _ai_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "ai"):
+                text = self._apply_ai_enhancement(text)
 
             # Step 7c: Vocabulary automation analysis (P5)
-            _stage_t0 = time.perf_counter()
-            self._analyze_vocabulary(text)
-            _va_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "vocab_auto"):
+                self._analyze_vocabulary(text)
 
             # Step 8: Store in history + crash recovery
-            _stage_t0 = time.perf_counter()
-            self._store_result(text)
-            _store_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "store"):
+                self._store_result(text)
 
             # CR-006 (IMPROVE-mode run, 2026-07-21): check if this cycle was
             # force-cancelled by the watchdog while the stuck ctranslate2 call
@@ -296,9 +327,8 @@ class DictationPipeline:
                 return
 
             # Step 9: Copy to clipboard + paste
-            _stage_t0 = time.perf_counter()
-            self._copy_and_paste(text)
-            _paste_ms = (time.perf_counter() - _stage_t0) * 1000
+            with _timed_stage(_timings, "paste"):
+                self._copy_and_paste(text)
 
             _total_ms = (time.perf_counter() - _t0) * 1000
             log.info(
@@ -306,21 +336,21 @@ class DictationPipeline:
                 "vocab=%.0f, templates=%.0f, punct=%.0f, store=%.0f, "
                 "paste=%.0f (cycle=%s)",
                 _total_ms,
-                _transcribe_ms,
-                _clean_ms,
-                _vocab_ms,
-                _tmpl_ms,
-                _punct_ms,
-                _store_ms,
-                _paste_ms,
+                _timings.get("transcribe", 0.0),
+                _timings.get("clean", 0.0),
+                _timings.get("vocab", 0.0),
+                _timings.get("templates", 0.0),
+                _timings.get("punct", 0.0),
+                _timings.get("store", 0.0),
+                _timings.get("paste", 0.0),
                 self._cycle_id,
             )
-            if _llm_ms > 1:
+            if _timings.get("llm", 0.0) > 1:
                 log.info(
                     "[PIPE-PERF] llm_polish=%.0fms, ai_enhance=%.0fms, vocab_auto=%.0fms (cycle=%s)",
-                    _llm_ms,
-                    _ai_ms,
-                    _va_ms,
+                    _timings.get("llm", 0.0),
+                    _timings.get("ai", 0.0),
+                    _timings.get("vocab_auto", 0.0),
                     self._cycle_id,
                 )
 

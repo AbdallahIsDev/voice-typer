@@ -21,6 +21,7 @@ back-compat with callers (hotkey backend, tray menu, IPC, tests).
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
 import os
 import threading
@@ -108,6 +109,18 @@ class RecordingController:
         # pipeline's ``finally`` block to keep the set bounded.
         self._cancelled_cycle_ids: set[str] = set()
         self._cancelled_cycle_ids_lock = threading.Lock()
+        # DE-13 (privacy): shared, clearable slot holding the audio bytes
+        # captured by ``stop()`` for the transcription thread. Pre-fix,
+        # ``audio`` was a closed-over local of the ``transcribe_thread``
+        # closure, so any debugger / memory dump could recover the raw
+        # voice audio from process memory for as long as the stuck
+        # ctranslate2 call held the local alive (5-30 min after a user-
+        # initiated cancel). Reading from this slot in the thread (and
+        # clearing it in ``_force_recover_from_stuck_transcription``)
+        # drops our Python-side reference at force-recovery time; the
+        # unavoidable C-level retention by a stuck ctranslate2 call is a
+        # documented limitation that requires engine-level changes.
+        self._current_audio: Any = None
 
     # ── Streaming session accessors ────────────────────────────────────
 
@@ -262,10 +275,31 @@ class RecordingController:
                     log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
                 return
         except Exception:
-            # If we can't read the config, fail open (allow recording)
-            # to avoid locking the user out of their own app due to a
-            # config read error. Log the failure for diagnosis.
-            log.exception("[DICTATION] Failed to check voice_biometric_consent - failing open")
+            # GDPR Art. 9: if we cannot verify voice_biometric_consent
+            # (e.g. corrupted config read), fail CLOSED — refuse to
+            # record. Failing open would let the user record without
+            # verified consent, which is a privacy violation. The user
+            # can fix the config (or re-grant consent in Settings) and
+            # try again. Log the failure for diagnosis.
+            log.exception(
+                "[DICTATION] Failed to check voice_biometric_consent - "
+                "failing CLOSED (refusing to record) per GDPR Art. 9"
+            )
+            try:
+                app.tray.set_state(
+                    AppState.ERROR,
+                    i18n.t("state.recording_controller.consent_required"),
+                )
+                app.tray.notify_safety(
+                    APP_NAME,
+                    "Could not verify voice biometric consent.\nRecording refused — check Settings > Privacy.",
+                )
+            except Exception:
+                log.debug(
+                    "[DICTATION] failed to notify about consent check exception",
+                    exc_info=True,
+                )
+            return
 
         # Cancel any stale pending timers from previous sessions
         app._cancel_pending_timers()
@@ -380,6 +414,26 @@ class RecordingController:
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
+            # If ``recorder.start()`` succeeded but a later step
+            # (streaming session, tray state, bubble show, volume duck)
+            # raised, the PortAudio input stream is left open — call
+            # ``discard()`` best-effort to release it so we don't leak
+            # the mic. Guarded so a second failure during teardown
+            # doesn't mask the original exception in the log.
+            try:
+                app.recorder.discard()
+            except Exception:
+                log.debug(
+                    "[DICTATION] recorder.discard() during start-failure teardown raised (best-effort cleanup)",
+                    exc_info=True,
+                )
+            # Force-reset the recording flag so the next ``start()`` call
+            # doesn't no-op on a stale ``recording==True``. ``discard()``
+            # normally does this, but we set it explicitly here so the
+            # invariant holds even if ``discard()`` raised (the best-effort
+            # guard above) or if a subclass overrode ``discard()`` to skip
+            # the flag reset.
+            app.recorder.recording = False
             app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed"))
             # Use the i18n key (no {error}
             # interpolation — exception text can leak absolute paths,
@@ -555,10 +609,25 @@ class RecordingController:
         # Capture the current watchdog reference for the pipeline's finally block
         _watchdog_thread_ref = self._watchdog_thread
 
+        # DE-13 (privacy): hold audio bytes in a shared, clearable slot so
+        # ``_force_recover_from_stuck_transcription`` can drop our Python-
+        # side reference at cancel time. Pre-fix, ``audio`` was a closed-
+        # over local of ``transcribe_thread`` and stayed alive for the
+        # entire lifetime of the stuck ctranslate2 call (5-30 min). The
+        # thread below reads from ``self._current_audio`` (no closure
+        # capture of the local), so setting ``self._current_audio = None``
+        # at force-recovery releases the bytes for GC. The thread's own
+        # ``audio_bytes`` local is the unavoidable retention cost while
+        # the call is actually running.
+        self._current_audio = audio
+
         def transcribe_thread():
             pipeline = DictationPipeline(app)
+            # DE-13: read audio from the shared clearable slot — do NOT
+            # capture the outer ``audio`` local as a closure free variable.
+            audio_bytes = self._current_audio
             pipeline.run(
-                audio=audio,
+                audio=audio_bytes,
                 duration=duration,
                 recorded_rms=recorded_rms,
                 cycle_id=_captured_cycle_id,
@@ -941,6 +1010,19 @@ class RecordingController:
             "Transcription took too long and was cancelled.\nPress F2 to try again.",
         )
         app._schedule_timer(5.0, lambda: app.tray.set_state(AppState.IDLE))
+        # DE-13 (privacy): clear the shared audio slot so the raw voice
+        # bytes can be garbage-collected once the only remaining
+        # reference is the stuck ctranslate2 call (which we cannot reach).
+        # ``gc.collect()`` is a best-effort nudge: CPython's GC is
+        # generational, so a single collection pass may not free every
+        # orphaned cycle immediately, but it surfaces the audio bytes to
+        # the next cycle's sweep rather than waiting for the next natural
+        # collection (which may be 30+ seconds away on a quiet process).
+        # The C-level retention by a stuck ctranslate2 call is documented
+        # as an engine-level limitation outside this module's control.
+        self._current_audio = None
+        with contextlib.suppress(Exception):
+            gc.collect()
 
     # ── Persistent watchdog thread (RACE-013) ───────────────────────────
 
@@ -953,6 +1035,15 @@ class RecordingController:
         the event, causing wait() to return early and the loop to reset
         firings + clear the event for the next cycle. When wait() times
         out (transcription hung), the watchdog fires the recovery action.
+
+        DE-55: if the previous watchdog thread is in the process of
+        dying (``is_alive()`` True but about to exit), we briefly
+        ``join(timeout=0.1)`` it and re-check. Without this, a thread
+        that's between ``is_alive()`` returning True and actual exit
+        would be orphaned (we'd start a new thread but the old one
+        would still be running for a few microseconds, possibly
+        firing its recovery action out of order). The join is bounded
+        so a hung thread doesn't block the start path.
         """
         with self._watchdog_lock:
             self._watchdog_firings = 0
@@ -960,7 +1051,22 @@ class RecordingController:
         self._watchdog_event.clear()
         # If the thread is already running, just reset the counter
         if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
-            return
+            # DE-55: thread reports alive — try a bounded join to let it
+            # exit cleanly, then re-check. If still alive after the join,
+            # we keep the existing thread (don't orphan a hung thread by
+            # overwriting ``_watchdog_thread``).
+            try:
+                self._watchdog_thread.join(timeout=0.1)
+            except Exception:
+                log.debug(
+                    "[DICTATION] watchdog thread join raised — best-effort",
+                    exc_info=True,
+                )
+            if self._watchdog_thread.is_alive():
+                # Still alive after join — reuse it (don't start a second one)
+                return
+            # else: thread exited during the join window; fall through
+            # and start a fresh thread.
         self._watchdog_stop_event.clear()
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop,

@@ -113,7 +113,7 @@ from voice_typer.server.ipc.transport import (  # noqa: F401
     _pick_available_port,
     _TCPLineIO,
 )
-from voice_typer.server.ipc.validation import (  # noqa: F401  # noqa: F401
+from voice_typer.server.ipc.validation import (  # noqa: F401
     CommandHandler,
     ErrorEnvelope,
     ResponseEnvelope,
@@ -193,6 +193,28 @@ _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
         "vocabulary_suggestion",
     }
 )
+
+# ZR-43 / ZR-70: hoisted from inline magic numbers in ``_send`` so they
+# are visible at the module top alongside the other TCP tuning knobs
+# (``_TCP_WRITE_TIMEOUT_SECONDS`` in ``ipc/rate_limiter.py``). Both
+# constants trade memory for catch-up latency on client reconnect:
+#
+# * ``_TCP_PENDING_DRAIN_CAP`` — max number of buffered push events we
+#   attempt to flush in a single ``_send`` call after a client
+#   reconnect.  Larger = slower reconnect (each push is one
+#   ``write+flush`` syscall on the audio thread); smaller = more
+#   events silently dropped.  100 ≈ ~6 s of waveform-bubble level
+#   events at 16 Hz, which is the upper bound of what the renderer
+#   can plausibly catch up on without jank.
+# * ``_TCP_PENDING_BUFFER_CAP`` — hard cap on ``_pending_tcp`` size
+#   while the client is disconnected.  When the cap is hit we drop the
+#   OLDEST entries (they are stale waveform-bubble events; the
+#   authoritative transcription-final events are persisted to
+#   ``history_db`` so dropping here is safe).  1000 ≈ ~1 minute of
+#   disconnect at 16 Hz before we start shedding, which gives the
+#   accept loop ample time to pick up a reconnect.
+_TCP_PENDING_DRAIN_CAP: int = 100
+_TCP_PENDING_BUFFER_CAP: int = 1000
 
 
 # ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
@@ -2617,6 +2639,23 @@ class IPCServer(
             # deadline (PR-3-FIX-1) and we must not clobber it to
             # ``None`` (blocking), or the dispatch-loop ``readline`` would
             # block forever and the connection could never be reaped/
+            #
+            # TY-24 PERF NOTE: the per-write ``gettimeout`` / ``settimeout``
+            # dance below is 4 syscalls per write × 15-50 writes/sec =
+            # 60-200 syscalls/sec on the waveform-bubble push path. This
+            # is correctness-related (NEW-CONC-003 — a stalled renderer
+            # must NOT block the worker thread indefinitely) and was
+            # intentionally LEFT UNCHANGED in the TY-24 perf pass. The
+            # alternative (set ``_TCP_WRITE_TIMEOUT_SECONDS`` once in
+            # ``_handle_tcp_connection`` after auth) would clobber the
+            # auth-read deadline set by PR-3-FIX-1, breaking the
+            # connection-reaping contract. A future pass could use
+            # ``select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)``
+            # before each write to achieve the same timeout semantics
+            # without the per-write ``settimeout`` syscalls — but that
+            # refactor is deferred (it requires careful audit of the
+            # ``gettimeout``/``settimeout`` interactions with the auth
+            # read path and is out of scope for TY-24).
             # closed on cleanup (SEC-018 auth-timeout/close path).
             #
             # Write-serialization: the entire settimeout → write →
@@ -2680,7 +2719,7 @@ class IPCServer(
                     # waveform bubble * minutes of disconnect).  Draining
                     # all of them on every push event was O(n) per push
                     # and blocked the audio thread.
-                    _drain_cap = 100
+                    _drain_cap = _TCP_PENDING_DRAIN_CAP
                     if pending:
                         # CR-79: split the snapshot into ``older`` (the
                         # entries that exceed the drain cap — these are
@@ -2772,7 +2811,7 @@ class IPCServer(
             # (waveform bubble level events are stale by the
             # time the client reconnects; transcription-complete
             # events are also in history_db).
-            _pending_cap = 1000
+            _pending_cap = _TCP_PENDING_BUFFER_CAP
             with self._lock:
                 # GT-48: re-merge with correct FIFO ordering. Under the
                 # XV-82 snapshot gate above, ``pending`` is always None

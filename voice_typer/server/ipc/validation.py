@@ -367,8 +367,12 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
                 # (and any tests still asserting the old form) can
                 # switch to the namespaced form without a hard cutover.
                 # Drop ``legacy_code`` once the renderer migrates.
-                "code": "client.invalid_payload",
-                "legacy_code": "invalid_payload",
+                # ZR-68: reference the constants on ErrorCodes /
+                # LegacyErrorCodes (single source of truth) instead of
+                # bare string literals, so a typo surfaces at import
+                # time and the contract test stays in sync with emitters.
+                "code": ErrorCodes.INVALID_PAYLOAD,
+                "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
                 "message": "data must be an object",
             },
         }
@@ -392,8 +396,9 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
                     "data": {
                         # DE-36: namespaced form (primary) + legacy
                         # alias (one-release-cycle compat).
-                        "code": "client.invalid_payload",
-                        "legacy_code": "invalid_payload",
+                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                        "code": ErrorCodes.INVALID_PAYLOAD,
+                        "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
                         "message": (f"payload too large ({payload_size} bytes; max {max_bytes})"),
                     },
                 }
@@ -424,8 +429,9 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
                     "data": {
                         # DE-36: namespaced form (primary) + legacy
                         # alias (one-release-cycle compat).
-                        "code": "client.invalid_field",
-                        "legacy_code": "invalid_field",
+                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                        "code": ErrorCodes.INVALID_FIELD,
+                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
@@ -441,8 +447,9 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
                     "data": {
                         # DE-36: namespaced form (primary) + legacy
                         # alias (one-release-cycle compat).
-                        "code": "client.invalid_field",
-                        "legacy_code": "invalid_field",
+                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                        "code": ErrorCodes.INVALID_FIELD,
+                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (f"'{field_name}' value too long ({len(value)} > {max_value_len})"),
                     },
@@ -462,8 +469,9 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
                 "data": {
                     # DE-36: namespaced form (primary) + legacy alias
                     # (one-release-cycle compat).
-                    "code": "client.missing_field",
-                    "legacy_code": "missing_field",
+                    # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                    "code": ErrorCodes.MISSING_FIELD,
+                    "legacy_code": LegacyErrorCodes.MISSING_FIELD,
                     "field": field_name,
                     "message": f"Missing required field '{field_name}'",
                 },
@@ -474,7 +482,7 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
     return validated, None
 
 
-def _error_response(resp: dict, message: str, *, code: str = "server.handler_error") -> dict:
+def _error_response(resp: dict, message: str, *, code: str = ErrorCodes.HANDLER_ERROR) -> dict:
     """Stamp an error envelope on ``resp`` and return it.
 
     R13-F3: standardizes the catch-all ``except Exception`` envelope

@@ -1177,6 +1177,12 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # the renderer config schema so the Settings UI can reach them.
     "clipboard_save_restore": (bool, _bool_validator),
     "clipboard_restore_delay_ms": (int, _make_int_validator(lo=0, hi=2000)),
+    # TY-11: idle-unload timer for the active ASR backend. 0 (default)
+    # disables the feature; users with abundant VRAM can leave it at 0;
+    # users who dictate intermittently and want the VRAM + GPU idle
+    # power back can set it to e.g. 10 or 15. Upper bound 1440 = 24h
+    # (anything above is almost certainly a typo).
+    "model_idle_unload_minutes": (int, _make_int_validator(lo=0, hi=1440)),
     # ── ASR backend selection ─────────────────────────────────────────
     "asr_backend": (str, _make_enum_validator(frozenset({"whisper", "qwen", "parakeet"}))),
     # ── Text cleanup ──────────────────────────────────────────────────

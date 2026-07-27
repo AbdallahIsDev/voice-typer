@@ -1157,6 +1157,28 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     for provider, field_name in PROVIDER_TO_CONFIG_FIELD.items():
         value = data.get(field_name, "")
+        # DE-23: guard against non-string ``api_key`` values that may
+        # appear in a hand-edited or corrupted config.json. Pre-fix, a
+        # dict / list / int value would crash the entire migration loop
+        # with ``AttributeError`` at ``value.startswith(...)`` below —
+        # which propagated up through ``Config.load``'s except block,
+        # logged a warning, and never set ``secrets_migrated``, so the
+        # crash + warning repeated on every launch with no resolution
+        # path. Now we treat any non-string value as "skip this provider"
+        # (log a warning so the user sees what's wrong) and continue
+        # migrating the remaining providers.
+        if not isinstance(value, str):
+            if value == "" or value is None:
+                # Empty default — nothing to migrate (matches the
+                # historical ``not value`` short-circuit for falsy).
+                continue
+            log.warning(
+                "[CREDENTIAL_STORE] migration: provider=%s field=%s has non-string value (type=%s) — skipping",
+                provider,
+                field_name,
+                type(value).__name__,
+            )
+            continue
         if not value or value.startswith(KEYRING_REF_PREFIX):
             # Empty or already a reference — nothing to migrate
             continue

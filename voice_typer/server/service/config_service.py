@@ -10,6 +10,7 @@ surface that doesn't belong to a single domain mixin:
 * :meth:`ConfigMutationMixin.apply_config_side_effects` — post-mutation side effects
 * :meth:`ConfigMutationMixin.change_model`              — ASR model switch wrapper
 * :meth:`ConfigMutationMixin.set_active_backend`        — ASR backend switch wrapper
+* :meth:`ConfigMutationMixin.reset_config_to_defaults`  — factory reset (config-only)
 * :meth:`ConfigMutationMixin._keyring_status`           — shared keychain probe helper
 
 These previously lived on :class:`VoiceTyperService` itself because
@@ -26,6 +27,7 @@ regression guards in ``tests/regressions/concurrency_test.py``
 ``_config_applier``) and ``tests/test_config_applier.py`` assert.
 """
 
+import contextlib
 import logging
 
 from voice_typer.server.service._base import ServiceMixinBase
@@ -36,7 +38,7 @@ log = logging.getLogger(__name__)
 class ConfigMutationMixin(ServiceMixinBase):
     """Config read / mutate / side-effects surface.
 
-    All mutating methods delegate to ``self._config_applier`` (the
+    Most mutating methods delegate to ``self._config_applier`` (the
     :class:`ConfigApplier` instance bound in
     :meth:`VoiceTyperService.__init__`) so the config-mutation lock
     (``_config_mutation_lock``) lives in exactly one place — see
@@ -44,6 +46,14 @@ class ConfigMutationMixin(ServiceMixinBase):
     ``tests/regressions/concurrency_test.py`` for the regression
     guard that introspects ``ConfigApplier.apply_config`` for the
     lock acquisition.
+
+    The exception is :meth:`reset_config_to_defaults`, which is a
+    whole-config factory reset: it cannot go through
+    ``ConfigApplier`` (which validates and applies an *update* dict
+    to the live config) because it constructs a fresh
+    :class:`Config` from scratch. It still acquires
+    ``_config_mutation_lock`` directly so a concurrent
+    ``set_config`` IPC call can't interleave with the reset.
     """
 
     # ── Config ──────────────────────────────────────────────────
@@ -186,6 +196,147 @@ class ConfigMutationMixin(ServiceMixinBase):
             Callers that previously discarded the return value still work.
         """
         return self._config_applier.apply_config(updates)
+
+    def reset_config_to_defaults(self, *, preserve_api_keys: bool = True) -> dict:
+        """G4-L-25: factory-reset the in-memory + on-disk config to defaults.
+
+        Snapshots the current ``config.json`` to ``config.json.bak``
+        (so the user can recover their settings if they clicked
+        "Reset to defaults" by mistake), then constructs a fresh
+        :class:`Config` (all defaults) and — by default — preserves
+        the 5 API-key fields (``openai_api_key`` / ``groq_api_key`` /
+        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
+        from the pre-reset config so the user doesn't have to re-enter
+        their keys after a reset.  Set ``preserve_api_keys=False`` to
+        also wipe API keys (rare; the GDPR delete path is the right
+        tool for that — it also clears the keychain).
+
+        This method does NOT touch:
+
+          * ``history.db`` (transcription history — GDPR Art. 17
+            delete is a separate, intentional action).
+          * ``voice-typer-corrections.json`` / ``vocabulary.json`` /
+            ``templates.json`` (user customizations — preserved across
+            a factory reset).
+          * ``voice-typer.log`` (runtime log — rotated normally).
+          * OS keychain entries (only the in-memory + on-disk config
+            are reset).
+
+        Acquires ``app._config_mutation_lock`` so a concurrent
+        ``set_config`` IPC call can't interleave attribute writes
+        with the reset.  Calls ``Config.save_strict()`` so a disk
+        failure is surfaced as a ``RuntimeError`` rather than a
+        silent success.  Invalidates the cached ``LLMPolisher`` so
+        the next polish request rebuilds with the reset config.
+
+        Agent 2-j wires the IPC handler that calls this method
+        (``config_handlers.reset_config_to_defaults``).
+
+        Returns::
+
+            {"success": bool,
+             "backup_path": "/path/to/config.json.bak"}
+
+        On backup or save failure, returns::
+
+            {"success": False, "message": "..."}
+        """
+        import shutil
+
+        from voice_typer.server import credential_store
+        from voice_typer.server.config import Config, _config_dir
+
+        app = self._app
+        # Use ``getattr`` instead of direct attribute access so the
+        # static type checker doesn't flag the access (``app`` is typed
+        # as :class:`AppProtocol` which doesn't declare
+        # ``_config_mutation_lock`` per ADR-0008-§3.1 — see
+        # ``providers.py`` for the full rationale). ``getattr`` returns
+        # ``Any`` to the type checker and is functionally equivalent at
+        # runtime.
+        with app._config_mutation_lock:
+            config_dir = _config_dir()
+            config_file = config_dir / "config.json"
+            backup_path = config_dir / "config.json.bak"
+
+            # 1. Snapshot current config.json → config.json.bak.
+            # Best-effort: if config.json doesn't exist (fresh
+            # install), skip the backup.  If the backup write fails
+            # (disk full, permissions), return failure — we don't
+            # want to reset without a recovery path.
+            if config_file.exists():
+                try:
+                    shutil.copy2(config_file, backup_path)
+                except OSError as exc:
+                    log.error("[SERVICE] reset_config_to_defaults: backup failed: %s", exc)
+                    return {
+                        "success": False,
+                        "message": "failed to back up current config (see log)",
+                    }
+
+            # 2. Snapshot the API-key fields from the live Config
+            # (these hold the REAL values, not the keyring://
+            # reference tokens — see ``Config.load``).  We preserve
+            # them so the user doesn't have to re-enter their keys
+            # after a factory reset.
+            preserved_keys: dict[str, str] = {}
+            old_config = getattr(app, "config", None)
+            if preserve_api_keys and old_config is not None:
+                for field in credential_store.PROVIDER_TO_CONFIG_FIELD.values():
+                    try:
+                        value = getattr(old_config, field, "")
+                    except Exception:
+                        value = ""
+                    if value:
+                        preserved_keys[field] = value
+
+            # 3. Construct a fresh Config (all defaults).
+            new_config = Config()
+
+            # 4. Re-apply preserved API keys.
+            for field, value in preserved_keys.items():
+                try:
+                    setattr(new_config, field, value)
+                except Exception:
+                    log.debug(
+                        "[SERVICE] reset_config_to_defaults: could not restore %s",
+                        field,
+                        exc_info=True,
+                    )
+
+            # 5. Save to disk (raises on failure — see Config.save_strict).
+            try:
+                # Swap the in-memory Config BEFORE save so save() reads
+                # the new defaults (and routes preserved API keys
+                # through credential_store if keyring is available).
+                app.config = new_config
+                new_config.save_strict()
+            except Exception as exc:
+                log.error("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
+                return {
+                    "success": False,
+                    "message": "failed to persist reset config to disk (see log)",
+                }
+
+            # 6. Invalidate cached LLMPolisher / CloudEngine so the
+            # next request rebuilds with the reset config.
+            #
+            # Use ``setattr`` (see the GDPR-delete path above for the
+            # full rationale).
+            with contextlib.suppress(Exception):
+                app._llm_polisher = None
+            with contextlib.suppress(Exception):
+                app._cloud_engine = None
+
+            log.info(
+                "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API key(s)",
+                backup_path,
+                len(preserved_keys),
+            )
+            return {
+                "success": True,
+                "backup_path": str(backup_path) if backup_path.exists() else "",
+            }
 
 
 __all__ = ["ConfigMutationMixin"]

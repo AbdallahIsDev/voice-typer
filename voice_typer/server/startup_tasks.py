@@ -30,9 +30,9 @@ from pathlib import Path
 from typing import Any
 
 from voice_typer.server import task_scheduler
-from voice_typer.server.providers import AppProtocol
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
+from voice_typer.server.providers import AppProtocol
 from voice_typer.server.server_platform import create_launcher_shortcut
 
 log = logging.getLogger(__name__)
@@ -327,24 +327,30 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
         # variable + lock) every second — ~3.6k allocations/hour per
         # pulse thread.
         #
-        # PERF-25: the loop now also watches ``stop_event`` (registered
-        # with ``app._thread_registry``) so ``shutdown_all()`` can
-        # signal an early exit instead of waiting up to 60s for the
-        # next ``app._shutting_down`` poll.
-        # CR-23: removed dead ``sleep_event = threading.Event()`` —
-        # PERF-25 replaced this with ``stop_event`` from the thread
-        # registry (used below); the dead assignment was an F841
-        # violation.
+        # PERF-25 / TY-16: the loop now also watches ``stop_event``
+        # (registered with ``app._thread_registry``) so ``shutdown_all()``
+        # can signal an early exit instead of waiting up to 60s for the
+        # next ``app._shutting_down`` poll. ``stop_event.set()`` from
+        # ``shutdown_all()`` wakes the thread IMMEDIATELY on shutdown —
+        # the 60s timeout only governs the AXIsProcessTrusted() recheck
+        # interval, which is the actual purpose of the loop. The previous
+        # 60-iteration 1s loop (PERF-25) was added so shutdown signals
+        # would be picked up within ~1s, but ``stop_event.wait()`` already
+        # wakes immediately on ``stop_event.set()`` — the 1s slicing was
+        # redundant and caused 60 kernel thread wakeups per minute for
+        # the lifetime of the app (~2.4-12 Wh/day wasted on battery per
+        # the TY-16 finding). The defensive ``app._shutting_down`` check
+        # is kept for callers that don't go through the registry.
         last_state = initial_state
         while not app._shutting_down:
-            for _ in range(60):
-                if app._shutting_down or stop_event.is_set():
-                    return
-                # PERF-25: wait on the registry-provided stop_event
-                # (1s slices) so shutdown signals are picked up within
-                # ~1s instead of up to 60s.
-                if stop_event.wait(1.0):
-                    return
+            # TY-16: single 60s wait — ``stop_event.set()`` from
+            # ``shutdown_all()`` wakes the thread immediately on
+            # shutdown; the 60s timeout only governs the
+            # AXIsProcessTrusted() recheck interval. ``stop_event.wait``
+            # returns True when set (shutdown signalled), False on
+            # timeout (60s elapsed — recheck AXIsProcessTrusted()).
+            if stop_event.wait(timeout=60.0):
+                return
             if app._shutting_down or stop_event.is_set():
                 return
             current = _check_accessibility()

@@ -127,6 +127,26 @@ class ModelManager:
         # caller further up the stack acquired it.
         self._model_change_lock = threading.RLock()
 
+        # TY-11: idle-unload timer. When ``model_idle_unload_minutes > 0``,
+        # each ``touch_active_model()`` (called after every successful
+        # transcribe) arms a ``threading.Timer`` that fires after N
+        # minutes of inactivity. When the timer fires, the active
+        # backend is unloaded + ``release_gpu_memory()`` is called so
+        # the ~2.4 GB of VRAM (Parakeet fp16) + CUDA caching allocator
+        # blocks are returned to the OS. The model is reloaded on the
+        # next ``toggle_dictation`` via ``ensure_active_engine_loaded``'s
+        # reload-after-idle-unload path. ``model_idle_unload_minutes = 0``
+        # (the default) disables the feature — current behaviour is
+        # preserved exactly.
+        #
+        # The lock guards the ``_idle_unload_timer`` reference so the
+        # identity check in ``_on_idle_unload_fire`` (which prevents a
+        # cancelled / rescheduled timer's callback from unloading) is
+        # race-free against concurrent ``cancel_idle_unload_timer`` /
+        # ``_schedule_idle_unload_timer`` calls.
+        self._idle_unload_timer: threading.Timer | None = None
+        self._idle_unload_lock = threading.Lock()
+
     # ── Registry access ────────────────────────────────────────────────
 
     @property
@@ -725,6 +745,11 @@ class ModelManager:
         # setattr + save); inner = _model_change_lock (ModelManager-level,
         # guards the unload/reload cycle).  See method docstring.
 
+        # TY-11: cancel any pending idle-unload timer before starting
+        # the unload/reload cycle — otherwise the timer could fire
+        # mid-switch and unload the NEW model.
+        self.cancel_idle_unload_timer()
+
         # ``_config_mutation_lock`` is acquired ONLY for the brief
         # setattr + save + unload/unregister/clear-field phase. The heavy
         # engine construction (_ensure_engine — may import torch) and
@@ -936,6 +961,11 @@ class ModelManager:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
+        # TY-11: cancel any pending idle-unload timer before starting
+        # the unload/reload cycle — otherwise the timer could fire
+        # mid-switch and unload the NEW model. The post-load touch_model
+        # call below re-arms a fresh timer on the new backend.
+        self.cancel_idle_unload_timer()
         # Outer = _model_change_lock (held throughout the
         # unload+construct+load cycle). Inner = _config_mutation_lock
         # (acquired only for setattr + save + the quick unload phase).
@@ -1034,19 +1064,72 @@ class ModelManager:
         + double GPU allocation). We guard with a dedicated lock so
         the second caller sees the engine created by the first.
 
+        TY-11: this is also the reload-after-idle-unload path. When the
+        idle-unload timer has fired (``engine.is_loaded == False``),
+        this method reloads the SAME backend via
+        ``_registry.load_active(progress_callback=...)`` (not Whisper
+        fallback). The tray transitions through LOADING "Loading
+        model..." → IDLE "Ready -- ..." so the user sees the reload
+        latency. After reload, ``touch_model`` re-arms the idle-unload
+        timer so the cycle can repeat on the next idle period.
+
         Returns the active transcriber on success, or None if no engine
         could be created. The caller is responsible for checking
         ``is_loaded`` and calling fallback_to_whisper() if needed.
         """
+        # TY-11: cancel any pending idle-unload timer — the user is
+        # actively dictating so the model must NOT be unloaded mid-
+        # dictation. This is the canonical "cancel on activity" path.
+        self.cancel_idle_unload_timer()
         backend = self._app.config.asr_backend
         # ERR-024: race-safe lazy init. The check inside _ensure_engine
         # is also guarded, but we need to guard the whole check-then-init
         # sequence so two threads don't both create the engine.
         # _lazy_init_lock is created in __init__ (LAZY-INIT-LOCK-FIX).
         with self._lazy_init_lock:
-            if self._registry.get(backend) is None:
+            engine = self._registry.get(backend)
+            if engine is None:
                 self._ensure_engine(backend)
                 self._sync_registry_from_fields()
+                engine = self._registry.get(backend)
+            # TY-11: reload-after-idle-unload. If the engine exists but
+            # has been unloaded by the idle-unload timer (is_loaded=False),
+            # reload it via load_active so the SAME backend is restored
+            # (not silently switched to Whisper fallback). The tray
+            # transitions through LOADING "Loading model..." then IDLE
+            # "Ready -- ..." so the user sees the reload latency.
+            if engine is not None and hasattr(engine, "is_loaded") and not engine.is_loaded:
+                self._app.tray.set_state(AppState.LOADING, "Loading model...")
+
+                def on_progress(msg: str) -> None:
+                    self._app.tray.set_state(AppState.LOADING, msg)
+
+                try:
+                    self._registry.load_active(progress_callback=on_progress)
+                except Exception:
+                    log.warning(
+                        "[TY-11] reload after idle-unload failed (non-fatal)",
+                        exc_info=True,
+                    )
+                # Re-arm the idle-unload timer for the next idle period
+                # (touch_model only arms when backend == active_name).
+                try:
+                    self.touch_model(self._registry.active_name)
+                except Exception:
+                    log.debug("[TY-11] touch_model after reload failed", exc_info=True)
+                # Surface the active backend's device info on the tray
+                # so the user sees "Ready -- <device>" (matches the
+                # set_active_backend success-path tray message).
+                try:
+                    active = self._registry.get_active()
+                    name = self._registry.active_name
+                    if active is not None:
+                        if name == "whisper":
+                            self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
+                        else:
+                            self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
+                except Exception:
+                    log.debug("[TY-11] tray set_state after reload failed", exc_info=True)
         return self.active_transcriber()
 
     def _evict_lru_model(self) -> None:
@@ -1104,11 +1187,28 @@ class ModelManager:
 
         Called when a model is used for transcription so the LRU eviction
         knows which models are actively being used.
+
+        TY-11: if the touched backend is the ACTIVE backend AND
+        ``model_idle_unload_minutes > 0``, (re)arm the idle-unload
+        timer. Touching an inactive backend (e.g. via ``touch_model``
+        on a non-active name during a load path) does NOT arm the
+        timer — the timer is only for the active backend.
         """
         import time
 
         with self._model_lru_lock:
             self._model_access_times[backend_name] = time.monotonic()
+        # TY-11: arm the idle-unload timer only when the touched
+        # backend is the active one (the timer exists to release the
+        # ACTIVE backend's VRAM after inactivity). Touching a non-active
+        # backend (e.g. during a registry-level pre-warm) is harmless
+        # but should not arm the timer.
+        try:
+            active_name = self._registry.active_name
+        except Exception:
+            active_name = None
+        if backend_name == active_name:
+            self._schedule_idle_unload_timer()
 
     def touch_active_model(self) -> None:
         """PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend.
@@ -1128,11 +1228,211 @@ class ModelManager:
         Safe to call when no backend is active — ``touch_model`` is a
         no-op for unknown backend names (it just records the timestamp;
         eviction only considers names that were touched).
+
+        TY-11: also (re)arms the idle-unload timer via the
+        ``touch_model`` → ``_schedule_idle_unload_timer`` path when the
+        active backend is touched (i.e. after every successful
+        transcribe the timer is pushed out by N minutes).
         """
         try:
             self.touch_model(self._registry.active_name)
         except Exception:
             log.warning(
                 "[PERF-015] touch_active_model failed (non-fatal)",
+                exc_info=True,
+            )
+
+    # ── TY-11: idle-unload timer ───────────────────────────────────────
+
+    def cancel_idle_unload_timer(self) -> None:
+        """TY-11: cancel any pending idle-unload timer (idempotent).
+
+        Safe to call when no timer is armed (no-op). Called from:
+        - ``ensure_active_engine_loaded`` (user pressed toggle_dictation)
+        - ``change_model`` / ``set_active_backend`` (model swap)
+        - ``_schedule_idle_unload_timer`` (reschedule-on-touch)
+        - ``app.shutdown`` paths (best-effort via the registry's
+          stop_event — the daemon Timer is killed implicitly by
+          process exit too).
+
+        Defensive against test fixtures that construct
+        ``ModelManager.__new__(ModelManager)`` and bypass ``__init__``
+        (so ``_idle_unload_lock`` / ``_idle_unload_timer`` may not be
+        set). In that case the method is a no-op (there is no timer to
+        cancel — the fixture never armed one).
+        """
+        lock = getattr(self, "_idle_unload_lock", None)
+        if lock is None:
+            return
+        with lock:
+            timer = self._idle_unload_timer
+            self._idle_unload_timer = None
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                log.debug(
+                    "[TY-11] timer.cancel() failed (non-fatal)",
+                    exc_info=True,
+                )
+
+    def _schedule_idle_unload_timer(self) -> None:
+        """TY-11: arm (or re-arm) the idle-unload timer.
+
+        Reads ``app.config.model_idle_unload_minutes``:
+        - ``0`` (default) → feature disabled; cancel any existing timer
+          and return (current behaviour preserved exactly).
+        - ``N > 0`` → cancel any existing timer, then arm a new
+          ``threading.Timer(N * 60.0, _on_idle_unload_fire)``.
+
+        Each call cancels the previous timer so the deadline is pushed
+        out to N minutes after the most recent touch (the "use it or
+        lose it" pattern). The timer is a daemon thread so it never
+        blocks process exit.
+
+        Defensive against test fixtures that bypass ``__init__`` — if
+        ``_idle_unload_lock`` is missing, the method is a no-op (the
+        fixture never set ``model_idle_unload_minutes`` either, so the
+        feature would be disabled anyway).
+        """
+        lock = getattr(self, "_idle_unload_lock", None)
+        if lock is None:
+            return
+        try:
+            minutes = getattr(self._app.config, "model_idle_unload_minutes", 0)
+        except Exception:
+            minutes = 0
+        if not isinstance(minutes, (int, float)) or minutes <= 0:
+            # Feature disabled — cancel any existing timer and return.
+            self.cancel_idle_unload_timer()
+            return
+        # Cancel any existing timer first so the deadline is pushed out
+        # to N minutes after THIS touch (not the previous one).
+        self.cancel_idle_unload_timer()
+        delay = float(minutes) * 60.0
+        # Create the Timer with a placeholder callback, then override
+        # ``timer.function`` with a closure that captures ``timer`` so
+        # ``_on_idle_unload_fire`` can do the identity check (only the
+        # CURRENT timer's callback actually unloads — a cancelled /
+        # rescheduled timer's callback aborts).
+        timer = threading.Timer(delay, lambda: None)
+        timer.daemon = True
+        timer.name = "TY-11-idle-unload"
+
+        def _fire() -> None:
+            self._on_idle_unload_fire(timer)
+
+        # Override the Timer's stored function so the run() method
+        # invokes our closure (which captures ``timer`` for the
+        # identity check). The default ``timer.function`` is the
+        # ``lambda: None`` placeholder above; replacing it post-init is
+        # safe because ``Timer.run`` reads ``self.function`` at fire
+        # time, not at construction.
+        timer.function = _fire
+        with lock:
+            self._idle_unload_timer = timer
+        timer.start()
+
+    def _on_idle_unload_fire(self, timer: threading.Timer) -> None:
+        """TY-11: timer callback — identity-check then delegate to ``_do_idle_unload``.
+
+        The identity check ensures only the CURRENT timer's callback
+        actually unloads. If the timer was cancelled or rescheduled
+        (replaced by a new Timer) before this callback ran, the check
+        fails and the callback returns without unloading. This prevents
+        the race where an old timer fires after a new one was scheduled
+        (which would unload the model right after the user started a
+        new dictation).
+        """
+        with self._idle_unload_lock:
+            current = self._idle_unload_timer
+        if current is not timer:
+            log.debug("[TY-11] idle-unload timer callback aborted (timer no longer current)")
+            return
+        self._do_idle_unload()
+        # Clear the timer reference (the callback has run; the timer is
+        # dead). The next ``touch_active_model`` will arm a fresh timer.
+        with self._idle_unload_lock:
+            if self._idle_unload_timer is timer:
+                self._idle_unload_timer = None
+
+    def _do_idle_unload(self) -> None:
+        """TY-11: unload the active backend + release GPU memory.
+
+        Called from ``_on_idle_unload_fire`` (the timer's callback) and
+        directly from tests. Skips the unload if:
+        - ``app._shutting_down`` is True (avoids racing with teardown).
+        - the active engine is already unloaded (no double-unload).
+
+        After unloading, calls ``release_gpu_memory()`` to release
+        PyTorch's CUDA caching allocator blocks back to the OS, then
+        sets the tray state to ``AppState.IDLE`` with the
+        "Idle — model unloaded" message so the user sees the tray
+        transition. The model is reloaded on the next
+        ``toggle_dictation`` via ``ensure_active_engine_loaded``.
+        """
+        # Skip if shutting down — don't race with teardown.
+        if getattr(self._app, "_shutting_down", False):
+            log.debug("[TY-11] idle-unload skipped (app shutting down)")
+            return
+        try:
+            active_name = self._registry.active_name
+        except Exception:
+            active_name = None
+        engine = self._registry.get_active()
+        # Skip if no active engine (nothing to unload).
+        if engine is None:
+            log.debug("[TY-11] idle-unload skipped (no active engine)")
+            return
+        # Skip if already unloaded (no double-unload).
+        if hasattr(engine, "is_loaded") and not engine.is_loaded:
+            log.debug("[TY-11] idle-unload skipped (engine already unloaded)")
+            return
+        log.info(
+            "[TY-11] idle-unload: unloading active backend '%s' after idle period",
+            active_name,
+        )
+        # Unload via the registry (which calls engine.unload() on the
+        # registered backend).
+        try:
+            self._registry.unload(active_name)
+        except Exception:
+            log.warning(
+                "[TY-11] registry.unload(%s) failed (non-fatal)",
+                active_name,
+                exc_info=True,
+            )
+        # Defense in depth: also call engine.unload() directly in case
+        # registry.unload only clears the registration without calling
+        # the engine's unload (the contract varies by registry impl).
+        try:
+            if hasattr(engine, "unload"):
+                engine.unload()
+        except Exception:
+            log.debug(
+                "[TY-11] engine.unload() failed (non-fatal)",
+                exc_info=True,
+            )
+        # Release GPU memory (CUDA caching allocator blocks). Defense
+        # in depth — parakeet_engine.unload() also calls this, but the
+        # ModelManager calls it explicitly too so a registry impl that
+        # doesn't propagate unload still releases VRAM.
+        try:
+            from voice_typer.server.asr_utils import release_gpu_memory
+
+            release_gpu_memory()
+        except Exception:
+            log.debug(
+                "[TY-11] release_gpu_memory() failed (non-fatal)",
+                exc_info=True,
+            )
+        # Tray state transition: "Idle — model unloaded" (reuses
+        # AppState.IDLE per the TY-11 constraint of not touching
+        # tray.py / tray_types.py — no new enum value).
+        try:
+            self._app.tray.set_state(AppState.IDLE, "Idle — model unloaded")
+        except Exception:
+            log.debug(
+                "[TY-11] tray.set_state failed (non-fatal)",
                 exc_info=True,
             )

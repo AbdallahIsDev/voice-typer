@@ -46,6 +46,23 @@ class HotkeyBackend(ABC):
         """
         self._toggle_on_keyup = value
 
+    # Public setter for the tray reference. Previously the
+    # ``_NativeBackendAdapter`` reached into the legacy backend's private
+    # ``_tray`` attribute directly (``legacy._tray = self._tray`` with a
+    # ``# type: ignore[attr-defined]``) because :class:`HotkeyBackend`
+    # didn't expose a tray setter. This default no-op lets backends that
+    # don't care about tray notifications ignore the call; subclasses
+    # that DO emit tray notifications override it to store the reference.
+    def set_tray(self, tray: object | None) -> None:  # noqa: B027 - intentional optional override
+        """Store a reference to the system-tray object for notifications.
+
+        Default no-op — backends that don't emit tray notifications
+        (e.g. :class:`PynputHotkey`, :class:`WaylandHotkey`) silently
+        ignore the call. Backends that do (e.g.
+        :class:`WindowsNativeHotkey`) override it to store ``tray`` on
+        ``self._tray`` for later ``tray.notify(...)`` calls.
+        """
+
     @abstractmethod
     def stop(self) -> None:
         """Stop listening and release resources."""

@@ -8,35 +8,6 @@ circular import on the package ``__init__``, and so
 """
 
 
-def _apply_audio_preset(preset: str) -> dict:
-    """ADR 0007: Map an audio preset name to individual filter settings.
-
-    Delegates to :mod:`voice_typer.server.audio_presets` (single source
-    of truth). Presets:
-        "auto"        — all filters ON, RNNoise (best for 90% of users)
-        "studio"      — minimal processing (quiet room, good mic)
-        "noisy_room"  — aggressive, DeepFilterNet
-        "off"         — all filters OFF
-        "custom"      — no automatic changes (user controls each toggle)
-
-    Legacy preset names "recommended" and "none" are accepted for
-    backward compat (mapped to "auto" and "off" respectively).
-
-    Returns:
-        dict of noise_filter_* settings to apply.
-    """
-    from voice_typer.server.audio_presets import (
-        PRESET_AUTO,
-        PRESET_OFF,
-        get_preset_filters,
-    )
-
-    # Map legacy preset names
-    legacy_map = {"recommended": PRESET_AUTO, "none": PRESET_OFF}
-    normalized = legacy_map.get(preset, preset)
-    return get_preset_filters(normalized)
-
-
 def _find_symlink_in_tree(root):
     """RW-5: return the path of the first symlink found under ``root``,
     or ``None`` if there are none.

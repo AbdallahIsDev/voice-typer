@@ -213,6 +213,26 @@ class SubprocessHotkeyBackend(ABC):
         """
         self._toggle_on_keyup = value
 
+    # YJ-56: public setters for the GAP-2/GAP-4 callbacks. Previously
+    # the ``_NativeBackendAdapter`` reached into the private
+    # ``_on_error_callback`` / ``_on_permanent_failure_callback`` /
+    # ``_on_warn_callback`` attributes directly (with
+    # ``# type: ignore[assignment]``) because no public API existed.
+    # These setters expose the same wiring through the public surface so
+    # the adapter doesn't need ``# type: ignore`` markers and the
+    # callbacks remain an internal implementation detail of the backend.
+    def set_error_callback(self, callback: Callable[[str], None]) -> None:
+        """Register the ``ERROR:`` line handler invoked from ``_handle_line``."""
+        self._on_error_callback = callback
+
+    def set_permanent_failure_callback(self, callback: Callable[[], None]) -> None:
+        """Register the permanent-failure handler (5 retries exhausted)."""
+        self._on_permanent_failure_callback = callback
+
+    def set_warn_callback(self, callback: Callable[[str], None]) -> None:
+        """Register the ``WARN:`` line handler invoked from ``_handle_line``."""
+        self._on_warn_callback = callback
+
     def start(self, callback: Callable[[], None]) -> None:
         """Spawn the native binary and start parsing its stdout."""
         if self._parsed is None:

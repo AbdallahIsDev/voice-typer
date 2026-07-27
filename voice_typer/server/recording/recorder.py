@@ -520,7 +520,13 @@ class Recorder:
         # common 16kHz case; start() re-sizes the deque once
         # _effective_sr is known (after the device loop succeeds) using
         # the values cached in _preroll_seconds / _preroll_blocksize.
-        preroll_seconds = float(getattr(config, "pre_roll_buffer_seconds", 0.0) or 0)
+        # pre_roll_buffer_seconds is a Config dataclass field
+        # (config.py, default 0.0) — always present on a real Config
+        # instance, so the getattr fallback could never fire and was
+        # dead-defensive code. The ``or 0`` guard is preserved because
+        # 0.0 is a valid "disabled" value and float(0.0 or 0) == 0.0
+        # is a no-op equivalence.
+        preroll_seconds = float(config.pre_roll_buffer_seconds or 0)
         sample_rate = int(config.sample_rate or 16000)
         # cache these so start() can recompute the deque maxlen
         # using _effective_sr without re-reading config (which the audio
@@ -2041,7 +2047,10 @@ class Recorder:
         # Coerce to float so a non-numeric MagicMock config (in tests)
         # doesn't cause TypeError in the silence_timer comparison.
         _silence_warning = self.config.silence_warning_seconds
-        _stop_on_silence = getattr(self.config, "stop_on_silence_seconds", 60.0)
+        # stop_on_silence_seconds is a Config dataclass field (default
+        # 60.0) — always present on a real Config instance, so the
+        # getattr fallback could never fire on a real Config.
+        _stop_on_silence = self.config.stop_on_silence_seconds
         self._cached_silence_warning = float(_silence_warning) if isinstance(_silence_warning, (int, float)) else 20.0
         self._cached_stop_on_silence = float(_stop_on_silence) if isinstance(_stop_on_silence, (int, float)) else 60.0
         # SIMPLIFY-001: single explicit field replaces the old 3-field split
@@ -2140,7 +2149,13 @@ class Recorder:
                 # and convert to mono in the callback via _ensure_mono.
                 # If config.recording_channels > 0, use that value
                 # instead of auto-detecting (allows user override).
-                config_channels = int(getattr(self.config, "recording_channels", 1) or 1)
+                # recording_channels is a Config dataclass field
+                # (default 1) — always present on a real Config instance,
+                # so the getattr fallback could never fire. The ``or 1``
+                # guard is preserved because recording_channels=0 is an
+                # invalid misconfig that would produce a zero-channel
+                # stream — defensive against misconfig, not missing attr.
+                config_channels = int(self.config.recording_channels or 1)
                 channels = config_channels if config_channels > 0 else 1
                 try:
                     # PERF: consult the cached device list (pre-warmed in

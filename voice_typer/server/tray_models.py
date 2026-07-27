@@ -143,8 +143,6 @@ def build_models_submenu_data(
             instead of re-parsing config.json from disk. Falls back to disk
             read when None.
     """
-    from voice_typer.server.asr_setup import ensure_hf_env  # noqa: F401 — re-exported for back-compat
-
     # XV-118: ensure_hf_env() is process-global idempotent; cache it
     # behind ``_ensure_hf_env_once`` so right-click menu rebuilds don't
     # repeat the env-var setup work on every invocation.

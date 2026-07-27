@@ -136,6 +136,14 @@ class _NativeBackendAdapter(HotkeyBackend):
     # GAP-4: retry interval for swapping back to native (5 minutes)
     _NATIVE_RETRY_INTERVAL_SECONDS = 300.0
 
+    # YJ-56: declare the tray reference as a typed class attribute. The
+    # adapter doesn't construct the tray — it's propagated from
+    # ``hotkey_dispatcher.py`` (``adapter._tray = app.tray`` after
+    # construction) and forwarded to the active legacy backend via
+    # :meth:`HotkeyBackend.set_tray`. Typed here so the propagation in
+    # this file doesn't need ``# type: ignore[attr-defined]`` markers.
+    _tray: object | None = None
+
     def __init__(self, native_backend):
         # Don't call super().__init__ because we delegate hotkey_str
         # to the wrapped backend.
@@ -151,12 +159,17 @@ class _NativeBackendAdapter(HotkeyBackend):
         # Wire up the native backend's error and permanent-failure
         # callbacks so we know when to (a) show a permission prompt
         # and (b) swap to the legacy backend.
-        native_backend._on_error_callback = self._on_native_error  # type: ignore[assignment]
-        native_backend._on_permanent_failure_callback = (  # type: ignore[assignment]
-            self._on_native_permanent_failure
-        )
+        # YJ-56: use the public setters on ``SubprocessHotkeyBackend``
+        # (``set_error_callback`` / ``set_permanent_failure_callback``
+        # / ``set_warn_callback``) instead of reaching into the private
+        # ``_on_*_callback`` attributes directly. The setters live on
+        # the public API surface, so no ``# type: ignore[assignment]``
+        # is needed and the callbacks remain an internal impl detail
+        # of the native backend.
+        native_backend.set_error_callback(self._on_native_error)
+        native_backend.set_permanent_failure_callback(self._on_native_permanent_failure)
         # CR-143: wire WARN callback
-        native_backend._on_warn_callback = self._on_native_warn  # type: ignore[assignment]
+        native_backend.set_warn_callback(self._on_native_warn)
 
     def start(self, callback: Callable[[], None]) -> None:
         self._callback = callback
@@ -294,7 +307,19 @@ class _NativeBackendAdapter(HotkeyBackend):
         with contextlib.suppress(Exception):
             self._native.stop()
         try:
-            self._native.start(self._callback)  # type: ignore[arg-type]
+            # YJ-56: narrow ``self._callback`` (typed
+            # ``Callable[[], None] | None``) to the non-None local
+            # ``cb`` so :meth:`HotkeyBackend.start`'s non-optional
+            # ``callback`` parameter is satisfied without a
+            # ``# type: ignore[arg-type]`` marker. ``_callback`` is
+            # populated by :meth:`start` (above), which always runs
+            # before the permission-retry timer fires — but the
+            # static type can't see that, so we narrow here.
+            cb = self._callback
+            if cb is None:
+                log.warning("[HOTKEY] Permission granted but no callback registered — skipping native restart")
+                return
+            self._native.start(cb)
             if self._native.is_alive():
                 with self._swap_lock:
                     if self._state != self._STATE_STOPPED:
@@ -352,7 +377,15 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         try:
             legacy = self._create_legacy_backend()
-            legacy.start(self._callback)  # type: ignore[arg-type]
+            # YJ-56: narrow ``self._callback`` to non-None (see
+            # ``_on_permission_granted`` for the rationale).
+            cb = self._callback
+            if cb is None:
+                log.warning("[HOTKEY] Cannot swap to legacy — no callback registered")
+                with contextlib.suppress(Exception):
+                    legacy.stop()
+                return
+            legacy.start(cb)
             if self._on_release_callback is not None:
                 legacy.set_on_release(self._on_release_callback)
             with self._swap_lock:
@@ -362,9 +395,11 @@ class _NativeBackendAdapter(HotkeyBackend):
                         legacy.stop()
                     return
                 self._legacy = legacy
-                # CR-142: propagate _tray to legacy backend
+                # CR-142: propagate _tray to legacy backend via the
+                # public ``set_tray`` API (YJ-56) instead of reaching
+                # into the private ``_tray`` attribute directly.
                 with contextlib.suppress(AttributeError, TypeError):
-                    self._legacy._tray = self._tray  # type: ignore[attr-defined]
+                    self._legacy.set_tray(self._tray)
                 self._state = self._STATE_FALLBACK
             log.info("[HOTKEY] Successfully swapped to legacy backend")
             self._show_fallback_notification()
@@ -442,7 +477,13 @@ class _NativeBackendAdapter(HotkeyBackend):
                 with contextlib.suppress(Exception):
                     warm_spare.stop()
             self._native.stop()
-            self._native.start(self._callback)  # type: ignore[arg-type]
+            # YJ-56: narrow ``self._callback`` to non-None (see
+            # ``_on_permission_granted`` for the rationale).
+            cb = self._callback
+            if cb is None:
+                log.warning("[HOTKEY] Native retry aborted — no callback registered")
+                return
+            self._native.start(cb)
             if self._native.is_alive():
                 with self._swap_lock:
                     if self._state == self._STATE_STOPPED:
@@ -469,12 +510,18 @@ class _NativeBackendAdapter(HotkeyBackend):
         # adapter, so the restart is faster than constructing a new one.
         try:
             legacy = warm_spare if warm_spare is not None else self._create_legacy_backend()
-            legacy.start(self._callback)  # type: ignore[arg-type]
+            # YJ-56: ``cb`` is the narrowed callback from above — if
+            # ``self._callback`` was None we already returned.
+            if cb is None:
+                log.warning("[HOTKEY] Cannot restart legacy — no callback registered")
+                return
+            legacy.start(cb)
             if self._on_release_callback is not None:
                 legacy.set_on_release(self._on_release_callback)
-            # CR-142 (cont.): propagate _tray
+            # CR-142 (cont.): propagate _tray via the public
+            # ``set_tray`` API (YJ-56) instead of the private attr.
             with contextlib.suppress(AttributeError, TypeError):
-                legacy._tray = self._tray  # type: ignore[attr-defined]
+                legacy.set_tray(self._tray)
             with self._swap_lock:
                 if self._state == self._STATE_STOPPED:
                     legacy.stop()

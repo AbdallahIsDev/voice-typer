@@ -186,11 +186,19 @@ class ClipboardManager:
         try:
             self._clipboard_save_restore_enabled = bool(getattr(config, "clipboard_save_restore", True))
         except Exception:
+            _cb.log.warning(
+                "[CLIPBOARD] refresh_config: clipboard_save_restore lookup failed — using safe default",
+                exc_info=True,
+            )
             self._clipboard_save_restore_enabled = True  # safe default
 
         try:
             self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", _DEFAULT_RESTORE_DELAY_MS))
         except Exception:
+            _cb.log.warning(
+                "[CLIPBOARD] refresh_config: clipboard_restore_delay_ms lookup failed — using default",
+                exc_info=True,
+            )
             self._restore_delay_ms = _DEFAULT_RESTORE_DELAY_MS
 
         # §2.12: mirror paste_on_stop → paste_enabled so a runtime toggle
@@ -200,6 +208,10 @@ class ClipboardManager:
         try:
             self.paste_enabled = bool(getattr(config, "paste_on_stop", True))
         except Exception:
+            _cb.log.warning(
+                "[CLIPBOARD] refresh_config: paste_on_stop lookup failed — using safe default",
+                exc_info=True,
+            )
             self.paste_enabled = True
 
         _cb.log.debug(

@@ -187,6 +187,22 @@ class PIIRedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         msg = _redact_text(msg)
+        # YJ-18: store the redacted message on ``record.redacted_msg`` so
+        # downstream structured consumers (metrics exporters, a future
+        # MemoryHandler ring buffer that re-emits to a structured backend)
+        # can read the redacted version WITHOUT having to re-format
+        # ``record.msg`` / ``record.args``. The existing text/JSON
+        # formatters continue to consult ``record.msg`` (mutated below)
+        # for backward compat — the new attribute is purely additive.
+        #
+        # We ALSO keep the legacy ``record.msg = msg`` / ``record.args = ()``
+        # mutation (the original SEC-009 behavior) because the existing
+        # text/JSON formatters and tests rely on ``record.msg`` carrying
+        # the redacted text. Future structured consumers should prefer
+        # ``record.redacted_msg`` (always set when the filter runs); the
+        # legacy ``record.msg`` mutation is preserved as the "text path"
+        # so a no-code-change upgrade is possible.
+        record.redacted_msg = msg
         record.msg = msg
         record.args = ()
 
