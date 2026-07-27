@@ -320,6 +320,29 @@ class TestDE13ForceRecoveryGcCollect:
 
         assert AppState.IDLE in tray_states
 
+    def test_force_recovery_clears_current_audio_slot(self):
+        """DE-13 (privacy): ``_force_recover_from_stuck_transcription`` must
+        clear ``self._current_audio`` so the raw voice bytes are eligible
+        for GC after a user-initiated cancel. The shared clearable slot is
+        the privacy mechanism — the closed-over ``audio`` local in
+        ``transcribe_thread`` (pre-fix) kept the bytes alive for the entire
+        lifetime of the stuck ctranslate2 call (5-30 min)."""
+        ctrl, app = _make_controller()
+        app._busy_event.clear()  # busy = True (force-recovery is needed)
+        ctrl._transcription_thread = None  # no live thread → force-recover path
+
+        # Simulate audio bytes captured by stop() before the watchdog fired.
+        captured_audio = b"\x00\x01\x02\x03" * 4096
+        ctrl._current_audio = captured_audio
+
+        ctrl._force_recover_from_stuck_transcription(force=True)
+
+        assert ctrl._current_audio is None, (
+            "DE-13: _force_recover_from_stuck_transcription must clear "
+            "self._current_audio so the raw voice bytes can be garbage-"
+            "collected after a user-initiated cancel."
+        )
+
 
 # ─── DE-51: generic message instead of raw exception ───────────────────
 

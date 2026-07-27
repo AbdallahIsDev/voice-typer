@@ -904,3 +904,183 @@ class TestUserDataPurgeHelpers:
             f"S2-CR-70: duplicate subpaths in purge list — "
             f"got {len(subpaths)} entries but only {len(unique)} unique"
         )
+
+
+# ── GT-38: real-collaborator integration tests ─────────────────────────
+#
+# The tests above use MagicMock collaborators (history_db, recorder,
+# crash_recovery). They verify CALL ROUTING only — they do NOT verify
+# that a real history_db.flush() actually drains pending SQLite writes,
+# or that recorder.stop() actually closes a real PortAudio stream. A
+# regression where flush() becomes fire-and-forget would still pass
+# those tests but silently lose data in production.
+#
+# These integration tests use a REAL HistoryDB (tmp_path SQLite file)
+# and a fake-but-real PortAudio stream stub to verify the side effects
+# of _do_cleanup() / restart_app() actually land.
+
+
+class TestRealHistoryDBFlushDrainsQueue:
+    """GT-38: _do_cleanup() must call a real history_db.flush() that
+    actually drains the writer-thread queue to the SQLite file on disk.
+
+    A regression where flush() is changed to a fire-and-forget
+    non-blocking call would still pass the MagicMock-based tests above
+    (they only assert ``flush.assert_called_once()``) but would silently
+    lose pending writes on restart. This test catches that regression
+    by inspecting the actual SQLite file on disk.
+    """
+
+    def test_do_cleanup_drains_pending_writes_to_disk(
+        self, app, tmp_config_dir, monkeypatch
+    ):
+        """A real HistoryDB with a populated writer queue, when passed
+        through _do_cleanup(), must end up with all rows persisted to
+        the SQLite file on disk — proving flush() is blocking, not
+        fire-and-forget."""
+        from voice_typer.server.history_db import HistoryDB
+
+        # Use a REAL HistoryDB pointed at the tmp_config_dir's history.db
+        real_db = HistoryDB(db_path=tmp_config_dir / "history.db")
+        try:
+            # Enqueue 5 fire-and-forget writes. They sit in the writer
+            # thread's queue (or are being drained async) — at this
+            # point we cannot guarantee they're on disk yet.
+            texts = [f"pending write {i}" for i in range(5)]
+            for text in texts:
+                row_id = real_db.add_transcription(text, duration=1.0)
+                assert row_id > 0, "add_transcription should return placeholder > 0"
+
+            # Swap the app's mock history_db for the real one. Other
+            # collaborators stay mocked (recorder, hotkeys, tray) so we
+            # don't need real audio hardware.
+            _stub_restart_environment(app, monkeypatch)
+            app.history_db = real_db
+
+            # Run the shared cleanup path. This MUST call real_db.flush()
+            # which blocks until the writer thread has drained the queue.
+            app._do_cleanup()
+
+            # Open a FRESH read connection (not the writer thread's
+            # connection) and verify all 5 rows landed on disk.
+            import sqlite3
+
+            with sqlite3.connect(str(tmp_config_dir / "history.db")) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT text FROM transcriptions ORDER BY id"
+                ).fetchall()
+                on_disk_texts = [r["text"] for r in rows]
+
+            assert on_disk_texts == texts, (
+                f"GT-38: _do_cleanup() must drain pending HistoryDB writes "
+                f"to disk. Expected {texts}, got {on_disk_texts}. A "
+                f"fire-and-forget flush() regression would leave this empty "
+                f"or partial."
+            )
+        finally:
+            # close() is idempotent; safe to call after _do_cleanup.
+            real_db.close()
+
+    def test_real_flush_blocks_until_queue_drained(
+        self, tmp_config_dir, monkeypatch
+    ):
+        """GT-38: A direct call to HistoryDB.flush() must BLOCK until
+        all queued writes are durable on disk. This is the contract
+        _do_cleanup() relies on — if flush() becomes non-blocking, the
+        restart path silently loses data.
+
+        We verify this by enqueuing N writes, calling flush(), then
+        immediately reading from a fresh connection and asserting all
+        N rows are visible.
+        """
+        from voice_typer.server.history_db import HistoryDB
+
+        real_db = HistoryDB(db_path=tmp_config_dir / "history.db")
+        try:
+            texts = [f"row {i}" for i in range(20)]
+            for t in texts:
+                real_db.add_transcription(t)
+
+            # flush() must block until the writer drains the queue.
+            real_db.flush()
+
+            import sqlite3
+
+            with sqlite3.connect(str(tmp_config_dir / "history.db")) as conn:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM transcriptions"
+                ).fetchone()[0]
+
+            assert count == 20, (
+                f"GT-38: flush() must block until all queued writes are "
+                f"durable. Expected 20 rows on disk, got {count}. A "
+                f"non-blocking flush() regression would return before the "
+                f"writer thread finished draining."
+            )
+        finally:
+            real_db.close()
+
+
+class TestRealRecorderStopClosesStream:
+    """GT-38: _do_cleanup() must call recorder.stop() which actually
+    closes the underlying PortAudio stream. The MagicMock-based tests
+    only verify ``recorder.stop.assert_called_once()`` — they do NOT
+    verify that a real recorder.stop() actually invokes stream.stop()
+    + stream.close().
+
+    We use a fake stream object that records stop()/close() calls
+    (standing in for a real sd.InputStream) so we can verify the
+    teardown sequence is exercised end-to-end.
+    """
+
+    def test_do_cleanup_closes_real_stream(self, app, tmp_config_dir, monkeypatch):
+        """When the app's recorder has a real (fake-but-not-MagicMock)
+        PortAudio stream, _do_cleanup() must drive stop() + close() on
+        it, leaving _stream = None."""
+
+        # Reuse the app's existing recorder instance (constructed in
+        # __init__ with mocked sounddevice via mock_heavy_imports).
+        recorder = app.recorder
+
+        # Install a fake-but-real stream object that records teardown
+        # calls. This is NOT a MagicMock — we want to verify the
+        # production stop()/close() sequence is actually invoked.
+        class _FakeStream:
+            def __init__(self):
+                self.stop_calls = 0
+                self.close_calls = 0
+
+            def stop(self):
+                self.stop_calls += 1
+
+            def close(self):
+                self.close_calls += 1
+
+        fake_stream = _FakeStream()
+        recorder._stream = fake_stream
+        # Pretend we're recording so _do_cleanup takes the stop() path.
+        # ``recording`` is a read-only property backed by an Event.
+        recorder._recording_event.set()
+        # Mark not-in-callback so stop()'s poll loop exits immediately.
+        recorder._is_in_audio_callback.clear()
+
+        # Stub the rest of the cleanup collaborators (history_db etc.)
+        # so _do_cleanup only needs to succeed on the recorder path.
+        _stub_restart_environment(app, monkeypatch)
+        # Restore the real recorder (the stub overwrote it with a mock).
+        app.recorder = recorder
+
+        # Run cleanup. Must invoke recorder.stop() which drives
+        # stream.stop() + stream.close() + self._stream = None.
+        app._do_cleanup()
+
+        assert fake_stream.stop_calls == 1, (
+            "GT-38: recorder.stop() must call stream.stop() exactly once"
+        )
+        assert fake_stream.close_calls == 1, (
+            "GT-38: recorder.stop() must call stream.close() exactly once"
+        )
+        assert recorder._stream is None, (
+            "GT-38: recorder.stop() must set self._stream = None after close"
+        )

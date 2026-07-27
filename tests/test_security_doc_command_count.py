@@ -84,6 +84,33 @@ _HOST_ONLY_COMMANDS = frozenset(
     }
 )
 
+# Commands present in the renderer TS ``ALLOWED_COMMANDS`` but intentionally
+# absent from the Rust host's ``ALLOWED_COMMANDS`` because the Rust host
+# dispatches them directly (they do not flow through the renderer's
+# ``invoke('dispatch', ...)`` path). When a TS-only command is added or
+# removed, this set MUST be updated in the same PR.
+_TS_ONLY_EXCEPTIONS = frozenset(
+    {
+        "heartbeat": (
+            "RW-10 watchdog tick. The Rust WS-reader task sends this "
+            "directly to the Python backend; the renderer never "
+            "dispatches it. Keeping it out of the Rust allowlist closes "
+            "the attack surface where a compromised renderer could "
+            "``invoke('dispatch', {cmd:'heartbeat'})`` to spoof watchdog "
+            "ticks and mask backend hangs."
+        ),
+        "relaunch_ack": (
+            "PERF-005 relaunch ack. The ``relaunch_app`` Tauri command "
+            "sends this directly to the Python backend to release the "
+            "relaunch-wait event; the renderer never dispatches it. "
+            "Keeping it out of the Rust allowlist closes the attack "
+            "surface where a compromised renderer could "
+            "``invoke('dispatch', {cmd:'relaunch_ack'})`` to prematurely "
+            "release the relaunch-wait event and cause a race."
+        ),
+    }
+)
+
 
 def _count_allowed_commands() -> int:
     """Count quoted command strings inside the ALLOWED_COMMANDS Set block."""
@@ -192,16 +219,21 @@ def test_security_md_allowlist_count_matches_source() -> None:
     so this test stays useful as a parity guard.
     """
     actual = _count_allowed_commands()
-    # YJ-10 invariant: Rust ↔ TS allowlist count MUST match. This is
-    # the regression-guard portion of the test (the YJ-10 fix's primary
-    # contract). Already enforced separately by
+    # YJ-10 invariant: Rust ↔ TS allowlist count MUST match (modulo
+    # _TS_ONLY_EXCEPTIONS, which are intentionally TS-only because the
+    # Rust host dispatches them directly — see _TS_ONLY_EXCEPTIONS
+    # docstrings for the rationale). This is the regression-guard
+    # portion of the test (the YJ-10 fix's primary contract). Already
+    # enforced separately by
     # `test_rust_allowlist_matches_ts_allowlist_count`, but duplicated
     # here so this test stays useful as a parity guard.
     rust_count = len(_allowed_commands_rust())
-    assert rust_count == actual, (
+    ts_only_exception_count = len(_TS_ONLY_EXCEPTIONS & _allowed_commands_ts())
+    assert rust_count == actual - ts_only_exception_count, (
         f"Rust ALLOWED_COMMANDS has {rust_count} entries but the TS "
-        f"renderer source defines {actual}. YJ-10 parity broken — "
-        f"update both files in the same PR."
+        f"renderer source defines {actual} ({ts_only_exception_count} "
+        f"of which are intentionally TS-only per _TS_ONLY_EXCEPTIONS). "
+        f"YJ-10 parity broken — update both files in the same PR."
     )
 
     documented = _documented_count()
@@ -244,10 +276,13 @@ def test_rust_allowlist_matches_ts_allowlist_count() -> None:
     """
     ts_count = len(_allowed_commands_ts())
     rust_count = len(_allowed_commands_rust())
-    assert rust_count == ts_count, (
+    ts_only_exception_count = len(_TS_ONLY_EXCEPTIONS & _allowed_commands_ts())
+    assert rust_count == ts_count - ts_only_exception_count, (
         f"Rust ALLOWED_COMMANDS has {rust_count} entries but TS has "
-        f"{ts_count}. Both files MUST be updated in the same PR when a "
-        f"command is added or removed. Files:\n"
+        f"{ts_count} ({ts_only_exception_count} of which are "
+        f"intentionally TS-only per _TS_ONLY_EXCEPTIONS). Both files "
+        f"MUST be updated in the same PR when a command is added or "
+        f"removed. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs\n"
         f"  - TS:   voice_typer/client/src/main/allowed-commands.ts"
     )
@@ -263,14 +298,18 @@ def test_rust_allowlist_matches_ts_allowlist_entries() -> None:
     """
     ts = _allowed_commands_ts()
     rust = _allowed_commands_rust()
-    only_ts = ts - rust
+    ts_only_exceptions = _TS_ONLY_EXCEPTIONS & ts
+    only_ts = (ts - rust) - ts_only_exceptions
     only_rust = rust - ts
     assert not only_ts and not only_rust, (
         f"Rust ↔ TS ALLOWED_COMMANDS drift detected:\n"
-        f"  In TS but NOT in Rust: {sorted(only_ts) or '(none)'}\n"
+        f"  In TS but NOT in Rust (excluding _TS_ONLY_EXCEPTIONS): "
+        f"{sorted(only_ts) or '(none)'}\n"
+        f"  Intentionally TS-only (per _TS_ONLY_EXCEPTIONS): "
+        f"{sorted(ts_only_exceptions) or '(none)'}\n"
         f"  In Rust but NOT in TS: {sorted(only_rust) or '(none)'}\n"
-        f"Both files MUST list the same commands. Update them in the "
-        f"same PR. Files:\n"
+        f"Both files MUST list the same commands (modulo "
+        f"_TS_ONLY_EXCEPTIONS). Update them in the same PR. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
         f"(allowed_commands() fn)\n"
         f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "
@@ -316,7 +355,10 @@ def test_rust_allowlist_contains_key_commands() -> None:
       - ``quit_app``: tray Quit menu item
       - ``toggle_dictation``: main hotkey action
       - ``download_model``: Models page download button
-      - ``heartbeat``: RW-10 watchdog
+
+    ``heartbeat`` and ``relaunch_ack`` are intentionally NOT in the Rust
+    allowlist — see ``_TS_ONLY_EXCEPTIONS`` for the rationale (they are
+    host-dispatched, not renderer-dispatched).
 
     If any of these go missing from the Rust allowlist, the
     corresponding UI feature silently breaks (the renderer's
@@ -329,7 +371,6 @@ def test_rust_allowlist_contains_key_commands() -> None:
         "quit_app",
         "toggle_dictation",
         "download_model",
-        "heartbeat",
     }
     missing = required - rust
     assert not missing, (

@@ -23,8 +23,23 @@ they were never referenced by any test code (verified via
   different filename).
 - `noise.wav` — aspirational noise-floor fixture; no test loads it.
 
-Only `test_440hz_1s_16k.wav` is retained because it is the only fixture
-actually wired into a pytest fixture (see `wav_fixture_path` in
-`tests/conftest.py`). The other three had no generator script
-(`generate_fixture.py` only generates `test_440hz_1s_16k.wav`) and were
-non-reproducible binary blobs.
+Only `test_440hz_1s_16k.wav` is retained on disk. The `wav_fixture_path`
+pytest fixture that previously returned its path was removed in RT-16
+(no test imported it — tests that need the WAV construct the path inline).
+
+## Removed factory helpers (RT-16)
+
+The following factory helpers in `tests/fixtures/ipc_test_helpers.py`
+were removed in RT-16 because no test imported them (verified via
+`rg -n 'make_fake_sidecar_ws_server|make_fake_recorder' tests/` →
+matches only in the definition file and `tests/fixtures/README.md`):
+
+- `make_fake_sidecar_ws_server` — aspirational XS-42 migration target;
+  the sidecar WS tests continue to use their inline `_make_fake_server`
+  helpers, so the canonical factory was never wired up.
+- `make_fake_recorder` — same: aspirational XS-42 migration target; the
+  recorder tests continue to use their inline `_make_recorder` helpers.
+
+The retained exports (`make_fake_app`, `make_fake_service`,
+`make_ipc_server_with_fakes`) are actively used by `tests/handlers/*`
+and `tests/server/*`.

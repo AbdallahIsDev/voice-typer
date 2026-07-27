@@ -17,7 +17,6 @@ import sys
 
 from voice_typer.server.dictation_pipeline import DictationPipeline
 
-
 # ── Helper ────────────────────────────────────────────────────────────────
 
 

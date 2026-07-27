@@ -404,3 +404,101 @@ class TestAlreadyFixedVerifications:
         # Legacy names must include the bare form so one-time migration
         # can copy entries forward.
         assert "voice-typer" in credential_store._LEGACY_KEYRING_SERVICE_NAMES
+
+
+# ── DE-23: non-string api_key value crashes migration ───────────────────
+
+
+class TestDE23NonStringApiKeySkippedGracefully:
+    """DE-23: ``migrate_secrets_to_keyring`` must skip a corrupted /
+    hand-edited ``api_key`` field whose value is a non-string type
+    (dict, list, int) instead of crashing the entire migration loop
+    with ``AttributeError: 'dict' object has no attribute 'startswith'``.
+
+    Pre-fix, the crash propagated up through ``Config.load``'s except
+    block, logged a warning, and never set ``secrets_migrated``, so
+    the crash + warning repeated on every launch with no resolution
+    path. Post-fix, the non-string field is logged + skipped and the
+    remaining providers are still migrated.
+    """
+
+    def test_dict_api_key_does_not_crash_migration(self, mock_keyring_available, tmp_path):
+        """A ``dict`` value for ``openai_api_key`` (hand-edited config)
+        must not raise — migration must skip it and continue."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    # Corrupted: openai_api_key is a dict instead of str.
+                    "openai_api_key": {"secret": "sk-leaked"},
+                    # Valid plaintext: must still be migrated.
+                    "groq_api_key": "groq-sk-migrate-me",
+                }
+            )
+        )
+
+        # Must not raise.
+        migrated = credential_store.migrate_secrets_to_keyring()
+
+        # groq was migrated; openai was skipped.
+        assert migrated == 1, (
+            "DE-23: migration should have migrated the valid groq_api_key "
+            "(1 secret) even when openai_api_key is a non-string value."
+        )
+
+        data = json.loads(config_file.read_text())
+        # The corrupted dict value must be preserved (we don't touch it).
+        assert data["openai_api_key"] == {"secret": "sk-leaked"}
+        # groq was migrated to a keyring:// reference.
+        assert data["groq_api_key"] == "keyring://groq"
+        # secrets_migrated MUST be set — otherwise the crash-loop bug
+        # (the original DE-23 symptom) would persist on every launch
+        # because the corrupted field would keep triggering the crash.
+        assert data["secrets_migrated"] is True
+
+    def test_int_api_key_does_not_crash_migration(self, mock_keyring_available, tmp_path):
+        """An ``int`` value for an api_key field must be skipped, not
+        crash with AttributeError."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "openai_api_key": 12345,  # int — non-string
+                }
+            )
+        )
+
+        migrated = credential_store.migrate_secrets_to_keyring()
+        assert migrated == 0  # nothing to migrate (the int was skipped)
+
+        data = json.loads(config_file.read_text())
+        # The int value is preserved (we don't touch what we can't migrate).
+        assert data["openai_api_key"] == 12345
+        # secrets_migrated IS set because no real plaintext was skipped
+        # (matches the XZ-SEC-04 "no plaintext to skip" path).
+        assert data["secrets_migrated"] is True
+
+    def test_list_api_key_logs_warning_and_skips(self, mock_keyring_available, tmp_path, caplog):
+        """A ``list`` value for an api_key field must log a WARNING so
+        the user can see which field is corrupted, then skip it."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "openai_api_key": ["sk-should-not-be-here"],
+                }
+            )
+        )
+
+        with caplog.at_level(logging.WARNING, logger=credential_store.log.name):
+            credential_store.migrate_secrets_to_keyring()
+
+        # The warning must mention the provider + field name + type so
+        # the user can locate the corrupted entry in their config.json.
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any(
+            "openai_api_key" in msg and "non-string" in msg for msg in warning_msgs
+        ), (
+            "DE-23: a WARNING must be logged when a non-string api_key "
+            f"value is skipped. Got warnings: {warning_msgs!r}"
+        )

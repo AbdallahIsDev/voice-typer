@@ -33,8 +33,11 @@ Scope (ADR-0020 §7 + §15):
    save-file dialogs for the export commands).
 
 5. **Command handler list in ``main.rs``** — registers ``dispatch``,
-   ``paste_text``, ``shutdown_sidecar``, the six ``bubble_*``
-   commands, and ``export_history`` / ``export_vocabulary``.
+   ``shutdown_sidecar``, the six ``bubble_*`` commands, and
+   ``export_history`` / ``export_vocabulary``. The dead
+   ``paste_text`` Tauri command was removed (FZ-19 / PVT-051):
+   production never invoked it (the Python sidecar owns the paste
+   path via ``dictation_pipeline.py::_dispatch_paste``).
 
 6. **``main.rs`` is wiring-only** — well under ~300 lines, with no
    business logic. All real logic lives in the focused modules
@@ -83,10 +86,11 @@ to confirm the full glue holds end-to-end:
     #    → must return {"type":"result","data":{...}} within 200 ms
     #    (proves WS bridge + bearer-token auth + dispatch forwarding).
 
-    # 5. paste_text injects a real keystroke (ADR-0020 §6.2 enigo).
-    #    Focus a text editor, then in DevTools:
-    #       await window.__TAURI__.core.invoke('paste_text', { text: 'hello' });
-    #    → "hello" must appear at the caret (proves enigo path).
+    # 5. paste_text was REMOVED (FZ-19 / PVT-051): the dead Tauri
+    #    command was deleted along with ``commands/paste.rs``. The
+    #    Python sidecar performs the paste internally in
+    #    ``dictation_pipeline.py::_dispatch_paste`` via the same
+    #    clipboard + Ctrl+V mechanism; no Tauri command is needed.
 
     # 6. bubble_show opens the bubble window (ADR-0020 §9).
     #       await window.__TAURI__.core.invoke('bubble_show');
@@ -190,9 +194,10 @@ EXPECTED_MAIN_RS_PLUGINS = [
 #: ADR-0020 §6.2 + §7 + §9 + §10 + MIG-1.1 + MIG-1.2 + CR-33: commands
 #: that main.rs MUST register in ``tauri::generate_handler![...]``.
 EXPECTED_MAIN_RS_COMMANDS = [
-    # ADR-0020 §6.2 + §10 — generic dispatch + paste + shutdown
+    # ADR-0020 §6.2 + §10 — generic dispatch + shutdown.
+    # FZ-19 / PVT-051: ``paste_text`` was removed (dead in
+    # production — Python sidecar owns the paste path).
     "dispatch",
-    "paste_text",
     "shutdown_sidecar",
     # MIG-1.1 — export commands (dialog save-file flow)
     "export_history",
@@ -597,7 +602,6 @@ def test_main_rs_registers_required_command(main_rs_source, command) -> None:
     macro call. The required set is:
 
       - ``dispatch`` (ADR-0020 §6.2 — generic WS-forwarding command)
-      - ``paste_text`` (ADR-0020 §6.2 + §10 — enigo keystroke injection)
       - ``shutdown_sidecar`` (ADR-0020 §10 — clean sidecar exit on
         main-window close)
       - ``export_history`` / ``export_vocabulary`` (MIG-1.1 — CSV export
@@ -629,6 +633,31 @@ def test_main_rs_registers_required_command(main_rs_source, command) -> None:
         f"main.rs: tauri::generate_handler![...] must register {command!r} "
         f"(ADR-0020 §6.2 + §7 + §9 + §10 + MIG-1.1 + MIG-1.2). The macro "
         f"body was:\n{handler_body}"
+    )
+
+
+def test_main_rs_does_not_register_paste_text(main_rs_source) -> None:
+    """FZ-19 / PVT-051: main.rs must NOT register the dead ``paste_text`` command.
+
+    The ``paste_text`` Tauri command was deleted (FZ-19) along with
+    ``src-tauri/src/commands/paste.rs``. Production never invoked it
+    (the Python sidecar owns the paste path via
+    ``dictation_pipeline.py::_dispatch_paste``), and the deprecated
+    wrapper in ``sidecar_cmds.rs`` + the dedicated paste module were
+    pure maintenance overhead. The Tauri command registration, the
+    ``use`` import, the ``commands::paste`` module declaration, and
+    the function definition are ALL gone — this test pins the absence
+    so a future contributor doesn't accidentally re-wire the dead path.
+
+    The check is on the entire ``main.rs`` source (not just the
+    ``generate_handler!`` body) so it also catches a stray ``use``
+    import or a comment that mentions the symbol as if it were still
+    wired up.
+    """
+    assert "paste_text" not in main_rs_source, (
+        "main.rs must NOT reference `paste_text` — the dead Tauri command "
+        "was deleted in FZ-19 / PVT-051 (Python sidecar owns the paste path). "
+        "Remove any registration, import, or comment that mentions `paste_text`."
     )
 
 

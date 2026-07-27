@@ -55,7 +55,6 @@ consistent and maintainable:
 import ctypes
 import sys
 import warnings
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -176,17 +175,12 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_slow)
 
 
-# TEST-024: WAV fixture path for audio tests
-@pytest.fixture
-def wav_fixture_path():
-    """Return the path to the test WAV fixture file.
-
-    The fixture is a 1-second 440Hz sine wave at 16kHz mono, 16-bit PCM.
-    See tests/fixtures/README.md for details.
-    """
-    path = Path(__file__).resolve().parent / "fixtures" / "test_440hz_1s_16k.wav"
-    assert path.exists(), f"WAV fixture not found at {path}"
-    return path
+# TEST-024: WAV fixture file ``tests/fixtures/test_440hz_1s_16k.wav``
+# (1-second 440Hz sine wave at 16kHz mono, 16-bit PCM) is retained on
+# disk for ad-hoc use, but the ``wav_fixture_path`` pytest fixture that
+# RT-16 identified as dead code has been removed — no test imported it.
+# Tests that need the WAV file should construct the path inline:
+#   ``Path(__file__).parent / "fixtures" / "test_440hz_1s_16k.wav"``
 
 
 @pytest.fixture(autouse=True)

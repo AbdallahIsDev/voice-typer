@@ -244,24 +244,28 @@ class TestTauriBundleResources:
         ADR-0020 §6.4 + §13.3: the existing
         ``scripts/linux/postinst`` (which installs the udev rule +
         adds the user to the ``input`` group) must be reused
-        verbatim by the Tauri ``.deb``. Tauri's
-        ``bundle.linux.deb.postInstall`` field points at this script.
+        verbatim by the Tauri ``.deb``. Tauri v2's
+        ``bundle.linux.deb.postInstallScript`` field points at this script.
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
         deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-        # Tauri v2 uses the short-form `postInstall` key (NOT `postInstallScript` which was Tauri v1).
+        # Tauri v2 uses the long-form `postInstallScript` key
+        # (NOT `postInstall` which was the Tauri v1 short form).
         # See https://v2.tauri.app/reference/config/#debconfig
-        assert "postInstall" in deb, "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
-        assert "postInstallScript" not in deb, (
-            "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
+        assert "postInstallScript" in deb, (
+            "bundle.linux.deb.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
         )
-        post_install = deb["postInstall"]
+        assert "postInstall" not in deb, (
+            "stale short-form 'postInstall' key present on bundle.linux.deb — "
+            "Tauri v2 requires the 'postInstallScript' long-form key"
+        )
+        post_install = deb["postInstallScript"]
         assert post_install is not None, (
-            "tauri.conf.json bundle.linux.deb.postInstall must be set "
+            "tauri.conf.json bundle.linux.deb.postInstallScript must be set "
             "(the postinst script that sets up the input group + udev rule)"
         )
         assert "postinst" in post_install, (
-            f"bundle.linux.deb.postInstall must reference the postinst script; got {post_install!r}"
+            f"bundle.linux.deb.postInstallScript must reference the postinst script; got {post_install!r}"
         )
 
 
