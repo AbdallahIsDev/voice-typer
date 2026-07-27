@@ -4863,6 +4863,7 @@ dependencies = [
  "enigo",
  "env_logger",
  "futures-util",
+ "libc",
  "log",
  "rand",
  "serde",

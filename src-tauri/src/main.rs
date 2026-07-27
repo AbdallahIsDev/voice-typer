@@ -50,7 +50,7 @@
 //! - `sidecar::spawn` — spawn variants + stdout handshake (§1 + §4.1 + §14)
 //! - `sidecar::supervisor` — supervisor + bubble coalesce predicate (§9 + §10)
 //! - `sidecar::ws` — WebSocket reconnect + reader/writer tasks + heartbeat (§1 + §9 + §10)
-//! - `commands::sidecar_cmds` — `dispatch`, `paste_text`, `shutdown_sidecar` (§6.2 + §7 + §10)
+//! - `commands::sidecar_cmds` — `dispatch`, `shutdown_sidecar` (§6.2 + §7 + §10)
 //! - `commands::export` — `export_history`, `export_vocabulary`, CSV helpers (§6 + MIG-1.1)
 //! - `commands::bubble` — bubble window commands (§9 + MIG-1.2)
 //! - `platform::paths` — per-platform config-dir resolution (§8)
@@ -97,7 +97,7 @@ use commands::bubble::{
     bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,
 };
 use commands::export::{export_history, export_vocabulary};
-use commands::sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
+use commands::sidecar_cmds::{dispatch, shutdown_sidecar};
 // CR-33: system_cmds exposes open_logs / open_model_import_dialog /
 // export_templates / export_config — the 4 window_-namespace commands
 // the renderer's `window.window_?` bridge expects (porting the Electron
@@ -218,10 +218,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(SidecarState::new()))
         // MIG-1.1 + MIG-1.2: register export + bubble commands alongside
-        // the existing dispatch/paste_text/shutdown_sidecar.
+        // the existing dispatch/shutdown_sidecar.
+        // FZ-19 / PVT-051: the dead paste Tauri command was removed
+        // (Python sidecar owns the paste path via
+        // `dictation_pipeline.py::_dispatch_paste`).
         .invoke_handler(tauri::generate_handler![
             dispatch,
-            paste_text,
             shutdown_sidecar,
             export_history,
             export_vocabulary,

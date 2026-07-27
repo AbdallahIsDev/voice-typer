@@ -371,7 +371,36 @@ pub(crate) async fn respawn_inner(
                         None
                     } else {
                         let old = child_guard.take();
-                        *child_guard = Some(child.take().unwrap());
+                        // Replace the prior `.unwrap()` (which trips the
+                        // `unwrap_used` clippy lint and would poison
+                        // `state.child`'s `std::sync::Mutex` if a future
+                        // refactor ever made this branch reachable) with
+                        // an explicit match. On the happy path (`Some`)
+                        // behavior is identical. The `None` arm is
+                        // currently unreachable — the only other consumer
+                        // of `child` is the `if shutting_down` branch
+                        // above, which leaves `child` untouched.
+                        match child.take() {
+                            Some(new_child) => {
+                                *child_guard = Some(new_child);
+                            }
+                            None => {
+                                log::error!(
+                                    "[SUPERVISOR] invariant violated: child was None \
+                                     inside install arm (shutting_down={}, attempt={})",
+                                    state.shutting_down.load(Ordering::SeqCst),
+                                    attempt
+                                );
+                                // Restore the prior handle so `state.child`
+                                // is not left empty after the `take()`
+                                // above. Bail out — the next `respawn`
+                                // invocation will retry.
+                                if let Some(old) = old {
+                                    *child_guard = Some(old);
+                                }
+                                return Ok(());
+                            }
+                        }
                         old
                     }
                 }; // child_guard dropped — no !Send across await

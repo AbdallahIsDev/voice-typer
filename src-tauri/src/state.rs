@@ -169,155 +169,16 @@ impl SidecarHandle {
     }
 }
 
-/// Kill the process tree rooted at `pid` (the sidecar and its
-/// descendants). Platform-native, best-effort — never panics.
+/// Deprecated: use `crate::platform::process::kill_process_tree` directly.
 ///
-/// PVT-G5-029: on Unix this now does a **recursive** walk via
-/// `pgrep -P <pid>` (depth-first) so ALL descendants are reaped —
-/// grandchildren (native hotkey binary, model subprocesses) included.
-/// The prior `pkill -TERM -P <pid>` only matched DIRECT children,
-/// leaving grandchildren holding the mic / input device after the
-/// sidecar exited. The root pid itself is NOT killed here — the caller
-/// (`SidecarHandle::kill_tree` / `spawn.rs` cleanup) kills the root
-/// separately via `child.kill()` afterwards, so we focus on the
-/// descendants only.
-///
-/// PVT-G5-030: exposed as `pub(crate)` so `spawn.rs`'s spawn-timeout
-/// cleanup paths can call it directly (they only have the `CommandChild`
-/// / `tokio::process::Child`, not a `SidecarHandle`, so they can't use
-/// `kill_tree`).
+/// Kept as a thin wrapper because external callers (e.g. `sidecar/spawn.rs`'s
+/// spawn-timeout cleanup paths) reference `crate::state::kill_process_tree`.
+/// New code should call the platform module path directly. The actual
+/// implementation (platform shell-out + recursive `pgrep -P` / `taskkill /T`
+/// walk) lives in `crate::platform::process::kill_process_tree` alongside the
+/// related `register_kill_on_parent_exit` helper.
 pub(crate) fn kill_process_tree(pid: u32) {
-    // GT-19: capture each shell-out result and log on Err / non-zero
-    // exit so a broken `taskkill`/`pgrep`/`kill` (PATH issue,
-    // permissions, etc.) isn't silently swallowed. The function remains
-    // best-effort — failures are logged but don't abort shutdown.
-    #[cfg(windows)]
-    {
-        use std::process::Command;
-        let tool = "taskkill";
-        match Command::new(tool)
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-        {
-            Ok(s) if s.success() => {
-                log::info!("[KILL-TREE] taskkill succeeded for pid={}", pid);
-            }
-            Ok(s) => {
-                log::warn!(
-                    "[KILL-TREE] {} exited with code {} for pid {}",
-                    tool,
-                    s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
-                    pid
-                );
-            }
-            Err(e) => {
-                log::warn!("[KILL-TREE] {} failed for pid={}: {}", tool, pid, e);
-            }
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::process::Command;
-        use std::time::Duration;
-        // DT-44: SIGTERM→SIGKILL grace period is now the named constant
-        // `KILL_TREE_SIGTERM_GRACE_MS` in `util.rs` (was inline 200ms).
-        use crate::util::KILL_TREE_SIGTERM_GRACE_MS;
-
-        let mut all_descendants: Vec<u32> = Vec::new();
-        let mut stack: Vec<u32> = vec![pid];
-        while let Some(cur) = stack.pop() {
-            let pgrep = Command::new("pgrep")
-                .args(["-P", &cur.to_string()])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .output();
-            match pgrep {
-                Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    for line in stdout.lines() {
-                        if let Ok(child_pid) = line.trim().parse::<u32>() {
-                            all_descendants.push(child_pid);
-                            stack.push(child_pid);
-                        }
-                    }
-                }
-                Ok(out) => {
-                    // Exit 1 = no children (normal leaf) — skip logging.
-                    if out.status.code() != Some(1) {
-                        log::warn!(
-                            "[KILL-TREE] pgrep exited with code {:?} for pid {}",
-                            out.status.code(),
-                            cur
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] pgrep failed for pid={}: {}", cur, e);
-                }
-            }
-        }
-
-        // Short-circuit when no descendants exist — avoids the
-        // unconditional 200ms sleep below on the Tauri event-loop thread
-        // (called from shutdown_sidecar_for_exit via block_on).
-        if all_descendants.is_empty() {
-            log::debug!("[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle", pid);
-            return;
-        }
-
-        for &dpid in &all_descendants {
-            match Command::new("kill")
-                .args(["-TERM", &dpid.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(s) => {
-                    log::warn!(
-                        "[KILL-TREE] kill -TERM exited with code {} for pid {}",
-                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
-                        dpid
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] kill -TERM failed for pid={}: {}", dpid, e);
-                }
-            }
-        }
-
-        std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
-
-        for &dpid in &all_descendants {
-            match Command::new("kill")
-                .args(["-KILL", &dpid.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(s) => {
-                    log::warn!(
-                        "[KILL-TREE] kill -KILL exited with code {} for pid {}",
-                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
-                        dpid
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] kill -KILL failed for pid={}: {}", dpid, e);
-                }
-            }
-        }
-
-        // GT-19: final summary line.
-        log::info!(
-            "[KILL-TREE] reaped {} descendants of pid {}",
-            all_descendants.len(),
-            pid
-        );
-    }
+    crate::platform::process::kill_process_tree(pid)
 }
 
 pub(crate) struct SidecarState {
@@ -548,20 +409,6 @@ pub(crate) fn send_fire_and_forget_frame(
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    /// PVT-G5-029: `kill_process_tree` must be best-effort — calling
-    /// it with a non-existent pid must not panic.
-    #[test]
-    fn test_kill_process_tree_nonexistent_pid_is_noop() {
-        kill_process_tree(999_999);
-    }
-
-    /// GT-19: kill_process_tree must not panic on a pathologically
-    /// large pid (e.g. u32::MAX).
-    #[test]
-    fn test_kill_process_tree_u32_max_is_noop() {
-        kill_process_tree(u32::MAX);
-    }
 
     /// GT-8 / GT-C4-3: `SidecarState::new()` must initialize
     /// `heartbeat_handle` to `None`. Also verifies the `Default` impl.

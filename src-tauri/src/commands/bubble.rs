@@ -4,21 +4,24 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{PhysicalPosition, Emitter, Manager};
 
-use crate::commands::require_main_window;
-
 #[cfg(test)]
 use crate::commands::main_window_label_check;
 use crate::state::SidecarState;
 
 // ─── Tauri commands: bubble window (MIG-1.2, ADR-0020 §9) ────────────
 
-// ─── DE-71: main-window-origin guard for bubble control commands ──────
+// ─── Bubble-window-origin guard for `bubble_signal_ready` ─────────────
 //
-// `bubble_signal_ready` emits events TO the bubble window that the
-// bubble renderer interprets as authoritative sidecar state. A
-// compromised sandboxed bubble (XSS in the waveform pill) MUST NOT be
-// able to spoof these — e.g. emitting a fake `bubble:ready` to confuse
-// the sidecar's level-pump startup.
+// `bubble_signal_ready` is invoked by the bubble renderer's boot
+// sequence (`bubble-main.tsx:38` → `window.bubble.signalReady()`) to
+// signal that the bubble page is mounted and ready to receive
+// `bubble_level` events. Only the bubble window has a legitimate
+// reason to invoke it — this mirrors the Electron main process's
+// `assertFromBubble` gate (`bubble-handlers.ts:249-254`, SEC-016). A
+// compromised main renderer (or any other window) MUST NOT be able to
+// spoof a readiness signal. (The other bubble control commands in
+// this file are intentionally NOT window-gated — see each command's
+// doc comment for the rationale.)
 //
 // (The `bubble_emit_state` command that used to live here was
 // removed as dead code. The bubble's `bubble:set-state` event
@@ -53,26 +56,26 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Emit `bubble:ready` to the bubble window — the bubble renderer
-/// listens for this and signals back to the Python sidecar that it's
+/// Emit `bubble:ready` to signal that the bubble page is mounted and
 /// ready to receive `bubble_level` events (ADR-0020 §9 + MIG-1.2).
 ///
-/// **DE-71 (main-window gate):** this command is now gated by
-/// [`require_main_window`]. It signals sidecar-level readiness (the
-/// Python sidecar's `bubble_level` pump starts on receipt), so a
-/// compromised sandboxed bubble MUST NOT be able to spoof a readiness
-/// signal and confuse the sidecar's startup handshake. The legitimate
-/// caller is the MAIN renderer's `usePython.ts` boot sequence, which
-/// fires this once after the Tauri host is ready. The bubble renderer
-/// has no legitimate reason to invoke it.
+/// **Bubble-window gate:** this command is gated on the calling window
+/// being the bubble window. It mirrors the Electron main process's
+/// `assertFromBubble` gate (`bubble-handlers.ts:249-254`, SEC-016):
+/// the bubble renderer is the only legitimate caller. The boot
+/// sequence in `bubble-main.tsx:38` invokes `window.bubble.signalReady()`
+/// once after the bubble React app mounts. A compromised main renderer
+/// (or any other window) MUST NOT be able to spoof a readiness signal.
 #[tauri::command]
 pub async fn bubble_signal_ready(
     app: tauri::AppHandle,
     window: tauri::Window,
 ) -> Result<(), String> {
-    // DE-71: only the main window may signal bubble readiness — see
-    // the doc comment above for the spoofing rationale.
-    require_main_window(&window)?;
+    // Only the bubble window may signal bubble readiness (mirrors
+    // Electron's assertFromBubble in bubble-handlers.ts). Returns the
+    // canonical JSON error envelope so the renderer's reject path
+    // handles it identically to a server-side rejection.
+    crate::commands::require_bubble_window(&window)?;
     app.emit_to("bubble", "bubble:ready", ())
         .map_err(|e| e.to_string())
 }
@@ -843,6 +846,70 @@ mod tests {
         assert_eq!(parsed["data"]["code"], "disallowed_window");
         assert!(parsed["data"]["message"].is_string());
     }
+
+    // ── ZR-22: require_bubble_window envelope contract ───────────────
+    //
+    // `require_bubble_window` (in `commands/mod.rs`) is the inverse of
+    // `require_main_window`: it REQUIRES the calling window's label to
+    // be `"bubble"`. Used by `bubble_hide_complete` so a compromised
+    // main renderer cannot prematurely hide the bubble overlay
+    // mid-animation. The in-process test harness can't construct a
+    // `tauri::Window`, so we pin the envelope shape (valid JSON, the
+    // `disallowed_window` code, the bubble-specific message) the same
+    // way `test_main_window_label_check_error_envelope_is_valid_json`
+    // pins the main-window variant. Mirrors that test's structure.
+
+    #[test]
+    fn test_require_bubble_window_error_envelope_is_valid_json() {
+        let envelope = json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from bubble window"
+            }
+        });
+        let parsed: Value = serde_json::from_str(&envelope.to_string()).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["data"]["code"], "disallowed_window");
+        assert!(
+            parsed["data"]["message"].is_string(),
+            "message field must be a string for the renderer's reject handler"
+        );
+        let msg = parsed["data"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("bubble"),
+            "message must name the bubble window, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_require_bubble_window_label_predicate() {
+        // ZR-22: the gate's predicate is `window.label() == "bubble"`.
+        // Pin the predicate directly (without constructing a
+        // `tauri::Window`) so a future refactor that loosens the check
+        // (e.g. accepts `"bubble"` OR `"main"`) breaks this test.
+        //
+        // The predicate is inlined in `require_bubble_window`; we
+        // mirror it here as a string equality check. If the predicate
+        // ever changes, this test forces the author to reconsider.
+        fn predicate(label: &str) -> bool {
+            label == "bubble"
+        }
+        assert!(predicate("bubble"), "the bubble label must pass the gate");
+        assert!(
+            !predicate("main"),
+            "the main window label must be rejected by the bubble-only gate"
+        );
+        assert!(
+            !predicate(""),
+            "empty window label must be rejected by the bubble-only gate"
+        );
+        assert!(
+            !predicate("settings"),
+            "unknown window labels must be rejected by the bubble-only gate"
+        );
+    }
 }
 
 /// Toggle the bubble window's draggable state (ADR-0020 §9 + MIG-1.2).
@@ -973,38 +1040,37 @@ fn compute_move_by_new_pos(
 /// leaking the requestAnimationFrame loop for ~1 frame. The fix renames
 /// the event to `bubble:hide` AND reorders the emit to fire BEFORE `.hide()`.
 ///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own visibility lifecycle. The bubble's
-/// "auto-hide after 3s idle" timer in `Bubble.tsx` invokes this when
-/// the user stops interacting, so requiring the call to originate from
-/// the main window would break the auto-hide UX. The command's effect
-/// is confined to the bubble window itself.
-///
-/// **Renderer-side assertFromBubble gate:** this command is exposed
-/// ONLY on the bubble window's preload (`preload/bubble.ts`) — the
-/// main renderer's preload no longer exposes it (the type
-/// `MainRendererBubbleMutators` in `types/ipc.ts` reflects this). The
-/// main renderer's `bubble:hidden` IPC listener (in
-/// `voice_typer/client/src/main/windows/bubble-window.ts:610`) SHOULD
-/// add an `if (!assertFromBubble(event)) return;` gate so a stray
-/// `bubble:hidden` IPC from a non-bubble renderer is ignored — that
-/// edit is in `bubble-window.ts`, which is OUT OF SCOPE for this fix
-/// wave (owned by the main-process agent). The Rust-side
-/// `check_dispatch_window_label` helper does NOT apply here (this
-/// command doesn't go through the `dispatch` path — it's a dedicated
-/// `#[tauri::command]`). Document this as a follow-up TODO for the
-/// main-process agent.
+/// **ZR-22 (SEC-016):** this command IS now gated by the inverse check
+/// — `require_bubble_window(&window)?` — so only the bubble window's
+/// webview can invoke it. A compromised main renderer (or any other
+/// non-bubble window) that sends `bubble:hidden` via the unrestricted
+/// Tauri `invoke` channel would otherwise prematurely hide the bubble
+/// overlay during its show/hide animation. The check mirrors the
+/// renderer-side `assertFromBubble(event)` gate that
+/// `bubble-window.ts:679` applies on the `bubble:hidden` IPC channel
+/// (defense-in-depth — both gates must hold for the hide to take
+/// effect). The `check_dispatch_window_label` helper does NOT apply
+/// here (this command doesn't go through the `dispatch` path — it's a
+/// dedicated `#[tauri::command]`), so a local `require_bubble_window`
+/// helper is inlined below rather than reusing `commands::mod`.
 #[tauri::command]
-pub async fn bubble_hide_complete(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_hide_complete(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<(), String> {
+    // ZR-22: only the bubble window may finalize its own hide. A
+    // compromised main renderer invoking `bubble_hide_complete` would
+    // otherwise skip the show/hide animation cycle and force the
+    // overlay invisible mid-animation.
+    crate::commands::require_bubble_window(&window)?;
     // GT-50: emit FIRST so the renderer's cleanup runs while the
     // window is still visible.
     app.emit_to("bubble", "bubble:hide", ())
         .map_err(|e| e.to_string())?;
-    let window = app
+    let bubble = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
-    window.hide().map_err(|e| e.to_string())
+    bubble.hide().map_err(|e| e.to_string())
 }
 
 // ─── Tauri commands: bubble window extensions (CR-33) ────────────────

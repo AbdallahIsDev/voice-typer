@@ -1,4 +1,4 @@
-//! Tauri commands: dispatch, paste_text, shutdown_sidecar (ADR-0020 §6.2 + §7 + §10).
+//! Tauri commands: dispatch, shutdown_sidecar (ADR-0020 §7 + §10).
 
 use crate::commands::require_main_window;
 use crate::state::SidecarState;
@@ -8,12 +8,11 @@ use crate::state::SidecarState;
 use crate::state::lock as mutex_lock;
 use crate::util::{
     DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS,
-    SHUTDOWN_POLL_INTERVAL_MS,
 };
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri_plugin_shell::process::CommandEvent;
@@ -22,7 +21,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 // ─── DT-4: shared main-window guard ──────────────────────────────────
 //
-// `dispatch`, `paste_text`, and `shutdown_sidecar` are all
+// `dispatch` and `shutdown_sidecar` are both
 // `#[tauri::command]` functions that a compromised renderer could
 // invoke over the IPC bridge. The bubble window is a sandboxed webview
 // (ADR-0020 §7 + §9 + SEC-026) that must NEVER drive the sidecar WS
@@ -216,8 +215,30 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "set_esc_cancel_paused",
             "set_tray_locale",
             "import_model",
-            "heartbeat",
-            "relaunch_ack",
+            // DT-50: `heartbeat` and `relaunch_ack` are intentionally
+            // ABSENT from this Rust allowlist (they ARE in the TS
+            // allowlist — Electron's main process needs them to talk
+            // to the Python sidecar). The Rust host never routes
+            // either command through this `dispatch` gate:
+            //   - `heartbeat` is sent by the Rust WS-reader task
+            //     itself (`sidecar/ws.rs::ws_reader_loop`) directly
+            //     over the WS — it's never the result of an
+            //     `invoke('dispatch', ...)`.
+            //   - `relaunch_ack` is sent by the `relaunch_app` Tauri
+            //     event handler in `main.rs` via `dispatch_inner`,
+            //     which bypasses this allowlist gate (same pattern
+            //     as `tray_click` — see PVT-G5-075 above).
+            // Including either here would create an attack surface
+            // that only a compromised renderer could reach: a
+            // malicious `invoke('dispatch', {cmd:'relaunch_ack'})`
+            // could trip Python's `_relaunch_ack_event.set()` mid-
+            // restart, and a malicious `invoke('dispatch',
+            // {cmd:'heartbeat'})` could keep the backend's watchdog
+            // alive even after the renderer is killed. The parity
+            // tests in `tests/test_rust_allowlist_parity.py` and
+            // `tests/test_security_doc_command_count.py` document
+            // this asymmetric exception (TS superset = Rust ∪
+            // {heartbeat, relaunch_ack}).
             "repaste_last",
             "force_cancel_transcription",
             // Lightweight history counters (added by the perf-reliability
@@ -577,108 +598,6 @@ pub async fn dispatch(
     dispatch_inner(args, state.inner().clone()).await
 }
 
-// ─── Tauri command: paste_text (ADR-0020 §6.2) ────────────────────────
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct PasteTextArgs {
-    text: String,
-}
-
-/// ADR-0020 §6.2: paste transcribed text into the foreground window.
-///
-/// - Short text (< ~300 chars): inject via `enigo.text()` (IME-safe).
-/// - Long text: copy via `tauri-plugin-clipboard-manager` then send
-///   Ctrl+V (Windows/Linux) or Cmd+V (macOS) via enigo.
-/// - Windows focus-restore (ADR-0020 §6.3): capture the foreground
-///   window BEFORE the paste, restore it AFTER via `AttachThreadInput` +
-///   `SetForegroundWindow`. If `AttachThreadInput` returns `0` (UIPI
-///   blocks the attach — common when the foreground window is elevated
-///   to a higher integrity level than Voice Typer), fall back
-///   IMMEDIATELY: write the text to the clipboard via
-///   `tauri-plugin-clipboard-manager`, emit a `crash_recovery` Tauri
-///   event, and post a toast via `tauri-plugin-notification` saying
-///   "Paste failed — clipboard copied. Press Ctrl+V manually." This
-///   matches the no-data-loss guarantee from ADR §6.3.
-/// - Wayland fallback (ADR-0020 §6.6): `enigo` on Linux is X11-only —
-///   `enigo.text()` is expected to FAIL on Wayland sessions. Detect a
-///   Wayland session via `XDG_SESSION_TYPE=wayland` and always use the
-///   clipboard + `Ctrl+V` path (the short-text `enigo.text()` branch is
-///   skipped). On macOS + Linux X11, behavior is unchanged.
-///
-/// # CR-75 — DevTools-only / manual testing status
-///
-/// The original ADR-0020 §6.2 design called for the React UI to invoke
-/// this Rust command on every transcription completion. In practice,
-/// the Python sidecar does its OWN paste internally in
-/// `voice_typer/server/dictation_pipeline.py:990-1010` via
-/// `self._app.clipboard.paste(...)` (which uses the same clipboard +
-/// Ctrl+V mechanism but runs in the sidecar process). Grep confirms:
-/// no Python code publishes a `paste_text` event, and no TS code
-/// invokes `invoke('paste_text', ...)`.
-///
-/// The command is retained (still registered in `main.rs`'s
-/// `generate_handler!` list, still has `#[tauri::command]`) so that:
-///   1. The behavioral contract pinned by `tests/tauri/mig15/`,
-///      `tests/tauri/mig16/`, `tests/tauri/mig17/`, and
-///      `tests/tauri/mig19/test_final_glue.py` keeps passing.
-///   2. Developers debugging paste issues can drive the Rust paste
-///      path directly from the WebView DevTools console via
-///      `await window.__TAURI__.core.invoke('paste_text', {text:'...'})`
-///      (requires the `dev` Cargo feature for `tauri/devtools`).
-///
-/// Production traffic never reaches this command. If the Python-side
-/// paste path is removed in a future refactor, this command becomes
-/// the live paste entry point again — keep the logic in sync with
-/// `dictation_pipeline.py::_dispatch_paste`.
-//
-// PVT-051 (review.md): this command is `#[deprecated]` so any new
-// caller in the Rust host triggers a compile-time warning directing
-// them to the Python-side paste path. The existing registration in
-// `main.rs::generate_handler!` is the ONLY legitimate caller and is
-// preserved (the migration glue tests `tests/tauri/mig15-19/` source-
-// grep the `paste_text` symbol + `#[tauri::command]` attribute, and
-// DevTools uses `invoke('paste_text', {text:'...'})` for manual
-// debugging). The deprecation attribute does NOT remove the command —
-// it just emits a warning at compile time so future maintainers don't
-// accidentally wire a new caller into the dead path. When `main.rs`
-// is eventually touched, add `#[allow(deprecated)]` on the
-// `paste_text,` line inside the `generate_handler!` invocation to
-// silence the warning at the registration site.
-#[deprecated(
-    since = "1.0.0",
-    note = "PVT-051: dead in production — Python sidecar owns the paste path \
-            (voice_typer/server/dictation_pipeline.py::_dispatch_paste). \
-            Retained only for migration glue tests + DevTools debugging. \
-            See commands/paste.rs::PVT_051_PASTE_OWNERSHIP_CONTRACT for the \
-            contract test, and review.md PVT-051 for the deletion plan."
-)]
-#[tauri::command]
-pub async fn paste_text(
-    args: PasteTextArgs,
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
-    // G4-H-01: only the main window may drive the paste path. A
-    // compromised bubble renderer (XSS in the waveform pill) must NOT
-    // be able to invoke `invoke('paste_text', {text:'...'})` to inject
-    // arbitrary text into the foreground window.
-    require_main_window(&window)?;
-
-    // CR-066: the paste-text implementation is extracted to
-    // `commands::paste::execute_paste` (a focused module split out per
-    // ADR-0020 §6.2 + §6.3 + §6.6 — see `paste.rs` for the per-platform
-    // paste strategy, Windows focus-restore dance, and Wayland
-    // fallback). This thin wrapper preserves the `#[tauri::command]`
-    // Tauri registration so `invoke('paste_text', ...)` still resolves
-    // and the migration glue tests (`tests/tauri/mig15-19/`) that
-    // source-grep the `paste_text` signature + `#[tauri::command]`
-    // attribute keep passing. The 165-LOC inline platform branches +
-    // the duplicate `paste_via_clipboard_and_ctrl_v` helper that used
-    // to live here were deleted — `paste.rs` is now the single source
-    // of truth for the paste path.
-    Ok(crate::commands::paste::execute_paste(app, args.text).await?)
-}
-
 // ─── Tauri command: cooperative shutdown (ADR-0020 §10) ───────────────
 
 #[tauri::command]
@@ -717,13 +636,18 @@ pub async fn shutdown_sidecar(
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
     if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
-        let _ = ws_tx.try_send(Message::Text(frame.to_string().into()));
+        if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string().into())) {
+            log::warn!(
+                "[SHUTDOWN] try_send of shutdown frame failed (best-effort): {}",
+                e
+            );
+        }
     }
     // CR-2: Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
     // Use the `CommandEvent` receiver captured at spawn time to detect
     // `Terminated` and return immediately (typical sidecar acks+exits in
     // ~50ms), instead of sleeping the full deadline unconditionally.
-    // Falls back to bounded sleep polling for the dev-mode path (which
+    // Falls back to a single bounded sleep for the dev-mode path (which
     // has no event receiver).
     let deadline_dur = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
     let mut graceful = false;
@@ -755,15 +679,13 @@ pub async fn shutdown_sidecar(
         }
     } else {
         // Dev-mode path (tokio::process::Child) — no CommandEvent
-        // receiver. Fall back to the original bounded sleep polling.
+        // receiver. Sleep once for the full deadline window before
+        // falling through to the force-kill backstop.
         log::info!(
             "[SHUTDOWN] dev-mode sidecar — sleeping {}ms before force-kill",
             SHUTDOWN_ACK_TIMEOUT_MS
         );
-        let deadline = Instant::now() + deadline_dur;
-        while Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(SHUTDOWN_POLL_INTERVAL_MS)).await;
-        }
+        tokio::time::sleep(deadline_dur).await;
     }
     // Drop the rx guard before locking state.child (avoid holding the
     // async mutex across the sync mutex lock + async kill await).
@@ -836,10 +758,23 @@ mod tests {
     }
 
     #[test]
-    fn test_allowed_commands_contains_heartbeat() {
+    fn test_allowed_commands_does_not_contain_heartbeat_or_relaunch_ack() {
+        // DT-50: `heartbeat` and `relaunch_ack` are Rust-only commands
+        // invoked via `dispatch_inner` (which bypasses this allowlist
+        // gate) — `heartbeat` is dispatched by the WS-reader task's
+        // heartbeat subtask (`sidecar/ws.rs::spawn_heartbeat_task`),
+        // and `relaunch_ack` is dispatched by the `relaunch_app` Tauri
+        // event handler in `main.rs`. Including either in the
+        // `dispatch` allowlist would let a compromised renderer spoof
+        // them via `invoke('dispatch', {cmd:'...'})`. Same pattern as
+        // `tray_click` (PVT-G5-075).
         assert!(
-            is_command_allowed("heartbeat"),
-            "heartbeat must be in ALLOWED_COMMANDS (RW-10 watchdog)"
+            !is_command_allowed("heartbeat"),
+            "heartbeat must NOT be in ALLOWED_COMMANDS (DT-50: dispatched via dispatch_inner from the WS-reader task)"
+        );
+        assert!(
+            !is_command_allowed("relaunch_ack"),
+            "relaunch_ack must NOT be in ALLOWED_COMMANDS (DT-50: dispatched via dispatch_inner from the relaunch_app event handler)"
         );
     }
 
@@ -924,7 +859,7 @@ mod tests {
         // `dispatch_inner` and the `ALLOWED_COMMANDS` literal).
         assert_eq!(
             allowed_commands().len(),
-            76,
+            74,
             "ALLOWED_COMMANDS must contain exactly 76 entries (parity with TS allowlist). \
              Got {} — update both src-tauri/src/commands/sidecar_cmds.rs and \
              voice_typer/client/src/main/allowed-commands.ts together.",

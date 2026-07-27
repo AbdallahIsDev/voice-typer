@@ -407,36 +407,31 @@ done
         // async-signal-safe (no malloc, no logging, no std I/O).
         // `setsid()` only fails if the caller is already a process
         // group leader (which a freshly-forked child is NOT), so the
-        // `?` is effectively dead but defensive.
+        // error path is effectively dead but defensive.
+        //
+        // Detaching the reaper into its own session is REQUIRED for
+        // correct Ctrl-C behavior: a terminal SIGINT is delivered to
+        // every process in the host's process group. Without
+        // `setsid()`, the reaper would die at the same time as the
+        // host — before it could kill the sidecar — defeating the
+        // kill-on-parent-exit guarantee for terminal-initiated
+        // shutdowns. The hard-crash case (SIGKILL, segfault) was
+        // already handled because the reaper is a separate process
+        // that survives the host's death; this `setsid()` call adds
+        // the same protection for the soft-signal case (Ctrl-C).
+        //
+        // `io::Error::last_os_error()` is async-signal-safe in
+        // practice — it stores the raw `errno` integer in the
+        // `Error`'s `Repr::Os(i32)` variant without allocating.
         unsafe {
             cmd.pre_exec(|| {
-                // `setsid` is from libc. We use the `libc` crate via
-                // `std::os::unix::process::CommandExt`'s implicit
-                // `libc` re-export... actually, we need to call libc
-                // directly. The `libc` crate is NOT in our Cargo.toml,
-                // but it's a transitive dep of `tokio` (with the
-                // `process` feature). We can't rely on transitive
-                // deps being stable though, so we use the raw syscall
-                // via `rustix` or... actually, the simplest portable
-                // approach is to call `setsid` via the `nix` crate,
-                // which also isn't in our Cargo.toml.
-                //
-                // FALLBACK: use the shell itself to call setsid. The
-                // `setsid` command is available on Linux (util-linux)
-                // and macOS (via Homebrew or the `setsid` port). If
-                // it's not available, the reaper still works — it's
-                // just not detached from the host's process group,
-                // which means a terminal Ctrl-C would kill the reaper
-                // before it can kill the sidecar. The hard-crash case
-                // (SIGKILL, segfault) still works because SIGKILL
-                // can't be caught and the reaper is a separate
-                // process that survives the host's death.
-                //
-                // For now, we skip `setsid()` here and rely on the
-                // shell's own session handling. A future improvement
-                // would add `libc` to Cargo.toml and call
-                // `libc::setsid()` directly.
-                Ok(())
+                // SAFETY: `setsid()` is a thin syscall wrapper and is
+                // async-signal-safe per POSIX.1.
+                if libc::setsid() == -1 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
             });
         }
 
@@ -457,6 +452,166 @@ done
 #[cfg(unix)]
 use posix_impl::register_kill_on_parent_exit_posix;
 
+// ─── kill_process_tree ────────────────────────────────────────────────────
+//
+// Sibling helper to `register_kill_on_parent_exit`. Both deal with
+// process-tree teardown. `kill_process_tree` is the *immediate* kill
+// (used by `SidecarHandle::kill_tree` and `spawn.rs` cleanup paths);
+// `register_kill_on_parent_exit` is the *deferred* kill (used on host
+// crash). Both live here in `platform::process` so the host's process-
+// control primitives aren't scattered across modules.
+
+/// Kill the process tree rooted at `pid` (the sidecar and its
+/// descendants). Platform-native, best-effort — never panics.
+///
+/// On Unix this does a **recursive** walk via `pgrep -P <pid>`
+/// (depth-first) so ALL descendants are reaped — grandchildren (native
+/// hotkey binary, model subprocesses) included. The prior
+/// `pkill -TERM -P <pid>` only matched DIRECT children, leaving
+/// grandchildren holding the mic / input device after the sidecar
+/// exited. The root pid itself is NOT killed here — the caller
+/// (`SidecarHandle::kill_tree` / `spawn.rs` cleanup) kills the root
+/// separately via `child.kill()` afterwards, so we focus on the
+/// descendants only.
+///
+/// Exposed as `pub(crate)` so `spawn.rs`'s spawn-timeout cleanup paths
+/// can call it directly (they only have the `CommandChild` /
+/// `tokio::process::Child`, not a `SidecarHandle`, so they can't use
+/// `kill_tree`).
+pub(crate) fn kill_process_tree(pid: u32) {
+    // Capture each shell-out result and log on Err / non-zero exit so
+    // a broken `taskkill`/`pgrep`/`kill` (PATH issue, permissions,
+    // etc.) isn't silently swallowed. The function remains best-effort
+    // — failures are logged but don't abort shutdown.
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        let tool = "taskkill";
+        match Command::new(tool)
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Ok(s) if s.success() => {
+                log::info!("[KILL-TREE] taskkill succeeded for pid={}", pid);
+            }
+            Ok(s) => {
+                log::warn!(
+                    "[KILL-TREE] {} exited with code {} for pid {}",
+                    tool,
+                    s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                    pid
+                );
+            }
+            Err(e) => {
+                log::warn!("[KILL-TREE] {} failed for pid={}: {}", tool, pid, e);
+            }
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        use std::time::Duration;
+        // SIGTERM→SIGKILL grace period is the named constant
+        // `KILL_TREE_SIGTERM_GRACE_MS` in `util.rs` (was inline 200ms).
+        use crate::util::KILL_TREE_SIGTERM_GRACE_MS;
+
+        let mut all_descendants: Vec<u32> = Vec::new();
+        let mut stack: Vec<u32> = vec![pid];
+        while let Some(cur) = stack.pop() {
+            let pgrep = Command::new("pgrep")
+                .args(["-P", &cur.to_string()])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output();
+            match pgrep {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    for line in stdout.lines() {
+                        if let Ok(child_pid) = line.trim().parse::<u32>() {
+                            all_descendants.push(child_pid);
+                            stack.push(child_pid);
+                        }
+                    }
+                }
+                Ok(out) => {
+                    // Exit 1 = no children (normal leaf) — skip logging.
+                    if out.status.code() != Some(1) {
+                        log::warn!(
+                            "[KILL-TREE] pgrep exited with code {:?} for pid {}",
+                            out.status.code(),
+                            cur
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] pgrep failed for pid={}: {}", cur, e);
+                }
+            }
+        }
+
+        // Short-circuit when no descendants exist — avoids the
+        // unconditional 200ms sleep below on the Tauri event-loop thread
+        // (called from shutdown_sidecar_for_exit via block_on).
+        if all_descendants.is_empty() {
+            log::debug!("[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle", pid);
+            return;
+        }
+
+        for &dpid in &all_descendants {
+            match Command::new("kill")
+                .args(["-TERM", &dpid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+            {
+                Ok(s) if s.success() => {}
+                Ok(s) => {
+                    log::warn!(
+                        "[KILL-TREE] kill -TERM exited with code {} for pid {}",
+                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                        dpid
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] kill -TERM failed for pid={}: {}", dpid, e);
+                }
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
+
+        for &dpid in &all_descendants {
+            match Command::new("kill")
+                .args(["-KILL", &dpid.to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+            {
+                Ok(s) if s.success() => {}
+                Ok(s) => {
+                    log::warn!(
+                        "[KILL-TREE] kill -KILL exited with code {} for pid {}",
+                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                        dpid
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] kill -KILL failed for pid={}: {}", dpid, e);
+                }
+            }
+        }
+
+        // Final summary line.
+        log::info!(
+            "[KILL-TREE] reaped {} descendants of pid {}",
+            all_descendants.len(),
+            pid
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Unit tests for this module are limited because the actual
@@ -468,6 +623,20 @@ mod tests {
     // The one thing we CAN unit-test is that the function is callable
     // and returns Ok(()) or Err(String) without panicking on the
     // current platform.
+
+    /// `kill_process_tree` must be best-effort — calling it with a
+    /// non-existent pid must not panic.
+    #[test]
+    fn test_kill_process_tree_nonexistent_pid_is_noop() {
+        super::kill_process_tree(999_999);
+    }
+
+    /// `kill_process_tree` must not panic on a pathologically large pid
+    /// (e.g. u32::MAX).
+    #[test]
+    fn test_kill_process_tree_u32_max_is_noop() {
+        super::kill_process_tree(u32::MAX);
+    }
 
     #[test]
     fn test_register_kill_on_parent_exit_returns_result_not_panic() {

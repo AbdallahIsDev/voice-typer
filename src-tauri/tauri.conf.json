@@ -84,7 +84,6 @@
           "xclip"
         ],
         "desktopTemplate": "voice-typer.desktop.template",
-        "_comment": "Tauri v2 keys use the 'Script' suffix (postInstallScript / preRemoveScript). v1 used postInstall / preRemove (no suffix). Do NOT rename to the v1 short form — it will break the build.",
         "postInstallScript": "../scripts/linux/postinst",
         "preRemoveScript": "../scripts/linux/prerm"
       },
@@ -96,7 +95,6 @@
           "wl-clipboard",
           "xclip"
         ],
-        "_comment": "Tauri v2 keys use the 'Script' suffix (postInstallScript / preRemoveScript). v1 used postInstall / preRemove (no suffix). Do NOT rename to the v1 short form — it will break the build.",
         "postInstallScript": "../scripts/linux/postinst.rpm",
         "preRemoveScript": "../scripts/linux/prerm.rpm"
       }
@@ -124,7 +122,9 @@
           "name": "bin/python-sidecar",
           "cmd": "bin/python-sidecar",
           "sidecar": true,
-          "args": ["--ws"]
+          "args": [
+            "--ws"
+          ]
         }
       ]
     }

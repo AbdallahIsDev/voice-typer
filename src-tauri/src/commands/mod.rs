@@ -4,13 +4,13 @@ pub(crate) mod sidecar_cmds;
 pub(crate) mod export;
 pub(crate) mod bubble;
 pub(crate) mod system_cmds;
-// CR-066: `paste` was extracted from `sidecar_cmds::paste_text` per
-// CR-52 (325-LOC god function split into a focused paste module).
-// GT-E3-1 (note): `paste_text` + `paste.rs` are dead in PRODUCTION
-// traffic (Python sidecar does its own paste internally). Retained
-// because tests source-grep the signature + DevTools uses. See
-// review.md GT-E3-1 for the full deletion plan.
-pub(crate) mod paste;
+// FZ-19 / PVT-051: the `paste` module + the `paste_text` Tauri command
+// were deleted as dead production code. The Python sidecar owns the
+// paste path end-to-end via
+// `voice_typer/server/dictation_pipeline.py::_dispatch_paste`
+// (clipboard write + Ctrl/Cmd+V keystroke), and no Python or TS code
+// ever invoked `invoke('paste_text', ...)`. See review.md GT-E3-1 +
+// PVT-051 for the full deletion rationale.
 
 // CR-5: `dispatch_inner` + `DispatchArgs` are `pub(crate)` (NOT Tauri
 // commands — they are the allowlist-bypass inner function the tray
@@ -27,11 +27,11 @@ pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
 
 // ─── DT-4: canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
 //
-// `dispatch`, `paste_text`, `shutdown_sidecar`, `export_*`, `bubble_signal_ready`
+// `dispatch`, `shutdown_sidecar`, `export_*`, `bubble_signal_ready`
 // are all `#[tauri::command]` functions that a compromised renderer could
 // invoke over the IPC bridge. The bubble window is a sandboxed webview
 // (ADR-0020 §7 + §9 + SEC-026) that must NEVER drive the sidecar WS,
-// paste path, export path, or sidecar-level bubble readiness handshake.
+// export path, or sidecar-level bubble readiness handshake.
 // Tauri v2's capability system only gates plugin commands, so user-defined
 // commands need this runtime check.
 //
@@ -72,6 +72,29 @@ pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> 
             "data": {
                 "code": "disallowed_window",
                 "message": "command only allowed from main window"
+            }
+        });
+        return Err(err.to_string());
+    }
+    Ok(())
+}
+
+/// Gate a `#[tauri::command]` on the calling window being the bubble
+/// window. Mirrors `require_main_window` but for bubble-only commands
+/// (e.g. `bubble_signal_ready` — the bubble renderer's readiness signal).
+/// Returns the same canonical JSON error envelope so the renderer's
+/// reject path handles it identically to a server-side rejection.
+pub(crate) fn require_bubble_window(window: &tauri::Window) -> Result<(), String> {
+    if window.label() != "bubble" {
+        log::warn!(
+            "[window-guard] command rejected from non-bubble window: {}",
+            window.label()
+        );
+        let err = serde_json::json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from bubble window"
             }
         });
         return Err(err.to_string());

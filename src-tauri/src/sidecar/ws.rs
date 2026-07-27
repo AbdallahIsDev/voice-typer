@@ -30,6 +30,7 @@ use crate::util::{
     BUBBLE_LEVEL_COALESCE_HZ, HEARTBEAT_INTERVAL_SECS, HEARTBEAT_MAX_MISSES,
     HEARTBEAT_RESPONSE_TIMEOUT_SECS, MAX_FRAME_BYTES,
 };
+use std::collections::HashSet;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -99,6 +100,36 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
     "parakeet_cpu_fallback",
     // Paste error:
     "paste_failed",
+    // ── Additional server-published events not in the original spec
+    // list above. Each is published via `event_bus.publish(...)` in the
+    // Python sidecar; keep this slice in sync with the server's publish
+    // call sites (see `voice_typer/server/*.py`).
+    //   - `state_changed`: emitted on every authenticated WS connection
+    //     (sidecar_ws.py) — the renderer hydrates connection state from
+    //     it on startup.
+    //   - `error`: server-initiated error notification (e.g. recording-
+    //     start failure in recording_controller.py). NOTE: dispatch
+    //     *responses* with `type:"error"` AND an `id` field take a
+    //     different branch earlier in the reader (fulfilled via the
+    //     pending-id map) and never reach this allowlist; this entry
+    //     covers only the no-id server-event variant.
+    //   - `mic_level`: continuously published by level_monitor.py while
+    //     level monitoring is active; drives the Microphone page's live
+    //     level meter.
+    //   - `llm_polish_failed`: emitted by dictation_pipeline.py when the
+    //     LLM polish step fails (typed in TS push_events.ts; latent
+    //     subscriber today).
+    //   - `device_lost`: emitted by level_monitor.py when the audio
+    //     input device disappears (typed in TS; latent subscriber).
+    //   - `asr_backend_disabled`: emitted by asr_registry.py when an ASR
+    //     backend is disabled at runtime (typed in TS; latent).
+    //   - `asr_last_resort_unloaded`: emitted by asr_registry.py when the
+    //     last-resort ASR backend unloads (typed in TS; latent).
+    //   - `audio_clip`: registered in `event_bus._KNOWN_EVENTS` (typed in
+    //     TS push_events.ts; latent subscriber today).
+    "state_changed", "error", "mic_level", "llm_polish_failed",
+    "device_lost", "asr_backend_disabled", "asr_last_resort_unloaded",
+    "audio_clip",
     // GT-E3-6: legacy aliases `relaunch_electron` and
     // `electron_notification` REMOVED. The Python sidecar has published
     // the canonical `relaunch_app` and `notification` event names for
@@ -107,6 +138,25 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
     // those frames DROPPED by the `ALLOWED_EVENT_TYPES` allowlist
     // (logged at `[WS-READER] dropping unknown event type:`).
 ];
+
+// O(1) lookup set for the inbound-frame hot path. `bubble_level`
+// arrives at ~60 Hz, so a linear `.contains()` scan over the ~40-entry
+// slice above would mean ~2,400 string comparisons/sec on the WS reader
+// task. This `OnceLock<HashSet>` is initialized lazily from
+// `ALLOWED_EVENT_TYPES` on the first inbound frame and stays live for
+// the process lifetime; `ALLOWED_EVENT_TYPES` remains the single
+// source-of-truth list above (the set is derived from it, not the other
+// way around) so the visible, commented list stays the canonical one.
+static ALLOWED_EVENT_TYPES_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+
+/// Returns `true` iff `event_type` is in the server-initiated event
+/// allowlist. O(1) after the first call (the `HashSet` is built once
+/// from `ALLOWED_EVENT_TYPES` and cached in a `OnceLock`).
+fn is_allowed_event_type(event_type: &str) -> bool {
+    ALLOWED_EVENT_TYPES_SET
+        .get_or_init(|| ALLOWED_EVENT_TYPES.iter().copied().collect())
+        .contains(event_type)
+}
 
 // G4-M-64: bound the WS connect attempt so a hung sidecar that
 // accepts the TCP connection but never completes the WS handshake
@@ -594,7 +644,7 @@ fn spawn_reader_task(
                         // `ALLOWED_EVENT_TYPES` is defined at the top
                         // of this file and covers all event types the
                         // Python sidecar is known to publish today.
-                        if !ALLOWED_EVENT_TYPES.contains(&event_type) {
+                        if !is_allowed_event_type(event_type) {
                             log::warn!(
                                 "[WS-READER] dropping unknown event type: {}",
                                 event_type

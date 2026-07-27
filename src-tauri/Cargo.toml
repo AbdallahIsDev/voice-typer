@@ -70,6 +70,15 @@ thiserror = "2"
 log = "0.4"
 env_logger = "0.11"
 
+# Platform primitives for `src/platform/process.rs`:
+# - `libc::setsid()` in the POSIX reaper's `pre_exec` closure so the
+#   reaper detaches into its own session/process group. Without this,
+#   a terminal Ctrl-C (SIGINT to the host's process group) would kill
+#   the reaper at the same time as the host — before the reaper could
+#   kill the sidecar — defeating the kill-on-parent-exit guarantee
+#   for terminal-initiated shutdowns.
+libc = "0.2"
+
 # ADR-0020 §6.3: Win32 focus-restore dance (`AttachThreadInput` +
 # `SetForegroundWindow` + `GetForegroundWindow` + `GetWindowThreadProcessId`)
 # used by `commands::sidecar_cmds::paste_text` on Windows. Target-gated so

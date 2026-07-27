@@ -93,6 +93,15 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: max_level,
+        // TY-34: gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
+        // Release builds with no env var skip the per-line `eprintln!`
+        // syscall (saves 1 `write(2)` per log line). The env var is the
+        // release-build escape hatch for operators who want stderr tailing
+        // (`journalctl -u voice-typer` etc.).
+        stderr_verbose: cfg!(debug_assertions)
+            || std::env::var("RUST_LOG_STDERR")
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
     };
     // `Box::leak` is safe here: the logger lives for the program's
     // lifetime (we never want to tear it down). `log::set_logger`
@@ -126,6 +135,18 @@ pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
 pub(crate) struct CombinedLogger {
     file_writer: Option<RotatingFileWriter>,
     level_filter: log::LevelFilter,
+    /// TY-34: cached predicate — `true` if log lines should ALSO be
+    /// written to stderr. Computed ONCE at logger init from
+    /// `cfg!(debug_assertions)` (always true in debug builds) OR the
+    /// `RUST_LOG_STDERR=1` env var (opt-in for release builds via
+    /// `RUST_LOG_STDERR=1 cargo tauri dev`). The prior code called
+    /// `eprintln!` unconditionally — a wasted `write(2)` syscall per
+    /// log line in release builds where stderr is typically
+    /// `/dev/null` (the Tauri app's stdout/stderr are not connected
+    /// to a terminal in `cargo tauri build` release binaries).
+    /// Caching the predicate here means the per-line cost is a single
+    /// bool load, not an `env::var` lookup.
+    stderr_verbose: bool,
 }
 
 impl log::Log for CombinedLogger {
@@ -154,8 +175,16 @@ impl log::Log for CombinedLogger {
             record.line().unwrap_or(0),
             msg
         );
-        // Always log to stderr (env_logger-style output for `cargo tauri dev`).
-        eprintln!("{}", line);
+        // TY-34: gate the per-line `eprintln!` on the cached
+        // `stderr_verbose` flag (computed once at logger init from
+        // `cfg!(debug_assertions)` OR `RUST_LOG_STDERR=1`). The prior
+        // unconditional `eprintln!` was a wasted `write(2)` syscall
+        // per log line in release builds where stderr is /dev/null.
+        // Always emit in debug builds so `cargo tauri dev` shows live
+        // logs in the launching terminal; opt-in for release builds.
+        if self.stderr_verbose {
+            eprintln!("{}", line);
+        }
         // ADR-0020 §11: exclude `bubble_level` from the file log
         // (60 Hz would fill disk fast even with rotation). Match by a
         // SPECIFIC message prefix (`[WS-READER] bubble_level event`)
@@ -244,6 +273,16 @@ pub(crate) struct RotatingFileWriter {
     dir: std::path::PathBuf,
     base_name: String,
     inner: Mutex<Option<std::fs::File>>,
+    /// TY-34: in-memory byte counter — replaces the per-line
+    /// `file.metadata()?.len()` stat() syscall. Incremented by
+    /// `line.len() + 1` (for the newline) on each successful
+    /// `write_all`. Reset to 0 on rotation (the file is renamed and
+    /// a fresh empty file is opened on the next `write_line` call).
+    /// `Relaxed` ordering is correct: we hold the `inner` Mutex
+    /// during both the increment and the load (the only concurrent
+    /// access is from `flush()`, which doesn't read this field), so
+    /// there's no cross-thread ordering requirement.
+    current_size: std::sync::atomic::AtomicU64,
 }
 
 impl RotatingFileWriter {
@@ -252,6 +291,7 @@ impl RotatingFileWriter {
             dir,
             base_name: base_name.to_string(),
             inner: Mutex::new(None),
+            current_size: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -305,6 +345,23 @@ impl RotatingFileWriter {
                 );
             }
             *guard = Some(file);
+            // TY-34: seed the in-memory byte counter from the on-disk
+            // file size on first open. The file is opened in
+            // `create(true).append(true)` mode — if a prior run left a
+            // stale `voice-typer.log`, its bytes are still on disk
+            // and writes append to them. Without this seed, the
+            // counter would start at 0 and rotation would not trigger
+            // until the file grows past `ROTATE_MAX_BYTES + <pre-
+            // existing size>`. This is one `metadata()` syscall per
+            // file OPEN (not per line) — a ~99% reduction vs the
+            // prior per-line `metadata()` call.
+            let existing_len = guard
+                .as_ref()
+                .and_then(|f| f.metadata().ok())
+                .map(|m| m.len())
+                .unwrap_or(0);
+            self.current_size
+                .store(existing_len, std::sync::atomic::Ordering::Relaxed);
         }
         // Borrow the File from the guard for the write/flush/metadata
         // calls below. The match returns early with `Err` if the slot
@@ -320,15 +377,44 @@ impl RotatingFileWriter {
                 ));
             }
         };
-        file.write_all(line.as_bytes())?;
-        file.write_all(b"\n")?;
-        file.flush()?;
+        // TY-34: combine the line payload + the trailing newline into a
+        // single `write_all` call. The prior version did two separate
+        // `write_all` calls (`line.as_bytes()` then `b"\n"`), which is
+        // two `write(2)` syscalls per log line. Coalescing into one
+        // buffer halves the syscall count for the file-write path.
+        // The `Vec` allocation here is small (typical log line ≈ 200 B)
+        // and is dominated by the syscall savings — `write(2)` is
+        // ~1–2 µs on Linux, `Vec::push` is ~5 ns.
+        let mut buf: Vec<u8> = Vec::with_capacity(line.len() + 1);
+        buf.extend_from_slice(line.as_bytes());
+        buf.push(b'\n');
+        let written = buf.len() as u64;
+        file.write_all(&buf)?;
+        // TY-34: in-memory byte counter — increment by the bytes we
+        // just wrote. Replaces the per-line `file.metadata()?.len()`
+        // stat() syscall. The counter is reset to 0 below when the
+        // file rotates.
+        self.current_size
+            .fetch_add(written, std::sync::atomic::Ordering::Relaxed);
+        // TY-34: `std::fs::File::flush` is a documented no-op ("File
+        // doesn't have a buffer"), so the prior `file.flush()?` call
+        // was a wasted method dispatch with no syscall savings. Drop
+        // it. The OS write buffer is flushed by the kernel on its own
+        // schedule (or by the explicit `RotatingFileWriter::flush`
+        // path that the panic hook calls).
         // Check size; rotate if we've crossed the threshold.
-        let len = file.metadata()?.len();
-        if len > ROTATE_MAX_BYTES {
+        let len = self
+            .current_size
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if len > u64::from(ROTATE_MAX_BYTES) {
             // Drop the file handle BEFORE renaming (Windows refuses to
             // rename a file that's open by another handle).
             *guard = None;
+            // Reset the in-memory counter — the file is about to be
+            // renamed to `.log.1`, and the next `write_line` call
+            // opens a fresh empty `.log` whose size starts at 0.
+            self.current_size
+                .store(0, std::sync::atomic::Ordering::Relaxed);
             self.rotate()?;
         }
         Ok(())
@@ -701,6 +787,9 @@ mod tests {
         let logger = CombinedLogger {
             file_writer: Some(writer),
             level_filter: log::LevelFilter::Info,
+            // TY-34: stderr_verbose=true in tests so the eprintln! path
+            // is exercised (mirrors debug-build behavior).
+            stderr_verbose: true,
         };
         // Build a Record with a known file/line. `log::Record::builder`
         // sets `file()` and `line()` from the args + metadata.
@@ -749,6 +838,9 @@ mod tests {
         let logger = CombinedLogger {
             file_writer: Some(writer),
             level_filter: log::LevelFilter::Info,
+            // TY-34: stderr_verbose=true in tests so the eprintln! path
+            // is exercised (mirrors debug-build behavior).
+            stderr_verbose: true,
         };
         let record = log::Record::builder()
             .level(log::Level::Info)

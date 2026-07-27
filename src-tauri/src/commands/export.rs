@@ -126,12 +126,13 @@ pub(crate) async fn export_data(
     // leaves a partial CSV/JSON that opens but is missing rows.
     // `atomic_write_bytes` writes to a sibling temp file then renames
     // into place, so the destination is either the OLD file or the
-    // NEW file (never a truncated half). The helper is `pub(crate)`
-    // in `crate::migrate`; it already exists for the migration path
-    // and is reused here for consistency (DRY — see the migrate.rs
-    // cross-language "3 variants of atomic-write" finding, which
-    // this fix consolidates on the Rust side).
-    crate::migrate::atomic_write_bytes(&path, content.as_bytes())
+    // NEW file (never a truncated half). The helper lives in
+    // `crate::util` (it is a generic fs-write helper shared by the
+    // migration path, the supervisor restart counter, and this export
+    // path — see the migrate.rs cross-language "3 variants of
+    // atomic-write" finding, which this fix consolidates on the
+    // Rust side).
+    crate::util::atomic_write_bytes(&path, content.as_bytes())
         .map_err(|e| format!("write failed: {e}"))?;
     Ok(json!({"success": true, "path": path.to_string_lossy().to_string()}))
 }
@@ -167,25 +168,28 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
         }
     }
     let mut out = String::new();
-    out.push_str(
-        &keys
-            .iter()
-            .map(|k| csv_escape(k))
-            .collect::<Vec<_>>()
-            .join(","),
-    );
+    // Write each header cell directly to the buffer instead of collecting
+    // into a `Vec<String>` and joining — for a 10k-row export with 20
+    // columns, the previous `collect()` + `join(",")` pattern allocated
+    // ~10,020 throwaway `Vec`s and ~10,020 join `String`s. Direct
+    // `push_str` emits the same bytes with no per-row heap traffic.
+    for (i, k) in keys.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&csv_escape(k));
+    }
     out.push('\n');
     for item in arr {
         let empty_map = serde_json::Map::new();
         let obj = item.as_object().unwrap_or(&empty_map);
-        let row: Vec<String> = keys
-            .iter()
-            .map(|k| {
-                let v = obj.get(k).map(value_to_string).unwrap_or_default();
-                csv_escape(&v)
-            })
-            .collect();
-        out.push_str(&row.join(","));
+        for (i, k) in keys.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let v = obj.get(k).map(value_to_string).unwrap_or_default();
+            out.push_str(&csv_escape(&v));
+        }
         out.push('\n');
     }
     Ok(out)
@@ -437,7 +441,7 @@ mod tests {
     // real `tauri-plugin-dialog` save dialog (requires a running Tauri
     // runtime). Instead, these tests verify the contract of the
     // underlying helper that `export_data` now delegates to:
-    // `crate::migrate::atomic_write_bytes`. The contract is "write
+    // `crate::util::atomic_write_bytes`. The contract is "write
     // fails → original file unchanged" (atomicity), which is the
     // property the helper requires.
 
@@ -460,7 +464,7 @@ mod tests {
         std::fs::write(&path, b"OLD,SENTINEL,CONTENTS\n").unwrap();
         // Atomic overwrite with new content.
         let new_content = b"new,export,contents\nrow2\n";
-        crate::migrate::atomic_write_bytes(&path, new_content)
+        crate::util::atomic_write_bytes(&path, new_content)
             .expect("atomic_write_bytes must succeed");
         let read_back = std::fs::read(&path).expect("file must still exist");
         assert_eq!(
@@ -505,7 +509,7 @@ mod tests {
         std::fs::write(&original_path, b"ORIGINAL,SENTINEL\n").unwrap();
         // Path whose parent dir does NOT exist — `File::create` fails.
         let bad_path = tmp.join("nonexistent_subdir").join("export.csv");
-        let result = crate::migrate::atomic_write_bytes(&bad_path, b"NEW");
+        let result = crate::util::atomic_write_bytes(&bad_path, b"NEW");
         assert!(
             result.is_err(),
             "PI-13: write to non-existent subdir must return Err, got Ok"
