@@ -189,7 +189,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
                 });
         const handleBubblePositionChange = (v: string) => {
                 updateConfig({ bubble_position: v as "top" | "bottom" });
-                window.bubble?.setPosition?.(v);
+                window.bubble?.setPosition?.(v as "top" | "bottom");
         };
         const handleBubbleStartupChange = (checked: boolean) =>
                 updateConfig({ bubble_show_on_startup: checked });
