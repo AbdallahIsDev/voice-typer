@@ -464,10 +464,61 @@ class TrayIcon:
     def _drain_pending(self) -> None:
         """Drain pending state/notification queues (tray-unavailable run path).
 
-        Called from run() every 60s; state already published to Tauri."""
+        Called from run() every 60s; state already published to Tauri.
+
+        AC-54: the previous implementation silently dropped queued
+        notifications on the tray-unavailable path (Linux Wayland
+        without SNI / Windows-Server headless / ``VOICE_TYPER_NO_TRAY=1``
+        / pystray.Icon() OSError fallback). The 60s drain was a no-op
+        that cleared the queue without surfacing the notification, so
+        a critical ``notify_safety`` (e.g. crash recovery failure,
+        model load error) would never reach the user.
+
+        The new path:
+        1. Logs the notification at WARNING level with the full
+           title + message. The Python rotating file logger is
+           always available (it's a separate process from the
+           pystray ICON subsystem), so the user can grep their log
+           for the notification after-the-fact.
+        2. Publishes a ``tray_fallback_notification`` event via the
+           event bus so the Electron renderer can surface the
+           notification as a toast (it already subscribes to
+           ``tray_state`` for icon updates — adding a
+           ``tray_fallback_notification`` channel is a single line
+           in the renderer's `useAppStore`).
+        3. Clears the queue (the dropped notification has been
+           preserved via logs + Tauri channel — it cannot be lost).
+
+        This is fail-safe: the call is wrapped in
+        ``contextlib.suppress`` so a logging or event-bus failure
+        cannot crash the tray's main loop.
+        """
         with self._queue_lock:
-            self._pending_states.clear()
+            notifications = list(self._pending_notifications)
             self._pending_notifications.clear()
+            self._pending_states.clear()
+        if not notifications:
+            return
+        # Lazy import to keep tray.py startup fast (event_bus
+        # imports are heavier than the icon-stub import).
+        import contextlib
+
+        from voice_typer.server import event_bus as _event_bus
+
+        for title, message in notifications:
+            log.warning(
+                "[TRAY] Falling back to log+event for notification (tray unavailable): title=%r message=%r",
+                title,
+                message,
+            )
+            with contextlib.suppress(Exception):
+                _event_bus.publish(
+                    {
+                        "type": "tray_fallback_notification",
+                        "title": title,
+                        "message": message,
+                    }
+                )
 
     # ─── UX-11 (FIX-10): elapsed-recording timer ──────────────────────
 

@@ -111,6 +111,12 @@ class TestApplyVocabularySuggestion:
         resp = ipc_server._handle_apply_vocabulary_suggestion({"original": "hello", "corrected": "hi"}, {})
         assert resp["type"] == "error"
         assert "not initialized" in resp["data"]["message"]
+        # EC-10 / XS-11: the wire-contract ``code`` must be the
+        # namespaced ``server.not_initialized`` from
+        # ``ErrorCodes.NOT_INITIALIZED`` (added as part of the
+        # legacy→namespaced error-code migration), not the
+        # un-prefixed legacy form.
+        assert resp["data"]["code"] == "server.not_initialized"
 
     def test_original_not_string_returns_error(self, ipc_server, fake_app):
         """``original`` must be a string — int/list/None are rejected."""
@@ -189,6 +195,12 @@ class TestDismissVocabularySuggestion:
         resp = ipc_server._handle_dismiss_vocabulary_suggestion({"original": "hello", "corrected": "hi"}, {})
         assert resp["type"] == "error"
         assert "not initialized" in resp["data"]["message"]
+        # EC-10 / XS-11: the wire-contract ``code`` must be the
+        # namespaced ``server.not_initialized`` from
+        # ``ErrorCodes.NOT_INITIALIZED`` (added as part of the
+        # legacy→namespaced error-code migration), not the
+        # un-prefixed legacy form.
+        assert resp["data"]["code"] == "server.not_initialized"
 
     def test_suggestion_not_found_returns_error(self, ipc_server, fake_app):
         automation = MagicMock()

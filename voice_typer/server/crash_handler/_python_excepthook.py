@@ -268,6 +268,35 @@ def install_python_excepthook() -> None:
     sys.excepthook = _crash_excepthook
 
 
+def remove_python_excepthook() -> None:
+    """Restore the original ``sys.excepthook``. Idempotent.
+
+    AC-90: the previous API surface had ``install_python_excepthook``
+    but no removal counterpart, which made the crash hook a
+    one-way ratchet. Tests that want to assert the excepthook runs
+    exactly once across a session had to manually save/restore
+    ``sys.excepthook`` because there was no canonical "tear down"
+    entry point. Mirrors ``remove_crash_handler`` for the Windows
+    VEH (and the two are now symmetric — both install/remove pairs
+    are part of the public ``crash_handler`` facade).
+
+    Calling this without a prior ``install_python_excepthook`` is
+    a no-op (the restore falls through to ``sys.__excepthook__``,
+    which Python guarantees is the original interpreter default).
+    """
+    from voice_typer.server import crash_handler as _ch
+
+    original = getattr(_ch, "_original_excepthook", None)
+    if original is not None:
+        sys.excepthook = original
+        _ch._original_excepthook = None  # type: ignore[assignment]
+    elif sys.excepthook is _crash_excepthook:
+        # install was called via a test path that didn't track
+        # _original_excepthook; fall back to the interpreter's
+        # documented bootstrap default.
+        sys.excepthook = sys.__excepthook__
+
+
 def install_crash_handler() -> bool:
     """Install the Windows Vectored Exception Handler.
 

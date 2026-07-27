@@ -45,7 +45,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from voice_typer.server.handlers._base import HandlerBase
-from voice_typer.server.ipc.validation import _error_response
+from voice_typer.server.ipc.validation import ErrorCodes, _error_response
 
 if TYPE_CHECKING:
     # Typed parameters for :func:`_find_pending_suggestion`.
@@ -128,9 +128,14 @@ def _find_pending_suggestion(
 # structured ``code`` values so the renderer can branch on ``code``
 # rather than pattern-matching the message text. Used by both the
 # ``apply`` and ``dismiss`` handlers.
+# EC-10 / XS-11: use the namespaced ``ErrorCodes`` registry (single
+# source of truth) instead of legacy un-prefixed strings, so the wire
+# contract is consistent across every handler. The keys here are the
+# helper's error messages; the values are the canonical
+# ``ErrorCodes.*`` constants.
 _SUGGESTION_ERROR_CODES = {
-    "original and corrected must be strings": "invalid_field",
-    "suggestion not found in pending list": "not_found",
+    "original and corrected must be strings": ErrorCodes.INVALID_FIELD,
+    "suggestion not found in pending list": ErrorCodes.NOT_FOUND,
 }
 
 
@@ -182,10 +187,13 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
                 # Stamp the structured ``code`` so the
                 # renderer can branch on ``not_initialized`` rather
                 # than pattern-matching the message text.
+                # EC-10 / XS-11: use the namespaced
+                # ``ErrorCodes.NOT_INITIALIZED`` registry value instead
+                # of the legacy un-prefixed string.
                 return _error_response(
                     resp,
                     "vocabulary automation is not initialized",
-                    code="not_initialized",
+                    code=ErrorCodes.NOT_INITIALIZED,
                 )
 
             # R4-F4: delegate validation + lookup to the shared helper.
@@ -214,16 +222,18 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
                 # non-dict path; ``invalid_field`` / ``not_found`` for
                 # the lookup-failure paths — see
                 # ``_SUGGESTION_ERROR_CODES``).
+                # EC-10 / XS-11: use the namespaced ``ErrorCodes``
+                # registry value for the code parameter.
                 if msg == "requires data: object":
                     return _error_response(
                         resp,
                         f"apply_vocabulary_suggestion {msg}",
-                        code="invalid_payload",
+                        code=ErrorCodes.INVALID_PAYLOAD,
                     )
                 return _error_response(
                     resp,
                     msg,
-                    code=_SUGGESTION_ERROR_CODES.get(msg, "handler_error"),
+                    code=_SUGGESTION_ERROR_CODES.get(msg, ErrorCodes.HANDLER_ERROR),
                 )
 
             automation.apply_suggestion(target)
@@ -250,10 +260,12 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
             if automation is None:
                 # Stamp the structured ``code`` (same as
                 # the apply path above).
+                # EC-10 / XS-11: use the namespaced
+                # ``ErrorCodes.NOT_INITIALIZED`` registry value.
                 return _error_response(
                     resp,
                     "vocabulary automation is not initialized",
-                    code="not_initialized",
+                    code=ErrorCodes.NOT_INITIALIZED,
                 )
 
             # R4-F4: delegate validation + lookup to the shared helper.
@@ -266,16 +278,18 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
                 # Same code-mapping logic as the apply
                 # handler above — see the comment there for the
                 # handler-specific message-prefix preservation.
+                # EC-10 / XS-11: use the namespaced ``ErrorCodes``
+                # registry value.
                 if msg == "requires data: object":
                     return _error_response(
                         resp,
                         f"dismiss_vocabulary_suggestion {msg}",
-                        code="invalid_payload",
+                        code=ErrorCodes.INVALID_PAYLOAD,
                     )
                 return _error_response(
                     resp,
                     msg,
-                    code=_SUGGESTION_ERROR_CODES.get(msg, "handler_error"),
+                    code=_SUGGESTION_ERROR_CODES.get(msg, ErrorCodes.HANDLER_ERROR),
                 )
 
             automation.dismiss_suggestion(target)

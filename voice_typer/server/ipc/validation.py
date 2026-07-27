@@ -132,6 +132,12 @@ class ErrorCodes:
     UNKNOWN_COMMAND = "server.unknown_command"
     UNKNOWN_TRAY_ITEM = "server.unknown_tray_item"
     SERVER_NOT_FOUND = "server.not_found"
+    # XS-11 / EC-10: ``not_initialized`` is the namespaced form of the
+    # legacy un-prefixed ``not_initialized`` code (used by handlers that
+    # need to signal "this subsystem is not yet ready" — e.g.
+    # vocabulary_automation). Mirrors the legacy alias for backward
+    # compat while bringing it under the namespaced registry.
+    NOT_INITIALIZED = "server.not_initialized"
     # DE-31: structured consent-required envelope emitted by the
     # IPC dispatcher when a ``ConsentRequiredError`` is raised by
     # a cloud/LLM handler. Distinct from ``client.consent_required``

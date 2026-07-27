@@ -401,8 +401,12 @@ pre-commit run ruff --all-files    # run a single hook
 ```
 
 Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
-(server-only, with `--ignore-missing-imports` and `--no-strict-optional`
-to keep the dev loop fast), `pre-commit-hooks` (trailing whitespace,
+(server-only — runs from the project venv with pyrefly-relevant
+``additional_dependencies`` so it can resolve numpy/torch/etc.; does
+NOT pass ``--ignore-missing-imports`` or ``--no-strict-optional`` so
+contributors' `pre-commit run mypy` matches CI's strict mypy
+configuration; see ``.pre-commit-config.yaml`` for the resolved
+`additional_dependencies` list), `pre-commit-hooks` (trailing whitespace,
 end-of-file fixer, YAML/JSON validation, merge-conflict markers,
 large-file cap at 500 KB, LF line endings), plus two local hooks that
 shell out to `npx biome check` and `npm run typecheck` for the client.
@@ -492,8 +496,9 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   codebase has many untyped legacy functions (`disallow_untyped_defs`
   is `false` in `pyproject.toml`), but new code must be typed. Run
   `mypy voice_typer/server/` locally; the pre-commit hook already
-  scopes mypy to `^voice_typer/server/` with
-  `--ignore-missing-imports --no-strict-optional` for speed.
+  scopes mypy to `^voice_typer/server/` and runs with the project's
+  ``[tool.mypy]`` config (no override flags — see CR-183 fix in
+  ``.pre-commit-config.yaml`` for the rationale).
 - **Use `log.exception(...)`** for error paths, not bare `print()` or
   `logging.error(...)` without a traceback. The exception is
   automatically attached. See `voice_typer/server/log.py` for the
@@ -766,6 +771,33 @@ Adding a new **ASR engine** has its own touchpoint set: see
   suite.
 - **Coverage:** vitest is configured in `vitest.config.ts`; aim for
   ≥ 65 % to match the Python gate.
+
+#### 7.2.1 Skipping pre-commit / pre-push hooks (XS-59)
+
+In an emergency, you can skip the husky hooks when committing or
+pushing. **Do this only when you understand the cost** — the hooks
+are there to catch the exact classes of bugs (lint drift, format drift,
+type drift, broken test contracts) that the CI gate will then catch
+and fail your PR. If you skip locally, expect to fix the same issues
+before the PR can merge.
+
+- **Skip ALL pre-commit hooks for a single commit** (git-native):
+  `git commit --no-verify -m "..."`
+- **Skip husky entirely for a session** (does NOT skip the CI gate):
+  `HUSKY=0 git commit -m "..."`
+- **Skip ONLY the husky pre-push** (lets pre-commit run, skips the
+  expensive pytest/typecheck run on push): use
+  `git push --no-verify` (git-native flag that bypasses the
+  push hook entirely). The husky ``pre-commit`` step still runs
+  on the next commit (so ruff/format/imports are still enforced).
+- **Bypass pytest-timeout on a single run** (when the test is
+  legitimately slow and you understand why): `pytest tests/path
+  --timeout=300` overrides the project default of 60s.
+- **Bypass the coverage ratchet on a single run** (when deliberately
+  adding new modules that drop the percentage temporarily):
+  `pytest tests/path -o addopts=""` or `pytest tests/path --no-cov`
+  — but expect to be told to add tests for the new module in code
+  review.
 
 ### 7.3 Manual tests
 

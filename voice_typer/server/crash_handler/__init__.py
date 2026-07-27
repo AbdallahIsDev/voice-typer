@@ -220,6 +220,7 @@ from voice_typer.server.crash_handler._python_excepthook import (  # noqa: F401,
     install_crash_handler,
     install_python_excepthook,
     remove_crash_handler,
+    remove_python_excepthook,
 )
 from voice_typer.server.crash_handler._veh_callback import (  # noqa: F401,E402
     _vectored_handler_impl,
