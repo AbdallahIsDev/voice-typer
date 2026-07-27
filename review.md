@@ -193,12 +193,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: No `protocol_version` field in any frame. If any layer changes the envelope shape, other layers can't detect mismatch at runtime. `server_started` handshake already has a minor inconsistency (uses `event` key instead of `type`).
 - Fix: Add `protocol_version` field to the `server_started` handshake and to the auth frame. Have the Rust host check version on connect and fail fast on mismatch. · **Found by**: R3
 
-### S1-CR-98 — Committed ELF binary `voice_typer/server/native/linux-key-listener`
-**Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
-- Location: `voice_typer/server/native/linux-key-listener` (committed, 25632 bytes, ELF 64-bit x86-64)
-- Evidence: CI workflow `build.yml:415-539 build-native` matrix already compiles all three binaries per-platform. The committed Linux binary is stale (built at some past commit). Windows and macOS binaries are NOT committed (only sources).
-- Fix: `git rm voice_typer/server/native/linux-key-listener`; add to `.gitignore`. · **Found by**: R14
-
 ### S1-CR-112 — 4 i18n helper scripts hardcode workspace path
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Location: `scripts/add_prewarm_i18n_keys.py:30`, `scripts/add_prewarm_log_i18n_keys.py:18`, `scripts/add_run_prewarm_i18n_keys.py:20`, `scripts/fix_i18n_remaining.py:5`
@@ -235,11 +229,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: ADR-0020:32 says 69. `sidecar_ws.md:13,26` says 68. ADR-0019:5 says 68. ARCHITECTURE.md:81 says "frozen for v1 at 68". Actual count (verified by grepping `_COMMAND_REGISTRY`): **73 entries**. All three documented numbers are stale.
 - Fix: Recount; update all references to the true value (73). · **Found by**: R20
 
-### S1-CR-140 — `docs/adr/0011-prewarm-architecture-analysis.md:9` references stale `prewarm.py`
-**Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
-- Evidence: Line 9 says `The prewarm module (voice_typer/server/prewarm.py)`. Actual: `voice_typer/server/prewarm/` is now a package.
-- Fix: Update to package. · **Found by**: R20
-
 ### S1-CR-141 — `voice_typer/stubs/README.md:21` references stale `server_platform.py`
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Evidence: Table row for `winreg` says `Used by: server/server_platform.py, task_scheduler.py`. `server_platform` is a package.
@@ -274,12 +263,6 @@ plus the base repo's pre-existing comprehensive review.
 - Location: `scripts/build/voice-typer.manifest:1-22`, `scripts/build/voice-typer.spec:156-186`
 - Evidence: Standalone manifest has NO `<dpiAware>` / `<dpiAwareness>` settings. PyInstaller-embedded manifest DOES (`voice-typer.spec:183-184` — `dpiAware=true/pm`, `dpiAwareness=PerMonitorV2`).
 - Fix: Either delete the unused standalone `voice-typer.manifest` file, or sync its contents with the PyInstaller-embedded manifest. · **Found by**: R15
-
-### S1-CR-150 — Dead parameter — backward-compat shim in single-caller API
-**Status:** ❌ Not Fixed — out of file scope (fix target useConnection.ts owned by Agent 10 — must remove dead currentPage param from hook signature AND call site atomically)
-- Location: `voice_typer/client/src/renderer/src/hooks/useConnection.ts:41-47,73`
-- Evidence: `UseConnectionArgs` requires `currentPage: Page` (line 44-46), but the hook destructures it as `currentPage: _currentPage` and never reads it. The comment says "kept in the interface for backward compatibility with existing callers (App.tsx)." But `App.tsx:75` is the ONLY caller.
-- Fix: Remove the parameter and its argument. · **Found by**: R2
 
 ### S1-CR-152 — Stale file extension `hooks/useSnackbar.tsx` (no JSX)
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -470,18 +453,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - **Confidence**: High
 - **Source**: R10
 
-### S2-CR-54 — 14 hardcoded English error strings in HotkeyPicker and hotkey-validation.ts
-- **Severity**: High
-- **Status**: ❌ Not Fixed — blocked on Agent 12 (i18n keys) — hotkey-validation.ts has 11 hardcoded English reason strings; replacing with t() requires adding hotkeyValidation.* keys to all 8 locale JSON files first
-- **Category**: Localization / i18n
-- **Location**: `voice_typer/client/src/renderer/src/components/hotkey/hotkey-validation.ts:182, 191, 204, 210, 225, 246, 263, 276, 289, 305, 323` (11 strings); `HotkeyPicker.tsx:351-353, 373-375, 412-414, 439-441, 562-564, 775-777` (3 strings)
-- **Evidence**: hotkey-validation.ts returns English-only error reasons: `return { valid: false, reason: "Hotkey is empty" };` etc. HotkeyPicker.tsx sets additional hardcoded English errors. None go through `t()`. Surfaced via `setError()` rendered as `role="alert"` live region.
-- **Root cause**: String literals hardcoded in source; no `t()` calls.
-- **Impact**: Non-English users (Arabic primary audience + de/es/fr/hi/ru/zh) see English error messages when picking invalid hotkey.
-- **Proposed fix**: Add `hotkeyValidation.*` keys to all 8 locale files. Replace each hardcoded `reason: "..."` with `reason: t("hotkeyValidation.empty")`. Update HotkeyPicker-a11y.test.tsx assertions.
-- **Confidence**: High
-- **Source**: R5
-
 ### S2-CR-62 — Mutmut configured but never run in CI (dead infrastructure)
 - **Severity**: High
 - **Status**: ⚠️ Partial — config drift resolved (.mutmut-config + tests/mutmut_config.py removed); pyproject.toml [tool.mutmut] table well-documented as local-only (TEST-010); CI integration (wiring pre-commit run --all-files step into build.yml) is Agent 6's scope
@@ -590,17 +561,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - **Impact:** CI is red. New refactors can't be validated. Tests provide negative value.
 - **Proposed fix:** Per-file triage: restore missing symbols OR update tests if source was intentionally refactored. Backfill 25 missing i18n keys per locale (or add to `RW2_BACKFILLED_PENDING_TRANSLATION`). Update frozen command tables in `test_phase4_validation.py`. Update SECURITY.md command count. Fix native_hotkeys path assertion.
 - **Confidence:** High (R14, R19, R20)
-
-### S3-CR-6 — `noise_suppressor.py` deepfilternet/speex paths are silent passthrough
-**Status:** ❌ Not Fixed — deepfilternet/speex paths still passthrough in process() (only rnnoise wired) [re-verified 2026-07-27]
-- **Severity:** Critical (users in noisy environments get ZERO noise suppression)
-- **Status:** Pending
-- **Locations:** `voice_typer/server/audio_filters/noise_suppressor.py:141-152, 91-118, 120-139`; `voice_typer/server/audio_presets.py:50-58`
-- **Evidence:** `process()` only wires the `rnnoise` branch. When `noise_suppression_method == "deepfilternet"` (selected by the `noisy_room` preset) AND `deepfilternet` is installed, `_init_deepfilternet` succeeds, `self._method` stays "deepfilternet", but `process()` falls through to passthrough — ZERO noise suppression. Same for `speex`. `is_degraded` is NOT set, so UI shows filter as active.
-- **Root cause:** Comment in source says "backends initialized but not yet wired".
-- **Impact:** Users in noisy environments (primary use case for "noisy_room" preset) get NO neural noise suppression. Transcription accuracy substantially worse than promised.
-- **Proposed fix:** Either (a) actually implement `_process_deepfilternet` and `_process_speex`, OR (b) fall back to `rnnoise` at `_init_*` time and set `is_degraded=True` with clear `degraded_reason` so UI warns user, OR (c) remove `deepfilternet`/`speex` options from `audio_presets.py` and Settings UI until wired.
-- **Confidence:** High (R4, R18)
 
 ### S3-CR-17 — `recorder.py` 2992-LOC monolith (god class)
 **Status:** ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) (duplicate of #93) — recorder.py 4080 LOC god class; partial decomposition already done
@@ -1150,20 +1110,6 @@ presumably runs with all deps installed.
 - `src-tauri/src/sidecar/ws.rs:266` (dead `auth_failed` arm)
 - `voice_typer/client/src/main/python/handle-message.ts` (no auth_failed handler)
 **Fix:** WS path should send `auth_failed` error frame BEFORE `websocket.close(code=1008)`. Add Electron `auth_failed` handler. Add cross-transport parity test.
-
----
-
-## [EC-13] — Tauri bridge missing `logError`/`openElectronLogs` + bubble namespace no window-label split
-**Status:** ⚠️ Partial — logError method present in window-namespace.ts but openElectronLogs absent from tauri-bridge; TODO acknowledges incompleteness
-**Severity:** 🔴 High
-**Category:** Frontend architecture (Tauri bridge)
-**Description:** Tauri bridge installs NEITHER `logError` nor `openElectronLogs` (both exist on Electron preload). ErrorBoundary's `componentDidCatch` cannot persist renderer errors under Tauri. Additionally, `createBubbleNamespace` returns the FULL bubble API on BOTH windows — no window-label check. A compromised main renderer on Tauri can invoke `bubble_resize`, `bubble_toggle_dictation` directly, bypassing the bubble-window sandbox (SEC-026 regression).
-**Root Cause:** Tauri bridge was never extended for G4-M-69 renderer-error persistence. Bubble namespace has no `windowLabel` parameter.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts` (missing logError/openElectronLogs)
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/bubble-namespace.ts` (no window-label split)
-- `voice_typer/client/src/preload/index.ts` (has both)
-**Fix:** Add `logError` + `openElectronLogs` to window-namespace.ts (invoke Rust commands). Add `windowLabel` parameter to `createBubbleNamespace`; when `"main"`, return only MainRendererBubble subset. Mirror Electron preload's split.
 
 ---
 
@@ -2757,7 +2703,6 @@ This file is APPENDED to the existing review.md from prior sessions. Items below
 ---
 
 ## XA-17 — Hooks & state: useTheme split-brain, useConnection 5+ concerns, no focus management, prop-drilling persists
-
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium (with 5 High sub-items)
 **Description:** (XA-17-1) **High:** `useTheme` exposes raw `useState` setters (`setThemePreset`/`setCustomTheme`/`setTextSize`) that silently bypass backend persistence — only `handleThemeChange` calls `call("set_config", ...)`. (XA-17-2) **High:** Theme state is split-brain: `appStore.config` AND `useTheme` local `useState` both own it. (XA-17-3) **High:** `useConnection` packs 5+ unrelated concerns into one 358-line hook (connection lifecycle, recording state subscription, backend error subscription, transient TCP recovery, connect-time snapshot, onboarding first-run routing, bubble window position sync, periodic health check, manual retry handler). (XA-17-4) **High:** Connection state machine is scattered across 6 code paths with no reducer — no central transition function, no `useReducer`, no state-machine diagram. `"restarting"` state has no timeout. (XA-17-5) **High:** Prop-drilling persists despite BACKLOG-004 store; `App.tsx` still passes `recordingState`/`lastError` as props to `Home`, `themeMode`/`onThemeChange` as props to `Sidebar`/`ThemeSwitch`. Only 3 production call sites subscribe to `useAppStore`; none of the pages do. (XA-17-6) **High:** `useTheme` should be a context provider, not a hook called once in App.tsx. (XA-17-7 through XA-24) Medium/Low: Hook return objects not memoized; no single "is backend connected?" selector; loading-state representation inconsistent; error-state shape inconsistent; `useBridgeReady` creates one polling interval per subscriber; test coverage gaps (4 of 8 in-scope hooks have zero direct tests); `appStore.test.ts` `beforeEach` doesn't reset `lastErrorAt`/`navVersion`; `useLastUpdated` over-engineers a ref; `useNavigation` derives `canGoBack`/`canGoForward` from refs at render time; `useTheme.reloadThemeFromConfig` swallows all errors silently; `useTheme.flushPendingThemeSave` discards a promise (rejection unhandled); `useTheme` localStorage write effect writes all 4 keys on any single field change; `usePythonEvent`'s `_error` envelope check is documented dead code on Tauri; `useNavigation` mouse-button handler uses `mouseup` instead of `auxclick`; `canShareStats` exported but has zero production callers; no documented pattern for adding a new hook.
@@ -2779,58 +2724,7 @@ This file is APPENDED to the existing review.md from prior sessions. Items below
 
 ---
 
-
-## XA-19 — Hardcoded strings audit: 21 distinct findings (ErrorBoundary, HotkeyPicker, hotkey-utils, RecordingSettingsSection, ModelCardActions, Sidebar, SettingsSaveIndicator, NumberInputStepper, App.tsx, etc.)
-
-**Status:** ⚠️ Partial (verified on Linux sandbox; XA-19-12 TitleBar shortcut concatenation fixed; XA-19-1 ErrorBoundary already i18n'd; 18 sub-items deferred — HotkeyPicker/hotkey-utils not in scope)
-**Severity:** 🟡 Medium (with 3 High sub-items)
-**Description:** 21 distinct findings of hardcoded English strings that should be i18n keys. (XA-19-1) **High:** ErrorBoundary crash-recovery UI ships 5 hardcoded English strings (re-used from XA-8-M2 + XA-16-1). (XA-19-2) **High:** HotkeyPicker ships hardcoded English aria-label/title/"Holding:" prefix (re-used from XA-7-3). (XA-19-3) **High:** `hotkey-utils.ts` ships hardcoded English throughout (presets, key names, "None", validation errors). (XA-19-4) Medium: `RecordingSettingsSection.tsx` ships hardcoded form-validation errors and range hints (re-used from XA-4-5). (XA-19-5) Medium: `ModelCardActions.tsx` falls back to hardcoded English "Only one download at a time" (re-used from XA-5-16). (XA-19-6) Medium: `Sidebar.tsx` shows hardcoded English group labels ("Main", "Power features", "System") because `nav.group.*` keys are missing. (XA-19-7) Medium: `SettingsSaveIndicator.tsx` shows hardcoded English "Pending…" (re-used from XA-4-4). (XA-19-8) Medium: `number-input-stepper.tsx` hardcodes `aria-label="Increment"`/`"Decrement"` (re-used from XA-8-M1). (XA-19-9) Medium: `setLoadError` fallbacks leak English "Failed to load X" / "Unknown error" across 5 pages. (XA-19-10) Medium: `App.tsx` ships 4 hardcoded English strings (paste_failed fallback, "Caps Lock", "Page not found", "Unknown page"). (XA-19-11) Medium: `useModelLifecycle.ts` interpolates hardcoded English `"Open folder failed"` into translated toast template. (XA-19-12) Medium: `TitleBar.tsx` concatenates translated labels with hardcoded English keyboard-shortcut suffixes (no platform-awareness). (XA-19-13) Medium: `Onboarding.tsx` concatenates model `description — size (speed)` breaking i18n; `speed` value comes from hardcoded English in `INITIAL_MODELS`. (XA-19-14) Low: `LastUpdatedIndicator.tsx` concatenates translated label with hardcoded `": "` separator. (XA-19-15) Low: `SearchField.tsx` and `HotkeyPicker.tsx` default placeholder/aria-label are hardcoded English. (XA-19-16) Low: `useSnackbar.ts` default undo label is hardcoded English `"Undo"`. (XA-19-17) Low: `Templates.tsx` and `Vocabulary.tsx` `parseImportedTemplates`/`parseImportedVocabulary` throw English errors that surface via `t("...importFailed", { error: err.message })`. (XA-19-18) Low: `PrewarmAndUpdates.tsx` throws English HTTP errors that surface via `t("about.updateCheckFailed", { error: ... })`. (XA-19-19) Medium: `About.tsx` calls `t("about.loading")` but the key is missing from `en.json` (and all locale JSONs). (XA-19-20) Low: `App.tsx` `paste_failed` event handler also surfaces backend-supplied English `payload.message` without translation. (XA-19-21) Low: Hardcoded unit suffixes `"s"`, `"min"`, `"Hz"`, `"dB"`, `"ms"`, `"%"`, `"px"` may need locale-aware formatting.
-**Root Cause:** Components authored before i18n rollout; defensive-literal pattern (`translated === key ? "fallback" : translated`) masks missing-key bugs; string concatenation breaks ICU-style interpolation.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx` (XA-19-1)
-- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx` (XA-19-2)
-- `voice_typer/client/src/renderer/src/components/hotkey/hotkey-utils.ts` (XA-19-3)
-- `voice_typer/client/src/renderer/src/components/settings/RecordingSettingsSection.tsx` (XA-19-4)
-- `voice_typer/client/src/renderer/src/components/models/ModelCardActions.tsx` (XA-19-5)
-- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx:66, 69, 72, 110-113` (XA-19-6)
-- `voice_typer/client/src/renderer/src/components/settings/SettingsSaveIndicator.tsx` (XA-19-7)
-- `voice_typer/client/src/renderer/src/components/ui/number-input-stepper.tsx:234, 249` (XA-19-8)
-- `voice_typer/client/src/renderer/src/pages/{History,Microphone,Templates,Vocabulary,Onboarding}.tsx` (XA-19-9)
-- `voice_typer/client/src/renderer/src/App.tsx:324, 380, 422, 425` (XA-19-10)
-- `voice_typer/client/src/renderer/src/hooks/useModelLifecycle.ts:843` (XA-19-11)
-- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:198, 209, 233, 263` (XA-19-12)
-- `voice_typer/client/src/renderer/src/pages/Onboarding.tsx:342` + `lib/utils/models.ts:75-153` (XA-19-13)
-- `voice_typer/client/src/renderer/src/components/common/LastUpdatedIndicator.tsx:50` (XA-19-14)
-- `voice_typer/client/src/renderer/src/components/common/SearchField.tsx:25` + `HotkeyPicker.tsx:155` (XA-19-15)
-- `voice_typer/client/src/renderer/src/hooks/useSnackbar.ts:157` (XA-19-16)
-- `voice_typer/client/src/renderer/src/pages/{Templates,Vocabulary}.tsx` (XA-19-17)
-- `voice_typer/client/src/renderer/src/components/settings/PrewarmAndUpdates.tsx:267, 269` (XA-19-18)
-- `voice_typer/client/src/renderer/src/pages/About.tsx:269, 320` (XA-19-19)
-- `voice_typer/client/src/renderer/src/App.tsx:322-323` (XA-19-20)
-- `voice_typer/client/src/renderer/src/i18n/translations/en.json` (target for new keys)
-**Fix (prioritized):**
-1. **(XA-19-1)** Add ErrorBoundary i18n keys (overlaps with XA-8-M2 + XA-16-1).
-2. **(XA-19-2)** Add HotkeyPicker i18n keys (overlaps with XA-7-3).
-3. **(XA-19-3)** Refactor `hotkey-utils.ts` `displayMap` to key→i18n-key map (`{ ctrl: "hotkey.keys.ctrl", ... }`); convert `getSingleKeyPresets()`/`getComboPresets()` to return `labelKey`; replace 6 validation error returns with `t("hotkey.errors.*")`; replace `return "None"` with `return t("hotkey.none")`.
-4. **(XA-19-4)** Add `settings.hotkeySection.rangeHintSeconds`/`rangeHintMinutes`/`parseError`/`rangeErrorSeconds`/`rangeErrorMinutes` keys (overlaps with XA-4-5).
-5. **(XA-19-5)** Add `models.download.oneAtATime` key (overlaps with XA-5-16).
-6. **(XA-19-6)** Add `nav.group.main`/`power`/`system` keys to all 8 locale files.
-7. **(XA-19-7)** Add `settings.pending` key (overlaps with XA-4-4).
-8. **(XA-19-8)** Replace `aria-label="Increment"`/`"Decrement"` with `t("a11y.increase")`/`t("a11y.decrease")` (existing keys).
-9. **(XA-19-9)** Add `*.loadFailedDescription` keys (no interpolation); replace `setLoadError` calls so description always uses translated string; raw `err.message` goes to console only.
-10. **(XA-19-10)** Add `home.pasteFailedMessage` key; delete local `formatHotkey` in App.tsx and import `formatHotkeyLabel` from `@/components/hotkey/hotkey-utils`; add `app.pageNotFoundTitle`/`pageNotFoundDescription` keys.
-11. **(XA-19-11)** Add `models.openFolderFailed` key; replace `t("models.import.failed", { error: "Open folder failed" })` with `t("models.openFolderFailed")`.
-12. **(XA-19-12)** Add i18n keys with interpolation `a11y.toggleSidebarWithShortcut`/`titleBar.backWithShortcut`/`titleBar.forwardWithShortcut`; compute shortcut string via `formatHotkeyLabel("<ctrl>+<b>")`.
-13. **(XA-19-13)** Add i18n keys `models.speed.fastest`/`fast`/`slow`/`variable`; add template `onboarding.modelOption` = `"{description} — {size} ({speed})"`.
-14. **(XA-19-14)** Add `common.lastUpdatedWithValue` = `"Last updated: {value}"` key.
-15. **(XA-19-19)** Add `about.loading` key to all 8 locale files.
-16. **(XA-19-15 + XA-19-16)** Change defaults to `t("common.search")` / `t("hotkeyPicker.defaultAriaLabel")` / `t("common.undo")`.
-17. **(XA-19-17 + XA-19-18)** Define error code constants; map codes to translated messages in catch blocks.
-
----
-
 ## XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main window and bubble, no platform-aware shortcuts
-
 **Status:** ⚠️ Partial (verified on Linux sandbox; XA-20-1 useTChoice() React hook added to i18n.ts to lower barrier for CLDR pluralization; 21 sub-items deferred)
 **Severity:** 🟡 Medium (with 2 Critical + 5 High sub-items)
 **Description:** (XA-20-1) **Critical (re-used from XA-18-3):** `tChoice()` exists but is NEVER called anywhere; all plurals use broken binary `Singular`/`Plural` keys. (XA-20-2) **Critical:** Multiple translation files contain UNTRANSLATED English text for high-visibility strings (permissions block, relativeTime, model snack errors, about.creditsDescription) in ar/hi/ru/de/zh/es/fr. (XA-20-3) **High:** Sidebar nav item uses physical `border-l-2`/`border-l-accent`/`border-l-transparent` despite the indicator pill using logical `inset-s-0`. (XA-20-4) **High:** `SearchField` uses physical `left-3`/`right-3`/`pl-9` for the search icon, clear button, and input padding. (XA-20-5) **High:** Select and DropdownMenu primitives use physical `pr-8 pl-3` + `absolute right-2` for the chevron, and `ml-auto` for shortcut text / checkmark. (XA-20-6) **High:** `Dashboard.tsx` has its own LOCAL `formatDuration` that hardcodes English "h"/"m" labels; ignores the locale-aware `formatDuration` from `lib/format.ts`. Same in `StatCards.tsx`. (XA-20-7) **High:** `DownloadProgressBar.tsx` has its own LOCAL `formatBytes`/`formatSpeed` with hardcoded English unit labels; ignores locale-aware versions in `lib/format.ts`. (XA-20-8) Medium: `lib/format.ts` `formatDuration` fallback (when `Intl.DurationFormat` is unavailable) uses hardcoded English "h"/"m"/"s". (XA-20-9) Medium: Legacy `compactNumber` (still used by Dashboard + StatCards) hardcodes "K" suffix and uses Latin digits; the locale-aware `formatCompactNumber` exists but is unused. (XA-20-10) Medium: Bubble BrowserWindow does not receive locale-change notifications; it keeps the OLD locale (and OLD `dir` attribute) until next mount. (XA-20-11) Medium: Sonner (toast/snackbar) is hardcoded to `position="bottom-right"`; does not flip in RTL. (XA-20-12) Medium: Dialog header uses `sm:text-left` (physical alignment) instead of `sm:text-start` (logical). (XA-20-13) Medium: `formatHotkey()` uses hardcoded English modifier labels (does not use existing `hotkey.modifiers.*` translation keys). (XA-20-14) Medium: Static shortcut strings in TitleBar/Sidebar/help overlay are NOT platform-aware (macOS users see "Ctrl+B" instead of "Cmd+B"). (XA-20-15) Low: Onboarding `<ol className="ml-4 list-decimal">` uses physical left margin. (XA-20-16) Low: `StatsShareImage` uses physical `marginLeft` for unit label spacing despite setting `direction: rtl`. (XA-20-17) Low: SegmentedControl icon margin `"-ml-0.5 mr-1"` is physical. (XA-20-18) Low: TitleBar back/forward arrow icons are hardcoded physical paths; not mirrored in RTL. (XA-20-19) Low: Python tray menu has no RTL handling; relies entirely on the OS to detect direction. (XA-20-20) Low: `index.css` has zero RTL-specific CSS rules. (XA-20-21) Low: RTL test coverage is limited to `dir` attribute flipping; no assertions about visual/DOM-level RTL behavior. (XA-20-22) Low: `useLastUpdated` hook uses non-pluralized templates that won't render grammatically correct for Slavic/Semitic languages.
@@ -7340,17 +7234,17 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 > **Status correction for prior findings:** PVT-056 p2 / XV-31 (set_sample_rate) — RESOLVED. XV-54 / XV-55 / XV-58 (level_monitor) — RESOLVED. S5-CR-80 (Linux path) — RESOLVED. CR-49 FTS5 — RESOLVED. PVT-19 (rate limiter dedup) — RESOLVED. XV-146 (hex::encode) — RESOLVED. S5-CR-106 (tray dispatch event) — RESOLVED. S1-CR-142 (tray propagation) — RESOLVED. S2-CR-77 (config_mutation_lock) — RESOLVED. S2-CR-78 (active_transcriber race) — RESOLVED.
 
-> **Status update for INCOMPLETE prior fixes:** S2-CR-27 (write timeout) — `_WRITE_FUTURE_TOTAL_TIMEOUT` constant defined but NEVER WIRED INTO the wait loop; regression test only asserts the literal string is in source. XV-1 (deps probe) — REGRESSED when service.py was split; `service/model.py:_check_parakeet_deps` now uses `import_module` instead of `find_spec`. XV-154 (logging cache) — applied to `appendLogLine` but NOT `mainRuntimeLogger.write`. CR-5 (double-resample) — only applied to `take_snapshot`; missing in `stop()` and `_process_audio_chunk`.
+> **Status update for INCOMPLETE prior fixes:** S2-CR-27 (write timeout) — `_WRITE_FUTURE_TOTAL_TIMEOUT` constant defined but NEVER WIRED INTO the wait loop; regression test only asserts the literal string is in source. XV-1 (deps probe) — REGRESSED when service.py was split; `service/model.py:_check_parakeet_deps` now uses `import_module` instead of `find_spec`. XV-154 (logging cache) — applied to `appendLogLine` but NOT `mainRuntimeLogger.write`. CRX-5  (double-resample) — only applied to `take_snapshot`; missing in `stop()` and `_process_audio_chunk`.
 
 ---
 
-## [AC-8] — CR-5 fix INCOMPLETE: `_buffer_sr` only set/read in snapshot path; `stop()` and `_process_audio_chunk` still produce garbage audio on every dictation
+## [AC-8] — CRX-5  fix INCOMPLETE: `_buffer_sr` only set/read in snapshot path; `stop()` and `_process_audio_chunk` still produce garbage audio on every dictation
 
 **Status:** ❌ Not Fixed
 
-**Description:** `voice_typer/server/recording/_recorder_split.py:124` (snapshot path — CR-5 step 4 APPLIED): `effective_sr = getattr(recorder, "_buffer_sr", None) or recorder._effective_sr`. `voice_typer/server/recording/recorder.py:2758` (stop path — CR-5 step 3 NOT APPLIED): `effective_sr = self._effective_sr` (ignores `_buffer_sr`). `recorder.py:_process_audio_chunk` (CR-5 step 2 NOT APPLIED — `_buffer_sr` never set). `grep -n "_buffer_sr" voice_typer/server/recording/recorder.py` returns ZERO matches. The CR-5 fix was only applied to the snapshot path. Tests `test_buffer_sr_tracks_processor_rate_when_active` and `test_stop_uses_buffer_sr_not_effective_sr` will FAIL because `_buffer_sr` is never set and `stop()` reads `_effective_sr` directly. When AudioProcessor is active on a non-16kHz device (e.g. 48kHz USB mic), the buffer holds 16kHz audio (post-`process_chunk` internal resample), but `stop()` reads `_effective_sr=48000` and passes it to `_prepare_audio` → `_resample_audio_impl(audio, 48000, 16000)` — resampling 16kHz audio AS IF it were 48kHz, producing ~3×-too-short garbage audio on every dictation.
+**Description:** `voice_typer/server/recording/_recorder_split.py:124` (snapshot path — CRX-5  step 4 APPLIED): `effective_sr = getattr(recorder, "_buffer_sr", None) or recorder._effective_sr`. `voice_typer/server/recording/recorder.py:2758` (stop path — CRX-5  step 3 NOT APPLIED): `effective_sr = self._effective_sr` (ignores `_buffer_sr`). `recorder.py:_process_audio_chunk` (CRX-5  step 2 NOT APPLIED — `_buffer_sr` never set). `grep -n "_buffer_sr" voice_typer/server/recording/recorder.py` returns ZERO matches. The CRX-5  fix was only applied to the snapshot path. Tests `test_buffer_sr_tracks_processor_rate_when_active` and `test_stop_uses_buffer_sr_not_effective_sr` will FAIL because `_buffer_sr` is never set and `stop()` reads `_effective_sr` directly. When AudioProcessor is active on a non-16kHz device (e.g. 48kHz USB mic), the buffer holds 16kHz audio (post-`process_chunk` internal resample), but `stop()` reads `_effective_sr=48000` and passes it to `_prepare_audio` → `_resample_audio_impl(audio, 48000, 16000)` — resampling 16kHz audio AS IF it were 48kHz, producing ~3×-too-short garbage audio on every dictation.
 
-**Root Cause:** Verified. CR-5 fix is asymmetrically applied. S2-CR-15 described the original bug; this finding is that the fix is incomplete.
+**Root Cause:** Verified. CRX-5  fix is asymmetrically applied. S2-CR-15 described the original bug; this finding is that the fix is incomplete.
 
 **Progress:** None yet.
 
@@ -9073,24 +8967,8 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 
 ---
 
-## Summary Statistics for AC Session
-
-- **Total new findings filed:** 139 (above)
-- **By severity:**
-  - 🔴 Critical/High: ~32 (AC-1, AC-2, AC-4, AC-8, AC-10, AC-52, AC-53, AC-54, AC-64, AC-65, AC-67, AC-73, AC-86, AC-87, AC-127, AC-128, AC-129, AC-130, AC-131, AC-132, AC-133, AC-134, AC-135, AC-136, AC-137, AC-138)
-  - 🟡 Medium: ~57
-  - 🟢 Low: ~50
-- **By category:**
-  - Spaghetti / monolith detection: 18 findings (AC-86, AC-87, AC-127, AC-128, AC-129, AC-130, AC-131, AC-132, AC-133, AC-134, AC-135, AC-136, AC-137, AC-138, AC-139, AC-103, AC-64, AC-67)
-  - Code quality: ~40 findings
-  - Maintainability: ~35 findings
-  - Refactoring opportunities: ~25 findings
-  - Backend architecture: ~12 findings
-  - Frontend architecture: ~5 findings
-  - Overall architecture: ~4 findings
-
 - **Status corrections for prior findings:** 11 prior findings are now STALE (already fixed in code): PVT-056 p2 / XV-31, XV-54 / XV-55 / XV-58, S5-CR-80, CR-49 FTS5, PVT-19, XV-146, S5-CR-106, S1-CR-142, S2-CR-77, S2-CR-78, S3-CR-74.
-- **Status updates for INCOMPLETE prior fixes:** 4 prior fixes are INCOMPLETE: S2-CR-27 (constant defined but never wired — AC-1), XV-1 (regressed when service.py was split — AC-4), XV-154 (cache fix applied to one of two loggers — AC-12), CR-5 (only 1 of 3 required steps landed — AC-8).
+- **Status updates for INCOMPLETE prior fixes:** 4 prior fixes are INCOMPLETE: S2-CR-27 (constant defined but never wired — AC-1), XV-1 (regressed when service.py was split — AC-4), XV-154 (cache fix applied to one of two loggers — AC-12), CRX-5  (only 1 of 3 required steps landed — AC-8).
 
 ---
 
@@ -11516,9 +11394,9 @@ But the renderer bridge NEVER invokes `open_host_logs`:
 - `openLogs` (`window-namespace.ts:146-163`) calls `invoke("open_logs")` → opens `<config_dir/>` (the parent dir, NOT the logs subdir)
 - `openElectronLogs` (`window-namespace.ts:202-220`) ALSO calls `invoke("open_logs")` (same parent dir), despite the type contract (`ipc.ts:721`) describing it as opening "the ELECTRON log folder (userData dir)"
 
-The comment at `window-namespace.ts:188-201` explicitly says "When the Rust host grows a dedicated `open_app_logs` / `open_electron_logs` command (TODO — see EC-13), swap the command name here" — but `open_host_logs` already exists and serves exactly that purpose. The TODO has been resolved in the Rust host but the renderer bridge was never updated to call it.
+The comment at `window-namespace.ts:188-201` explicitly says "When the Rust host grows a dedicated `open_app_logs` / `open_electron_logs` command, swap the command name here" — but `open_host_logs` already exists and serves exactly that purpose. The TODO has been resolved in the Rust host but the renderer bridge was never updated to call it.
 
-**Root Cause:** Cross-agent coordination gap. The Rust-side `open_host_logs` (GT-83) and the renderer-side `openElectronLogs` alias (G4-M-71 / EC-13) were developed by different sub-agents; the renderer side landed first as a "TODO swap when Rust grows the command", then the Rust side added `open_host_logs`, but the swap was never performed.
+**Root Cause:** Cross-agent coordination gap. The Rust-side `open_host_logs` (GT-83) and the renderer-side `openElectronLogs` alias (G4-M-71) were developed by different sub-agents; the renderer side landed first as a "TODO swap when Rust grows the command", then the Rust side added `open_host_logs`, but the swap was never performed.
 
 **Progress:** None yet.
 
@@ -11528,7 +11406,7 @@ The comment at `window-namespace.ts:188-201` explicitly says "When the Rust host
 - `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts` (lines 146-220)
 - `voice_typer/client/src/renderer/src/types/ipc.ts` (line 721)
 
-**Fix:** Change `openElectronLogs` in `window-namespace.ts:202-220` to `invoke("open_host_logs")` instead of `invoke("open_logs")`. Update the comment block at `window-namespace.ts:188-201` to remove the stale "TODO — see EC-13" line.
+**Fix:** Change `openElectronLogs` in `window-namespace.ts:202-220` to `invoke("open_host_logs")` instead of `invoke("open_logs")`. Update the comment block at `window-namespace.ts:188-201` to remove the stale line.
 
 **Severity:** 🟡 Medium — UX regression (users land in config root, must navigate into `logs/`); ~25 LOC dead Rust code; misleading type contract.
 
@@ -11588,7 +11466,7 @@ The only way blocks (2) or (3)'s kill arm fires is if a CONCURRENT caller instal
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts:227-240` comment block says:
 ```
-// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
+// G4-M-69 (Tauri parity, EC-FIX-6): forward a
 // renderer-caught error ... to the Rust host for persistence.
 // ...
 // The Rust command `renderer_log_error` is NOT YET
@@ -11598,7 +11476,7 @@ The only way blocks (2) or (3)'s kill arm fires is if a CONCURRENT caller instal
 
 But `renderer_log_error` IS implemented at `system_cmds.rs:258-262` (`pub async fn renderer_log_error(payload: Value, _app: tauri::AppHandle) -> Result<(), String>`) and IS registered in `generate_handler!` at `main.rs:246` (with the import at `main.rs:108-109`). The `logError` bridge at `window-namespace.ts:241-250` correctly invokes it.
 
-**Root Cause:** Cross-agent coordination drift. EC-FIX-6 / EC-13 noted the gap (review.md:4169). GT-35 added the Rust command and registered it. The renderer-side bridge was wired but the TODO-style comment was never updated.
+**Root Cause:** Cross-agent coordination drift. EC-FIX-6. GT-35 added the Rust command and registered it. The renderer-side bridge was wired but the TODO-style comment was never updated.
 
 **Progress:** None yet.
 
@@ -15074,7 +14952,7 @@ Block (b) is dead code — it appears to be the ORIGINAL CR-3 fix that was super
 
 **Description:** `logging.ts:274-289` (formatLine) produces `<ISO ts> [<LEVEL>] <msg> <json-args>`. There is NO `session_id` field (the Python sidecar generates an 8-char hex session_id via `log.setup_logging`), NO `component`/`source` field, NO `correlation_id` field. Prior review S2-CR-75 explicitly recommended "Propagate Python session_id into Electron log lines" — partially addressed (WARN/ERROR now persist) but session_id propagation was not done.
 
-**Root Cause:** Verified — incomplete follow-up on S2-CR-75.
+**Root Cause:** Verified — incomplete.
 
 **Progress:** Deferred — requires coordinated cross-process change.
 
