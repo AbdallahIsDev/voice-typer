@@ -94,10 +94,11 @@ def _make_mm_with_mock_backend(
     mock_registry.available_backends = [backend_name]
     mm._registry = mock_registry
 
-    # Stub _ensure_engine + _sync_registry_from_fields so we don't
-    # actually try to construct a real ParakeetEngine.
+    # Stub _ensure_engine so we don't actually try to construct a real
+    # ParakeetEngine. (_sync_registry_from_fields was removed — the
+    # @property setters on transcriber / _qwen_engine / _parakeet_engine
+    # now keep the registry in sync automatically.)
     mm._ensure_engine = MagicMock()
-    mm._sync_registry_from_fields = MagicMock()
     # Stub _evict_lru_model so it doesn't fire on touch.
     mm._evict_lru_model = MagicMock()
 
@@ -257,7 +258,6 @@ class TestCancelIdleUnloadTimer:
         app.config.save.return_value = True
         mm._change_model_unload_phase = MagicMock()
         mm._ensure_engine = MagicMock()
-        mm._sync_registry_from_fields = MagicMock()
         # load_active returns truthy → success path.
         mm._registry.load_active.return_value = engine
         with contextlib.suppress(Exception):

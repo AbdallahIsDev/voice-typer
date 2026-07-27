@@ -15,9 +15,9 @@
 
 import { contrastRatio } from "@/lib/color-utils";
 import {
+	type CustomThemeData,
 	DEFAULT_CUSTOM_DARK,
 	DEFAULT_CUSTOM_LIGHT,
-	type CustomThemeData,
 } from "@/themes";
 
 // Re-export so consumers can import all contrast-related helpers from a

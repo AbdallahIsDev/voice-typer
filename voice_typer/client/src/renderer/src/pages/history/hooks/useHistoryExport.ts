@@ -25,7 +25,7 @@ import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 
-import { sortRecords, type HistorySortOrder } from "../utils/historySort";
+import { type HistorySortOrder, sortRecords } from "../utils/historySort";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
@@ -42,127 +42,121 @@ const EXPORT_PAGE_SIZE = 100;
 const EXPORT_MAX_ROWS = 10000;
 
 interface UseHistoryExportParams {
-        call: CallFn;
-        records: HistoryRecord[];
-        sortOrder: HistorySortOrder;
-        searchQuery: string;
-        favoritesOnly: boolean;
+	call: CallFn;
+	records: HistoryRecord[];
+	sortOrder: HistorySortOrder;
+	searchQuery: string;
+	favoritesOnly: boolean;
 }
 
 interface UseHistoryExportReturn {
-        doExport: (format: string) => Promise<void>;
+	doExport: (format: string) => Promise<void>;
 }
 
 export function useHistoryExport({
-        call,
-        records,
-        sortOrder,
-        searchQuery,
-        favoritesOnly,
+	call,
+	records: _records,
+	sortOrder,
+	searchQuery,
+	favoritesOnly,
 }: UseHistoryExportParams): UseHistoryExportReturn {
-        const doExport = useCallback(
-                async (format: string) => {
-                        const fmt: "json" | "csv" =
-                                format === "csv" ? "csv" : "json";
-                        // BG-52: when a filter is active (``searchQuery`` non-empty OR
-                        // ``favoritesOnly`` true), the export pages through the matching
-                        // endpoint (``search_history`` / ``get_favorites``). When no
-                        // filter is active, it pages through ``get_history``.
-                        const filterActive =
-                                searchQuery.trim() !== "" || favoritesOnly;
+	const doExport = useCallback(
+		async (format: string) => {
+			const fmt: "json" | "csv" = format === "csv" ? "csv" : "json";
+			// BG-52: when a filter is active (``searchQuery`` non-empty OR
+			// ``favoritesOnly`` true), the export pages through the matching
+			// endpoint (``search_history`` / ``get_favorites``). When no
+			// filter is active, it pages through ``get_history``.
+			const filterActive = searchQuery.trim() !== "" || favoritesOnly;
 
-                        // Surface an info toast so the user knows the exported file
-                        // reflects the active filter (not the full history).
-                        if (filterActive) {
-                                toast.info(t("history.exportFilteredToast"));
-                        }
+			// Surface an info toast so the user knows the exported file
+			// reflects the active filter (not the full history).
+			if (filterActive) {
+				toast.info(t("history.exportFilteredToast"));
+			}
 
-                        let allRecords: HistoryRecord[];
-                        try {
-                                // Page through the matching endpoint until the backend
-                                // returns an empty page (or a partial page — no more rows)
-                                // or we hit the EXPORT_MAX_ROWS cap.
-                                allRecords = [];
-                                let offset = 0;
-                                // eslint-disable-next-line no-constant-condition
-                                while (true) {
-                                        let page: HistoryRecord[];
-                                        if (favoritesOnly) {
-                                                page = await call<HistoryRecord[]>(
-                                                        "get_favorites",
-                                                        { limit: EXPORT_PAGE_SIZE, offset },
-                                                );
-                                        } else if (searchQuery.trim() !== "") {
-                                                page = await call<HistoryRecord[]>(
-                                                        "search_history",
-                                                        { query: searchQuery, limit: EXPORT_PAGE_SIZE, offset },
-                                                );
-                                        } else {
-                                                page = await call<HistoryRecord[]>("get_history", {
-                                                        limit: EXPORT_PAGE_SIZE,
-                                                        offset,
-                                                });
-                                        }
-                                        const safePage = Array.isArray(page) ? page : [];
-                                        if (safePage.length === 0) break;
-                                        allRecords.push(...safePage);
-                                        offset += safePage.length;
-                                        if (allRecords.length >= EXPORT_MAX_ROWS) {
-                                                allRecords = allRecords.slice(0, EXPORT_MAX_ROWS);
-                                                toast.warning(
-                                                        t("history.exportTruncatedWarning", {
-                                                                count: String(EXPORT_MAX_ROWS),
-                                                        }),
-                                                );
-                                                break;
-                                        }
-                                        // Backend returned a partial page — no more rows.
-                                        if (safePage.length < EXPORT_PAGE_SIZE) break;
-                                }
-                        } catch (err) {
-                                console.error("[History] export paging failed:", err);
-                                toast.error(t("history.exportFailed"));
-                                return;
-                        }
+			let allRecords: HistoryRecord[];
+			try {
+				// Page through the matching endpoint until the backend
+				// returns an empty page (or a partial page — no more rows)
+				// or we hit the EXPORT_MAX_ROWS cap.
+				allRecords = [];
+				let offset = 0;
+				// eslint-disable-next-line no-constant-condition
+				while (true) {
+					let page: HistoryRecord[];
+					if (favoritesOnly) {
+						page = await call<HistoryRecord[]>("get_favorites", {
+							limit: EXPORT_PAGE_SIZE,
+							offset,
+						});
+					} else if (searchQuery.trim() !== "") {
+						page = await call<HistoryRecord[]>("search_history", {
+							query: searchQuery,
+							limit: EXPORT_PAGE_SIZE,
+							offset,
+						});
+					} else {
+						page = await call<HistoryRecord[]>("get_history", {
+							limit: EXPORT_PAGE_SIZE,
+							offset,
+						});
+					}
+					const safePage = Array.isArray(page) ? page : [];
+					if (safePage.length === 0) break;
+					allRecords.push(...safePage);
+					offset += safePage.length;
+					if (allRecords.length >= EXPORT_MAX_ROWS) {
+						allRecords = allRecords.slice(0, EXPORT_MAX_ROWS);
+						toast.warning(
+							t("history.exportTruncatedWarning", {
+								count: String(EXPORT_MAX_ROWS),
+							}),
+						);
+						break;
+					}
+					// Backend returned a partial page — no more rows.
+					if (safePage.length < EXPORT_PAGE_SIZE) break;
+				}
+			} catch (err) {
+				console.error("[History] export paging failed:", err);
+				toast.error(t("history.exportFailed"));
+				return;
+			}
 
-                        if (allRecords.length === 0) {
-                                toast.warning(t("history.exportEmpty"));
-                                return;
-                        }
+			if (allRecords.length === 0) {
+				toast.warning(t("history.exportEmpty"));
+				return;
+			}
 
-                        // Apply the same client-side sort the page uses so the
-                        // exported file order matches what the user sees.
-                        const sorted = sortRecords(allRecords, sortOrder);
+			// Apply the same client-side sort the page uses so the
+			// exported file order matches what the user sees.
+			const sorted = sortRecords(allRecords, sortOrder);
 
-                        const bridge = window.window_;
-                        if (!bridge?.exportHistory) {
-                                toast.error(t("history.exportFailed"));
-                                return;
-                        }
-                        try {
-                                const result = await bridge.exportHistory(
-                                        sorted as unknown as Record<string, unknown>[],
-                                        fmt,
-                                );
-                                if (result.success) {
-                                        const path = result.path ?? "";
-                                        const filename =
-                                                path.split(/[\\/]/).pop() || "untitled";
-                                        toast.success(
-                                                t("history.exportSaved", { filename }),
-                                        );
-                                } else {
-                                        toast.error(
-                                                result.error ?? t("history.exportFailed"),
-                                        );
-                                }
-                        } catch (err) {
-                                console.error("[History] export bridge failed:", err);
-                                toast.error(t("history.exportFailed"));
-                        }
-                },
-                [call, records, sortOrder, searchQuery, favoritesOnly],
-        );
+			const bridge = window.window_;
+			if (!bridge?.exportHistory) {
+				toast.error(t("history.exportFailed"));
+				return;
+			}
+			try {
+				const result = await bridge.exportHistory(
+					sorted as unknown as Record<string, unknown>[],
+					fmt,
+				);
+				if (result.success) {
+					const path = result.path ?? "";
+					const filename = path.split(/[\\/]/).pop() || "untitled";
+					toast.success(t("history.exportSaved", { filename }));
+				} else {
+					toast.error(result.error ?? t("history.exportFailed"));
+				}
+			} catch (err) {
+				console.error("[History] export bridge failed:", err);
+				toast.error(t("history.exportFailed"));
+			}
+		},
+		[call, sortOrder, searchQuery, favoritesOnly],
+	);
 
-        return { doExport };
+	return { doExport };
 }

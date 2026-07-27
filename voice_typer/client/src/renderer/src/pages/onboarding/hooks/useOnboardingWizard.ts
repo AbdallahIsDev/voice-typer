@@ -121,9 +121,7 @@ export function useOnboardingWizard(
 						if (prev && mics.microphones.some((m) => m.id === prev)) {
 							return prev;
 						}
-						const defaultMic = mics.microphones.find(
-							(m) => m.default === true,
-						);
+						const defaultMic = mics.microphones.find((m) => m.default === true);
 						return (defaultMic ?? mics.microphones[0]).id;
 					});
 				}

@@ -605,7 +605,6 @@ class TestMergeChunks:
         assert engine._merge_chunks([]) == ""
 
     def test_single_chunk_returned_as_is(self):
-
         engine = _make_engine()
         result = engine._merge_chunks(["hello world"])
         assert result == "hello world"

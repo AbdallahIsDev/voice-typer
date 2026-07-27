@@ -339,7 +339,6 @@ class TestModuleLevelPushHook:
         real_bubble.hide()  # must not raise
 
     def test_level_pushes_via_hook(self, bubble):
-
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
         from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring

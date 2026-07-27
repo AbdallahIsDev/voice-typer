@@ -330,10 +330,7 @@ export function _installErrorHandlers(opts: {
 			try {
 				stopPython();
 			} catch (e) {
-				log.error(
-					`[VT] stopPython() failed during breaker exit${suffix}:`,
-					e,
-				);
+				log.error(`[VT] stopPython() failed during breaker exit${suffix}:`, e);
 			}
 			try {
 				clearElectronPidFile();
@@ -396,10 +393,7 @@ function _productionExit(code: number): void {
 	try {
 		clearElectronPidFile();
 	} catch (e) {
-		log.error(
-			"[VT] clearElectronPidFile() failed during production exit:",
-			e,
-		);
+		log.error("[VT] clearElectronPidFile() failed during production exit:", e);
 	}
 	// GT-12: synchronously SIGKILL the Python backend BEFORE the
 	// quit call so the kill is NOT timer-dependent.

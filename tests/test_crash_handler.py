@@ -849,7 +849,6 @@ class TestPythonExcepthook:
         """
         # No prior install. sys.excepthook is whatever the
         # ``restore_excepthook`` fixture left it as.
-        before = sys.excepthook
         crash_handler.remove_python_excepthook()
         # If we never installed, restore falls through to
         # ``sys.__excepthook__`` (Python's documented bootstrap

@@ -369,7 +369,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 									className="w-20 text-center"
 									aria-label={t("settings.hotkeySection.silenceWarningAria")}
 								/>
-								<span className="text-sm text-(--text-muted)">{t("settings.hotkeySection.secondsSuffix")}</span>
+								<span className="text-sm text-(--text-muted)">
+									{t("settings.hotkeySection.secondsSuffix")}
+								</span>
 							</div>
 							{/* Helper text: valid range. Always shown so the user
                                                                 knows the bounds before they type. */}
@@ -412,7 +414,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 									className="w-20 text-center"
 									aria-label={t("settings.hotkeySection.maxRecordingTimeAria")}
 								/>
-								<span className="text-sm text-(--text-muted)">{t("settings.hotkeySection.minutesSuffix")}</span>
+								<span className="text-sm text-(--text-muted)">
+									{t("settings.hotkeySection.minutesSuffix")}
+								</span>
 							</div>
 							{/* XA-4-5: i18n the range hint + inline parse/range errors
                                                                 (previously hardcoded English literals). */}

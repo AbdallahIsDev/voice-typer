@@ -14,12 +14,13 @@
 			"**/*.json",
 			"**/*.css",
 			"!out",
-			"!**/dist"
+			"!**/dist",
+			"!**/data/hotkey_reserved.json"
 		]
 	},
 	"linter": {
 		"rules": {
-			"recommended": true
+			"preset": "recommended"
 		}
 	}
 }

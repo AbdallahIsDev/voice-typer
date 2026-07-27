@@ -265,7 +265,8 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 	// Re-detect platform on every call so the Fn option appears iff
 	// the CURRENT navigator.userAgent looks like macOS, not whatever
 	// was detected at module load time.
-	const isMac = detectPlatform() === "darwin";		return [
+	const isMac = detectPlatform() === "darwin";
+	return [
 		// Safe single-key options only.
 		// Caps Lock: label is intentionally bare — no "recommended"
 		// or "requires OS remap" qualifier. The hotkey backend
@@ -289,7 +290,8 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 export function getComboPresets(): { value: string; label: string }[] {
 	const platform = detectPlatform();
 	const isMac = platform === "darwin";
-	const isLinux = platform === "linux";		return [
+	const isLinux = platform === "linux";
+	return [
 		{ value: "<ctrl>+<shift>+v", label: formatHotkey("<ctrl>+<shift>+v") },
 		{ value: "<ctrl>+<alt>+v", label: formatHotkey("<ctrl>+<alt>+v") },
 		{ value: "<ctrl>+<space>", label: formatHotkey("<ctrl>+<space>") },
@@ -306,7 +308,9 @@ export function getComboPresets(): { value: string; label: string }[] {
 		// dictation/paste shortcut would silently break language switching.
 		// Users can still pick any combo via the custom capture button if
 		// they really want to override it.
-		...(isLinux ? [{ value: "<super>+<space>", label: formatHotkey("<super>+<space>") }] : []),
+		...(isLinux
+			? [{ value: "<super>+<space>", label: formatHotkey("<super>+<space>") }]
+			: []),
 	].filter((preset) => !isReserved(preset.value, platform));
 }
 
@@ -488,7 +492,9 @@ export function validateHotkey(
 		hasNonModifier &&
 		MODIFIER_KEYS.includes(lastKey as (typeof MODIFIER_KEYS)[number])
 	) {
-		return t("hotkeyValidation.mustEndWithNonModifier", { label: formatHotkey(hotkey) });
+		return t("hotkeyValidation.mustEndWithNonModifier", {
+			label: formatHotkey(hotkey),
+		});
 	}
 	// Reject Fn in combos on non-macOS
 	if (!IS_MAC && parts.some((p) => p === "fn" || p === "globe")) {

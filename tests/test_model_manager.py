@@ -52,10 +52,11 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     mock_registry.get_active.return_value = None
     mm._registry = mock_registry
 
-    # Stub _ensure_engine and _sync_registry_from_fields so we don't
-    # actually try to construct a real TranscriptionEngine.
+    # Stub _ensure_engine so we don't actually try to construct a real
+    # TranscriptionEngine. (_sync_registry_from_fields was removed — the
+    # @property setters on transcriber / _qwen_engine / _parakeet_engine
+    # now keep the registry in sync automatically.)
     mm._ensure_engine = MagicMock()
-    mm._sync_registry_from_fields = MagicMock()
     # Stub touch_model + _evict_lru_model so they don't touch LRU state.
     mm.touch_model = MagicMock()
     mm._evict_lru_model = MagicMock()

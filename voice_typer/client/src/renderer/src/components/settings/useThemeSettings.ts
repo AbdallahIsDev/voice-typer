@@ -22,8 +22,8 @@
 // implementation: the hook is a pure refactor that moves code without
 // changing the observable semantics.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cssColorToHex } from "@/lib/color-utils";
 import {
 	clearDraftLS,
@@ -285,10 +285,7 @@ export interface UseThemeSettingsReturn {
 	handleHexInputChange: (
 		varName: string,
 	) => (e: ChangeEvent<HTMLInputElement>) => void;
-	handleHexInputBlur: (
-		varName: string,
-		committedHex: string,
-	) => () => void;
+	handleHexInputBlur: (varName: string, committedHex: string) => () => void;
 	handleResetCustomColors: () => void;
 	handleTextSizeChange: (v: number) => void;
 	handleSelectMouseMove: () => void;
@@ -603,7 +600,10 @@ export function useThemeSettings({
 		[config, updateConfig],
 	);
 
-	const handleSetLightMode = useCallback(() => setCustomEditorMode("light"), []);
+	const handleSetLightMode = useCallback(
+		() => setCustomEditorMode("light"),
+		[],
+	);
 	const handleSetDarkMode = useCallback(() => setCustomEditorMode("dark"), []);
 
 	const handleColorInputChange = useCallback(

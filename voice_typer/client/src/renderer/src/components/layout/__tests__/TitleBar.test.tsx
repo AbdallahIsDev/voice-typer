@@ -158,7 +158,7 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		// line with its sibling back/forward/help buttons.
 		expect(cls).toContain("rounded");
 		expect(cls).toContain("transition-colors");
-		expect(cls).toContain("duration-75");
+		expect(cls).toContain("duration-150");
 		expect(cls).toContain("hover:bg-foreground/5");
 	});
 

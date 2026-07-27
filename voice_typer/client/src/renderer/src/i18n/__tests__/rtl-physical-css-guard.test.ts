@@ -62,14 +62,14 @@ const RENDERER_SRC = resolve(__dirname, "..", "..");
  * Last audited: 2026-07-27 by SA-12 (client_root_i18n).
  */
 const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
-        // `text-left` on a `<pre>` rendering the error stack trace. Migrating
-        // to `text-start` requires touching ErrorBoundary.tsx (owned by
-        // another agent — out of SA-12's file scope).
-        "components/feedback/ErrorBoundary.tsx",
-        // `text-right` on a `<span>` rendering credits values. Migrating to
-        // `text-end` requires touching About.tsx (owned by another agent —
-        // out of SA-12's file scope).
-        "pages/About.tsx",
+	// `text-left` on a `<pre>` rendering the error stack trace. Migrating
+	// to `text-start` requires touching ErrorBoundary.tsx (owned by
+	// another agent — out of SA-12's file scope).
+	"components/feedback/ErrorBoundary.tsx",
+	// `text-right` on a `<span>` rendering credits values. Migrating to
+	// `text-end` requires touching About.tsx (owned by another agent —
+	// out of SA-12's file scope).
+	"pages/About.tsx",
 ]);
 
 /**
@@ -125,71 +125,79 @@ const PHYSICAL_TEXT_ALIGN = /(?:^|\s)text-(?:left|right)(?=\s|["'`$])/;
 
 /** Strip /* block comments *\/ and // line comments from a source string. */
 function stripComments(src: string): string {
-        return src
-                .replace(/\/\*[\s\S]*?\*\//g, "")
-                .replace(/\/\/.*$/gm, "");
+	return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
 /** Extract every `className="..."` / `className='...'` value from the source. */
 function extractClassNames(src: string): string[] {
-        const out: string[] = [];
-        // Double-quoted className values.
-        for (const m of src.matchAll(/className="([^"]+)"/g)) {
-                out.push(m[1]);
-        }
-        // Single-quoted className values.
-        for (const m of src.matchAll(/className='([^']+)'/g)) {
-                out.push(m[1]);
-        }
-        return out;
+	const out: string[] = [];
+	// Double-quoted className values.
+	for (const m of src.matchAll(/className="([^"]+)"/g)) {
+		out.push(m[1]);
+	}
+	// Single-quoted className values.
+	for (const m of src.matchAll(/className='([^']+)'/g)) {
+		out.push(m[1]);
+	}
+	return out;
 }
 
 /** Walk the renderer src tree and return (relativePath, src) pairs for each source file. */
 function collectSourceFiles(): { rel: string; src: string }[] {
-        // The renderer src tree is small enough (~250 files) that we can walk
-        // it synchronously with the Node fs API. Using `readFileSync` here
-        // mirrors the existing pattern in
-        // `components/__tests__/nh-rtl-logical-properties.test.tsx`.
-        const out: { rel: string; src: string }[] = [];
-        const skipDirs = new Set(["__tests__", "node_modules", ".vite", "dist", "out"]);
-        const walk = (absDir: string, relDir: string): void => {
-                let entries: string[];
-                try {
-                        entries = readdirSync(absDir);
-                } catch {
-                        return;
-                }
-                for (const name of entries) {
-                        const abs = resolve(absDir, name);
-                        const rel = relDir ? `${relDir}/${name}` : name;
-                        let st: { isDirectory: () => boolean };
-                        try {
-                                st = statSync(abs);
-                        } catch {
-                                continue;
-                        }
-                        if (st.isDirectory()) {
-                                if (skipDirs.has(name)) continue;
-                                walk(abs, rel);
-                                continue;
-                        }
-                        // Only scan .ts / .tsx source files (not .json, .css, .svg).
-                        if (!/\.(ts|tsx)$/.test(name)) continue;
-                        // Skip test files, stories, and declaration files.
-                        if (name.includes(".test.") || name.includes(".stories.") || name.endsWith(".d.ts")) {
-                                continue;
-                        }
-                        let src: string;
-                        try {
-                                src = readFileSync(abs, "utf8");
-                        } catch {
-                                continue;
-                        }
-                        out.push({ rel, src });
-                }
-        };
-        walk(RENDERER_SRC, "");
-        return out;
+	// The renderer src tree is small enough (~250 files) that we can walk
+	// it synchronously with the Node fs API. Using `readFileSync` here
+	// mirrors the existing pattern in
+	// `components/__tests__/nh-rtl-logical-properties.test.tsx`.
+	const out: { rel: string; src: string }[] = [];
+	const skipDirs = new Set([
+		"__tests__",
+		"node_modules",
+		".vite",
+		"dist",
+		"out",
+	]);
+	const walk = (absDir: string, relDir: string): void => {
+		let entries: string[];
+		try {
+			entries = readdirSync(absDir);
+		} catch {
+			return;
+		}
+		for (const name of entries) {
+			const abs = resolve(absDir, name);
+			const rel = relDir ? `${relDir}/${name}` : name;
+			let st: { isDirectory: () => boolean };
+			try {
+				st = statSync(abs);
+			} catch {
+				continue;
+			}
+			if (st.isDirectory()) {
+				if (skipDirs.has(name)) continue;
+				walk(abs, rel);
+				continue;
+			}
+			// Only scan .ts / .tsx source files (not .json, .css, .svg).
+			if (!/\.(ts|tsx)$/.test(name)) continue;
+			// Skip test files, stories, and declaration files.
+			if (
+				name.includes(".test.") ||
+				name.includes(".stories.") ||
+				name.endsWith(".d.ts")
+			) {
+				continue;
+			}
+			let src: string;
+			try {
+				src = readFileSync(abs, "utf8");
+			} catch {
+				continue;
+			}
+			out.push({ rel, src });
+		}
+	};
+	walk(RENDERER_SRC, "");
+	return out;
 }
 
 /**
@@ -205,95 +213,104 @@ function collectSourceFiles(): { rel: string; src: string }[] {
  * stable makes future logging changes easier).
  */
 function findViolations(_rel: string, rawSrc: string): string[] {
-        const stripped = stripComments(rawSrc);
-        const classNames = extractClassNames(stripped);
-        const out: string[] = [];
-        for (const cls of classNames) {
-                if (PHYSICAL_INLINE_CLASSNAME.test(cls)) {
-                        out.push(`ml/mr/pl/pr utility: "${cls.slice(0, 100)}"`);
-                }
-                if (PHYSICAL_TEXT_ALIGN.test(cls)) {
-                        out.push(`text-left/text-right utility: "${cls.slice(0, 100)}"`);
-                }
-        }
-        return out;
+	const stripped = stripComments(rawSrc);
+	const classNames = extractClassNames(stripped);
+	const out: string[] = [];
+	for (const cls of classNames) {
+		if (PHYSICAL_INLINE_CLASSNAME.test(cls)) {
+			out.push(`ml/mr/pl/pr utility: "${cls.slice(0, 100)}"`);
+		}
+		if (PHYSICAL_TEXT_ALIGN.test(cls)) {
+			out.push(`text-left/text-right utility: "${cls.slice(0, 100)}"`);
+		}
+	}
+	return out;
 }
 
 describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities block RTL mirroring", () => {
-        it("CURRENTLY_VIOLATING allowlist size is within the documented bound", () => {
-                // Ratchet: the allowlist should only ever SHRINK (or stay the same).
-                // If a new file is found to violate the rule, add it to the
-                // allowlist AND raise this bound (with a comment explaining why)
-                // — or better, migrate the offending file to logical properties.
-                expect(
-                        CURRENTLY_VIOLATING.size,
-                        `CURRENTLY_VIOLATING allowlist grew past the bound of ${CURRENTLY_VIOLATING_SIZE_BOUND}. ` +
-                                "Either migrate the new offending files to logical properties (ms-*/me-*/ps-*/pe-*/text-start/text-end) " +
-                                "or raise CURRENTLY_VIOLATING_SIZE_BOUND with a comment explaining why.",
-                ).toBeLessThanOrEqual(CURRENTLY_VIOLATING_SIZE_BOUND);
-        });
+	it("CURRENTLY_VIOLATING allowlist size is within the documented bound", () => {
+		// Ratchet: the allowlist should only ever SHRINK (or stay the same).
+		// If a new file is found to violate the rule, add it to the
+		// allowlist AND raise this bound (with a comment explaining why)
+		// — or better, migrate the offending file to logical properties.
+		expect(
+			CURRENTLY_VIOLATING.size,
+			`CURRENTLY_VIOLATING allowlist grew past the bound of ${CURRENTLY_VIOLATING_SIZE_BOUND}. ` +
+				"Either migrate the new offending files to logical properties (ms-*/me-*/ps-*/pe-*/text-start/text-end) " +
+				"or raise CURRENTLY_VIOLATING_SIZE_BOUND with a comment explaining why.",
+		).toBeLessThanOrEqual(CURRENTLY_VIOLATING_SIZE_BOUND);
+	});
 
-        it("no source file OUTSIDE the CURRENTLY_VIOLATING allowlist uses physical-side CSS utilities", () => {
-                const files = collectSourceFiles();
-                const unexpected: string[] = [];
-                for (const { rel, src } of files) {
-                        // Skip files in the allowlist — they're tolerated pending
-                        // migration by their owning agent.
-                        if (CURRENTLY_VIOLATING.has(rel)) continue;
-                        const violations = findViolations(rel, src);
-                        for (const v of violations) {
-                                unexpected.push(`${rel}: ${v}`);
-                        }
-                }
-                expect(unexpected, [
-                        "Found physical-side Tailwind utilities (ml-/mr-/pl-/pr-/text-left/text-right) in " +
-                                "files NOT in the CURRENTLY_VIOLATING allowlist. These utilities don't flip in RTL — " +
-                                "the Arabic UI renders a broken (LTR-locked) layout for any component using them. " +
-                                "Migrate to logical utilities (ms-/me-/ps-/pe-/text-start/text-end), OR if the file " +
-                                "is mid-migration by another agent, add it to CURRENTLY_VIOLATING in this test.",
-                        ...unexpected,
-                ].join("\n")).toEqual([]);
-        });
+	it("no source file OUTSIDE the CURRENTLY_VIOLATING allowlist uses physical-side CSS utilities", () => {
+		const files = collectSourceFiles();
+		const unexpected: string[] = [];
+		for (const { rel, src } of files) {
+			// Skip files in the allowlist — they're tolerated pending
+			// migration by their owning agent.
+			if (CURRENTLY_VIOLATING.has(rel)) continue;
+			const violations = findViolations(rel, src);
+			for (const v of violations) {
+				unexpected.push(`${rel}: ${v}`);
+			}
+		}
+		expect(
+			unexpected,
+			[
+				"Found physical-side Tailwind utilities (ml-/mr-/pl-/pr-/text-left/text-right) in " +
+					"files NOT in the CURRENTLY_VIOLATING allowlist. These utilities don't flip in RTL — " +
+					"the Arabic UI renders a broken (LTR-locked) layout for any component using them. " +
+					"Migrate to logical utilities (ms-/me-/ps-/pe-/text-start/text-end), OR if the file " +
+					"is mid-migration by another agent, add it to CURRENTLY_VIOLATING in this test.",
+				...unexpected,
+			].join("\n"),
+		).toEqual([]);
+	});
 
-        it("every entry in CURRENTLY_VIOLATING actually still has a violation (no stale allowlist entries)", () => {
-                // Ratchet: when an allowlisted file is migrated, the entry MUST
-                // be removed from the set — otherwise the allowlist accumulates
-                // stale entries that mask future regressions. This test fails
-                // loudly when an entry is no longer needed.
-                const files = collectSourceFiles();
-                const fileMap = new Map<string, string>();
-                for (const { rel, src } of files) fileMap.set(rel, src);
+	it("every entry in CURRENTLY_VIOLATING actually still has a violation (no stale allowlist entries)", () => {
+		// Ratchet: when an allowlisted file is migrated, the entry MUST
+		// be removed from the set — otherwise the allowlist accumulates
+		// stale entries that mask future regressions. This test fails
+		// loudly when an entry is no longer needed.
+		const files = collectSourceFiles();
+		const fileMap = new Map<string, string>();
+		for (const { rel, src } of files) fileMap.set(rel, src);
 
-                const stale: string[] = [];
-                for (const rel of CURRENTLY_VIOLATING) {
-                        const src = fileMap.get(rel);
-                        if (src === undefined) {
-                                // The file was deleted/renamed — the allowlist entry is stale.
-                                stale.push(`${rel}: file not found (deleted or renamed)`);
-                                continue;
-                        }
-                        const violations = findViolations(rel, src);
-                        if (violations.length === 0) {
-                                stale.push(
-                                        `${rel}: no physical-side utilities found — file was migrated, ` +
-                                                "remove this entry from CURRENTLY_VIOLATING.",
-                                );
-                        }
-                }
-                expect(stale, [
-                        "CURRENTLY_VIOLATING has stale entries — files that no longer use physical-side " +
-                                "CSS utilities. Remove them from the allowlist so future regressions are caught:",
-                        ...stale,
-                ].join("\n")).toEqual([]);
-        });
+		const stale: string[] = [];
+		for (const rel of CURRENTLY_VIOLATING) {
+			const src = fileMap.get(rel);
+			if (src === undefined) {
+				// The file was deleted/renamed — the allowlist entry is stale.
+				stale.push(`${rel}: file not found (deleted or renamed)`);
+				continue;
+			}
+			const violations = findViolations(rel, src);
+			if (violations.length === 0) {
+				stale.push(
+					`${rel}: no physical-side utilities found — file was migrated, ` +
+						"remove this entry from CURRENTLY_VIOLATING.",
+				);
+			}
+		}
+		expect(
+			stale,
+			[
+				"CURRENTLY_VIOLATING has stale entries — files that no longer use physical-side " +
+					"CSS utilities. Remove them from the allowlist so future regressions are caught:",
+				...stale,
+			].join("\n"),
+		).toEqual([]);
+	});
 
-        it("the renderer source tree was actually scanned (non-empty file list)", () => {
-                // Defensive: if the file walker silently returned an empty list
-                // (e.g. RENDERER_SRC resolved wrong, all files were filtered),
-                // the "no unexpected violations" test would pass trivially
-                // without checking anything. This sanity test ensures the walker
-                // actually found files to scan.
-                const files = collectSourceFiles();
-                expect(files.length, "RENDERER_SRC file walker returned 0 files — the test is broken").toBeGreaterThan(0);
-        });
+	it("the renderer source tree was actually scanned (non-empty file list)", () => {
+		// Defensive: if the file walker silently returned an empty list
+		// (e.g. RENDERER_SRC resolved wrong, all files were filtered),
+		// the "no unexpected violations" test would pass trivially
+		// without checking anything. This sanity test ensures the walker
+		// actually found files to scan.
+		const files = collectSourceFiles();
+		expect(
+			files.length,
+			"RENDERER_SRC file walker returned 0 files — the test is broken",
+		).toBeGreaterThan(0);
+	});
 });

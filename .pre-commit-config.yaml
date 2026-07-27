@@ -55,13 +55,13 @@ repos:
     hooks:
       - id: biome-check
         name: Biome check (client)
-        entry: bash -c 'cd voice_typer/client && npx biome check'
+        entry: node scripts/pre-commit-runner.cjs biome-check
         language: system
         files: ^voice_typer/client/src/.*\.(ts|tsx|js|jsx)$
         pass_filenames: false
       - id: client-typecheck
         name: TypeScript typecheck (client)
-        entry: bash -c 'cd voice_typer/client && npm run typecheck'
+        entry: node scripts/pre-commit-runner.cjs client-typecheck
         language: system
         files: ^voice_typer/client/src/.*\.(ts|tsx)$
         pass_filenames: false
@@ -82,7 +82,7 @@ repos:
       #      voice_typer/client/src/renderer/src/data/hotkey_reserved.json
       - id: hotkey-reserved-sync
         name: Hotkey reserved JSON sync (server <-> client copy)
-        entry: bash -c 'python -m pytest tests/test_hotkey_reserved_sync.py -q --no-cov'
+        entry: node scripts/pre-commit-runner.cjs hotkey-reserved-sync
         language: system
         files: ^voice_typer/(server/hotkey_reserved\.json|client/src/renderer/src/data/hotkey_reserved\.json)$
         pass_filenames: false

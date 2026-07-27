@@ -543,7 +543,7 @@ class TestAllLocalEnginesAcceptAudioStats:
         # the mean-of-squares of the input audio.
         expected_mean_sq = float(np.mean(np.square(audio, dtype=np.float64)))
         for call_args in sqrt_calls:
-            if call_args and isinstance(call_args[0], (int, float, np.floating)):
+            if call_args and isinstance(call_args[0], int | float | np.floating):
                 # A scalar was passed to sqrt — verify it's NOT the
                 # mean-of-squares of our audio (which would indicate
                 # the recomputation path fired).
@@ -584,7 +584,7 @@ class TestAllLocalEnginesAcceptAudioStats:
             if not call_args:
                 continue
             first = call_args[0]
-            if not isinstance(first, (int, float, np.floating)):
+            if not isinstance(first, int | float | np.floating):
                 continue
             if abs(float(first) - expected) < 1e-6:
                 found_recompute = True

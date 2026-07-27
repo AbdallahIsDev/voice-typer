@@ -252,7 +252,6 @@ def _make_app(tmp_config_dir, monkeypatch):
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
-    instance.models._sync_registry_from_fields()
     return instance
 
 

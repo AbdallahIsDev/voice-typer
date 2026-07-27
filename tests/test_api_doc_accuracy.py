@@ -291,7 +291,7 @@ class TestWindowsOpenConfigFile:
             # leak into the recorder and break assertions that expect ZERO
             # Notepad-related Popen calls on the default-app path.
             cmd = a[0] if a else kw.get("args")
-            if isinstance(cmd, (list, tuple)) and cmd and "ldconfig" in str(cmd[0]):
+            if isinstance(cmd, list | tuple) and cmd and "ldconfig" in str(cmd[0]):
                 return MagicMock()
             popen_calls.append((a, kw))
             return MagicMock()
@@ -339,7 +339,7 @@ class TestWindowsOpenConfigFile:
             # are Python stdlib internals, not SUT behavior; the only Popen
             # the SUT should issue here is the SystemRoot-validated Notepad
             # fallback (['C:\\Windows\\System32\\notepad.exe', config_file]).
-            if isinstance(args, (list, tuple)) and args and "ldconfig" in str(args[0]):
+            if isinstance(args, list | tuple) and args and "ldconfig" in str(args[0]):
                 return _FakeProc(args)
             popen_calls.append(args)
             return _FakeProc(args)

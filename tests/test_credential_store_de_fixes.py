@@ -496,9 +496,7 @@ class TestDE23NonStringApiKeySkippedGracefully:
         # The warning must mention the provider + field name + type so
         # the user can locate the corrupted entry in their config.json.
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            "openai_api_key" in msg and "non-string" in msg for msg in warning_msgs
-        ), (
+        assert any("openai_api_key" in msg and "non-string" in msg for msg in warning_msgs), (
             "DE-23: a WARNING must be logged when a non-string api_key "
             f"value is skipped. Got warnings: {warning_msgs!r}"
         )

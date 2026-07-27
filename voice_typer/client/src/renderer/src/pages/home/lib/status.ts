@@ -47,10 +47,7 @@ export function statusLabelFor(key: string): string {
  * error message the user can't act on, the pill stays in the underlying
  * state ("idle" / "recording" / etc.).
  */
-export function statusKeyFor(
-	state: RecordingState,
-	hasError: boolean,
-): string {
+export function statusKeyFor(state: RecordingState, hasError: boolean): string {
 	if (state === "error" && hasError) return "error";
 	return state;
 }

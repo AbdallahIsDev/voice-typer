@@ -355,7 +355,6 @@ def app_with_service(tmp_path, monkeypatch):
     # Mock the transcriber so ModelManager doesn't try to load a real model.
     app.models.transcriber = MagicMock()
     app.models.transcriber.is_loaded = True
-    app.models._sync_registry_from_fields()
 
     service = VoiceTyperService(app)
     return app, service
@@ -657,7 +656,7 @@ class TestUX13ModelOptionsVramAndLanguages:
     def test_all_entries_have_vram_gb(self, ctrl):
         for opt in ctrl.MODEL_OPTIONS:
             assert "vram_gb" in opt, f"MODEL_OPTIONS entry {opt['name']!r} missing vram_gb"
-            assert isinstance(opt["vram_gb"], (int, float))
+            assert isinstance(opt["vram_gb"], int | float)
             assert opt["vram_gb"] > 0
 
     def test_all_entries_have_languages(self, ctrl):

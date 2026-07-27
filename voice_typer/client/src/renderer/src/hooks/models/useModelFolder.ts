@@ -175,10 +175,7 @@ export function useModelFolder({
 		try {
 			const result = await call<OpenFolderResult>("open_models_folder");
 			if (result?.success) return;
-			showSnack(
-				result?.error || t("models.openFolderFailed"),
-				"warning",
-			);
+			showSnack(result?.error || t("models.openFolderFailed"), "warning");
 		} catch (err) {
 			showSnack(
 				t("models.import.failed", { error: formatErrorMessage(err) }),

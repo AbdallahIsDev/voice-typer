@@ -276,7 +276,10 @@ export default function PrewarmAndUpdates({
 			const resp = await fetch(LATEST_RELEASE_API, {
 				headers: { Accept: "application/vnd.github+json" },
 			});
-			if (!resp.ok) throw new Error(t("about.httpError", { status: resp.status.toString() }));
+			if (!resp.ok)
+				throw new Error(
+					t("about.httpError", { status: resp.status.toString() }),
+				);
 			const data = (await resp.json()) as { tag_name?: string };
 			if (!data.tag_name) throw new Error("No tag_name in response");
 			const remote = data.tag_name.replace(/^v/, "");

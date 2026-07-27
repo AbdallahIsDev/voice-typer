@@ -65,8 +65,7 @@ export function MicrophoneStep({
 							// used as a universal proper noun across
 							// all locales).
 							const showDefaultBadge = mic.default === true;
-							const showBluetoothBadge =
-								mic.is_bluetooth === true;
+							const showBluetoothBadge = mic.is_bluetooth === true;
 							return (
 								<SelectItem key={mic.id} value={mic.id}>
 									<span className="flex items-center gap-2">

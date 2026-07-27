@@ -221,7 +221,6 @@ class TestAllowlistCorrectness:
     # `voice_typer/server/ipc_server.py` Python source; out of scope for
     # a TS-string vitest rewrite.
     def test_allowlist_matches_server_commands(self, allowlist_entries):
-
         ipc_path = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
         src = ipc_path.read_text(encoding="utf-8")
         old_cmds = set(re.findall(r'cmd == "([a-z_]+)"', src))

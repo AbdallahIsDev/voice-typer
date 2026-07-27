@@ -354,7 +354,9 @@ export function validateHotkey(
 			if (nm.length === 1 && /^[a-z]$/.test(nm)) {
 				return {
 					valid: false,
-					reason: t("hotkeyValidation.reservedMacosCmd", { key: nm.toUpperCase() }),
+					reason: t("hotkeyValidation.reservedMacosCmd", {
+						key: nm.toUpperCase(),
+					}),
 				};
 			}
 		}
@@ -385,7 +387,9 @@ export function validateHotkey(
 				if (BLOCKED_CTRL_LETTERS.includes(nm)) {
 					return {
 						valid: false,
-						reason: t("hotkeyValidation.reservedAppCtrl", { key: nm.toUpperCase() }),
+						reason: t("hotkeyValidation.reservedAppCtrl", {
+							key: nm.toUpperCase(),
+						}),
 					};
 				}
 			}
@@ -403,7 +407,9 @@ export function validateHotkey(
 				if (nm.length === 1 && /^[a-z0-9]$/.test(nm)) {
 					return {
 						valid: false,
-						reason: t("hotkeyValidation.shiftLetterInterferes", { key: nm.toUpperCase() }),
+						reason: t("hotkeyValidation.shiftLetterInterferes", {
+							key: nm.toUpperCase(),
+						}),
 					};
 				}
 			}

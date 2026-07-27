@@ -374,11 +374,10 @@ class TestP1WhisperSkipWhenQwenActive:
         # on the mock transcriber, AND mock ``active_transcriber`` so
         # the post-fallback read returns the now-loaded mock
         # (``active_transcriber`` normally delegates to the registry,
-        # which is unaware of the local ``transcriber`` mock — see the
-        # docstring on ``ModelManager.active_transcriber``: "Test code
-        # that assigns to ``app.models.transcriber`` must call
-        # ``_sync_registry_from_fields()`` explicitly"). Bypassing the
-        # registry here keeps the test focused on the start path.
+        # which the local ``transcriber`` mock would also be kept in
+        # sync with via the @property setter on
+        # ``app.models.transcriber``). Bypassing the registry here
+        # keeps the test focused on the start path.
         def fake_fallback(notify_on_failure=False):
             app.models.transcriber.is_loaded = True
 

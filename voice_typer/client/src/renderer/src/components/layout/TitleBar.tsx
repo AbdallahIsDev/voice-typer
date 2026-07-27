@@ -112,7 +112,7 @@ function TitleBarButton({
 			className={cn(
 				"no-drag press-scale group flex items-center justify-center",
 				"h-8 w-11.5",
-				"text-(--text-muted) transition-colors duration-75",
+				"text-(--text-muted) transition-colors duration-150",
 				// XA-1: shared focusRing (ring-3 / ring-ring/30) so the
 				// title-bar focus ring matches the design-system Button's
 				// ring thickness instead of being visually thinner (ring-2).
@@ -192,7 +192,7 @@ export function TitleBar({
 					// add rounded corners + transition + hover bg so the
 					// toggle snaps in consistently with its neighbors
 					// (previously the only TitleBar button without a hover bg).
-					"rounded transition-colors duration-75",
+					"rounded transition-colors duration-150",
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					focusRing,
 				)}
@@ -214,7 +214,7 @@ export function TitleBar({
 				title={t("titleBar.backWithShortcut", { shortcut: "Alt+←" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-75",
+					"text-(--text-muted) transition-colors duration-150",
 					// task-9: theme-aware hover (replaces the physical
 					// black/white pairing so custom + dark themes get a
 					// consistent hover wash).
@@ -243,7 +243,7 @@ export function TitleBar({
 				title={t("titleBar.forwardWithShortcut", { shortcut: "Alt+→" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-75",
+					"text-(--text-muted) transition-colors duration-150",
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
 					focusRing,
@@ -274,7 +274,7 @@ export function TitleBar({
 				title={t("help.openHelp")}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
-					"text-(--text-muted) transition-colors duration-75",
+					"text-(--text-muted) transition-colors duration-150",
 					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					focusRing,
 				)}

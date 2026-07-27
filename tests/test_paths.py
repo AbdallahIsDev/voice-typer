@@ -136,7 +136,7 @@ def _strip_docstrings(source: str, filename: str) -> list[str]:
     blanked = list(lines)
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             if not node.body:
                 continue
             first = node.body[0]

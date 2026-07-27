@@ -70,7 +70,6 @@ def app_for_onboarding(tmp_path, monkeypatch):
     instance.config.onboarding_completed = False
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
-    instance.models._sync_registry_from_fields()
     return instance
 
 
