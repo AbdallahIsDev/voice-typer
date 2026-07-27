@@ -1,11 +1,17 @@
 // @vitest-environment node
 /**
- * DE-87 unit tests: the 5 listed Electron main-process modules use
+ * DE-87 unit tests: the listed Electron main-process modules use
  * the structured `log` logger (ESM import from ../logging) instead of
  * raw console.* calls, so log messages persist in packaged builds.
  *
  * Source-level tests — no module imports required (avoids Electron mock
  * conflicts with other test files).
+ *
+ * SA-11 (2026-07-27): added `python/relaunch-app.ts` and `bootstrap.ts`
+ * to the migration scope. The original DE-87 note in review.md claimed
+ * these two were "already migrated" — they were not (4 + 12 raw
+ * console.warn/error calls respectively). The migration is now
+ * enforced by these source-level tests so the drift cannot recur.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -15,11 +21,13 @@ const modules = [
         { name: "python/handle-message.ts", path: "../python/handle-message.ts" },
         { name: "python/start-python.ts", path: "../python/start-python.ts" },
         { name: "python/tcp-connect.ts", path: "../python/tcp-connect.ts" },
+        { name: "python/relaunch-app.ts", path: "../python/relaunch-app.ts" },
         { name: "index.ts", path: "../index.ts" },
         { name: "ipc/bubble-handlers.ts", path: "../ipc/bubble-handlers.ts" },
+        { name: "bootstrap.ts", path: "../bootstrap.ts" },
 ];
 
-describe("DE-87: 5 modules use structured log.* (not raw console.*)", () => {
+describe("DE-87: main-process modules use structured log.* (not raw console.*)", () => {
         for (const mod of modules) {
                 it(`${mod.name} imports log from ../logging (ESM)`, () => {
                         const src = fs.readFileSync(path.resolve(__dirname, mod.path), "utf-8");
@@ -41,7 +49,7 @@ describe("DE-87: 5 modules use structured log.* (not raw console.*)", () => {
                 });
         }
 
-        it("all 5 modules use the same resolution pattern (ESM import, not require())", () => {
+        it("all migrated modules use the same resolution pattern (ESM import, not require())", () => {
                 for (const mod of modules) {
                         const src = fs.readFileSync(path.resolve(__dirname, mod.path), "utf-8");
                         // Strip /* ... */ block comments and // ... line

@@ -1,0 +1,71 @@
+import { Mic02Icon, StopIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { cn } from "@/lib/utils";
+
+/**
+ * The large circular mic toggle button. Pulses while recording. A
+ * spinner overlay is shown while `toggling` is true (the IPC round-trip
+ * to `toggle_dictation` is in flight). The button is disabled during
+ * `transcribing` so clicks aren't silently swallowed by the backend.
+ *
+ * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ * thin composition root. Behaviour + props are preserved byte-for-byte.
+ */
+export interface MicToggleButtonProps {
+	isRecording: boolean;
+	toggling: boolean;
+	disabled: boolean;
+	onClick: () => void;
+	label: string;
+}
+
+export function MicToggleButton({
+	isRecording,
+	toggling,
+	disabled,
+	onClick,
+	label,
+}: MicToggleButtonProps) {
+	return (
+		<div className="relative">
+			{isRecording && (
+				<span className="absolute inset-0 rounded-full animate-pulse-ring" />
+			)}
+			<button
+				type="button"
+				onClick={onClick}
+				disabled={disabled}
+				aria-label={label}
+				title={label}
+				className={cn(
+					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
+					"transition-all duration-200 ease-out",
+					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+					"hover:scale-105",
+					isRecording
+						? "bg-foreground/15 hover:bg-foreground/25"
+						: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
+				)}
+			>
+				<HugeiconsIcon
+					icon={isRecording ? StopIcon : Mic02Icon}
+					strokeWidth={1.625}
+					className={cn(
+						"h-8 w-8 text-white transition-opacity",
+						toggling && "opacity-30",
+					)}
+				/>
+				{toggling && (
+					<span
+						aria-hidden
+						className="pointer-events-none absolute inset-0 flex items-center justify-center"
+					>
+						<span className="h-7 w-7 animate-spin rounded-full border-2 border-white/80 border-t-transparent" />
+					</span>
+				)}
+			</button>
+		</div>
+	);
+}
+
+export default MicToggleButton;

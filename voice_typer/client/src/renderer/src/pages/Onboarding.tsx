@@ -200,6 +200,16 @@ export default function OnboardingPage({
 
 	const progress = ((step.step + 1) / step.total_steps) * 100;
 	const isDoneStep = step.step_name === DONE_STEP_NAME;
+	// S2-CR-39: when no microphones are detected the Microphone step
+	// shows a Refresh button instead of the Select dropdown, but
+	// Continue remained enabled — the user could click it and advance
+	// with an empty `selectedMic`, silently bypassing mic selection
+	// (the backend's `onboarding_set_microphone` accepts a null
+	// mic_id and falls back to system default, but the user has no
+	// way of knowing that). Block Continue so the user must either
+	// plug in a mic + Refresh, or use the explicit Skip button.
+	const isMicStepBlocked =
+		step.step_name === "Microphone" && microphones.length === 0;
 	// block advancement when the permissions probe
 	// has FAILED, in addition to the existing gate for `needed === true`.
 	// Previously, a probe failure fell through to `needed: false` (the
@@ -457,7 +467,10 @@ export default function OnboardingPage({
 								variant="default"
 								onClick={isDoneStep ? handleApply : handleNext}
 								disabled={
-									submitting || isPermissionsBlocked || isConsentBlocked
+									submitting ||
+									isPermissionsBlocked ||
+									isConsentBlocked ||
+									isMicStepBlocked
 								}
 								aria-label={
 									isDoneStep

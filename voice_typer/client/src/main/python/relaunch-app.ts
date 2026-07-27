@@ -30,9 +30,11 @@ import { startPython } from "./start-python";
 export function relaunchApp(): void {
 	// Idempotency guard: if a relaunch is already in flight, do nothing.
 	if (state._relaunching) {
-		console.warn(
-			"[RESTART] relaunchApp() called but already relaunching — no-op",
-		);
+		// DE-87 / S2-CR-75: route through the structured `log` logger so
+		// the no-op is captured in `electron-runtime.log` (warn level —
+		// a duplicate relaunch call indicates a logic race worth
+		// surfacing, not a routine lifecycle event).
+		log.warn("[RESTART] relaunchApp() called but already relaunching — no-op");
 		return;
 	}
 	state._relaunching = true;
@@ -49,7 +51,7 @@ export function relaunchApp(): void {
 	// ── Dev mode: keep Electron alive, just restart Python ──────────
 	// Production: app.relaunch() + app.exit(0) fully replaces the OS process.
 	if (!app.isPackaged) {
-		console.warn(
+		log.info(
 			"[RESTART] Dev mode: restarting Python backend (Electron stays alive)",
 		);
 
@@ -139,13 +141,11 @@ export function relaunchApp(): void {
 
 		startPython();
 		state._relaunching = false;
-		console.warn(
-			"[RESTART] Dev mode restart complete -- waiting for new backend",
-		);
+		log.info("[RESTART] Dev mode restart complete -- waiting for new backend");
 		return;
 	}
 
-	console.warn(
+	log.info(
 		"[RESTART] Production mode: relaunching entire Electron application",
 	);
 

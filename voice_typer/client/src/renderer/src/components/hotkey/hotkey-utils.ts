@@ -23,6 +23,7 @@
  * ``navigator.userAgent`` detection to be wrong.
  */
 
+import { t } from "@/i18n/i18n";
 import {
 	detectPlatform,
 	isReserved,
@@ -264,18 +265,17 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 	// Re-detect platform on every call so the Fn option appears iff
 	// the CURRENT navigator.userAgent looks like macOS, not whatever
 	// was detected at module load time.
-	const isMac = detectPlatform() === "darwin";
-	return [
+	const isMac = detectPlatform() === "darwin";		return [
 		// Safe single-key options only.
 		// Caps Lock: label is intentionally bare — no "recommended"
 		// or "requires OS remap" qualifier. The hotkey backend
 		// transparently handles the OS-level toggle suppression.
-		{ value: "caps_lock", label: "Caps Lock" },
-		{ value: "alt", label: "Alt" },
-		{ value: "ctrl", label: "Ctrl" },
+		{ value: "caps_lock", label: t("hotkeyKeys.capsLock") },
+		{ value: "alt", label: t("hotkeyKeys.alt") },
+		{ value: "ctrl", label: t("hotkeyKeys.ctrl") },
 		// Fn is firmware-only on Windows/Linux (apps can't see it), so
 		// only offer it on macOS where the native backend can hook it.
-		...(isMac ? [{ value: "fn", label: "Fn / Globe 🌐 (macOS only)" }] : []),
+		...(isMac ? [{ value: "fn", label: t("hotkeyKeys.fnGlobeMacos") }] : []),
 	];
 }
 
@@ -289,16 +289,15 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 export function getComboPresets(): { value: string; label: string }[] {
 	const platform = detectPlatform();
 	const isMac = platform === "darwin";
-	const isLinux = platform === "linux";
-	return [
-		{ value: "<ctrl>+<shift>+v", label: "Ctrl+Shift+V" },
-		{ value: "<ctrl>+<alt>+v", label: "Ctrl+Alt+V" },
-		{ value: "<ctrl>+<space>", label: "Ctrl+Space" },
+	const isLinux = platform === "linux";		return [
+		{ value: "<ctrl>+<shift>+v", label: formatHotkey("<ctrl>+<shift>+v") },
+		{ value: "<ctrl>+<alt>+v", label: formatHotkey("<ctrl>+<alt>+v") },
+		{ value: "<ctrl>+<space>", label: formatHotkey("<ctrl>+<space>") },
 		...(isMac
 			? [
 					{
 						value: "<cmd>+<shift>+v",
-						label: "Cmd+Shift+V (macOS)",
+						label: formatHotkey("<cmd>+<shift>+v"),
 					},
 				]
 			: []),
@@ -307,7 +306,7 @@ export function getComboPresets(): { value: string; label: string }[] {
 		// dictation/paste shortcut would silently break language switching.
 		// Users can still pick any combo via the custom capture button if
 		// they really want to override it.
-		...(isLinux ? [{ value: "<super>+<space>", label: "Super+Space" }] : []),
+		...(isLinux ? [{ value: "<super>+<space>", label: formatHotkey("<super>+<space>") }] : []),
 	].filter((preset) => !isReserved(preset.value, platform));
 }
 
@@ -350,39 +349,42 @@ export function formatHotkey(hotkey: string): string {
 		cmd_l: "\u2318",
 		cmd_r: "\u2318",
 	};
-	const displayMap: Record<string, string> = {
-		ctrl: "Ctrl",
-		ctrl_l: "Ctrl",
-		ctrl_r: "Ctrl",
-		shift: "Shift",
-		shift_l: "Shift",
-		shift_r: "Shift",
-		alt: "Alt",
-		alt_l: "Alt",
-		alt_r: "Alt",
-		alt_gr: "AltGr",
-		cmd: "Cmd",
-		cmd_l: "Cmd",
-		cmd_r: "Cmd",
-		win: "Win",
-		super: "Super",
-		fn: "Fn",
+	// CR-89: display labels are now sourced from translation keys rather than
+	// hardcoded English strings. The map below aliases variant names (ctrl_l,
+	// ctrl_r) to the canonical key so translations aren't duplicated.
+	const KEY_LABEL_ALIAS: Record<string, string> = {
+		ctrl: t("hotkeyKeys.ctrl"),
+		ctrl_l: t("hotkeyKeys.ctrl"),
+		ctrl_r: t("hotkeyKeys.ctrl"),
+		shift: t("hotkeyKeys.shift"),
+		shift_l: t("hotkeyKeys.shift"),
+		shift_r: t("hotkeyKeys.shift"),
+		alt: t("hotkeyKeys.alt"),
+		alt_l: t("hotkeyKeys.alt"),
+		alt_r: t("hotkeyKeys.alt"),
+		alt_gr: t("hotkeyKeys.altGr"),
+		cmd: t("hotkeyKeys.cmd"),
+		cmd_l: t("hotkeyKeys.cmd"),
+		cmd_r: t("hotkeyKeys.cmd"),
+		win: t("hotkeyKeys.win"),
+		super: t("hotkeyKeys.super"),
+		fn: t("hotkeyKeys.fn"),
 		globe: "\u{1F310}",
-		space: "Space",
-		enter: "Enter",
-		tab: "Tab",
-		esc: "Esc",
-		caps_lock: "Caps Lock",
-		num_lock: "Num Lock",
-		scroll_lock: "Scroll Lock",
-		print_screen: "Print Screen",
-		pause: "Pause",
-		insert: "Insert",
-		delete: "Delete",
-		home: "Home",
-		end: "End",
-		page_up: "Page Up",
-		page_down: "Page Down",
+		space: t("hotkeyKeys.space"),
+		enter: t("hotkeyKeys.enter"),
+		tab: t("hotkeyKeys.tab"),
+		esc: t("hotkeyKeys.esc"),
+		caps_lock: t("hotkeyKeys.capsLock"),
+		num_lock: t("hotkeyKeys.numLock"),
+		scroll_lock: t("hotkeyKeys.scrollLock"),
+		print_screen: t("hotkeyKeys.printScreen"),
+		pause: t("hotkeyKeys.pause"),
+		insert: t("hotkeyKeys.insert"),
+		delete: t("hotkeyKeys.delete"),
+		home: t("hotkeyKeys.home"),
+		end: t("hotkeyKeys.end"),
+		page_up: t("hotkeyKeys.pageUp"),
+		page_down: t("hotkeyKeys.pageDown"),
 		up: "\u2191",
 		down: "\u2193",
 		left: "\u2190",
@@ -397,7 +399,7 @@ export function formatHotkey(hotkey: string): string {
 	const isMac = detectPlatform() === "darwin";
 	const formattedParts = parts.map((key) => {
 		if (isMac && MAC_MODIFIER_GLYPHS[key]) return MAC_MODIFIER_GLYPHS[key];
-		if (displayMap[key]) return displayMap[key];
+		if (KEY_LABEL_ALIAS[key]) return KEY_LABEL_ALIAS[key];
 		if (/^f\d{1,2}$/.test(key)) return key.toUpperCase();
 		if (key.length === 1) return key.toUpperCase();
 		return key.charAt(0).toUpperCase() + key.slice(1);
@@ -441,14 +443,14 @@ export function validateHotkey(
 	// on top, since those are UI-mode concerns the shared validator
 	// doesn't know about.
 	if (!hotkey?.trim()) {
-		return "Hotkey is empty";
+		return t("hotkeyValidation.empty");
 	}
 
 	// Delegate reserved + structural checks to the shared validator.
 	const platform = detectPlatform();
 	const sharedResult = validateHotkeyShared(hotkey, platform);
 	if (!sharedResult.valid) {
-		return sharedResult.reason ?? "Invalid hotkey";
+		return sharedResult.reason ?? t("hotkeyValidation.invalidHotkey");
 	}
 
 	const parts = hotkey
@@ -456,18 +458,18 @@ export function validateHotkey(
 		.map((p) => p.replace(/[<>]/g, "").trim())
 		.filter(Boolean);
 	if (parts.length === 0) {
-		return "Hotkey has no keys";
+		return t("hotkeyValidation.noKeys");
 	}
 	// NATIVE-001: allow single modifiers (alt, ctrl, shift, fn, cmd, win)
 	// as the dictation key. The native backends support modifier-only
 	// release detection.
 	if (mode === "single") {
 		if (parts.length > 1) {
-			return "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.";
+			return t("hotkeyValidation.dictationKeySingle");
 		}
 		// Reject Fn on non-macOS platforms
 		if (!IS_MAC && (parts[0] === "fn" || parts[0] === "globe")) {
-			return "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.";
+			return `${t("hotkeyValidation.fnMacosOnly")}. On Windows/Linux, Fn isn't visible to apps.`;
 		}
 		// Accept any single key (including modifiers and caps_lock)
 		return null;
@@ -486,11 +488,11 @@ export function validateHotkey(
 		hasNonModifier &&
 		MODIFIER_KEYS.includes(lastKey as (typeof MODIFIER_KEYS)[number])
 	) {
-		return "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)";
+		return t("hotkeyValidation.mustEndWithNonModifier", { label: formatHotkey(hotkey) });
 	}
 	// Reject Fn in combos on non-macOS
 	if (!IS_MAC && parts.some((p) => p === "fn" || p === "globe")) {
-		return "Fn key is only supported on macOS.";
+		return `${t("hotkeyValidation.fnMacosOnly")}.`;
 	}
 	return null;
 }

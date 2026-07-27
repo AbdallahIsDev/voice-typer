@@ -35,8 +35,8 @@
 			"step2LoadingModel": "جارٍ تحميل النموذج",
 			"step3Ready": "جاهز"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "صفحة غير معروفة: {page}",
+		"pageNotFoundTitle": "الصفحة غير موجودة"
 	},
 	"nav": {
 		"home": "الرئيسية",
@@ -49,9 +49,9 @@
 		"settings": "الإعدادات",
 		"about": "حول",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "ميزات متقدمة",
+			"system": "النظام",
+			"main": "الرئيسية"
 		}
 	},
 	"home": {
@@ -84,7 +84,7 @@
 		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
 		"errorTitle": "خطأ في التسجيل",
 		"retry": "إعادة المحاولة",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "اكتمل التدوين، لكن الحافظة لم تكن متاحة. تم حفظ نصك في ملف استرداد الأعطال حتى لا يفقد.",
 		"toggleFailed": "تعذر تبديل الإملاء. حاول مرة أخرى."
 	},
 	"common": {
@@ -110,8 +110,8 @@
 		"sortZA": "ي → أ",
 		"import": "استيراد",
 		"importAria": "استيراد من ملف",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "آخر تحديث: {value}",
+		"close": "إغلاق"
 	},
 	"microphone": {
 		"levelBarAria": "مستوى مدخل الميكروفون",
@@ -937,8 +937,8 @@
 			"reRunWizardAria": "إعادة تشغيل معالج الإعداد",
 			"reRunWizardHint": "إعادة تشغيل معالج الإعداد لإعادة تكوين الميكروفون والاختصار والنموذج",
 			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن",
-			"exportDiagnosticBundle": "Export Diagnostic Bundle",
-			"exportDiagnosticBundleAria": "Export diagnostic bundle",
+			"exportDiagnosticBundle": "تصدير حزمة التشخيص",
+			"exportDiagnosticBundleAria": "تصدير حزمة التشخيص",
 			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
 			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
 			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
@@ -1183,7 +1183,7 @@
 		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
 		"transcriptionComplete": "اكتمل التدوين.",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -1227,19 +1227,19 @@
 			"closeQuote": "علامة اقتباس مغلقة",
 			"newLine": "سطر جديد",
 			"newParagraph": "فقرة جديدة",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+"hyphen": "واصلة",
+			"dash": "شرطة",
+			"ellipsis": "حذف",
+			"openParen": "قوس مفتوح",
+			"closeParen": "قوس مغلق",
+			"tab": "تبويب",
+			"capital": "كبير [كلمة]",
+			"allCaps": "كل الكبير [كلمة]"
 		},
 		"description": "اختصارات لوحة المفاتيح وورقة علامات الترقيم.",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "ابحث عن الأوامر…",
+		"searchNoMatch": "لا توجد أوامر تطابق \"{query}\"",
+		"openCheatSheet": "فتح ورقة مرجعية لعلامات الترقيم"
 	},
 	"history": {
 		"title": "السجل",
@@ -1369,20 +1369,20 @@
 		"close": "إغلاق",
 		"back": "رجوع (أو زر الرجوع في الفأرة)",
 		"forward": "للأمام (أو زر الأمام في الفأرة)",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "للأمام ({shortcut})",
+		"backWithShortcut": "للخلف ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "مؤشر تسجيل Voice Typer",
 		"transcribingLabel": "جارٍ الكتابة",
 		"idleLabel": "جاهز",
-		"recordingLabel": "REC",
+		"recordingLabel": "تسجيل",
 		"micButtonStartAria": "بدء الإملاء",
 		"micButtonStopAria": "إيقاف الإملاء",
 		"transcribingAria": "مؤشر النسخ الصوتي لـ Voice Typer",
 		"errorIndicatorAria": "مؤشر الخطأ لـ Voice Typer",
 		"idleIndicatorAria": "مؤشر الخمول لـ Voice Typer",
-		"errorLabel": "⚠ Error",
+		"errorLabel": "⚠ خطأ",
 		"retryAria": "إعادة محاولة النسخ",
 		"stopRecordingAria": "إيقاف التسجيل",
 		"dismissAria": "إخفاء الفقاعة"
@@ -1393,15 +1393,15 @@
 		"unknownError": "خطأ غير معروف",
 		"tryAgain": "إعادة المحاولة",
 		"reloadApp": "إعادة تحميل التطبيق",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "نسخ الخطأ",
+		"componentStackLabel": "مكدس المكونات:",
+		"resetSettingsHint": "إعادة تعيين جميع الإعدادات إلى الافتراضية وإعادة التحميل — مفيد إذا تسببت قيمة إعداد خاطئة في هذا العطل",
+		"openLogs": "فتح السجلات",
+		"reportBug": "الإبلاغ عن هذا الخطأ",
+		"resetFailedNotice": "فشلت إعادة تعيين الخلفية — جارٍ مسح الحالة المحلية وإعادة التحميل على أي حال.",
+		"resetSettings": "إعادة تعيين الإعدادات",
+		"copied": "تم النسخ!",
+		"resetting": "جارٍ إعادة التعيين…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "اضغط مفتاحًا",
@@ -1418,13 +1418,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "مسح مفتاح الاختصار"
 	},
+	"hotkeyValidation": {
+		"empty": "المفتاح فارغ",
+		"noKeys": "المفتاح لا يحتوي على مفاتيح",
+		"reservedUniversal": "\"{label}\" محجوز — يتعارض مع اختصارات نظام التشغيل أو التطبيقات الشائعة",
+		"reservedOs": "\"{label}\" محجوز من قبل نظام التشغيل",
+		"singleLetterDigit": "لا يمكن استخدام الأحرف والأرقام المنفردة كمفاتيح اختصار — '{key}' سيتداخل مع الكتابة",
+		"mustEndWithNonModifier": "\"{label}\" يجب أن ينتهي بمفتاح غير معدّل (مثل Ctrl+Alt+V، وليس Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" محجوز من قبل شل نظام Windows",
+		"reservedMacosCmd": "Cmd+{key} محجوز من قبل macOS / التطبيقات الشائعة",
+		"reservedWindowsAltShift": "\"{label}\" محجوز من قبل Windows لتبديل اللغة",
+		"reservedAppCtrl": "Ctrl+{key} هو اختصار تطبيق محجوز",
+		"shiftLetterInterferes": "Shift+{key} يتداخل مع كتابة الأحرف الكبيرة أو إدخال الرموز",
+		"dictationKeyMustBeSingle": "\"{label}\" لا يمكن استخدامه كمفتاح إملاء — يجب أن يكون مفتاح الإملاء مفتاحًا واحدًا. استخدم منتقي مفتاح إعادة اللصق للمفاتيح المركبة.",
+		"alreadyInUse": "\"{label}\" قيد الاستخدام بالفعل من قبل إعداد آخر. يجب أن يكون كل مفتاح اختصار فريدًا.",
+		"keyNotSupported": "\"{label}\" غير مدعوم. جرب الأحرف أو الأرقام أو مفاتيح F أو المسافة.",
+		"invalidHotkey": "مفتاح اختصار غير صالح",
+		"dictationKeySingle": "يجب أن يكون مفتاح الإملاء مفتاحًا واحدًا (بدون معدّلات). استخدم مفتاح إعادة اللصق للمفاتيح المركبة.",
+		"dictationKeySingleShort": "يجب أن يكون مفتاح الإملاء مفتاحًا واحدًا",
+		"fnMacosOnly": "مفتاح Fn مدعوم فقط على macOS",
+		"holding": "مضغوط"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Shift",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "Caps Lock",
+		"numLock": "Num Lock",
+		"scrollLock": "Scroll Lock",
+		"printScreen": "Print Screen",
+		"pause": "Pause",
+		"insert": "Insert",
+		"delete": "Delete",
+		"home": "Home",
+		"end": "End",
+		"pageUp": "Page Up",
+		"pageDown": "Page Down",
+		"space": "Space",
+		"enter": "Enter",
+		"tab": "Tab",
+		"esc": "Esc",
+		"fnGlobeMacos": "Fn / Globe 🌐 (macOS only)"
+	},
 	"activityList": {
 		"failedToCopy": "فشل النسخ",
 		"viewAll": "عرض الكل",
 		"wordsCount": "{count} كلمة",
 		"removeFromFavorites": "إزالة من المفضلة",
 		"addToFavorites": "إضافة إلى المفضلة",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "لا نشاط حديث"
 	},
 	"exportFormat": {
 		"export": "تصدير",
@@ -1601,13 +1648,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "مشكلة في اتصال الشبكة. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.",
+		"timeout": "انتهت مهلة الطلب. يرجى المحاولة مرة أخرى بعد لحظة.",
+		"storage": "خطأ في التخزين. تحقق من وجود مساحة كافية على القرص والصلاحيات المناسبة.",
+		"render": "واجه التطبيق خطأ في العرض. حاول إعادة تحميل الصفحة.",
+		"unknown": "واجه التطبيق خطأ غير متوقع. بياناتك آمنة.",
+		"cudaOom": "نفذت ذاكرة GPU. جرب نموذجًا أصغر، أو أغلق تطبيقات GPU الأخرى، أو انتقل إلى وضع وحدة المعالجة المركزية.",
+		"rateLimited": "طلبات كثيرة جدًا. يرجى الانتظار لحظة والمحاولة مرة أخرى.",
+		"unknownBackend": "واجهت خدمة النسخ الصوتي خطأ غير متوقع. بياناتك آمنة — حاول مرة أخرى."
 	}
 }

@@ -312,7 +312,21 @@ export default function HistoryPage() {
 						size="sm"
 						onClick={handleClearAll}
 						aria-label={t("history.clearAllAria")}
-						className="gap-2 text-(--text-muted) hover:text-red-400"
+						// S5-CR-104: Clear All is a destructive action
+						// (deletes ALL history records after a ConfirmDialog
+						// gate) but previously rendered identically to the
+						// Favorites toggle (same outline variant, same
+						// muted-at-rest colour, only turning red on hover).
+						// Users had no permanent visual cue distinguishing
+						// "destructive" from "toggle" until they happened
+						// to hover. Permanently tint the button with the
+						// destructive design token at rest (text + border)
+						// and intensify on hover — matches the visual
+						// language used by ConfirmDialog's
+						// `variant="destructive"` and the RecordingErrorCard
+						// retry button. The disabled state still uses
+						// disabled:opacity-50 from the Button base styles.
+						className="gap-2 border-destructive/40 text-destructive/80 hover:text-destructive hover:border-destructive hover:bg-destructive/5"
 					>
 						<HugeiconsIcon
 							icon={Delete01Icon}

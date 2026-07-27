@@ -14,13 +14,13 @@
 			"step2LoadingModel": "Chargement du modèle",
 			"step3Ready": "Prêt"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "Page inconnue : {page}",
+		"pageNotFoundTitle": "Page non trouvée"
 	},
 	"nav": {
 		"home": "Accueil",
 		"history": "Historique",
-		"analytics": "Analytique",
+		"analytics": "Analytiques",
 		"templates": "Modèles",
 		"vocabulary": "Vocabulaire",
 		"models": "Modèles",
@@ -28,9 +28,9 @@
 		"settings": "Paramètres",
 		"about": "À propos",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "Fonctionnalités avancées",
+			"system": "Système",
+			"main": "Principal"
 		}
 	},
 	"home": {
@@ -63,7 +63,7 @@
 		"repasteFailed": "Impossible de recoller la dernière transcription",
 		"errorTitle": "Erreur d'enregistrement",
 		"retry": "Réessayer",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "Transcription terminée, mais le presse-papiers n'était pas disponible. Votre texte a été sauvegardé dans le fichier de récupération après incident afin de ne pas être perdu.",
 		"toggleFailed": "Impossible de basculer la dictée. Veuillez réessayer."
 	},
 	"settings": {
@@ -573,26 +573,24 @@
 		"noResultsTitle": "Aucun résultat trouvé",
 		"noResultsMessage": "Essayez un autre terme de recherche ou effacez le filtre pour voir tous les paramètres.",
 		"searchHints": {
-			"appearance": "theme, appearance, color, dark, light, text size, font",
-			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
-			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
-			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
+			"appearance": "thème, apparence, couleur, sombre, clair, taille texte, police",
+			"general": "langue, notification, plateau, bulle, superposition, démarrage, connexion, lancer, hotkey, raccourci, touche dictée, mode enregistrement, push to talk",
+			"aiAudio": "modèle, llm, audio, volume, atténuation, bruit, filtre, post-traitement, amélioration ia, vocabulaire, clé api, polissage, transcription, préréglage, extrait",
+			"privacy": "confidentialité, récupération, crash, export, consentement, dépannage, diagnostic, réinitialiser, journal, bug, aide, faq"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
-		"keyring": {
+		"fastStartup": "Démarrage rapide (préchauffage)",
+		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis la page À propos.",
+"keyring": {
 			"secure": "Sécurisé",
 			"plaintext": "Texte brut",
-			"available": "Stocké en toute sécurité dans le trousseau du système d'exploitation.",
-			"availableWithBackend": "Stocké en toute sécurité dans le trousseau du système d'exploitation (backend : {backend}).",
-			"fallback": "Le backend du trousseau n'est pas disponible — les secrets seront stockés en texte brut avec des permissions 0o600.",
-			"fallbackWithReason": "Le backend du trousseau n'est pas disponible ({reason}) — les secrets seront stockés en texte brut avec des permissions 0o600.",
-			"statusLabel": "Keyring status"
+			"available": "Stocké en toute sécurité dans le trousseau système.",
+			"availableWithBackend": "Stocké en toute sécurité dans le trousseau système (backend : {backend}).",
+			"fallback": "Le backend du trousseau n'est pas disponible — les secrets seront stockés en texte brut avec les permissions 0o600.",
+			"fallbackWithReason": "Le backend du trousseau n'est pas disponible ({reason}) — les secrets seront stockés en texte brut avec les permissions 0o600.",
+			"statusLabel": "Statut du trousseau"
 		},
-		"searchNoMatch": "No settings match \"{query}\"",
-		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"pending": "Pending…"
+		"searchNoMatch": "Aucun réglage ne correspond à \"{query}\"",
+		"pending": "En attente…"
 	},
 	"models": {
 		"asrTitle": "Modèles",
@@ -916,19 +914,19 @@
 			"closeQuote": "Guillemet fermant",
 			"newLine": "Nouvelle ligne",
 			"newParagraph": "Nouveau paragraphe",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+			"hyphen": "Trait d'union",
+			"dash": "Tiret",
+			"ellipsis": "Points de suspension",
+			"openParen": "Parenthèse ouvrante",
+			"closeParen": "Parenthèse fermante",
+			"tab": "Tabulation",
+			"capital": "Majuscule [mot]",
+			"allCaps": "Tout en majuscules [mot]"
 		},
 		"description": "Raccourcis clavier et aide-mémoire de ponctuation.",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "Rechercher des commandes…",
+		"searchNoMatch": "Aucune commande ne correspond à \"{query}\"",
+		"openCheatSheet": "Ouvrir l'aide-mémoire de ponctuation"
 	},
 	"common": {
 		"cancel": "Annuler",
@@ -953,8 +951,8 @@
 		"sortZA": "Z → A",
 		"import": "Importer",
 		"importAria": "Importer depuis un fichier",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "Dernière mise à jour : {value}",
+		"close": "Fermer"
 	},
 	"microphone": {
 		"levelBarAria": "Niveau d'entrée du microphone",
@@ -1262,18 +1260,18 @@
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
 		},
-		"creditsTitle": "Credits & Licenses",
-		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
-		"creditsAuthorsLabel": "Authors",
+		"creditsTitle": "Crédits et licences",
+		"creditsDescription": "Voice Typer est construit sur les épaules de géants.",
+		"creditsAuthorsLabel": "Auteurs",
 		"creditsAuthorsValue": "AbdallahIsDev and contributors",
-		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesLabel": "Bibliothèques tierces",
 		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
-		"creditsFontsLabel": "Fonts",
+		"creditsFontsLabel": "Polices",
 		"creditsFontsValue": "Geist",
-		"creditsIconsLabel": "Icons",
+		"creditsIconsLabel": "Icônes",
 		"creditsIconsValue": "Hugeicons",
 		"documentationLink": "Documentation",
-		"loading": "Loading…"
+		"loading": "Chargement…"
 	},
 	"titleBar": {
 		"minimize": "Réduire",
@@ -1282,20 +1280,20 @@
 		"close": "Fermer",
 		"back": "Retour (ou bouton retour de la souris)",
 		"forward": "Avancer (ou bouton avancer de la souris)",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "Suivant ({shortcut})",
+		"backWithShortcut": "Retour ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Indicateur d'enregistrement Voice Typer",
 		"transcribingLabel": "Transcription en cours",
 		"idleLabel": "Prêt",
-		"recordingLabel": "REC",
+		"recordingLabel": "ENREG",
 		"micButtonStartAria": "Commencer la dictée",
 		"micButtonStopAria": "Arrêter la dictée",
 		"transcribingAria": "Indicateur de transcription Voice Typer",
 		"errorIndicatorAria": "Indicateur d'erreur Voice Typer",
 		"idleIndicatorAria": "Indicateur d'inactivité Voice Typer",
-		"errorLabel": "⚠ Error",
+		"errorLabel": "⚠ Erreur",
 		"retryAria": "Réessayer la transcription",
 		"stopRecordingAria": "Arrêter l'enregistrement",
 		"dismissAria": "Fermer la bulle"
@@ -1306,15 +1304,15 @@
 		"unknownError": "Erreur inconnue",
 		"tryAgain": "Réessayer",
 		"reloadApp": "Recharger l'application",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "Copier l'erreur",
+		"componentStackLabel": "Pile de composants :",
+		"resetSettingsHint": "Réinitialiser tous les paramètres par défaut et recharger — utile si une mauvaise valeur de configuration a causé ce crash",
+		"openLogs": "Ouvrir les logs",
+		"reportBug": "Signaler ce bug",
+		"resetFailedNotice": "La réinitialisation du backend a échoué — effacement de l'état local et rechargement quand même.",
+		"resetSettings": "Réinitialiser les paramètres",
+		"copied": "Copié !",
+		"resetting": "Réinitialisation…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Appuyez sur une touche",
@@ -1331,13 +1329,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "Effacer le raccourci"
 	},
+	"hotkeyValidation": {
+		"empty": "Hotkey is empty",
+		"noKeys": "Hotkey has no keys",
+		"reservedUniversal": "\"{label}\" is reserved — it conflicts with operating system or common app shortcuts",
+		"reservedOs": "\"{label}\" is reserved by the operating system",
+		"singleLetterDigit": "Single letters and digits can't be used as hotkeys — '{key}' would interfere with typing",
+		"mustEndWithNonModifier": "\"{label}\" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" is reserved by the Windows OS shell",
+		"reservedMacosCmd": "Cmd+{key} is reserved by macOS / common apps",
+		"reservedWindowsAltShift": "\"{label}\" is reserved by Windows for language switching",
+		"reservedAppCtrl": "Ctrl+{key} is a reserved application shortcut",
+		"shiftLetterInterferes": "Shift+{key} interferes with text capitalization or symbol input",
+		"dictationKeyMustBeSingle": "\"{label}\" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.",
+		"alreadyInUse": "\"{label}\" is already in use by another setting. Each hotkey must be unique.",
+		"keyNotSupported": "\"{label}\" is not supported. Try letters, numbers, F-keys, or Space.",
+		"invalidHotkey": "Invalid hotkey",
+		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+		"dictationKeySingleShort": "Dictation key must be a single key",
+		"fnMacosOnly": "Fn key is only supported on macOS",
+		"holding": "Holding"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Maj",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "Verr Maj",
+		"numLock": "Verr Num",
+		"scrollLock": "Arrêt défil",
+		"printScreen": "Impr écran",
+		"pause": "Pause",
+		"insert": "Inser",
+		"delete": "Suppr",
+		"home": "Début",
+		"end": "Fin",
+		"pageUp": "Page préc",
+		"pageDown": "Page suiv",
+		"space": "Espace",
+		"enter": "Entrée",
+		"tab": "Tabulation",
+		"esc": "Échap",
+		"fnGlobeMacos": "Fn / Globe 🌐 (macOS uniquement)"
+	},
 	"activityList": {
 		"failedToCopy": "Échec de la copie",
 		"viewAll": "Voir tout",
 		"wordsCount": "{count} mots",
 		"removeFromFavorites": "Retirer des favoris",
 		"addToFavorites": "Ajouter aux favoris",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "Aucune activité récente"
 	},
 	"exportFormat": {
 		"export": "Exporter",
@@ -1601,13 +1646,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "Problème de connexion réseau. Vérifiez votre connexion Internet et réessayez.",
+		"timeout": "La requête a expiré. Veuillez réessayer dans un instant.",
+		"storage": "Erreur de stockage. Vérifiez que vous avez assez d'espace disque et les bonnes permissions.",
+		"render": "L'application a rencontré une erreur de rendu. Essayez de recharger la page.",
+		"unknown": "L'application a rencontré une erreur inattendue. Vos données sont en sécurité.",
+		"cudaOom": "Le GPU n'a plus de mémoire. Essayez un modèle plus petit, fermez d'autres applications GPU ou passez en mode CPU.",
+		"rateLimited": "Trop de requêtes. Veuillez attendre un instant et réessayer.",
+		"unknownBackend": "Le backend de transcription a rencontré une erreur inattendue. Vos données sont en sécurité — réessayez."
 	}
 }

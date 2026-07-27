@@ -35,8 +35,8 @@
 			"step2LoadingModel": "正在加载模型",
 			"step3Ready": "就绪"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "未知页面：{page}",
+		"pageNotFoundTitle": "页面未找到"
 	},
 	"nav": {
 		"home": "首页",
@@ -49,9 +49,9 @@
 		"settings": "设置",
 		"about": "关于",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "高级功能",
+			"system": "系统",
+			"main": "主要"
 		}
 	},
 	"home": {
@@ -84,7 +84,7 @@
 		"repasteFailed": "无法重新粘贴上次转写",
 		"errorTitle": "录制错误",
 		"retry": "重试",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "转写已完成，但剪贴板不可用。您的文本已保存到崩溃恢复文件中，因此不会丢失。",
 		"toggleFailed": "无法切换听写。请重试。"
 	},
 	"common": {
@@ -110,8 +110,8 @@
 		"sortZA": "Z → A",
 		"import": "导入",
 		"importAria": "从文件导入",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "最后更新：{value}",
+		"close": "关闭"
 	},
 	"microphone": {
 		"levelBarAria": "麦克风输入电平",
@@ -419,18 +419,18 @@
 			"hoursAgo": "{count} 小时前",
 			"daysAgo": "{count} 天前"
 		},
-		"creditsTitle": "Credits & Licenses",
-		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
-		"creditsAuthorsLabel": "Authors",
+		"creditsTitle": "致谢与许可",
+		"creditsDescription": "Voice Typer 建立在巨人的肩膀之上。",
+		"creditsAuthorsLabel": "作者",
 		"creditsAuthorsValue": "AbdallahIsDev and contributors",
-		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesLabel": "第三方库",
 		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
-		"creditsFontsLabel": "Fonts",
+		"creditsFontsLabel": "字体",
 		"creditsFontsValue": "Geist",
-		"creditsIconsLabel": "Icons",
+		"creditsIconsLabel": "图标",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation",
-		"loading": "Loading…"
+		"documentationLink": "文档",
+		"loading": "加载中…"
 	},
 	"settings": {
 		"title": "设置",
@@ -927,11 +927,11 @@
 			"cancelResetAria": "取消重置",
 			"confirmResetAria": "确认重置为默认值",
 			"resetDialogMessage": "确定要将所有设置重置为默认值吗？此操作无法撤销。",
-			"reRunWizard": "Re-run Setup Wizard",
-			"reRunWizardAria": "Re-run setup wizard",
-			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
-			"reRunWizardToast": "Setup wizard re-enabled — navigating there now",
-			"exportDiagnosticBundle": "Export Diagnostic Bundle",
+			"reRunWizard": "重新运行设置向导",
+			"reRunWizardAria": "重新运行设置向导",
+			"reRunWizardHint": "重新启动引导向导以重新配置麦克风、快捷键和模型",
+			"reRunWizardToast": "设置向导已重新启用——正在导航到该页面",
+			"exportDiagnosticBundle": "导出诊断包",
 			"exportDiagnosticBundleAria": "Export diagnostic bundle",
 			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
 			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
@@ -944,8 +944,8 @@
 			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
 			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartup": "快速启动（预热）",
+		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可以从「关于」页面按需预热。",
 		"keyring": {
 			"secure": "安全",
 			"plaintext": "明文",
@@ -953,12 +953,12 @@
 			"availableWithBackend": "安全存储在系统钥匙串中（后端：{backend}）。",
 			"fallback": "钥匙串后端不可用——密钥将以明文形式存储，权限为 0o600。",
 			"fallbackWithReason": "钥匙串后端不可用（{reason}）——密钥将以明文形式存储，权限为 0o600。",
-			"statusLabel": "Keyring status"
+			"statusLabel": "钥匙串状态"
 		},
-		"searchNoMatch": "No settings match \"{query}\"",
-		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"pending": "Pending…"
+		"searchNoMatch": "没有设置匹配 \"{query}\"",
+		"bubbleMicButton": "气泡麦克风按钮",
+		"bubbleMicButtonDescription": "在始终可见的气泡上显示麦克风按钮，用于一键开始/停止听写",
+		"pending": "等待中…"
 	},
 	"models": {
 		"asrTitle": "模型",
@@ -1183,7 +1183,7 @@
 		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
 		"transcriptionComplete": "转写完成。",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "切换侧边栏 ({shortcut})"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -1227,19 +1227,19 @@
 			"closeQuote": "闭引号",
 			"newLine": "换行",
 			"newParagraph": "新段落",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+			"hyphen": "连字符",
+			"dash": "破折号",
+			"ellipsis": "省略号",
+			"openParen": "左括号",
+			"closeParen": "右括号",
+			"tab": "制表符",
+			"capital": "大写 [单词]",
+			"allCaps": "全大写 [单词]"
 		},
 		"description": "键盘快捷键和标点符号速查表。",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "搜索命令…",
+		"searchNoMatch": "没有命令匹配 \"{query}\"",
+		"openCheatSheet": "打开标点符号速查表"
 	},
 	"history": {
 		"title": "历史记录",
@@ -1369,20 +1369,20 @@
 		"close": "关闭",
 		"back": "后退（或鼠标后退按钮）",
 		"forward": "前进（或鼠标前进按钮）",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "前进 ({shortcut})",
+		"backWithShortcut": "后退 ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer 录音指示器",
 		"transcribingLabel": "转写中",
 		"idleLabel": "就绪",
-		"recordingLabel": "REC",
+		"recordingLabel": "录音",
 		"micButtonStartAria": "开始听写",
 		"micButtonStopAria": "停止听写",
 		"transcribingAria": "Voice Typer 转写指示器",
 		"errorIndicatorAria": "Voice Typer 错误指示器",
 		"idleIndicatorAria": "Voice Typer 空闲指示器",
-		"errorLabel": "⚠ Error",
+		"errorLabel": "⚠ 错误",
 		"retryAria": "重试转写",
 		"stopRecordingAria": "停止录音",
 		"dismissAria": "关闭气泡"
@@ -1393,15 +1393,15 @@
 		"unknownError": "未知错误",
 		"tryAgain": "重试",
 		"reloadApp": "重新加载应用",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "复制错误",
+		"componentStackLabel": "组件堆栈：",
+		"resetSettingsHint": "将所有设置重置为默认值并重新加载——如果错误的配置值导致此崩溃，此功能很有用",
+		"openLogs": "打开日志",
+		"reportBug": "报告此错误",
+		"resetFailedNotice": "后端重置失败——正在清除本地状态并仍然重新加载。",
+		"resetSettings": "重置设置",
+		"copied": "已复制！",
+		"resetting": "正在重置…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "按一个键",
@@ -1418,13 +1418,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "清除快捷键"
 	},
+	"hotkeyValidation": {
+		"empty": "Hotkey is empty",
+		"noKeys": "Hotkey has no keys",
+		"reservedUniversal": "\"{label}\" is reserved — it conflicts with operating system or common app shortcuts",
+		"reservedOs": "\"{label}\" is reserved by the operating system",
+		"singleLetterDigit": "Single letters and digits can't be used as hotkeys — '{key}' would interfere with typing",
+		"mustEndWithNonModifier": "\"{label}\" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" is reserved by the Windows OS shell",
+		"reservedMacosCmd": "Cmd+{key} is reserved by macOS / common apps",
+		"reservedWindowsAltShift": "\"{label}\" is reserved by Windows for language switching",
+		"reservedAppCtrl": "Ctrl+{key} is a reserved application shortcut",
+		"shiftLetterInterferes": "Shift+{key} interferes with text capitalization or symbol input",
+		"dictationKeyMustBeSingle": "\"{label}\" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.",
+		"alreadyInUse": "\"{label}\" is already in use by another setting. Each hotkey must be unique.",
+		"keyNotSupported": "\"{label}\" is not supported. Try letters, numbers, F-keys, or Space.",
+		"invalidHotkey": "Invalid hotkey",
+		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+		"dictationKeySingleShort": "Dictation key must be a single key",
+		"fnMacosOnly": "Fn key is only supported on macOS",
+		"holding": "Holding"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Shift",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "大写锁定",
+		"numLock": "数字锁定",
+		"scrollLock": "滚动锁定",
+		"printScreen": "截屏",
+		"pause": "暂停",
+		"insert": "插入",
+		"delete": "删除",
+		"home": "起点",
+		"end": "终点",
+		"pageUp": "上页",
+		"pageDown": "下页",
+		"space": "空格",
+		"enter": "回车",
+		"tab": "Tab",
+		"esc": "Esc",
+		"fnGlobeMacos": "Fn / Globe 🌐 (仅 macOS)"
+	},
 	"activityList": {
 		"failedToCopy": "复制失败",
 		"viewAll": "查看全部",
 		"wordsCount": "{count} 个字",
 		"removeFromFavorites": "从收藏夹移除",
 		"addToFavorites": "添加到收藏夹",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "暂无近期活动"
 	},
 	"exportFormat": {
 		"export": "导出",
@@ -1601,13 +1648,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "网络连接问题。请检查您的互联网连接并重试。",
+		"timeout": "请求超时。请稍后重试。",
+		"storage": "存储错误。请检查您是否有足够的磁盘空间和正确的权限。",
+		"render": "应用程序遇到渲染错误。请尝试重新加载页面。",
+		"unknown": "应用程序遇到意外错误。您的数据是安全的。",
+		"cudaOom": "GPU内存不足。请尝试较小的模型、关闭其他GPU应用程序或切换到CPU模式。",
+		"rateLimited": "请求过多。请稍候片刻再试。",
+		"unknownBackend": "转写后端遇到意外错误。您的数据是安全的——请重试。"
 	}
 }

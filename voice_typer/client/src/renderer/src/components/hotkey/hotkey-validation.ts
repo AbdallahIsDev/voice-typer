@@ -37,6 +37,7 @@
  * matches the server original.
  */
 
+import { t } from "@/i18n/i18n";
 import hotkeyReserved from "../../data/hotkey_reserved.json";
 
 export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =
@@ -249,7 +250,7 @@ export function validateHotkey(
 ): ValidationResult {
 	// 1. Non-empty
 	if (!hotkey?.trim()) {
-		return { valid: false, reason: "Hotkey is empty" };
+		return { valid: false, reason: t("hotkeyValidation.empty") };
 	}
 
 	// Parse parts once — used by rules 3-10.
@@ -258,7 +259,7 @@ export function validateHotkey(
 		.map((p) => p.replace(/[<>]/g, "").trim().toLowerCase())
 		.filter(Boolean);
 	if (parts.length === 0) {
-		return { valid: false, reason: "Hotkey has no keys" };
+		return { valid: false, reason: t("hotkeyValidation.noKeys") };
 	}
 
 	// 2. Universal reserved (Alt+Tab/F4/Esc/Space) — every platform.
@@ -273,7 +274,7 @@ export function validateHotkey(
 		const label = _formatForMessage(normalized);
 		return {
 			valid: false,
-			reason: `"${label}" is reserved — it conflicts with operating system or common app shortcuts`,
+			reason: t("hotkeyValidation.reservedUniversal", { label }),
 		};
 	}
 
@@ -283,7 +284,7 @@ export function validateHotkey(
 		const label = _formatForMessage(hotkey);
 		return {
 			valid: false,
-			reason: `"${label}" is reserved by the operating system`,
+			reason: t("hotkeyValidation.reservedOs", { label }),
 		};
 	}
 
@@ -299,7 +300,7 @@ export function validateHotkey(
 		if (/^[a-z0-9]$/.test(sole)) {
 			return {
 				valid: false,
-				reason: `Single letters and digits can't be used as hotkeys — '${sole}' would interfere with typing`,
+				reason: t("hotkeyValidation.singleLetterDigit", { key: sole }),
 			};
 		}
 	}
@@ -321,7 +322,7 @@ export function validateHotkey(
 			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,
-				reason: `"${label}" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)`,
+				reason: t("hotkeyValidation.mustEndWithNonModifier", { label }),
 			};
 		}
 	}
@@ -340,7 +341,7 @@ export function validateHotkey(
 		const label = _formatForMessage(hotkey);
 		return {
 			valid: false,
-			reason: `"${label}" is reserved by the Windows OS shell`,
+			reason: t("hotkeyValidation.reservedWindows", { label }),
 		};
 	}
 
@@ -353,7 +354,7 @@ export function validateHotkey(
 			if (nm.length === 1 && /^[a-z]$/.test(nm)) {
 				return {
 					valid: false,
-					reason: `Cmd+${nm.toUpperCase()} is reserved by macOS / common apps`,
+					reason: t("hotkeyValidation.reservedMacosCmd", { key: nm.toUpperCase() }),
 				};
 			}
 		}
@@ -368,7 +369,7 @@ export function validateHotkey(
 			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,
-				reason: `"${label}" is reserved by Windows for language switching`,
+				reason: t("hotkeyValidation.reservedWindowsAltShift", { label }),
 			};
 		}
 	}
@@ -384,7 +385,7 @@ export function validateHotkey(
 				if (BLOCKED_CTRL_LETTERS.includes(nm)) {
 					return {
 						valid: false,
-						reason: `Ctrl+${nm.toUpperCase()} is a reserved application shortcut`,
+						reason: t("hotkeyValidation.reservedAppCtrl", { key: nm.toUpperCase() }),
 					};
 				}
 			}
@@ -402,7 +403,7 @@ export function validateHotkey(
 				if (nm.length === 1 && /^[a-z0-9]$/.test(nm)) {
 					return {
 						valid: false,
-						reason: `Shift+${nm.toUpperCase()} interferes with text capitalization or symbol input`,
+						reason: t("hotkeyValidation.shiftLetterInterferes", { key: nm.toUpperCase() }),
 					};
 				}
 			}

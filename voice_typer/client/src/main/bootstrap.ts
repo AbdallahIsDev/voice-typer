@@ -72,9 +72,13 @@ function setupUserData(): void {
 			/* ignore */
 		}
 		app.setPath("userData", configDir);
-		console.warn(`[MAIN] userData set to: ${configDir}`);
+		// DE-87 / S2-CR-75: route through the structured `log` logger so
+		// the lifecycle message persists to `electron-runtime.log` instead
+		// of being lost in packaged builds where `console.warn` has no
+		// terminal attached.
+		log.info(`[MAIN] userData set to: ${configDir}`);
 	} catch (e) {
-		console.warn("[MAIN] Failed to override userData path:", e);
+		log.warn("[MAIN] Failed to override userData path:", e);
 		// Non-fatal — Electron falls back to its default userData location.
 	}
 }
@@ -244,7 +248,7 @@ export function _installErrorHandlers(opts: {
 			fs.appendFileSync(filePath, line, { encoding: "utf-8" });
 		} catch (e) {
 			// GT-B3-8: surface the failure.
-			console.error("[bootstrap] logEvent failed for", filePath, e);
+			log.error("[bootstrap] logEvent failed for", filePath, e);
 		}
 	};
 
@@ -299,10 +303,17 @@ export function _installErrorHandlers(opts: {
 		err: unknown,
 	): void => {
 		const suffix = kind === "unhandledRejection" ? " (rejection)" : "";
-		console.error(`[VT] ${kind}:`, err);
+		// DE-87 / S2-CR-75: route through the structured `log` logger so the
+		// uncaught/rejected error is captured in `electron-runtime.log` (with
+		// 5 MiB rotation) for post-mortem analysis — `console.error` alone is
+		// lost in packaged GUI builds where stderr is attached to a hidden
+		// console / dev/null. `log.error`'s stdout tee internally calls
+		// `console.error`, so stderr is still captured by Electron's crash
+		// reporter.
+		log.error(`[VT] ${kind}:`, err);
 		logEvent(logPath, kind, err);
 		if (bumpCount()) {
-			console.error(
+			log.error(
 				`[VT] ${uncaughtCount} uncaught errors${suffix} — exiting to avoid zombie state`,
 			);
 			try {
@@ -319,7 +330,7 @@ export function _installErrorHandlers(opts: {
 			try {
 				stopPython();
 			} catch (e) {
-				console.error(
+				log.error(
 					`[VT] stopPython() failed during breaker exit${suffix}:`,
 					e,
 				);
@@ -327,7 +338,7 @@ export function _installErrorHandlers(opts: {
 			try {
 				clearElectronPidFile();
 			} catch (e) {
-				console.error(
+				log.error(
 					`[VT] clearElectronPidFile() failed during breaker exit${suffix}:`,
 					e,
 				);
@@ -380,12 +391,12 @@ function _productionExit(code: number): void {
 	try {
 		stopPython();
 	} catch (e) {
-		console.error("[VT] stopPython() failed during production exit:", e);
+		log.error("[VT] stopPython() failed during production exit:", e);
 	}
 	try {
 		clearElectronPidFile();
 	} catch (e) {
-		console.error(
+		log.error(
 			"[VT] clearElectronPidFile() failed during production exit:",
 			e,
 		);
@@ -395,13 +406,13 @@ function _productionExit(code: number): void {
 	try {
 		state.pythonProcess?.kill("SIGKILL");
 	} catch (e) {
-		console.error("[VT] synchronous SIGKILL of Python failed:", e);
+		log.error("[VT] synchronous SIGKILL of Python failed:", e);
 	}
 	// Schedule the quit call so Electron's before-quit/will-quit hooks fire.
 	try {
 		app.quit();
 	} catch (e) {
-		console.error("[VT] app.quit() failed during production exit:", e);
+		log.error("[VT] app.quit() failed during production exit:", e);
 	}
 	// 2s backstop: if `app.quit()` doesn't actually exit the process
 	// within 2s (e.g. a `before-quit` handler called
@@ -446,7 +457,7 @@ export function bootstrapRuntime(): void {
 	try {
 		crashReporter.start({ uploadToServer: false });
 	} catch (e) {
-		console.warn("[bootstrap] crashReporter.start failed (non-fatal):", e);
+		log.warn("[bootstrap] crashReporter.start failed (non-fatal):", e);
 	}
 	// GT-A3-7: surface child/GPU process crashes.
 	try {
@@ -454,6 +465,6 @@ export function bootstrapRuntime(): void {
 			log.error("child-process-gone", details);
 		});
 	} catch (e) {
-		console.warn("[bootstrap] child-process-gone handler failed:", e);
+		log.warn("[bootstrap] child-process-gone handler failed:", e);
 	}
 }

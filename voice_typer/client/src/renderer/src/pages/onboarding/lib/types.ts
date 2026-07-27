@@ -11,6 +11,20 @@ export interface StepInfo {
 export interface MicrophoneOption {
 	id: string;
 	name: string;
+	// S2-CR-39: backend's `list_microphones()` (and the onboarding
+	// `onboarding_get_microphones` IPC that wraps it) emits two
+	// optional fields the renderer previously ignored because the
+	// type didn't declare them. Both are optional so older
+	// backends (or mocked tests) that omit them still type-check.
+	//
+	// `default` is true for the OS default input device — the
+	// wizard auto-selects this mic instead of `microphones[0]`
+	// (which is just the first in sounddevice's enumeration
+	// order). `is_bluetooth` is true for Bluetooth/HFP devices
+	// (8 kHz sample rate) so the wizard can show a quality
+	// warning.
+	default?: boolean;
+	is_bluetooth?: boolean;
 }
 
 export interface ModelOption {

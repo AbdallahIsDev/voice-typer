@@ -89,6 +89,36 @@ describe("PrewarmAndUpdates", () => {
 		expect(screen.getByText("Updates")).toBeTruthy();
 	});
 
+	// CR-11 / S3-CR-11 regression: the previous implementation fired a
+	// `fetch("https://api.github.com/...")` call inside a mount-time
+	// `useEffect`, which leaked the user's public IP, request timestamp,
+	// and Electron User-Agent to GitHub on EVERY Settings page open.
+	// That broke the "offline guarantee" the project advertises.
+	//
+	// The fix removed the auto-firing useEffect entirely; the only
+	// network call to api.github.com now happens inside the explicit
+	// `handleManualCheck` handler attached to the "Check for Updates"
+	// button. This test asserts that contract so a future regression
+	// (e.g. someone re-adding a mount-time fetch) fails loudly.
+	it("does NOT fire any fetch on mount (CR-11 / S3-CR-11 privacy regression)", async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		render(<PrewarmAndUpdates />);
+
+		// Wait for the mount-time IPC call (get_prewarm_status) to
+		// settle so the test isn't racing the effect cleanup.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
+		});
+		// Flush any pending microtasks (the mount effect only calls
+		// IPC — no fetch — but give the scheduler a chance to run
+		// anything that might have been queued).
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
 	it("renders the prewarm action buttons", () => {
 		render(<PrewarmAndUpdates />);
 		expect(screen.getByText("Run Prewarm Now")).toBeTruthy();

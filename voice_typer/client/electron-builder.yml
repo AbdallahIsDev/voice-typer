@@ -58,6 +58,73 @@ nsis:
   allowToChangeInstallationDirectory: true
   perMachine: false
   artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  # S2-CR-70 (SA-6): deleteAppDataOnUninstall prompts NSIS to remove the
+  # per-user AppData directory (which on Windows is %APPDATA%/voice-typer —
+  # the canonical config dir per voice_typer/server/_paths.py) when the
+  # user uninstalls via "Add/Remove Programs". This reclaims the
+  # HuggingFace model cache (potentially GBs), the venv (hundreds of MB),
+  # the history DB, logs, and crash-recovery snapshots — all of which
+  # live under the config dir.
+  #
+  # The user is prompted to confirm during the NSIS uninstall wizard, so
+  # users who want to reinstall and keep their models can decline.
+  # electron-builder's NSIS implementation wires this to NSIS's
+  # `RmDir /r "$APPDATA\${APP_ID}"` step in the generated uninstaller.
+  #
+  # See docs/migration/windows-validation-runbook.md for the manual
+  # validation steps (install → check %APPDATA%/voice-typer exists →
+  # uninstall → check %APPDATA%/voice-typer is gone).
+  deleteAppDataOnUninstall: true
+  # S5-CR-83 (SA-12): the NSIS installer still does NOT clean up the
+  # autostart entries the app creates at runtime via
+  # voice_typer/server/server_platform/autostart_windows.py:
+  #   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\VoiceTyper_<hash>
+  #     (per-install hash suffix from SHA-256 of sys.executable — see
+  #     _run_key_name() in autostart_windows.py). This is a REGISTRY
+  #     value, NOT a file in AppData, so deleteAppDataOnUninstall above
+  #     does NOT remove it.
+  #   - Scheduled task "VoiceTyperAutostart<hash>" registered via
+  #     `schtasks /Create /TN ... /XML` (see _register_app_autostart_task
+  #     in autostart_windows.py). This lives in Task Scheduler, also
+  #     NOT under AppData.
+  # When the user uninstalls Voice Typer via "Add/Remove Programs", the
+  # NSIS uninstaller leaves these entries orphaned — on next login the
+  # OS tries to launch the (now-deleted) binary and either silently
+  # no-ops (Task Scheduler) or shows a "file not found" error dialog
+  # (HKCU Run key).
+  #
+  # LINUX is handled (prerm removes ~/.config/autostart/voice-typer.desktop
+  # for every non-system user — see ../../scripts/linux/prerm:38-57 and
+  # ../../scripts/linux/prerm.rpm:40-58). Windows + macOS are the
+  # remaining gap.
+  #
+  # The fix path (deferred — needs a custom .nsh file that is NOT yet
+  # in this repo's file tree, so wiring `nsis.include` here today would
+  # break the build by pointing at a non-existent file):
+  #   1. Create voice_typer/client/build/nsis-uninstall-autostart.nsh
+  #      that:
+  #        - Enumerates HKCU\...\Run values matching "VoiceTyper_*"
+  #          and deletes them via DeleteRegValue.
+  #        - Runs `Get-ScheduledTask VoiceTyperAutostart* |
+  #          Unregister-ScheduledTask` via nsExec::ExecToLog with
+  #          powershell -Command (schtasks doesn't accept wildcards
+  #          in /TN, so PowerShell is required for the wildcard match).
+  #      The .nsh must be a `!macro` invoked from the uninstaller
+  #      section (NSIS `un.onUninstSuccess` or `Section "Uninstall"`).
+  #   2. Uncomment the `include:` line below to wire the .nsh into the
+  #      NSIS template electron-builder generates:
+  #        include: build/nsis-uninstall-autostart.nsh
+  #   3. Add a regression test in
+  #      voice_typer/client/src/main/__tests__/electron-builder-yml.test.ts
+  #      asserting the `include:` line points at an existing file.
+  #
+  # Until the .nsh file lands, this gap is tracked as a Low-severity
+  # packaging issue (S5-CR-83). The Python runtime DOES clean up its
+  # own autostart entries when the user explicitly disables autostart
+  # from Settings (see _disable_autostart_windows in
+  # autostart_windows.py) — the orphan scenario only occurs when the
+  # user uninstalls the app WITHOUT first disabling autostart in the
+  # Settings UI.
 
 mac:
   icon: resources/icon.png
@@ -83,6 +150,49 @@ mac:
     - from: ../dist/voice-typer-backend.app
       to: voice-typer-backend.app
       filter: ["**/*"]
+  # S5-CR-83 (SA-12): the .dmg installer does NOT include an uninstaller
+  # script that removes the per-user LaunchAgent the app creates at
+  # runtime via voice_typer/server/server_platform/autostart_macos.py:
+  #   ~/Library/LaunchAgents/com.voicetyper.plist
+  # (see _enable_autostart_macos in autostart_macos.py — it writes the
+  # plist, chmods it to 0o600, and `launchctl load`s it).
+  #
+  # macOS apps are typically uninstalled by dragging the .app bundle
+  # from /Applications to the Trash — there is no uninstall hook in
+  # the standard "drag to install" .dmg flow. So the LaunchAgent plist
+  # remains orphaned after uninstall: on next login launchd tries to
+  # spawn the (now-deleted) Python interpreter listed in the plist's
+  # ProgramArguments, fails silently, and logs to
+  # ~/Library/Logs/voice-typer-autostart.log (the plist's
+  # StandardOutPath / StandardErrorPath — see _enable_autostart_macos).
+  #
+  # LINUX is handled (prerm removes ~/.config/autostart/voice-typer.desktop
+  # — see ../../scripts/linux/prerm:38-57). Windows + macOS are the
+  # remaining gap.
+  #
+  # The fix path (deferred — needs an uninstall.command script that is
+  # NOT yet in this repo's file tree, and the dmg: format does NOT
+  # support electron-builder `afterRemove` / `uninstallerHooks`):
+  #   1. Ship a voice_typer/client/build/uninstall-autostart.command
+  #      script alongside the .app bundle (extraResources) that:
+  #        - `launchctl bootout gui/$(id -u)/com.voicetyper`
+  #        - `launchctl remove com.voicetyper` (legacy fallback)
+  #        - `rm -f ~/Library/LaunchAgents/com.voicetyper.plist`
+  #      OR (lighter-weight alternative): document the cleanup in the
+  #      README / macOS install guide and surface a "Disable autostart
+  #      before uninstalling" notice in the Settings → General panel.
+  #   2. Add a regression test in
+  #      voice_typer/client/src/main/__tests__/electron-builder-yml.test.ts
+  #      asserting the extraResources entry for the .command script is
+  #      present (once the script is added).
+  #
+  # Until the .command script lands, this gap is tracked as a
+  # Low-severity packaging issue (S5-CR-83). The Python runtime DOES
+  # clean up its own LaunchAgent when the user explicitly disables
+  # autostart from Settings (see _disable_autostart_macos in
+  # autostart_macos.py) — the orphan scenario only occurs when the
+  # user uninstalls the app WITHOUT first disabling autostart in the
+  # Settings UI.
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   contents:
@@ -137,6 +247,12 @@ deb:
   # ../../scripts/linux/... to reach the actual scripts. Without this fix, the
   # .deb/.rpm installers either fail to build or ship without the udev rule /
   # input-group setup that the native hotkey listener needs.
+  # S5-CR-83 (Linux side — HANDLED, SA-12): prerm removes the per-user
+  # autostart .desktop entry at ~/.config/autostart/voice-typer.desktop
+  # for every non-system user (see ../../scripts/linux/prerm:38-57).
+  # The Windows (nsis:) and macOS (mac:) sections document their
+  # respective gaps in the comments above — Linux is the only platform
+  # where the uninstall autostart cleanup is fully wired today.
   afterInstall: ../../scripts/linux/postinst
   afterRemove: ../../scripts/linux/prerm
 rpm:
@@ -144,5 +260,9 @@ rpm:
     - libnotify
     - libXtst
   # CR-26: same path correction as the deb: section above.
+  # S5-CR-83 (Linux side — HANDLED, SA-12): prerm.rpm removes the
+  # per-user autostart .desktop entry (see ../../scripts/linux/prerm.rpm:40-58).
+  # Functionally identical to the Debian prerm — only runs on uninstall
+  # ($1 = 0), not on upgrade ($1 = 1).
   afterInstall: ../../scripts/linux/postinst.rpm
   afterRemove: ../../scripts/linux/prerm.rpm

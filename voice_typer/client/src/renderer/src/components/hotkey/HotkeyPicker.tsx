@@ -479,10 +479,9 @@ export function HotkeyPicker({
 		// In single mode, only a SINGLE modifier is allowed (the dictation
 		// key is one key). If the user held 2+ modifiers, show an error
 		// referencing the full attempted combo and stay in capture mode.
-		if (mode === "single" && mods.length > 1) {
-			const label = formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
+		if (mode === "single" && mods.length > 1) {					const label = formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
 			setError(
-				`"${label}" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.`,
+				t("hotkeyValidation.dictationKeyMustBeSingle", { label }),
 			);
 			// Reset the session so the user can try again without the stale
 			// multi-modifier set blocking the next attempt.
@@ -504,7 +503,7 @@ export function HotkeyPicker({
 		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
 			const label = formatHotkeyLabel(newHotkey);
 			setError(
-				`"${label}" is already in use by another setting. Each hotkey must be unique.`,
+				t("hotkeyValidation.alreadyInUse", { label }),
 			);
 			resetCaptureSession();
 			return;
@@ -543,7 +542,7 @@ export function HotkeyPicker({
 		if (mode === "single" && parts.length > 1) {
 			const label = formatHotkeyLabel(parts.map((p) => `<${p}>`).join("+"));
 			setError(
-				`"${label}" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.`,
+				t("hotkeyValidation.dictationKeyMustBeSingle", { label }),
 			);
 			resetCaptureSession();
 			return;
@@ -570,7 +569,7 @@ export function HotkeyPicker({
 		if (newHotkey !== value && occupiedHotkeys?.includes(newHotkey)) {
 			const label = formatHotkeyLabel(newHotkey);
 			setError(
-				`"${label}" is already in use by another setting. Each hotkey must be unique.`,
+				t("hotkeyValidation.alreadyInUse", { label }),
 			);
 			resetCaptureSession();
 			return;
@@ -713,7 +712,7 @@ export function HotkeyPicker({
 				const attemptedCombo = buildAttemptedComboLabel(e.key);
 				unsupportedComboRef.current = attemptedCombo;
 				setError(
-					`"${attemptedCombo}" is not supported. Try letters, numbers, F-keys, or Space.`,
+					t("hotkeyValidation.keyNotSupported", { label: attemptedCombo }),
 				);
 				return;
 			}
@@ -940,10 +939,10 @@ export function HotkeyPicker({
 											newValue !== value &&
 											occupiedHotkeys?.includes(newValue)
 										) {
-											const label = formatHotkeyLabel(newValue);
-											setError(
-												`"${label}" is already in use by another setting. Each hotkey must be unique.`,
-											);
+									const label = formatHotkeyLabel(newValue);
+									setError(
+										t("hotkeyValidation.alreadyInUse", { label }),
+									);
 											return;
 										}
 										const validationError = validateHotkey(newValue, mode);
@@ -1024,7 +1023,7 @@ export function HotkeyPicker({
                                             capture button so visual users get the same
                                             in-progress feedback screen readers do. */}
 					{heldModifiersLabel && (
-						<span className="ms-2">Holding: {heldModifiersLabel}</span>
+						<span className="ms-2">{t("hotkeyValidation.holding")}: {heldModifiersLabel}</span>
 					)}
 				</output>
 			)}

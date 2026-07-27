@@ -35,8 +35,8 @@
 			"step2LoadingModel": "मॉडल लोड हो रहा है",
 			"step3Ready": "तैयार"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "अज्ञात पृष्ठ: {page}",
+		"pageNotFoundTitle": "पृष्ठ नहीं मिला"
 	},
 	"nav": {
 		"home": "होम",
@@ -49,9 +49,9 @@
 		"settings": "सेटिंग्स",
 		"about": "हमारे बारे में",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "उन्नत सुविधाएँ",
+			"system": "सिस्टम",
+			"main": "मुख्य"
 		}
 	},
 	"home": {
@@ -84,7 +84,7 @@
 		"repasteFailed": "अंतिम ट्रांसक्रिप्शन को फिर से पेस्ट नहीं किया जा सका",
 		"errorTitle": "रिकॉर्डिंग त्रुटि",
 		"retry": "पुनः प्रयास करें",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "ट्रांसक्रिप्शन पूरा हुआ, लेकिन क्लिपबोर्ड उपलब्ध नहीं था। आपका टेक्स्ट क्रैश-रिकवरी फ़ाइल में सहेज लिया गया है ताकि वह खो न जाए।",
 		"toggleFailed": "डिक्टेशन टॉगल नहीं कर सका। कृपया पुनः प्रयास करें।"
 	},
 	"common": {
@@ -110,8 +110,8 @@
 		"sortZA": "ज्ञ → अ",
 		"import": "आयात करें",
 		"importAria": "फ़ाइल से आयात करें",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "अंतिम अपडेट: {value}",
+		"close": "बंद करें"
 	},
 	"microphone": {
 		"levelBarAria": "माइक्रोफ़ोन इनपुट स्तर",
@@ -419,18 +419,18 @@
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
 		},
-		"creditsTitle": "Credits & Licenses",
-		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
-		"creditsAuthorsLabel": "Authors",
+		"creditsTitle": "क्रेडिट और लाइसेंस",
+		"creditsDescription": "Voice Typer दिग्गजों के कंधों पर खड़ा है।",
+		"creditsAuthorsLabel": "लेखक",
 		"creditsAuthorsValue": "AbdallahIsDev and contributors",
-		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesLabel": "तृतीय-पक्ष लाइब्रेरी",
 		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
-		"creditsFontsLabel": "Fonts",
+		"creditsFontsLabel": "फ़ॉन्ट",
 		"creditsFontsValue": "Geist",
-		"creditsIconsLabel": "Icons",
+		"creditsIconsLabel": "आइकन",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation",
-		"loading": "Loading…"
+		"documentationLink": "दस्तावेज़ीकरण",
+		"loading": "लोड हो रहा है…"
 	},
 	"settings": {
 		"title": "सेटिंग्स",
@@ -927,11 +927,11 @@
 			"cancelResetAria": "रीसेट रद्द करें",
 			"confirmResetAria": "डिफ़ॉल्ट पर रीसेट की पुष्टि करें",
 			"resetDialogMessage": "क्या आप वाकई सभी सेटिंग्स को उनके डिफ़ॉल्ट मानों पर रीसेट करना चाहते हैं? इसे पूर्ववत नहीं किया जा सकता।",
-			"reRunWizard": "Re-run Setup Wizard",
-			"reRunWizardAria": "Re-run setup wizard",
-			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
-			"reRunWizardToast": "Setup wizard re-enabled — navigating there now",
-			"exportDiagnosticBundle": "Export Diagnostic Bundle",
+			"reRunWizard": "सेटअप विज़ार्ड फिर से चलाएँ",
+			"reRunWizardAria": "सेटअप विज़ार्ड फिर से चलाएँ",
+			"reRunWizardHint": "माइक्रोफ़ोन, हॉटकी और मॉडल को पुनः कॉन्फ़िगर करने के लिए ऑनबोर्डिंग विज़ार्ड पुनः शुरू करें",
+			"reRunWizardToast": "सेटअप विज़ार्ड फिर से सक्षम — अब वहाँ नेविगेट कर रहा है",
+			"exportDiagnosticBundle": "डायग्नोस्टिक बंडल निर्यात करें",
 			"exportDiagnosticBundleAria": "Export diagnostic bundle",
 			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
 			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
@@ -944,8 +944,8 @@
 			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
 			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartup": "त्वरित स्टार्टअप (प्रीवार्म)",
+		"fastStartupDescription": "स्पीच मॉडल को 30+ सेकंड के बजाय सेकंड में लोड करने के लिए बूट पर OS फ़ाइल कैश को गर्म करें। यदि आपको अन्य ऐप के लिए डिस्क/RAM स्थान की आवश्यकता है तो अक्षम करें। आप अभी भी परिचय पृष्ठ से ऑन डिमांड गर्म कर सकते हैं।",
 		"keyring": {
 			"secure": "सुरक्षित",
 			"plaintext": "सादा पाठ",
@@ -953,12 +953,12 @@
 			"availableWithBackend": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत (बैकएंड: {backend})।",
 			"fallback": "कीचेन बैकएंड उपलब्ध नहीं है — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
 			"fallbackWithReason": "कीचेन बैकएंड उपलब्ध नहीं है ({reason}) — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
-			"statusLabel": "Keyring status"
+			"statusLabel": "कीचेन स्थिति"
 		},
-		"searchNoMatch": "No settings match \"{query}\"",
-		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"pending": "Pending…"
+		"searchNoMatch": "\"{query}\" से कोई सेटिंग मेल नहीं खाती",
+		"bubbleMicButton": "बुलबुला माइक बटन",
+		"bubbleMicButtonDescription": "एक क्लिक से डिक्टेशन शुरू/रोकने के लिए हमेशा दिखने वाले बुलबुले पर माइक बटन दिखाएं",
+		"pending": "लंबित…"
 	},
 	"models": {
 		"asrTitle": "मॉडल",
@@ -1183,7 +1183,7 @@
 		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है",
 		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "साइडबार टॉगल करें ({shortcut})"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",
@@ -1227,19 +1227,19 @@
 			"closeQuote": "बंद उद्धरण चिह्न",
 			"newLine": "नई पंक्ति",
 			"newParagraph": "नया पैराग्राफ",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+			"hyphen": "हाइफ़न",
+			"dash": "डैश",
+			"ellipsis": "इलिप्सिस",
+			"openParen": "खुला कोष्ठक",
+			"closeParen": "बंद कोष्ठक",
+			"tab": "टैब",
+			"capital": "कैपिटल [शब्द]",
+			"allCaps": "सभी कैपिटल [शब्द]"
 		},
 		"description": "कीबोर्ड शॉर्टकट और विरामचिह्न सहायता पत्र।",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "कमांड खोजें…",
+		"searchNoMatch": "\"{query}\" से कोई कमांड मेल नहीं खाता",
+		"openCheatSheet": "विराम चिह्न संदर्भ पत्र खोलें"
 	},
 	"history": {
 		"title": "इतिहास",
@@ -1369,20 +1369,20 @@
 		"close": "बंद करें",
 		"back": "पीछे (या माउस बैक बटन)",
 		"forward": "आगे (या माउस फ़ॉरवर्ड बटन)",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "आगे ({shortcut})",
+		"backWithShortcut": "पीछे ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer रिकॉर्डिंग संकेतक",
 		"transcribingLabel": "लिखा जा रहा है",
 		"idleLabel": "तैयार",
-		"recordingLabel": "REC",
+		"recordingLabel": "रिकॉर्डिंग",
 		"micButtonStartAria": "डिक्टेशन शुरू करें",
 		"micButtonStopAria": "डिक्टेशन रोकें",
 		"transcribingAria": "Voice Typer ट्रांसक्राइबिंग संकेतक",
 		"errorIndicatorAria": "Voice Typer त्रुटि संकेतक",
 		"idleIndicatorAria": "Voice Typer निष्क्रिय संकेतक",
-		"errorLabel": "⚠ Error",
+		"errorLabel": "⚠ त्रुटि",
 		"retryAria": "ट्रांसक्रिप्शन पुनः प्रयास करें",
 		"stopRecordingAria": "रिकॉर्डिंग रोकें",
 		"dismissAria": "बुलबुला हटाएं"
@@ -1393,15 +1393,15 @@
 		"unknownError": "अज्ञात त्रुटि",
 		"tryAgain": "पुनः प्रयास करें",
 		"reloadApp": "ऐप पुनः लोड करें",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "त्रुटि कॉपी करें",
+		"componentStackLabel": "घटक स्टैक:",
+		"resetSettingsHint": "सभी सेटिंग डिफ़ॉल्ट पर रीसेट करें और पुनः लोड करें — उपयोगी अगर किसी गलत कॉन्फ़िग मान ने यह क्रैश किया हो",
+		"openLogs": "लॉग खोलें",
+		"reportBug": "इस बग की रिपोर्ट करें",
+		"resetFailedNotice": "बैकएंड रीसेट विफल — स्थानीय स्थिति साफ़ कर रहा है और फिर भी पुनः लोड कर रहा है।",
+		"resetSettings": "सेटिंग रीसेट करें",
+		"copied": "कॉपी हो गया!",
+		"resetting": "रीसेट हो रहा है…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "एक कुंजी दबाएं",
@@ -1418,13 +1418,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "शॉर्टकट साफ़ करें"
 	},
+	"hotkeyValidation": {
+		"empty": "Hotkey is empty",
+		"noKeys": "Hotkey has no keys",
+		"reservedUniversal": "\"{label}\" is reserved — it conflicts with operating system or common app shortcuts",
+		"reservedOs": "\"{label}\" is reserved by the operating system",
+		"singleLetterDigit": "Single letters and digits can't be used as hotkeys — '{key}' would interfere with typing",
+		"mustEndWithNonModifier": "\"{label}\" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" is reserved by the Windows OS shell",
+		"reservedMacosCmd": "Cmd+{key} is reserved by macOS / common apps",
+		"reservedWindowsAltShift": "\"{label}\" is reserved by Windows for language switching",
+		"reservedAppCtrl": "Ctrl+{key} is a reserved application shortcut",
+		"shiftLetterInterferes": "Shift+{key} interferes with text capitalization or symbol input",
+		"dictationKeyMustBeSingle": "\"{label}\" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.",
+		"alreadyInUse": "\"{label}\" is already in use by another setting. Each hotkey must be unique.",
+		"keyNotSupported": "\"{label}\" is not supported. Try letters, numbers, F-keys, or Space.",
+		"invalidHotkey": "Invalid hotkey",
+		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+		"dictationKeySingleShort": "Dictation key must be a single key",
+		"fnMacosOnly": "Fn key is only supported on macOS",
+		"holding": "Holding"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Shift",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "कैप्स लॉक",
+		"numLock": "नम लॉक",
+		"scrollLock": "स्क्रॉल लॉक",
+		"printScreen": "प्रिंट स्क्रीन",
+		"pause": "विराम",
+		"insert": "इन्सर्ट",
+		"delete": "डिलीट",
+		"home": "होम",
+		"end": "एंड",
+		"pageUp": "पेज ऊपर",
+		"pageDown": "पेज नीचे",
+		"space": "स्पेस",
+		"enter": "एंटर",
+		"tab": "टैब",
+		"esc": "Esc",
+		"fnGlobeMacos": "Fn / Globe 🌐 (केवल macOS)"
+	},
 	"activityList": {
 		"failedToCopy": "कॉपी करने में विफल",
 		"viewAll": "सभी देखें",
 		"wordsCount": "{count} शब्द",
 		"removeFromFavorites": "पसंदीदा से हटाएं",
 		"addToFavorites": "पसंदीदा में जोड़ें",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "कोई हालिया गतिविधि नहीं"
 	},
 	"exportFormat": {
 		"export": "निर्यात",
@@ -1601,13 +1648,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "नेटवर्क कनेक्शन समस्या। अपना इंटरनेट कनेक्शन जाँचें और पुनः प्रयास करें।",
+		"timeout": "अनुरोध समय समाप्त हो गया। कृपया एक पल में पुनः प्रयास करें।",
+		"storage": "स्टोरेज त्रुटि। जाँचें कि आपके पास पर्याप्त डिस्क स्थान और सही अनुमतियाँ हैं।",
+		"render": "ऐप में रेंडरिंग त्रुटि हुई। पृष्ठ को पुनः लोड करने का प्रयास करें।",
+		"unknown": "ऐप में एक अप्रत्याशित त्रुटि हुई। आपका डेटा सुरक्षित है।",
+		"cudaOom": "GPU की मेमोरी खत्म हो गई। छोटा मॉडल आज़माएँ, अन्य GPU ऐप बंद करें, या CPU मोड पर स्विच करें।",
+		"rateLimited": "बहुत अधिक अनुरोध। कृपया एक पल प्रतीक्षा करें और पुनः प्रयास करें।",
+		"unknownBackend": "ट्रांसक्रिप्शन बैकएंड में एक अप्रत्याशित त्रुटि हुई। आपका डेटा सुरक्षित है — पुनः प्रयास करें।"
 	}
 }

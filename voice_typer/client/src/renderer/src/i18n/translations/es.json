@@ -35,8 +35,8 @@
 			"step2LoadingModel": "Cargando modelo",
 			"step3Ready": "Listo"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "Página desconocida: {page}",
+		"pageNotFoundTitle": "Página no encontrada"
 	},
 	"nav": {
 		"home": "Inicio",
@@ -49,9 +49,9 @@
 		"settings": "Configuración",
 		"about": "Acerca de",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "Funciones avanzadas",
+			"system": "Sistema",
+			"main": "Principal"
 		}
 	},
 	"home": {
@@ -84,7 +84,7 @@
 		"repasteFailed": "No se pudo repegar la última transcripción",
 		"errorTitle": "Error de grabación",
 		"retry": "Reintentar",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "Transcripción completada, pero el portapapeles no estaba disponible. Su texto se guardó en el archivo de recuperación de fallos para que no se pierda.",
 		"toggleFailed": "No se pudo alternar el dictado. Inténtalo de nuevo."
 	},
 	"common": {
@@ -110,8 +110,8 @@
 		"sortZA": "Z → A",
 		"import": "Importar",
 		"importAria": "Importar desde archivo",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "Última actualización: {value}",
+		"close": "Cerrar"
 	},
 	"microphone": {
 		"levelBarAria": "Nivel de entrada del micrófono",
@@ -419,17 +419,17 @@
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
 		},
-		"creditsTitle": "Credits & Licenses",
-		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
-		"creditsAuthorsLabel": "Authors",
+		"creditsTitle": "Créditos y licencias",
+		"creditsDescription": "Voice Typer está construido sobre los hombros de gigantes.",
+		"creditsAuthorsLabel": "Autores",
 		"creditsAuthorsValue": "AbdallahIsDev and contributors",
-		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesLabel": "Bibliotecas de terceros",
 		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
-		"creditsFontsLabel": "Fonts",
+		"creditsFontsLabel": "Fuentes",
 		"creditsFontsValue": "Geist",
-		"creditsIconsLabel": "Icons",
+		"creditsIconsLabel": "Iconos",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation",
+		"documentationLink": "Documentación",
 		"loading": "Cargando…"
 	},
 	"settings": {
@@ -938,15 +938,15 @@
 			"reRunWizardAria": "Re-ejecutar asistente de configuración",
 			"reRunWizardHint": "Reiniciar el asistente de configuración para reconfigurar micrófono, atajo y modelo",
 			"reRunWizardToast": "Asistente de configuración re-activado — navegando allí ahora",
-			"exportDiagnosticBundle": "Export Diagnostic Bundle",
-			"exportDiagnosticBundleAria": "Export diagnostic bundle",
+			"exportDiagnosticBundle": "Exportar paquete de diagnóstico",
+			"exportDiagnosticBundleAria": "Exportar paquete de diagnóstico",
 			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
 			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
-			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
-			"diagnosticBundleExportFailed": "Failed to export diagnostic bundle"
+			"diagnosticBundleExportedWithPath": "Paquete de diagnóstico guardado en: {path}",
+			"diagnosticBundleExportFailed": "Error al exportar el paquete de diagnóstico"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartup": "Inicio rápido (precalentamiento)",
+		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde la página Acerca de.",
 		"keyring": {
 			"secure": "Seguro",
 			"plaintext": "Texto plano",
@@ -954,9 +954,9 @@
 			"availableWithBackend": "Almacenado de forma segura en el llavero del sistema (backend: {backend}).",
 			"fallback": "El backend del llavero no está disponible — los secretos se almacenarán en texto plano con permisos 0o600.",
 			"fallbackWithReason": "El backend del llavero no está disponible ({reason}) — los secretos se almacenarán en texto plano con permisos 0o600.",
-			"statusLabel": "Keyring status"
+			"statusLabel": "Estado del llavero"
 		},
-		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButton": "Botón de micrófono de burbuja",
 		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
 		"pending": "Pendiente…"
 	},
@@ -1183,7 +1183,7 @@
 		"noiseSuppressionMethod": "Método de supresión de ruido",
 		"importNotAvailableOutsideElectron": "Importación no disponible fuera de Electron",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})"
 	},
 	"help": {
 		"title": "Atajos de Teclado",
@@ -1227,37 +1227,37 @@
 			"closeQuote": "Comilla de cierre",
 			"newLine": "Nueva línea",
 			"newParagraph": "Nuevo párrafo",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+			"hyphen": "Guión",
+			"dash": "Raya",
+			"ellipsis": "Puntos suspensivos",
+			"openParen": "Paréntesis abierto",
+			"closeParen": "Paréntesis cerrado",
+			"tab": "Tabulación",
+			"capital": "Mayúscula [palabra]",
+			"allCaps": "Todo mayúsculas [palabra]"
 		},
 		"description": "Presiona Esc para cerrar.",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "Buscar comandos…",
+		"searchNoMatch": "Ningún comando coincide con \"{query}\"",
+		"openCheatSheet": "Abrir hoja de referencia de puntuación"
 	},
 	"history": {
-		"title": "History",
+		"title": "Historial",
 		"searchPlaceholder": "Buscar en el historial...",
 		"favorites": "Favoritos",
 		"clearAll": "Borrar todo",
-		"showAll": "Show all history",
-		"showFavorites": "Show favorites only",
+		"showAll": "Mostrar todo el historial",
+		"showFavorites": "Mostrar solo favoritos",
 		"clearAllHistory": "Borrar todo el historial",
-		"clearAllMessage": "Are you sure you want to clear all transcription history? Favorites will also be deleted. This action cannot be undone.",
+		"clearAllMessage": "¿Seguro que quieres borrar todo el historial de transcripciones? Los favoritos también se eliminarán. Esta acción no se puede deshacer.",
 		"clearAllConfirm": "Borrar todo",
 		"noResults": "No se encontraron resultados",
 		"noFavorites": "Aún no hay favoritos",
 		"noTranscriptions": "Aún no hay dictados",
 		"noResultsDescription": "Prueba un término de búsqueda diferente o borra la búsqueda para ver todas las entradas.",
 		"noFavoritesDescription": "Toca el ícono de estrella en una transcripción para guardarla aquí.",
-		"noTranscriptionsDescription": "Press your hotkey (or Caps Lock) on the Home page to dictate — your transcriptions will appear here.",
-		"startDictation": "Start dictation",
+		"noTranscriptionsDescription": "Presiona tu atajo (o Caps Lock) en la página Inicio para dictar — tus transcripciones aparecerán aquí.",
+		"startDictation": "Iniciar dictado",
 		"loading": "Cargando...",
 		"loadMore": "Cargar más",
 		"showingCap": "Mostrando {shown} de {total} — usa la búsqueda para encontrar anteriores",
@@ -1369,14 +1369,14 @@
 		"close": "Cerrar",
 		"back": "Atrás (o botón atrás del ratón)",
 		"forward": "Adelante (o botón adelante del ratón)",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "Adelante ({shortcut})",
+		"backWithShortcut": "Atrás ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Indicador de grabación de Voice Typer",
 		"transcribingLabel": "Transcribiendo",
 		"idleLabel": "Listo",
-		"recordingLabel": "REC",
+		"recordingLabel": "GRAB",
 		"micButtonStartAria": "Iniciar dictado",
 		"micButtonStopAria": "Detener dictado",
 		"transcribingAria": "Indicador de transcripción de Voice Typer",
@@ -1393,15 +1393,15 @@
 		"unknownError": "Error desconocido",
 		"tryAgain": "Reintentar",
 		"reloadApp": "Recargar aplicación",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "Copiar error",
+		"componentStackLabel": "Pila de componentes:",
+		"resetSettingsHint": "Restablecer todos los ajustes a valores predeterminados y recargar — útil si un valor de configuración incorrecto causó este fallo",
+		"openLogs": "Abrir registros",
+		"reportBug": "Reportar este error",
+		"resetFailedNotice": "El reinicio del backend falló — limpiando el estado local y recargando de todos modos.",
+		"resetSettings": "Restablecer ajustes",
+		"copied": "¡Copiado!",
+		"resetting": "Restableciendo…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Pulse una tecla",
@@ -1418,13 +1418,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "Borrar atajo de teclado"
 	},
+	"hotkeyValidation": {
+		"empty": "Hotkey is empty",
+		"noKeys": "Hotkey has no keys",
+		"reservedUniversal": "\"{label}\" is reserved — it conflicts with operating system or common app shortcuts",
+		"reservedOs": "\"{label}\" is reserved by the operating system",
+		"singleLetterDigit": "Single letters and digits can't be used as hotkeys — '{key}' would interfere with typing",
+		"mustEndWithNonModifier": "\"{label}\" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" is reserved by the Windows OS shell",
+		"reservedMacosCmd": "Cmd+{key} is reserved by macOS / common apps",
+		"reservedWindowsAltShift": "\"{label}\" is reserved by Windows for language switching",
+		"reservedAppCtrl": "Ctrl+{key} is a reserved application shortcut",
+		"shiftLetterInterferes": "Shift+{key} interferes with text capitalization or symbol input",
+		"dictationKeyMustBeSingle": "\"{label}\" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.",
+		"alreadyInUse": "\"{label}\" is already in use by another setting. Each hotkey must be unique.",
+		"keyNotSupported": "\"{label}\" is not supported. Try letters, numbers, F-keys, or Space.",
+		"invalidHotkey": "Invalid hotkey",
+		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+		"dictationKeySingleShort": "Dictation key must be a single key",
+		"fnMacosOnly": "Fn key is only supported on macOS",
+		"holding": "Holding"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Mayús",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "Bloq Mayús",
+		"numLock": "Bloq Num",
+		"scrollLock": "Bloq Despl",
+		"printScreen": "Impr Pant",
+		"pause": "Pausa",
+		"insert": "Insert",
+		"delete": "Supr",
+		"home": "Inicio",
+		"end": "Fin",
+		"pageUp": "Re Pág",
+		"pageDown": "Av Pág",
+		"space": "Espacio",
+		"enter": "Intro",
+		"tab": "Tabulador",
+		"esc": "Esc",
+		"fnGlobeMacos": "Fn / Globe 🌐 (solo macOS)"
+	},
 	"activityList": {
 		"failedToCopy": "Error al copiar",
 		"viewAll": "Ver todo",
 		"wordsCount": "{count} palabras",
 		"removeFromFavorites": "Quitar de favoritos",
 		"addToFavorites": "Añadir a favoritos",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "Sin actividad reciente"
 	},
 	"exportFormat": {
 		"export": "Exportar",
@@ -1601,13 +1648,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "Problema de conexión de red. Verifique su conexión a Internet e intente de nuevo.",
+		"timeout": "La solicitud expiró. Por favor, intente de nuevo en un momento.",
+		"storage": "Error de almacenamiento. Verifique que tenga suficiente espacio en disco y los permisos adecuados.",
+		"render": "La aplicación encontró un error de renderizado. Intente recargar la página.",
+		"unknown": "La aplicación encontró un error inesperado. Sus datos están seguros.",
+		"cudaOom": "La GPU se quedó sin memoria. Pruebe un modelo más pequeño, cierre otras aplicaciones GPU o cambie al modo CPU.",
+		"rateLimited": "Demasiadas solicitudes. Espere un momento e intente de nuevo.",
+		"unknownBackend": "El backend de transcripción encontró un error inesperado. Sus datos están seguros — intente de nuevo."
 	}
 }

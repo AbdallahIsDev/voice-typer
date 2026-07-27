@@ -20,6 +20,22 @@
 // (no ``<output>``, no aria-label) for cases where the spinner sits
 // inside an already-labeled button/region — avoids the nested live
 // region announcing "Loading…" on top of the parent's accessible name.
+//
+// S5-CR-100: the DEFAULT root was previously an ``<output>`` element
+// (implicit ARIA role of ``status``, which carries an implicit
+// ``aria-live="polite"``). That meant every page that rendered a
+// Spinner — History, Vocabulary, Templates, Microphone, Models,
+// Settings, Onboarding, etc. — caused screen readers to announce
+// "Loading" the moment the spinner appeared, even though in those
+// contexts the spinner is incidental (not a primary status message).
+// The default root is now a ``<span role="img" aria-label=...>`` —
+// still has an accessible name (so AT users hear "Loading" when they
+// focus it), but does NOT carry an implicit live region. Pages that
+// want a status announcement (e.g. ConnectionStatusScreen while the
+// backend is starting) wrap the Spinner in their own
+// ``<output aria-live="polite">``. The ``decorative`` prop is
+// unchanged (still renders ``<div aria-hidden>`` for nested cases
+// like the refresh button in LastUpdatedIndicator).
 
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
@@ -27,17 +43,19 @@ import { cn } from "@/lib/utils";
 interface SpinnerProps {
 	/** Diameter in pixels. Default 16. */
 	size?: number;
-	/** Additional class names appended to the spinner div. */
+	/** Additional class names appended to the spinner element. */
 	className?: string;
 	/**
 	 * When true, render a plain ``<div aria-hidden="true">`` instead of
-	 * ``<output aria-label="Loading">``. Use this when the spinner is
-	 * nested inside an element that already provides an accessible
-	 * name (e.g. a labeled button) so screen-reader users don't hear
-	 * "Loading…" redundantly on top of the parent's label.
+	 * ``<span role="img" aria-label="Loading">``. Use this when the
+	 * spinner is nested inside an element that already provides an
+	 * accessible name (e.g. a labeled button) so screen-reader users
+	 * don't hear "Loading…" redundantly on top of the parent's label.
 	 *
-	 * Default: ``false`` (renders ``<output aria-label="Loading">`` —
-	 * an aria-live region that announces the loading state).
+	 * Default: ``false`` (renders
+	 * ``<span role="img" aria-label="Loading">`` — a focusable image
+	 * with an accessible name, but NO implicit live region per
+	 * S5-CR-100).
 	 */
 	decorative?: boolean;
 }
@@ -61,8 +79,19 @@ export function Spinner({
 			/>
 		);
 	}
+	// S5-CR-100: use a <span role="img"> with an accessible name
+	// instead of <output>. The <output> element has an implicit
+	// ARIA role of "status" (i.e. aria-live="polite"), which caused
+	// every page that rendered a Spinner to announce "Loading" to
+	// screen-reader users — even when the spinner was incidental to
+	// the page's primary content. <span role="img"> gives the
+	// spinner an accessible name (so AT users hear "Loading" when
+	// they focus it) without the implicit live region. Pages that
+	// need the live-region announcement (e.g. ConnectionStatusScreen)
+	// wrap the Spinner in their own <output aria-live="polite">.
 	return (
-		<output
+		<span
+			role="img"
 			aria-label={t("a11y.loading")}
 			className={resolvedClassName}
 			style={resolvedStyle}

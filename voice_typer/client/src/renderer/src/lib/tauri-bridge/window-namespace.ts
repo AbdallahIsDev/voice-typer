@@ -185,6 +185,32 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
+		// G4-M-71 (EC-13 / SA-10): open the Rust host log directory
+		// (config dir / logs/) in the OS file manager. Invokes the
+		// existing Rust `open_host_logs` command. Distinct from
+		// `openLogs` above (which opens the Python backend log dir).
+		// The type contract (WindowBridge.openElectronLogs?) allows
+		// both paths to omit the implementation; the Tauri bridge
+		// always installs it.
+		openElectronLogs: async () => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					path?: string;
+					error?: string;
+				}>("open_host_logs");
+				return {
+					success: Boolean(result?.success),
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
 		// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in
 		// `ErrorBoundary.tsx`) to the Rust host for persistence.

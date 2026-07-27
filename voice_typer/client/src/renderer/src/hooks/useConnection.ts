@@ -34,6 +34,10 @@ interface UseConnectionArgs {
 	 * Current page (historically used for onboarding first-run
 	 * auto-routing check).
 	 *
+	 * @deprecated No longer read inside the hook (the first-run
+	 * check is now unconditional). Kept for backward compatibility
+	 * with existing callers (App.tsx); new callers should omit it.
+	 *
 	 * F1 (b-review Finding 5): the first-run check is now performed
 	 * unconditionally on the initial connection probe regardless of
 	 * the persisted page (see the effect body for rationale), so this
@@ -42,7 +46,7 @@ interface UseConnectionArgs {
 	 * (App.tsx) and to leave the door open for future page-aware
 	 * routing logic.
 	 */
-	currentPage: Page;
+	currentPage?: Page;
 	/** Navigate callback (used to route to onboarding on first run). */
 	navigate: (page: Page) => void;
 }

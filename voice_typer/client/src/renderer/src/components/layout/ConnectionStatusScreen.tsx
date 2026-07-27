@@ -105,7 +105,22 @@ export function ConnectionStatusScreen({
 			>
 				{isConnecting && (
 					<div className="mt-2 flex w-full flex-col items-center gap-3">
-						<Spinner />
+						{/* S5-CR-100: the Spinner default is now a non-live
+						 * <span role="img">. This screen is the ONE place
+						 * where we DO want the loading state announced as
+						 * a polite live region (so SR users hear "Loading"
+						 * when the backend is starting, since that is the
+						 * primary status message here). Wrap the Spinner
+						 * in an <output aria-live="polite"> to restore the
+						 * implicit aria-live region the Spinner used to
+						 * provide by default. */}
+						<output
+							aria-live="polite"
+							aria-label={t("a11y.loading")}
+							className="flex items-center justify-center"
+						>
+							<Spinner />
+						</output>
 						{progressPercent !== null && (
 							<div className="flex w-full max-w-xs flex-col items-center gap-1">
 								<span className="text-xs text-(--fg-subtle)" aria-live="polite">

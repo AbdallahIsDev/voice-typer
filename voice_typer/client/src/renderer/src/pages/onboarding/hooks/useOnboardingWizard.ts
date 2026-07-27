@@ -104,12 +104,28 @@ export function useOnboardingWizard(
 				}>("onboarding_get_microphones");
 				if (cancelled) return;
 				setMicrophones(mics.microphones || []);
+				// S2-CR-39: prefer the OS default input device
+				// (the backend marks it with `default: true` in
+				// `list_microphones()`). Previously the wizard
+				// unconditionally fell back to
+				// `mics.microphones[0].id` — which is just the
+				// first in sounddevice's enumeration order and is
+				// often NOT the system default (especially on
+				// Windows where WASAPI ordering differs from the
+				// OS default). Falling back to `[0]` only when no
+				// device is flagged `default` preserves the prior
+				// behaviour for backends/mocks that don't set the
+				// flag.
 				if (mics.microphones?.length > 0) {
-					setSelectedMic((prev) =>
-						prev && mics.microphones.some((m) => m.id === prev)
-							? prev
-							: mics.microphones[0].id,
-					);
+					setSelectedMic((prev) => {
+						if (prev && mics.microphones.some((m) => m.id === prev)) {
+							return prev;
+						}
+						const defaultMic = mics.microphones.find(
+							(m) => m.default === true,
+						);
+						return (defaultMic ?? mics.microphones[0]).id;
+					});
 				}
 				const presets = await call<{ presets: string[] }>(
 					"onboarding_get_hotkey_presets",

@@ -1,12 +1,30 @@
-import {
-	ClipboardPasteIcon,
-	Mic02Icon,
-	Share08Icon,
-	StopIcon,
-	Undo02Icon,
-} from "@hugeicons/core-free-icons";
+// EC-FIX-12 / EC-12 (PVT-053): Home.tsx was a 949-line monolith
+// mixing layout, data-fetching, business logic, and 4 inline
+// sub-components + 1 inline hook. It is now a thin composition root
+// that imports the extracted pieces from `./home/`:
+//
+//   - `./home/lib/constants.ts`    — cache keys, timing constants, STATUS_COLORS
+//   - `./home/lib/status.ts`       — normalizeHotkey, statusLabelFor, statusKeyFor
+//   - `./home/lib/cache.ts`        — loadCachedRecent/Stats, persistRecent/Stats
+//   - `./home/hooks/useFirstRecordingCelebration.ts` — first-run celebration
+//   - `./home/components/RecordingStatusPill.tsx`     — status pill
+//   - `./home/components/MicToggleButton.tsx`         — mic toggle button
+//   - `./home/components/LastTranscriptionPreview.tsx` — last transcription card
+//   - `./home/components/RecordingErrorCard.tsx`       — error card
+//
+// The `export default function Home` signature is unchanged so App.tsx
+// routing and existing tests (Home.test.tsx, pages-improvements.test.tsx
+// R7-F13) continue to work. Pure structural refactor — no behaviour
+// changes.
+//
+// R7-F13 contract: `debouncedRefreshFromEvent` is declared via
+// `useCallback` and passed to BOTH the `transcription_final` and
+// `history_changed` `usePythonEvent` subscriptions (single callback
+// identity). The R7-F13 test greps Home.tsx source for this pattern, so
+// it stays here in the composition root rather than moving into a hook.
+
+import { Share08Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
@@ -24,384 +42,26 @@ import {
 	useStatsShare,
 } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { HistoryRecord, RecordingState, TodayStats } from "@/types/ipc";
-
-// Previously these were module-level `let _cachedRecent` /
-// `let _cachedStats` mutable bindings — global mutable state that
-// leaked across HMR / test re-mounts and was not React-aware. The
-// cache now lives in component-scoped `useRef`s (see `Home`), and the
-// helpers below take the ref as an argument so they remain pure
-// (no module-level mutable state). localStorage is still the
-// persistence layer; the ref is purely an in-memory hit-avoidance
-// cache for the current component instance.
-const RECENT_CACHE_KEY = "vt_home_recent_cache";
-const STATS_CACHE_KEY = "vt_home_stats_cache";
-const FIRST_RECORD_CELEBRATED_KEY = "vt_first_recording_celebrated";
-// Lowered from 60s → 5s. A genuinely stuck transcription is
-// obvious within seconds; 60s of silence is far too patient.
-const FORCE_CANCEL_DELAY_MS = 5_000;
-const LAST_TEXT_AUTO_CLEAR_MS = 5_000;
-
-function normalizeHotkey(raw: string): string {
-	return raw.replace(/[<>]/g, "").toUpperCase();
-}
-
-function loadCachedRecent(
-	ref: MutableRefObject<HistoryRecord[]>,
-): HistoryRecord[] {
-	if (ref.current.length > 0) return ref.current;
-	try {
-		const raw = localStorage.getItem(RECENT_CACHE_KEY);
-		if (raw) {
-			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) ref.current = parsed as HistoryRecord[];
-		}
-	} catch (e) {
-		// localStorage unavailable or payload malformed — non-fatal.
-		console.warn("[Home] loadCachedRecent failed:", e);
-	}
-	return ref.current;
-}
-
-function loadCachedStats(
-	ref: MutableRefObject<TodayStats | null>,
-): TodayStats | null {
-	if (ref.current !== null) return ref.current;
-	try {
-		const raw = localStorage.getItem(STATS_CACHE_KEY);
-		if (raw) {
-			const parsed = JSON.parse(raw);
-			if (
-				parsed &&
-				typeof parsed === "object" &&
-				typeof (parsed as { count?: unknown }).count === "number"
-			) {
-				ref.current = parsed as TodayStats;
-			}
-		}
-	} catch (e) {
-		// localStorage unavailable or payload malformed — non-fatal.
-		console.warn("[Home] loadCachedStats failed:", e);
-	}
-	return ref.current;
-}
-
-function persistRecent(
-	ref: MutableRefObject<HistoryRecord[]>,
-	recent: HistoryRecord[],
-): void {
-	ref.current = recent;
-	try {
-		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
-	} catch (e) {
-		// Quota exceeded or unavailable — non-fatal.
-		console.warn("[Home] persistRecent failed:", e);
-	}
-}
-
-function persistStats(
-	ref: MutableRefObject<TodayStats | null>,
-	stats: TodayStats,
-): void {
-	ref.current = stats;
-	try {
-		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
-	} catch (e) {
-		// Quota exceeded or unavailable — non-fatal.
-		console.warn("[Home] persistStats failed:", e);
-	}
-}
-
-// FIX-15 (CR-14): aligned with `voice_typer/server/tray_icon.py:277-284`
-// color-blind-safe palette so the Home status pill matches the tray icon.
-const STATUS_COLORS: Record<string, string> = {
-	idle: "#787878",
-	recording: "#2ECC71",
-	transcribing: "#3498DB",
-	loading: "#F39C12",
-	cancelling: "#F39C12",
-	error: "#E74C3C",
-};
-
-// NEW-I18N-FIX: resolves at render time so the pill honours the current
-// locale on every render (not just at module-import time).
-function statusLabelFor(key: string): string {
-	switch (key) {
-		case "recording":
-			return t("home.recording");
-		case "transcribing":
-			return t("home.transcribing");
-		case "loading":
-			return t("home.loading");
-		case "cancelling":
-			return t("home.cancelling");
-		case "error":
-			return t("home.error");
-		default:
-			return t("home.ready");
-	}
-}
-
-function statusKeyFor(state: RecordingState, hasError: boolean): string {
-	if (state === "error" && hasError) return "error";
-	return state;
-}
-
-// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
-// EC-FIX-14 (BACKLOG-004): Home now subscribes to recordingState /
-// lastError via the appStore and obtains `navigate` via the
-// useNavigation hook directly, eliminating prop drilling from App.
-//
-// ── Extracted subcomponents ─────────────────────────────────────────
-//
-// Removed `aria-live="polite"` from this `<output>` — the
-// App-level sr-only live region in App.tsx already announces state
-// changes; a duplicate live region on the pill causes double-announcement.
-function RecordingStatusPill({
-	statusColor,
-	statusLabel,
-	isRecording,
-}: {
-	statusColor: string;
-	statusLabel: string;
-	isRecording: boolean;
-}) {
-	return (
-		<output className="flex items-center gap-2 animate-fade-in">
-			<span
-				className={cn(
-					"h-2 w-2 rounded-full transition-colors duration-300",
-					isRecording && "animate-pulse",
-				)}
-				style={{ backgroundColor: statusColor }}
-				aria-hidden
-			/>
-			<span
-				key={statusLabel}
-				className="text-[11px] font-medium uppercase tracking-wide text-(--text-muted) transition-opacity duration-200 animate-fade-in"
-			>
-				{statusLabel}
-			</span>
-		</output>
-	);
-}
-
-// Spinner overlay shown on the mic button while `toggling` is
-// true. The button is disabled during `transcribing`
-// so clicks aren't silently swallowed by the backend.
-function MicToggleButton({
-	isRecording,
-	toggling,
-	disabled,
-	onClick,
-	label,
-}: {
-	isRecording: boolean;
-	toggling: boolean;
-	disabled: boolean;
-	onClick: () => void;
-	label: string;
-}) {
-	return (
-		<div className="relative">
-			{isRecording && (
-				<span className="absolute inset-0 rounded-full animate-pulse-ring" />
-			)}
-			<button
-				type="button"
-				onClick={onClick}
-				disabled={disabled}
-				aria-label={label}
-				title={label}
-				className={cn(
-					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
-					"transition-all duration-200 ease-out",
-					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
-					"hover:scale-105",
-					isRecording
-						? "bg-foreground/15 hover:bg-foreground/25"
-						: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
-				)}
-			>
-				<HugeiconsIcon
-					icon={isRecording ? StopIcon : Mic02Icon}
-					strokeWidth={1.625}
-					className={cn(
-						"h-8 w-8 text-white transition-opacity",
-						toggling && "opacity-30",
-					)}
-				/>
-				{toggling && (
-					<span
-						aria-hidden
-						className="pointer-events-none absolute inset-0 flex items-center justify-center"
-					>
-						<span className="h-7 w-7 animate-spin rounded-full border-2 border-white/80 border-t-transparent" />
-					</span>
-				)}
-			</button>
-		</div>
-	);
-}
-
-function LastTranscriptionPreview({
-	text,
-	onUndo,
-	onRepaste,
-}: {
-	text: string;
-	onUndo: () => void;
-	onRepaste: () => void;
-}) {
-	return (
-		<div className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3">
-			<p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
-				{text}
-			</p>
-			<div className="mt-2 flex items-center justify-end gap-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={onUndo}
-					disabled={!text}
-					title={t("home.undoAria")}
-					aria-label={t("home.undoAria")}
-					className="gap-1.5 text-xs text-(--text-muted) hover:text-(--text-primary)"
-				>
-					<HugeiconsIcon
-						icon={Undo02Icon}
-						strokeWidth={2}
-						className="h-3.5 w-3.5"
-					/>
-					{t("home.undo")}
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={onRepaste}
-					disabled={!text}
-					title={t("home.repasteAria")}
-					aria-label={t("home.repasteAria")}
-					className="gap-1.5 text-xs text-(--text-muted) hover:text-(--text-primary)"
-				>
-					<HugeiconsIcon
-						icon={ClipboardPasteIcon}
-						strokeWidth={2}
-						className="h-3.5 w-3.5"
-					/>
-					{t("home.repaste")}
-				</Button>
-			</div>
-		</div>
-	);
-}
-
-// Surface recording errors. Previously `lastError`
-// was tracked in the store but never rendered on Home — errors were
-// invisible to the user (only the status pill colour changed to red).
-// This card renders below the status pill whenever recordingState is
-// "error", showing the backend's error message plus a Retry button.
-function RecordingErrorCard({
-	message,
-	onRetry,
-	retrying,
-}: {
-	message: string;
-	onRetry: () => void;
-	retrying: boolean;
-}) {
-	return (
-		<div
-			role="alert"
-			className="flex w-130 max-w-full items-start gap-3 rounded-[10px] border border-destructive/30 bg-destructive/10 px-4 py-3"
-		>
-			<HugeiconsIcon
-				icon={StopIcon}
-				strokeWidth={2}
-				className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
-				aria-hidden
-			/>
-			<div className="min-w-0 flex-1">
-				<p className="text-[13px] font-medium text-destructive">
-					{t("home.errorTitle")}
-				</p>
-				<p className="mt-0.5 line-clamp-3 overflow-hidden text-ellipsis text-[12px] text-(--text-muted)">
-					{message}
-				</p>
-			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				onClick={onRetry}
-				disabled={retrying}
-				className="shrink-0 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-			>
-				{retrying && (
-					<span
-						aria-hidden
-						className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
-					/>
-				)}
-				{t("home.retry")}
-			</Button>
-		</div>
-	);
-}
-
-// Previously used `get_today_stats` and checked `count === 1`
-// — this triggered on the first dictation of ANY day, not the user's
-// lifetime first. We now check `get_history({limit: 1})` and celebrate
-// only when the user has exactly one historical record (this just-added
-// one). The flag is persisted to localStorage so we never celebrate twice.
-function useFirstRecordingCelebration(
-	call: <T = unknown>(
-		type: string,
-		data?: Record<string, unknown>,
-	) => Promise<T>,
-) {
-	return useCallback(async () => {
-		// The previous catch block exited the ENTIRE callback via
-		// `return`, which suppressed the first-recording celebration in
-		// environments where localStorage throws (Safari private mode,
-		// strict CSP, sandboxed iframe). The comment said "treat as
-		// not-celebrated" (i.e. proceed as if the flag is unset) but the
-		// code did the OPPOSITE. Now we proceed — if the read fails, we
-		// just skip the "already celebrated" short-circuit and let the
-		// celebration run (the write path below is already wrapped in
-		// its own try/catch).
-		let alreadyCelebrated = false;
-		try {
-			alreadyCelebrated =
-				localStorage.getItem(FIRST_RECORD_CELEBRATED_KEY) === "1";
-		} catch {
-			// localStorage unavailable — treat as not-celebrated
-			// (proceed with the celebration check below).
-			alreadyCelebrated = false;
-		}
-		if (alreadyCelebrated) return;
-		try {
-			const history = await call<HistoryRecord[]>("get_history", { limit: 1 });
-			if (Array.isArray(history) && history.length === 1) {
-				toast.success(t("home.firstDictationTitle"), {
-					description: t("home.firstDictationDesc"),
-					duration: 6000,
-				});
-				try {
-					localStorage.setItem(FIRST_RECORD_CELEBRATED_KEY, "1");
-				} catch (e) {
-					// localStorage unavailable — non-fatal.
-					console.warn("[Home] setItem first-record-celebrated failed:", e);
-				}
-			}
-		} catch (e) {
-			// Non-critical — skip celebration if history fetch fails.
-			console.warn("[Home] first-recording get_history failed:", e);
-		}
-	}, [call]);
-}
+import type { HistoryRecord, TodayStats } from "@/types/ipc";
+import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
+import { MicToggleButton } from "./home/components/MicToggleButton";
+import { RecordingErrorCard } from "./home/components/RecordingErrorCard";
+import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
+import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
+import {
+	loadCachedRecent,
+	loadCachedStats,
+	persistRecent,
+	persistStats,
+} from "./home/lib/cache";
+import {
+	FORCE_CANCEL_DELAY_MS,
+	LAST_TEXT_AUTO_CLEAR_MS,
+	STATUS_COLORS,
+} from "./home/lib/constants";
+import { normalizeHotkey, statusKeyFor, statusLabelFor } from "./home/lib/status";
 
 export default function Home() {
 	// EC-FIX-14 (BACKLOG-004): subscribe to the store directly instead
@@ -465,6 +125,10 @@ export default function Home() {
 
 	// Shared refresh routine — used by both `transcription_final` and
 	// `history_changed` handlers (F11-FIX + R7-F13 consolidation).
+	//
+	// R7-F13: declared via `useCallback` and passed to BOTH usePythonEvent
+	// subscriptions below so they share a single callback identity (the
+	// test greps Home.tsx for this declaration).
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
@@ -546,10 +210,6 @@ export default function Home() {
 				call<HistoryRecord[]>("get_history", { limit: 5 }),
 			]);
 			// Guard against setState-after-unmount.
-			// Promise.allSettled awaits three concurrent IPC calls; if the
-			// user navigated away mid-refresh, all subsequent setX calls
-			// would land on an unmounted component. `mountedRef` is flipped
-			// to `false` by the unmount cleanup effect declared above.
 			if (!mountedRef.current) return;
 			if (cfgTry.status === "fulfilled") {
 				setCfg(cfgTry.value);
@@ -573,8 +233,7 @@ export default function Home() {
 	// UX-016 + UX-7: status_change listener — re-fetches the hotkey
 	// (so the chip stays in sync after Settings changes) and tracks
 	// entry into "transcribing" so we can show "Force cancel" after
-	// FORCE_CANCEL_DELAY_MS. Using the event payload (rather than the
-	// recordingState prop) means we capture the transition at source.
+	// FORCE_CANCEL_DELAY_MS.
 	usePythonEvent("status_change", (data): (() => void) | undefined => {
 		const status = typeof data?.status === "string" ? data.status : "";
 		if (status === "transcribing") {
@@ -642,8 +301,6 @@ export default function Home() {
 	usePythonEvent("transcription_final", (data): (() => void) | undefined => {
 		if (typeof data?.text === "string" && data.text.trim()) {
 			setLastText(data.text);
-			// UX-025: auto-clear lastText after 5s of idle so the previous
-			// transcription isn't exposed on a shared/locked screen.
 			if (lastTextTimer.current) clearTimeout(lastTextTimer.current);
 			lastTextTimer.current = setTimeout(
 				() => setLastText(""),
@@ -670,9 +327,6 @@ export default function Home() {
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			// Also clear lastTextTimer to prevent
-			// setLastText("") firing on an unmounted component if a
-			// transcription arrived within 5s of navigation.
 			if (lastTextTimer.current) {
 				clearTimeout(lastTextTimer.current);
 				lastTextTimer.current = null;
@@ -691,25 +345,17 @@ export default function Home() {
 			await call("toggle_dictation");
 		} catch (err) {
 			console.error("Toggle dictation failed:", err);
-			// Surface the failure to the user with a localized toast —
-			// every sibling handler (handleUndo, handleRepaste,
-			// handleForceCancel) already does this; handleToggle was the
-			// lone outlier that silently swallowed IPC errors, leaving
-			// the user with a spinner that disappeared with no
-			// explanation.
 			toast.error(t("home.toggleFailed"));
 		} finally {
 			setToggling(false);
 		}
 	}, [call]);
 
-	// UX-1: undo the last transcription (backend sends backspaces).
 	const handleUndo = useCallback(async () => {
 		try {
 			await call("undo_last");
 		} catch (err) {
 			console.error("Undo failed:", err);
-			// Dedicated error key (not the button label).
 			toast.error(t("home.undoFailed"));
 		}
 		setLastText("");
@@ -719,7 +365,6 @@ export default function Home() {
 		}
 	}, [call]);
 
-	// UX-23: re-paste the most recent transcription.
 	const handleRepaste = useCallback(async () => {
 		try {
 			await call("repaste_last");
@@ -729,8 +374,6 @@ export default function Home() {
 		}
 	}, [call]);
 
-	// UX-7: force-cancel an in-flight transcription that has been
-	// running too long.
 	const handleForceCancel = useCallback(async () => {
 		try {
 			await call("force_cancel_transcription");
@@ -754,7 +397,6 @@ export default function Home() {
 				isRecording={isRecording}
 			/>
 
-			{/* Surface recording errors below the status pill. */}
 			{recordingState === "error" && lastError && (
 				<RecordingErrorCard
 					message={lastError}
@@ -763,8 +405,6 @@ export default function Home() {
 				/>
 			)}
 
-			{/* UX-9: thin progress bar under the status pill while a model
-			    download is in flight. */}
 			{downloadPct !== null && (
 				<div
 					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
@@ -781,8 +421,6 @@ export default function Home() {
 				</div>
 			)}
 
-			{/* UX-7: subtle amber "Force cancel" affordance shown after
-			    FORCE_CANCEL_DELAY_MS in "transcribing" state. */}
 			{showForceCancel && recordingState === "transcribing" && (
 				<button
 					type="button"
@@ -797,7 +435,6 @@ export default function Home() {
 			<MicToggleButton
 				isRecording={isRecording}
 				toggling={toggling}
-				// Disable during `transcribing` so clicks aren't silently swallowed.
 				disabled={
 					toggling ||
 					recordingState === "loading" ||
@@ -815,13 +452,6 @@ export default function Home() {
 				<span>{t("home.pressOrClick")}</span>
 			</p>
 
-			{/* Wrap LastTranscriptionPreview in an
-			    aria-live="polite" region so screen readers announce
-			    the just-transcribed text. Previously the App-level
-			    live region only announced recording-state transitions
-			    ("RECORDING" → "TRANSCRIBING" → "READY"); SR users
-			    never heard what was transcribed. The polite politeness
-			    setting avoids interrupting in-flight speech. */}
 			{lastText && (
 				<div aria-live="polite">
 					<LastTranscriptionPreview
@@ -839,7 +469,6 @@ export default function Home() {
 							{t("home.todayStats")}
 						</span>
 						<div className="flex items-center gap-2">
-							{/* F4: "Last updated" indicator + manual refresh button. */}
 							<LastUpdatedIndicator
 								agoLabel={agoLabel}
 								onRefresh={handleManualRefresh}
@@ -853,19 +482,6 @@ export default function Home() {
 									!cfg ||
 									!canShareStats({
 										todayCount: stats.count,
-										// BG-10 (partial): Home.tsx
-										// doesn't have a dedicated
-										// totalCount field (TodayStats
-										// only includes today's
-										// count/chars/words/duration),
-										// so we use `recent.length > 0`
-										// as a proxy for "has past
-										// transcriptions". This keeps
-										// the Share button enabled on
-										// days when the user hasn't
-										// dictated yet but has past
-										// history — the canShareStats
-										// helper's documented intent.
 										totalCount: recent.length > 0 ? 1 : 0,
 									})
 								}
@@ -884,9 +500,6 @@ export default function Home() {
 				</div>
 			)}
 
-			{/* When there's no cached stats AND we're still loading the
-			    initial data, show a small spinner that preserves layout
-			    height (avoids the "page is empty" flash). */}
 			{!stats && initialLoading && (
 				<section
 					className="mt-4 w-full flex items-center justify-center py-6"
@@ -896,10 +509,6 @@ export default function Home() {
 				</section>
 			)}
 
-			{/* Hidden share image capture target. EXPORT-FIX: `position:fixed;
-			    left:-9999` caused Chromium's paint optimization to skip painting
-			    the element, so html-to-image captured a 0×0 blank image. Using
-			    clip-path keeps the element painted while hiding it. */}
 			<div
 				ref={imageRef}
 				aria-hidden
@@ -917,17 +526,6 @@ export default function Home() {
 				)}
 			</div>
 
-			{/* BG-7: render <ActivityList items={recent} /> for both
-			    the populated and empty cases so the component's own
-			    empty-state branch (title + "No recent activity"
-			    message + "View all" link) is reachable when
-			    `recent.length === 0 && !initialLoading`. Previously
-			    this block short-circuited on `recent.length > 0`,
-			    which left a blank gap below the stats on first run
-			    and after deleting all history — and removed the
-			    only Home → History navigation affordance. The
-			    spinner overlay is shown ONLY while initial data is
-			    loading AND we have no recent records to render. */}
 			{initialLoading && recent.length === 0 ? (
 				<section
 					className="mt-4 w-full flex items-center justify-center py-6"

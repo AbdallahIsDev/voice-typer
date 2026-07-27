@@ -49,11 +49,49 @@ export function MicrophoneStep({
 						<SelectValue placeholder={t("onboarding.micSelectAria")} />
 					</SelectTrigger>
 					<SelectContent>
-						{microphones.map((mic) => (
-							<SelectItem key={mic.id} value={mic.id}>
-								{mic.name}
-							</SelectItem>
-						))}
+						{microphones.map((mic) => {
+							// S2-CR-39: surface two backend-provided
+							// flags the renderer previously ignored.
+							// `default === true` is the OS default
+							// input device — a "Default" badge
+							// helps the user understand why this
+							// option is pre-selected. `is_bluetooth
+							// === true` indicates a Bluetooth/HFP
+							// device (8 kHz sample rate) — a "BT"
+							// badge warns the user that audio
+							// quality will be limited. The "BT"
+							// literal is intentionally untranslated
+							// (Bluetooth is a registered trademark
+							// used as a universal proper noun across
+							// all locales).
+							const showDefaultBadge = mic.default === true;
+							const showBluetoothBadge =
+								mic.is_bluetooth === true;
+							return (
+								<SelectItem key={mic.id} value={mic.id}>
+									<span className="flex items-center gap-2">
+										<span>{mic.name}</span>
+										{showDefaultBadge && (
+											<span
+												className="rounded-full border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent"
+												data-testid={`mic-default-badge-${mic.id}`}
+											>
+												{t("onboarding.defaultMic")}
+											</span>
+										)}
+										{showBluetoothBadge && (
+											<span
+												className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400"
+												data-testid={`mic-bluetooth-badge-${mic.id}`}
+												title="Bluetooth/HFP — audio quality may be limited"
+											>
+												BT
+											</span>
+										)}
+									</span>
+								</SelectItem>
+							);
+						})}
 					</SelectContent>
 				</Select>
 			) : (

@@ -35,8 +35,8 @@
 			"step2LoadingModel": "Загрузка модели",
 			"step3Ready": "Готово"
 		},
-		"pageNotFoundDescription": "Unknown page: {page}",
-		"pageNotFoundTitle": "Page not found"
+		"pageNotFoundDescription": "Неизвестная страница: {page}",
+		"pageNotFoundTitle": "Страница не найдена"
 	},
 	"nav": {
 		"home": "Главная",
@@ -49,9 +49,9 @@
 		"settings": "Настройки",
 		"about": "О программе",
 		"group": {
-			"power": "Power features",
-			"system": "System",
-			"main": "Main"
+			"power": "Расширенные возможности",
+			"system": "Система",
+			"main": "Главное"
 		}
 	},
 	"home": {
@@ -84,7 +84,7 @@
 		"repasteFailed": "Не удалось вставить заново последнюю транскрипцию",
 		"errorTitle": "Ошибка записи",
 		"retry": "Повторить",
-		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"pasteFailedMessage": "Транскрипция завершена, но буфер обмена был недоступен. Ваш текст сохранен в файле восстановления после сбоя, чтобы он не был потерян.",
 		"toggleFailed": "Не удалось переключить диктовку. Пожалуйста, попробуйте ещё раз."
 	},
 	"common": {
@@ -110,8 +110,8 @@
 		"sortZA": "Я → А",
 		"import": "Импорт",
 		"importAria": "Импорт из файла",
-		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"lastUpdatedWithValue": "Последнее обновление: {value}",
+		"close": "Закрыть"
 	},
 	"microphone": {
 		"levelBarAria": "Уровень входа микрофона",
@@ -419,17 +419,17 @@
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
 		},
-		"creditsTitle": "Credits & Licenses",
-		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
-		"creditsAuthorsLabel": "Authors",
+		"creditsTitle": "Благодарности и лицензии",
+		"creditsDescription": "Voice Typer построен на плечах гигантов.",
+		"creditsAuthorsLabel": "Авторы",
 		"creditsAuthorsValue": "AbdallahIsDev and contributors",
-		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesLabel": "Сторонние библиотеки",
 		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
-		"creditsFontsLabel": "Fonts",
+		"creditsFontsLabel": "Шрифты",
 		"creditsFontsValue": "Geist",
-		"creditsIconsLabel": "Icons",
+		"creditsIconsLabel": "Иконки",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation",
+		"documentationLink": "Документация",
 		"loading": "Загрузка…"
 	},
 	"settings": {
@@ -927,11 +927,11 @@
 			"cancelResetAria": "Отменить сброс",
 			"confirmResetAria": "Подтвердить сброс к значениям по умолчанию",
 			"resetDialogMessage": "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию? Это действие нельзя отменить.",
-			"reRunWizard": "Re-run Setup Wizard",
-			"reRunWizardAria": "Re-run setup wizard",
-			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
-			"reRunWizardToast": "Setup wizard re-enabled — navigating there now",
-			"exportDiagnosticBundle": "Export Diagnostic Bundle",
+			"reRunWizard": "Повторный запуск мастера настройки",
+			"reRunWizardAria": "Повторный запуск мастера настройки",
+			"reRunWizardHint": "Перезапустить мастер настройки для изменения микрофона, горячей клавиши и модели",
+			"reRunWizardToast": "Мастер настройки снова включён — переходим к нему",
+			"exportDiagnosticBundle": "Экспорт диагностического пакета",
 			"exportDiagnosticBundleAria": "Export diagnostic bundle",
 			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
 			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
@@ -944,8 +944,8 @@
 			"aiAudio": "model, llm, audio, volume, ducking, noise, filter, post-processing, ai enhancement, vocabulary, api key, polish, transcription, preset, snippet",
 			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartup": "Быстрый запуск (прогрев)",
+		"fastStartupDescription": "Прогревает файловый кэш ОС при загрузке, чтобы модель речи загружалась за секунды вместо 30+ секунд. Отключите, если нужно освободить диск/ОЗУ для других приложений. Вы всё ещё можете прогреть по запросу со страницы «О программе».",
 		"keyring": {
 			"secure": "Безопасно",
 			"plaintext": "Открытый текст",
@@ -953,11 +953,11 @@
 			"availableWithBackend": "Безопасно хранится в связке ключей ОС (бэкенд: {backend}).",
 			"fallback": "Бэкенд связки ключей недоступен — секреты будут храниться в открытом виде с правами 0o600.",
 			"fallbackWithReason": "Бэкенд связки ключей недоступен ({reason}) — секреты будут храниться в открытом виде с правами 0o600.",
-			"statusLabel": "Keyring status"
+			"statusLabel": "Статус связки ключей"
 		},
-		"searchNoMatch": "No settings match \"{query}\"",
-		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"searchNoMatch": "Нет настроек, соответствующих \"{query}\"",
+		"bubbleMicButton": "Кнопка микрофона на пузырьке",
+		"bubbleMicButtonDescription": "Показывать кнопку микрофона на постоянно видимом пузырьке для запуска/остановки диктовки одним кликом",
 		"pending": "Ожидание…"
 	},
 	"models": {
@@ -1183,7 +1183,7 @@
 		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
 		"transcriptionComplete": "Транскрипция завершена.",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "Переключить боковую панель ({shortcut})"
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -1227,19 +1227,19 @@
 			"closeQuote": "Закрывающая кавычка",
 			"newLine": "Новая строка",
 			"newParagraph": "Новый абзац",
-			"hyphen": "Hyphen",
-			"dash": "Dash",
-			"ellipsis": "Ellipsis",
-			"openParen": "Open parenthesis",
-			"closeParen": "Close parenthesis",
-			"tab": "Tab",
-			"capital": "Capital [word]",
-			"allCaps": "All caps [word]"
+			"hyphen": "Дефис",
+			"dash": "Тире",
+			"ellipsis": "Многоточие",
+			"openParen": "Открытая скобка",
+			"closeParen": "Закрытая скобка",
+			"tab": "Табуляция",
+			"capital": "Прописная [слово]",
+			"allCaps": "Все прописные [слово]"
 		},
 		"description": "Горячие клавиши и шпаргалка по пунктуации.",
-		"searchPlaceholder": "Search commands…",
-		"searchNoMatch": "No commands match \"{query}\"",
-		"openCheatSheet": "Open punctuation cheat sheet"
+		"searchPlaceholder": "Поиск команд…",
+		"searchNoMatch": "Нет команд, соответствующих \"{query}\"",
+		"openCheatSheet": "Открыть шпаргалку по пунктуации"
 	},
 	"history": {
 		"title": "История",
@@ -1369,20 +1369,20 @@
 		"close": "Закрыть",
 		"back": "Назад (или кнопка мыши «Назад»)",
 		"forward": "Вперёд (или кнопка мыши «Вперёд»)",
-		"forwardWithShortcut": "Forward ({shortcut})",
-		"backWithShortcut": "Back ({shortcut})"
+		"forwardWithShortcut": "Вперёд ({shortcut})",
+		"backWithShortcut": "Назад ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Индикатор записи Voice Typer",
 		"transcribingLabel": "Расшифровка",
 		"idleLabel": "Готов",
-		"recordingLabel": "REC",
+		"recordingLabel": "ЗАПИСЬ",
 		"micButtonStartAria": "Начать диктовку",
 		"micButtonStopAria": "Остановить диктовку",
 		"transcribingAria": "Индикатор транскрибации Voice Typer",
 		"errorIndicatorAria": "Индикатор ошибки Voice Typer",
 		"idleIndicatorAria": "Индикатор ожидания Voice Typer",
-		"errorLabel": "⚠ Error",
+		"errorLabel": "⚠ Ошибка",
 		"retryAria": "Повторить транскрипцию",
 		"stopRecordingAria": "Остановить запись",
 		"dismissAria": "Закрыть пузырёк"
@@ -1393,15 +1393,15 @@
 		"unknownError": "Неизвестная ошибка",
 		"tryAgain": "Повторить",
 		"reloadApp": "Перезагрузить приложение",
-		"copyError": "Copy error",
-		"componentStackLabel": "Component stack:",
-		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
-		"openLogs": "Open logs",
-		"reportBug": "Report this bug",
-		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
-		"resetSettings": "Reset settings",
-		"copied": "Copied!",
-		"resetting": "Resetting…"
+		"copyError": "Копировать ошибку",
+		"componentStackLabel": "Стек компонентов:",
+		"resetSettingsHint": "Сбросить все настройки к значениям по умолчанию и перезагрузить — полезно, если неверное значение конфигурации вызвало этот сбой",
+		"openLogs": "Открыть логи",
+		"reportBug": "Сообщить об этой ошибке",
+		"resetFailedNotice": "Сброс бэкенда не удался — очищаем локальное состояние и всё равно перезагружаем.",
+		"resetSettings": "Сбросить настройки",
+		"copied": "Скопировано!",
+		"resetting": "Сброс…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Нажмите клавишу",
@@ -1418,13 +1418,60 @@
 		"holdingPrefix": "Holding: {modifiers}",
 		"clearTitle": "Очистить горячую клавишу"
 	},
+	"hotkeyValidation": {
+		"empty": "Hotkey is empty",
+		"noKeys": "Hotkey has no keys",
+		"reservedUniversal": "\"{label}\" is reserved — it conflicts with operating system or common app shortcuts",
+		"reservedOs": "\"{label}\" is reserved by the operating system",
+		"singleLetterDigit": "Single letters and digits can't be used as hotkeys — '{key}' would interfere with typing",
+		"mustEndWithNonModifier": "\"{label}\" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+		"reservedWindows": "\"{label}\" is reserved by the Windows OS shell",
+		"reservedMacosCmd": "Cmd+{key} is reserved by macOS / common apps",
+		"reservedWindowsAltShift": "\"{label}\" is reserved by Windows for language switching",
+		"reservedAppCtrl": "Ctrl+{key} is a reserved application shortcut",
+		"shiftLetterInterferes": "Shift+{key} interferes with text capitalization or symbol input",
+		"dictationKeyMustBeSingle": "\"{label}\" can't be used as a dictation key — dictation key must be a single key. Use the re-paste key picker for combos.",
+		"alreadyInUse": "\"{label}\" is already in use by another setting. Each hotkey must be unique.",
+		"keyNotSupported": "\"{label}\" is not supported. Try letters, numbers, F-keys, or Space.",
+		"invalidHotkey": "Invalid hotkey",
+		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+		"dictationKeySingleShort": "Dictation key must be a single key",
+		"fnMacosOnly": "Fn key is only supported on macOS",
+		"holding": "Holding"
+	},
+	"hotkeyKeys": {
+		"ctrl": "Ctrl",
+		"shift": "Shift",
+		"alt": "Alt",
+		"altGr": "AltGr",
+		"cmd": "Cmd",
+		"win": "Win",
+		"super": "Super",
+		"fn": "Fn",
+		"capsLock": "Caps Lock",
+		"numLock": "Num Lock",
+		"scrollLock": "Scroll Lock",
+		"printScreen": "Print Screen",
+		"pause": "Pause",
+		"insert": "Insert",
+		"delete": "Delete",
+		"home": "Home",
+		"end": "End",
+		"pageUp": "Page Up",
+		"pageDown": "Page Down",
+		"space": "Space",
+		"enter": "Enter",
+		"tab": "Tab",
+		"esc": "Esc",
+		"fnGlobeMacos": "Fn / Globe 🌐 (только macOS)"
+	},
 	"activityList": {
 		"failedToCopy": "Не удалось скопировать",
 		"viewAll": "Показать все",
 		"wordsCount": "{count} слов",
 		"removeFromFavorites": "Убрать из избранного",
 		"addToFavorites": "Добавить в избранное",
-		"noRecentActivity": "No recent activity"
+		"noRecentActivity": "Нет недавней активности"
 	},
 	"exportFormat": {
 		"export": "Экспорт",
@@ -1601,13 +1648,13 @@
 		}
 	},
 	"errors": {
-		"network": "Network connection issue. Check your internet connection and try again.",
-		"timeout": "The request timed out. Please try again in a moment.",
-		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
-		"render": "The app hit a rendering error. Try reloading the page.",
-		"unknown": "The app encountered an unexpected error. Your data is safe.",
-		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
-		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"network": "Проблема с сетевым подключением. Проверьте подключение к интернету и попробуйте снова.",
+		"timeout": "Время ожидания запроса истекло. Пожалуйста, повторите попытку через мгновение.",
+		"storage": "Ошибка хранения. Проверьте, достаточно ли места на диске и правильные ли разрешения.",
+		"render": "Приложение столкнулось с ошибкой рендеринга. Попробуйте перезагрузить страницу.",
+		"unknown": "Приложение столкнулось с неожиданной ошибкой. Ваши данные в безопасности.",
+		"cudaOom": "На GPU не хватило памяти. Попробуйте меньшую модель, закройте другие GPU-приложения или переключитесь в режим CPU.",
+		"rateLimited": "Слишком много запросов. Пожалуйста, подождите немного и попробуйте снова.",
+		"unknownBackend": "Бэкенд транскрипции столкнулся с неожиданной ошибкой. Ваши данные в безопасности — попробуйте снова."
 	}
 }
