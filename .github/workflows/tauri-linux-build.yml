@@ -1,11 +1,11 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5       — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/checkout@v7       — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-python@v7   — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5           — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/cache@v6           — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-node@v7      — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   astral-sh/setup-uv@v6     — Node 24 runtime (v3 = Node 20, deprecated)
+#   actions/upload-artifact@v7 — Node 24 runtime (v4 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7     — Node 24 runtime (v3 = Node 20, deprecated)
 #   dtolnay/rust-toolchain@v1  — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
@@ -101,7 +101,7 @@ jobs:
       RUST_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@v1
@@ -110,7 +110,7 @@ jobs:
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -190,7 +190,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v7
@@ -198,7 +198,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           # CI-5 / BUILD-N08: enable uv's own dependency cache so a warm
           # runner re-uses the wheel cache across runs (saves ~2-3 min
@@ -217,7 +217,7 @@ jobs:
       # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
       # dep bump cleanly invalidates the cache.
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -496,7 +496,7 @@ jobs:
       # also upload .AppImage and .rpm as separate artifacts for users on
       # other distros (CI-3 — previously .rpm was not uploaded at all).
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-linux-installer
           path: |
@@ -505,7 +505,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload .AppImage artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.AppImage
           path: |
@@ -518,7 +518,7 @@ jobs:
       # native package. Upload it as its own artifact so the Fedora
       # subgraph of Linux users can grab the .rpm without rebuilding.
       - name: Upload .rpm artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.rpm
           path: |
@@ -528,7 +528,7 @@ jobs:
 
       - name: Upload build logs (Nuitka + cargo)
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}-build-logs
           path: |
@@ -572,7 +572,7 @@ jobs:
           fi
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: VoiceTyper-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
           path: SHA256SUMS.txt
