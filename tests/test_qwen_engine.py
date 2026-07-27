@@ -359,6 +359,32 @@ class TestP1WhisperSkipWhenQwenActive:
 
         app.models.transcriber.load = mock_load
 
+        # The source's lazy-load path goes through
+        # ``app.models.fallback_to_whisper`` →
+        # ``AsrBackendRegistry.load_with_fallback`` →
+        # ``transcription._pre_download_model``, which raises
+        # ``ConsentRequiredError`` because ``huggingface_consent`` is
+        # not set in this test's config (the config only sets
+        # ``voice_biometric_consent``). Without HF consent, the
+        # fallback fails and ``recorder.start`` is never called.
+        #
+        # The test's intent is to verify the *recording start* path
+        # after a successful lazy-load, NOT to verify the HF consent
+        # gate. Mock ``fallback_to_whisper`` to set ``is_loaded=True``
+        # on the mock transcriber, AND mock ``active_transcriber`` so
+        # the post-fallback read returns the now-loaded mock
+        # (``active_transcriber`` normally delegates to the registry,
+        # which is unaware of the local ``transcriber`` mock — see the
+        # docstring on ``ModelManager.active_transcriber``: "Test code
+        # that assigns to ``app.models.transcriber`` must call
+        # ``_sync_registry_from_fields()`` explicitly"). Bypassing the
+        # registry here keeps the test focused on the start path.
+        def fake_fallback(notify_on_failure=False):
+            app.models.transcriber.is_loaded = True
+
+        app.models.fallback_to_whisper = fake_fallback
+        app.models.active_transcriber = lambda: app.models.transcriber
+
         app._start_dictation()
 
         # Should have attempted to start recording (Whisper was lazy-loaded)

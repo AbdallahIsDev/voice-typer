@@ -579,8 +579,13 @@ class TestParakeetEngineUnload:
         engine._processor = MagicMock()
         assert engine.is_loaded is True
 
-        # Patch release_gpu_memory so we don't actually import torch.
-        with patch("voice_typer.server.transcription.release_gpu_memory") as mock_release:
+        # EC-FIX-8: ``release_gpu_memory`` is imported locally inside
+        # ``unload()`` from ``voice_typer.server.asr_utils`` (the canonical
+        # location). Patching ``voice_typer.server.transcription.release_gpu_memory``
+        # does NOT intercept the local import resolution — the test must
+        # patch ``asr_utils.release_gpu_memory`` instead. See the long
+        # comment in ``parakeet_engine.unload()`` for the full rationale.
+        with patch("voice_typer.server.asr_utils.release_gpu_memory") as mock_release:
             engine.unload()
 
         assert engine._model is None
@@ -753,7 +758,7 @@ class TestG4H04ConsentGate:
             patch.object(type(engine), "_is_cached", side_effect=_fake_cached),
             patch.object(type(engine), "_should_force_cpu", return_value=False),
             patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
+                "voice_typer.server.security.verify_model_integrity",
                 return_value=True,
             ),
             patch("huggingface_hub.snapshot_download", return_value="/fake/path"),
@@ -781,7 +786,7 @@ class TestG4H04ConsentGate:
             patch.object(type(engine), "_is_cached", return_value=True),
             patch.object(type(engine), "_should_force_cpu", return_value=False),
             patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
+                "voice_typer.server.security.verify_model_integrity",
                 return_value=True,
             ),
         ):
@@ -807,25 +812,37 @@ class TestG4CR06UnconditionalIntegrityVerify:
     branch; cache hits skipped verification entirely.
     """
 
-    def test_cache_hit_triggers_integrity_check(self):
+    def test_cache_hit_triggers_integrity_check(self, tmp_path):
         """When ``_is_cached`` returns True, ``load()`` STILL calls
         ``_verify_model_integrity`` against the manifest."""
         engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
         # No config — but cache hit so consent gate is skipped.
         engine.config = None
 
+        # Build a fake HF cache dir with a real snapshot dir so the
+        # source's ``if model_dir.is_dir():`` gate passes and the
+        # ``verify_model_integrity`` call path is actually entered.
+        # Without this, the mock on ``_is_cached`` claims a hit but the
+        # source's directory check short-circuits before verify is
+        # invoked, so ``mock_verify.assert_called()`` fails.
+        cache_root = tmp_path / "huggingface" / "hub"
+        model_dir = cache_root / "models--nvidia--parakeet-tdt-0.6b-v3"
+        snapshot_dir = model_dir / "snapshots" / "abc123"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        (snapshot_dir / "config.json").write_text('{"ok": true}')
+
         with (
             patch.object(type(engine), "_is_cached", return_value=True),
             patch.object(type(engine), "_should_force_cpu", return_value=False),
             patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
+                "voice_typer.server.security.verify_model_integrity",
                 return_value=True,
             ) as mock_verify,
         ):
             mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
             mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
-            with patch("voice_typer.server.config._config_dir") as mock_dir:
-                mock_dir.return_value = Path("/nonexistent/parakeet/test")
+            with patch("voice_typer.server.config._config_dir", return_value=tmp_path):
                 result = engine.load()
 
         assert result is True
@@ -851,7 +868,7 @@ class TestG4CR06UnconditionalIntegrityVerify:
         with (
             patch.object(type(engine), "_is_cached", return_value=True),
             patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
+                "voice_typer.server.security.verify_model_integrity",
                 return_value=False,
             ),
             patch("voice_typer.server.config._config_dir", return_value=tmp_path),
@@ -977,26 +994,41 @@ class TestG4M44CpuFallbackNotification:
             "not permanent)."
         )
 
-    def test_load_resets_notification_flag(self):
+    def test_load_resets_notification_flag(self, tmp_path):
         """``load()`` resets ``_cpu_fallback_notified`` so a fallback
         after the next reload re-notifies the user."""
-        engine, _, _ = _make_engine_with_mocks(device="cuda")
+        engine, _, mock_transformers = _make_engine_with_mocks(device="cuda")
         # Simulate a prior fallback that already notified.
         engine._cpu_fallback_notified = True
+
+        # Build a fake HF cache dir with a real snapshot dir so the
+        # source's ``if model_dir.is_dir():`` gate passes (without this,
+        # the verify path is skipped). Pre-populate the mocked
+        # ``from_pretrained`` returns so load() can actually complete
+        # the cuda-load path (we don't care about the model object here
+        # — we only care that the flag is reset before the cuda load).
+        # NOTE: do NOT set ``engine._model`` ahead of time — load() has
+        # an early-return ``if self._model is not None: return True``
+        # that fires BEFORE the flag reset at line 365, which would
+        # make the assertion fail (the flag would never be cleared).
+        cache_root = tmp_path / "huggingface" / "hub"
+        model_dir = cache_root / "models--nvidia--parakeet-tdt-0.6b-v3"
+        snapshot_dir = model_dir / "snapshots" / "abc123"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        (snapshot_dir / "config.json").write_text('{"ok": true}')
+        mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
+        mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
 
         with (
             patch.object(type(engine), "_is_cached", return_value=True),
             patch.object(type(engine), "_should_force_cpu", return_value=False),
             patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
+                "voice_typer.server.security.verify_model_integrity",
                 return_value=True,
             ),
-            patch("voice_typer.server.config._config_dir") as mock_dir,
+            patch("voice_typer.server.config._config_dir", return_value=tmp_path),
         ):
-            mock_dir.return_value = Path("/nonexistent/parakeet/test")
-            # Bypass from_pretrained — we just want the flag reset.
-            engine._model = MagicMock()
-            engine._processor = MagicMock()
             engine.load()
 
         assert engine._cpu_fallback_notified is False, (

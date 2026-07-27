@@ -39,6 +39,17 @@ ALLOWED_UNTRANSLATED = {
     "settings.presetCode",  # "Code" — technical term
     "settings.notifications",  # "Notifications" — technical term
     "home.error",  # "ERROR" — technical term
+    # SA-12 (client_root_i18n): "⚠ Error" — universal warning symbol +
+    # technical term, identical across all locales (same rationale as
+    # home.error). The bubble renders this as a small status badge
+    # during dictation errors; translating the word "Error" would not
+    # change the meaning for any native speaker (the ⚠ glyph carries
+    # the warning semantics, and "Error" is a near-universal technical
+    # cognate in every locale we ship — de/es/fr/hi/ru/zh all use the
+    # Latin loanword in technical contexts, and ar uses "خطأ" but the
+    # ⚠ glyph is sufficient for the badge context). Kept identical to
+    # avoid a fake distinction that would confuse native speakers.
+    "bubble.errorLabel",  # "⚠ Error"
     # Provider labels are brand names — kept identical across all locales.
     "models.providers.openai.label",  # "OpenAI Whisper API"
     "models.providers.groq.label",  # "Groq Whisper API"
@@ -376,8 +387,12 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.permissionsTestButton",
     "onboarding.skipConfirmTitle",
     "onboarding.skipConfirmLabel",
-    "bubble.micButtonStartAria",
-    "bubble.micButtonStopAria",
+    # SA-12 (client_root_i18n): bubble.micButtonStartAria and
+    # bubble.micButtonStopAria REMOVED — these keys are now properly
+    # translated in EVERY non-English locale (commit e4b7d4b "fix(i18n):
+    # complete bubble aria-label translations across all locales"),
+    # so leaving them in RW2_BACKFILLED_PENDING_TRANSLATION would be
+    # dead weight flagged by TestRW2BackfillSetIsMinimal.
     # a11y (1 keys)
     "a11y.moreInfoAbout",  # "More info about {label}"
     # about (13 keys)
@@ -399,8 +414,9 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # analytics (2 keys)
     "analytics.auto",  # "Auto"
     "analytics.dayActivityAria",  # "{label}: {count} transcriptions"
-    # bubble (1 keys)
-    "bubble.idleLabel",  # "Ready"
+    # SA-12 (client_root_i18n): bubble.idleLabel REMOVED — translated
+    # in every non-English locale by commit e4b7d4b. Leaving it here
+    # would be flagged as stale by TestRW2BackfillSetIsMinimal.
     # help (3 keys)
     "help.openCheatSheet",  # "Open punctuation cheat sheet"
     "help.searchNoMatch",  # "No commands match "{query}""

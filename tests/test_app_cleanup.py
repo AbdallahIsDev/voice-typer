@@ -765,3 +765,142 @@ class TestRestartAppRemovesRedundantRestoreVolume:
             "APP-11: restart_app source must mention _restore_volume "
             "(in a comment explaining why the redundant call was removed)"
         )
+
+
+# ─── S2-CR-70 (SA-6): user-data-dir purge helpers ──────────────────────
+
+
+class TestUserDataPurgeHelpers:
+    """S2-CR-70 (SA-6): the ``_paths.user_data_subpaths_for_purge()``
+    helper exposes the exhaustive list of subpaths an uninstaller
+    should remove when purging user data.
+
+    These tests pin the contract so a future code change that adds a
+    new file inside the config dir (e.g. a new SQLite DB, a new
+    cache directory) is forced to update the purge list — otherwise
+    the uninstaller would silently leak the new file.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pin_paths_config_dir(self, tmp_path, monkeypatch):
+        """Pin ``_paths._config_dir`` (the imported reference inside
+        ``_paths``) to a tmp path so the helpers' delegation chain
+        resolves to a deterministic location.
+
+        Mirrors the fixture pattern in ``tests/test_paths.py``: we
+        patch ``_paths._config_dir`` (NOT ``config._config_dir``) so
+        the helpers' actual delegation chain is exercised — every
+        helper should call ``_config_dir()`` (the imported function)
+        at least once.
+        """
+        from voice_typer.server import _paths
+
+        monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
+        self._tmp = tmp_path
+
+    def test_user_data_dir_equals_config_dir(self):
+        """``user_data_dir()`` returns the same path as ``config_dir()``.
+
+        They're semantically distinct (the former is the "root of user
+        data" the latter is "where the config dir is") but happen to be
+        the same path today. The alias exists so uninstallers / factory-
+        reset features can call ``user_data_dir()`` for self-documenting
+        code.
+        """
+        from voice_typer.server import _paths
+
+        assert _paths.user_data_dir() == _paths.config_dir()
+        assert _paths.user_data_dir() == self._tmp
+
+    def test_hf_cache_dir_under_user_data_dir(self):
+        """``hf_cache_dir()`` returns ``<user_data_dir>/huggingface`` —
+        the canonical HF model cache location (potentially GBs)."""
+        from voice_typer.server import _paths
+
+        assert _paths.hf_cache_dir() == _paths.user_data_dir() / "huggingface"
+
+    def test_user_data_subpaths_for_purge_returns_list(self):
+        """The helper returns a list of Path objects (not a generator).
+
+        The uninstaller iterates the list multiple times (once to
+        stat-check existence, once to remove) — a generator would be
+        exhausted on the first iteration."""
+        from pathlib import Path
+
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        assert isinstance(subpaths, list)
+        assert all(isinstance(p, Path) for p in subpaths)
+
+    def test_user_data_subpaths_for_purge_includes_hf_cache(self):
+        """The HF model cache (GBs) MUST be in the purge list."""
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        assert _paths.user_data_dir() / "huggingface" in subpaths, (
+            "S2-CR-70: the HF model cache (potentially GBs) MUST be in "
+            "the purge list — without it, an uninstall leaves the model "
+            "weights behind"
+        )
+
+    def test_user_data_subpaths_for_purge_includes_venv(self):
+        """The Python venv (hundreds of MB) MUST be in the purge list."""
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        assert _paths.user_data_dir() / "venv" in subpaths, (
+            "S2-CR-70: the venv (hundreds of MB) MUST be in the purge "
+            "list — without it, an uninstall leaves the bundled Python "
+            "environment behind"
+        )
+
+    def test_user_data_subpaths_for_purge_includes_history_db(self):
+        """The SQLite history DB MUST be in the purge list (contains
+        transcribed text — privacy-relevant)."""
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        base = _paths.user_data_dir()
+        # The DB + its WAL/SHM sidecar files.
+        assert base / "history.db" in subpaths
+        assert base / "history.db-wal" in subpaths
+        assert base / "history.db-shm" in subpaths
+
+    def test_user_data_subpaths_for_purge_includes_lockfiles(self):
+        """The single-instance lockfile + PID file MUST be in the purge
+        list (otherwise a reinstall hits a stale lock)."""
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        base = _paths.user_data_dir()
+        assert base / "backend.lock" in subpaths
+        assert base / "backend.pid" in subpaths
+
+    def test_user_data_subpaths_for_purge_all_under_user_data_dir(self):
+        """Every subpath MUST be under ``user_data_dir()`` — otherwise
+        the purge would delete unrelated user files."""
+        from voice_typer.server import _paths
+
+        base = _paths.user_data_dir()
+        subpaths = _paths.user_data_subpaths_for_purge()
+        for sub in subpaths:
+            # ``is_relative_to`` is Python 3.9+; the project floor is
+            # 3.10 per pyproject.toml so this is always available.
+            assert sub.is_relative_to(base), (
+                "S2-CR-70: every purge subpath MUST be under "
+                f"user_data_dir() ({base}); got {sub} which is NOT — "
+                "this would let the purge delete unrelated user files"
+            )
+
+    def test_user_data_subpaths_for_purge_no_duplicates(self):
+        """No duplicate subpaths (a duplicate would be a no-op on
+        removal but signals a copy-paste error)."""
+        from voice_typer.server import _paths
+
+        subpaths = _paths.user_data_subpaths_for_purge()
+        unique = set(subpaths)
+        assert len(subpaths) == len(unique), (
+            f"S2-CR-70: duplicate subpaths in purge list — "
+            f"got {len(subpaths)} entries but only {len(unique)} unique"
+        )
