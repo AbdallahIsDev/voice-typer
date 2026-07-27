@@ -58,7 +58,6 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +65,6 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-_CURRENT_SCHEMA_VERSION = 3
 _MAX_SEARCH_QUERY_CHARS = 200
 
 # CR-27: hard upper bound on the total time a blocking _submit_write
@@ -95,9 +93,11 @@ _WRITE_FUTURE_TOTAL_TIMEOUT = 60.0
 #   thread to drain remaining items and exit.
 #   _WRITER_READY_TIMEOUT — how long ``__init__`` waits for the writer
 #   to finish schema initialization before returning.
-#   _CLEAR_ALL_BATCH_SIZE / _RETENTION_BATCH — chunk sizes for bulk
-#   DELETEs; each batch commits so the WAL doesn't grow unboundedly
-#   and external readers see progress.
+#   _CLEAR_ALL_BATCH_SIZE — chunk size for the bulk DELETEs inside
+#   ``clear_all``; each batch commits so the WAL doesn't grow
+#   unboundedly and external readers see progress. (The retention
+#   sweep's ``_RETENTION_BATCH`` chunk size now lives in
+#   ``history_db_internals.retention``.)
 _WAL_CHECKPOINT_INTERVAL = 300.0  # 5 minutes — keeps WAL small with negligible overhead
 _WRITE_FUTURE_TIMEOUT = 30.0
 _WRITER_JOIN_TIMEOUT = 10.0
@@ -110,7 +110,6 @@ _WRITER_READY_TIMEOUT = 30.0
 # placeholder default) is safe and 10x faster than the previous 100-row
 # batch on power-user databases with 50K+ rows.
 _CLEAR_ALL_BATCH_SIZE = 1000
-_RETENTION_BATCH = 100
 
 # PERF-5: maximum number of pending write closures enqueued on the
 # writer thread's queue. Bounded so a stalled writer (disk full, antivirus
@@ -211,68 +210,16 @@ class HistoryDBError(RuntimeError):
     """
 
 
-_MIGRATION_V2 = """
-    ALTER TABLE transcriptions ADD COLUMN favorite INTEGER DEFAULT 0;
-    ALTER TABLE transcriptions ADD COLUMN language TEXT DEFAULT '';
-"""
-
-# CR-49 / M-61: FTS5 full-text search index.
-#
-# Previously `search()` did a `WHERE text LIKE ?` table scan — O(n) on
-# the full transcriptions table. For a user with thousands of history
-# rows this is several hundred milliseconds per keystroke in the search
-# box. The FTS5 virtual table brings this down to O(log n + match count)
-# and gives proper tokenization (case-insensitive, Unicode-aware,
-# prefix queries via `query*`).
-#
-# The migration is intentionally additive:
-#   - CREATE VIRTUAL TABLE IF NOT EXISTS — safe to re-run on every
-#     schema init (existing FTS table is left untouched).
-#   - Triggers keep the FTS table in sync with INSERT/UPDATE/DELETE on
-#     `transcriptions`. They are created with `IF NOT EXISTS` so the
-#     migration is idempotent.
-#   - The `INSERT INTO transcriptions_fts(rowid, text) SELECT id, text
-#     FROM transcriptions` backfill is safe to re-run because the FTS
-#     table is empty on the first migration (and a re-run after a
-#     successful migration is a no-op: `transcriptions_fts` already
-#     contains every rowid, so the reinsert just overwrites the same
-#     row). The backfill is wrapped in its own transaction so a partial
-#     failure (e.g. disk full) doesn't leave the FTS table half-populated
-#     AND the schema_meta version bumped.
-#
-# G4-CR-03: the entire migration runs inside an explicit BEGIN / COMMIT.
-# Previously each migration statement ran in its own implicit
-# transaction (Python sqlite3 autocommit-off semantics), so a crash
-# mid-migration could leave the schema half-migrated with the version
-# number already bumped. The explicit transaction ensures the schema
-# version is only persisted if every statement in the migration
-# succeeded.
-_MIGRATION_V3 = """
-    BEGIN;
-    CREATE VIRTUAL TABLE IF NOT EXISTS transcriptions_fts USING fts5(
-        text,
-        content='transcriptions',
-        content_rowid='id',
-        tokenize='unicode61 remove_diacritics 2'
-    );
-    CREATE TRIGGER IF NOT EXISTS transcriptions_ai_fts AFTER INSERT ON transcriptions BEGIN
-        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
-    END;
-    CREATE TRIGGER IF NOT EXISTS transcriptions_ad_fts AFTER DELETE ON transcriptions BEGIN
-        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
-    END;
-    CREATE TRIGGER IF NOT EXISTS transcriptions_au_fts AFTER UPDATE ON transcriptions BEGIN
-        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
-        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
-    END;
-    INSERT INTO transcriptions_fts(rowid, text) SELECT id, text FROM transcriptions;
-    COMMIT;
-"""
-
-_MIGRATIONS = {
-    2: _MIGRATION_V2,
-    3: _MIGRATION_V3,
-}
+# Schema-init / migration logic lives in
+# ``voice_typer.server.history_db_internals.schema``. The migration
+# SQL strings, the migrations dict, and the current schema version
+# constant are re-exported here so existing callers (and tests that
+# monkey-patch ``history_db._MIGRATIONS`` / read
+# ``history_db._CURRENT_SCHEMA_VERSION``) keep working unchanged —
+# the re-exported ``_MIGRATIONS`` is the SAME dict object that
+# ``history_db_internals.schema.init_schema`` reads, so in-place
+# mutation (e.g. ``unittest.mock.patch.dict``) is observed by the
+# schema initializer.
 
 
 def _prepare_like_search_pattern(query: str) -> str:
@@ -864,100 +811,26 @@ class HistoryDB:
     def _open_write_conn(self) -> sqlite3.Connection:
         """Open and configure the writer thread's connection.
 
-        The writer owns the *only* write-capable connection in the
-        process. Configuration:
-          - ``journal_mode=WAL`` — concurrent readers don't block writes.
-          - ``synchronous=NORMAL`` — safe in WAL mode, faster than FULL.
-          - ``busy_timeout=5000`` — safety net for *external* writers
-            (antivirus, external CLI). In-process contention is
-            impossible because there's only one writer thread.
-          - ``cache_size=-20000`` — 20 MB page cache.
-          - ``secure_delete=ON`` — G4-M-04: overwrite deleted rows
-            with zeros so dictated text is not recoverable from free
-            pages.
-
-        SEC-007: on POSIX, tightens the DB file and its parent
-        directory to 0o600 / 0o700 so transcription history is not
-        world-readable. SQLite creates ``-wal`` and ``-shm`` sidecar
-        files in WAL mode; we chmod those too (best-effort, since
-        they may be created lazily on first write).
+        Delegates to :func:`voice_typer.server.history_db_internals.schema.open_write_conn`.
+        See that function for the full rationale (WAL mode, synchronous
+        level, busy_timeout, cache_size, ``secure_delete=ON`` for
+        G4-M-04, SEC-007 POSIX file/dir permissions).
         """
-        # SEC-007: tighten dir permissions before the connection
-        # creates files in it.
-        if not is_windows():
-            try:
-                self.db_path.parent.mkdir(parents=True, exist_ok=True)
-                os.chmod(self.db_path.parent, 0o700)
-            except OSError as e:
-                log.warning("[HISTORY_DB] Could not tighten dir perms: %s", e)
-        conn = sqlite3.connect(
-            str(self.db_path),
-            check_same_thread=False,
-            timeout=5.0,
-        )
-        # Safety net for external contention only (in-process contention
-        # is impossible — there's only one writer thread).
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-20000")  # 20 MB
-        # G4-M-04: secure_delete=ON overwrites deleted rows with zeros
-        # before freeing the page, so dictated text is not recoverable
-        # from free pages by an attacker with filesystem access. This
-        # complements the GDPR delete path (which unlinks the DB file
-        # entirely) by ensuring that in-place deletes (clear_all,
-        # apply_retention, delete by id) don't leave plaintext in free
-        # pages that could be carved out with a hex editor. Tradeoff:
-        # deletes are slightly slower (extra I/O to zero the page).
-        # Acceptable for transcription history where privacy outweighs
-        # throughput. Note: this PRAGMA is database-persistent — once
-        # set, it applies to all connections on this DB file.
-        conn.execute("PRAGMA secure_delete=ON")
-        conn.row_factory = sqlite3.Row
-        # SEC-007: chmod the DB file (and sidecar files if present).
-        if not is_windows():
-            for suffix in ("", "-wal", "-shm"):
-                p = self.db_path.with_suffix(self.db_path.suffix + suffix) if suffix else self.db_path
-                try:
-                    if p.exists():
-                        os.chmod(p, 0o600)
-                except OSError:
-                    pass
-        return conn
+        from voice_typer.server.history_db_internals.schema import open_write_conn
+
+        return open_write_conn(self.db_path)
 
     def _check_wal_mode(self, conn: sqlite3.Connection) -> None:
         """Verify WAL mode is actually enabled.
 
-        ``PRAGMA journal_mode=WAL`` returns the *resulting* journal
-        mode. On network filesystems, certain antivirus locks, or
-        read-only filesystems, SQLite may silently fall back to
-        ``delete`` (rollback journal) mode. In rollback mode, readers
-        DO block the writer and the user-reported 9s regression
-        returns.
-
-        This method fetches the PRAGMA result and logs a warning if
-        WAL is not active. It does NOT crash — the app should still
-        work (just slower) — but the warning must be visible so users
-        can diagnose the misconfiguration.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.schema.check_wal_mode`.
+        Logs a warning if SQLite silently fell back to rollback-journal
+        mode (network filesystems, antivirus locks, read-only FS).
         """
-        try:
-            cur = conn.execute("PRAGMA journal_mode=WAL")
-            mode_row = cur.fetchone()
-        except sqlite3.Error as e:
-            log.warning(
-                "[HISTORY_DB] Could not set/check WAL mode (%s) at %s — "
-                "app will work but writes may be slower and more contended.",
-                e,
-                self.db_path,
-            )
-            return
-        mode = mode_row[0] if mode_row else ""
-        if str(mode).lower() != "wal":
-            log.warning(
-                "[HISTORY_DB] WAL mode NOT enabled (got %r) at %s — "
-                "app will work but writes may be slower and more contended.",
-                mode,
-                self.db_path,
-            )
+        from voice_typer.server.history_db_internals.schema import check_wal_mode
+
+        check_wal_mode(conn, self.db_path)
 
     def _init_db_schema(
         self,
@@ -966,232 +839,22 @@ class HistoryDB:
     ) -> sqlite3.Connection:
         """Initialize the database schema and run migrations.
 
-        IMPL-A: previously this method called ``self._get_conn()``;
-        now it takes the writer's connection as a parameter so it can
-        run on the writer thread.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.schema.init_schema`.
+        The free function takes ``self`` (the HistoryDB instance) so it
+        can call back into ``_backup_before_migration`` and
+        ``_maybe_recover_from_corruption`` (which still live on this
+        class) and so it can set ``self._init_error`` on migration
+        failure. Returns the connection to use (may be a fresh one if
+        corruption was detected and the DB was recreated). Callers must
+        use the returned connection, not the one they passed in.
 
-        G4-CR-02: after each successful migration iteration, the
-        schema version is persisted via ``INSERT OR REPLACE INTO
-        schema_meta``. Previously the version was read but never
-        written, so migrations re-ran on every launch (the V3 FTS5
-        backfill re-scanned every row each startup).
-
-        G4-CR-03: each migration is wrapped in an explicit
-        ``BEGIN; … COMMIT;`` transaction (via ``executescript``). On
-        ``sqlite3.Error``, the transaction is rolled back and
-        ``self._init_error`` is set so the writer thread surfaces the
-        failure to ``__init__`` and skips the main write loop. The
-        per-statement try/except that previously swallowed errors
-        (allowing a partial migration to leave the schema
-        half-migrated) is removed — a partial migration now fails
-        loudly and rolls back ALL changes (including DDL ALTERs,
-        which SQLite would otherwise auto-commit between statements).
-
-        G4-M-03: at the end of a successful init, ``PRAGMA
-        quick_check`` is run. If the result is anything other than
-        ``("ok",)``, the corrupt DB is renamed to
-        ``history.db.corrupt-<timestamp>`` and a fresh DB is created.
-        The ``_is_recovery`` flag prevents infinite recursion if the
-        fresh DB also fails the integrity check.
-
-        FIX (preserved from prior version): schema/metadata BEFORE
-        indexes that depend on migrated columns. The original code ran
-        CREATE INDEX idx_favorite ON transcriptions(favorite) BEFORE
-        the migration code. On an existing database created without
-        the 'favorite' column, CREATE INDEX would fail with "no such
-        column: favorite". Fix: create the table first, then run
-        schema versioning + migrations, then create indexes.
-
-        Returns the connection to use (may be a fresh one if
-        corruption was detected and the DB was recreated). Callers
-        must use the returned connection, not the one they passed in.
+        See the delegated function for the full migration / index /
+        integrity-check rationale (G4-CR-02, G4-CR-03, G4-M-03, FIX).
         """
-        cursor = conn.cursor()
+        from voice_typer.server.history_db_internals.schema import init_schema
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS transcriptions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                text TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                duration REAL DEFAULT 0,
-                model TEXT DEFAULT '',
-                device TEXT DEFAULT '',
-                word_count INTEGER DEFAULT 0,
-                char_count INTEGER DEFAULT 0,
-                favorite INTEGER DEFAULT 0,
-                language TEXT DEFAULT ''
-            )
-        """)
-
-        # Schema version tracking (must run BEFORE CREATE INDEX that
-        # references 'favorite').
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS schema_meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        """)
-
-        # Get current schema version
-        cursor.execute("SELECT value FROM schema_meta WHERE key = 'version'")
-        row = cursor.fetchone()
-        current_version = int(row[0]) if row else 1
-
-        # G4-CR-02/G4-CR-03: run each migration in an explicit
-        # ``BEGIN; … COMMIT;`` transaction via ``executescript``.
-        # ``executescript`` is used for BOTH migration shapes:
-        #
-        # 1. Trigger-bearing migrations (e.g. _MIGRATION_V3 with
-        #    ``CREATE TRIGGER ... BEGIN ... END;``) carry their own
-        #    ``BEGIN;…COMMIT;`` and CANNOT be naively split on ``;``
-        #    (the inner statement terminators inside BEGIN/END would
-        #    be misinterpreted as end-of-statement).
-        #
-        # 2. Plain ALTER/CREATE migrations (e.g. _MIGRATION_V2) are
-        #    wrapped in ``BEGIN;…COMMIT;`` so the whole migration is
-        #    atomic. Without the wrapper, SQLite's DDL auto-commit
-        #    behavior would persist each ALTER individually — a
-        #    mid-migration failure would leave the schema
-        #    half-migrated with no way to roll back the already-
-        #    committed ALTERs.
-        #
-        # On ``sqlite3.Error``: rollback the transaction, set
-        # ``_init_error``, and return early. The version is NOT
-        # bumped — the next launch retries from the pre-migration
-        # version. The per-statement try/except that previously
-        # swallowed errors (CR-32) is removed because it allowed
-        # partial migrations to silently corrupt the schema.
-        # Best-effort pre-migration backup. If a future migration
-        # (v4+) has a logic bug that silently corrupts rows rather than
-        # failing loudly, the corrupt-file rename (G4-M-03) would NOT
-        # trigger (PRAGMA quick_check passes on a structurally-valid but
-        # semantically-wrong DB). The pre-migration backup gives the user
-        # a recovery path: ``history.db.pre-migration-v<from>.bak`` is a
-        # byte-for-byte copy of the DB at the OLD schema version, taken
-        # BEFORE any migration statement runs. Single-slot naming means
-        # re-running migrations on an already-migrated DB (where
-        # ``current_version == _CURRENT_SCHEMA_VERSION``) is a no-op —
-        # the backup step is skipped (no migration to back up).
-        if current_version < _CURRENT_SCHEMA_VERSION:
-            self._backup_before_migration(current_version)
-
-        for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
-            migration_sql = _MIGRATIONS.get(version)
-            if not migration_sql:
-                continue
-
-            try:
-                # Wrap plain migrations (no embedded BEGIN;) in an
-                # explicit transaction. Migrations that already carry
-                # their own BEGIN;…COMMIT; (e.g. _MIGRATION_V3) are
-                # passed through unchanged.
-                needs_wrapper = "BEGIN;" not in migration_sql.upper()
-                wrapped_sql = "BEGIN;\n" + migration_sql + "\nCOMMIT;\n" if needs_wrapper else migration_sql
-                cursor.executescript(wrapped_sql)
-                # G4-CR-02: persist the version after each successful
-                # migration iteration so the next launch doesn't
-                # re-run it. ``INSERT OR REPLACE`` handles both the
-                # initial insert and subsequent updates.
-                cursor.execute(
-                    "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
-                    (str(version),),
-                )
-                conn.commit()
-                log.info(
-                    "[HISTORY_DB] Migrated schema to version %d (transactional, version persisted)",
-                    version,
-                )
-            except sqlite3.Error as e:
-                # G4-CR-03: rollback any partial migration. The
-                # version is NOT bumped — the next launch retries.
-                # Surface the error to ``__init__`` via ``_init_error``
-                # so the writer thread skips the main write loop.
-                #
-                # G4-CR-02 compat: if the error is "duplicate column
-                # name" (columns already exist from a prior partial
-                # migration that didn't persist the version), treat
-                # the migration as effectively complete — the columns
-                # are there, the intent is satisfied. Bump the version
-                # so the next launch doesn't retry.
-                err_msg = str(e).lower()
-                if "duplicate column name" in err_msg:
-                    log.info(
-                        "[HISTORY_DB] Migration v%d: columns already "
-                        "exist (duplicate column name) — treating as "
-                        "complete and persisting version",
-                        version,
-                    )
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
-                        (str(version),),
-                    )
-                    conn.commit()
-                    continue
-                with contextlib.suppress(sqlite3.Error):
-                    conn.rollback()
-                log.error(
-                    "[HISTORY_DB] Migration v%d failed: %s "
-                    "(version NOT bumped; transaction rolled back; "
-                    "_init_error set)",
-                    version,
-                    e,
-                )
-                self._init_error = e
-                return conn
-
-        # Create indexes AFTER migration so 'favorite' column exists.
-        # G4-CR-03: refresh existing_columns post-migration and guard
-        # idx_favorite creation so a rolled-back migration (which
-        # returns early above) doesn't crash the whole init. The
-        # index on timestamp is safe to create unconditionally —
-        # 'timestamp' is in the original CREATE TABLE.
-        cursor.execute("PRAGMA table_info(transcriptions)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_timestamp
-            ON transcriptions(timestamp DESC)
-        """)
-        if "favorite" in existing_columns:
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_favorite
-                ON transcriptions(favorite)
-            """)
-            # TY-21: composite index on (favorite, timestamp ASC) —
-            # serves the retention DELETE subquery at apply_retention.
-            # ``CREATE INDEX IF NOT EXISTS`` is idempotent, so this
-            # serves as BOTH new-DB creation AND migration for existing
-            # databases (existing DBs re-run _init_db_schema on every
-            # launch). Guarded by the same ``existing_columns`` check
-            # as ``idx_favorite`` because the index references the
-            # ``favorite`` column.
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_favorite_timestamp
-                ON transcriptions(favorite, timestamp ASC)
-            """)
-        else:
-            log.warning(
-                "[HISTORY_DB] Skipping idx_favorite creation: 'favorite' "
-                "column missing (migration was rolled back or not yet "
-                "applied). Next launch will retry.",
-            )
-
-        # G4-M-03: integrity check at the end of schema init. Skip
-        # on recovery to prevent infinite recursion if the fresh DB
-        # also fails the check (in which case _init_error is set on
-        # the second failure and the writer exits).
-        if not _is_recovery:
-            new_conn = self._maybe_recover_from_corruption(conn)
-            if new_conn is not None:
-                # Corruption detected and a fresh DB was created.
-                # Re-run schema init on the fresh connection.
-                return self._init_db_schema(new_conn, _is_recovery=True)
-
-        log.info(
-            "[HISTORY] History database initialized: %s (schema v%d)",
-            self.db_path,
-            _CURRENT_SCHEMA_VERSION,
-        )
-        return conn
+        return init_schema(self, conn, _is_recovery=_is_recovery)
 
     def _backup_before_migration(self, current_version: int) -> None:
         """Best-effort copy of the DB (and ``-wal``/``-shm``
@@ -1489,7 +1152,7 @@ class HistoryDB:
             dropped_future = dropped.future
         else:
             _, dropped_future = dropped
-        if dropped_future is not None:            # CR-78 / PERF-5: the dropped future must be resolved
+        if dropped_future is not None:  # CR-78 / PERF-5: the dropped future must be resolved
             # with a clear, machine-greppable message so callers
             # that catch HistoryDBError can distinguish "queue full"
             # from other failure modes (e.g. "Writer is shutting
@@ -2000,132 +1663,21 @@ class HistoryDB:
 
         Returns the number of deleted entries.
 
-        DEAD-012: retention_count is wired as a fallback for max_entries.
-        If max_entries is not set but retention_count is, use it.
-
-        IMPL-A: runs inside the writer thread. Chunked deletes (100
-        rows per batch, commit per batch) prevent the WAL from growing
-        unboundedly and let external readers see progress.
-
-        G4-M-05: after the retention sweep, ``VACUUM`` runs only if
-        more than 20% of rows were deleted — this avoids the VACUUM
-        cost (which requires exclusive access and briefly blocks
-        readers) for small sweeps while still reclaiming space after
-        large purges.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.retention.apply_retention`.
+        See that function for the full rationale (DEAD-012 fallback
+        wiring, IMPL-A chunked deletes on the writer thread, G4-M-05
+        conditional VACUUM, TY-20 count-cache invalidation, ERR-013
+        sentinel-on-error contract).
         """
-        # DEAD-012: wire retention_count as fallback for max_entries
-        effective_max = max_entries or retention_count
-        deleted = 0
-        try:
+        from voice_typer.server.history_db_internals.retention import apply_retention
 
-            def _do_retention(conn: sqlite3.Connection) -> int:
-                nonlocal deleted
-                cursor = conn.cursor()
-
-                # G4-M-05: capture initial count to decide whether
-                # to VACUUM. Computed before any deletes so the
-                # ratio reflects the true scope of the sweep.
-                cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                initial_count = cursor.fetchone()[0]
-
-                if retention_days > 0:
-                    cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
-                    while True:
-                        cursor.execute(
-                            "DELETE FROM transcriptions WHERE id IN ("
-                            "  SELECT id FROM transcriptions"
-                            "  WHERE timestamp < ? AND favorite = 0"
-                            "  LIMIT ?"
-                            ")",
-                            (cutoff, _RETENTION_BATCH),
-                        )
-                        batch_deleted = cursor.rowcount
-                        if batch_deleted == 0:
-                            break
-                        deleted += batch_deleted
-                        conn.commit()  # release write lock between batches
-
-                if effective_max > 0:
-                    # Compute ``total`` once before the loop and decrement
-                    # by ``batch_deleted`` per iteration. Previously this
-                    # block re-ran ``SELECT COUNT(*) FROM transcriptions``
-                    # on every iteration — O(N^2) total (one full COUNT
-                    # scan per batch). For a power-user DB with 50K rows
-                    # and max_entries=1000, that's 490 COUNT scans; each
-                    # COUNT is O(N) on the favorite=0 subset, so the total
-                    # cost was O(N^2/batch_size).
-                    cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                    total = cursor.fetchone()[0]
-                    while total > effective_max:
-                        excess = min(total - effective_max, _RETENTION_BATCH)
-                        cursor.execute(
-                            """
-                            DELETE FROM transcriptions
-                            WHERE id IN (
-                                SELECT id FROM transcriptions
-                                WHERE favorite = 0
-                                ORDER BY timestamp ASC
-                                LIMIT ?
-                            )
-                        """,
-                            (excess,),
-                        )
-                        batch_deleted = cursor.rowcount
-                        if batch_deleted == 0:
-                            break
-                        deleted += batch_deleted
-                        total -= batch_deleted
-                        conn.commit()  # release write lock between batches
-
-                # Close any open transaction before VACUUM (the last
-                # DELETE with 0 rows still auto-opened a transaction).
-                conn.commit()
-
-                # G4-M-05: VACUUM only if >20% of rows were deleted.
-                # This avoids the VACUUM cost for small sweeps (e.g.
-                # daily retention that deletes a handful of rows)
-                # while still reclaiming space after large purges.
-                if deleted > 0 and initial_count > 0:
-                    ratio = deleted / initial_count
-                    if ratio > 0.20:
-                        try:
-                            conn.execute("VACUUM")
-                            log.info(
-                                "[HISTORY_DB] VACUUM completed after retention (deleted %d/%d rows, %.0f%%)",
-                                deleted,
-                                initial_count,
-                                ratio * 100,
-                            )
-                        except sqlite3.Error as e:
-                            log.warning(
-                                "[HISTORY_DB] VACUUM after retention failed: %s",
-                                e,
-                            )
-
-                if deleted:
-                    log.info(
-                        "[HISTORY_DB] Retention policy deleted %d entries",
-                        deleted,
-                    )
-                return deleted
-
-            result = self._submit_write(_do_retention, wait=True)
-            if result is None:
-                return 0
-            if result and result > 0:
-                # TY-20: invalidate the count cache.
-                self._invalidate_history_count_cache()
-            return int(result)
-        except HistoryDBError:
-            log.error("[HISTORY] Writer unavailable for apply_retention")
-            # ERR-013: apply_retention is called from a background
-            # retention sweep, not from an IPC handler, so it preserves
-            # the legacy "return 0 deleted" sentinel. The retention
-            # sweep logs the error and moves on.
-            return 0
-        except Exception as e:
-            log.error("[HISTORY] Failed to apply retention: %s", e)
-            return 0
+        return apply_retention(
+            self,
+            retention_days=retention_days,
+            max_entries=max_entries,
+            retention_count=retention_count,
+        )
 
     # ──────────────────────────────────────────────────────────────
     # Periodic retention scheduling (ER-36)
@@ -2142,173 +1694,39 @@ class HistoryDB:
     ) -> None:
         """ER-36: spawn a daemon thread that periodically calls ``apply_retention``.
 
-        Before this method existed, ``apply_retention`` only ran once
-        at startup (from ``startup_sequence._apply_retention_bg``). On
-        a long dictation session (8h at ~1 transcription/minute ≈ 480
-        new rows), the DB grew monotonically because the next
-        ``apply_retention`` (and the conditional ``VACUUM`` that
-        reclaims disk space) only fired on the NEXT app launch.
-
-        This method spawns a daemon thread that loops:
-
-        1. ``self._retention_stop_event.wait(timeout=interval_s)`` —
-           blocks for ``interval_s`` seconds (or until stop is signaled).
-        2. If the stop event fired (close() was called), exit.
-        3. Try to acquire ``self._retention_lock`` non-blocking. If a
-           previous retention is still running (e.g. a multi-batch
-           ``VACUUM`` on a huge DB took longer than ``interval_s``),
-           skip this tick and wait for the next one. This is the
-           re-entrancy guard required by ER-36.
-        4. Resolve retention parameters from ``app.config`` if ``app``
-           is provided (preferred — picks up config changes the user
-           made at runtime), else use the keyword arguments.
-        5. Call ``self.apply_retention(...)`` inside the lock.
-
-        The thread is registered with ``app._thread_registry`` (when
-        available) so the central shutdown coordinator can signal +
-        join it. ``close()`` also signals the local stop event and
-        joins with a 2s timeout as a fallback (so the thread exits
-        even if the app has no ThreadRegistry).
-
-        Parameters
-        ----------
-        interval_s : float
-            Seconds between retention sweeps. Default 600s (10 min) —
-            matches the ER-36 recommendation. The first sweep fires
-            after ``interval_s`` seconds (NOT immediately), because
-            ``startup_sequence`` already runs ``apply_retention`` once
-            at startup; running it again immediately would duplicate
-            that work.
-        app : object, optional
-            The ``VoiceTyperApp`` instance. Used to look up
-            ``app.config.history_retention_days``,
-            ``app.config.history_max_entries``,
-            ``app.config.history_retention_count``, and
-            ``app._thread_registry``. If ``None``, the keyword
-            arguments below are used as static defaults.
-        retention_days, max_entries, retention_count : int
-            Static fallback values used when ``app`` is None or when
-            ``app.config`` doesn't expose the corresponding attribute.
-            Default 0 (no retention — caller must supply real values
-            either via ``app`` or via these keyword args).
-
-        Notes
-        -----
-        Calling this method while a periodic retention is already
-        running stops the previous thread (signals + joins) before
-        spawning the new one. This makes the method idempotent and
-        safe to call from ``startup_sequence`` even if the app
-        restarts in place (e.g. after a config reload).
-
-        The actual wiring (calling this method from
-        ``startup_sequence``) is owned by ER-FIX-F; this method just
-        exposes the API.
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.retention.schedule_periodic_retention`.
+        The free function takes ``self`` (the HistoryDB instance) so it
+        can mutate ``_retention_stop_event`` / ``_retention_thread`` and
+        call back into ``apply_retention`` / ``_stop_periodic_retention``.
+        See the delegated function for the full rationale (ER-36
+        re-entrancy guard, ThreadRegistry registration, idempotent
+        re-scheduling).
         """
-        # Stop any existing periodic retention thread before spawning a
-        # new one — idempotent re-scheduling.
-        self._stop_periodic_retention()
+        from voice_typer.server.history_db_internals.retention import schedule_periodic_retention
 
-        stop_event = threading.Event()
-        self._retention_stop_event = stop_event
-
-        def _periodic_retention_loop() -> None:
-            """ER-36: inner loop — wait, skip-if-busy, run, repeat."""
-            while not stop_event.wait(timeout=interval_s):
-                if self._shutdown.is_set() or stop_event.is_set():
-                    break
-                # Re-entrancy guard: skip this tick if a previous
-                # retention sweep is still running. ``acquire(blocking=False)``
-                # returns False immediately if the lock is held.
-                if not self._retention_lock.acquire(blocking=False):
-                    log.debug(
-                        "[HISTORY_DB] periodic retention tick skipped — previous run still active (interval_s=%.1f)",
-                        interval_s,
-                    )
-                    continue
-                try:
-                    # Resolve retention parameters from app.config
-                    # (preferred — picks up runtime config changes)
-                    # or fall back to the static kwargs.
-                    days = retention_days
-                    max_ent = max_entries
-                    ret_count = retention_count
-                    if app is not None:
-                        cfg = getattr(app, "config", None)
-                        if cfg is not None:
-                            days = int(getattr(cfg, "history_retention_days", days))
-                            max_ent = int(getattr(cfg, "history_max_entries", max_ent))
-                            ret_count = int(
-                                getattr(
-                                    cfg,
-                                    "history_retention_count",
-                                    ret_count,
-                                )
-                            )
-                    self.apply_retention(
-                        retention_days=days,
-                        max_entries=max_ent,
-                        retention_count=ret_count,
-                    )
-                except Exception:
-                    log.warning(
-                        "[HISTORY_DB] periodic retention run failed",
-                        exc_info=True,
-                    )
-                finally:
-                    self._retention_lock.release()
-
-        thread = threading.Thread(
-            target=_periodic_retention_loop,
-            name="HistoryDBPeriodicRetention",
-            daemon=True,
+        schedule_periodic_retention(
+            self,
+            interval_s=interval_s,
+            app=app,
+            retention_days=retention_days,
+            max_entries=max_entries,
+            retention_count=retention_count,
         )
-        self._retention_thread = thread
-        thread.start()
-
-        # Register with ThreadRegistry if available on app — this lets
-        # the central shutdown coordinator signal + join the thread
-        # alongside the other app-owned daemon threads.
-        registry = getattr(app, "_thread_registry", None) if app is not None else None
-        if registry is not None:
-            try:
-                # Lazy import to avoid any chance of circular import
-                # (history_db is imported very early in app startup).
-                from voice_typer.server.thread_registry import ThreadRegistry  # noqa: F401
-
-                registry.register(
-                    name="history-periodic-retention",
-                    thread=thread,
-                    stop_event=stop_event,
-                    join_timeout=2.0,
-                )
-            except Exception:
-                log.debug(
-                    "[HISTORY_DB] could not register periodic retention thread with ThreadRegistry",
-                    exc_info=True,
-                )
 
     def _stop_periodic_retention(self) -> None:
         """ER-36: signal the periodic retention thread to stop and join it.
 
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.retention.stop_periodic_retention`.
         Called by :meth:`close` and by :meth:`schedule_periodic_retention`
         (to support idempotent re-scheduling). Best-effort — if the
         thread doesn't exit within 2s (e.g. stuck in a long VACUUM), it
         is left to die as a daemon at process exit.
         """
-        stop_event = self._retention_stop_event
-        thread = self._retention_thread
-        if stop_event is not None:
-            with contextlib.suppress(Exception):
-                stop_event.set()
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
-            if thread.is_alive():
-                log.debug(
-                    "[HISTORY_DB] periodic retention thread did not exit "
-                    "within 2s — it is a daemon and will exit at process shutdown."
-                )
-        self._retention_thread = None
-        self._retention_stop_event = None
+        from voice_typer.server.history_db_internals.retention import stop_periodic_retention
+
+        stop_periodic_retention(self)
 
     # ──────────────────────────────────────────────────────────────
     # Public read methods
