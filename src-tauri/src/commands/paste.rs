@@ -629,4 +629,132 @@ mod tests {
             RestoreAction::WriteText(String::new())
         );
     }
+
+    // ── PVT-051: paste ownership contract ──────────────────────────────
+    //
+    // PVT-051 (review.md): the `paste_text` Tauri command in
+    // `sidecar_cmds.rs` is DEAD in production — no Python code publishes
+    // a `paste_text` event, and no TS code invokes
+    // `invoke('paste_text', ...)`. The Python sidecar owns the live
+    // paste path via `voice_typer/server/dictation_pipeline.py
+    // ::_dispatch_paste` (which uses the same clipboard + Ctrl/Cmd+V
+    // mechanism but runs in the sidecar process). The Rust `paste_text`
+    // command is retained only for:
+    //   1. The migration glue tests under `tests/tauri/mig15-19/` that
+    //      source-grep the `paste_text` symbol + `#[tauri::command]`
+    //      attribute (deleting the command would break these tests).
+    //   2. DevTools-driven manual debugging — a developer can run
+    //      `await window.__TAURI__.core.invoke('paste_text', {text:'...'})`
+    //      in the WebView console to exercise the Rust paste path
+    //      directly (requires the `dev` Cargo feature).
+    //
+    // The contract pinned by this test:
+    //   - `PASTE_SHORT_THRESHOLD` stays at 300 chars (the boundary
+    //     between short-text enigo injection and long-text clipboard +
+    //     Ctrl+V). A future change to this value MUST be accompanied by
+    //     a re-review of PVT-051 — if the Python sidecar's paste path
+    //     is removed, this Rust path becomes the live entry point and
+    //     the threshold value matters operationally.
+    //   - The `paste_text` function in `sidecar_cmds.rs` exists (the
+    //     `#[deprecated]` attribute does NOT remove it — the function
+    //     pointer taken below is a static existence check; if the
+    //     function is ever deleted, this test fails to compile, which
+    //     is exactly the alarm we want).
+    //   - The `execute_paste` function in this module exists (same
+    //     static existence check — the function pointer taken below
+    //     fails to compile if `execute_paste` is renamed/removed).
+    //
+    // Cross-references:
+    //   - review.md PVT-051 for the full deletion plan.
+    //   - commands/sidecar_cmds.rs `paste_text` for the `#[deprecated]`
+    //     attribute that marks the dead-in-production status.
+    //   - voice_typer/server/dictation_pipeline.py `_dispatch_paste`
+    //     for the live Python-side paste path (out-of-scope for Rust
+    //     tests; verified by the Python test suite).
+
+    /// PVT-051: pin the `PASTE_SHORT_THRESHOLD` value so a future change
+    /// triggers a test update + a re-review of the paste ownership
+    /// contract. 300 chars is the documented boundary between short-text
+    /// enigo injection (IME-safe) and long-text clipboard + Ctrl/Cmd+V
+    /// (avoids IME composition breaking on long payloads).
+    #[test]
+    fn test_pvt_051_paste_short_threshold_pinned() {
+        assert_eq!(
+            PASTE_SHORT_THRESHOLD, 300,
+            "PVT-051: PASTE_SHORT_THRESHOLD changed from 300 — re-review the paste \
+             ownership contract in commands/paste.rs and review.md PVT-051. The Rust \
+             paste path is dead in production (Python sidecar owns it), but if the \
+             Python path is ever removed this threshold becomes operationally load-bearing."
+        );
+    }
+
+    /// PVT-051: pin the `PASTE_CLIPBOARD_RESTORE_DELAY_MS` value (DE-74).
+    /// Same rationale as the threshold test — a change here implies a
+    /// re-review of the paste path.
+    #[test]
+    fn test_pvt_051_paste_clipboard_restore_delay_pinned() {
+        assert_eq!(
+            PASTE_CLIPBOARD_RESTORE_DELAY_MS, 250,
+            "PVT-051 + DE-74: PASTE_CLIPBOARD_RESTORE_DELAY_MS changed from 250ms — \
+             re-review the paste ownership contract. This delay gives the target app \
+             time to read the clipboard during Ctrl+V processing before we restore the \
+             user's original clipboard contents."
+        );
+    }
+
+    /// PVT-051: pin the `PASTE_UIPI_FALLBACK_RESTORE_SECS` value
+    /// (Windows UIPI fallback path). Same rationale.
+    #[test]
+    fn test_pvt_051_paste_uipi_fallback_restore_secs_pinned() {
+        assert_eq!(
+            PASTE_UIPI_FALLBACK_RESTORE_SECS, 30,
+            "PVT-051 + DE-74: PASTE_UIPI_FALLBACK_RESTORE_SECS changed from 30s — \
+             re-review the paste ownership contract. This delay gives the user time \
+             to read the toast and press Ctrl+V manually before the original \
+             clipboard is restored (Windows UIPI fallback path)."
+        );
+    }
+
+    /// PVT-051: static existence check for the `paste_text` Tauri command.
+    /// The function is `#[deprecated]` (commands/sidecar_cmds.rs) — we
+    /// `#[allow(deprecated)]` on this test so the deprecation warning
+    /// does not fire here (the test is the contract pinner, not a
+    /// caller). If the `paste_text` function is ever renamed or deleted,
+    /// this test fails to compile, which is exactly the alarm we want
+    /// (the migration glue tests under `tests/tauri/mig15-19/` source-
+    /// grep the `paste_text` symbol and would silently break otherwise).
+    ///
+    /// We take a `fn` pointer to the `async fn` — Rust allows this
+    /// because `async fn` desugars to a regular `fn` returning an
+    /// opaque `impl Future`. The pointer is never called; taking it is
+    /// purely a compile-time symbol + signature resolution check.
+    #[allow(deprecated)]
+    #[test]
+    fn test_pvt_051_paste_text_command_still_exists() {
+        // Bind the function item to a name with an explicit type
+        // annotation. If `paste_text` is renamed or its signature
+        // changes (e.g. a parameter is added/removed/retyped), this
+        // line fails to compile with a "mismatched types" error
+        // pointing at the function item — that's exactly the alarm
+        // we want.
+        // The underscore-prefixed binding name already suppresses the
+        // unused-variable lint; do NOT call `drop(_fn)` — fn pointers
+        // are `Copy`, so `drop` is a no-op and would emit a
+        // `dropping_copy_types` warning.
+        let _fn: fn(
+            crate::commands::sidecar_cmds::PasteTextArgs,
+            tauri::AppHandle,
+            tauri::Window,
+        ) -> _ = crate::commands::sidecar_cmds::paste_text;
+    }
+
+    /// PVT-051: static existence check for `execute_paste` (the function
+    /// `paste_text` delegates to). Same rationale — if `execute_paste`
+    /// is renamed/removed, this test fails to compile.
+    #[test]
+    fn test_pvt_051_execute_paste_still_exists() {
+        // See note in `test_pvt_051_paste_text_command_still_exists`
+        // — do NOT `drop(_fn)` (fn pointers are `Copy`).
+        let _fn: fn(tauri::AppHandle, String) -> _ = execute_paste;
+    }
 }

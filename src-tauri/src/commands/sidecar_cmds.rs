@@ -630,6 +630,28 @@ pub(crate) struct PasteTextArgs {
 /// paste path is removed in a future refactor, this command becomes
 /// the live paste entry point again — keep the logic in sync with
 /// `dictation_pipeline.py::_dispatch_paste`.
+//
+// PVT-051 (review.md): this command is `#[deprecated]` so any new
+// caller in the Rust host triggers a compile-time warning directing
+// them to the Python-side paste path. The existing registration in
+// `main.rs::generate_handler!` is the ONLY legitimate caller and is
+// preserved (the migration glue tests `tests/tauri/mig15-19/` source-
+// grep the `paste_text` symbol + `#[tauri::command]` attribute, and
+// DevTools uses `invoke('paste_text', {text:'...'})` for manual
+// debugging). The deprecation attribute does NOT remove the command —
+// it just emits a warning at compile time so future maintainers don't
+// accidentally wire a new caller into the dead path. When `main.rs`
+// is eventually touched, add `#[allow(deprecated)]` on the
+// `paste_text,` line inside the `generate_handler!` invocation to
+// silence the warning at the registration site.
+#[deprecated(
+    since = "1.0.0",
+    note = "PVT-051: dead in production — Python sidecar owns the paste path \
+            (voice_typer/server/dictation_pipeline.py::_dispatch_paste). \
+            Retained only for migration glue tests + DevTools debugging. \
+            See commands/paste.rs::PVT_051_PASTE_OWNERSHIP_CONTRACT for the \
+            contract test, and review.md PVT-051 for the deletion plan."
+)]
 #[tauri::command]
 pub async fn paste_text(
     args: PasteTextArgs,
