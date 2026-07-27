@@ -170,6 +170,15 @@ from .resampling import _SCIPY_PRELOADER_JOIN_TIMEOUT_S  # noqa: F401, E402 — 
 # any subclass overrides keep working unchanged.
 from .resampling import resample_audio as _resample_audio_fn  # noqa: F401, E402
 
+# PVT-22: ``VadShimMixin`` provides the ~18 ``_vad_*`` property shims
+# (``_vad_state``, ``_vad_consecutive_speech_frames``, ...) that delegate
+# read/write access to ``self._vad`` (a ``VadProcessor``). The mixin is
+# purely delegation, so it is extracted out of ``recorder.py`` to keep
+# the Recorder class body focused on real behavior. ``Recorder`` inherits
+# from ``VadShimMixin`` so existing attribute access on ``Recorder``
+# instances keeps working unchanged.
+from .vad_helpers import VadShimMixin  # noqa: F401, E402
+
 # DT-11: the previous ``_DEFAULT_VAD_SPEECH_THRESHOLD_DB`` /
 # ``_DEFAULT_VAD_SILENCE_THRESHOLD_DB`` backward-compat aliases (which
 # just re-exported ``DEFAULT_VAD_SPEECH_THRESHOLD_DB`` /
@@ -312,7 +321,7 @@ _EVENT_WORKER_JOIN_TIMEOUT_S = 2.0
 _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 
 
-class Recorder:
+class Recorder(VadShimMixin):
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
     # DE-4: substrings of PortAudio OSError messages that indicate a
@@ -1396,75 +1405,14 @@ class Recorder:
     _VAD_ENABLED_CACHE_TTL_S: float = 5.0
 
     # ── RW-04: VAD attribute delegation shims ───────────────────────────
-    # The VAD state machine + auto-calibration + Silero integration live
-    # in ``self._vad`` (a ``VadProcessor`` instance). The historical
-    # ``self._vad_*`` attribute names are re-exposed as property shims
-    # so existing tests and callers that do
-    # ``rec._vad_state = VadState.UNKNOWN`` /
-    # ``rec._vad_consecutive_speech_frames == 1`` keep working without
-    # modification. Reads and writes both pass through to
-    # ``self._vad.<attr>``.
-    #
-    # The ``_vad_*`` attribute names on VadProcessor itself drop the
-    # ``_vad_`` prefix (e.g. ``state``, ``consecutive_speech_frames``)
-    # — see ``vad_processor.py``. The mapping below is the only place
-    # that knows the rename.
-
-    @staticmethod
-    def _make_vad_property(vad_attr: str) -> property:
-        """Factory: build a read/write property delegating to ``self._vad``."""
-
-        def getter(self: Recorder) -> Any:
-            return getattr(self._vad, vad_attr)
-
-        def setter(self: Recorder, value: Any) -> None:
-            setattr(self._vad, vad_attr, value)
-
-        return property(getter, setter)
-
-    _vad_state = _make_vad_property("state")
-    _vad_consecutive_speech_frames = _make_vad_property("consecutive_speech_frames")
-    _vad_consecutive_silence_frames = _make_vad_property("consecutive_silence_frames")
-    _vad_speech_threshold_db = _make_vad_property("speech_threshold_db")
-    _vad_silence_threshold_db = _make_vad_property("silence_threshold_db")
-    _vad_speech_frames = _make_vad_property("speech_frames")
-    _vad_silence_frames = _make_vad_property("silence_frames")
-    _vad_hangover_frames = _make_vad_property("hangover_frames")
-    _use_silero_vad = _make_vad_property("use_silero_vad")
-    _vad_speech_threshold = _make_vad_property("speech_threshold")
-    _vad_silence_threshold = _make_vad_property("silence_threshold")
-    _silero_available = _make_vad_property("silero_available")
-    _vad_calibration_duration = _make_vad_property("calibration_duration")
-    _vad_calibration_rms_values = _make_vad_property("calibration_rms_values")
-    _vad_calibrated = _make_vad_property("calibrated")
-    _vad_calibration_status = _make_vad_property("calibration_status")
-    _vad_enabled_cached = _make_vad_property("vad_enabled_cached")
-    _vad_enabled_cache_ts = _make_vad_property("vad_enabled_cache_ts")
-
-    del _make_vad_property  # don't leak the helper into the class namespace
-
-    @property
-    def _vad_enabled(self) -> bool:
-        """Whether VAD should run based on current audio enhancement state.
-
-        RW-04: delegates to ``self._vad.vad_enabled`` (VadProcessor's
-        cached property with 5s TTL safety net + explicit refresh via
-        ``on_config_changed()``). Behavior is preserved bit-for-bit from
-        the pre-refactor inline implementation.
-
-        VAD-GATE (Task 4): ensures that if the user changes the audio
-        preset to "Off" while the Recorder exists (or mid-session), the
-        VAD gate reflects the current config state.
-
-        PERF-02 (c-review): previously a dynamic @property that
-        re-evaluated 6 ``getattr()`` calls on every access (read 3× per
-        chunk × 16 Hz = 288 getattr/sec for a value that only changes
-        when the user toggles a Settings UI switch). Now returns a
-        cached value refreshed by ``on_config_changed()`` (the explicit
-        hook) with a 5-second TTL safety net so a missed config-change
-        notification cannot permanently wedge the cache.
-        """
-        return self._vad.vad_enabled
+    # The ~18 ``_vad_*`` property shims (``_vad_state``,
+    # ``_vad_consecutive_speech_frames``, ...) and the ``_vad_enabled``
+    # property live on :class:`.vad_helpers.VadShimMixin`. ``Recorder``
+    # inherits from ``VadShimMixin`` so the historical attribute names
+    # keep working on ``Recorder`` instances. The shims are pure
+    # delegation to ``self._vad`` (a ``VadProcessor``); the rename map
+    # (e.g. ``_vad_state`` ↔ ``state``) lives only in the mixin. See
+    # ``vad_helpers.py`` for the full rationale.
 
     def on_config_changed(self) -> None:
         """Refresh cached config-derived state after a config change.
@@ -1894,8 +1842,8 @@ class Recorder:
         except (OSError, ValueError):
             log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
 
-    def start(self) -> None:
-        """Start recording audio.
+    def _reset_session_state(self) -> None:
+        """Reset ALL per-session state for a fresh recording session.
 
         ARCH-023: reset ALL per-session state here, not just the buffer.
         Previously some flags (_max_duration_warning_sent,
@@ -1907,41 +1855,14 @@ class Recorder:
         They were declared and reset here but NEVER read in any
         conditional — the actual silence-warning state machine uses
         the integer counter ``_silence_warning_count`` (which IS read
-        at recording.py:1109). The dead flags were misleading
-        maintainers into thinking warning deduplication existed when
-        it didn't — see FORENSIC_REVIEW_COMPLETE.md → ARCH-023.
+        elsewhere). The dead flags were misleading maintainers into
+        thinking warning deduplication existed when it didn't.
 
-        SEC-audit-008: ``_secure_clear_array`` is now actually used
-        here to zero cached audio arrays (``_cached_resampled`` and
-        ``_cached_no_resample_arr``) before they're dropped. This
-        prevents forensic recovery of audio data from process memory
-        between sessions.
+        Called by :meth:`start` after the cache-clearance +
+        pre-flight-permission gate. The state reset block is extracted
+        out of ``start()``'s body so ``start()`` stays a readable
+        orchestrator that calls helpers in order.
         """
-        # CR-16: serialize start() against concurrent discard() — see
-        # ARCH-023 lock-order rationale in review.md / git log.
-        with self._start_lock:
-            if self._recording_event.is_set():
-                return
-
-            # DE-4: pre-flight check that the OS reports microphone permission
-            # as granted (or prompt - the OS will show the consent dialog on
-            # first PortAudio open in that case). Raises
-            # ``MicrophonePermissionDeniedError`` (typed) when DENIED, so the
-            # IPC layer can ``isinstance``-check and surface the permission
-            # onboarding UI instead of a generic error toast.
-            from voice_typer.server import permissions as _permissions_module
-
-            _permissions_module.verify_microphone_accessible()
-
-        # SEC-audit-008 / CR-21 / G4-H-06 / ZR-60: securely zero cached
-        # audio arrays before clearing. ZR-60 extracted this block from
-        # ``start()`` into ``_secure_clear_session_caches`` so the
-        # source-string regression test
-        # (``test_recorder_start_except_clause_does_not_swallow_nameerror``)
-        # can pin the narrowed handler clause at the helper-method
-        # granularity. See the helper's docstring for the full rationale.
-        self._secure_clear_session_caches()
-
         self._buffer.clear()
         self._chunk_count = 0
         self._cached_resampled = np.array([], dtype=np.float32)
@@ -2042,17 +1963,27 @@ class Recorder:
         if self._audio_processor is not None:
             self._audio_processor.reset()
 
-        # PERF-NEW-006: cache config values at start() time so the
-        # audio callback doesn't do 5x getattr per iteration.
-        # Coerce to float so a non-numeric MagicMock config (in tests)
-        # doesn't cause TypeError in the silence_timer comparison.
+    def _cache_session_config(self) -> int:
+        """Cache config-derived scalars for the upcoming session and return ``max_rec``.
+
+        PERF-NEW-006: cache config values at start() time so the
+        audio callback doesn't do 5x getattr per iteration.
+        Coerce to float so a non-numeric MagicMock config (in tests)
+        doesn't cause TypeError in the silence_timer comparison.
+
+        Returns ``max_rec`` (the parsed ``_cached_max_recording_time``
+        as an int, or 0 on TypeError/ValueError) so ``start()`` can
+        pass it to ``_resize_buffers_for_sample_rate`` later — the
+        dynamic buffer sizing is deferred until the device loop
+        finalizes ``effective_sr``.
+        """
         _silence_warning = self.config.silence_warning_seconds
         # stop_on_silence_seconds is a Config dataclass field (default
         # 60.0) — always present on a real Config instance, so the
         # getattr fallback could never fire on a real Config.
         _stop_on_silence = self.config.stop_on_silence_seconds
-        self._cached_silence_warning = float(_silence_warning) if isinstance(_silence_warning, (int, float)) else 20.0
-        self._cached_stop_on_silence = float(_stop_on_silence) if isinstance(_stop_on_silence, (int, float)) else 60.0
+        self._cached_silence_warning = float(_silence_warning) if isinstance(_silence_warning, int | float) else 20.0
+        self._cached_stop_on_silence = float(_stop_on_silence) if isinstance(_stop_on_silence, int | float) else 60.0
         # SIMPLIFY-001: single explicit field replaces the old 3-field split
         # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu,
         # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
@@ -2071,17 +2002,26 @@ class Recorder:
             max_rec = int(self._cached_max_recording_time)
         except (TypeError, ValueError):
             max_rec = 0
+        return max_rec
 
-        device = self._resolve_device()
-        candidates = self._same_physical_microphone_candidates(device)
+    def _build_audio_callback(self) -> Callable[..., None]:
+        """Construct the PortAudio callback closure for this session.
 
-        # RT-SAFE-001: The PortAudio callback is now a thin wrapper
-        # around _audio_callback_dispatch (a method on self). The
-        # dispatch method does ONLY pre-roll capture + ring buffer
-        # push + worker signal — all heavy work (filter chain, VAD,
-        # resample, state machine) is done by the audio worker thread.
-        # See _audio_callback_dispatch / _audio_worker_loop /
-        # _process_audio_chunk for the full architecture.
+        RT-SAFE-001: The PortAudio callback is a thin wrapper around
+        :meth:`_audio_callback_dispatch`. The dispatch method does ONLY
+        pre-roll capture + ring buffer push + worker signal — all heavy
+        work (filter chain, VAD, resample, state machine) is done by
+        the audio worker thread. See ``_audio_callback_dispatch`` /
+        ``_audio_worker_loop`` / ``_process_audio_chunk`` for the full
+        architecture.
+
+        The closure captures ``self`` only — no other start()-locals —
+        so it is safe to extract from ``start()`` into a helper that
+        returns the closure. ``self._current_callback`` is set here so
+        :meth:`_handle_device_disconnect` can re-bind the same callback
+        when restarting the stream.
+        """
+
         def callback(indata, frames, time_info, status):
             # AUDIO-009/AUDIO-015: guard flag for in-flight callback.
             # _teardown_stream() polls this flag for up to 300ms before
@@ -2097,38 +2037,29 @@ class Recorder:
 
         # AUDIO-HOT: store callback reference for device restart
         self._current_callback = callback
+        return callback
 
-        # =====================================================================
-        # CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
-        # =====================================================================
-        # The device-enumeration block below (last_error, selected_device,
-        # effective_sr, ``for candidate in candidates``, the fallback loop,
-        # and the ``if self._stream is None:`` check) MUST stay at start()
-        # method scope — this 8-space indent level, OUTSIDE the ``callback``
-        # closure defined above.
-        #
-        # A previous merge accidentally nested this block INSIDE the
-        # ``def callback()`` closure (12-space indent). That made
-        # ``last_error`` a local of ``callback``, not ``start()``. When
-        # ``start()`` checked ``if last_error is not None:``, Python raised:
-        #     UnboundLocalError: cannot access local variable 'last_error'
-        #     where it is not associated with a value
-        # → recording start crashed on every attempt.
-        #
-        # The fallback loop (``for candidate in all_candidates``) was also
-        # misplaced — trapped inside the preroll-buffer block instead of
-        # ``if self._stream is None and not used_fallback:``.
-        #
-        # DO NOT move device enumeration inside the callback closure.
-        # DO NOT re-add ``set_thread_registry`` — it was merge damage, not
-        # in the original codebase, and referenced a function that did not
-        # exist. The ``recording/__init__.py`` stub for it is dead code.
-        # =====================================================================
-        last_error = None
-        selected_device = None
-        effective_sr = self.config.sample_rate
-        used_fallback = False
+    def _open_stream_for_candidates(
+        self,
+        candidates: list[Any],
+        callback: Callable[..., None],
+        effective_sr: int,
+        last_error: Exception | None,
+    ) -> tuple[Any, int, Exception | None]:
+        """Try opening an :class:`sd.InputStream` for each candidate device in turn.
 
+        Returns ``(selected_device, effective_sr, last_error)``. On
+        success, ``self._stream`` is the opened stream,
+        ``self._effective_sr`` is updated under the lock, and
+        ``self._actual_channels`` stores the negotiated channel count.
+        On failure, ``self._stream`` remains ``None`` and ``last_error``
+        holds the most recent exception.
+
+        The candidate loop is the primary device-enumeration path. If
+        every candidate fails, :meth:`start` falls back to
+        :meth:`_open_stream_fallback` (all input devices).
+        """
+        selected_device: Any = None
         for candidate in candidates:
             candidate_sr, dev_info_extra = self._resolve_effective_sample_rate(candidate)
 
@@ -2239,132 +2170,141 @@ class Recorder:
             effective_sr = candidate_sr
             break
 
-        # If all same-name candidates failed, try ALL available input devices
-        if self._stream is None and not used_fallback:
-            log.warning(
-                "[RECORDING] All devices matching configured mic failed. "
-                "Trying all available input devices as fallback."
-            )
-            all_candidates = self._all_input_device_candidates()
-            # Remove already-tried devices
-            tried = set(str(c) for c in candidates)
-            all_candidates = [c for c in all_candidates if str(c) not in tried]
+        return selected_device, effective_sr, last_error
 
-            for candidate in all_candidates:
-                candidate_sr, dev_info_extra = self._resolve_effective_sample_rate(candidate)
+    def _open_stream_fallback(
+        self,
+        tried: list[Any],
+        callback: Callable[..., None],
+        effective_sr: int,
+        last_error: Exception | None,
+    ) -> tuple[Any, int, bool, Exception | None]:
+        """Try every available input device not already in ``tried`` as a last-resort fallback.
 
-                if dev_info_extra:
-                    log.info(
-                        "[RECORDING] Fallback device: [%s] %s | host_api=%s | native_rate=%d | effective_rate=%d",
-                        candidate,
-                        dev_info_extra["name"],
-                        dev_info_extra["host_api_name"],
-                        dev_info_extra["native_rate"],
-                        candidate_sr,
-                    )
+        Returns ``(selected_device, effective_sr, used_fallback, last_error)``.
+        On success, ``self._stream`` is the opened stream and
+        ``self._effective_sr`` is updated under the lock. ``used_fallback``
+        is ``True`` if a fallback device opened successfully, ``False``
+        otherwise (so the caller can distinguish the primary-success and
+        fallback-success cases — only the fallback-success case persists
+        the new device index to config).
+        """
+        selected_device: Any = None
+        used_fallback = False
+        log.warning(
+            "[RECORDING] All devices matching configured mic failed. Trying all available input devices as fallback."
+        )
+        all_candidates = self._all_input_device_candidates()
+        # Remove already-tried devices
+        tried_set = set(str(c) for c in tried)
+        all_candidates = [c for c in all_candidates if str(c) not in tried_set]
 
-                stream = None
-                try:
-                    # AUDIO-CH: also query channels for fallback devices.
-                    # PERF: use the cached lookup (same rationale as the
-                    # primary candidate loop above) — the fallback path
-                    # iterates ALL input devices, so per-candidate RPC
-                    # savings compound quickly here.
-                    fb_channels = 1
-                    try:
-                        fb_max_ch = self._cached_max_input_channels(candidate)
-                        if fb_max_ch >= 2:
-                            fb_channels = 2
-                    except Exception:
-                        pass
+        for candidate in all_candidates:
+            candidate_sr, dev_info_extra = self._resolve_effective_sample_rate(candidate)
 
-                    stream = sd.InputStream(
-                        samplerate=candidate_sr,
-                        channels=fb_channels,
-                        dtype=np.float32,
-                        device=candidate,
-                        callback=callback,
-                        # VAD-001: request 512-sample blocks for Silero VAD
-                        blocksize=512,
-                        # AUDIO-HOT: finished_callback detects unexpected stream termination
-                        finished_callback=self._stream_finished_callback,
-                    )
-                    stream.start()
-                except Exception as e:
-                    last_error = e
-                    log.warning(
-                        "[RECORDING] Fallback device [%s] also failed: %s",
-                        candidate,
-                        e,
-                    )
-                    if stream is not None:
-                        with contextlib.suppress(Exception):
-                            stream.close()
-                    continue
-
-                self._stream = stream
-                # ARCH-021: guard _effective_sr writes with the lock.
-                with self._lock:
-                    self._effective_sr = candidate_sr
-                selected_device = candidate
-                effective_sr = candidate_sr
-                used_fallback = True
-                # RW-6 (pyrefly): ``dev_info_extra`` is typed
-                # ``dict | None`` because ``_resolve_effective_sample_rate``
-                # may return None when PortAudio can't enumerate the
-                # device. The earlier ``if dev_info_extra:`` gate
-                # protects the first access (logging at line ~1505),
-                # but this post-success log was unguarded — calling
-                # ``["name"]`` on None would raise ``TypeError`` here
-                # after a *successful* stream open. Fall back to a
-                # placeholder so the log line still fires.
-                fb_name = dev_info_extra["name"] if dev_info_extra else "(unknown)"
+            if dev_info_extra:
                 log.info(
-                    "[RECORDING] Fallback succeeded with device [%s] %s",
+                    "[RECORDING] Fallback device: [%s] %s | host_api=%s | native_rate=%d | effective_rate=%d",
                     candidate,
-                    fb_name,
+                    dev_info_extra["name"],
+                    dev_info_extra["host_api_name"],
+                    dev_info_extra["native_rate"],
+                    candidate_sr,
                 )
-                break
 
-        if self._stream is None:
-            if last_error is not None:
-                raise last_error
-            raise RuntimeError("No input device could be opened")
+            stream = None
+            try:
+                # AUDIO-CH: also query channels for fallback devices.
+                # PERF: use the cached lookup (same rationale as the
+                # primary candidate loop above) — the fallback path
+                # iterates ALL input devices, so per-candidate RPC
+                # savings compound quickly here.
+                fb_channels = 1
+                try:
+                    fb_max_ch = self._cached_max_input_channels(candidate)
+                    if fb_max_ch >= 2:
+                        fb_channels = 2
+                except Exception:
+                    pass
 
-        # ── dynamic buffer sizing (deferred from above) ──
-        # Now that the device loop has finalized ``effective_sr`` (the
-        # device's native sample rate, which may be 44.1/48kHz), size
-        # both the main recording buffer and the pre-roll deque using
-        # the ACTUAL chunk duration ``blocksize / effective_sr``.
-        #
-        # previously the main buffer was sized against a stale
-        # 1024-sample/16kHz assumption (chunk_seconds=0.064). At 48kHz
-        # with 512-sample blocks the real chunk_seconds is 512/48000 ≈
-        # 0.0107s, so 30000 default chunks only hold ~5.3 min — a
-        # 30-min dictation silently lost the first ~25 min via deque
-        # maxlen eviction. We resize to ``int(max_rec / chunk_seconds)
-        # + safety`` so the buffer can always hold the full configured
-        # max_recording_time_seconds. Existing buffer contents (empty
-        # at this point in start()) are preserved via list(deque).
-        #
-        # the pre-roll deque was sized in __init__ using
-        # ``config.sample_rate`` (16kHz). At 48kHz the same 1-second
-        # pre-roll needs 3× the chunk capacity. Re-size here using
-        # ``effective_sr`` so the pre-roll actually captures the
-        # configured ``pre_roll_buffer_seconds``. Existing pre-roll
-        # chunks already captured by the audio callback (between
-        # stream.start() above and here) are preserved.
+                stream = sd.InputStream(
+                    samplerate=candidate_sr,
+                    channels=fb_channels,
+                    dtype=np.float32,
+                    device=candidate,
+                    callback=callback,
+                    # VAD-001: request 512-sample blocks for Silero VAD
+                    blocksize=512,
+                    # AUDIO-HOT: finished_callback detects unexpected stream termination
+                    finished_callback=self._stream_finished_callback,
+                )
+                stream.start()
+            except Exception as e:
+                last_error = e
+                log.warning(
+                    "[RECORDING] Fallback device [%s] also failed: %s",
+                    candidate,
+                    e,
+                )
+                if stream is not None:
+                    with contextlib.suppress(Exception):
+                        stream.close()
+                continue
+
+            self._stream = stream
+            # ARCH-021: guard _effective_sr writes with the lock.
+            with self._lock:
+                self._effective_sr = candidate_sr
+            selected_device = candidate
+            effective_sr = candidate_sr
+            used_fallback = True
+            # RW-6 (pyrefly): ``dev_info_extra`` is typed
+            # ``dict | None`` because ``_resolve_effective_sample_rate``
+            # may return None when PortAudio can't enumerate the
+            # device. The earlier ``if dev_info_extra:`` gate
+            # protects the first access (logging at line ~1505),
+            # but this post-success log was unguarded — calling
+            # ``["name"]`` on None would raise ``TypeError`` here
+            # after a *successful* stream open. Fall back to a
+            # placeholder so the log line still fires.
+            fb_name = dev_info_extra["name"] if dev_info_extra else "(unknown)"
+            log.info(
+                "[RECORDING] Fallback succeeded with device [%s] %s",
+                candidate,
+                fb_name,
+            )
+            break
+
+        return selected_device, effective_sr, used_fallback, last_error
+
+    def _resize_buffers_for_sample_rate(self, effective_sr: int, max_rec: int) -> None:
+        """Dynamically size the main buffer, ring buffer, and pre-roll deque.
+
+        ── dynamic buffer sizing (deferred from start() state reset) ──
+        Now that the device loop has finalized ``effective_sr`` (the
+        device's native sample rate, which may be 44.1/48kHz), size
+        both the main recording buffer and the pre-roll deque using
+        the ACTUAL chunk duration ``blocksize / effective_sr``.
+
+        previously the main buffer was sized against a stale
+        1024-sample/16kHz assumption (chunk_seconds=0.064). At 48kHz
+        with 512-sample blocks the real chunk_seconds is 512/48000 ≈
+        0.0107s, so 30000 default chunks only hold ~5.3 min — a
+        30-min dictation silently lost the first ~25 min via deque
+        maxlen eviction. We resize to ``int(max_rec / chunk_seconds)
+        + safety`` so the buffer can always hold the full configured
+        max_recording_time_seconds. Existing buffer contents (empty
+        at this point in start()) are preserved via list(deque).
+
+        the pre-roll deque was sized in __init__ using
+        ``config.sample_rate`` (16kHz). At 48kHz the same 1-second
+        pre-roll needs 3× the chunk capacity. Re-size here using
+        ``effective_sr`` so the pre-roll actually captures the
+        configured ``pre_roll_buffer_seconds``. Existing pre-roll
+        chunks already captured by the audio callback (between
+        stream.start() above and here) are preserved.
+        """
         blocksize = 512  # matches sd.InputStream blocksize below
-        # ``effective_sr`` is the local assigned in the device loop
-        # above (initialised to ``self.config.sample_rate`` at the top
-        # of the device-enumeration block and updated to ``candidate_sr``
-        # on every successful stream open). It is a local — not shared
-        # with the audio worker thread — so reading it here needs no
-        # lock. ``self._effective_sr`` (the instance attribute read by
-        # snapshot() under ``self._lock``) was set to the same value
-        # inside the device loop. We read the local because the resize
-        # math is start()-local and does not need to coordinate with
-        # concurrent snapshot() reads.
         sizing_sr = effective_sr if effective_sr > 0 else self.config.sample_rate
         if sizing_sr <= 0:
             sizing_sr = self.config.sample_rate
@@ -2455,45 +2395,24 @@ class Recorder:
                     current_preroll_maxlen,
                 )
 
-        if selected_device != device and isinstance(selected_device, int):
-            log.info(
-                "[RECORDING] Selected microphone [%s] failed; using device [%s]",
-                device,
-                selected_device,
-            )
-            self.config.microphone = str(selected_device)
-            # PERF-NEW-007: persist the microphone-fallback update on
-            # a background daemon thread so the 50-500 ms blocking
-            # write doesn't stall the recording-start critical path.
-            # The fallback is best-effort persistence — if the process
-            # crashes before the write lands, the user just re-selects
-            # the mic on next start.
+    def _prepend_preroll_to_buffer(self) -> None:
+        """Prepend captured pre-roll chunks to the main recording buffer.
 
-            def _persist_mic() -> None:
-                if not self.config.save():
-                    log.debug("[RECORDING] Could not persist microphone fallback")
+        AUDIO-PRE: prepend pre-roll buffer to reduce cold-start latency.
+        The pre-roll buffer captured audio before recording officially
+        started, so we insert it at the beginning of the main buffer.
+        R18-F12: route each pre-roll chunk through the audio filter
+        chain (``_audio_processor.process_chunk``) BEFORE prepending
+        to ``_buffer``. Pre-fix the raw pre-roll chunks bypassed the
+        filter chain, so the first ~300ms of a recording sounded
+        unfiltered (no RNNoise / no gate) before the live callback
+        path kicked in. Filtering here keeps the pre-roll amplitude
+        envelope consistent with the rest of the recording.
 
-            # use _spawn_device_thread so the persistence thread
-            # is registered with thread_registry (when available),
-            # allowing ``shutdown_all()`` to join it during process exit
-            # (preventing a half-written config file).
-            self._spawn_device_thread(
-                name="mic-fallback-save",
-                target=_persist_mic,
-            )
-
-        self._recording_event.set()
-
-        # AUDIO-PRE: prepend pre-roll buffer to reduce cold-start latency.
-        # The pre-roll buffer captured audio before recording officially
-        # started, so we insert it at the beginning of the main buffer.
-        # R18-F12: route each pre-roll chunk through the audio filter
-        # chain (``_audio_processor.process_chunk``) BEFORE prepending
-        # to ``_buffer``. Pre-fix the raw pre-roll chunks bypassed the
-        # filter chain, so the first ~300ms of a recording sounded
-        # unfiltered (no RNNoise / no gate) before the live callback
-        # path kicked in. Filtering here keeps the pre-roll amplitude
-        # envelope consistent with the rest of the recording.
+        After prepend, the pre-roll deque is zeroed and cleared so the
+        user's voice data does not linger in process memory for the
+        entire recording session (SEC-audit-008 privacy gap).
+        """
         if self._preroll_buffer:
             preroll_chunks = list(self._preroll_buffer)
             if preroll_chunks:
@@ -2537,6 +2456,151 @@ class Recorder:
                     if isinstance(_chunk, np.ndarray):
                         _chunk.fill(0)
                 self._preroll_buffer.clear()
+
+    def start(self) -> None:
+        """Start recording audio.
+
+        ARCH-023: reset ALL per-session state here, not just the buffer.
+        Previously some flags (_max_duration_warning_sent,
+        _silence_warning_sent, etc.) persisted across recordings,
+        causing stale state to suppress warnings on the next session.
+
+        ARCH-023 (revised): The dead ``_silence_warning_sent`` and
+        ``_max_duration_warning_sent`` boolean flags have been REMOVED.
+        They were declared and reset here but NEVER read in any
+        conditional — the actual silence-warning state machine uses
+        the integer counter ``_silence_warning_count`` (which IS read
+        at recording.py:1109). The dead flags were misleading
+        maintainers into thinking warning deduplication existed when
+        it didn't — see FORENSIC_REVIEW_COMPLETE.md → ARCH-023.
+
+        SEC-audit-008: ``_secure_clear_array`` is now actually used
+        here to zero cached audio arrays (``_cached_resampled`` and
+        ``_cached_no_resample_arr``) before they're dropped. This
+        prevents forensic recovery of audio data from process memory
+        between sessions.
+        """
+        # CR-16: serialize start() against concurrent discard() — see
+        # ARCH-023 lock-order rationale in review.md / git log.
+        with self._start_lock:
+            if self._recording_event.is_set():
+                return
+
+            # DE-4: pre-flight check that the OS reports microphone permission
+            # as granted (or prompt - the OS will show the consent dialog on
+            # first PortAudio open in that case). Raises
+            # ``MicrophonePermissionDeniedError`` (typed) when DENIED, so the
+            # IPC layer can ``isinstance``-check and surface the permission
+            # onboarding UI instead of a generic error toast.
+            from voice_typer.server import permissions as _permissions_module
+
+            _permissions_module.verify_microphone_accessible()
+
+        # SEC-audit-008 / CR-21 / G4-H-06: securely zero cached
+        # audio arrays before clearing. The cache-clearance block is
+        # extracted into ``_secure_clear_session_caches`` so the
+        # source-string regression test
+        # (``test_recorder_start_except_clause_does_not_swallow_nameerror``)
+        # can pin the narrowed handler clause at the helper-method
+        # granularity. See the helper's docstring for the full rationale.
+        self._secure_clear_session_caches()
+
+        # ── per-session state reset (ARCH-023) ──
+        self._reset_session_state()
+
+        # ── cache config-derived scalars for the audio callback hot path ──
+        max_rec = self._cache_session_config()
+
+        device = self._resolve_device()
+        candidates = self._same_physical_microphone_candidates(device)
+
+        # ── build the PortAudio callback closure (RT-SAFE-001) ──
+        callback = self._build_audio_callback()
+
+        # =====================================================================
+        # CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
+        # =====================================================================
+        # The device-enumeration block below (last_error, selected_device,
+        # effective_sr, ``for candidate in candidates``, the fallback loop,
+        # and the ``if self._stream is None:`` check) MUST stay at start()
+        # method scope — this 8-space indent level, OUTSIDE the ``callback``
+        # closure defined above.
+        #
+        # A previous merge accidentally nested this block INSIDE the
+        # ``def callback()`` closure (12-space indent). That made
+        # ``last_error`` a local of ``callback``, not ``start()``. When
+        # ``start()`` checked ``if last_error is not None:``, Python raised:
+        #     UnboundLocalError: cannot access local variable 'last_error'
+        #     where it is not associated with a value
+        # → recording start crashed on every attempt.
+        #
+        # The fallback loop (``for candidate in all_candidates``) was also
+        # misplaced — trapped inside the preroll-buffer block instead of
+        # ``if self._stream is None and not used_fallback:``.
+        #
+        # DO NOT move device enumeration inside the callback closure.
+        # The device-loop bodies are now extracted into
+        # ``_open_stream_for_candidates`` / ``_open_stream_fallback`` (both
+        # called from ``start()`` method scope, OUTSIDE the callback closure),
+        # so the structural contract above is preserved.
+        # DO NOT re-add ``set_thread_registry`` — it was merge damage, not
+        # in the original codebase, and referenced a function that did not
+        # exist. The ``recording/__init__.py`` stub for it is dead code.
+        # =====================================================================
+        last_error: Exception | None = None
+        selected_device: Any = None
+        effective_sr: int = self.config.sample_rate
+        used_fallback = False
+
+        selected_device, effective_sr, last_error = self._open_stream_for_candidates(
+            candidates, callback, effective_sr, last_error
+        )
+
+        # If all same-name candidates failed, try ALL available input devices
+        if self._stream is None and not used_fallback:
+            selected_device, effective_sr, used_fallback, last_error = self._open_stream_fallback(
+                candidates, callback, effective_sr, last_error
+            )
+
+        if self._stream is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No input device could be opened")
+
+        # ── dynamic buffer sizing (deferred until effective_sr known) ──
+        self._resize_buffers_for_sample_rate(effective_sr, max_rec)
+
+        if selected_device != device and isinstance(selected_device, int):
+            log.info(
+                "[RECORDING] Selected microphone [%s] failed; using device [%s]",
+                device,
+                selected_device,
+            )
+            self.config.microphone = str(selected_device)
+            # PERF-NEW-007: persist the microphone-fallback update on
+            # a background daemon thread so the 50-500 ms blocking
+            # write doesn't stall the recording-start critical path.
+            # The fallback is best-effort persistence — if the process
+            # crashes before the write lands, the user just re-selects
+            # the mic on next start.
+
+            def _persist_mic() -> None:
+                if not self.config.save():
+                    log.debug("[RECORDING] Could not persist microphone fallback")
+
+            # use _spawn_device_thread so the persistence thread
+            # is registered with thread_registry (when available),
+            # allowing ``shutdown_all()`` to join it during process exit
+            # (preventing a half-written config file).
+            self._spawn_device_thread(
+                name="mic-fallback-save",
+                target=_persist_mic,
+            )
+
+        self._recording_event.set()
+
+        # AUDIO-PRE: prepend pre-roll buffer to reduce cold-start latency.
+        self._prepend_preroll_to_buffer()
 
         target_sr = self.config.sample_rate
         if (
@@ -3191,143 +3255,106 @@ class Recorder:
         # a fast atomic operation — safe to call from the RT thread.
         self._worker_wake_event.set()
 
-    def _process_audio_chunk(
-        self,
-        indata: np.ndarray,
-        frames: int,
-        time_info: Any,
-        status: Any,
-        perf_ts: float,
-    ) -> None:
-        """Process a single audio chunk — runs on the worker thread.
+    def _detect_device_disconnect(self, indata: np.ndarray) -> bool:
+        """Detect a USB/BT device disconnect via zero-filled input (HOTKEY-CRASH).
 
-        This method contains the heavy processing pipeline that was
-        previously in the PortAudio callback (``_callback_impl``). It
-        is called by ``_audio_worker_loop`` for each chunk popped from
-        the ring buffer.
+        Returns ``True`` if a disconnect was detected and the worker
+        thread should skip the rest of ``_process_audio_chunk`` for this
+        chunk (the chunk is either a deliberate stop draining zeros, or
+        a real disconnect that has been scheduled for handler-thread
+        recovery). Returns ``False`` when the chunk is normal non-zero
+        audio that should continue through the processing pipeline.
 
-        Operations (in order):
-        - HOTKEY-CRASH: device disconnect detection (zero-fill + periodic)
-        - AUDIO-002: XRUN status flag handling + on_xrun_threshold callback
-        - AUDIO-CH: mono conversion
-        - AUDIO-PROC: filter chain application
-        - Buffer append + chunk count + backpressure detection
-        - RMS / peak computation
-        - AUDIO-CLIP: clipping detection + IPC event push
-        - AUDIO-014: VAD auto-calibration
-        - AUDIO-013: Silero VAD probability (with resample to 16kHz)
-        - AUDIO-013: VAD state machine + silence timer
-        - H12: silence warning / auto-stop / max-duration callbacks
-        - T021: on_rms_level callback (filtered chunk forwarded)
-        - Telemetry logs
+        HOTKEY-CRASH: detect device disconnect (zero-filled indata
+        when device is still "open" but USB/BT was unplugged).
+        Guard against false positives during rapid hotkey toggling:
+        when stop() clears _recording_event, PortAudio may deliver
+        zero-filled frames as the stream drains. We must NOT treat
+        those as device disconnects, because _handle_device_disconnect
+        would race with the deliberate stop() to close the stream.
 
-        All of this previously ran on the real-time audio thread,
-        violating the ~32ms deadline (scipy resample + Silero VAD can
-        take 5-50ms combined). Moving it to the worker thread restores
-        real-time safety.
+        Low: use ``not np.any(indata)`` instead of
+        ``np.count_nonzero(indata) == 0``. ``np.any`` short-circuits
+        at the first non-zero element (O(1) for the common non-zero
+        case), while ``np.count_nonzero`` always scans all 512 samples
+        (O(N) per chunk × 16 Hz = 8192 sample-scans/sec). The two are
+        semantically equivalent: both return True iff every element is
+        zero. Preserves the early-return semantics.
         """
-        # HOTKEY-CRASH: detect device disconnect (zero-filled indata
-        # when device is still "open" but USB/BT was unplugged).
-        # Guard against false positives during rapid hotkey toggling:
-        # when stop() clears _recording_event, PortAudio may deliver
-        # zero-filled frames as the stream drains. We must NOT treat
-        # those as device disconnects, because _handle_device_disconnect
-        # would race with the deliberate stop() to close the stream.
+        if not ((indata.size == 0 or not np.any(indata)) and self._chunk_count > 10):
+            return False
+        # RW-7: re-entrancy guard — if a previous chunk already
+        # detected the disconnect and scheduled a handler thread,
+        # don't spawn another. Pre-fix, every subsequent zero-filled
+        # chunk would re-enter this block, set the flag again
+        # (no-op), and spawn ANOTHER device-disconnect-handler
+        # thread — a thread-spawn storm on truly silent (or
+        # disconnected) input. With 100 zero-filled callbacks after
+        # the warmup window, this would spawn ~89 threads.
         #
-        # Low: use ``not np.any(indata)`` instead of
-        # ``np.count_nonzero(indata) == 0``. ``np.any`` short-circuits
-        # at the first non-zero element (O(1) for the common non-zero
-        # case), while ``np.count_nonzero`` always scans all 512 samples
-        # (O(N) per chunk × 16 Hz = 8192 sample-scans/sec). The two are
-        # semantically equivalent: both return True iff every element is
-        # zero. Preserves the early-return semantics.
-        if (indata.size == 0 or not np.any(indata)) and self._chunk_count > 10:
-            # RW-7: re-entrancy guard — if a previous chunk already
-            # detected the disconnect and scheduled a handler thread,
-            # don't spawn another. Pre-fix, every subsequent zero-filled
-            # chunk would re-enter this block, set the flag again
-            # (no-op), and spawn ANOTHER device-disconnect-handler
-            # thread — a thread-spawn storm on truly silent (or
-            # disconnected) input. With 100 zero-filled callbacks after
-            # the warmup window, this would spawn ~89 threads.
-            #
-            # The flag is cleared by _handle_device_disconnect on
-            # successful stream restart (see line ~804) and by start()
-            # (see line ~1253), so this guard only suppresses the storm
-            # during the retry window — it does NOT suppress a
-            # legitimate re-detection after a successful restart.
-            #
-            # Silence tracking (vad_state / silence_timer /
-            # on_silence_warning) is unaffected: those run later in
-            # this method for NON-zero chunks. For zero-filled chunks
-            # the existing `return` below already skipped them; this
-            # guard just ensures we don't ALSO spawn a handler thread
-            # on every such chunk.
-            if self._device_disconnected:
-                return
-            # HOTKEY-CRASH: double-check that recording is still active.
-            # The early-return check in the callback passed, but stop()
-            # may have cleared _recording_event between that check and
-            # this point (the callback and worker run on different
-            # threads, so the Event flag change is visible immediately).
-            if not self._recording_event.is_set():
-                return  # deliberate stop, not a disconnect
-            self._device_disconnected = True
-            # New disconnect cycle — clear the single-flight guard so a
-            # fresh handler can spawn even if a prior handler hasn't
-            # fully exited yet (e.g. test simulating restart by clearing
-            # _device_disconnected, then sending another zero chunk).
-            self._disconnect_handler_running = False
-            log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
-            # Schedule disconnect handling off the worker thread
-            # HOTKEY-CRASH: capture the current stop_generation so the
-            # handler can bail if a stop/start cycle happened in between.
-            _captured_gen = self._stop_generation
-            # use _spawn_device_thread so the handler is
-            # registered with thread_registry (when available) and
-            # single-flight guarded so a flapping device can't spawn
-            # multiple concurrent handlers.
-            self._spawn_device_thread(
-                name="device-disconnect-handler",
-                target=self._handle_device_disconnect,
-                kwargs={"_captured_generation": _captured_gen},
-                single_flight=True,
-            )
-            return
+        # The flag is cleared by _handle_device_disconnect on
+        # successful stream restart and by start(), so this guard
+        # only suppresses the storm during the retry window — it
+        # does NOT suppress a legitimate re-detection after a
+        # successful restart.
+        if self._device_disconnected:
+            return True
+        # HOTKEY-CRASH: double-check that recording is still active.
+        # The early-return check in the callback passed, but stop()
+        # may have cleared _recording_event between that check and
+        # this point (the callback and worker run on different
+        # threads, so the Event flag change is visible immediately).
+        if not self._recording_event.is_set():
+            return True  # deliberate stop, not a disconnect
+        self._device_disconnected = True
+        # New disconnect cycle — clear the single-flight guard so a
+        # fresh handler can spawn even if a prior handler hasn't
+        # fully exited yet (e.g. test simulating restart by clearing
+        # _device_disconnected, then sending another zero chunk).
+        self._disconnect_handler_running = False
+        log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
+        # Schedule disconnect handling off the worker thread
+        # HOTKEY-CRASH: capture the current stop_generation so the
+        # handler can bail if a stop/start cycle happened in between.
+        _captured_gen = self._stop_generation
+        # use _spawn_device_thread so the handler is
+        # registered with thread_registry (when available) and
+        # single-flight guarded so a flapping device can't spawn
+        # multiple concurrent handlers.
+        self._spawn_device_thread(
+            name="device-disconnect-handler",
+            target=self._handle_device_disconnect,
+            kwargs={"_captured_generation": _captured_gen},
+            single_flight=True,
+        )
+        return True
 
-        # AUDIO-2: the per-N-chunks blocking ``sd.query_devices()``
-        # probe on the audio worker thread was removed — it is fully
-        # redundant with ``_device_health_checker_loop`` (a dedicated
-        # daemon thread that wakes every ``_device_check_interval_s``
-        # and runs the same ``sd.query_devices(current_device)`` probe
-        # with the same disconnect-handling logic). Running the probe
-        # here cost a blocking RPC on the audio hot path every ~500
-        # chunks; the health-checker thread covers the case off the
-        # hot path. See ``_device_health_checker_loop`` and
-        # ``_start_device_health_checker``.
+    def _handle_xrun_status(self, status: Any) -> bool:
+        """Inspect the PortAudio ``status`` for an input-overflow XRUN.
 
-        # NOTE: Dead-air timeout was REMOVED in RW-0.
-        # Redundant with stop_on_silence_seconds (auto-stop already resets on
-        # speech). The _update_dead_air_simple() method was also removed along
-        # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
-        # Do NOT re-add — it added no unique behavior.
+        Returns ``True`` if an XRUN was detected and the chunk should be
+        dropped (the in-flight chunk is partially stale — appending it
+        to ``_buffer`` would corrupt the transcriber's input with a
+        discontinuity). Returns ``False`` for clean status so the
+        processing pipeline continues.
 
-        # AUDIO-002: Check PortAudio status flags for XRUNs.
-        # Use a rolling window of xrun timestamps to reduce log spam
-        # while still alerting on sustained issues.
-        # Low: ``if status:`` is True for ANY set flag, including
-        # ``priming_output`` which fires on the first callback after
-        # every stream start (PortAudio is priming buffers — NOT an
-        # xrun). Pre-fix, this over-counted ``_xruns`` by 1 on every
-        # ``start()``. Narrow to ``status.input_overflow`` which is the
-        # real xrun flag for input streams.
-        # R18-F13: also accept a raw integer status whose bit 1
-        # (``paInputOverflow == 2`` in PortAudio's flag enum) is set —
-        # tests pass ``status=2`` to simulate a CallbackFlags object
-        # without constructing one. ``sounddevice.CallbackFlags`` is a
-        # subclass of ``int``, so this also covers the case where the
-        # flag object is passed but its ``.input_overflow`` attribute
-        # lookup is bypassed.
+        AUDIO-002: Check PortAudio status flags for XRUNs.
+        Use a rolling window of xrun timestamps to reduce log spam
+        while still alerting on sustained issues.
+        Low: ``if status:`` is True for ANY set flag, including
+        ``priming_output`` which fires on the first callback after
+        every stream start (PortAudio is priming buffers — NOT an
+        xrun). Pre-fix, this over-counted ``_xruns`` by 1 on every
+        ``start()``. Narrow to ``status.input_overflow`` which is the
+        real xrun flag for input streams.
+        R18-F13: also accept a raw integer status whose bit 1
+        (``paInputOverflow == 2`` in PortAudio's flag enum) is set —
+        tests pass ``status=2`` to simulate a CallbackFlags object
+        without constructing one. ``sounddevice.CallbackFlags`` is a
+        subclass of ``int``, so this also covers the case where the
+        flag object is passed but its ``.input_overflow`` attribute
+        lookup is bypassed.
+        """
         _xrun_overflow = False
         if status:
             _overflow_attr = getattr(status, "input_overflow", None)
@@ -3336,60 +3363,67 @@ class Recorder:
             elif _overflow_attr is None and isinstance(status, int):
                 # PortAudio paInputOverflow = bit 1 (value 2).
                 _xrun_overflow = bool(status & 2)
-        if _xrun_overflow:
-            self._xruns += 1
-            now = time.monotonic()
-            self._xrun_timestamps.append(now)
-            # AUDIO-002: check rolling window — only log if threshold
-            # exceeded within the alert period
-            window_start = now - _XRUN_ALERT_PERIOD
-            recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
-            if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
-                log.warning(
-                    "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
-                    status,
-                    self._xruns,
-                    recent_count,
-                    _XRUN_ALERT_PERIOD,
-                )
-            # Item 1: fire threshold callback for tray notification
-            # Low: use ``%`` instead of ``==`` so the callback
-            # fires every N xruns (not just once at exactly N). Pre-fix,
-            # ``==`` fired EXACTLY ONCE per session — when ``_xruns``
-            # incremented from 9 to 10 — and never again. A user with
-            # 100+ xruns saw 1 notification then nothing.
-            if self._xruns % self._xrun_threshold == 0 and self.on_xrun_threshold:
-                with contextlib.suppress(Exception):
-                    self.on_xrun_threshold(self._xruns)
-            # R18-F13: drop the partial chunk on xrun status. PortAudio
-            # reports ``input_overflow`` when the callback couldn't keep
-            # up — the in-flight chunk is partially stale (the backend
-            # overwrote a portion of the buffer before the callback
-            # copied it out). Appending it to ``_buffer`` would corrupt
-            # the transcriber's input with a discontinuity. Return here
-            # so the chunk is discarded; the next clean chunk resumes
-            # normal buffering. ``_xruns`` was already incremented above
-            # so telemetry still reflects the drop.
-            return
+        if not _xrun_overflow:
+            return False
+        self._xruns += 1
+        now = time.monotonic()
+        self._xrun_timestamps.append(now)
+        # AUDIO-002: check rolling window — only log if threshold
+        # exceeded within the alert period
+        window_start = now - _XRUN_ALERT_PERIOD
+        recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
+        if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
+            log.warning(
+                "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
+                status,
+                self._xruns,
+                recent_count,
+                _XRUN_ALERT_PERIOD,
+            )
+        # Item 1: fire threshold callback for tray notification
+        # Low: use ``%`` instead of ``==`` so the callback
+        # fires every N xruns (not just once at exactly N). Pre-fix,
+        # ``==`` fired EXACTLY ONCE per session — when ``_xruns``
+        # incremented from 9 to 10 — and never again. A user with
+        # 100+ xruns saw 1 notification then nothing.
+        if self._xruns % self._xrun_threshold == 0 and self.on_xrun_threshold:
+            with contextlib.suppress(Exception):
+                self.on_xrun_threshold(self._xruns)
+        # R18-F13: drop the partial chunk on xrun status. PortAudio
+        # reports ``input_overflow`` when the callback couldn't keep
+        # up — the in-flight chunk is partially stale (the backend
+        # overwrote a portion of the buffer before the callback
+        # copied it out). Appending it to ``_buffer`` would corrupt
+        # the transcriber's input with a discontinuity. Return here
+        # so the chunk is discarded; the next clean chunk resumes
+        # normal buffering. ``_xruns`` was already incremented above
+        # so telemetry still reflects the drop.
+        return True
 
-        # RT-SAFE-001: the old PERF-011 frame-skip logic
-        # (_previous_chunk_pending) is replaced by ring buffer overflow
-        # detection in the callback. If the ring buffer was full, the
-        # callback already logged a warning and dropped the chunk. By
-        # the time we reach here, the chunk is in the ring buffer and
-        # we must process it.
+    def _apply_filter_chain(self, indata: np.ndarray) -> np.ndarray:
+        """Convert multi-channel input to mono and apply the real-time filter chain.
 
-        # AUDIO-CH: convert multi-channel input to mono
+        AUDIO-CH: convert multi-channel input to mono via
+        :meth:`_ensure_mono`.
+
+        AUDIO-PROC: apply real-time noise filtering BEFORE the
+        buffer append so (a) `filtered` is defined when we use it
+        inside the lock, and (b) the stored audio, silence
+        detection, and waveform bubble all see the cleaned signal
+        that the transcriber will receive.  This runs OUTSIDE the
+        lock — process_chunk() is non-blocking and operates only
+        on the local `indata` copy.  See recording.py callback
+        ordering in the auto-volume-duck architecture doc §6.4.
+
+        Also updates ``self._buffer_sr`` to track the post-filter
+        sample rate so :meth:`stop` / :meth:`snapshot` know whether
+        to resample again. Pre-fix, ``_buffer_sr`` was never set, so
+        ``stop()`` read ``_effective_sr`` (the device's 48 kHz) and
+        the subsequent ``resample_poly(audio, 1, 3)`` decimated the
+        16 kHz audio 3:1 → chipmunk-pitched garbage on every non-16
+        kHz mic.
+        """
         indata_mono = self._ensure_mono(indata)
-
-        # AUDIO-PROC: apply real-time noise filtering BEFORE the
-        # buffer append so (a) `filtered` is defined when we use it
-        # inside the lock, and (b) the stored audio, silence
-        # detection, and waveform bubble all see the cleaned signal
-        # that the transcriber will receive.  This runs OUTSIDE the
-        # lock — process_chunk() is non-blocking and operates only
-        # on the local `indata` copy.  See recording.py callback
-        # ordering in the auto-volume-duck architecture doc §6.4.
         if self._audio_processor is not None:
             # CRIT-6: pass the stream's native rate so the processor can
             # resample to the chain's construction rate (16 kHz) before
@@ -3402,11 +3436,7 @@ class Recorder:
             # filtering, so the audio appended to ``_buffer`` is at the
             # processor's rate — NOT the device's native rate. Track this
             # so ``stop()`` / ``snapshot()`` use the correct source rate
-            # when deciding whether to resample again. Pre-fix,
-            # ``_buffer_sr`` was never set, so ``stop()`` read
-            # ``_effective_sr`` (the device's 48 kHz) and the subsequent
-            # ``resample_poly(audio, 1, 3)`` decimated the 16 kHz audio
-            # 3:1 → chipmunk-pitched garbage on every non-16 kHz mic.
+            # when deciding whether to resample again.
             proc_sr = getattr(self._audio_processor, "_sample_rate", None)
             self._buffer_sr = int(proc_sr) if proc_sr is not None else self._effective_sr
         else:
@@ -3415,14 +3445,22 @@ class Recorder:
             # the buffer holds audio at the device's native rate. Track
             # this so ``stop()`` / ``snapshot()`` skip the resample.
             self._buffer_sr = self._effective_sr
+        return filtered
 
-        # RACE-001: minimize lock scope — only buffer append and
-        # counter need atomicity. Callback refs and silence state
-        # are read outside the lock — these are set once at start()
-        # and cleared at stop(), so a torn read just means we miss
-        # one callback or fire one extra, which is acceptable. The
-        # alternative (holding the lock while calling user code)
-        # risks deadlocks.
+    def _append_to_buffer_locked(self, filtered: np.ndarray) -> tuple[int, int]:
+        """Append ``filtered`` to ``_buffer`` under the lock; return ``(chunk_count, buffer_len)``.
+
+        RACE-001: minimize lock scope — only buffer append and
+        counter need atomicity. Callback refs and silence state
+        are read outside the lock — these are set once at start()
+        and cleared at stop(), so a torn read just means we miss
+        one callback or fire one extra, which is acceptable. The
+        alternative (holding the lock while calling user code)
+        risks deadlocks.
+
+        AUDIO-019: Backpressure detection — if the deque dropped chunks
+        (maxlen exceeded), increment a counter and warn the user.
+        """
         with self._lock:
             # Store FILTERED audio so the transcriber receives the
             # cleaned signal. PERF-12: ``filtered`` is already an
@@ -3441,18 +3479,6 @@ class Recorder:
             self._chunk_count += 1
             chunk_count = self._chunk_count
             buffer_len = len(self._buffer)
-            # RACE-003 (historical): the lock scope below covers only
-            # ``self._buffer.append`` + ``self._chunk_count`` (the
-            # producer-side mutation that a concurrent snapshot() reader
-            # would otherwise observe mid-update). PVT-27: the previous
-            # ``recent_rms_snapshot = list(self._recent_rms_values)``
-            # line was dead — its only consumer (``recent_rms =
-            # recent_rms_snapshot`` outside the lock) was itself a dead
-            # alias that nothing ever read (the live rolling-RMS
-            # consumer is ``self._recent_rms_values.append(chunk_rms)``
-            # at the bottom of this method, which writes to the deque
-            # directly). Both lines were removed; the snapshot allocated
-            # ~800 wasted ``list()`` copies/s at 16 Hz.
 
         # AUDIO-019: Backpressure detection — if the deque dropped chunks
         # (maxlen exceeded), increment a counter and warn the user
@@ -3463,28 +3489,17 @@ class Recorder:
                     "[RECORDING] Buffer full — oldest audio dropped (total=%d). ASR is slower than real-time.",
                     self._dropped_chunks,
                 )
+        return chunk_count, buffer_len
 
-        # Read callback refs outside the lock — these are set once
-        # at start() and cleared at stop(), so a torn read just
-        # means we miss one callback or fire one extra, which is
-        # acceptable. The alternative (holding the lock while
-        # calling user code) risks deadlocks.
-        rms_callback = self.on_rms_level
-        silence_warning_cb = self.on_silence_warning
-        silence_auto_stop_cb = self.on_silence_auto_stop
-        max_duration_cb = self.on_max_duration_auto_stop
-        # PVT-27: the dead ``recent_rms = recent_rms_snapshot`` alias
-        # was removed (its only writer, the snapshot inside the lock
-        # above, was also dead — see the RACE-003 note above).
-        recording_start = self._recording_start_time
+    def _compute_rms_and_peak(self, filtered: np.ndarray) -> tuple[float, float, float]:
+        """Compute ``(chunk_rms, chunk_peak, chunk_duration)`` for the filtered chunk.
 
-        # ── Everything below runs OUTSIDE the lock ──
-
-        # RMS / peak computation (operates on FILTERED audio so the
-        # waveform bubble and silence detection see what the
-        # transcriber will see, not raw mic input).
-        # AUDIO-NP: use np.dot instead of np.mean(indata**2) to
-        # avoid the intermediate squared array allocation.
+        RMS / peak computation (operates on FILTERED audio so the
+        waveform bubble and silence detection see what the
+        transcriber will see, not raw mic input).
+        AUDIO-NP: use np.dot instead of np.mean(indata**2) to
+        avoid the intermediate squared array allocation.
+        """
         if filtered.size:
             # AUDIO-NP: single-pass RMS using np.dot — avoids
             # creating the intermediate abs_filtered**2 array.
@@ -3499,35 +3514,35 @@ class Recorder:
             chunk_peak = 0.0
             chunk_rms = 0.0
         chunk_duration = len(filtered) / self._effective_sr
+        return chunk_rms, chunk_peak, chunk_duration
 
-        # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
-        # has been removed. It duplicated the Compressor filter in
-        # the new audio filter chain. The Compressor now handles
-        # dynamic range compression with proper attack/release.
-        # _last_rms stores the post-filter RMS for UI/IPC.
+    def _run_vad_state_machine(
+        self,
+        filtered: np.ndarray,
+        chunk_rms: float,
+        chunk_duration: float,
+        perf_ts: float,
+        chunk_count: int,
+        buffer_len: int,
+        recording_start: float,
+        silence_warning_cb: Any,
+        silence_auto_stop_cb: Any,
+        max_duration_cb: Any,
+    ) -> None:
+        """Run the VAD state machine + silence/max-duration auto-stop callbacks.
 
-        with self._lock:
-            self._last_rms = chunk_rms
+        AUDIO-014: auto-calibrate VAD thresholds from ambient noise.
+        AUDIO-013: Silero VAD probability (with resample to 16kHz).
+        AUDIO-013: VAD state machine + silence timer.
+        H12: silence warning / auto-stop / max-duration callbacks.
 
-        # AUDIO-CLIP: Track clipping + push IPC event (delegated to a
-        # dedicated helper so the clipping-detection logic is testable
-        # in isolation and the heavy ``_process_audio_chunk`` body
-        # stays readable).
-        self._detect_and_emit_clipping(chunk_peak)
-
-        # AUDIO-3 / PERF-11: append to the live deque (atomic under
-        # GIL — ``deque.append`` is a single C-level op with no torn
-        # state). PVT-27: the historical "Pre-fix this wrote to
-        # ``recent_rms`` (the snapshot list taken inside the lock
-        # above), which was a dead write — the snapshot is never read
-        # after this point" comment referred to a now-removed snapshot;
-        # the dead snapshot/alias pair was deleted (see the RACE-003
-        # note above the lock). The live rolling-RMS consumer is this
-        # ``self._recent_rms_values.append(chunk_rms)`` call, which
-        # future code (e.g. waveform bubble, VAD auto-calibration) can
-        # read via ``self._recent_rms_values`` under the same lock.
-        self._recent_rms_values.append(chunk_rms)
-
+        The callback refs (``silence_warning_cb`` etc.) are passed in
+        explicitly because they were already snapshotted outside the
+        lock by the caller — re-reading them from ``self`` here would
+        be a second torn read with no consistency guarantee. The
+        RMS callback (``on_rms_level``) is fired separately by the
+        caller after this method returns.
+        """
         # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
         self._vad_auto_calibrate(chunk_rms, chunk_duration)
 
@@ -3657,6 +3672,139 @@ class Recorder:
                 chunk_count,
                 buffer_len,
             )
+
+    def _process_audio_chunk(
+        self,
+        indata: np.ndarray,
+        frames: int,
+        time_info: Any,
+        status: Any,
+        perf_ts: float,
+    ) -> None:
+        """Process a single audio chunk — runs on the worker thread.
+
+        This method contains the heavy processing pipeline that was
+        previously in the PortAudio callback (``_callback_impl``). It
+        is called by ``_audio_worker_loop`` for each chunk popped from
+        the ring buffer.
+
+        Operations (in order):
+        - HOTKEY-CRASH: device disconnect detection (zero-fill + periodic)
+        - AUDIO-002: XRUN status flag handling + on_xrun_threshold callback
+        - AUDIO-CH: mono conversion
+        - AUDIO-PROC: filter chain application
+        - Buffer append + chunk count + backpressure detection
+        - RMS / peak computation
+        - AUDIO-CLIP: clipping detection + IPC event push
+        - AUDIO-014: VAD auto-calibration
+        - AUDIO-013: Silero VAD probability (with resample to 16kHz)
+        - AUDIO-013: VAD state machine + silence timer
+        - H12: silence warning / auto-stop / max-duration callbacks
+        - T021: on_rms_level callback (filtered chunk forwarded)
+        - Telemetry logs
+
+        All of this previously ran on the real-time audio thread,
+        violating the ~32ms deadline (scipy resample + Silero VAD can
+        take 5-50ms combined). Moving it to the worker thread restores
+        real-time safety.
+        """
+        # HOTKEY-CRASH: device disconnect detection (early return path).
+        if self._detect_device_disconnect(indata):
+            return
+
+        # AUDIO-2: the per-N-chunks blocking ``sd.query_devices()``
+        # probe on the audio worker thread was removed — it is fully
+        # redundant with ``_device_health_checker_loop`` (a dedicated
+        # daemon thread that wakes every ``_device_check_interval_s``
+        # and runs the same ``sd.query_devices(current_device)`` probe
+        # with the same disconnect-handling logic). Running the probe
+        # here cost a blocking RPC on the audio hot path every ~500
+        # chunks; the health-checker thread covers the case off the
+        # hot path. See ``_device_health_checker_loop`` and
+        # ``_start_device_health_checker``.
+
+        # NOTE: Dead-air timeout was REMOVED in RW-0.
+        # Redundant with stop_on_silence_seconds (auto-stop already resets on
+        # speech). The _update_dead_air_simple() method was also removed along
+        # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
+        # Do NOT re-add — it added no unique behavior.
+
+        # AUDIO-002: XRUN status flag handling (early return path on overflow).
+        if self._handle_xrun_status(status):
+            return
+
+        # RT-SAFE-001: the old PERF-011 frame-skip logic
+        # (_previous_chunk_pending) is replaced by ring buffer overflow
+        # detection in the callback. If the ring buffer was full, the
+        # callback already logged a warning and dropped the chunk. By
+        # the time we reach here, the chunk is in the ring buffer and
+        # we must process it.
+
+        # AUDIO-CH + AUDIO-PROC: mono conversion + real-time noise filtering.
+        filtered = self._apply_filter_chain(indata)
+
+        # Buffer append + chunk count + backpressure detection.
+        chunk_count, buffer_len = self._append_to_buffer_locked(filtered)
+
+        # Read callback refs outside the lock — these are set once
+        # at start() and cleared at stop(), so a torn read just
+        # means we miss one callback or fire one extra, which is
+        # acceptable. The alternative (holding the lock while
+        # calling user code) risks deadlocks.
+        rms_callback = self.on_rms_level
+        silence_warning_cb = self.on_silence_warning
+        silence_auto_stop_cb = self.on_silence_auto_stop
+        max_duration_cb = self.on_max_duration_auto_stop
+        # PVT-27: the dead ``recent_rms = recent_rms_snapshot`` alias
+        # was removed (its only writer, the snapshot inside the lock
+        # above, was also dead — see the RACE-003 note above).
+        recording_start = self._recording_start_time
+
+        # ── Everything below runs OUTSIDE the lock ──
+
+        # RMS / peak / chunk-duration computation (operates on FILTERED
+        # audio so the waveform bubble and silence detection see what
+        # the transcriber will see, not raw mic input).
+        chunk_rms, chunk_peak, chunk_duration = self._compute_rms_and_peak(filtered)
+
+        # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
+        # has been removed. It duplicated the Compressor filter in
+        # the new audio filter chain. The Compressor now handles
+        # dynamic range compression with proper attack/release.
+        # _last_rms stores the post-filter RMS for UI/IPC.
+
+        with self._lock:
+            self._last_rms = chunk_rms
+
+        # AUDIO-CLIP: Track clipping + push IPC event (delegated to a
+        # dedicated helper so the clipping-detection logic is testable
+        # in isolation and the heavy ``_process_audio_chunk`` body
+        # stays readable).
+        self._detect_and_emit_clipping(chunk_peak)
+
+        # AUDIO-3 / PERF-11: append to the live deque (atomic under
+        # GIL — ``deque.append`` is a single C-level op with no torn
+        # state). The live rolling-RMS consumer is this
+        # ``self._recent_rms_values.append(chunk_rms)`` call, which
+        # future code (e.g. waveform bubble, VAD auto-calibration) can
+        # read via ``self._recent_rms_values`` under the same lock.
+        self._recent_rms_values.append(chunk_rms)
+
+        # AUDIO-014 + AUDIO-013 + H12: VAD auto-calibration + Silero
+        # VAD probability + VAD state machine + silence/max-duration
+        # auto-stop callbacks + telemetry logs.
+        self._run_vad_state_machine(
+            filtered,
+            chunk_rms,
+            chunk_duration,
+            perf_ts,
+            chunk_count,
+            buffer_len,
+            recording_start,
+            silence_warning_cb,
+            silence_auto_stop_cb,
+            max_duration_cb,
+        )
 
         # Fire RMS callback OUTSIDE the lock.
         # G4-L-04: the ``audio_chunk`` parameter was REMOVED from the
