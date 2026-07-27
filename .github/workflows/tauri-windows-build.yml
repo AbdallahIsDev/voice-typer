@@ -266,10 +266,15 @@ jobs:
           } elseif (Test-Path $ct2Dir) {
             $dataDirFlag = @("--include-data-dir=$ct2Dir=ctranslate2")
           }
+          # S4-CR-25 / nu-opt-1: psutil imports ALL platform submodules
+          # (_pslinux, _psosx, _psbsd, _pssunos, _psaix) at the module
+          # root — Nuitka compiles ALL of them on every OS, wasting hours.
+          # These are conditionally imported at runtime via sys.platform
+          # guards; exclude the non-Windows ones to save ~15 min of C
+          # compilation. Also removed deprecated --enable-plugin=numpy.
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
@@ -283,6 +288,11 @@ jobs:
               --nofollow-import-to=PIL.ImageQt `
               --nofollow-import-to=numpy.distutils `
               --nofollow-import-to=numpy.f2py `
+              --nofollow-import-to=psutil._pslinux `
+              --nofollow-import-to=psutil._psosx `
+              --nofollow-import-to=psutil._psbsd `
+              --nofollow-import-to=psutil._pssunos `
+              --nofollow-import-to=psutil._psaix `
               --include-package=faster_whisper `
               --include-package=ctranslate2 `
               --include-package=voice_typer `
@@ -305,36 +315,39 @@ jobs:
         run: |
           $env:CLCACHE_DISABLE = "1"
           $PYBS = $env:PYBS
-          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
-          $ct2Dir = "$SITE\ctranslate2"
-          $dataDirFlag = @()
-          if (Test-Path "$ct2Dir\lib") {
-            $dataDirFlag = @("--include-data-dir=$ct2Dir\lib=ctranslate2/lib")
-          } elseif (Test-Path $ct2Dir) {
-            $dataDirFlag = @("--include-data-dir=$ct2Dir=ctranslate2")
-          }
+          # S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
+          # faster_whisper/ctranslate2 at runtime — it only calls
+          # importlib.util.find_spec() to locate their installed files for
+          # OS-cache warming, then reads file bytes directly. These heavy
+          # packages are still BUNDLED as bytecode (so find_spec works)
+          # but NOT compiled to C, saving ~90 min of compile time.
+          # Also removed deprecated --enable-plugin=numpy, removed
+          # --include-package=faster_whisper,ctranslate2 (not needed for
+          # find_spec — they're pulled in transitively via voice_typer),
+          # and added psutil platform-module exclusions.
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy `
-              --nofollow-import-to=torch._dynamo `
-              --nofollow-import-to=torch._inductor `
-              --nofollow-import-to=torch.export `
-              --nofollow-import-to=torch._functorch `
+              --nofollow-import-to=torch `
               --nofollow-import-to=transformers `
-              --nofollow-import-to=scipy._lib.cobyqa `
-              --nofollow-import-to=scipy._lib.array_api_extra.testing `
+              --nofollow-import-to=faster_whisper `
+              --nofollow-import-to=ctranslate2 `
+              --nofollow-import-to=sounddevice `
+              --nofollow-import-to=pystray `
+              --nofollow-import-to=pynput `
+              --nofollow-import-to=PIL `
+              --nofollow-import-to=scipy `
+              --nofollow-import-to=whisper `
+              --nofollow-import-to=psutil._pslinux `
+              --nofollow-import-to=psutil._psosx `
+              --nofollow-import-to=psutil._psbsd `
+              --nofollow-import-to=psutil._pssunos `
+              --nofollow-import-to=psutil._psaix `
               --nofollow-import-to=sympy `
               --nofollow-import-to=mpmath `
               --nofollow-import-to=pytest `
-              --nofollow-import-to=PIL.ImageQt `
-              --nofollow-import-to=numpy.distutils `
-              --nofollow-import-to=numpy.f2py `
-              --include-package=faster_whisper `
-              --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              $($dataDirFlag) `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `

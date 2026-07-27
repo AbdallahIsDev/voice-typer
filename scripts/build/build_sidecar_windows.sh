@@ -119,6 +119,12 @@ mkdir -p "$SIDECAR_DIR"
 # NOTE: --onefile-tempdir-spec uses Windows env var %LOCALAPPDATA%; Nuitka
 # expands it at runtime. The build runs on Windows so the var exists.
 #
+# S4-CR-25 / nu-opt-1: psutil imports ALL platform submodules (_pslinux,
+# _psosx, _psbsd, _pssunos, _psaix) at the module root — Nuitka compiles
+# ALL of them on every OS, wasting hours. These are conditionally imported
+# at runtime via sys.platform guards; exclude the non-Windows ones to save
+# ~15 min of C compilation. Also removed deprecated --enable-plugin=numpy.
+#
 # BUILD-2 / XPLAT-3 parity: ctranslate2/libs (plural) is OPTIONAL on Windows
 # — most Windows wheels ship everything under ctranslate2/lib (singular), but
 # GPU-enabled wheels may also have a libs/ dir with CUDA DLLs. Guard it to
@@ -128,7 +134,6 @@ CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
-    --enable-plugin=numpy
     --enable-plugin=anti-bloat
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
@@ -138,6 +143,11 @@ NUITKA_ARGS=(
     --nofollow-import-to=scipy._lib.array_api_extra.testing
     --nofollow-import-to=sympy
     --nofollow-import-to=mpmath
+    --nofollow-import-to=psutil._pslinux
+    --nofollow-import-to=psutil._psosx
+    --nofollow-import-to=psutil._psbsd
+    --nofollow-import-to=psutil._pssunos
+    --nofollow-import-to=psutil._psaix
     --include-package=faster_whisper
     --include-package=ctranslate2
     --include-package=voice_typer

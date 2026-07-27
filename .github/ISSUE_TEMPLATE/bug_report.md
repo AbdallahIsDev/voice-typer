@@ -37,7 +37,16 @@ What actually happened.
 ## Logs
 
 If applicable, paste relevant log output. The log file location is shown
-in the app's About/Diagnostics page (or check `~/.voice-typer/voice-typer.log`).
+in the app's About/Diagnostics page, or check the per-platform location:
+
+| Platform | Python host log | Rust / Tauri host log |
+|---|---|---|
+| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` | `%APPDATA%\voice-typer\logs\voice-typer.log` |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy path, honored if exists) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` |
+| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
+| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` |
+
+See `docs/home-directory.md` §"Log File Paths" for the canonical reference.
 
 ```
 <paste logs here>

@@ -1462,6 +1462,40 @@ jobs:
   # (e.g. SLACK_WEBHOOK_URL). The current implementation intentionally
   # ships without a third-party action so the workflow stays usable in
   # air-gapped / sandboxed CI environments.
+  # S1-CR-118: pre-commit hygiene job — runs ONLY the 7 hygiene hooks from
+  # pre-commit/pre-commit-hooks repo (trailing-whitespace, end-of-file-fixer,
+  # check-yaml, check-json, check-merge-conflict, check-added-large-files,
+  # mixed-line-ending). Ruff/mypy/biome intentionally skipped (already in CI
+  # via the `test` job's ruff step, or need extra deps not worth the install
+  # cost for a hygiene-only gate).
+  pre-commit:
+    name: Pre-commit hygiene
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth 0 so check-added-large-files can see the full history
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pre-commit
+        run: pip install pre-commit
+      - name: Run pre-commit hygiene hooks
+        run: |
+          pre-commit run --all-files \
+            trailing-whitespace \
+            end-of-file-fixer \
+            check-yaml \
+            check-json \
+            check-merge-conflict \
+            check-added-large-files \
+            mixed-line-ending
   notify:
     name: Notify on failure
     # `always()` so the job runs even when one of `needs` failed. Skipped
@@ -1471,7 +1505,7 @@ jobs:
     # List every job whose failure should fire a notification. jobs not
     # listed here (pip-audit-weekly, slow-tests) already have their own
     # issue-on-failure step; including them would double-notify.
-    needs: [test, client-build, version-check, branding-check, build-native, build-macos-universal, build-windows, build-macos, build-linux]
+    needs: [test, client-build, version-check, branding-check, build-native, build-macos-universal, build-windows, build-macos, build-linux, pre-commit]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     permissions:
@@ -1498,6 +1532,7 @@ jobs:
             echo "| build-windows | ${{ needs.build-windows.result }} |"
             echo "| build-macos | ${{ needs.build-macos.result }} |"
             echo "| build-linux | ${{ needs.build-linux.result }} |"
+            echo "| pre-commit | ${{ needs.pre-commit.result }} |"
           } >> $GITHUB_STEP_SUMMARY
 
           # Count only failures (skipped/cancelled are not actionable here).
@@ -1511,7 +1546,8 @@ jobs:
               "${{ needs.build-macos-universal.result }}" \
               "${{ needs.build-windows.result }}" \
               "${{ needs.build-macos.result }}" \
-              "${{ needs.build-linux.result }}"; do
+              "${{ needs.build-linux.result }}" \
+              "${{ needs.pre-commit.result }}"; do
             if [ "$r" = "failure" ]; then
               FAILURE_COUNT=$((FAILURE_COUNT + 1))
             fi

@@ -125,30 +125,12 @@ else
 fi
 echo "[build_prewarm_windows] PY=$PY"
 
-SITE="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
-
-# Prewarm imports the heavy ML stack the SAME way as the sidecar (it warms
-# the OS file cache for the sidecar's torch + transformers + faster-whisper
-# imports), so it needs the same packages included.
-"$PY" -c 'import faster_whisper, ctranslate2, voice_typer.server.prewarm' \
-    || { echo "ERROR: build env missing deps" >&2; exit 1; }
-
-CT2_LIB_DIR="$SITE/ctranslate2/lib"
-CT2_DLL="$CT2_LIB_DIR/ctranslate2.dll"
-# XPLAT-9: validate CT2_LIB_DIR / CT2_DLL existence (matches
-# build_sidecar_windows.sh lines 101-113). Without these guards, Nuitka builds
-# a prewarm .exe that crashes on `import ctranslate2` because the OpenMP /
-# CTranslate2 native DLLs are missing from the bundle.
-if [[ ! -d "$CT2_LIB_DIR" ]]; then
-    echo "ERROR: $CT2_LIB_DIR not found — ctranslate2 install is incomplete." >&2
-    exit 1
-fi
-if [[ ! -f "$CT2_DLL" ]]; then
-    echo "ERROR: $CT2_DLL not found — ctranslate2 install is incomplete." >&2
-    exit 1
-fi
-echo "[build_prewarm_windows] CT2_LIB_DIR=$CT2_LIB_DIR"
-echo "[build_prewarm_windows] CT2_DLL=$CT2_DLL"
+# S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
+# faster_whisper/ctranslate2 at runtime — only calls
+# importlib.util.find_spec(). The sanity-check below just confirms
+# voice_typer.server.prewarm itself imports cleanly.
+"$PY" -c 'import voice_typer.server.prewarm; print("ok")' \
+    || { echo "ERROR: build env missing voice_typer.server.prewarm" >&2; exit 1; }
 
 # ─── Prepare output dir ──────────────────────────────────────────────────────
 mkdir -p "$RESOURCES_DIR"
@@ -157,26 +139,41 @@ mkdir -p "$RESOURCES_DIR"
 # NOTE: prewarm is a SEPARATE process — it has its own --onefile-tempdir-spec
 # so its self-extraction doesn't collide with the sidecar's. Different temp
 # dir, different binary, different process.
+#
+# S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
+# faster_whisper/ctranslate2 at runtime — it only calls
+# importlib.util.find_spec() to locate their installed files for
+# OS-cache warming, then reads file bytes directly. These heavy
+# packages are still BUNDLED as bytecode (so find_spec works)
+# but NOT compiled to C, saving ~90 min of compile time.
+# Also removed deprecated --enable-plugin=numpy, removed
+# --include-package=faster_whisper,ctranslate2 (not needed for
+# find_spec — they're pulled in transitively via voice_typer),
+# and added psutil platform-module exclusions.
 echo "[build_prewarm_windows] Running Nuitka..."
 "$PY" -m nuitka \
     --standalone --onefile \
     --assume-yes-for-downloads \
-    --enable-plugin=numpy \
-    --enable-plugin=anti-bloat \
-    --nofollow-import-to=torch._dynamo \
-    --nofollow-import-to=torch._inductor \
-    --nofollow-import-to=torch.export \
-    --nofollow-import-to=torch._functorch \
-    --nofollow-import-to=scipy._lib.cobyqa \
-    --nofollow-import-to=scipy._lib.array_api_extra.testing \
+    --nofollow-import-to=torch \
+    --nofollow-import-to=transformers \
+    --nofollow-import-to=faster_whisper \
+    --nofollow-import-to=ctranslate2 \
+    --nofollow-import-to=sounddevice \
+    --nofollow-import-to=pystray \
+    --nofollow-import-to=pynput \
+    --nofollow-import-to=PIL \
+    --nofollow-import-to=scipy \
+    --nofollow-import-to=whisper \
+    --nofollow-import-to=psutil._pslinux \
+    --nofollow-import-to=psutil._psosx \
+    --nofollow-import-to=psutil._psbsd \
+    --nofollow-import-to=psutil._pssunos \
+    --nofollow-import-to=psutil._psaix \
     --nofollow-import-to=sympy \
     --nofollow-import-to=mpmath \
-    --include-package=faster_whisper \
-    --include-package=ctranslate2 \
+    --nofollow-import-to=pytest \
     --include-package=voice_typer \
     --include-package=websockets \
-    --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR" \
-    --include-dll="$CT2_DLL" \
     --windows-disable-console \
     --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\prewarm-onefile-tmp" \
     --output-filename="$OUTPUT_NAME" \
