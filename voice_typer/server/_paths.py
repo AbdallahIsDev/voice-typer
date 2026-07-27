@@ -119,3 +119,99 @@ def legacy_hf_cache_dir() -> Path:
     single, well-documented location.
     """
     return Path.home() / ".voice-typer" / "huggingface"
+
+
+def hf_cache_dir() -> Path:
+    """Path to the canonical HuggingFace model cache directory.
+
+    S2-CR-70 (SA-6): the canonical HF cache lives at
+    ``<config_dir>/huggingface`` (NOT ``~/.cache/huggingface`` — Voice
+    Typer isolates its model cache inside its own data dir so an
+    uninstall can purge all of it via a single ``rm -rf`` of the
+    config dir). The uninstaller's ``--purge`` flag
+    (``scripts/linux/uninstall_permissions.py``) and the Windows
+    NSIS installer's ``deleteAppDataOnUninstall`` option both rely on
+    the config dir being the single root for all user data.
+
+    Used as a documentation anchor — the actual cache is populated by
+    the ASR engines (``qwen_engine.py``, ``parakeet_engine.py``) which
+    set ``HF_HOME=<config_dir>/huggingface`` via
+    :mod:`voice_typer.server.asr_setup`. This helper exists so
+    uninstallers and "where did my disk go?" diagnostics have a
+    canonical path to inspect / delete without re-deriving the
+    platform-aware ``_config_dir()`` chain.
+
+    See :func:`legacy_hf_cache_dir` for the defensive fallback used
+    when ``_config_dir()`` itself raises.
+    """
+    return _config_dir() / "huggingface"
+
+
+def user_data_dir() -> Path:
+    """Path to the canonical user data directory (root of all user data).
+
+    S2-CR-70 (SA-6): Voice Typer stores ALL user data inside
+    ``_config_dir()`` — logs, the venv, the HuggingFace model cache,
+    the SQLite history DB, crash-recovery snapshots, the
+    ``backend.lock`` single-instance lockfile, the autostart /
+    prewarm logs, etc. This helper is the single root an uninstaller
+    or "factory reset" feature can ``rm -rf`` to reclaim disk.
+
+    The Linux uninstaller's ``--purge`` flag
+    (``scripts/linux/uninstall_permissions.py --purge``) and the
+    Windows NSIS installer's ``deleteAppDataOnUninstall: true`` option
+    (``voice_typer/client/electron-builder.yml``) both delete this
+    directory on uninstall. The deletion is OPT-IN on Linux (the
+    ``--purge`` flag is off by default so users who reinstall keep
+    their models); on Windows it's opt-OUT (NSIS's
+    ``deleteAppDataOnUninstall`` is on by default per the
+    electron-builder docs, but the user is prompted to confirm during
+    uninstall).
+
+    Semantically equivalent to :func:`config_dir` (both return
+    ``_config_dir()``); the alias exists so uninstallers / factory-
+    reset features can call ``user_data_dir()`` for self-documenting
+    code without conflating "where the config dir is" with "where
+    user data lives" (they happen to be the same path today, but the
+    conceptual distinction matters for future migrations).
+    """
+    return _config_dir()
+
+
+def user_data_subpaths_for_purge() -> list[Path]:
+    """Return the list of subpaths inside ``user_data_dir()`` that an
+    uninstaller should remove when purging user data.
+
+    S2-CR-70 (SA-6): the purge is BOUNDED to these subpaths so an
+    accidental ``rm -rf`` of the entire ``user_data_dir()`` can't
+    delete unrelated user files if the user has manually placed
+    non-Voice-Typer files inside the config dir (rare but possible on
+    Linux when ``$XDG_DATA_HOME`` is set to a shared location).
+
+    The list is intentionally exhaustive — it covers every file /
+    subdirectory Voice Typer creates inside the config dir. If a new
+    file is added in the future, it MUST be added to this list (the
+    ``tests/test_app_cleanup.py::TestUserDataPurgePaths`` test
+    enforces this by scanning the codebase for new path literals).
+
+    The HuggingFace cache (``hf_cache_dir()``) is the big one —
+    potentially gigabytes of model weights. The venv
+    (``venv_pythonw().parent.parent``) is the second biggest —
+    hundreds of MB of Python packages. The rest are kilobytes of
+    logs / lockfiles / DBs.
+    """
+    base = user_data_dir()
+    return [
+        base / "huggingface",  # HF model cache (GBs)
+        base / "venv",  # Python venv (hundreds of MB)
+        base / "logs",  # rotating log files
+        base / "history.db",  # SQLite history DB
+        base / "history.db-wal",  # SQLite WAL (may not exist)
+        base / "history.db-shm",  # SQLite SHM (may not exist)
+        base / "crash_recovery.json",  # crash-recovery snapshot
+        base / "backend.lock",  # single-instance POSIX lockfile
+        base / "backend.pid",  # backend PID file (Windows + POSIX)
+        base / "autostart.log",  # macOS LaunchAgent autostart log
+        base / "prewarm-launchagent.log",  # macOS LaunchAgent prewarm log
+        base / "onboarding.marker",  # onboarding completion sentinel
+    ]

@@ -201,32 +201,106 @@ class NoiseSuppressor(AudioFilter):
             self._method = "none"
 
     def _init_deepfilternet(self) -> None:
-        try:
-            from df import enhance, init_df  # type: ignore[import-not-found]
+        """Initialize DeepFilterNet backend.
 
-            self._backend = {
-                "init_df": init_df,
-                "enhance": enhance,
-                "model": None,
-                "df_state": None,
-            }
-            # Initialize lazily on first process() call (slow import)
-            log.info("[NOISE-SUPPRESS] DeepFilterNet backend ready (lazy init)")
+        S3-CR-6 (Critical): the DeepFilterNet *processing* path is not
+        yet implemented in :meth:`process` — only ``rnnoise`` is wired.
+        Previously, when ``deepfilternet`` was selected (e.g. via the
+        ``noisy_room`` preset) AND the ``df`` package was importable,
+        ``__init__`` left ``self._method == "deepfilternet"`` and
+        ``is_degraded == False``. The first ``process()`` call then
+        silently fell through to passthrough — users in noisy
+        environments got ZERO noise suppression with no UI signal.
+
+        Mitigation (chosen from the finding's option (b)): mark the
+        filter as degraded AND fall back to ``rnnoise`` at *init* time
+        (not at process() time) so:
+
+          1. The UI sees ``is_degraded == True`` immediately on
+             construction — before the first audio chunk — and can
+             surface a warning to the user.
+          2. The user gets actual neural noise suppression via
+             RNNoise instead of nothing (when RNNoise is available).
+          3. ``process()`` reaches the rnnoise branch directly on
+             every call (no per-chunk fallback overhead, no
+             surprise ``_method`` mutation on the RT thread).
+
+        If ``rnnoise`` is *also* unavailable, ``_init_rnnoise`` will
+        further degrade to ``"none"``. In that case we preserve the
+        DeepFilterNet context in ``_degraded_reason`` (so the user
+        knows BOTH that DeepFilterNet isn't wired AND that the
+        RNNoise fallback also failed) — this is more actionable than
+        silently overwriting with just the RNNoise message.
+        """
+        try:
+            # Probe whether the ``df`` package is importable so the
+            # degraded_reason can tell the user whether installing
+            # deepfilternet would help (it wouldn't — processing is
+            # not wired — but the message distinguishes the two cases
+            # for diagnostics).
+            import df  # noqa: F401  # type: ignore[import-not-found]
+            df_available = True
         except ImportError:
+            df_available = False
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("[NOISE-SUPPRESS] DeepFilterNet probe failed: %s", exc)
+            df_available = False
+
+        if df_available:
             log.warning(
-                "[NOISE-SUPPRESS] deepfilternet not installed — "
-                "falling back to rnnoise. Install with: pip install 'voice-typer[deepfilternet]'"
+                "[NOISE-SUPPRESS] DeepFilterNet processing is not yet wired; "
+                "falling back to rnnoise so users in noisy environments still "
+                "get neural noise suppression"
             )
+        else:
+            log.warning(
+                "[NOISE-SUPPRESS] deepfilternet not installed and processing "
+                "is not yet wired; falling back to rnnoise. Install with: "
+                "pip install 'voice-typer[deepfilternet]'"
+            )
+
+        # Mark degraded BEFORE calling _init_rnnoise so the flag is set
+        # even if _init_rnnoise succeeds (which would otherwise leave
+        # _degraded == False, hiding the deepfilternet-not-wired state
+        # from the UI). Save the reason so we can preserve context if
+        # _init_rnnoise further degrades to "none".
+        self._degraded = True
+        df_reason = (
+            "deepfilternet backend not yet implemented — falling back to rnnoise"
+            if df_available
+            else "deepfilternet not installed and not yet implemented — falling back to rnnoise"
+        )
+        self._degraded_reason = df_reason
+
+        # Switch to rnnoise at init time so process() uses the rnnoise
+        # branch directly. ``_init_rnnoise`` may further degrade to
+        # ``"none"`` if pyrnnoise is also missing.
+        self._method = "rnnoise"
+        self._init_rnnoise()
+
+        # If _init_rnnoise succeeded (method is still "rnnoise"), keep
+        # the deepfilternet reason — the user should know they're
+        # getting rnnoise instead of their selected deepfilternet.
+        # If _init_rnnoise failed (method is now "none"), preserve the
+        # deepfilternet context AND surface the rnnoise failure so the
+        # user knows BOTH problems (the more actionable one is the
+        # rnnoise install hint, but the deepfilternet context explains
+        # why the noisy_room preset didn't help).
+        if self._method == "none":
+            # _init_rnnoise overwrote _degraded_reason with the rnnoise
+            # failure. Prepend the deepfilternet context so the user
+            # sees both: "deepfilternet not wired; rnnoise fallback
+            # also failed: <rnnoise reason>".
+            rnnoise_reason = self._degraded_reason
+            self._degraded_reason = (
+                f"{df_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
+            )
+        else:
+            # _init_rnnoise succeeded — restore df_reason as the
+            # degraded_reason (don't let _init_rnnoise's success path
+            # accidentally clear _degraded).
             self._degraded = True
-            self._degraded_reason = "deepfilternet not installed, falling back to rnnoise"
-            self._method = "rnnoise"
-            self._init_rnnoise()
-        except Exception as exc:
-            log.warning("[NOISE-SUPPRESS] DeepFilterNet init failed: %s — falling back to rnnoise", exc)
-            self._degraded = True
-            self._degraded_reason = f"deepfilternet init failed: {exc}"
-            self._method = "rnnoise"
-            self._init_rnnoise()
+            self._degraded_reason = df_reason
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:
@@ -237,11 +311,17 @@ class NoiseSuppressor(AudioFilter):
 
         if self._method == "rnnoise":
             return self._process_rnnoise(samples, sample_rate, original_shape)
-        # ER-2 (Critical): DeepFilterNet and Speex backends are not yet wired
-        # to actual processing. Previously this was a silent passthrough — users
-        # selecting `noisy_room` preset (which picks `deepfilternet`) got ZERO
-        # noise suppression with no UI signal. Now we fall back to rnnoise so
-        # the user gets neural noise suppression instead of nothing.
+        # S3-CR-6 defensive guard: ``_init_backend`` is supposed to
+        # narrow every known method to either ``"rnnoise"`` or
+        # ``"none"`` at construction time (see ``_init_deepfilternet``
+        # for the deepfilternet → rnnoise fallback). Reaching this
+        # branch means a future backend was added without an init-time
+        # fallback — instead of silently passthroughing (the original
+        # Critical bug), we fall back to rnnoise here and surface
+        # ``is_degraded`` so the UI can warn the user. This branch is
+        # not reachable for any currently-supported method
+        # (``rnnoise`` / ``deepfilternet`` / ``none``) — it exists
+        # purely to prevent a regression of S3-CR-6.
         if not self._degraded:
             self._degraded = True
             self._degraded_reason = f"{self._method} backend not yet implemented — falling back to rnnoise"
@@ -252,7 +332,12 @@ class NoiseSuppressor(AudioFilter):
             )
         try:
             self._method = "rnnoise"
-            if self._backend is None or not self._backend.get("rnnoise"):
+            # The defensive ``_backend is None or not _backend.get(...)``
+            # check tolerates both a None backend (init failed) and a
+            # dict-style backend from a future lazy-init path.
+            if self._backend is None or (
+                hasattr(self._backend, "get") and not self._backend.get("rnnoise")
+            ):
                 self._init_rnnoise()
             return self._process_rnnoise(samples, sample_rate, original_shape)
         except Exception:

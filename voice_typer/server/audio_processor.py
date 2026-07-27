@@ -150,6 +150,20 @@ class AudioProcessor:
         # XV-37: track (input_sr, chain_sr) pairs already logged at
         # WARNING so a sustained resample fallback doesn't spam the log.
         self._resample_warned_pairs: set[tuple[int, int]] = set()
+        # H-22: latched flag set when the RT-thread resample fallback
+        # path is taken (scipy missing OR resample_poly raises). When
+        # set, the chain is being fed audio at the WRONG rate — every
+        # IIR coefficient (high-pass cutoff, notch frequency, EQ
+        # crossovers) and every ballistic time constant (compressor
+        # attack/release) is mistuned. Previously this was invisible
+        # to the UI (only a log WARNING); now ``is_degraded`` returns
+        # True and ``degraded_reasons`` surfaces a clear message so
+        # the user knows to call ``set_sample_rate`` or install scipy.
+        # Cleared by ``reset`` (new session) and ``set_sample_rate``
+        # (the corrective action — the chain is retuned to the input
+        # rate, so the resample path is no longer taken).
+        self._resample_degraded: bool = False
+        self._resample_degraded_reason: str = ""
         log.info(
             "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
             self._chain.filter_names,
@@ -195,6 +209,12 @@ class AudioProcessor:
     def reset(self) -> None:
         """Reset all filter states for a new recording session."""
         self._chain.reset()
+        # H-22: clear the latched resample-degraded flag — a new
+        # recording session starts with a clean slate. If the resample
+        # path fails again, the flag will be re-set on the next chunk.
+        self._resample_degraded = False
+        self._resample_degraded_reason = ""
+        self._resample_warned_pairs.clear()
 
     def set_sample_rate(self, sr: int) -> None:
         """Update the chain's sample rate and rebuild the filter chain.
@@ -218,6 +238,10 @@ class AudioProcessor:
         rebuild -- not a skip followed by a redundant rebuild on the
         next ``rebuild_from_config`` call.
 
+        H-22: clears the latched resample-degraded flag because the
+        chain is now retuned to the new rate — the corrective action
+        for a resample fallback has been taken.
+
         Args:
             sr: new sample rate in Hz.
         """
@@ -226,6 +250,14 @@ class AudioProcessor:
         self._config_signature = _config_signature(self._config, new_sr)
         new_chain = build_chain(self._config, new_sr)
         self._chain.swap(new_chain._filters)
+        # H-22: the chain is now tuned to ``new_sr``; if the next chunk
+        # arrives at ``new_sr``, the resample path is not taken. Clear
+        # the latched flag so the UI stops showing the resample warning.
+        # (If chunks keep arriving at a different rate, the flag will
+        # be re-set on the next failed resample.)
+        self._resample_degraded = False
+        self._resample_degraded_reason = ""
+        self._resample_warned_pairs.clear()
         log.info(
             "[AUDIO-PROC] chain rebuilt on rate change: %s (sr=%d, degraded=%s)",
             self._chain.filter_names,
@@ -329,6 +361,20 @@ class AudioProcessor:
                     exc_info=True,
                 )
                 self._resample_warned_pairs.add((int(input_sample_rate), int(self._sample_rate)))
+                # H-22: latch the resample-degraded flag so the UI can
+                # surface a warning. Without this, the user has NO signal
+                # that their high-pass / notch / EQ / compressor are all
+                # mistuned (an 80 Hz high-pass built at 16 kHz actually
+                # cuts at 240 Hz when fed 48 kHz audio). Cleared by
+                # ``reset`` (new session) or ``set_sample_rate`` (the
+                # corrective action — retune the chain to the input rate).
+                if not self._resample_degraded:
+                    self._resample_degraded = True
+                    self._resample_degraded_reason = (
+                        f"resample failed (input_sr={int(input_sample_rate)}, "
+                        f"chain_sr={self._sample_rate}) — filtering at wrong rate; "
+                        "call set_sample_rate(input_sr) to retune"
+                    )
 
         # PVT-056: run the quality check on the PRE-filter chunk (the
         # resampled input). The default Limiter (ceiling_db=-6.0 ~ 0.50
@@ -423,13 +469,28 @@ class AudioProcessor:
 
     @property
     def is_degraded(self) -> bool:
-        """True if any filter is in degraded mode (missing library, etc.)."""
-        return self._chain.is_degraded
+        """True if any filter is in degraded mode (missing library, etc.).
+
+        H-22: also True when the RT-thread resample fallback path has
+        been taken (scipy missing OR resample_poly raised). In that
+        state every IIR coefficient and ballistic time constant is
+        mistuned because the chain is being fed audio at the wrong
+        rate — the UI must surface a warning so the user knows to
+        call ``set_sample_rate`` or install scipy.
+        """
+        return self._chain.is_degraded or self._resample_degraded
 
     @property
     def degraded_reasons(self) -> list[str]:
-        """List of degradation reasons from all filters."""
-        return self._chain.degraded_reasons
+        """List of degradation reasons from all filters and the resample fallback."""
+        reasons = list(self._chain.degraded_reasons)
+        # H-22: append the resample-degraded reason LAST so the UI
+        # shows it after per-filter reasons (the resample issue is
+        # processor-level, not filter-level, so it reads naturally
+        # at the end of the list).
+        if self._resample_degraded and self._resample_degraded_reason:
+            reasons.append(self._resample_degraded_reason)
+        return reasons
 
     @property
     def total_latency_ms(self) -> float:

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,6 +34,52 @@ from typing import Any
 from voice_typer.server.platform_utils import is_macos, is_windows
 
 log = logging.getLogger(__name__)
+
+
+# ─── SA-4 / S1-CR-84: cross-thread serialization lock for restore() ──────
+#
+# Platform clipboard APIs are NOT thread-safe:
+#
+#   * Win32 ``OpenClipboard`` / ``EmptyClipboard`` / ``SetClipboardData``:
+#     only one thread per process can hold the clipboard open at a time.
+#     A second concurrent ``OpenClipboard`` on the same process fails
+#     (returns 0), and the subsequent ``SetClipboardData`` calls are
+#     silently dropped — the user's original clipboard content is lost.
+#   * macOS ``NSPasteboard.clearContents`` / ``writeObjects_``: AppKit
+#     documents NSPasteboard as main-thread-only; concurrent access from
+#     background threads is undefined behavior.
+#   * Linux X11 / Wayland: ``xclip`` and ``wl-copy`` are external
+#     subprocesses, but two concurrent invocations race on the clipboard
+#     selection ownership and the second one's content can be lost.
+#
+# ``ClipboardManager._delayed_restore`` runs on a daemon thread (one per
+# paste() cycle). ``_force_restore_pending_at_exit`` runs on the main
+# thread during interpreter shutdown. Without serialization, the daemon
+# thread for cycle A can call ``snapshot_A.restore()`` concurrently with
+# the atexit handler calling ``snapshot_B.restore()`` for a different
+# pending entry B — racing on the platform clipboard APIs and leaving
+# the clipboard in an indeterminate state (typically: empty, or stuck
+# with the dictated text from one of the two cycles).
+#
+# The DE-63 fix in ``manager.py`` already prevents atexit and the SAME
+# snapshot's daemon from both calling ``snapshot.restore()`` (the daemon
+# claims its entry under ``_pending_restores_lock`` before restoring,
+# and short-circuits if atexit already took it). But it does NOT prevent
+# two DIFFERENT snapshots from being restored concurrently — that's the
+# residual race this lock closes.
+#
+# ``threading.Lock`` (not ``RLock``) is correct here: ``restore()``
+# dispatches to ``_restore_windows`` / ``_restore_macos`` /
+# ``_restore_x11`` / ``_restore_wayland``, none of which call back into
+# ``restore()``. No reentrancy → no deadlock risk from a non-reentrant
+# lock. A ``Lock`` is also marginally faster (no owner-tracking) and
+# surfaces reentrancy bugs as a deadlock rather than silently allowing
+# them.
+#
+# The lock is module-level (not per-instance) because the race is
+# between DIFFERENT snapshots on different threads — a per-instance lock
+# would not serialize them.
+_restore_lock = threading.Lock()
 
 
 # ─── Windows builtin clipboard format IDs ─────────────────────────────────
@@ -172,17 +219,37 @@ class ClipboardSnapshot:
         Returns ``True`` if the restore completed without raising,
         ``False`` on failure. Best-effort: per-item failures are logged
         but do not abort the loop (we restore as many formats as we can).
+
+        SA-4 / S1-CR-84: the entire platform-dispatched restore is
+        serialized across threads by ``_restore_lock``. Platform
+        clipboard APIs are not thread-safe (Win32 ``OpenClipboard``
+        fails on the second concurrent opener; macOS
+        ``NSPasteboard.clearContents`` / ``writeObjects_`` is
+        main-thread-only; Linux ``xclip`` / ``wl-copy`` subprocesses
+        race on selection ownership). The lock prevents the daemon
+        thread for cycle A's ``snapshot_A.restore()`` from racing the
+        atexit handler's ``snapshot_B.restore()`` (or another daemon's
+        ``snapshot_C.restore()``) on the platform clipboard APIs.
+
+        The lock is held for the duration of the platform restore
+        (Open/Empty/Set/Close on Windows; clearContents/writeObjects on
+        macOS; subprocess.run on Linux). This is correct: the platform
+        call sequence is the critical section. Per-item failures inside
+        ``_restore_windows`` etc. are still logged-and-continue (best
+        effort) — the lock is not released between items because
+        releasing between items would re-open the race window mid-loop.
         """
-        if self.platform == "windows":
-            return self._restore_windows()
-        if self.platform == "macos":
-            return self._restore_macos()
-        if self.platform == "linux-x11":
-            return self._restore_x11()
-        if self.platform == "linux-wayland":
-            return self._restore_wayland()
-        log.warning("[CLIPBOARD-SNAPSHOT] unknown platform: %s", self.platform)
-        return False
+        with _restore_lock:
+            if self.platform == "windows":
+                return self._restore_windows()
+            if self.platform == "macos":
+                return self._restore_macos()
+            if self.platform == "linux-x11":
+                return self._restore_x11()
+            if self.platform == "linux-wayland":
+                return self._restore_wayland()
+            log.warning("[CLIPBOARD-SNAPSHOT] unknown platform: %s", self.platform)
+            return False
 
     # ─── Windows (Win32 API) ───────────────────────────────────────────
 

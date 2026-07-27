@@ -172,6 +172,30 @@ _AUTH_TIMEOUT_SECONDS = 5.0
 # ``src-tauri/src/util.rs::SHUTDOWN_ACK_TIMEOUT_MS`` for the canonical
 # value.
 
+# S2-CR-72 (SA-6): Tauri sidecar handshake protocol-version constant.
+#
+# The sidecar emits ``"protocol": PROTOCOL_VERSION`` in its
+# ``server_started`` JSON line so the Rust host can detect version
+# skew at handshake time (before any command dispatch) and surface a
+# clear ``protocol_mismatch`` error rather than producing confusing
+# partial failures (some commands work, others return
+# ``unknown_command``, push events have unexpected ``type`` values).
+#
+# The Rust host's ``EXPECTED_PROTOCOL`` constant in
+# ``src-tauri/src/sidecar/spawn.rs`` MUST match this value. Bump this
+# integer whenever the ``_COMMAND_REGISTRY`` (in
+# ``voice_typer/server/ipc_server.py``) adds/removes/renames a
+# command OR the push-event ``type`` vocabulary changes — both are
+# observable contracts the host depends on. The version is monotonic
+# and never reused.
+#
+# History:
+#   - 1 (SA-6, this run): initial protocol-version negotiation. The
+#     pre-negotiation sidecar emitted only ``{"event":"server_started",
+#     "port":<n>}``; old hosts that don't yet parse the ``protocol``
+#     field continue to function (the field is additive).
+PROTOCOL_VERSION: int = 1
+
 
 def _force_line_buffered_stdout() -> None:
     """Force stdout to line buffering (ADR-0020 §1 Phase-0 blocker).
@@ -201,16 +225,32 @@ def _force_line_buffered_stdout() -> None:
             )
 
 
-def _emit_server_started(port: int) -> None:
+def _emit_server_started(port: int, protocol: int | None = None) -> None:
     """Write the one structured stdout line the host is parsing for.
 
     Per ADR-0020 §1, this is the ONLY thing that ever goes to stdout
     from the sidecar. Every other log goes to stderr / the rotating
     file log. The host blocks reading stdout until it parses this
     JSON, then opens a WS client to ws://127.0.0.1:<port>.
+
+    S2-CR-72 (SA-6): when ``protocol`` is not ``None``, the payload
+    additionally includes ``"protocol": <int>`` so the Rust host can
+    detect version skew at handshake time. The Rust host's
+    ``EXPECTED_PROTOCOL`` constant in
+    ``src-tauri/src/sidecar/spawn.rs`` MUST match
+    :data:`PROTOCOL_VERSION`; on mismatch, the host logs a clear
+    ``protocol_mismatch`` error and refuses to spawn. Callers in this
+    module always pass :data:`PROTOCOL_VERSION`; the ``None`` default
+    is preserved for backward compatibility with pre-negotiation tests
+    that assert the exact two-field payload shape and with any
+    hypothetical external caller of this helper (none exist in the
+    codebase today, but the default keeps the function safe to call
+    without forcing the caller to know the current protocol integer).
     """
-    payload = json.dumps({"event": "server_started", "port": int(port)})
-    print(payload, flush=True)
+    payload: dict[str, int | str] = {"event": "server_started", "port": int(port)}
+    if protocol is not None:
+        payload["protocol"] = int(protocol)
+    print(json.dumps(payload), flush=True)
 
 
 async def _authenticate(websocket) -> bool:
@@ -851,7 +891,7 @@ def run(server: IPCServer) -> int:
                 log.error("[SIDECAR-WS] no sockets bound — aborting")
                 return 3
             port = socks[0].getsockname()[1]
-            _emit_server_started(port)
+            _emit_server_started(port, PROTOCOL_VERSION)
             log.info("[SIDECAR-WS] listening on %s:%d", _LOOPBACK_HOST, port)
 
             # Run until cancelled.

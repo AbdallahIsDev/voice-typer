@@ -115,6 +115,18 @@ class DictationPipeline:
         # Recorder.stop(), passed through to the transcription engine
         # so it doesn't recompute the same stats on the same audio.
         self._audio_stats: tuple[float, float, float] | None = None
+        # S3-CR-10 (defense-in-depth observability): tracks whether
+        # ``_apply_templates`` modified the text in this cycle. If it
+        # did, the text MAY contain clipboard-substituted content
+        # (``{clipboard}`` → ``pyperclip.paste()``), which is a
+        # privacy-sensitive surface when LLM polish is enabled. The
+        # CR-10 fix in ``llm_polish._call_api`` applies
+        # ``redact_pii`` before the API send — this flag lets
+        # ``_apply_llm_polish`` log a privacy NOTICE so operators can
+        # audit when substituted content is flowing toward the LLM
+        # redaction gate, and fail-closed if ``redact_pii`` itself is
+        # unimportable.
+        self._templates_applied: bool = False
 
     def run(
         self,
@@ -396,23 +408,51 @@ class DictationPipeline:
                 log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
             with contextlib.suppress(Exception):
                 self._app._busy_event.set()  # busy = False
-            # ARCH-016: clear _transcription_thread under the app's
-            # state lock so concurrent readers (e.g. _cancel_streaming_session
-            # in another thread) don't see a torn None vs Thread object.
+            # ARCH-016 / H-17: clear ``_transcription_thread`` under
+            # ``RecordingController._watchdog_lock`` — the SAME lock
+            # that guards the field's write (``RecordingController._stop_impl``
+            # assigns ``self._transcription_thread = threading.Thread(...)``
+            # under ``_watchdog_lock``) and read
+            # (``_force_recover_from_stuck_transcription`` snapshots
+            # ``self._transcription_thread`` under ``_watchdog_lock``).
+            #
+            # Pre-H-17 this clear used ``self._app._lock`` — a DIFFERENT
+            # lock — which provided ZERO mutual exclusion against the
+            # write/read in recording_controller.py. The torn-read hazard
+            # was real: a concurrent ``_stop_impl`` could be mid-assignment
+            # of ``self._transcription_thread`` (Thread object → None or
+            # vice versa) when this clear ran, and the watchdog could
+            # observe a stale or partially-constructed reference.
+            #
             # ARCH-REFAC-003: write directly to RecordingController (was a
             # @property delegate previously).
+            #
+            # Defensive fallback: if the lock is unavailable (e.g. the
+            # recording controller was torn down or a stub app lacks
+            # ``_watchdog_lock``), we still want to clear the field —
+            # but log the race so the torn-read hazard is observable.
+            _recording = getattr(self._app, "recording", None)
+            _watchdog_lock = getattr(_recording, "_watchdog_lock", None) if _recording is not None else None
             try:
-                with self._app._lock:
-                    self._app.recording._transcription_thread = None
+                if _watchdog_lock is not None:
+                    with _watchdog_lock:
+                        _recording._transcription_thread = None
+                else:
+                    # Defensive: very old or stub app without
+                    # ``recording._watchdog_lock`` — clear without the
+                    # lock and log so the gap is visible.
+                    raise AttributeError("recording._watchdog_lock not present")
             except Exception:
                 # Defensive: if the lock is unavailable we still want
                 # to clear the field — but log the race.
                 log.debug(
-                    "[TRANSCRIBE] could not acquire app._lock to clear _transcription_thread; assigning without lock",
+                    "[TRANSCRIBE] could not acquire recording._watchdog_lock "
+                    "to clear _transcription_thread; assigning without lock",
                     exc_info=True,
                 )
                 with contextlib.suppress(Exception):
-                    self._app.recording._transcription_thread = None
+                    if _recording is not None:
+                        _recording._transcription_thread = None
             # Downgrade from full gc.collect() to gc.collect(0).
             # Full GC scans the entire Python heap (gen 0+1+2) — with a
             # loaded Whisper model (500MB-3GB of tensors → millions of
@@ -871,6 +911,20 @@ class DictationPipeline:
         """Step 5: Apply template matching.
 
         ERR-014: promoted ``log.debug`` to ``log.warning`` + tray notify.
+
+        S3-CR-10 (defense-in-depth observability): when a template
+        match modifies the text, set ``self._templates_applied = True``
+        so the downstream ``_apply_llm_polish`` step can log a privacy
+        NOTICE. Templates may substitute ``{clipboard}`` with the
+        user's current clipboard content (which can contain passwords,
+        2FA codes, private messages) — if LLM polish is then enabled,
+        that content would flow toward the third-party LLM API. The
+        CR-10 fix in ``llm_polish._call_api`` applies ``redact_pii``
+        before the API send; this flag does NOT change that redaction
+        behavior — it only makes the substituted-content flow visible
+        in the log so operators can audit when template-substituted
+        text is reaching the LLM redaction gate, and triggers a
+        fail-closed sanity check in ``_apply_llm_polish``.
         """
         try:
             if getattr(self._app.config, "templates_enabled", True):
@@ -881,6 +935,14 @@ class DictationPipeline:
                 expanded = self._app._template_manager.match(text)
                 if expanded is not None:
                     log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
+                    # S3-CR-10: mark that templates modified the text
+                    # this cycle. The downstream LLM polish step uses
+                    # this flag to log a privacy NOTICE and to gate a
+                    # fail-closed sanity check on ``redact_pii`` — it
+                    # does NOT gate or modify the polish call itself
+                    # (the redaction is already applied by CR-10 inside
+                    # ``llm_polish._call_api``).
+                    self._templates_applied = True
                     text = expanded
         except Exception:
             log.warning("[PIPELINE] Template matching failed", exc_info=True)
@@ -904,9 +966,73 @@ class DictationPipeline:
         return text
 
     def _apply_llm_polish(self, text: str) -> str:
-        """Step 7: Apply LLM polishing (if consented)."""
+        """Step 7: Apply LLM polishing (if consented).
+
+        S3-CR-10 (defense-in-depth observability + fail-closed): if
+        templates were applied earlier in this cycle
+        (``self._templates_applied``), the text MAY contain
+        clipboard-substituted content (passwords, 2FA codes, private
+        messages from ``{clipboard}``). When LLM polish is enabled,
+        that content would flow to a third-party LLM API. The CR-10
+        fix in ``llm_polish._call_api`` applies ``redact_pii`` to the
+        user-content before the API send — this method does NOT
+        duplicate that redaction (it would change the final pasted
+        text on polish-failure paths). Instead, it:
+
+          1. Logs a privacy NOTICE so operators can audit when
+             template-substituted content is flowing toward the CR-10
+             redaction gate.
+          2. Performs a sanity check that ``redact_pii`` is importable
+             BEFORE calling ``polish()``. If the import fails AND
+             templates were applied this cycle, polish is SKIPPED
+             entirely (fail-closed) — without ``redact_pii``, the
+             CR-10 gate inside ``_call_api`` would also fail open
+             (its try/except falls through to sending the original
+             text). Skipping polish preserves the original text on
+             the paste path (the user sees their transcription, not a
+             leaked LLM payload). When templates were NOT applied,
+             the sanity check is skipped — the text is the user's own
+             dictation, not substituted content, so the privacy risk
+             is much lower and the CR-10 fail-open is acceptable.
+        """
         effective_llm_key = self._app.config.llm_api_key or getattr(self._app.config, "openai_api_key", "")
         if self._app.config.llm_polish and effective_llm_key and getattr(self._app.config, "llm_polish_consent", False):
+            # S3-CR-10: privacy NOTICE when templates were applied
+            # before LLM polish. The CR-10 redaction gate inside
+            # ``llm_polish._call_api`` strips common PII patterns
+            # (credit cards, SSNs, emails, phone numbers, API keys)
+            # before the API send — but operators should be able to
+            # audit when template-substituted content is flowing
+            # toward that gate. Logged at INFO so it's visible at the
+            # default log level without being alarmist (the redaction
+            # is in place; this is observability, not a warning).
+            if self._templates_applied:
+                log.info(
+                    "[LLM_POLISH] Templates were applied before LLM polish this cycle — "
+                    "text MAY contain substituted content (e.g. {clipboard}). CR-10 "
+                    "redact_pii gate in llm_polish._call_api will strip common PII "
+                    "patterns (cards/SSNs/emails/phones/API keys) before the API send. "
+                    "(cycle=%s)",
+                    self._cycle_id,
+                )
+                # Defense-in-depth sanity check: verify redact_pii is
+                # importable BEFORE calling polish(). If the import
+                # fails, the CR-10 gate inside _call_api would also
+                # fail open (its try/except falls through to sending
+                # the original text). Skip polish entirely
+                # (fail-closed) so the un-redacted clipboard-
+                # substituted text does NOT reach the LLM API.
+                try:
+                    from voice_typer.server.security import redact_pii as _redact_pii_sanity_check  # noqa: F401
+                except ImportError:
+                    log.warning(
+                        "[LLM_POLISH] redact_pii not importable (security module broken) "
+                        "AND templates were applied this cycle — skipping LLM polish to "
+                        "prevent potential clipboard-content exfiltration (S3-CR-10 fail-closed). "
+                        "(cycle=%s)",
+                        self._cycle_id,
+                    )
+                    return text
             try:
                 if self._app._llm_polisher is None:
                     from voice_typer.server.llm_polish import LLMPolisher

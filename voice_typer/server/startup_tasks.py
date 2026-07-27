@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from voice_typer.server import task_scheduler
+from voice_typer.server.providers import AppProtocol
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.server_platform import create_launcher_shortcut
@@ -51,7 +52,7 @@ _APP_SERVICES_LIB: Any | None = None
 _APP_SERVICES_LIB_LOADED: bool = False
 
 
-def sync_autostart(app: Any) -> dict:
+def sync_autostart(app: AppProtocol) -> dict:
     """Ensure ``config.autostart`` matches the actual platform autostart state.
 
     PVT-060: returns a result dict ``{"registered": bool, "error": str | None}``
@@ -117,7 +118,7 @@ def sync_autostart(app: Any) -> dict:
     return result
 
 
-def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> dict:
+def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
     """Ensure the OS prewarm scheduled task matches the user's fast_startup setting.
 
     PW-3: when ``app.config.fast_startup`` is False, the prewarm task is
@@ -169,7 +170,7 @@ def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> dict:
         return {"registered": False, "error": str(e)}
 
 
-def ensure_desktop_shortcut(app: Any) -> None:
+def ensure_desktop_shortcut(app: AppProtocol) -> None:
     """Create the Desktop + Start Menu shortcuts on first run.
 
     Also migrates away the legacy backend-only ``Voice Typer.bat`` that
@@ -201,7 +202,7 @@ def ensure_desktop_shortcut(app: Any) -> None:
         log.debug("[STARTUP] Desktop shortcut creation skipped: %s", e)
 
 
-def load_microphones(app: Any, shutdown_event: Any | None = None) -> None:
+def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = None) -> None:
     """Enumerate microphones and update the tray menu.
 
     RACE-020: accepts an optional shutdown_event so the task can
@@ -265,7 +266,7 @@ def load_microphones(app: Any, shutdown_event: Any | None = None) -> None:
         log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
 
-def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
+def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
     """PLAT-009: Periodically re-check macOS Accessibility permission.
 
     Runs on macOS only. Every 60 seconds, re-invokes

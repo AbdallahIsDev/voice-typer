@@ -1029,7 +1029,18 @@ class IPCServer(
                 with contextlib.suppress(OSError):
                     conn.close()
                 continue
-            pool.submit(self._run_tcp_handler_safely, conn, addr, expected_token)
+            # S1-CR-80: wrap pool.submit in try/except RuntimeError so a
+            # race between accept-loop read of _tcp_worker_pool and stop()'s
+            # pool.shutdown(wait=False, cancel_futures=True) does not kill
+            # the accept thread with "cannot schedule new futures after
+            # shutdown". The just-accepted conn socket must be closed to
+            # avoid leak; the loop then breaks because the pool is gone.
+            try:
+                pool.submit(self._run_tcp_handler_safely, conn, addr, expected_token)
+            except RuntimeError:
+                with contextlib.suppress(OSError):
+                    conn.close()
+                break
             # Loop back to accept the next connection
 
         # SEC-8: shut down the worker pool now that no new connections
@@ -2009,6 +2020,22 @@ class IPCServer(
         # response internally and skip this.
         if result is not None:
             result.setdefault("data", {})
+            # S3-CR-27: stamp the inbound request id onto the response
+            # envelope so clients using id-based request/response
+            # correlation (the standard JSON-RPC-like pattern in
+            # ``usePython.ts``) can match the response back to the
+            # originating request. Pre-fix, ``_validate_dict_payload``
+            # returned a FRESH error-envelope dict with no ``id`` field;
+            # every handler that did ``if error: return error`` discarded
+            # the ``resp`` dict (which had ``id`` pre-populated) — so
+            # validation rejections orphaned the pending request and the
+            # renderer would time out instead of resolving the rejection.
+            # Stamping here (in ``_dispatch``) is the defensive single
+            # chokepoint: it catches validation errors, handler-thrown
+            # exception envelopes, and any future error path that
+            # forgets to propagate ``id``.
+            if isinstance(msg, dict) and "id" in msg and "id" not in result:
+                result["id"] = msg["id"]
 
         return result
 
