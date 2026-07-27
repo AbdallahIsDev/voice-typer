@@ -87,9 +87,7 @@ class TranscriberProtocol(Protocol):
     #      sequence of word-level results (not just a str), which
     #      the streaming pipeline relies on for partial-transcript
     #      diffing.
-    def transcribe_words(
-        self, audio: np.ndarray, offset_seconds: float = 0.0
-    ) -> object: ...
+    def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...
 
 
 _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
@@ -889,9 +887,9 @@ class TranscriptionEngine:
             last_segment_end = end
             avg_logprob = getattr(seg, "avg_logprob", None)
             no_speech_prob = getattr(seg, "no_speech_prob", None)
-            if isinstance(avg_logprob, (int, float)):
+            if isinstance(avg_logprob, int | float):
                 avg_logprobs.append(float(avg_logprob))
-            if isinstance(no_speech_prob, (int, float)):
+            if isinstance(no_speech_prob, int | float):
                 no_speech_probs.append(float(no_speech_prob))
             if seg.text.strip():
                 text_parts.append(seg.text.strip())

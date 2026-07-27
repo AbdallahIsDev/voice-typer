@@ -105,12 +105,12 @@ def _load_external_corrections(
             phrase_corrections = [
                 tuple(item)
                 for item in data.get("phrase_corrections", [])
-                if isinstance(item, (list, tuple)) and len(item) == 2
+                if isinstance(item, list | tuple) and len(item) == 2
             ]
             extra_word_patterns = [
                 tuple(item)
                 for item in data.get("extra_word_patterns", [])
-                if isinstance(item, (list, tuple)) and len(item) == 2
+                if isinstance(item, list | tuple) and len(item) == 2
             ]
             loaded_any = True
         except Exception as exc:
@@ -137,13 +137,13 @@ def _load_external_corrections(
                 phrase_corrections.extend(
                     tuple(item)
                     for item in data["phrase_corrections"]
-                    if isinstance(item, (list, tuple)) and len(item) == 2
+                    if isinstance(item, list | tuple) and len(item) == 2
                 )
             if "extra_word_patterns" in data and isinstance(data["extra_word_patterns"], list):
                 extra_word_patterns.extend(
                     tuple(item)
                     for item in data["extra_word_patterns"]
-                    if isinstance(item, (list, tuple)) and len(item) == 2
+                    if isinstance(item, list | tuple) and len(item) == 2
                 )
             log.info(
                 "[CLEANUP] Loaded user corrections from %s (%d misspellings, %d phrases, %d extra-word patterns)",

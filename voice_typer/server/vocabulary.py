@@ -104,13 +104,13 @@ class VocabularyManager:
                     return []
                 sorted_entries = sorted(
                     entries,
-                    key=lambda e: len(e[0]) if isinstance(e, (list, tuple)) and len(e) >= 2 else 0,
+                    key=lambda e: len(e[0]) if isinstance(e, list | tuple) and len(e) >= 2 else 0,
                     reverse=True,
                 )
             self._compiled_patterns[category] = [
                 (_re.compile(_re.escape(entry[0]), _re.IGNORECASE), entry[1])
                 for entry in sorted_entries
-                if isinstance(entry, (list, tuple)) and len(entry) >= 2
+                if isinstance(entry, list | tuple) and len(entry) >= 2
             ]
         return self._compiled_patterns[category]
 
@@ -546,7 +546,7 @@ class VocabularyManager:
                         continue
                     filtered_list: list[list[str]] = []
                     for entry in raw:
-                        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                        if not isinstance(entry, list | tuple) or len(entry) < 2:
                             dropped += 1
                             continue
                         bad, good = entry[0], entry[1]

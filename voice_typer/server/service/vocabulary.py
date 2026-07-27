@@ -72,12 +72,12 @@ class VocabularyMixin(ServiceMixinBase):
                 bs: set[tuple[str, str]] = set()
                 if isinstance(bundled_cat, list):
                     for item in bundled_cat:
-                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        if isinstance(item, list | tuple) and len(item) >= 2:
                             bs.add((item[0], item[1]))
                 diff = [
                     item
                     for item in incoming
-                    if isinstance(item, (list, tuple)) and len(item) >= 2 and (item[0], item[1]) not in bs
+                    if isinstance(item, list | tuple) and len(item) >= 2 and (item[0], item[1]) not in bs
                 ]
                 if diff:
                     user_only[cat] = diff

@@ -112,7 +112,7 @@ class VocabularyHandlersMixin(HandlerBase):
                             )
                 elif isinstance(entries, list):
                     for entry in entries:
-                        if isinstance(entry, (list, tuple)):
+                        if isinstance(entry, list | tuple):
                             for v in entry:
                                 if isinstance(v, str) and len(v) > _max_value_len:
                                     return _error_response(

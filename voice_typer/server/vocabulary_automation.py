@@ -218,7 +218,7 @@ def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
             data = vm.get_category(cat)
             if isinstance(data, list):
                 for entry in data:
-                    if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                    if isinstance(entry, list | tuple) and len(entry) >= 2:
                         value = entry[1]
                         if isinstance(value, str):
                             for token in value.split():
@@ -666,18 +666,18 @@ def _get_segment_confidence(seg: Any, fallback: float) -> float:
     if isinstance(seg, dict):
         if "confidence" in seg:
             c = seg["confidence"]
-            if isinstance(c, (int, float)) and 0.0 <= float(c) <= 1.0:
+            if isinstance(c, int | float) and 0.0 <= float(c) <= 1.0:
                 return float(c)
         if "avg_logprob" in seg:
             lp = seg["avg_logprob"]
-            if isinstance(lp, (int, float)):
+            if isinstance(lp, int | float):
                 return _logprob_to_confidence(float(lp))
     else:
         c = getattr(seg, "confidence", None)
-        if isinstance(c, (int, float)) and 0.0 <= float(c) <= 1.0:
+        if isinstance(c, int | float) and 0.0 <= float(c) <= 1.0:
             return float(c)
         lp = getattr(seg, "avg_logprob", None)
-        if isinstance(lp, (int, float)):
+        if isinstance(lp, int | float):
             return _logprob_to_confidence(float(lp))
     return fallback
 

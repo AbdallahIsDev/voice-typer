@@ -464,7 +464,7 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
             # Booleans are a subclass of int — skip them so
             # ``critical: True`` isn't accidentally coerced to 1.
             clamp_range = rules.get("clamp_range")
-            if clamp_range is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
+            if clamp_range is not None and isinstance(value, int | float) and not isinstance(value, bool):
                 lo, hi = clamp_range
                 value = max(lo, min(value, hi))
             validated[field_name] = value

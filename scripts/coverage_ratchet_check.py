@@ -176,7 +176,7 @@ def _load_baseline() -> dict[str, Any]:
             print(f"ERROR: baseline missing required field '{field}'")
             sys.exit(2)
     tc = baseline["total_coverage"]
-    if not isinstance(tc, (int, float)) or isinstance(tc, bool) or tc < 0:
+    if not isinstance(tc, int | float) or isinstance(tc, bool) or tc < 0:
         print(f"ERROR: baseline.total_coverage must be a non-negative number, got {tc!r}")
         sys.exit(2)
     return baseline
@@ -238,7 +238,7 @@ def regenerate(current_pct: float, *, force: bool = False) -> int:
                     metadata[k] = v
                 old_pct = old.get("total_coverage")
                 if (
-                    isinstance(old_pct, (int, float))
+                    isinstance(old_pct, int | float)
                     and not isinstance(old_pct, bool)
                     and current_pct < float(old_pct) - EPSILON
                 ):

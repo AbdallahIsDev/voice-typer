@@ -213,7 +213,7 @@ class TestYJ1ResponseEnvelopeImportable:
         # container as a LIST on Python 3.9+ (not a tuple). Accept either
         # form — the structural shape (length + element types) is what
         # matters, not the container type.
-        assert isinstance(param_types, (tuple, list)), f"param_types must be a tuple or list; got {type(param_types)!r}"
+        assert isinstance(param_types, tuple | list), f"param_types must be a tuple or list; got {type(param_types)!r}"
         # First param: ``object | None``
         # Second param: ``ResponseEnvelope`` (== ``dict[str, object]``)
         assert len(param_types) == 2

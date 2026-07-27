@@ -147,7 +147,7 @@ def _is_float_or_int_not_bool(v: object) -> TypeGuard[float]:
     # Accept ints on the numeric tower (they're valid floats), but still
     # reject bool.  This matches the dataclass field type ``float`` while
     # being friendly to JSON, which has no int/float distinction.
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, int | float) and not isinstance(v, bool)
 
 
 # Sane upper bound for any single string field.  API keys, URLs, hotkey
@@ -1441,7 +1441,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
         elif expected_type is int:
             type_ok = isinstance(v, int) and not isinstance(v, bool)
         elif expected_type is float:
-            type_ok = isinstance(v, (int, float)) and not isinstance(v, bool)
+            type_ok = isinstance(v, int | float) and not isinstance(v, bool)
         elif expected_type is str:
             type_ok = isinstance(v, str)
         else:
