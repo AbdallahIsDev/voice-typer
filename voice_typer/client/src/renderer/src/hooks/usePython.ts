@@ -484,7 +484,7 @@ export function usePythonEvent(
 ): void;
 export function usePythonEvent(
         type: string,
-        handler: (data?: Record<string, unknown>) => (() => void) | undefined,
+        handler: (data?: any) => (() => void) | undefined,
 ) {
         const handlerRef = useRef(handler);
         handlerRef.current = handler;
