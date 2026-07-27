@@ -83,16 +83,14 @@ def test_paste_text_symbol_absent_from_sidecar_cmds(sidecar_cmds_src: str) -> No
 def test_paste_text_symbol_absent_from_main_rs(main_rs_src: str) -> None:
     """FZ-19: ``main.rs`` must NOT register or import ``paste_text``."""
     assert "paste_text" not in main_rs_src, (
-        "main.rs must NOT reference `paste_text` — the dead Tauri command "
-        "was deleted in FZ-19 / PVT-051."
+        "main.rs must NOT reference `paste_text` — the dead Tauri command was deleted in FZ-19 / PVT-051."
     )
 
 
 def test_paste_mod_declaration_absent(commands_mod_src: str) -> None:
     """FZ-19: ``commands/mod.rs`` must NOT declare the ``paste`` module."""
     assert "mod paste" not in commands_mod_src, (
-        "commands/mod.rs must NOT declare `mod paste` — the `paste.rs` "
-        "module was deleted in FZ-19 / PVT-051."
+        "commands/mod.rs must NOT declare `mod paste` — the `paste.rs` module was deleted in FZ-19 / PVT-051."
     )
 
 

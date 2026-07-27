@@ -901,8 +901,7 @@ class TestUserDataPurgeHelpers:
         subpaths = _paths.user_data_subpaths_for_purge()
         unique = set(subpaths)
         assert len(subpaths) == len(unique), (
-            f"S2-CR-70: duplicate subpaths in purge list — "
-            f"got {len(subpaths)} entries but only {len(unique)} unique"
+            f"S2-CR-70: duplicate subpaths in purge list — got {len(subpaths)} entries but only {len(unique)} unique"
         )
 
 
@@ -931,9 +930,7 @@ class TestRealHistoryDBFlushDrainsQueue:
     by inspecting the actual SQLite file on disk.
     """
 
-    def test_do_cleanup_drains_pending_writes_to_disk(
-        self, app, tmp_config_dir, monkeypatch
-    ):
+    def test_do_cleanup_drains_pending_writes_to_disk(self, app, tmp_config_dir, monkeypatch):
         """A real HistoryDB with a populated writer queue, when passed
         through _do_cleanup(), must end up with all rows persisted to
         the SQLite file on disk — proving flush() is blocking, not
@@ -967,9 +964,7 @@ class TestRealHistoryDBFlushDrainsQueue:
 
             with sqlite3.connect(str(tmp_config_dir / "history.db")) as conn:
                 conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT text FROM transcriptions ORDER BY id"
-                ).fetchall()
+                rows = conn.execute("SELECT text FROM transcriptions ORDER BY id").fetchall()
                 on_disk_texts = [r["text"] for r in rows]
 
             assert on_disk_texts == texts, (
@@ -982,9 +977,7 @@ class TestRealHistoryDBFlushDrainsQueue:
             # close() is idempotent; safe to call after _do_cleanup.
             real_db.close()
 
-    def test_real_flush_blocks_until_queue_drained(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_real_flush_blocks_until_queue_drained(self, tmp_config_dir, monkeypatch):
         """GT-38: A direct call to HistoryDB.flush() must BLOCK until
         all queued writes are durable on disk. This is the contract
         _do_cleanup() relies on — if flush() becomes non-blocking, the
@@ -1008,9 +1001,7 @@ class TestRealHistoryDBFlushDrainsQueue:
             import sqlite3
 
             with sqlite3.connect(str(tmp_config_dir / "history.db")) as conn:
-                count = conn.execute(
-                    "SELECT COUNT(*) FROM transcriptions"
-                ).fetchone()[0]
+                count = conn.execute("SELECT COUNT(*) FROM transcriptions").fetchone()[0]
 
             assert count == 20, (
                 f"GT-38: flush() must block until all queued writes are "
@@ -1075,12 +1066,6 @@ class TestRealRecorderStopClosesStream:
         # stream.stop() + stream.close() + self._stream = None.
         app._do_cleanup()
 
-        assert fake_stream.stop_calls == 1, (
-            "GT-38: recorder.stop() must call stream.stop() exactly once"
-        )
-        assert fake_stream.close_calls == 1, (
-            "GT-38: recorder.stop() must call stream.close() exactly once"
-        )
-        assert recorder._stream is None, (
-            "GT-38: recorder.stop() must set self._stream = None after close"
-        )
+        assert fake_stream.stop_calls == 1, "GT-38: recorder.stop() must call stream.stop() exactly once"
+        assert fake_stream.close_calls == 1, "GT-38: recorder.stop() must call stream.close() exactly once"
+        assert recorder._stream is None, "GT-38: recorder.stop() must set self._stream = None after close"

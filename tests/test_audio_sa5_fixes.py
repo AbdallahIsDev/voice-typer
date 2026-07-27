@@ -121,9 +121,7 @@ class TestDeepFilterNetInitFallback:
     the user before the first audio chunk.
     """
 
-    def test_deepfilternet_installed_rnnoise_installed_falls_back_at_init(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_deepfilternet_installed_rnnoise_installed_falls_back_at_init(self, monkeypatch: pytest.MonkeyPatch):
         """Both libs available → method=rnnoise, degraded=True, df reason."""
         _install_fake_df(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
@@ -151,9 +149,7 @@ class TestDeepFilterNetInitFallback:
             f"degraded_reason must mention the rnnoise fallback; got {ns.degraded_reason!r}"
         )
 
-    def test_deepfilternet_installed_rnnoise_missing_degrades_to_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_deepfilternet_installed_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
         """df available but rnnoise missing → method=none, degraded=True,
         reason mentions BOTH the df fallback AND the rnnoise failure."""
         _install_fake_df(monkeypatch)
@@ -164,8 +160,7 @@ class TestDeepFilterNetInitFallback:
         ns = NoiseSuppressor(method="deepfilternet", sample_rate=16000)
 
         assert ns._method == "none", (
-            "when both deepfilternet (not wired) and rnnoise (missing) are "
-            "unavailable, method must degrade to 'none'"
+            "when both deepfilternet (not wired) and rnnoise (missing) are unavailable, method must degrade to 'none'"
         )
         assert ns.is_degraded is True
         # The reason must preserve BOTH contexts: the df fallback AND the
@@ -175,13 +170,9 @@ class TestDeepFilterNetInitFallback:
         assert "deepfilternet" in reason, (
             f"degraded_reason must mention deepfilternet context; got {ns.degraded_reason!r}"
         )
-        assert "rnnoise" in reason, (
-            f"degraded_reason must mention rnnoise fallback failure; got {ns.degraded_reason!r}"
-        )
+        assert "rnnoise" in reason, f"degraded_reason must mention rnnoise fallback failure; got {ns.degraded_reason!r}"
 
-    def test_deepfilternet_missing_rnnoise_installed_falls_back_at_init(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_deepfilternet_missing_rnnoise_installed_falls_back_at_init(self, monkeypatch: pytest.MonkeyPatch):
         """df missing, rnnoise available → method=rnnoise, degraded=True."""
         _remove_module(monkeypatch, "df")
         _install_fake_pyrnnoise(monkeypatch)
@@ -196,9 +187,7 @@ class TestDeepFilterNetInitFallback:
         assert "deepfilternet" in ns.degraded_reason.lower()
         assert "rnnoise" in ns.degraded_reason.lower()
 
-    def test_deepfilternet_missing_rnnoise_missing_degrades_to_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_deepfilternet_missing_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
         """Both missing → method=none, degraded=True, reason mentions both."""
         _remove_module(monkeypatch, "df")
         _remove_module(monkeypatch, "pyrnnoise")
@@ -213,9 +202,7 @@ class TestDeepFilterNetInitFallback:
         assert "deepfilternet" in reason
         assert "rnnoise" in reason
 
-    def test_rnnoise_directly_not_degraded_when_installed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_rnnoise_directly_not_degraded_when_installed(self, monkeypatch: pytest.MonkeyPatch):
         """Sanity: rnnoise alone (no deepfilternet involvement) is NOT degraded."""
         _install_fake_pyrnnoise(monkeypatch)
 
@@ -240,9 +227,7 @@ class TestDeepFilterNetInitFallback:
         assert ns.is_degraded is False
         assert ns.degraded_reason == ""
 
-    def test_deepfilternet_process_does_not_silently_passthrough(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_deepfilternet_process_does_not_silently_passthrough(self, monkeypatch: pytest.MonkeyPatch):
         """Critical regression: process() must NOT return the input unchanged
         when deepfilternet was selected. The user must get rnnoise-processed
         audio (or, if rnnoise is also missing, an explicit degraded signal)."""
@@ -274,17 +259,14 @@ class TestDeepFilterNetInitFallback:
         assert result is not None, "process() must return audio (not None)"
         assert result.shape == audio.shape
         assert ns._method == "rnnoise", (
-            "process() must not mutate _method away from rnnoise "
-            "(the init-time fallback should be sticky)"
+            "process() must not mutate _method away from rnnoise (the init-time fallback should be sticky)"
         )
         assert ns.is_degraded is True, (
             "is_degraded must remain True after process() — the deepfilternet "
             "fallback is a permanent degradation, not a one-time signal"
         )
 
-    def test_noisy_room_preset_yields_degraded_suppressor(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_noisy_room_preset_yields_degraded_suppressor(self, monkeypatch: pytest.MonkeyPatch):
         """End-to-end: the ``noisy_room`` preset picks deepfilternet; the
         constructed NoiseSuppressor must be degraded (signaling the
         deepfilternet → rnnoise fallback) so the UI can warn the user
@@ -308,8 +290,7 @@ class TestDeepFilterNetInitFallback:
             "suppressor must be marked degraded so the UI warns the user"
         )
         assert ns._method == "rnnoise", (
-            "noisy_room preset must effectively use rnnoise (the fallback), "
-            "not silent passthrough"
+            "noisy_room preset must effectively use rnnoise (the fallback), not silent passthrough"
         )
 
 
@@ -375,9 +356,7 @@ class TestResampleFallbackDegraded:
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
         audio = (np.random.randn(1024).astype(np.float32)) * 0.3
         p.process_chunk(audio, input_sample_rate=16000)
-        assert p.is_degraded is False, (
-            "no resample needed → no resample-degraded flag"
-        )
+        assert p.is_degraded is False, "no resample needed → no resample-degraded flag"
         assert p.degraded_reasons == []
 
     def test_resample_success_does_not_degrade(self):
@@ -391,9 +370,7 @@ class TestResampleFallbackDegraded:
         audio = (np.random.randn(4800).astype(np.float32)) * 0.3
         result = p.process_chunk(audio, input_sample_rate=48000)
         assert result is not None
-        assert p.is_degraded is False, (
-            "successful resample must NOT set the degraded flag"
-        )
+        assert p.is_degraded is False, "successful resample must NOT set the degraded flag"
 
     def test_resample_failure_sets_degraded(self, monkeypatch: pytest.MonkeyPatch):
         """H-22: when resample_poly raises, is_degraded becomes True and
@@ -433,15 +410,9 @@ class TestResampleFallbackDegraded:
             (r for r in reasons if "resample" in r.lower()),
             None,
         )
-        assert resample_reason is not None, (
-            f"degraded_reasons must include a resample-related reason; got {reasons!r}"
-        )
-        assert "48000" in resample_reason, (
-            f"reason must mention input_sr=48000; got {resample_reason!r}"
-        )
-        assert "16000" in resample_reason, (
-            f"reason must mention chain_sr=16000; got {resample_reason!r}"
-        )
+        assert resample_reason is not None, f"degraded_reasons must include a resample-related reason; got {reasons!r}"
+        assert "48000" in resample_reason, f"reason must mention input_sr=48000; got {resample_reason!r}"
+        assert "16000" in resample_reason, f"reason must mention chain_sr=16000; got {resample_reason!r}"
 
     def test_resample_degraded_flag_is_latched(self, monkeypatch: pytest.MonkeyPatch):
         """H-22: once set, the flag stays set across subsequent chunks
@@ -471,8 +442,7 @@ class TestResampleFallbackDegraded:
         # input rate changes.
         p.process_chunk(audio, input_sample_rate=16000)
         assert p.is_degraded is True, (
-            "resample-degraded flag is latched — stays set until reset() or "
-            "set_sample_rate() (the corrective action)"
+            "resample-degraded flag is latched — stays set until reset() or set_sample_rate() (the corrective action)"
         )
 
     def test_reset_clears_resample_degraded_flag(self, monkeypatch: pytest.MonkeyPatch):
@@ -492,14 +462,11 @@ class TestResampleFallbackDegraded:
 
         p.reset()
         assert p.is_degraded is False, (
-            "reset() must clear the resample-degraded flag — a new recording "
-            "session starts with a clean slate"
+            "reset() must clear the resample-degraded flag — a new recording session starts with a clean slate"
         )
         assert p.degraded_reasons == []
 
-    def test_set_sample_rate_clears_resample_degraded_flag(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_set_sample_rate_clears_resample_degraded_flag(self, monkeypatch: pytest.MonkeyPatch):
         """H-22: set_sample_rate() clears the flag (the corrective action)."""
         from voice_typer.server import audio_processor as ap_module
         from voice_typer.server.audio_processor import AudioProcessor
@@ -552,9 +519,7 @@ class TestVectorizedDynamicsFilters:
         """Small mocked audio array (256 samples of noise) for fast tests."""
         return (np.random.randn(256).astype(np.float32)) * 0.3
 
-    def test_equalizer_uses_lfilter_not_per_sample_loop(
-        self, small_audio, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_equalizer_uses_lfilter_not_per_sample_loop(self, small_audio, monkeypatch: pytest.MonkeyPatch):
         pytest.importorskip("scipy.signal")
         from voice_typer.server.audio_filters.equalizer import Equalizer
 
@@ -585,14 +550,15 @@ class TestVectorizedDynamicsFilters:
             "(if this drops to 0, the vectorization was reverted to a per-sample loop)"
         )
 
-    def test_compressor_uses_lfilter_not_per_sample_loop(
-        self, small_audio, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_compressor_uses_lfilter_not_per_sample_loop(self, small_audio, monkeypatch: pytest.MonkeyPatch):
         pytest.importorskip("scipy.signal")
         from voice_typer.server.audio_filters.compressor import Compressor
 
         comp = Compressor(
-            threshold_db=-18.0, ratio=3.0, attack_ms=6.0, release_ms=60.0,
+            threshold_db=-18.0,
+            ratio=3.0,
+            attack_ms=6.0,
+            release_ms=60.0,
             sample_rate=16000,
         )
 
@@ -615,13 +581,9 @@ class TestVectorizedDynamicsFilters:
         assert result.shape == small_audio.shape
         # The vectorized compressor uses 2 lfilter calls (attack env +
         # release env, run in parallel then max'd).
-        assert call_count["n"] == 2, (
-            f"vectorized Compressor must use exactly 2 lfilter calls; got {call_count['n']}"
-        )
+        assert call_count["n"] == 2, f"vectorized Compressor must use exactly 2 lfilter calls; got {call_count['n']}"
 
-    def test_limiter_uses_lfilter_not_per_sample_loop(
-        self, small_audio, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_limiter_uses_lfilter_not_per_sample_loop(self, small_audio, monkeypatch: pytest.MonkeyPatch):
         pytest.importorskip("scipy.signal")
         from voice_typer.server.audio_filters.limiter import Limiter
 
@@ -646,13 +608,9 @@ class TestVectorizedDynamicsFilters:
         assert result.shape == small_audio.shape
         # The vectorized limiter uses 2 lfilter calls (attack env +
         # release env).
-        assert call_count["n"] == 2, (
-            f"vectorized Limiter must use exactly 2 lfilter calls; got {call_count['n']}"
-        )
+        assert call_count["n"] == 2, f"vectorized Limiter must use exactly 2 lfilter calls; got {call_count['n']}"
 
-    def test_noise_gate_uses_maximum_accumulate_for_peak_hold(
-        self, small_audio
-    ):
+    def test_noise_gate_uses_maximum_accumulate_for_peak_hold(self, small_audio):
         """S2-CR-19: the noise gate's peak-hold level estimator must use
         ``np.maximum.accumulate`` (vectorized running-maximum), not a
         per-sample Python ``max()`` loop. The state-machine loop
@@ -708,9 +666,7 @@ class TestVectorizedDynamicsFilters:
             "S2-CR-19 hot-path cost."
         )
 
-    def test_compressor_log10_receives_array_not_scalar(
-        self, small_audio, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_compressor_log10_receives_array_not_scalar(self, small_audio, monkeypatch: pytest.MonkeyPatch):
         """S2-CR-19: ``np.log10`` must be called with an ARRAY argument
         (vectorized gain computation), not a scalar (per-sample loop).
 

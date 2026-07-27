@@ -35,7 +35,6 @@ class TestManifestInExists:
     """
 
     def test_manifest_in_exists(self):
-
         manifest = Path(__file__).resolve().parent.parent.parent / "MANIFEST.in"
         assert manifest.exists(), "PLAT-036: MANIFEST.in must exist at the repo root."
 
@@ -63,7 +62,6 @@ class TestWindowsManifestAsInvoker:
     """
 
     def test_manifest_file_exists(self):
-
         manifest = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.manifest"
         assert manifest.exists(), "PLAT-037: voice-typer.manifest must exist in scripts/build/."
 

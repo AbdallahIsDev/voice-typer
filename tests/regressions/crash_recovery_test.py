@@ -177,10 +177,7 @@ class TestSidecarCrashDetectionBehavioral:
                 if proc.poll() is not None:
                     # Sidecar exited prematurely — fail with stderr.
                     stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-                    pytest.fail(
-                        f"GT-40: sidecar exited prematurely before binding port. "
-                        f"stderr: {stderr}"
-                    )
+                    pytest.fail(f"GT-40: sidecar exited prematurely before binding port. stderr: {stderr}")
                 # Check if the sidecar wrote READY.
                 if proc.stdout:
                     line = proc.stdout.readline()
@@ -188,10 +185,7 @@ class TestSidecarCrashDetectionBehavioral:
                         ready = True
                         break
                 time.sleep(0.05)
-            assert ready, (
-                "GT-40: sidecar did not signal readiness within 5s — "
-                "cannot proceed with crash-detection test"
-            )
+            assert ready, "GT-40: sidecar did not signal readiness within 5s — cannot proceed with crash-detection test"
 
             # Verify the port is actually bound (the sidecar is
             # listening, mimicking the real IPC server).
@@ -200,10 +194,7 @@ class TestSidecarCrashDetectionBehavioral:
             try:
                 test_sock.connect(("127.0.0.1", port))
             except (TimeoutError, ConnectionRefusedError, OSError) as e:
-                pytest.fail(
-                    f"GT-40: sidecar did not bind port {port} — "
-                    f"crash-detection test cannot proceed: {e}"
-                )
+                pytest.fail(f"GT-40: sidecar did not bind port {port} — crash-detection test cannot proceed: {e}")
             finally:
                 test_sock.close()
 

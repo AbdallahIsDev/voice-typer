@@ -3,28 +3,28 @@ File:  voice_typer/server/streaming.py  —  _finalize_impl()  (line ~313)
 The critical flow when streaming transcription is enabled:
 1. During recording, streaming transcribes overlapping audio windows. Words with  end_seconds > commit_horizon  (the "unsafe tail") are held back.
 2. When recording stops,  finalize(full_audio)  is called:
-- It takes a snapshot of committed words and  last_committed_time 
+- It takes a snapshot of committed words and  last_committed_time
 - It transcribes the tail audio from  last_committed_time - 3.0s  (3s overlap)
-- It filters:  new_tail_words = [word for word in words if word.end_seconds > merge_boundary] 
+- It filters:  new_tail_words = [word for word in words if word.end_seconds > merge_boundary]
 The bug: Whisper produces slightly different word timestamps on different runs (even for the same audio). The tail transcription re-runs Whisper on the overlap region, and words from there might get timestamps that differ by more than 0.25s from their streaming timestamps.
 Concrete example of the duplication:
 Streaming transcribes window at t=5-17s:
-  "I" (end=10.2s), "want" (end=10.8s), "to" (end=11.3s), "do" (end=11.9s) 
+  "I" (end=10.2s), "want" (end=10.8s), "to" (end=11.3s), "do" (end=11.9s)
   → all committed since end < 12-1.5=10.5... wait
- 
-Actually let me redo: 
+
+Actually let me redo:
   commit_horizon = window.end_seconds - right_guard_seconds (1.5s)
-  
+
 Window 1: 0-12s, commit_horizon = 10.5s
-  "I want to do this today" 
+  "I want to do this today"
   "today" at end=11.8s > 10.5s → held back (unsafe tail)
- 
+
 Window 2: 9-17s (3s overlap), commit_horizon = 15.5s
   "today" from this window: end=11.8s ≤ 15.5s → committed ✓
-  "I want to do this today" 
+  "I want to do this today"
   But "I" from window 2 has timestamps like start=9.1s, end=9.5s
   → near_duplicate check finds "I" from window 1 (start=9.0, end=9.4) within 0.25s → skipped ✓
- 
+
 Finalize: tail audio from last_committed_time - 3.0s (~12.3s - 3.0s = ~9.3s)
   Whisper transcribes the tail and returns words like:
   "I" (start=9.1, end=9.5) → end=9.5 > 12.3? NO → filtered out ✓
@@ -36,12 +36,12 @@ Finalize: tail audio from last_committed_time - 3.0s (~12.3s - 3.0s = ~9.3s)
 Looks correct in theory. But Whisper timestamp drift changes everything:
 Streaming window 2 transcribed "this" with end=12.5s
 → added to _words, _seen_timestamps has (12.0, 12.5)
- 
+
 Finalize tail transcribes the same audio from 9.3s
 Whisper produces "this" with start=11.9, end=12.4 (drifted by 0.1s)
 → timestamp_key = (11.9, 12.4) → NOT in _seen_timestamps!
 → near_duplicate check: |11.9-12.0|=0.1 ≤ 0.25, |12.4-12.5|=0.1 ≤ 0.25 → detected ✓
- 
+
 But Whisper can drift by MORE than 0.25s:
 Whisper produces "this" with start=11.7, end=12.2 (drifted by 0.3s)
 → |11.7-12.0|=0.3 > 0.25 → near_duplicate MISS!
@@ -64,7 +64,7 @@ The overlap region  [9s:12s]  is transcribed both times.  _add_words_unlocked  c
 File:  voice_typer/server/transcription.py  —  _transcribe_words_unlocked()  (line ~318)
 When  word_timestamps=True  (used by streaming), Whisper's internal VAD splits audio into segments. At segment boundaries:
 - The last word of segment N might be repeated as the first word of segment N+1
-- This is a known faster-whisper behavior when  vad_filter=True  with  speech_pad_ms=200 
+- This is a known faster-whisper behavior when  vad_filter=True  with  speech_pad_ms=200
 - The  speech_pad_ms=200  adds 200ms of extra context around each VAD segment, which can cause boundary words to appear in two adjacent segments
 The streaming path ( transcribe_words ) uses:
 // python
@@ -76,7 +76,7 @@ without_timestamps=True,
 These are different transcribe modes — Whisper can produce different text for the same audio depending on whether word timestamps are enabled.
 ────────────────────────────────────────────────────────────────────────────────
 ⚠️ Fourth Cause (MEDIUM probability): Text Cleanup Gaps
-File:  voice_typer/server/text_cleanup.py 
+File:  voice_typer/server/text_cleanup.py
 ┌────────────────────────────────────┬───────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────┐
 │ Function                           │ What it catches                                                   │ What it misses                                                                           │
 ├────────────────────────────────────┼───────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
@@ -91,7 +91,7 @@ File:  voice_typer/server/app.py  —  _wire_waveform_bubble()  (line ~250)
 The bubble level callback throttles to ~30 Hz. This is unrelated to text duplication — purely visual.
 ────────────────────────────────────────────────────────────────────────────────
 📋 Sixth Cause (LOW probability): Rapid Stop/Start Cycle
-File:  voice_typer/server/app.py  —  toggle_dictation()  →  _start_dictation()  →  _stop_dictation() 
+File:  voice_typer/server/app.py  —  toggle_dictation()  →  _start_dictation()  →  _stop_dictation()
 -  toggle_dictation()  checks  not self._busy_event.is_set()  and returns early if busy
 -  _start_dictation()  checks  self.recorder.recording  and returns early if already recording
 - These guards prevent the most obvious race conditions
@@ -110,5 +110,5 @@ Summary Table
 Most likely root cause for "I want to do this, I want to do this" pattern: Cause #1 or #2 — the tail merge produces slightly different word timestamps for the same audio, bypassing the 0.25s near-duplicate check, and the words get committed twice into the final text.
 ────────────────────────────────────────────────────────────────────────────────
 Now you have a complete picture. When you're ready to fix, I'd recommend starting with:
-1. Increase the near-duplicate threshold from 0.25s to 0.5s in  streaming.py:_has_near_duplicate_unlocked 
+1. Increase the near-duplicate threshold from 0.25s to 0.5s in  streaming.py:_has_near_duplicate_unlocked
 2. Add text-level dedup in  _finalize_impl  — after  add_words , compare against  snapshot_committed_text  and discard any new words that form a duplicate of the last N committed words

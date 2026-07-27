@@ -62,30 +62,14 @@ class TestCheckResourcesRAM:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        info_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Available RAM" in r.getMessage()
-        ]
+        info_lines = [r for r in caplog.records if "[RESOURCE] Available RAM" in r.getMessage()]
         assert info_lines, "Should log available RAM when psutil is available"
 
-        low_ram_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Low RAM" in r.getMessage()
-        ]
-        assert not low_ram_warnings, (
-            "Should NOT warn about low RAM when > 2048 MB is available"
-        )
+        low_ram_warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "Low RAM" in r.getMessage()]
+        assert not low_ram_warnings, "Should NOT warn about low RAM when > 2048 MB is available"
 
-        moderate_lines = [
-            r
-            for r in caplog.records
-            if "RAM is moderate" in r.getMessage()
-        ]
-        assert not moderate_lines, (
-            "Should NOT log moderate RAM when > 2048 MB is available"
-        )
+        moderate_lines = [r for r in caplog.records if "RAM is moderate" in r.getMessage()]
+        assert not moderate_lines, "Should NOT log moderate RAM when > 2048 MB is available"
 
     def test_warns_when_ram_below_1024_mb(self, caplog, monkeypatch):
         """When available RAM < 1024 MB, a WARNING about heap corruption
@@ -99,15 +83,9 @@ class TestCheckResourcesRAM:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Low RAM" in r.getMessage()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "Low RAM" in r.getMessage()]
         assert warnings, "Should log WARNING when RAM < 1024 MB"
-        assert "0xC0000374" in warnings[0].getMessage(), (
-            "Warning must mention heap corruption exit code (0xC0000374)"
-        )
+        assert "0xC0000374" in warnings[0].getMessage(), "Warning must mention heap corruption exit code (0xC0000374)"
 
     def test_infos_moderate_ram_between_1024_and_2048_mb(self, caplog, monkeypatch):
         """When available RAM is 1024-2048 MB, an INFO line about moderate
@@ -122,14 +100,8 @@ class TestCheckResourcesRAM:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        moderate_lines = [
-            r
-            for r in caplog.records
-            if "RAM is moderate" in r.getMessage()
-        ]
-        assert moderate_lines, (
-            "Should log INFO about moderate RAM when available is 1024-2048 MB"
-        )
+        moderate_lines = [r for r in caplog.records if "RAM is moderate" in r.getMessage()]
+        assert moderate_lines, "Should log INFO about moderate RAM when available is 1024-2048 MB"
 
 
 # ── Disk check ───────────────────────────────────────────────────────────
@@ -147,21 +119,13 @@ class TestCheckResourcesDisk:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        disk_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Disk free" in r.getMessage()
-        ]
+        disk_lines = [r for r in caplog.records if "[RESOURCE] Disk free" in r.getMessage()]
         assert disk_lines, "Should log disk free space when shutil.disk_usage succeeds"
 
         disk_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Critically low disk" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.WARNING and "Critically low disk" in r.getMessage()
         ]
-        assert not disk_warnings, (
-            "Should NOT warn about low disk when > 1 GB is free"
-        )
+        assert not disk_warnings, "Should NOT warn about low disk when > 1 GB is free"
 
     def test_warns_when_disk_below_1_gb(self, caplog, monkeypatch):
         """When any monitored drive has < 1 GB free, a WARNING about heap
@@ -173,17 +137,14 @@ class TestCheckResourcesDisk:
             pipeline._check_resources()
 
         warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Critically low disk" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.WARNING and "Critically low disk" in r.getMessage()
         ]
-        assert warnings, (
-            "Should log WARNING when a monitored drive has < 1 GB free"
-        )
+        assert warnings, "Should log WARNING when a monitored drive has < 1 GB free"
 
     def test_handles_disk_usage_failure_gracefully(self, caplog, monkeypatch):
         """When shutil.disk_usage raises (e.g. a broken path), the
         check skips that drive and continues without crashing."""
+
         def _failing_disk_usage(path):
             raise PermissionError(f"Cannot access {path}")
 
@@ -195,14 +156,9 @@ class TestCheckResourcesDisk:
 
         # Even with disk failures, the method must complete without
         # crashing and log the "complete" line.
-        complete_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Pre-flight health check complete" in r.getMessage()
-        ]
+        complete_lines = [r for r in caplog.records if "[RESOURCE] Pre-flight health check complete" in r.getMessage()]
         assert complete_lines, (
-            "_check_resources must complete without crashing even when "
-            "shutil.disk_usage raises on all drives"
+            "_check_resources must complete without crashing even when shutil.disk_usage raises on all drives"
         )
 
 
@@ -222,7 +178,7 @@ class TestCheckResourcesGPU:
         """When torch.cuda is available and GPU memory is sufficient,
         an INFO line shows the allocated / reserved / free amounts."""
         total_memory = 8 * 1024**3  # 8 GB total
-        allocated = 2 * 1024**3     # 2 GB allocated  → 6144 MB free > 512 MB
+        allocated = 2 * 1024**3  # 2 GB allocated  → 6144 MB free > 512 MB
 
         monkeypatch.setattr("torch.cuda.is_available", lambda: True)
         monkeypatch.setattr("torch.cuda.memory_allocated", lambda: allocated)
@@ -236,29 +192,19 @@ class TestCheckResourcesGPU:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        gpu_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] GPU memory" in r.getMessage()
-        ]
-        assert gpu_lines, (
-            "Should log GPU memory info when torch.cuda is available"
-        )
+        gpu_lines = [r for r in caplog.records if "[RESOURCE] GPU memory" in r.getMessage()]
+        assert gpu_lines, "Should log GPU memory info when torch.cuda is available"
 
         gpu_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Low GPU memory" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.WARNING and "Low GPU memory" in r.getMessage()
         ]
-        assert not gpu_warnings, (
-            "Should NOT warn when GPU has > 512 MB free"
-        )
+        assert not gpu_warnings, "Should NOT warn when GPU has > 512 MB free"
 
     def test_warns_when_gpu_memory_below_512_mb(self, caplog, monkeypatch):
         """When torch.cuda reports < 512 MB free GPU memory, a WARNING
         about CUDA out-of-memory errors is logged."""
-        total_memory = 1024**3       # 1 GB total
-        allocated = 900 * 1024**2     # 900 MB allocated → 124 MB free < 512 MB
+        total_memory = 1024**3  # 1 GB total
+        allocated = 900 * 1024**2  # 900 MB allocated → 124 MB free < 512 MB
 
         monkeypatch.setattr("torch.cuda.is_available", lambda: True)
         monkeypatch.setattr("torch.cuda.memory_allocated", lambda: allocated)
@@ -272,14 +218,8 @@ class TestCheckResourcesGPU:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "Low GPU memory" in r.getMessage()
-        ]
-        assert warnings, (
-            "Should log WARNING when free GPU memory < 512 MB"
-        )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "Low GPU memory" in r.getMessage()]
+        assert warnings, "Should log WARNING when free GPU memory < 512 MB"
 
 
 # ── Throttle wrapper ─────────────────────────────────────────────────────
@@ -312,14 +252,9 @@ class TestCheckResourcesThrottled:
             pipeline._check_resources_throttled()
 
         # No RAM info should be logged because _check_resources was skipped.
-        ram_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE]" in r.getMessage()
-        ]
+        ram_lines = [r for r in caplog.records if "[RESOURCE]" in r.getMessage()]
         assert not ram_lines, (
-            "_check_resources_throttled should skip the real check when "
-            "the throttle interval has not elapsed"
+            "_check_resources_throttled should skip the real check when the throttle interval has not elapsed"
         )
 
     def test_throttle_runs_check_when_interval_elapsed(self, caplog, monkeypatch):
@@ -338,19 +273,13 @@ class TestCheckResourcesThrottled:
             pipeline._check_resources_throttled()
 
         # RAM info should be logged (the real check ran).
-        ram_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Available RAM" in r.getMessage()
-        ]
+        ram_lines = [r for r in caplog.records if "[RESOURCE] Available RAM" in r.getMessage()]
         assert ram_lines, (
-            "_check_resources_throttled should call _check_resources when "
-            "the throttle interval has elapsed"
+            "_check_resources_throttled should call _check_resources when the throttle interval has elapsed"
         )
         # The timestamp must have been updated.
         assert pipeline._last_resources_check_ts > 0.0, (
-            "_check_resources_throttled must update _last_resources_check_ts "
-            "after running the real check"
+            "_check_resources_throttled must update _last_resources_check_ts after running the real check"
         )
 
 
@@ -402,15 +331,8 @@ class TestCheckResourcesGracefulDegradation:
             pipeline._check_resources()
 
         # The method must log the final "complete" line.
-        complete_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Pre-flight health check complete" in r.getMessage()
-        ]
-        assert complete_lines, (
-            "_check_resources must complete without crashing even when "
-            "psutil is unavailable"
-        )
+        complete_lines = [r for r in caplog.records if "[RESOURCE] Pre-flight health check complete" in r.getMessage()]
+        assert complete_lines, "_check_resources must complete without crashing even when psutil is unavailable"
 
     def test_completes_without_crash_when_all_checks_fail(self, caplog, monkeypatch):
         """When every sub-check fails (psutil unavailable, disk_usage
@@ -427,12 +349,5 @@ class TestCheckResourcesGracefulDegradation:
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        complete_lines = [
-            r
-            for r in caplog.records
-            if "[RESOURCE] Pre-flight health check complete" in r.getMessage()
-        ]
-        assert complete_lines, (
-            "_check_resources must complete without crashing even when "
-            "ALL sub-checks fail"
-        )
+        complete_lines = [r for r in caplog.records if "[RESOURCE] Pre-flight health check complete" in r.getMessage()]
+        assert complete_lines, "_check_resources must complete without crashing even when ALL sub-checks fail"

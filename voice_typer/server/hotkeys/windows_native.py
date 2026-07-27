@@ -1402,7 +1402,6 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
 
     def _key_pressed(self, vk: int) -> bool:
-
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:

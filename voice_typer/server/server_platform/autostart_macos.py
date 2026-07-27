@@ -175,7 +175,6 @@ def _enable_autostart_macos() -> bool:
 
 
 def _disable_autostart_macos() -> bool:
-
     plist_path = _pkg.get_autostart_dir() / "com.voicetyper.plist"
     # Unload the running job BEFORE deleting the plist, otherwise the
     # job keeps running until next logout even though it's "disabled".

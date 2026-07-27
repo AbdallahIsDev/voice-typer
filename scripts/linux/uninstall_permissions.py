@@ -56,9 +56,7 @@ from pathlib import Path
 # (apt's prerm inherits the env from the sudo session). Both the flag
 # and the env var are OFF by default so the default uninstall
 # preserves user data (users who reinstall keep their models).
-_purge_requested = "--purge" in sys.argv or os.environ.get(
-    "VOICE_TYPER_PURGE", ""
-).strip() in ("1", "true", "yes")
+_purge_requested = "--purge" in sys.argv or os.environ.get("VOICE_TYPER_PURGE", "").strip() in ("1", "true", "yes")
 if "--purge" in sys.argv:
     # Build a new argv without --purge so the delegated
     # install_permissions.py --uninstall doesn't see it (it would
@@ -85,8 +83,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
     Best-effort: logs warnings on failure but does not raise.
     """
     print(
-        f"[voice-typer-permissions] --purge: removing user data for "
-        f"'{username}' at {data_dir}",
+        f"[voice-typer-permissions] --purge: removing user data for '{username}' at {data_dir}",
         file=sys.stderr,
     )
     # The subpaths list mirrors
@@ -128,14 +125,12 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
             )
             if result.returncode != 0:
                 print(
-                    f"[voice-typer-permissions] WARNING: --purge: failed to "
-                    f"remove {target}: {result.stderr.strip()}",
+                    f"[voice-typer-permissions] WARNING: --purge: failed to remove {target}: {result.stderr.strip()}",
                     file=sys.stderr,
                 )
         except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
             print(
-                f"[voice-typer-permissions] WARNING: --purge: failed to "
-                f"remove {target}: {exc}",
+                f"[voice-typer-permissions] WARNING: --purge: failed to remove {target}: {exc}",
                 file=sys.stderr,
             )
     # Try to remove the now-empty data dir itself (best-effort; will
@@ -167,8 +162,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
                 pass
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         print(
-            f"[voice-typer-permissions] WARNING: --purge: failed to rmdir "
-            f"{data_dir}: {exc}",
+            f"[voice-typer-permissions] WARNING: --purge: failed to rmdir {data_dir}: {exc}",
             file=sys.stderr,
         )
 
@@ -192,8 +186,7 @@ def _purge_user_data() -> None:
             pwent = pwd.getpwnam(sudo_user)
         except KeyError:
             print(
-                f"[voice-typer-permissions] WARNING: SUDO_USER '{sudo_user}' "
-                "not found — skipping user-data purge",
+                f"[voice-typer-permissions] WARNING: SUDO_USER '{sudo_user}' not found — skipping user-data purge",
                 file=sys.stderr,
             )
             return

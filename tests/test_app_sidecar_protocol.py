@@ -58,8 +58,7 @@ class TestProtocolVersionConstant:
         """
         assert isinstance(sidecar_ws.PROTOCOL_VERSION, int), (
             "S2-CR-72: PROTOCOL_VERSION must be int (Rust host parses via "
-            "as_u64 + u32::try_from); got "
-            + type(sidecar_ws.PROTOCOL_VERSION).__name__
+            "as_u64 + u32::try_from); got " + type(sidecar_ws.PROTOCOL_VERSION).__name__
         )
 
     def test_protocol_version_is_positive(self):
@@ -74,8 +73,7 @@ class TestProtocolVersionConstant:
         """
         assert sidecar_ws.PROTOCOL_VERSION > 0, (
             "S2-CR-72: PROTOCOL_VERSION must be > 0 (0 is reserved as the "
-            "absent / pre-negotiation sentinel); got "
-            + repr(sidecar_ws.PROTOCOL_VERSION)
+            "absent / pre-negotiation sentinel); got " + repr(sidecar_ws.PROTOCOL_VERSION)
         )
 
     def test_protocol_version_is_currently_one(self):
@@ -183,8 +181,7 @@ class TestEmitServerStartedPayload:
         payload = json.loads(capsys.readouterr().out.strip())
         assert isinstance(payload.get("protocol"), int), (
             "S2-CR-72: 'protocol' field must serialize as a JSON int (Rust "
-            "parser uses Value::as_u64); got: "
-            + repr(payload.get("protocol"))
+            "parser uses Value::as_u64); got: " + repr(payload.get("protocol"))
         )
 
     def test_emit_coerces_protocol_to_int(self, capsys):
@@ -244,8 +241,7 @@ class TestRunCallSiteWiring:
         # Look for the literal string ``PROTOCOL_VERSION`` as the second
         # argument to ``_emit_server_started``.
         assert "_emit_server_started(" in src, (
-            "S2-CR-72: run() must call _emit_server_started (couldn't find "
-            "the call site in run()'s source)"
+            "S2-CR-72: run() must call _emit_server_started (couldn't find the call site in run()'s source)"
         )
         assert "PROTOCOL_VERSION" in src, (
             "S2-CR-72: run() must pass PROTOCOL_VERSION to "
@@ -261,7 +257,6 @@ class TestRunCallSiteWiring:
             if "_emit_server_started(" in line:
                 assert "PROTOCOL_VERSION" in line, (
                     "S2-CR-72: the _emit_server_started call site in run() "
-                    "must pass PROTOCOL_VERSION as the second arg. Got line: "
-                    + repr(line.strip())
+                    "must pass PROTOCOL_VERSION as the second arg. Got line: " + repr(line.strip())
                 )
                 break

@@ -183,8 +183,7 @@ class TestAtexitVsDaemonSameSnapshot:
 
         # Total restore() calls: 1 (from atexit only). Daemon short-circuited.
         assert len(restore_calls) == 1, (
-            f"Expected exactly 1 restore() call (atexit only); "
-            f"got {len(restore_calls)}: {restore_calls}"
+            f"Expected exactly 1 restore() call (atexit only); got {len(restore_calls)}: {restore_calls}"
         )
 
     def test_daemon_claims_first_then_atexit_skips(self):
@@ -227,9 +226,7 @@ class TestAtexitVsDaemonSameSnapshot:
 
             # Daemon runs to completion FIRST (claim + restore).
             cm._delayed_restore(snap, "the dictation", 0.0, entry)
-            assert mock_restore.call_count == 1, (
-                "Daemon should have restored once after claiming its entry"
-            )
+            assert mock_restore.call_count == 1, "Daemon should have restored once after claiming its entry"
 
             # Atexit fires AFTER the daemon has finished. The list is
             # empty (daemon removed its entry), so atexit iterates zero
@@ -239,8 +236,7 @@ class TestAtexitVsDaemonSameSnapshot:
         # Total restore() calls: 1 (from daemon only). Atexit's snapshot
         # was empty so it didn't restore.
         assert len(restore_calls) == 1, (
-            f"Expected exactly 1 restore() call (daemon only); "
-            f"got {len(restore_calls)}: {restore_calls}"
+            f"Expected exactly 1 restore() call (daemon only); got {len(restore_calls)}: {restore_calls}"
         )
         assert mock_restore.call_count == 1
 
@@ -419,9 +415,7 @@ class TestConcurrentRestoreSerialization:
             "OpenClipboard / macOS NSPasteboard / Linux xclip selection."
         )
         # Both restores ran (serialized, not overlapping).
-        assert len(in_critical_owner) == 2, (
-            f"Expected 2 restore() calls; got {len(in_critical_owner)}"
-        )
+        assert len(in_critical_owner) == 2, f"Expected 2 restore() calls; got {len(in_critical_owner)}"
 
     def test_three_concurrent_restores_serialized_via_lock(self):
         """Stress test: 3 threads call ``snapshot.restore()`` concurrently.
@@ -470,8 +464,7 @@ class TestConcurrentRestoreSerialization:
 
         with patch.object(ClipboardSnapshot, "_restore_x11", _instrumented_restore_x11):
             threads = [
-                threading.Thread(target=thread_fn, args=(i,), name=f"restore-{i}", daemon=True)
-                for i in range(3)
+                threading.Thread(target=thread_fn, args=(i,), name=f"restore-{i}", daemon=True) for i in range(3)
             ]
             for t in threads:
                 t.start()
@@ -485,8 +478,7 @@ class TestConcurrentRestoreSerialization:
 
         assert all(not t.is_alive() for t in threads), "A thread did not finish"
         assert not overlap_detected.is_set(), (
-            "Concurrent restore() calls overlapped — _restore_lock failed to "
-            "serialize 3 concurrent restores."
+            "Concurrent restore() calls overlapped — _restore_lock failed to serialize 3 concurrent restores."
         )
         assert len(completed) == 3
 
@@ -609,9 +601,7 @@ class TestAtexitIteratesAllPending:
             _force_restore_pending_at_exit()
 
         # All three snapshots were restored exactly once.
-        assert sorted(restored) == ["A", "B", "C"], (
-            f"Expected all 3 snapshots restored; got {restored}"
-        )
+        assert sorted(restored) == ["A", "B", "C"], f"Expected all 3 snapshots restored; got {restored}"
         # The list is cleared after atexit runs.
         with _pending_restores_lock:
             assert _pending_restores == []
@@ -832,9 +822,7 @@ class TestRestoreLockNoDeadlock:
         ):
             mock_time.sleep = MagicMock()
 
-            checker_thread = threading.Thread(
-                target=try_acquire_pending_lock, name="lock-checker", daemon=True
-            )
+            checker_thread = threading.Thread(target=try_acquire_pending_lock, name="lock-checker", daemon=True)
             checker_thread.start()
 
             # Run _delayed_restore on this thread (simulating the daemon).
@@ -885,9 +873,7 @@ class TestRestoreLockNoDeadlock:
             patch.object(ClipboardSnapshot, "_restore_x11", _blocking_restore_x11),
             patch.object(clip_mod, "log"),
         ):
-            checker_thread = threading.Thread(
-                target=try_acquire_pending_lock, name="lock-checker", daemon=True
-            )
+            checker_thread = threading.Thread(target=try_acquire_pending_lock, name="lock-checker", daemon=True)
             checker_thread.start()
 
             _force_restore_pending_at_exit()

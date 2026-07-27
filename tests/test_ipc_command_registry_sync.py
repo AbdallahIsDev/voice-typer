@@ -138,8 +138,7 @@ class TestS3CR27RequestIdPreservedOnValidationErrors:
         result = server._dispatch(msg)
         assert result is not None
         assert "id" not in result, (
-            "S3-CR-27: when the inbound message has no id, the response "
-            "must not synthesize one either."
+            "S3-CR-27: when the inbound message has no id, the response must not synthesize one either."
         )
 
     def test_successful_response_preserves_request_id(self) -> None:
@@ -184,8 +183,7 @@ class TestS1CR80AcceptTcpPoolSubmitRace:
         src = inspect.getsource(IPCServer._accept_tcp)
         # Find the ``pool.submit`` call.
         assert "pool.submit(" in src, (
-            "S1-CR-80: _accept_tcp must still call pool.submit(...) to "
-            "hand off connections to the worker pool."
+            "S1-CR-80: _accept_tcp must still call pool.submit(...) to hand off connections to the worker pool."
         )
         # The submit call must be inside a try/except RuntimeError.
         # Look for the try block immediately preceding pool.submit and
@@ -195,8 +193,7 @@ class TestS1CR80AcceptTcpPoolSubmitRace:
         preceding = src[:submit_idx]
         last_try = preceding.rfind("try:")
         assert last_try != -1, (
-            "S1-CR-80: pool.submit(...) must be inside a try/except "
-            "RuntimeError block — no preceding ``try:`` found."
+            "S1-CR-80: pool.submit(...) must be inside a try/except RuntimeError block — no preceding ``try:`` found."
         )
         # And the except RuntimeError must come AFTER the submit.
         following = src[submit_idx:]

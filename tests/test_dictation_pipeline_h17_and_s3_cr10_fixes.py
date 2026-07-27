@@ -317,8 +317,7 @@ class TestH17TranscriptionThreadClearUsesWatchdogLock:
 
         # The clear still ran (defensive fallback) — the field is None.
         assert recording_stub._transcription_thread is None, (
-            "H-17 defensive fallback: clear must still run when "
-            "_watchdog_lock is missing (assigns without lock)"
+            "H-17 defensive fallback: clear must still run when _watchdog_lock is missing (assigns without lock)"
         )
 
 
@@ -344,8 +343,7 @@ class TestS3CR10TemplatesAppliedFlag:
         pipeline._apply_templates("trigger phrase")
 
         assert pipeline._templates_applied is True, (
-            "S3-CR-10: _apply_templates must set _templates_applied=True "
-            "when a template match modifies the text"
+            "S3-CR-10: _apply_templates must set _templates_applied=True when a template match modifies the text"
         )
 
     def test_flag_not_set_when_no_template_match(self):
@@ -359,8 +357,7 @@ class TestS3CR10TemplatesAppliedFlag:
         pipeline._apply_templates("no matching trigger")
 
         assert pipeline._templates_applied is False, (
-            "S3-CR-10: _apply_templates must NOT set _templates_applied "
-            "when no template matched"
+            "S3-CR-10: _apply_templates must NOT set _templates_applied when no template matched"
         )
 
     def test_flag_not_set_when_templates_disabled(self):
@@ -374,8 +371,7 @@ class TestS3CR10TemplatesAppliedFlag:
         pipeline._apply_templates("trigger phrase")
 
         assert pipeline._templates_applied is False, (
-            "S3-CR-10: _apply_templates must NOT set _templates_applied "
-            "when templates_enabled is False"
+            "S3-CR-10: _apply_templates must NOT set _templates_applied when templates_enabled is False"
         )
 
     def test_flag_not_set_when_template_manager_raises(self):
@@ -452,9 +448,9 @@ class TestS3CR10LLMPolishPrivacyNotice:
         assert result == "polished text"
         # The privacy NOTICE was logged.
         notices = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO
-            and "Templates were applied before LLM polish" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
         assert notices, (
             "S3-CR-10: _apply_llm_polish must log a privacy NOTICE when "
@@ -479,13 +475,11 @@ class TestS3CR10LLMPolishPrivacyNotice:
             pipeline._apply_llm_polish("hello world")
 
         notices = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO
-            and "Templates were applied before LLM polish" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
-        assert not notices, (
-            "S3-CR-10: privacy NOTICE must NOT fire when templates were not applied"
-        )
+        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when templates were not applied"
 
     def test_no_notice_when_polish_disabled(self, caplog):
         """Privacy NOTICE must NOT fire when LLM polish is disabled
@@ -499,13 +493,8 @@ class TestS3CR10LLMPolishPrivacyNotice:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._apply_llm_polish("hello world")
 
-        notices = [
-            r for r in caplog.records
-            if "Templates were applied before LLM polish" in r.getMessage()
-        ]
-        assert not notices, (
-            "S3-CR-10: privacy NOTICE must NOT fire when LLM polish is disabled"
-        )
+        notices = [r for r in caplog.records if "Templates were applied before LLM polish" in r.getMessage()]
+        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when LLM polish is disabled"
 
     def test_no_notice_when_consent_not_given(self, caplog):
         """Privacy NOTICE must NOT fire when LLM polish consent is False
@@ -521,13 +510,8 @@ class TestS3CR10LLMPolishPrivacyNotice:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             pipeline._apply_llm_polish("hello world")
 
-        notices = [
-            r for r in caplog.records
-            if "Templates were applied before LLM polish" in r.getMessage()
-        ]
-        assert not notices, (
-            "S3-CR-10: privacy NOTICE must NOT fire when llm_polish_consent is False"
-        )
+        notices = [r for r in caplog.records if "Templates were applied before LLM polish" in r.getMessage()]
+        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when llm_polish_consent is False"
 
 
 # ─── S3-CR-10: fail-closed when redact_pii is unimportable ─────────────
@@ -553,9 +537,7 @@ class TestS3CR10FailClosedOnRedactPiiUnavailable:
         app._llm_polisher.polish.return_value = "polished text"
         return app
 
-    def test_polish_skipped_when_redact_pii_unimportable_and_templates_applied(
-        self, caplog, monkeypatch
-    ):
+    def test_polish_skipped_when_redact_pii_unimportable_and_templates_applied(self, caplog, monkeypatch):
         """Fail-closed: when ``redact_pii`` is unimportable AND
         templates were applied, polish is skipped (returns original
         text). The polisher's ``polish()`` must NOT be called.
@@ -587,6 +569,7 @@ class TestS3CR10FailClosedOnRedactPiiUnavailable:
             ``__getattr__``, Python raises ``ImportError`` (not
             ``AttributeError``) for ``from X import Y`` statements.
             """
+
             def __getattr__(self, name):
                 if name == "redact_pii":
                     raise ImportError(f"cannot import name '{name}'")
@@ -614,7 +597,8 @@ class TestS3CR10FailClosedOnRedactPiiUnavailable:
         app._llm_polisher.polish.assert_not_called()
         # A warning was logged explaining the fail-closed.
         warnings = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.WARNING
             and "redact_pii not importable" in r.getMessage()
             and "S3-CR-10 fail-closed" in r.getMessage()
@@ -624,9 +608,7 @@ class TestS3CR10FailClosedOnRedactPiiUnavailable:
             "why polish was skipped (redact_pii unimportable + templates applied)"
         )
 
-    def test_polish_not_skipped_when_redact_pii_unimportable_but_no_templates(
-        self, caplog, monkeypatch
-    ):
+    def test_polish_not_skipped_when_redact_pii_unimportable_but_no_templates(self, caplog, monkeypatch):
         """When ``redact_pii`` is unimportable but templates were NOT
         applied, polish proceeds normally. The text is the user's own
         dictation (lower privacy risk) — the CR-10 fail-open in
@@ -656,8 +638,7 @@ class TestS3CR10FailClosedOnRedactPiiUnavailable:
 
         # Polish proceeded normally — the polisher was called.
         assert result == "polished text", (
-            "S3-CR-10: when redact_pii is unimportable but templates "
-            "were NOT applied, polish must proceed normally"
+            "S3-CR-10: when redact_pii is unimportable but templates were NOT applied, polish must proceed normally"
         )
         app._llm_polisher.polish.assert_called_once_with("hello world")
 
@@ -717,11 +698,8 @@ class TestS3CR10EndToEndTemplateThenLLMPolish:
 
         assert result == "polished"
         notices = [
-            r for r in caplog.records
-            if r.levelno == logging.INFO
-            and "Templates were applied before LLM polish" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
-        assert notices, (
-            "S3-CR-10 end-to-end: privacy NOTICE must fire after a "
-            "template match followed by LLM polish"
-        )
+        assert notices, "S3-CR-10 end-to-end: privacy NOTICE must fire after a template match followed by LLM polish"

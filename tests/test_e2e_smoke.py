@@ -226,7 +226,7 @@ class TestBrandingConstants:
         for name in ("APP_NAME", "APP_DESCRIPTION", "APP_URL", "APP_REPO"):
             value = getattr(branding, name)
             assert isinstance(value, str), f"branding.{name} must be str, got {type(value).__name__}"
-            assert not isinstance(value, (bytes, bytearray)), f"branding.{name} must not be bytes/bytearray"
+            assert not isinstance(value, bytes | bytearray), f"branding.{name} must not be bytes/bytearray"
             assert value, f"branding.{name} must be a non-empty string"
 
     def test_app_name_matches_known_product(self):

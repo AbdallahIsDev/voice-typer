@@ -183,11 +183,11 @@
 
 :root {
 	/* PROD-18: Text color convention.
-	   
+
 	   The renderer exposes three text-color CSS variables that are
 	   easily confused. Use them according to semantic intent, NOT by
 	   raw contrast value:
-	   
+
 	   --text-primary   for headings, page titles, and any content the
 			    user MUST read (nav labels of the current page,
 			    the main CTA label, dialog titles).
@@ -198,12 +198,12 @@
 			    under inputs, placeholder text. Anything the
 			    user can skip without losing the gist of the
 			    screen.
-	   
+
 	   Do NOT pick a variable based on "I want it lighter" — pick
 	   based on the role the text plays. If a role is ambiguous, prefer
 	   --text-secondary (the body default) and only demote to
 	   --text-muted when the text is genuinely optional.
-	   
+
 	   Note: this comment documents the convention. Existing usages
 	   are NOT audited or bulk-replaced; new code should follow this
 	   convention, and touched files should be brought in line as a

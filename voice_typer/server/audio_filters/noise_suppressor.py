@@ -239,6 +239,7 @@ class NoiseSuppressor(AudioFilter):
             # not wired — but the message distinguishes the two cases
             # for diagnostics).
             import df  # noqa: F401  # type: ignore[import-not-found]
+
             df_available = True
         except ImportError:
             df_available = False
@@ -292,9 +293,7 @@ class NoiseSuppressor(AudioFilter):
             # sees both: "deepfilternet not wired; rnnoise fallback
             # also failed: <rnnoise reason>".
             rnnoise_reason = self._degraded_reason
-            self._degraded_reason = (
-                f"{df_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
-            )
+            self._degraded_reason = f"{df_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
         else:
             # _init_rnnoise succeeded — restore df_reason as the
             # degraded_reason (don't let _init_rnnoise's success path
@@ -335,9 +334,7 @@ class NoiseSuppressor(AudioFilter):
             # The defensive ``_backend is None or not _backend.get(...)``
             # check tolerates both a None backend (init failed) and a
             # dict-style backend from a future lazy-init path.
-            if self._backend is None or (
-                hasattr(self._backend, "get") and not self._backend.get("rnnoise")
-            ):
+            if self._backend is None or (hasattr(self._backend, "get") and not self._backend.get("rnnoise")):
                 self._init_rnnoise()
             return self._process_rnnoise(samples, sample_rate, original_shape)
         except Exception:

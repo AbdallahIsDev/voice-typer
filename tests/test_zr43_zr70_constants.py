@@ -6,6 +6,7 @@ Verifies:
 - ``_SHUTDOWN_ALLOWLIST`` is a ``frozenset`` at module level (ZR-70).
 - The values match the previously inlined magic numbers (100, 1000, 5 entries).
 """
+
 from __future__ import annotations
 
 from voice_typer.server.ipc_server import (
@@ -38,15 +39,18 @@ def test_shutdown_allowlist_is_frozenset_at_module_level() -> None:
     (relaunch/quit + the 3 transcription/vocabulary content-bearing events).
     """
     assert isinstance(_SHUTDOWN_ALLOWLIST, frozenset)
-    assert frozenset(
-        {
-            "relaunch_app",
-            "quit_app",
-            "transcription_final",
-            "transcription_partial",
-            "vocabulary_suggestion",
-        }
-    ) == _SHUTDOWN_ALLOWLIST
+    assert (
+        frozenset(
+            {
+                "relaunch_app",
+                "quit_app",
+                "transcription_final",
+                "transcription_partial",
+                "vocabulary_suggestion",
+            }
+        )
+        == _SHUTDOWN_ALLOWLIST
+    )
 
 
 def test_shutdown_allowlist_membership_is_o1() -> None:
