@@ -27,6 +27,8 @@ import { sendToPython } from "../python";
 import { state } from "../state";
 import {
 	centerOnActiveDisplay,
+	consumeHideAnimationCallback,
+	hideBubbleWindow,
 	resetSavedBubblePosition,
 	showBubbleWindow,
 } from "../windows/bubble-window";
@@ -101,51 +103,64 @@ export function registerBubbleHandlers(): void {
 	// (Electron globalShortcut) that sends `bubble:move-by` — see the
 	// comment in `Bubble.tsx` for details. The handler is preserved so
 	// a future global-hotkey wiring can drive it directly.
-	ipcMain.on(
-		"bubble:move-by",
-		(event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
-			if (!assertFromBubble(event)) return;
-			if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
-			const [x, y] = state.bubbleWindow.getPosition();
-			const bubbleW = state.bubbleWindow.getBounds().width;
-			const bubbleH = state.bubbleWindow.getBounds().height;
-			// T2-003: previously used the inline `require("electron").screen`
-			// (untyped `any`), and called `getDisplayMatching(x, y)` with two
-			// numbers — but Electron's `getDisplayMatching` expects a single
-			// `Rectangle` argument. The legacy call relied on Electron's
-			// tolerance (it coerced the leading-numeric positional args into
-			// a degenerate 0x0 rect, then fell back to the primary display).
-			// Replaced with a typed top-level `import { screen }` and a proper
-			// `Rectangle` so the call signature matches the API and `tsc` can
-			// verify it. The original (x, y) anchor point is preserved by
-			// passing the bubble's actual width/height in the rect so the
-			// display match is at least as accurate as before (and strictly
-			// typed) instead of the previous degenerate 0x0 match.
-			const display = screen.getDisplayMatching({
-				x,
-				y,
-				width: bubbleW,
-				height: bubbleH,
-			});
-			const bounds = display.workArea;
-			const newX = Math.max(
-				bounds.x,
-				Math.min(bounds.x + bounds.width - bubbleW, x + deltaX),
-			);
-			const newY = Math.max(
-				bounds.y,
-				Math.min(bounds.y + bounds.height - bubbleH, y + deltaY),
-			);
-			state.bubbleWindow.setPosition(newX, newY);
-		},
-	);
+	// Validate the IPC payload at runtime with `typeof`-narrowing
+	// checks. The previous `(event, { deltaX, deltaY }: …)` annotation
+	// was a compile-time hint only — Electron types the `ipcMain.on`
+	// listener's second argument as `any`, so a malformed payload (or a
+	// hostile renderer) would have slipped past `tsc` and crashed the
+	// main process when destructuring `undefined`. The runtime checks
+	// silently drop bad payloads instead.
+	ipcMain.on("bubble:move-by", (event, payload: unknown) => {
+		if (!assertFromBubble(event)) return;
+		if (typeof payload !== "object" || payload === null) return;
+		const { deltaX, deltaY } = payload as Record<string, unknown>;
+		if (typeof deltaX !== "number" || typeof deltaY !== "number") return;
+		if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
+		const [x, y] = state.bubbleWindow.getPosition();
+		const bubbleW = state.bubbleWindow.getBounds().width;
+		const bubbleH = state.bubbleWindow.getBounds().height;
+		// T2-003: previously used the inline `require("electron").screen`
+		// (untyped `any`), and called `getDisplayMatching(x, y)` with two
+		// numbers — but Electron's `getDisplayMatching` expects a single
+		// `Rectangle` argument. The legacy call relied on Electron's
+		// tolerance (it coerced the leading-numeric positional args into
+		// a degenerate 0x0 rect, then fell back to the primary display).
+		// Replaced with a typed top-level `import { screen }` and a proper
+		// `Rectangle` so the call signature matches the API and `tsc` can
+		// verify it. The original (x, y) anchor point is preserved by
+		// passing the bubble's actual width/height in the rect so the
+		// display match is at least as accurate as before (and strictly
+		// typed) instead of the previous degenerate 0x0 match.
+		const display = screen.getDisplayMatching({
+			x,
+			y,
+			width: bubbleW,
+			height: bubbleH,
+		});
+		const bounds = display.workArea;
+		const newX = Math.max(
+			bounds.x,
+			Math.min(bounds.x + bounds.width - bubbleW, x + deltaX),
+		);
+		const newY = Math.max(
+			bounds.y,
+			Math.min(bounds.y + bounds.height - bubbleH, y + deltaY),
+		);
+		state.bubbleWindow.setPosition(newX, newY);
+	});
 
-	ipcMain.on("bubble:draggable", (_event, draggable: boolean) => {
+	// Runtime-`typeof`-narrow the payload. The previous `(_event,
+	// draggable: boolean)` annotation was compile-time only; a
+	// non-boolean payload would have silently set `bubbleDraggable`
+	// to a string/object and then echoed it back to the bubble.
+	ipcMain.on("bubble:draggable", (_event, payload: unknown) => {
 		// The draggable toggle is a config value that BOTH the main window
 		// (Settings page, via window.bubble.setDraggable) and the bubble
 		// renderer need to sync, so it is NOT restricted to the bubble frame.
 		// (Position/draggable are config values, not hijack vectors — unlike
 		// the drag-move commands below, which stay bubble-only.)
+		if (typeof payload !== "boolean") return;
+		const draggable = payload;
 		state.bubbleDraggable = draggable;
 		if (state.bubbleWindow && !state.bubbleWindow.isDestroyed()) {
 			state.bubbleWindow.webContents.send("bubble:draggable", draggable);
@@ -161,21 +176,24 @@ export function registerBubbleHandlers(): void {
 	// before applying. This prevents a runaway measurement (or a
 	// compromised renderer) from shrinking the bubble to invisible or
 	// growing it to cover the screen.
-	ipcMain.on(
-		"bubble:resize",
-		(event, { width, height }: { width: number; height: number }) => {
-			if (!assertFromBubble(event)) return;
-			if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
-			const [x, y] = state.bubbleWindow.getPosition();
-			const clamped = clampBubbleSize(width, height);
-			state.bubbleWindow.setBounds({
-				x,
-				y,
-				width: clamped.width,
-				height: clamped.height,
-			});
-		},
-	);
+	// Runtime-`typeof`-narrow the payload. A malformed (or hostile)
+	// payload could previously crash `clampBubbleSize` by passing
+	// `undefined`; the runtime check drops it instead.
+	ipcMain.on("bubble:resize", (event, payload: unknown) => {
+		if (!assertFromBubble(event)) return;
+		if (typeof payload !== "object" || payload === null) return;
+		const { width, height } = payload as Record<string, unknown>;
+		if (typeof width !== "number" || typeof height !== "number") return;
+		if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
+		const [x, y] = state.bubbleWindow.getPosition();
+		const clamped = clampBubbleSize(width, height);
+		state.bubbleWindow.setBounds({
+			x,
+			y,
+			width: clamped.width,
+			height: clamped.height,
+		});
+	});
 
 	ipcMain.on("bubble:show-from-renderer", (event) => {
 		// SEC-016: bubble show/hide from the bubble's own UI is allowed;
@@ -242,8 +260,15 @@ export function registerBubbleHandlers(): void {
 	};
 
 	// Canonical channel (kebab-case `bubble:*` convention).
-	ipcMain.on("bubble:set-position", (_event, position: "top" | "bottom") => {
-		applyBubblePosition(position);
+	// Runtime-narrow the payload. The previous `(_event, position:
+	// "top" | "bottom")` annotation was compile-time only — a
+	// non-matching payload would have been passed to
+	// `applyBubblePosition` and silently ignored by the inner
+	// `if (position === "top" || position === "bottom")` guard.
+	// The runtime check makes the drop explicit at the boundary.
+	ipcMain.on("bubble:set-position", (_event, payload: unknown) => {
+		if (payload !== "top" && payload !== "bottom") return;
+		applyBubblePosition(payload);
 	});
 
 	ipcMain.on("bubble:ready", (event) => {
@@ -251,5 +276,37 @@ export function registerBubbleHandlers(): void {
 		if (!assertFromBubble(event)) return;
 		log.warn("[BUBBLE] renderer reports ready");
 		state._bubblePageReady = true;
+	});
+
+	// BG-96: dismiss the bubble from its own '×' button. The bubble
+	// preload's `dismiss()` method sends this IPC; before this handler
+	// existed, the message was silently dropped by Electron's default
+	// ipcMain behavior (no registered listener). Now it routes to
+	// `hideBubbleWindow()` — the same path used by every other hide
+	// trigger (timeout fallback, set_config, etc.), so the bubble
+	// plays its exit animation and the rapid-toggle guard correctly
+	// cancels any in-flight show. SEC-016: restricted to the bubble
+	// frame so only the bubble can dismiss itself.
+	ipcMain.on("bubble:dismiss", (event) => {
+		if (!assertFromBubble(event)) return;
+		hideBubbleWindow();
+	});
+
+	// Persistent listener for the renderer's exit-animation-complete
+	// signal. The previous design called `ipcMain.once("bubble:hidden",
+	// onHidden)` from inside `hideBubbleWindow()` per hide cycle (a
+	// global side effect that `showBubbleWindow()` had to defensively
+	// `removeAllListeners` to clear). Now this listener stays
+	// installed exactly once for the whole app lifetime; the per-hide
+	// callback is stored in a module-level slot in bubble-window.ts
+	// (registered via `onHideAnimationComplete`) and consumed
+	// atomically here. If the fallback timeout already ran and
+	// cleared the slot, this event becomes a no-op (and vice versa).
+	// SEC-016: restricted to the bubble frame so a compromised main
+	// renderer can't fire a fake "animation complete" signal.
+	ipcMain.on("bubble:hidden", (event) => {
+		if (!assertFromBubble(event)) return;
+		const cb = consumeHideAnimationCallback();
+		if (cb) cb();
 	});
 }

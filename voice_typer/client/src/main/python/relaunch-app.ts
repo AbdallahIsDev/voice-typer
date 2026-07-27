@@ -25,6 +25,7 @@ import path from "node:path";
 import { app } from "electron";
 import { log } from "../logging";
 import { state } from "../state";
+import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
 
 export function relaunchApp(): void {
@@ -92,6 +93,11 @@ export function relaunchApp(): void {
 			log.warn("[RESTART] dev: tcpSocket.destroy failed:", e);
 		}
 		state.tcpSocket = null;
+		// TY-35: clear the per-renderer rate-limit Map so destroyed-window
+		// entries don't accumulate across dev-mode restarts (each restart
+		// creates a fresh BrowserWindow with a fresh webContents.id; the
+		// old id's entry would otherwise leak forever).
+		_resetIpcBackpressure();
 		// PVT-G5-007: reset the TCP line buffer so stale partial
 		// frames from the previous backend don't bleed into the
 		// next connection.
@@ -189,6 +195,12 @@ export function relaunchApp(): void {
 		log.warn("[RESTART] prod: tcpSocket.destroy failed:", e);
 	}
 	state.tcpSocket = null;
+	// TY-35: clear the per-renderer rate-limit Map on production relaunch
+	// too. The next process will start with a fresh Map; without this
+	// call, the entries from this process would survive until the OS
+	// reclaims the process memory (harmless on exit, but the call is
+	// here for symmetry with the dev branch and with stop-python.ts).
+	_resetIpcBackpressure();
 	// PVT-G5-007: reset the TCP line buffer (see dev branch above).
 	state.tcpBuffer = "";
 	state._tcpAuthed = false;

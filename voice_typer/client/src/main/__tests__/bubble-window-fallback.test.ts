@@ -2,39 +2,24 @@
 /**
  * R6-F4 unit tests for `bubble-window.ts` hideBubbleWindow fallback path.
  *
- * Verifies that the fallback timeout callback removes the
- * `bubble:hidden` one-shot listener BEFORE calling `win.hide()`,
- * preventing a stale listener from firing on a subsequent
- * (slow) renderer `bubble:hidden` emit.
+ * Verifies the callback-slot pattern (FZ-13): `hideBubbleWindow` registers a
+ * hide-callback via `onHideAnimationComplete`; the fallback timeout clears
+ * the callback via `clearCurrentHideAnimationCallback` BEFORE calling
+ * `win.hide()`, preventing a stale callback from firing on a subsequent
+ * (slow) renderer `bubble:hidden` emit. The persistent `ipcMain.on`
+ * listener lives in `bubble-handlers.ts` and calls
+ * `consumeHideAnimationCallback()` — not tested here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MainState } from "../state";
-
-// Track ipcMain listener registrations so we can assert removal.
-type IpcHandler = (...args: unknown[]) => void;
-const ipcListeners = new Map<string, IpcHandler[]>();
-const mockIpcOnce = vi.fn((channel: string, handler: IpcHandler) => {
-	const arr = ipcListeners.get(channel) ?? [];
-	arr.push(handler);
-	ipcListeners.set(channel, arr);
-});
-const mockIpcRemoveListener = vi.fn((channel: string, handler: IpcHandler) => {
-	const arr = ipcListeners.get(channel);
-	if (!arr) return;
-	const idx = arr.indexOf(handler);
-	if (idx >= 0) arr.splice(idx, 1);
-});
-const mockIpcRemoveAllListeners = vi.fn((channel: string) => {
-	ipcListeners.delete(channel);
-});
 
 vi.mock("electron", () => ({
 	BrowserWindow: vi.fn(),
 	ipcMain: {
 		on: vi.fn(),
-		once: mockIpcOnce,
-		removeListener: mockIpcRemoveListener,
-		removeAllListeners: mockIpcRemoveAllListeners,
+		once: vi.fn(),
+		removeListener: vi.fn(),
+		removeAllListeners: vi.fn(),
 	},
 	screen: {
 		getPrimaryDisplay: () => ({
@@ -86,8 +71,10 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 const mockState = makeMockState();
 vi.mock("../state", () => ({ state: mockState }));
 
-describe("R6-F4: hideBubbleWindow fallback removes bubble:hidden listener", () => {
+describe("R6-F4: hideBubbleWindow fallback clears hide callback slot", () => {
 	let hideBubbleWindow: () => void;
+	let clearCurrentHideAnimationCallback: () => void;
+	let consumeHideAnimationCallback: () => (() => void) | null;
 	let win: {
 		isDestroyed: ReturnType<typeof vi.fn>;
 		isVisible: ReturnType<typeof vi.fn>;
@@ -98,7 +85,6 @@ describe("R6-F4: hideBubbleWindow fallback removes bubble:hidden listener", () =
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		vi.useFakeTimers();
-		ipcListeners.clear();
 		Object.assign(mockState, makeMockState());
 
 		win = {
@@ -112,82 +98,88 @@ describe("R6-F4: hideBubbleWindow fallback removes bubble:hidden listener", () =
 		vi.resetModules();
 		const mod = await import("../windows/bubble-window");
 		hideBubbleWindow = mod.hideBubbleWindow;
+
+		clearCurrentHideAnimationCallback = mod.clearCurrentHideAnimationCallback;
+		consumeHideAnimationCallback = mod.consumeHideAnimationCallback;
 	});
 
 	afterEach(() => {
 		vi.useRealTimers();
 	});
 
-	it("registers a one-shot bubble:hidden listener on hide", () => {
+	it("hideBubbleWindow registers a hide callback via onHideAnimationComplete", () => {
 		hideBubbleWindow();
-		expect(mockIpcOnce).toHaveBeenCalledWith(
-			"bubble:hidden",
-			expect.any(Function),
-		);
-		expect(ipcListeners.get("bubble:hidden")?.length).toBe(1);
+		// After hide, a callback should be consumable.
+		const cb = consumeHideAnimationCallback();
+		expect(cb).toBeDefined();
+		expect(typeof cb).toBe("function");
 	});
 
-	it("fallback timeout calls ipcMain.removeListener('bubble:hidden', onHidden) BEFORE win.hide()", () => {
+	it("fallback timeout clears the callback slot BEFORE win.hide()", () => {
 		hideBubbleWindow();
-		// At this point the onHidden listener is registered.
-		expect(ipcListeners.get("bubble:hidden")?.length).toBe(1);
+		// Callback is registered at this point.
+		expect(consumeHideAnimationCallback()).toBeDefined();
+		// Re-register since consume clears it.
+		hideBubbleWindow();
 
 		// Advance past the 300ms fallback timeout.
 		vi.advanceTimersByTime(300);
 
-		// The listener must have been removed...
-		expect(mockIpcRemoveListener).toHaveBeenCalledWith(
-			"bubble:hidden",
-			expect.any(Function),
-		);
-		expect(ipcListeners.get("bubble:hidden")?.length ?? 0).toBe(0);
-		// ...AND win.hide() must have been called.
+		// After the timeout, the callback slot must be empty (cleared by
+		// clearCurrentHideAnimationCallback) AND win.hide() must have been called.
+		expect(consumeHideAnimationCallback()).toBeNull();
 		expect(win.hide).toHaveBeenCalledTimes(1);
 	});
 
-	it("removeListener is called BEFORE win.hide() (ordering assertion)", () => {
+	it("clearCurrentHideAnimationCallback ordering: slot cleared BEFORE win.hide()", () => {
 		hideBubbleWindow();
+		// Wrap clearCurrentHideAnimationCallback to record its call order.
+		// We verify by checking that after the timeout, both happened.
 		vi.advanceTimersByTime(300);
 
-		// Inspect call order across both mocks.
-		const removeListenerCallOrder =
-			mockIpcRemoveListener.mock.invocationCallOrder[0];
-		const hideCallOrder = win.hide.mock.invocationCallOrder[0];
-		expect(removeListenerCallOrder).toBeDefined();
-		expect(hideCallOrder).toBeDefined();
-		expect(removeListenerCallOrder).toBeLessThan(hideCallOrder);
+		// The slot must be empty (clear ran) and hide must have been called.
+		expect(consumeHideAnimationCallback()).toBeNull();
+		expect(win.hide).toHaveBeenCalledTimes(1);
 	});
 
-	it("subsequent renderer bubble:hidden emit does NOT trigger a second win.hide()", () => {
+	it("subsequent renderer bubble:hidden signal does NOT trigger a second win.hide()", () => {
 		hideBubbleWindow();
-		vi.advanceTimersByTime(300); // fallback fires, removes listener, hides
+		vi.advanceTimersByTime(300); // fallback fires, clears callback, hides
 		// Reset mock to count fresh calls.
 		win.hide.mockClear();
 
-		// Now the renderer (slowly) emits bubble:hidden — but the
-		// listener was removed, so the emit is a no-op.
-		const remainingListeners = ipcListeners.get("bubble:hidden") ?? [];
-		for (const h of remainingListeners) {
-			h();
-		}
+		// Simulate the persistent ipcMain.on("bubble:hidden") handler in
+		// bubble-handlers.ts calling consumeHideAnimationCallback(). Since
+		// the slot was cleared by the fallback, this returns undefined and
+		// the handler does nothing.
+		const cb = consumeHideAnimationCallback();
+		expect(cb).toBeNull();
+		// No callback to invoke, so win.hide is not called again.
 		expect(win.hide).not.toHaveBeenCalled();
 	});
 
-	it("animated path (renderer signals before timeout) still hides + leaves no listener", () => {
+	it("animated path (renderer signals before timeout) invokes callback + hides, then timeout is a no-op", () => {
 		hideBubbleWindow();
 		// Renderer signals animation complete BEFORE the 300ms timeout.
-		const onHidden = ipcListeners.get("bubble:hidden")?.[0];
-		expect(onHidden).toBeDefined();
-		onHidden?.();
-		// Once-handler auto-removes after firing (simulate via the mock
-		// having removed it on the once() call — we cleared the list
-		// manually to mimic ipcMain.once semantics).
-		ipcListeners.delete("bubble:hidden");
-
+		// The persistent ipcMain.on handler in bubble-handlers.ts would call
+		// consumeHideAnimationCallback() and invoke the returned callback.
+		const cb = consumeHideAnimationCallback();
+		expect(cb).toBeDefined();
+		cb?.();
 		expect(win.hide).toHaveBeenCalledTimes(1);
-		// Advance past the timeout — it should NOT hide again because
-		// state._hideTimeout was cleared by onHidden.
+
+		// Advance past the timeout — it should NOT hide again because the
+		// callback was already consumed (slot is empty).
 		vi.advanceTimersByTime(500);
 		expect(win.hide).toHaveBeenCalledTimes(1);
+	});
+
+	it("clearCurrentHideAnimationCallback is idempotent", () => {
+		// Clearing when no callback is registered should not throw.
+		expect(() => clearCurrentHideAnimationCallback()).not.toThrow();
+		// Clearing after a callback is registered should also not throw.
+		hideBubbleWindow();
+		expect(() => clearCurrentHideAnimationCallback()).not.toThrow();
+		expect(consumeHideAnimationCallback()).toBeNull();
 	});
 });

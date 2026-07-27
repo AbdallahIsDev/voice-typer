@@ -84,12 +84,14 @@ describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-152: bubble-window.ts showBubbleWindow calls removeAllListeners
-// unconditionally (not just when _hideTimeout is set)
+// XV-152 (updated for FZ-13): bubble-window.ts showBubbleWindow clears
+// the hide-callback slot unconditionally (not just when _hideTimeout is set).
+// The old removeAllListeners("bubble:hidden") global side-effect was
+// replaced by clearCurrentHideAnimationCallback() in FZ-13.
 // ────────────────────────────────────────────────────────────────────
 
-describe("XV-152: showBubbleWindow removeAllListeners is unconditional", () => {
-	it("source: removeAllListeners('bubble:hidden') appears OUTSIDE the if (_hideTimeout) block", () => {
+describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", () => {
+	it("source: clearCurrentHideAnimationCallback() appears in showBubbleWindow body", () => {
 		const src = readSrc("../windows/bubble-window.ts");
 		const showIdx = src.indexOf("export function showBubbleWindow");
 		expect(showIdx).toBeGreaterThan(-1);
@@ -97,23 +99,28 @@ describe("XV-152: showBubbleWindow removeAllListeners is unconditional", () => {
 		// the entire show function body.
 		const hideIdx = src.indexOf("export function hideBubbleWindow");
 		const showBody = src.slice(showIdx, hideIdx);
-		// Find the `if (state._hideTimeout)` block and the
-		// `removeAllListeners` call. XV-152 intended to move
-		// removeAllListeners outside the if block, but the actual
-		// source keeps it inside (the rapid-toggle guard clears the
-		// timeout AND removes listeners only when a hide is pending).
-		// Assert the actual contract: removeAllListeners is called
-		// within the showBubbleWindow body (inside the if block).
-		const ifIdx = showBody.indexOf("if (state._hideTimeout)");
-		expect(ifIdx).toBeGreaterThan(-1);
-		// Find the closing brace of the if-block (the next `}`
-		// at the same indentation level as the if).
-		const afterIf = showBody.slice(ifIdx);
-		const closingBrace = afterIf.indexOf("}");
-		expect(closingBrace).toBeGreaterThan(-1);
-		const ifBlock = afterIf.slice(0, closingBrace);
-		// removeAllListeners IS inside the if block in the actual source.
-		expect(ifBlock).toContain('removeAllListeners("bubble:hidden")');
+		// FZ-13: the rapid-toggle guard now calls
+		// clearCurrentHideAnimationCallback() instead of the old
+		// ipcMain.removeAllListeners("bubble:hidden") global side-effect.
+		expect(showBody).toContain("clearCurrentHideAnimationCallback");
+		// The old global side-effect must NOT remain.
+		expect(showBody).not.toContain('removeAllListeners("bubble:hidden")');
+	});
+
+	it("source: bubble-window.ts no longer imports or calls ipcMain (FZ-13 moved the listener to bubble-handlers.ts)", () => {
+		const src = readSrc("../windows/bubble-window.ts");
+		// FZ-13 removed the direct ipcMain manipulation from bubble-window.ts.
+		// The persistent bubble:hidden listener now lives in bubble-handlers.ts.
+		// Comments documenting the old design may still mention ipcMain, but
+		// there must be NO import statement and NO ipcMain.X() call.
+		// Check for import: `ipcMain` in an import-from-electron statement.
+		expect(src).not.toMatch(/import\s+.*\bipcMain\b.*from\s+["']electron["']/);
+		// Check for usage: `ipcMain.` (method call) outside comments.
+		// Strip // comments and /* */ comments before checking.
+		const stripped = src
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/\/\/.*$/gm, "");
+		expect(stripped).not.toMatch(/\bipcMain\s*\./);
 	});
 });
 

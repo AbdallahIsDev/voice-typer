@@ -40,7 +40,7 @@
  * exit (cancelling the timer) before Python is confirmed dead.
  */
 import { state } from "../state";
-import { sendToPython } from "./send-to-python";
+import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
 
 // XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
 // is in flight (between the top-of-function guard and either the
@@ -79,6 +79,16 @@ export function stopPython() {
 	// module-level flags above remain the source of truth for the
 	// idempotency decision).
 	state._stopPythonCalled = true;
+
+	// TY-35: clear the per-renderer rate-limit Map. Previously this Map
+	// was never cleared in production — each destroyed BrowserWindow
+	// leaked its `webContents.id` entry forever (the docstring on
+	// `_resetIpcBackpressure` claimed it was called from here, but the
+	// call site was missing). Clearing on stop_python bounds the Map's
+	// growth to "at most one entry per currently-live renderer at any
+	// moment between stop_python calls". Idempotent + safe to call
+	// before the early-return paths below.
+	_resetIpcBackpressure();
 
 	// RW-10: stop the heartbeat interval first so we don't queue a
 	// heartbeat onto the dying socket while ``quit_app`` is in

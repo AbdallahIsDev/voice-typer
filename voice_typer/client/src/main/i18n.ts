@@ -9,13 +9,11 @@
  * Locale sync:
  *   - The renderer persists its locale to `localStorage["voice-typer-ui-locale"]`
  *     (see src/renderer/src/i18n/i18n.ts). The renderer cannot read main's
- *     memory, so it would push its locale via an `i18n:set-locale` IPC
- *     channel — but that IPC handler was removed during IPC consolidation
- *     (PVT-G5-068) and never restored. As a result, native main-process
- *     dialogs always render in English (the `currentLocale` constant below
- *     is never reassigned at runtime). See review.md DT-10 for the dead
- *     `setMainLocale` removal history; restoring the handler is tracked
- *     separately.
+ *     memory, so it pushes its locale via an `i18n:set-locale` IPC channel.
+ *     The handler in `main/ipc/window-handlers.ts` invokes
+ *     {@link setMainLocale}, which reassigns {@link currentLocale} so that
+ *     native main-process UI (tray tooltips, OS notifications routed
+ *     through main) can be localized in the user's chosen language.
  *
  * The bundle covers all 8 locales that the renderer ships
  * (en, es, ar, de, fr, hi, ru, zh). Adding a new locale requires:
@@ -32,13 +30,13 @@
  * module-local type alias so internal references (`currentLocale`)
  * remain typed.
  *
- * DT-10 (session DT dead-code cleanup): `setMainLocale()` was removed —
- * it had zero production callers (the `i18n:set-locale` IPC handler that
- * invoked it was removed in PVT-G5-068 and never restored). `MAIN_STRINGS`
- * stays because `mainT()` (used by the `model:import-dialog` handler)
- * still reads it; `currentLocale` is now a `const` since nothing reassigns
- * it (native dialogs are always English until the IPC handler is
- * restored).
+ * NH-3 (restored): `setMainLocale()` was re-added and is invoked by the
+ * `i18n:set-locale` IPC handler in `main/ipc/window-handlers.ts`. The
+ * handler pushes locale changes from the renderer to the main process
+ * so that native main-process UI (tray tooltips, OS notifications
+ * routed through main) can be localized. `currentLocale` is `let`
+ * because `setMainLocale` reassigns it. `MAIN_STRINGS` is still read by
+ * `mainT()` (used by the `model:import-dialog` handler).
  */
 
 import { APP_NAME } from "./branding";

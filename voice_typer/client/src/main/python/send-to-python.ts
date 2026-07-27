@@ -58,11 +58,19 @@ function _rendererRateLimited(senderId: number | null): boolean {
 }
 
 /**
- * Reset the per-renderer rate-limit state. Called from tests
- * to isolate cases and from `stopPython` / `relaunchApp` to give a
- * freshly-booted backend a clean slate.
+ * Reset the per-renderer rate-limit state. Called from `stopPython()`
+ * and `relaunchApp()` (production callers — TY-35) to give a freshly-
+ * booted backend a clean slate, and from tests to isolate cases.
+ *
+ * TY-35: previously named `_resetIpcBackpressureForTests` (the `ForTests`
+ * suffix was misleading — the docstring claimed production callers but
+ * grep showed none). The Map was never cleared, so each destroyed
+ * BrowserWindow leaked its `webContents.id` entry forever. Renaming to
+ * `_resetIpcBackpressure` (still `_`-prefixed to signal "internal") and
+ * wiring the production call sites honors the original intent and bounds
+ * the Map's growth to "at most one entry per currently-live renderer".
  */
-export function _resetIpcBackpressureForTests(): void {
+export function _resetIpcBackpressure(): void {
 	_rendererCallTimestamps.clear();
 }
 
@@ -116,7 +124,7 @@ const _LONG_RUNNING_COMMANDS: ReadonlySet<string> = new Set([
  * test (`src/main/__tests__/long-running-commands-parity.test.ts`)
  * can assert every entry is also in `ALLOWED_COMMANDS`. Underscore-
  * prefixed to signal "internal/test-only" — matching the existing
- * `_resetIpcBackpressureForTests` convention.
+ * `_resetIpcBackpressure` convention.
  */
 export const _LONG_RUNNING_COMMANDS_FOR_TEST: ReadonlySet<string> =
 	_LONG_RUNNING_COMMANDS;
