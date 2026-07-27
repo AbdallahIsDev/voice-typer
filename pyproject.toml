@@ -499,7 +499,9 @@ ignore = []
 "tests/server/*.py" = ["F811"]
 
 [tool.mypy]
-python_version = "3.10"  # NEW-CQ-023: match requires-python minimum
+# CQ-058: keep at 3.10 (the project's minimum) despite Python 3.12 runtime.
+# numpy 2.x `.pyi` uses `type` statement (3.12+) → ignore numpy stubs below.
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 # CQ-018: disallow untyped defs is off by default — the codebase has many
@@ -512,6 +514,11 @@ ignore_missing_imports = false
 # ERR-ERR-006: each module listed here has been verified to ship without
 # py.typed marker or stub package. Add new entries only after confirming
 # on https://pypi.org that no stub package exists.
+[[tool.mypy.overrides]]
+# CQ-058: numpy 2.x stubs use `type` (Python 3.12+), but project min is 3.10.
+module = ["numpy.*"]
+ignore_errors = true
+
 [[tool.mypy.overrides]]
 module = [
     "sounddevice",
