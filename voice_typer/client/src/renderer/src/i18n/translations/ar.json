@@ -164,13 +164,13 @@
 		"permissionDeniedMessage": "Voice Typer لا يمكنه الوصول إلى الميكروفون. امنح إذن الوصول إلى الميكروفون في إعدادات الخصوصية بالنظام.",
 		"openSettings": "فتح الإعدادات",
 		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل",
-		"loading": "Loading microphones…",
+		"loading": "جارٍ تحميل الميكروفونات…",
 		"test": {
-			"qualityPoor": "Poor",
-			"qualityGood": "Good",
-			"qualityOk": "OK"
+			"qualityPoor": "ضعيف",
+			"qualityGood": "جيد",
+			"qualityOk": "مقبول"
 		},
-		"stopPlaybackFirst": "Stop audio playback before starting a new test"
+		"stopPlaybackFirst": "أوقف تشغيل الصوت قبل بدء اختبار جديد"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -227,14 +227,14 @@
 		"replacementPlaceholder": "هذا، اسمي",
 		"allCategories": "جميع التصنيفات",
 		"filterByCategoryAria": "تصفية حسب التصنيف",
-		"categoryBadgeAria": "Category: {category}",
+		"categoryBadgeAria": "الفئة: {category}",
 		"importSuccessSingular": "تم استيراد إدخال واحد",
 		"importSuccessPlural": "تم استيراد {count} إدخال",
 		"importFailed": "فشل الاستيراد: {error}",
 		"importEmpty": "الملف لا يحتوي على إدخالات مفردات",
 		"loadFailedTitle": "فشل تحميل المفردات",
 		"retry": "إعادة المحاولة",
-		"loading": "Loading vocabulary…"
+		"loading": "جارٍ تحميل المفردات…"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -278,8 +278,8 @@
 		"importEmpty": "الملف لا يحتوي على قوالب",
 		"matchModeExactLabel": "تام",
 		"matchModeContainsLabel": "يحتوي",
-		"matchModeAria": "Match mode: {mode}",
-		"loading": "Loading templates…",
+		"matchModeAria": "وضع التطابق: {mode}",
+		"loading": "جارٍ تحميل القوالب…",
 		"noResults": "لا توجد نتائج",
 		"noResultsDescription": "جرّب مصطلح بحث مختلف أو امسح البحث لرؤية كل القوالب."
 	},
@@ -318,7 +318,7 @@
 		"noDataDescription": "اضغط على المفتاح السريع (أو Caps Lock) في الصفحة الرئيسية للإملاء — ستظهر إحصائياتك هنا.",
 		"startDictation": "بدء الإملاء",
 		"refreshFailed": "فشل تحديث الإحصائيات",
-		"dayActivityAria": "{label}: {count} transcriptions",
+		"dayActivityAria": "{label}: {count} إملاء",
 		"loadingAria": "جاري تحميل لوحة المعلومات",
 		"cards": {
 			"dictations": "إملاءات",
@@ -682,11 +682,11 @@
 			"stopOnSilence": "الإيقاف التلقائي",
 			"stopOnSilenceInfo": "أوقف التسجيل تلقائيًا بعد هذا العدد من الثواني من الصمت.",
 			"stopOnSilenceAria": "الإيقاف التلقائي",
-			"rangeErrorMinutes": "Must be between {min} and {max}",
-			"rangeHintSeconds": "Range: {min}–{max} s",
-			"parseError": "Enter a whole number",
-			"rangeHintMinutes": "Range: {min}–{max} min",
-			"rangeErrorSeconds": "Must be between {min} and {max}"
+			"rangeErrorMinutes": "يجب أن يكون بين {min} و{max}",
+			"rangeHintSeconds": "النطاق: {min}–{max} ث",
+			"parseError": "أدخل رقمًا صحيحًا",
+			"rangeHintMinutes": "النطاق: {min}–{max} دقيقة",
+			"rangeErrorSeconds": "يجب أن يكون بين {min} و{max}"
 		},
 		"audioEnhancement": {
 			"title": "تحسين الصوت",
@@ -943,10 +943,10 @@
 			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن",
 			"exportDiagnosticBundle": "تصدير حزمة التشخيص",
 			"exportDiagnosticBundleAria": "تصدير حزمة التشخيص",
-			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
-			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
-			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
-			"diagnosticBundleExportFailed": "Failed to export diagnostic bundle"
+			"exportDiagnosticBundleHint": "احفظ ملف zip للسجلات والتكوين ومعلومات النظام لإرفاقها بتقرير خطأ",
+			"diagnosticBundleExported": "تم تصدير حزمة التشخيص بنجاح",
+			"diagnosticBundleExportedWithPath": "تم حفظ حزمة التشخيص في: {path}",
+			"diagnosticBundleExportFailed": "فشل تصدير حزمة التشخيص"
 		},
 		"fastStartup": "بدء سريع (تشغيل مسبق)",
 		"fastStartupDescription": "تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من صفحة حول.",
@@ -957,9 +957,9 @@
 			"availableWithBackend": "مخزّن بأمان في سلسلة مفاتيح النظام (الخلفية: {backend}).",
 			"fallback": "الخلفية غير متاحة — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600.",
 			"fallbackWithReason": "الخلفية غير متاحة ({reason}) — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600.",
-			"statusLabel": "Keyring status"
+			"statusLabel": "حالة سلسلة المفاتيح"
 		},
-		"searchNoMatch": "No settings match \"{query}\"",
+		"searchNoMatch": "لا توجد إعدادات تطابق \"{query}\"",
 		"bubbleMicButton": "زر الميكروفون في الفقاعة",
 		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة",
 		"pending": "قيد الانتظار…"
@@ -1024,7 +1024,7 @@
 			"downloaded": "محمّل",
 			"depsRequired": "التبعيات مطلوبة",
 			"available": "متاح",
-			"insufficientDisk": "Insufficient disk space"
+			"insufficientDisk": "مساحة القرص غير كافية"
 		},
 		"import": {
 			"title": "استيراد نموذج",
@@ -1057,7 +1057,7 @@
 			"depsAria": "تحميل التبعيات لـ {name}",
 			"deps": "تحميل التبعيات",
 			"progressAria": "تنزيل النموذج: {percent}% مكتمل",
-			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
+			"oneAtATime": "تنزيل واحد فقط في كل مرة — انتظر حتى يكتمل التنزيل الحالي أو ألغِه"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1140,21 +1140,21 @@
 			"running": "جارٍ التشغيل...",
 			"run": "تشغيل المعيار"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"benchmarkNotImplemented": "لم يتم تنفيذ المعيار بعد.",
 		"speed": {
-			"fastest": "Fastest",
-			"variable": "Variable",
-			"slow": "Slow",
-			"fast": "Fast"
+			"fastest": "الأسرع",
+			"variable": "متغير",
+			"slow": "بطيء",
+			"fast": "سريع"
 		},
-		"openFolderAria": "Open the models directory in your file manager",
-		"openFolderFailed": "Open folder failed",
+		"openFolderAria": "افتح مجلد النماذج في مدير الملفات",
+		"openFolderFailed": "فشل فتح المجلد",
 		"disk": {
-			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
-			"lowSpaceTitle": "Low disk space"
+			"lowSpaceBody": "لا توجد مساحة خالية كافية لتنزيل النماذج. وفّر مساحة أو اختر نموذجًا أصغر.",
+			"lowSpaceTitle": "مساحة قرص منخفضة"
 		},
-		"loading": "Loading models…",
-		"openFolder": "Open models folder"
+		"loading": "جارٍ تحميل النماذج…",
+		"openFolder": "فتح مجلد النماذج"
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",
@@ -1186,7 +1186,7 @@
 		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
 		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
 		"transcriptionComplete": "اكتمل التدوين.",
-		"moreInfoAbout": "More info about {label}",
+		"moreInfoAbout": "مزيد من المعلومات حول {label}",
 		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})"
 	},
 	"help": {
@@ -1296,9 +1296,9 @@
 		"characters": "الأحرف",
 		"loadFailedTitle": "تعذّر تحميل السجل",
 		"retry": "إعادة المحاولة",
-		"charsSuffix": " ({count} chars)",
-		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
-		"sortLabel": "Sort"
+		"charsSuffix": " ({count} حرف)",
+		"exportTruncatedWarning": "التصدير محدود بأحدث {count} سجل — استخدم البحث لتصدير الإدخالات الأقدم.",
+		"sortLabel": "ترتيب"
 	},
 	"onboarding": {
 		"welcomeTitle": "مرحبًا بك في Voice Typer",
@@ -1335,37 +1335,37 @@
 		"skippedSnack": "تم تخطي الإعداد — استخدام الإعدادات الافتراضية",
 		"stepProgress": "الخطوة {current} من {total}",
 		"progressAria": "خطوة الإعداد {current} من {total}",
-		"permissionsTitle": "Keyboard Monitoring Permission",
-		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
-		"permissionsLoading": "Checking permission…",
-		"permissionsNeeded": "Permission still required",
-		"permissionsOk": "Permission granted — hotkeys will work.",
-		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
-		"permissionsTestLabel": "Press your hotkey to test",
-		"permissionsTestSuccess": "Hotkey detected! It works.",
-		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
-		"permissionsTestButton": "Test hotkey",
-		"skipConfirmTitle": "Skip setup?",
+		"permissionsTitle": "إذن مراقبة لوحة المفاتيح",
+		"permissionsDescription": "يستمع Voice Typer إلى مفتاح الاختصار الخاص بك بشكل عام. على بعض المنصات، يتطلب هذا إذنًا على مستوى نظام التشغيل قبل أن تعمل المفاتيح.",
+		"permissionsLoading": "جارٍ التحقق من الإذن…",
+		"permissionsNeeded": "الإذن لا يزال مطلوبًا",
+		"permissionsOk": "تم منح الإذن — ستعمل المفاتيح.",
+		"permissionsNoneNeeded": "لا حاجة لإذن إضافي على هذه المنصة. ستعمل المفاتيح مباشرة.",
+		"permissionsTestLabel": "اضغط على مفتاح الاختصار الخاص بك للاختبار",
+		"permissionsTestSuccess": "تم اكتشاف المفتاح! إنه يعمل.",
+		"permissionsTestFailure": "لم يتم اكتشاف مفتاح الاختصار. تحقق من خطوات الإذن أعلاه وحاول مرة أخرى.",
+		"permissionsTestButton": "اختبار المفتاح",
+		"skipConfirmTitle": "تخطي الإعداد؟",
 		"skipConfirmMessage": "التخطي الآن يعني أن ميكروفونك ومفتاح الاختصار قد لا تعمل. يمكنك إعادة تشغيل هذا معجم الإعداد لاحقًا من الإعدادات → استكشاف الأخطاء وإصلاحها، أو تكوين الإعدادات الفردية في الإعدادات.",
-		"skipConfirmLabel": "Skip anyway",
-		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
-		"permissionsRefresh": "Refresh permission",
-		"permissionsRefreshAria": "Re-check keyboard permission",
-		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
-		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
-		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
-		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
-		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
-		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
-		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"skipConfirmLabel": "تخطي على أي حال",
+		"permissionsTestFailureBlocked": "الإذن لا يزال مطلوبًا — امنحه، ثم حاول مرة أخرى.",
+		"permissionsRefresh": "تحديث الإذن",
+		"permissionsRefreshAria": "إعادة التحقق من إذن لوحة المفاتيح",
+		"permissionsInstructionsMacosTitle": "إذن إمكانية الوصول مطلوب",
+		"permissionsInstructionsMacosStep1": "افتح إعدادات النظام → الخصوصية والأمان → إمكانية الوصول",
+		"permissionsInstructionsMacosStep2": "أضف Voice Typer (ومساعد استماع المفاتيح الخاص به) إلى القائمة",
+		"permissionsInstructionsMacosStep3": "شغّل المفتاح ON لـ Voice Typer",
+		"permissionsInstructionsLinuxTitle": "مجموعة الإدخال + قاعدة udev مطلوبة",
+		"permissionsInstructionsLinuxStep1": "أضف نفسك إلى مجموعة 'input'",
+		"permissionsInstructionsLinuxStep2": "ثبّت قاعدة udev التي تمنح قراءة المجموعة على /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "سجّل الخروج ثم الدخول (أو أعد التشغيل) لتفعيل تغيير المجموعة",
 		"modelOption": "{description} — {size} ({speed})",
 		"permissionsCheckFailed": "تعذّر التحقق من الإذن — انقر فوق تحديث للمحاولة مرة أخرى.",
 		"step4Item": "اختر نموذج التسجيل",
 		"step5Item": "إكمال الإعداد",
 		"refreshMics": "تحديث الميكروفونات",
 		"noMicsHint": "قم بتوصيل ميكروفون أو تحقق من إذن الميكروفون لنظام التشغيل، ثم انقر فوق تحديث.",
-		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
+		"modelDownloadingHint": "سيبدأ تنزيل النموذج في الخلفية — يمكنك استخدام التطبيق أثناء التحميل."
 	},
 	"titleBar": {
 		"minimize": "تصغير",
@@ -1417,10 +1417,10 @@
 		"recordNewAria": "تسجيل اختصار جديد — {label}",
 		"presetHotkeysAria": "اختصارات مسبقة — {label}",
 		"assignHint": "اضغط مفتاحًا للتعيين، أو اضغط Esc للإلغاء",
-		"defaultAriaLabel": "Hotkey picker",
-		"secondsRemainingSuffix": "({count}s)",
+		"defaultAriaLabel": "منتقي المفاتيح",
+		"secondsRemainingSuffix": "({count}ث)",
 		"clearAria": "مسح مفتاح الاختصار — {label}",
-		"holdingPrefix": "Holding: {modifiers}",
+		"holdingPrefix": "مضغوط: {modifiers}",
 		"clearTitle": "مسح مفتاح الاختصار"
 	},
 	"hotkeyValidation": {
@@ -1534,12 +1534,12 @@
 			"waiting": "في انتظار الصوت…"
 		},
 		"detectedIssueCodes": {
-			"high_noise": "High background noise",
-			"moderate_noise": "Moderate background noise",
-			"clipping": "Audio clipping detected",
-			"volume_too_low": "Volume too low — speak closer to the microphone",
-			"volume_low": "Volume is low — consider raising input gain",
-			"no_voice": "No voice detected — try speaking during the test"
+			"high_noise": "ضوضاء خلفية عالية",
+			"moderate_noise": "ضوضاء خلفية متوسطة",
+			"clipping": "تم اكتشاف قص في الصوت",
+			"volume_too_low": "مستوى الصوت منخفض جدًا — تحدث بالقرب من الميكروفون",
+			"volume_low": "مستوى الصوت منخفض — فكر في رفع كسب الإدخال",
+			"no_voice": "لم يتم اكتشاف صوت — حاول التحدث أثناء الاختبار"
 		}
 	},
 	"dashboard": {
@@ -1573,7 +1573,7 @@
 			"win": "Win",
 			"super": "Super",
 			"fn": "Fn",
-			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS فقط)",
 			"space": "Space",
 			"enter": "Enter",
 			"tab": "Tab",
@@ -1628,22 +1628,22 @@
 				"ctrlShiftV": "Ctrl+Shift+V"
 			},
 			"single": {
-				"fn": "Fn / Globe 🌐 (macOS only)",
+				"fn": "Fn / Globe 🌐 (macOS فقط)",
 				"alt": "Alt",
 				"ctrl": "Ctrl",
 				"caps_lock": "Caps Lock"
 			}
 		},
 		"errors": {
-			"empty": "Hotkey is empty",
-			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
-			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
-			"invalid": "Invalid hotkey",
-			"noKeys": "Hotkey has no keys",
-			"fnMacOnlyShort": "Fn key is only supported on macOS.",
-			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+			"empty": "المفتاح فارغ",
+			"comboMustEndNonModifier": "يجب أن تنتهي المجموعة بمفتاح غير معدّل (مثل Ctrl+Alt+V، وليس Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "مفتاح Fn مدعوم فقط على macOS. في Windows/Linux، Fn غير مرئي للتطبيقات.",
+			"invalid": "مفتاح اختصار غير صالح",
+			"noKeys": "المفتاح لا يحتوي على مفاتيح",
+			"fnMacOnlyShort": "مفتاح Fn مدعوم فقط على macOS.",
+			"singleKeyOnly": "مفتاح الإملاء يجب أن يكون مفتاحًا واحدًا (بدون معدّلات). استخدم مفتاح إعادة اللصق للمجموعات."
 		},
-		"none": "None"
+		"none": "لا شيء"
 	},
 	"format": {
 		"duration": {

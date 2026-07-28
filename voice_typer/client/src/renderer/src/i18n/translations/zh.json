@@ -1365,7 +1365,7 @@
 		"step5Item": "完成设置",
 		"refreshMics": "刷新麦克风",
 		"noMicsHint": "连接麦克风或检查操作系统的麦克风权限，然后点击刷新。",
-		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
+		"modelDownloadingHint": "模型将在后台开始下载 — 您可以在加载时使用应用程序。"
 	},
 	"titleBar": {
 		"minimize": "最小化",

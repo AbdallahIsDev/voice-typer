@@ -1365,7 +1365,7 @@
 		"step5Item": "Завершить настройку",
 		"refreshMics": "Обновить микрофоны",
 		"noMicsHint": "Подключите микрофон или проверьте разрешение на микрофон в ОС, затем нажмите Обновить.",
-		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
+		"modelDownloadingHint": "Модель начнет загружаться в фоновом режиме — вы можете пользоваться приложением во время загрузки."
 	},
 	"titleBar": {
 		"minimize": "Свернуть",
