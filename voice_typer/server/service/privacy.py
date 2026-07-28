@@ -80,6 +80,37 @@ class PrivacyMixin(ServiceMixinBase):
         "voice-typer-templates.json",
         "voice-typer.log",
         "prewarm.log",
+        # Electron renderer-error log: written by
+        # ``voice_typer/client/src/main/logging/structuredLogger.ts``
+        # to ``<userData>/electron-renderer-errors.log`` via
+        # ``rendererErrorsLogPath()``. On macOS / Windows the Electron
+        # ``userData`` path resolves to the SAME directory as the Python
+        # ``_config_dir()`` (``~/Library/Application Support/voice-typer``
+        # / ``%APPDATA%\voice-typer``), so listing the bare filename
+        # here lets the unlink walk below actually remove it on those
+        # platforms. On Linux ``userData`` is ``~/.config/voice-typer``
+        # while ``config_dir`` is ``~/.voice-typer`` (a different
+        # directory) — there the Python backend cannot reach the file
+        # and the entry is a no-op (handled by the ``path.exists()``
+        # guard below); the Electron host must expose its own
+        # ``deleteAllPersonalData`` IPC to cover that case (see
+        # ``docs/privacy/gdpr-delete.md`` "Electron logs gap").
+        # Per XZ-PII-01 the renderer-error toast payload may contain
+        # user-spoken text fragments, so the file IS personal data.
+        "electron-renderer-errors.log",
+        # Rust host log: per ``src-tauri/src/platform/logging.rs``
+        # the canonical Rust rotating log filename is ``voice-typer.log``
+        # (NOT ``voice-typer-rust.log``) and it lives inside the
+        # ``<config_dir>/logs/`` subdirectory, which is recursively
+        # removed by the ``shutil.rmtree(rust_logs_dir)`` step below —
+        # so the canonical Rust log is already covered. ``voice-typer-rust.log``
+        # is listed here as a DEFENSIVE entry: it covers the legacy /
+        # pre-migration filename still emitted by some build pipelines
+        # (``docs/home-directory.md`` notes an earlier draft used this
+        # name) and is a no-op on current builds via the ``path.exists()``
+        # guard. Per XZ-LOG-02 the Rust logger has no PII redaction, so
+        # dictated-text fragments may be present in any Rust log file.
+        "voice-typer-rust.log",
     )
     # Glob patterns for personal-data files with timestamped / rotated
     # names.  See ``delete_all_personal_data`` / ``export_gdpr_bundle``
@@ -112,6 +143,15 @@ class PrivacyMixin(ServiceMixinBase):
         "prewarm.log.*",
         "crash_diagnostics.*.txt",
         "python_crash.*.txt",
+        # Electron renderer-error log rotated backups. The current
+        # structured-logger implementation does NOT rotate this file
+        # (see ``structuredLogger.ts:207``: "single file, but the glob
+        # ``electron-renderer-errors.log*`` also catches any future
+        # rotation"), but a future change may add a rotating handler —
+        # this glob ensures rotated backups (if/when they exist) are
+        # swept up by the GDPR delete / export walk alongside the
+        # canonical file above.
+        "electron-renderer-errors.log.*",
     )
 
     # ── Privacy / GDPR (CR-87 / CR-88) ───────────────────────────────
