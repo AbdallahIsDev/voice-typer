@@ -20,6 +20,15 @@
 # ``Config.load()`` consults it during schema migration.
 # ──────────────────────────────────────────────────────────────────────────
 
+# DT-20 sunset policy: cross-reference tags (ARCH-/CR-/G4-/H12/SEC-/RW-/GT-/
+# DE-/PVT-/XV-/XZ-) are historical rationale for fix-waves that landed in
+# prior sessions. They are intentionally retained as a defensive trace of
+# WHY a line exists, but future contributors SHOULD NOT add new tag-style
+# comments here — use a single-line "# FIX-NNN: see PR <link>" pointer
+# instead and link to the design discussion. The git log is the canonical
+# source for "what changed when" — these comments are the human-readable
+# narrative on top of that history.
+
 import json
 import logging
 import os

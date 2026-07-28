@@ -125,9 +125,9 @@ log = logging.getLogger(__name__)
 # resolves) or a ``Protocol`` exposing the enum members — both are
 # larger changes deferred to a future session. The
 # ``# type: ignore[assignment]`` markers YJ-22 removed stay dropped
-# (``Any`` accepts ``None`` without a marker, and ``type | None``
+# (``Any | None`` accepts ``None`` without a marker, and ``type | None``
 # accepts ``None`` without a marker).
-_Key: Any = None
+_Key: Any | None = None
 _Controller: type | None = None
 
 

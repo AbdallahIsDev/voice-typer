@@ -284,12 +284,12 @@ class UndoRepasteController:
             app.tray.notify(APP_NAME, i18n.t("notify.app.undo_no_pynput"))
         except Exception as e:
             log.warning("[UNDO] Failed: %s", e)
-            # XZ-EH-017: do NOT interpolate the raw exception into the
-            # user-facing tray notification — pynput failures include
-            # OS-level error strings, X11 paths, and AT-SPI addresses
-            # (PII / sensitive environment details). The raw ``str(e)``
-            # is already captured in ``log.warning`` above for
-            # operator-side diagnostics. The user-facing notification
-            # uses only the exception class name (e.g. ``OSError``),
-            # which is enough to triage without leaking PII.
-            app.tray.notify(APP_NAME, i18n.t("notify.app.undo_failed", error=type(e).__name__))
+            # XZ-EH-017: do NOT interpolate the raw exception (or even
+            # the class name) into the user-facing tray notification —
+            # pynput failures include OS-level error strings, X11 paths,
+            # and AT-SPI addresses (PII / sensitive environment details).
+            # The raw ``str(e)`` is already captured in ``log.warning``
+            # above for operator-side diagnostics. The user-facing
+            # notification uses a fixed, user-friendly message that
+            # does NOT expose any exception-derived string.
+            app.tray.notify(APP_NAME, i18n.t("notify.app.undo_failed"))

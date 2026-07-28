@@ -88,7 +88,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.app.undo_nothing": "Nothing to undo.",
     "notify.app.undo_done": "Undid last transcription ({char_count} chars)",
     "notify.app.undo_no_pynput": "Undo not available (pynput missing)",
-    "notify.app.undo_failed": "Undo failed: {error}",
+    "notify.app.undo_failed": "Could not undo the last transcription. See logs for details.",
     "notify.app.config_open_failed": "Config file:\n{path}",
     # ── settings_controller.py notifications ────────────────────────────
     "notify.settings_controller.autostart_failed": "Could not change autostart setting.\n{error}",

@@ -18,11 +18,13 @@ use crate::state::SidecarHandle;
 use crate::state::lock as mutex_lock;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port;
 use crate::sidecar::ws::reconnect_ws;
-use crate::util::{generate_token, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
-// PVT-G5-033: reuse the migration module's atomic write helper so the
+use crate::util::{generate_token, atomic_write_bytes, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
+// PVT-G5-033: reuse the canonical atomic write helper so the
 // restart counter is durable against mid-write crashes (see
-// `write_restart_counter` below).
-use crate::migrate::atomic_write_bytes;
+// `write_restart_counter` below). FZ-20: previously imported from
+// `crate::migrate::atomic_write_bytes` (a backward-compat re-export);
+// now imports directly from `crate::util` so the re-export shim can
+// eventually be removed once `migrate.rs` itself is deleted.
 // GT-9: `AssertUnwindSafe` + `catch_unwind` for the respawn_inner
 // panic-safety wrapper. `FutureExt` brings `.catch_unwind()` into scope.
 use std::panic::AssertUnwindSafe;
