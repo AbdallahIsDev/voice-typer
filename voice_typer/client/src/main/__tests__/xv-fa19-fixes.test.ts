@@ -131,6 +131,11 @@ describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", (
 
 describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 	const src = readSrc("../index.ts");
+	// XV-153 refactor: the 3 timers (outer setTimeout + inner setInterval +
+	// inner setTimeout-clear) were extracted from index.ts into
+	// `dev/bubble-test.ts` so the wiring entry point stays wiring-only.
+	// Source-text assertions about the timer calls now read that module.
+	const bubbleTestSrc = readSrc("../dev/bubble-test.ts");
 
 	it("source declares the VT_BUBBLE_TEST diagnostic block", () => {
 		// XV-153 intended to store the VT_BUBBLE_TEST timers in
@@ -140,34 +145,25 @@ describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 		// VT_BUBBLE_TEST block exists and contains the expected
 		// timer calls.
 		expect(src).toContain("VT_BUBBLE_TEST");
-		expect(src).toMatch(/setTimeout/);
-		expect(src).toMatch(/setInterval/);
+		expect(bubbleTestSrc).toMatch(/setTimeout/);
+		expect(bubbleTestSrc).toMatch(/setInterval/);
 	});
 
 	it("source assigns the outer setTimeout for VT_BUBBLE_TEST", () => {
-		// Find the actual VT_BUBBLE_TEST code block (not the comment).
-		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
-		expect(codeIdx).toBeGreaterThan(-1);
-		// Slice a generous window to capture the full block (the
-		// setTimeout/setInterval calls are inside the if block).
-		const block = src.slice(codeIdx, codeIdx + 1200);
-		expect(block).toMatch(/setTimeout/);
+		// XV-153 refactor moved the timers into dev/bubble-test.ts.
+		// Assert the diagnostic module assigns the outer setTimeout.
+		expect(bubbleTestSrc).toMatch(/setTimeout/);
 	});
 
 	it("source assigns the inner setInterval for VT_BUBBLE_TEST", () => {
-		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
-		const block = src.slice(codeIdx, codeIdx + 1200);
-		expect(block).toMatch(/setInterval/);
+		// XV-153 refactor moved the timers into dev/bubble-test.ts.
+		expect(bubbleTestSrc).toMatch(/setInterval/);
 	});
 
 	it("source assigns the inner setTimeout (clear interval) for VT_BUBBLE_TEST", () => {
-		// The actual source uses setTimeout to clear the interval
-		// after 10s. Assert a second setTimeout exists in the block.
-		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
-		const block = src.slice(codeIdx, codeIdx + 1200);
-		// Count setTimeout occurrences — should be at least 2 (outer
-		// + inner clear).
-		const setTimeoutCount = (block.match(/setTimeout/g) ?? []).length;
+		// XV-153 refactor: dev/bubble-test.ts uses a second setTimeout
+		// to clear the interval after 10s. Count setTimeout occurrences.
+		const setTimeoutCount = (bubbleTestSrc.match(/setTimeout/g) ?? []).length;
 		expect(setTimeoutCount).toBeGreaterThanOrEqual(2);
 	});
 
@@ -413,6 +409,7 @@ vi.mock("../state", () => ({ state: mockState }));
 const sendToPythonMock = vi.fn(() => Promise.resolve());
 vi.mock("../python/send-to-python", () => ({
 	sendToPython: sendToPythonMock,
+	_resetIpcBackpressure: vi.fn(),
 }));
 
 class MockChildProcess extends EventEmitter {

@@ -65,6 +65,7 @@ vi.mock("../state", () => ({ state: mockState }));
 // Mock send-to-python so stop-python doesn't actually write to a socket.
 vi.mock("../python/send-to-python", () => ({
 	sendToPython: vi.fn(() => Promise.resolve()),
+	_resetIpcBackpressure: vi.fn(),
 }));
 
 // Mock start-python so relaunch-app's dev-mode branch doesn't actually spawn.
