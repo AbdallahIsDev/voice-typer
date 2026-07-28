@@ -1598,7 +1598,7 @@ presumably runs with all deps installed.
 (3) Physical CSS properties (left/right) used in 8 components — don't flip in RTL.
 (4) Runtime locale-isolation is inconsistent: main process uses en-US for native dialogs, renderer may use different locale.
 **Root cause:** tChoice was added to i18n system but never wired into any component. Strings were missed during i18n sweep. CSS was written before RTL support.
-**Progress:** 
+**Progress:**
 - XA-20-1 (tChoice): Done — useTChoice() hook added in prior session. Wiring to Duration/formatDuration pending.
 - XA-20-2 to XA-20-21: All deferred — await Agent 12 for 8 locale files.
 **Related Files:**
@@ -10848,7 +10848,7 @@ Session 5 contributed 66 new findings.
 - requirements-lock.txt
 - pyproject.toml:82 (pystray>=0.19,<0.20)
 - voice_typer/client/package.json (electron-vite)
-**Fix:** transformers no action (already mitigated). electron-vite no action (intentional). 
+**Fix:** transformers no action (already mitigated). electron-vite no action (intentional).
 - Monitor pystray for forks or replacements.
 - Add safety-ci to GHA that runs pip-audit weekly.
 **Severity:** Medium
