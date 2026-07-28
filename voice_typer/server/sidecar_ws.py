@@ -156,6 +156,14 @@ _MAX_FRAME_BYTES = 1 * 1024 * 1024
 # Auth frame timeout (seconds). A client that connects but never
 # sends the auth frame must not hold the connection indefinitely —
 # matches the TCP path's 5-second auth timeout (PR-3-FIX-1).
+#
+# DEDUP TRACKING: the TCP path has a local
+# ``_tcp_auth_timeout_seconds = 5.0`` in
+# ``ipc/transport_tcp.py::_handle_tcp_connection`` (line ~278).
+# The two transports MUST agree on the auth-deadline budget — if one
+# is changed, the other MUST be updated to match.  A future refactor
+# could extract this constant to a shared ``ipc/auth.py`` module
+# (see S2-CR-1).
 _AUTH_TIMEOUT_SECONDS = 5.0
 
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
@@ -267,6 +275,27 @@ async def _authenticate(websocket) -> bool:
     → respawn with a fresh token, ADR-0020 §10).
 
     Returns ``True`` if authenticated, ``False`` if rejected.
+
+    DEDUP (S2-CR-1)
+    ----------------
+    This function mirrors the TCP auth handshake in
+    ``ipc/transport_tcp.py::_handle_tcp_connection`` (the
+    ``if expected_token:`` block at ~L300-365).  BOTH transports
+    implement the same contract:
+
+    - Read the first frame/line.
+    - Parse JSON.
+    - Validate ``type == "auth"`` + ``isinstance(token, str)``.
+    - ``hmac.compare_digest(token, expected_token)`` (constant-time).
+    - Emit ``{"code":"auth_failed","message":"authentication failed"}``
+      envelope on mismatch.
+    - 5-second auth deadline.
+
+    Differences are transport-primitive only (``websocket.recv()`` +
+    ``asyncio.wait_for`` vs ``_TCPLineIO.readline()`` +
+    ``conn.settimeout``).  Bug fixes to the validation contract MUST
+    be applied to BOTH call sites.  A future extraction to a shared
+    ``ipc/auth.py`` helper is tracked under S2-CR-1.
     """
     expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
     if not expected_token:
@@ -335,6 +364,18 @@ def _make_dispatch(server: IPCServer):
     # handle the shutdown path can reach — a long-running handler
     # (e.g. ``download_model``) would race teardown, half-flush the
     # history DB, and leak a partially-written crash-recovery snapshot.
+    #
+    # DEDUP (S2-CR-1): the rate-limiter import is intentionally from
+    # ``ipc_server`` (NOT from the leaf ``voice_typer.server.ipc.rate_limiter``).
+    # ``_get_rate_limiter`` is defined LOCALLY in ``ipc_server.py`` (not
+    # just re-exported) so it resolves ``_RateLimiter`` against
+    # ``ipc_server``'s module globals at call time.  Tests that
+    # monkey-patch ``ipc_server._RateLimiter`` observe the patched class
+    # through this import (see ``tests/test_r4_f18_rate_limiter_concurrent_init.py``
+    # and ``tests/test_cr_fixes.py``).  Changing the import to the leaf
+    # module would BREAK the test monkey-patch contract.  The TCP path
+    # (``ipc/transport_tcp.py``) also imports from ``ipc_server`` for
+    # the same reason.
     #
     # Stored on the server instance (not the closure) so
     # ``ShutdownController._do_cleanup`` can reach it via
