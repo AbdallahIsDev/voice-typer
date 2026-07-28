@@ -44,7 +44,6 @@ from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardManager
 from voice_typer.server.config import Config, _config_dir
-from voice_typer.server.config_editor import ConfigEditorLauncher
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
@@ -285,6 +284,22 @@ class VoiceTyperApp:
         from voice_typer.server.audio_quality_controller import AudioQualityController
 
         self.audio_quality: AudioQualityController = AudioQualityController(self)
+
+        # S2-CR-24: undo / repaste / config-editor controllers extracted
+        # to focused ``controllers/`` package.  Each holds a reference to
+        # the owning app and exposes a small surface for one concern.
+        # The app keeps thin delegate methods (``repaste_last``,
+        # ``undo_last``, ``_open_config_file``) so tray menu callbacks,
+        # hotkey backends, and tests calling the app methods directly
+        # keep working unchanged.  The extracted classes live in
+        # :mod:`voice_typer.server.controllers`.
+        from voice_typer.server.controllers.config_editor_launcher import ConfigEditorLauncher as _ConfigLauncher
+        from voice_typer.server.controllers.repaste_controller import RepasteController
+        from voice_typer.server.controllers.undo_controller import UndoController
+
+        self._repaste_controller: RepasteController = RepasteController(self)
+        self._undo_controller: UndoController = UndoController(self)
+        self._config_editor_launcher: _ConfigLauncher = _ConfigLauncher(self)
 
         # #2 Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
@@ -632,20 +647,20 @@ class VoiceTyperApp:
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
-        DT-25 (Phase 4.5): body extracted to
-        :meth:`voice_typer.server.app_undo.UndoRepasteController.repaste_last`.
+        S2-CR-24: body extracted to
+        :class:`voice_typer.server.controllers.repaste_controller.RepasteController`.
         Behaviour preserved verbatim — only the class boundary moved.
         """
-        return self.undo.repaste_last()
+        return self._repaste_controller.repaste_last()
 
     def undo_last(self) -> None:
         """UX-003: Undo last transcription by sending backspace keystrokes.
 
-        DT-25 (Phase 4.5): body extracted to
-        :meth:`voice_typer.server.app_undo.UndoRepasteController.undo_last`.
+        S2-CR-24: body extracted to
+        :class:`voice_typer.server.controllers.undo_controller.UndoController`.
         Behaviour preserved verbatim — only the class boundary moved.
         """
-        return self.undo.undo_last()
+        return self._undo_controller.undo_last()
 
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
@@ -705,15 +720,11 @@ class VoiceTyperApp:
     def _open_config_file(self):
         """Open the config file in the user's default editor.
 
-        Delegates to :class:`voice_typer.server.config_editor.ConfigEditorLauncher`
-        (extracted from this method). The launcher holds
-        ``_config_mutation_lock`` for the full editor session (XPLAT-01 /
-        SEC-audit-011 / B-4 / CR-015) and reloads the config from disk
-        after the editor exits. See ``config_editor.py`` for the full
-        platform-specific behavior and the security invariants it pins.
+        S2-CR-24: body extracted to
+        :class:`voice_typer.server.controllers.config_editor_launcher.ConfigEditorLauncher`.
+        Behaviour preserved verbatim — only the class boundary moved.
         """
-        config_file = self.config.config_dir / "config.json"
-        ConfigEditorLauncher(self).launch(config_file)
+        self._config_editor_launcher.open()
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 
