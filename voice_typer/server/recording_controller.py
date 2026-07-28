@@ -735,6 +735,13 @@ class RecordingController:
                 app._waveform_bubble.reset_level()
                 app.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", app._cycle_id)
+                # Immediately secure-clear the audio buffers from memory
+                # after discard. Without this, the numpy array holding the
+                # user's voice can persist in RAM for 30+ minutes until GC
+                # reclaims it. _secure_clear_session_caches zero-fills and
+                # deletes the cached audio arrays, ensuring voice data is
+                # wiped immediately on cancel.
+                app.recorder._secure_clear_session_caches()
             except Exception as e:
                 # ERR-023: don't abort the cancel path — fall through to
                 # ensure tray state + busy flag are reset.

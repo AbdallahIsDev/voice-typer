@@ -64,7 +64,6 @@ from voice_typer.server import event_bus
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.config import Config
 from voice_typer.server.log_rate_limit import log_rate_limited
-from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadProcessor, VadState
 
 # RW-8: ``event_bus`` and ``compute_vad_prob`` are hoisted to module
@@ -145,6 +144,16 @@ from voice_typer.server.vad_processor import (  # noqa: E402
 # :mod:`._recorder_split` for the full split plan.
 from . import _recorder_split  # noqa: E402
 
+# FZ-T8: ``AudioPipeline`` owns the six named helpers split out of
+# ``Recorder._process_audio_chunk`` in a previous session
+# (``_detect_device_disconnect`` / ``_handle_xrun_status`` /
+# ``_apply_filter_chain`` / ``_append_to_buffer_locked`` /
+# ``_compute_rms_and_peak`` / ``_run_vad_state_machine``). ``Recorder``
+# keeps 1-line delegator methods so existing call sites, subclass
+# overrides, and ``inspect.getsource`` checks continue to work. See
+# :mod:`.audio_pipeline` for the collaborator pattern.
+from .audio_pipeline import AudioPipeline  # noqa: F401, E402 — re-exported for tests
+
 # PVT-22 / Phase 4.5: ``DeviceManager`` owns device enumeration, hot-swap,
 # and the device-health-checker daemon thread. ``Recorder`` constructs a
 # ``DeviceManager`` instance in ``__init__`` and delegates the device
@@ -153,6 +162,15 @@ from . import _recorder_split  # noqa: E402
 # KEEP-methods via property shims (see ``_device_disconnected`` etc.
 # below the ``__init__``).
 from .device_manager import DeviceManager  # noqa: F401, E402 — re-exported for tests
+
+# FZ-T8: ``DisconnectHandler`` owns the device hot-swap stream-restart
+# logic (the ~175-LOC block inside ``_stream_lifecycle_lock`` that was
+# previously the tail of ``Recorder._handle_device_disconnect``). The
+# bouncer checks + lock acquisition + re-checks STAY on
+# ``Recorder._handle_device_disconnect`` so the GT-24 source-inspection
+# regression tests continue to pin the lock-scope invariant. See
+# :mod:`.disconnect_handler` for the collaborator pattern.
+from .disconnect_handler import DisconnectHandler  # noqa: F401, E402 — re-exported for tests
 
 # Constants that are NOT patched by tests and are only used by Recorder
 # can be imported directly from the sibling submodules.
@@ -640,6 +658,23 @@ class Recorder(VadShimMixin):
         # routes through ``self._devices`` — which is set by this
         # assignment).
         self._devices: DeviceManager = DeviceManager(self)
+
+        # FZ-T8: ``DisconnectHandler`` owns the ~175-LOC stream-restart
+        # block previously inlined in ``_handle_device_disconnect``. The
+        # bouncer checks + ``_stream_lifecycle_lock`` acquisition +
+        # re-checks STAY on ``Recorder._handle_device_disconnect`` so
+        # the GT-24 source-inspection regression tests continue to pin
+        # the lock-scope invariant (see
+        # ``tests/test_recorder_worker_lifecycle.py``).
+        # ``AudioPipeline`` owns the six named helpers split out of
+        # ``_process_audio_chunk`` in a previous session. ``Recorder``
+        # keeps 1-line delegator methods on each helper name so existing
+        # call sites and ``inspect.getsource`` checks continue to work.
+        # Both collaborators store a back-reference to ``self`` and do
+        # NOT touch recorder state at construction time, so they can be
+        # instantiated as soon as ``self._devices`` is ready.
+        self._disconnect_handler: DisconnectHandler = DisconnectHandler(self)
+        self._audio_pipeline: AudioPipeline = AudioPipeline(self)
 
         # PERF: pre-warm the device-list cache on a background daemon
         # thread so the start() hotkey critical path doesn't pay the
@@ -1161,181 +1196,14 @@ class Recorder(VadShimMixin):
                 log.debug("[RECORDING] Disconnect restart skipped — recording was deliberately stopped")
                 return
 
-            # Medium: PortAudio device IDs are not stable across
-            # hot-swap on Windows MME. Pre-fix, the restart always used
-            # ``device=None`` (OS default), ignoring the user's configured
-            # mic. If the user had explicitly selected a non-default mic
-            # (e.g. a USB headset) and it disconnected momentarily (BT
-            # reconnection), the recorder silently switched to the laptop
-            # built-in mic. Try the user's configured mic (by name) first;
-            # only fall back to ``device=None`` if no same-named device is
-            # found.
-            _restart_device = None
-            _configured_device = self._resolve_device()
-            if _configured_device is not None:
-                _named_candidates = self._same_physical_microphone_candidates(_configured_device)
-                # The first candidate is the original device index; skip
-                # it (it just disconnected). Try the alternates.
-                for _cand in _named_candidates[1:]:
-                    try:
-                        sd.query_devices(_cand)
-                        _restart_device = _cand
-                        log.info(
-                            "[RECORDING] Restart: found same-named device at index %s",
-                            _cand,
-                        )
-                        break
-                    except Exception:
-                        continue
-            if _restart_device is None:
-                log.info("[RECORDING] Restart: no same-named device found, falling back to OS default")
-
-            # Try to open with the resolved device (configured-by-name
-            # or OS default).
-            try:
-                candidate_sr, _ = self._resolve_effective_sample_rate(_restart_device)
-                # AUDIO-CH (revised): The previous code did
-                # ``channels = min(1, default_dev.get("max_input_channels", 1))``
-                # which ALWAYS returned 1 for any valid device (min(1, N>=1) == 1).
-                # This meant a stereo-capable device was always reopened as mono,
-                # losing the second channel even when the user wanted stereo.
-                #
-                # We now use the device's actual max_input_channels, clamped to
-                # [1, 2] (we never need more than 2 channels for voice recording,
-                # and ASR pipelines expect mono or stereo). If the device reports
-                # 0 channels (broken driver), we fall back to 1 (mono).
-                # See FORENSIC_REVIEW_COMPLETE.md → AUDIO-HOT.
-                try:
-                    if _restart_device is None:
-                        default_dev = sd.query_devices(kind="input")
-                    else:
-                        default_dev = sd.query_devices(_restart_device)
-                    max_ch = int(default_dev.get("max_input_channels", 1) or 1)
-                    if max_ch < 1:
-                        max_ch = 1
-                    elif max_ch > 2:
-                        max_ch = 2
-                    channels = max_ch
-                except Exception:
-                    channels = 1
-
-                stream = sd.InputStream(
-                    samplerate=candidate_sr,
-                    channels=channels,
-                    dtype=np.float32,
-                    device=_restart_device,  # configured-by-name or None
-                    callback=self._current_callback,
-                    blocksize=512,
-                    # AUDIO-HOT: finished_callback detects unexpected stream termination
-                    finished_callback=self._stream_finished_callback,
-                )
-                stream.start()
-                # re-check the stop_generation under the stream-
-                # lifecycle lock BEFORE assigning ``self._stream``. A
-                # concurrent ``stop()`` could have bumped the generation
-                # between our earlier bouncer check (top of the locked
-                # block) and this assignment; assigning ``self._stream``
-                # anyway would leak the new stream (stop() already tore
-                # down the old one and would not see this new one) and
-                # leave a zombie callback running. If the generation
-                # changed, close the new stream and bail out.
-                if _captured_generation != self._stop_generation:
-                    log.debug(
-                        "[RECORDING] Disconnect restart aborted — "
-                        "stop_generation changed (%d != %d) before stream assignment",
-                        _captured_generation,
-                        self._stop_generation,
-                    )
-                    with contextlib.suppress(Exception):
-                        stream.close()
-                    return
-                self._stream = stream
-                with self._lock:
-                    self._effective_sr = candidate_sr
-                    # reset the silence timer so a hot-swap
-                    # recovery does not immediately trigger an auto-
-                    # stop. Previously the silence timer accumulated
-                    # during the disconnect (no audio was arriving) and
-                    # was not reset on recovery -- the next chunk after
-                    # recovery would push the timer past
-                    # ``stop_on_silence_seconds`` and fire
-                    # ``on_silence_auto_stop`` even though the user was
-                    # actively speaking into the new device.
-                    self._silence_timer = 0.0
-                    self._silence_start_time = None
-                    self._silence_warning_count = 0
-                    # reset ``_buffer_sr`` so the new session's
-                    # first chunk sets it fresh (the prior session's
-                    # rate may differ from the new device's rate).
-                    self._buffer_sr = None
-                self._actual_channels = channels
-                self._device_disconnected = False
-                # reset the retry counter on successful restart so
-                # a subsequent disconnect (e.g. BT mic flapping) gets a
-                # full retry budget instead of inheriting the prior
-                # disconnect's count.
-                self._device_disconnect_retries = 0
-                log.info(
-                    "[RECORDING] Successfully restarted with %s device at %d Hz",
-                    "default" if _restart_device is None else f"index {_restart_device}",
-                    candidate_sr,
-                )
-                # High: retune the AudioProcessor's chain to the
-                # new device's native rate so filter coefficients are
-                # tuned correctly (XV-31 mitigation) and the per-chunk
-                # ``process_chunk`` call avoids the RT-thread resample
-                # branch. Mirrors the start() retune logic. Guard with
-                # try/except so a buggy AudioProcessor can't break the
-                # recovery.
-                if self._audio_processor is not None:
-                    _proc_sr = getattr(self._audio_processor, "_sample_rate", None)
-                    if _proc_sr is not None and int(_proc_sr) != int(candidate_sr):
-                        _set_sr = getattr(self._audio_processor, "set_sample_rate", None)
-                        if callable(_set_sr):
-                            try:
-                                _set_sr(int(candidate_sr))
-                                log.info(
-                                    "[RECORDING] AudioProcessor.set_sample_rate(%d) called on hot-plug restart",
-                                    candidate_sr,
-                                )
-                            except Exception:
-                                log.warning(
-                                    "[RECORDING] AudioProcessor.set_sample_rate(%d) failed on restart",
-                                    candidate_sr,
-                                    exc_info=True,
-                                )
-                        else:
-                            try:
-                                self._audio_processor.rebuild_from_config(self.config)
-                            except Exception:
-                                log.warning(
-                                    "[RECORDING] AudioProcessor.rebuild_from_config failed on restart",
-                                    exc_info=True,
-                                )
-                # refresh the VAD cache because ``_effective_sr``
-                # (and possibly the processor's ``_sample_rate``) just
-                # changed. The (up, down) resample ratio is recomputed
-                # from the new ``_effective_sr`` (used as fallback until
-                # the first chunk sets ``_buffer_sr``).
-                self._refresh_vad_caches()
-            except Exception as e:
-                # S5-CR-41: use ``log.exception`` so the full traceback
-                # is captured (the previous ``log.error("...: %s", e)``
-                # form lost the traceback — only the exception's str()
-                # was logged, making remote debugging of disconnect-
-                # restart failures much harder).
-                log.exception("[RECORDING] Failed to restart with default device: %s", e)
-                # High: clear the disconnect flag so the next
-                # health-checker cycle (30s) re-probes. Pre-fix, the
-                # except branch left ``_device_disconnected=True``
-                # forever — the health-checker's
-                # ``if self._device_disconnected: continue`` skip meant
-                # the recorder never auto-recovered even if the user
-                # plugged in a new mic. The retry counter is NOT reset
-                # here (only on successful restart or max-retries
-                # reached) so the retry budget still degrades across
-                # consecutive failures.
-                self._device_disconnected = False
+            # FZ-T8: the device-resolution + stream-open + state-update
+            # block (the ~175-LOC tail of this method) was extracted to
+            # :meth:`DisconnectHandler.restart_stream`. The handler runs
+            # under ``_stream_lifecycle_lock`` (acquired above) and
+            # re-checks ``_captured_generation != self._stop_generation``
+            # a third time before assigning ``self._stream`` (the
+            # close-the-new-stream-on-race path lives in the handler).
+            self._disconnect_handler.restart_stream(_captured_generation)
 
     # ── CPU-03: Device health checker thread ─────────────────────────
     #
@@ -3258,263 +3126,52 @@ class Recorder(VadShimMixin):
     def _detect_device_disconnect(self, indata: np.ndarray) -> bool:
         """Detect a USB/BT device disconnect via zero-filled input (HOTKEY-CRASH).
 
-        Returns ``True`` if a disconnect was detected and the worker
-        thread should skip the rest of ``_process_audio_chunk`` for this
-        chunk (the chunk is either a deliberate stop draining zeros, or
-        a real disconnect that has been scheduled for handler-thread
-        recovery). Returns ``False`` when the chunk is normal non-zero
-        audio that should continue through the processing pipeline.
-
-        HOTKEY-CRASH: detect device disconnect (zero-filled indata
-        when device is still "open" but USB/BT was unplugged).
-        Guard against false positives during rapid hotkey toggling:
-        when stop() clears _recording_event, PortAudio may deliver
-        zero-filled frames as the stream drains. We must NOT treat
-        those as device disconnects, because _handle_device_disconnect
-        would race with the deliberate stop() to close the stream.
-
-        Low: use ``not np.any(indata)`` instead of
-        ``np.count_nonzero(indata) == 0``. ``np.any`` short-circuits
-        at the first non-zero element (O(1) for the common non-zero
-        case), while ``np.count_nonzero`` always scans all 512 samples
-        (O(N) per chunk × 16 Hz = 8192 sample-scans/sec). The two are
-        semantically equivalent: both return True iff every element is
-        zero. Preserves the early-return semantics.
+        FZ-T8: body moved to :meth:`AudioPipeline.detect_device_disconnect`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._detect_device_disconnect``
+        continue to work.
         """
-        if not ((indata.size == 0 or not np.any(indata)) and self._chunk_count > 10):
-            return False
-        # RW-7: re-entrancy guard — if a previous chunk already
-        # detected the disconnect and scheduled a handler thread,
-        # don't spawn another. Pre-fix, every subsequent zero-filled
-        # chunk would re-enter this block, set the flag again
-        # (no-op), and spawn ANOTHER device-disconnect-handler
-        # thread — a thread-spawn storm on truly silent (or
-        # disconnected) input. With 100 zero-filled callbacks after
-        # the warmup window, this would spawn ~89 threads.
-        #
-        # The flag is cleared by _handle_device_disconnect on
-        # successful stream restart and by start(), so this guard
-        # only suppresses the storm during the retry window — it
-        # does NOT suppress a legitimate re-detection after a
-        # successful restart.
-        if self._device_disconnected:
-            return True
-        # HOTKEY-CRASH: double-check that recording is still active.
-        # The early-return check in the callback passed, but stop()
-        # may have cleared _recording_event between that check and
-        # this point (the callback and worker run on different
-        # threads, so the Event flag change is visible immediately).
-        if not self._recording_event.is_set():
-            return True  # deliberate stop, not a disconnect
-        self._device_disconnected = True
-        # New disconnect cycle — clear the single-flight guard so a
-        # fresh handler can spawn even if a prior handler hasn't
-        # fully exited yet (e.g. test simulating restart by clearing
-        # _device_disconnected, then sending another zero chunk).
-        self._disconnect_handler_running = False
-        log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
-        # Schedule disconnect handling off the worker thread
-        # HOTKEY-CRASH: capture the current stop_generation so the
-        # handler can bail if a stop/start cycle happened in between.
-        _captured_gen = self._stop_generation
-        # use _spawn_device_thread so the handler is
-        # registered with thread_registry (when available) and
-        # single-flight guarded so a flapping device can't spawn
-        # multiple concurrent handlers.
-        self._spawn_device_thread(
-            name="device-disconnect-handler",
-            target=self._handle_device_disconnect,
-            kwargs={"_captured_generation": _captured_gen},
-            single_flight=True,
-        )
-        return True
+        return self._audio_pipeline.detect_device_disconnect(indata)
 
     def _handle_xrun_status(self, status: Any) -> bool:
         """Inspect the PortAudio ``status`` for an input-overflow XRUN.
 
-        Returns ``True`` if an XRUN was detected and the chunk should be
-        dropped (the in-flight chunk is partially stale — appending it
-        to ``_buffer`` would corrupt the transcriber's input with a
-        discontinuity). Returns ``False`` for clean status so the
-        processing pipeline continues.
-
-        AUDIO-002: Check PortAudio status flags for XRUNs.
-        Use a rolling window of xrun timestamps to reduce log spam
-        while still alerting on sustained issues.
-        Low: ``if status:`` is True for ANY set flag, including
-        ``priming_output`` which fires on the first callback after
-        every stream start (PortAudio is priming buffers — NOT an
-        xrun). Pre-fix, this over-counted ``_xruns`` by 1 on every
-        ``start()``. Narrow to ``status.input_overflow`` which is the
-        real xrun flag for input streams.
-        R18-F13: also accept a raw integer status whose bit 1
-        (``paInputOverflow == 2`` in PortAudio's flag enum) is set —
-        tests pass ``status=2`` to simulate a CallbackFlags object
-        without constructing one. ``sounddevice.CallbackFlags`` is a
-        subclass of ``int``, so this also covers the case where the
-        flag object is passed but its ``.input_overflow`` attribute
-        lookup is bypassed.
+        FZ-T8: body moved to :meth:`AudioPipeline.handle_xrun_status`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._handle_xrun_status``
+        continue to work.
         """
-        _xrun_overflow = False
-        if status:
-            _overflow_attr = getattr(status, "input_overflow", None)
-            if _overflow_attr is True:
-                _xrun_overflow = True
-            elif _overflow_attr is None and isinstance(status, int):
-                # PortAudio paInputOverflow = bit 1 (value 2).
-                _xrun_overflow = bool(status & 2)
-        if not _xrun_overflow:
-            return False
-        self._xruns += 1
-        now = time.monotonic()
-        self._xrun_timestamps.append(now)
-        # AUDIO-002: check rolling window — only log if threshold
-        # exceeded within the alert period
-        window_start = now - _XRUN_ALERT_PERIOD
-        recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
-        if recent_count >= _XRUN_ALERT_THRESHOLD or self._xruns == 1:
-            log.warning(
-                "[RECORDING] PortAudio status flag: %s (xrun_count=%d, recent=%d/%.0fs)",
-                status,
-                self._xruns,
-                recent_count,
-                _XRUN_ALERT_PERIOD,
-            )
-        # Item 1: fire threshold callback for tray notification
-        # Low: use ``%`` instead of ``==`` so the callback
-        # fires every N xruns (not just once at exactly N). Pre-fix,
-        # ``==`` fired EXACTLY ONCE per session — when ``_xruns``
-        # incremented from 9 to 10 — and never again. A user with
-        # 100+ xruns saw 1 notification then nothing.
-        if self._xruns % self._xrun_threshold == 0 and self.on_xrun_threshold:
-            with contextlib.suppress(Exception):
-                self.on_xrun_threshold(self._xruns)
-        # R18-F13: drop the partial chunk on xrun status. PortAudio
-        # reports ``input_overflow`` when the callback couldn't keep
-        # up — the in-flight chunk is partially stale (the backend
-        # overwrote a portion of the buffer before the callback
-        # copied it out). Appending it to ``_buffer`` would corrupt
-        # the transcriber's input with a discontinuity. Return here
-        # so the chunk is discarded; the next clean chunk resumes
-        # normal buffering. ``_xruns`` was already incremented above
-        # so telemetry still reflects the drop.
-        return True
+        return self._audio_pipeline.handle_xrun_status(status)
 
     def _apply_filter_chain(self, indata: np.ndarray) -> np.ndarray:
         """Convert multi-channel input to mono and apply the real-time filter chain.
 
-        AUDIO-CH: convert multi-channel input to mono via
-        :meth:`_ensure_mono`.
-
-        AUDIO-PROC: apply real-time noise filtering BEFORE the
-        buffer append so (a) `filtered` is defined when we use it
-        inside the lock, and (b) the stored audio, silence
-        detection, and waveform bubble all see the cleaned signal
-        that the transcriber will receive.  This runs OUTSIDE the
-        lock — process_chunk() is non-blocking and operates only
-        on the local `indata` copy.  See recording.py callback
-        ordering in the auto-volume-duck architecture doc §6.4.
-
-        Also updates ``self._buffer_sr`` to track the post-filter
-        sample rate so :meth:`stop` / :meth:`snapshot` know whether
-        to resample again. Pre-fix, ``_buffer_sr`` was never set, so
-        ``stop()`` read ``_effective_sr`` (the device's 48 kHz) and
-        the subsequent ``resample_poly(audio, 1, 3)`` decimated the
-        16 kHz audio 3:1 → chipmunk-pitched garbage on every non-16
-        kHz mic.
+        FZ-T8: body moved to :meth:`AudioPipeline.apply_filter_chain`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._apply_filter_chain``
+        continue to work.
         """
-        indata_mono = self._ensure_mono(indata)
-        if self._audio_processor is not None:
-            # CRIT-6: pass the stream's native rate so the processor can
-            # resample to the chain's construction rate (16 kHz) before
-            # filtering. Without this argument the resampler is bypassed and
-            # filters built at 16 kHz are fed native-rate audio (e.g. 48 kHz),
-            # silently mistuning every coefficient.
-            filtered = self._audio_processor.process_chunk(indata_mono.copy(), input_sample_rate=self._effective_sr)
-            # Critical: the AudioProcessor resamples each chunk to
-            # its chain's construction rate (typically 16 kHz) before
-            # filtering, so the audio appended to ``_buffer`` is at the
-            # processor's rate — NOT the device's native rate. Track this
-            # so ``stop()`` / ``snapshot()`` use the correct source rate
-            # when deciding whether to resample again.
-            proc_sr = getattr(self._audio_processor, "_sample_rate", None)
-            self._buffer_sr = int(proc_sr) if proc_sr is not None else self._effective_sr
-        else:
-            filtered = indata_mono
-            # Critical: no processor → no resampling happened, so
-            # the buffer holds audio at the device's native rate. Track
-            # this so ``stop()`` / ``snapshot()`` skip the resample.
-            self._buffer_sr = self._effective_sr
-        return filtered
+        return self._audio_pipeline.apply_filter_chain(indata)
 
     def _append_to_buffer_locked(self, filtered: np.ndarray) -> tuple[int, int]:
         """Append ``filtered`` to ``_buffer`` under the lock; return ``(chunk_count, buffer_len)``.
 
-        RACE-001: minimize lock scope — only buffer append and
-        counter need atomicity. Callback refs and silence state
-        are read outside the lock — these are set once at start()
-        and cleared at stop(), so a torn read just means we miss
-        one callback or fire one extra, which is acceptable. The
-        alternative (holding the lock while calling user code)
-        risks deadlocks.
-
-        AUDIO-019: Backpressure detection — if the deque dropped chunks
-        (maxlen exceeded), increment a counter and warn the user.
+        FZ-T8: body moved to :meth:`AudioPipeline.append_to_buffer_locked`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._append_to_buffer_locked``
+        continue to work.
         """
-        with self._lock:
-            # Store FILTERED audio so the transcriber receives the
-            # cleaned signal. PERF-12: ``filtered`` is already an
-            # owned array — in the processor branch,
-            # ``process_chunk`` is called with ``indata_mono.copy()``
-            # and either returns that same owned copy (passthrough)
-            # or a fresh array from the filter chain. In the
-            # no-processor branch, ``indata_mono`` is either the
-            # owned ``chunk_copy`` (ndim==1), a fresh ``np.mean``
-            # result (multi-channel downmix), or a view of
-            # ``chunk_copy`` (reshape); numpy views keep their base
-            # alive via ``.base``, so the buffer safely owns its
-            # data without a redundant ``.copy()`` here (saves
-            # ~2KB alloc/chunk at 16Hz).
-            self._buffer.append(filtered)
-            self._chunk_count += 1
-            chunk_count = self._chunk_count
-            buffer_len = len(self._buffer)
-
-        # AUDIO-019: Backpressure detection — if the deque dropped chunks
-        # (maxlen exceeded), increment a counter and warn the user
-        if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
-            self._dropped_chunks = self._dropped_chunks + 1
-            if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
-                log.warning(
-                    "[RECORDING] Buffer full — oldest audio dropped (total=%d). ASR is slower than real-time.",
-                    self._dropped_chunks,
-                )
-        return chunk_count, buffer_len
+        return self._audio_pipeline.append_to_buffer_locked(filtered)
 
     def _compute_rms_and_peak(self, filtered: np.ndarray) -> tuple[float, float, float]:
         """Compute ``(chunk_rms, chunk_peak, chunk_duration)`` for the filtered chunk.
 
-        RMS / peak computation (operates on FILTERED audio so the
-        waveform bubble and silence detection see what the
-        transcriber will see, not raw mic input).
-        AUDIO-NP: use np.dot instead of np.mean(indata**2) to
-        avoid the intermediate squared array allocation.
+        FZ-T8: body moved to :meth:`AudioPipeline.compute_rms_and_peak`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._compute_rms_and_peak``
+        continue to work.
         """
-        if filtered.size:
-            # AUDIO-NP: single-pass RMS using np.dot — avoids
-            # creating the intermediate abs_filtered**2 array.
-            flat = filtered.reshape(-1)
-            chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            # PERF-FIX-2: allocation-free peak — reuse the existing
-            # ``flat`` view instead of materializing np.abs(filtered).
-            # max(|x|) == max(max(x), -min(x)) — two reductions on the
-            # same contiguous view, no intermediate array allocated.
-            chunk_peak = max(float(flat.max()), -float(flat.min()))
-        else:
-            chunk_peak = 0.0
-            chunk_rms = 0.0
-        chunk_duration = len(filtered) / self._effective_sr
-        return chunk_rms, chunk_peak, chunk_duration
+        return self._audio_pipeline.compute_rms_and_peak(filtered)
 
     def _run_vad_state_machine(
         self,
@@ -3531,147 +3188,23 @@ class Recorder(VadShimMixin):
     ) -> None:
         """Run the VAD state machine + silence/max-duration auto-stop callbacks.
 
-        AUDIO-014: auto-calibrate VAD thresholds from ambient noise.
-        AUDIO-013: Silero VAD probability (with resample to 16kHz).
-        AUDIO-013: VAD state machine + silence timer.
-        H12: silence warning / auto-stop / max-duration callbacks.
-
-        The callback refs (``silence_warning_cb`` etc.) are passed in
-        explicitly because they were already snapshotted outside the
-        lock by the caller — re-reading them from ``self`` here would
-        be a second torn read with no consistency guarantee. The
-        RMS callback (``on_rms_level``) is fired separately by the
-        caller after this method returns.
+        FZ-T8: body moved to :meth:`AudioPipeline.run_vad_state_machine`.
+        This is a 1-line delegator so existing call sites and
+        ``inspect.getsource`` checks on ``Recorder._run_vad_state_machine``
+        continue to work.
         """
-        # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
-        self._vad_auto_calibrate(chunk_rms, chunk_duration)
-
-        # AUDIO-013: compute Silero VAD probability if enabled.
-        # RT-SAFE-001: this previously ran in the audio callback
-        # (~1-5ms for 512 samples on CPU) and was a real-time safety
-        # violation. It now runs on the worker thread.
-        # VAD-GATE: skip Silero inference when VAD is disabled (all audio
-        # enhancements off) to avoid wasting CPU.
-        # read the cached VAD properties (set at start() / on
-        # config change) instead of dispatching 3 property lookups per
-        # chunk × 16 Hz = 48 lookups/sec.
-        vad_prob = None
-        if self._cached_vad_enabled and self._cached_use_silero_vad and self._cached_silero_available:
-            try:
-                # impl-vad-fix: Silero VAD only accepts {8000, 16000} Hz.
-                # The mic's native rate may be 44100 or 48000, which
-                # previously raised:
-                #   ValueError: Supported sampling rates: [8000, 16000]
-                # Resample to 16000 using the same scipy resample_poly
-                # path as _resample_audio_impl (gcd up/down pattern).
-                #
-                # High: use ``_buffer_sr`` (the post-process_chunk
-                # rate set above) instead of ``_effective_sr`` (the
-                # device's native rate). When a processor is active,
-                # ``_buffer_sr == 16000`` and the VAD branch is skipped
-                # entirely — no double-resample. Pre-fix used
-                # ``_effective_sr`` (e.g. 48000) which caused
-                # ``resample_poly(filtered, 1, 3)`` to decimate the
-                # already-16 kHz audio 3:1 → ~170 samples presented to
-                # Silero → speech probability systematically biased low
-                # → silence_timer accumulated faster → recording
-                # auto-stopped prematurely mid-sentence.
-                #
-                # use the cached (up, down) tuple instead of
-                # recomputing ``math.gcd`` per chunk.
-                _vad_sr = self._buffer_sr if self._buffer_sr is not None else self._effective_sr
-                if _vad_sr != self._cached_vad_resample_sr:
-                    # ``_buffer_sr`` changed since the cache was last
-                    # computed (e.g. first chunk after start(), or a
-                    # hot-plug rebuild that called set_sample_rate).
-                    self._refresh_vad_caches()
-                _up_down = self._cached_vad_resample_up_down
-                if _up_down is not None:
-                    try:
-                        resample_poly = _recording_pkg._get_resample_poly()
-                        _up, _down = _up_down
-                        vad_audio = resample_poly(filtered.ravel(), _up, _down).astype(np.float32)
-                        vad_sr = 16000
-                    except Exception:
-                        # scipy unavailable or resample failed — fall
-                        # back to RMS rather than crashing the worker.
-                        vad_audio = filtered
-                        vad_sr = _vad_sr
-                else:
-                    # ``_buffer_sr`` is already 8000 or 16000 — no
-                    # resample needed, feed ``filtered`` directly.
-                    vad_audio = filtered
-                    vad_sr = _vad_sr if _vad_sr in (8000, 16000) else 16000
-                vad_prob = compute_vad_prob(vad_audio, vad_sr)
-            except Exception:
-                vad_prob = None  # fall back to RMS
-
-        # AUDIO-013: VAD state machine with hysteresis
-        # Convert RMS to dBFS for VAD thresholds
-        chunk_rms_db = 20.0 * math.log10(chunk_rms) if chunk_rms > 0 else -90.0
-        vad_state = self._vad_update(chunk_rms_db, vad_prob=vad_prob)
-
-        # Use VAD state machine for silence detection
-        # Voice detected by loudness → reset silence timer
-        # use ``perf_ts`` (captured in the RT callback when the
-        # chunk arrived) instead of ``time.perf_counter()`` (worker
-        # time). Pre-fix, the silence timer measured worker-processing
-        # time, which inflated by the ring-buffer backlog when the
-        # worker fell behind. With the prior reduced ring buffer (1s),
-        # the backlog is bounded, but anchoring to callback-arrival
-        # time is still more accurate: the silence auto-stop fires
-        # based on when the user actually stopped speaking, not when
-        # the worker happened to process the silent chunk. The
-        # ``perf_ts`` parameter was previously dead (added with intent
-        # to anchor the silence timer but never actually used); this
-        # coordinates with the prior fix to make it live.
-        if vad_state == VadState.SILENCE:
-            if self._silence_start_time is None:
-                self._silence_start_time = perf_ts
-            self._silence_timer = perf_ts - self._silence_start_time
-        else:
-            self._silence_start_time = None
-            self._silence_timer = 0.0
-
-        # Use cached config values (PERF-NEW-006)
-        silence_warning_seconds = self._cached_silence_warning
-        stop_on_silence_seconds = self._cached_stop_on_silence
-
-        # H12a: Repeating silence warnings with exponential backoff
-        if self._silence_timer >= silence_warning_seconds:
-            time_since_first_warning = self._silence_timer - silence_warning_seconds
-            expected_warnings = 0
-            cumulative = 0.0
-            wait = 10.0
-            while cumulative <= time_since_first_warning:
-                expected_warnings += 1
-                cumulative += wait
-                wait *= 2
-            if expected_warnings > self._silence_warning_count:
-                self._silence_warning_count = expected_warnings
-                if silence_warning_cb is not None:
-                    with contextlib.suppress(Exception):
-                        silence_warning_cb()
-
-        if self._silence_timer >= stop_on_silence_seconds and silence_auto_stop_cb is not None:
-            with contextlib.suppress(Exception):
-                silence_auto_stop_cb()
-
-        # H12b: Maximum recording duration auto-stop
-        recording_duration = time.perf_counter() - recording_start
-        max_recording_time_seconds = self._cached_max_recording_time
-        if recording_duration >= max_recording_time_seconds and max_duration_cb is not None:
-            with contextlib.suppress(Exception):
-                max_duration_cb()
-
-        if chunk_count == BUFFER_WARNING_THRESHOLD:
-            log.warning("[RECORDING] Buffer is large (5k chunks, ~5 min). Consider stopping recording.")
-        if _BUFFER_TELEMETRY_ENABLED and chunk_count % TELEMETRY_LOG_INTERVAL == 0:
-            log.debug(
-                "[RECORDING] Buffer telemetry: chunks=%d, buffer_count=%d",
-                chunk_count,
-                buffer_len,
-            )
+        self._audio_pipeline.run_vad_state_machine(
+            filtered,
+            chunk_rms,
+            chunk_duration,
+            perf_ts,
+            chunk_count,
+            buffer_len,
+            recording_start,
+            silence_warning_cb,
+            silence_auto_stop_cb,
+            max_duration_cb,
+        )
 
     def _process_audio_chunk(
         self,
