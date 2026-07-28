@@ -2,6 +2,7 @@ import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { WindowBridge } from "@/types/ipc";
 
 interface TitleBarProps {
@@ -104,36 +105,41 @@ function TitleBarButton({
 	children,
 }: TitleBarButtonProps) {
 	const isClose = variant === "close";
+	// NH-41: migrate from raw <button> to the shared <Button> component
+	// so the design-system contract (focus ring, cva variant tokens,
+	// active:translate-y-px) is applied uniformly. The cva default
+	// (rounded-4xl, outline-hidden, border-transparent) is overridden
+	// via className to match the title-bar's edge-to-edge framing —
+	// no rounded corners, no visible border, fixed 8x11.5 sizing.
+	// ``asChild`` lets <Button> forward its ref/event handlers to the
+	// underlying element without nesting a <button> inside <button>.
 	return (
-		<button
+		<Button
+			asChild
 			type="button"
+			variant={isClose ? "destructive" : "ghost"}
+			size="icon-sm"
 			onClick={onClick}
 			aria-label={ariaLabel}
 			className={cn(
-				"no-drag press-scale group flex items-center justify-center",
-				"h-8 w-11.5",
+				"no-drag group",
+				"h-8 w-11.5 rounded-none border-0",
 				"text-(--text-muted) transition-colors duration-150",
-				// XA-1: shared focusRing (ring-3 / ring-ring/30) so the
-				// title-bar focus ring matches the design-system Button's
-				// ring thickness instead of being visually thinner (ring-2).
-				focusRing,
+				// theme-aware hover: ghost variant already has hover:bg-muted,
+				// but the title bar uses the muted text/foreground pair
+				// for visual consistency with the non-button chrome.
 				isClose
 					? cn(
-							// PVT-022: replace hardcoded #C42B1C with the
-							// destructive design tokens so the close button
-							// follows the active theme's destructive palette
-							// (and stays readable in dark mode / custom themes).
+							// PVT-022: destructive tokens so the close button
+							// follows the active theme's destructive palette.
 							"hover:bg-destructive hover:text-destructive-foreground",
 							"focus-visible:bg-destructive focus-visible:text-destructive-foreground",
 						)
-					: // task-9: theme-aware hover (replaces the physical
-						// black/white pairing so custom + dark themes get a
-						// consistent hover wash).
-						cn("hover:bg-foreground/5", "hover:text-(--text-primary)"),
+					: "hover:bg-foreground/5 hover:text-(--text-primary)",
 			)}
 		>
 			{children}
-		</button>
+		</Button>
 	);
 }
 

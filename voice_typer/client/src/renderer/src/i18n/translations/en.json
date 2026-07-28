@@ -1389,7 +1389,8 @@
 		"step4Item": "Pick a transcription model",
 		"step5Item": "Complete setup",
 		"refreshMics": "Refresh microphones",
-		"noMicsHint": "Connect a microphone or check your OS microphone permission, then click Refresh."
+		"noMicsHint": "Connect a microphone or check your OS microphone permission, then click Refresh.",
+		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
 	},
 	"titleBar": {
 		"minimize": "Minimize",

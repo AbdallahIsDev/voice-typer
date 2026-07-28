@@ -1364,7 +1364,8 @@
 		"step4Item": "Elegir un modelo de transcripción",
 		"step5Item": "Completar configuración",
 		"refreshMics": "Actualizar micrófonos",
-		"noMicsHint": "Conecta un micrófono o verifica el permiso de micrófono de tu sistema operativo, luego haz clic en Actualizar."
+		"noMicsHint": "Conecta un micrófono o verifica el permiso de micrófono de tu sistema operativo, luego haz clic en Actualizar.",
+		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
 	},
 	"titleBar": {
 		"minimize": "Minimizar",

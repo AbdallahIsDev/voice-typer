@@ -1495,7 +1495,8 @@
 		"step4Item": "Choisir un modèle de transcription",
 		"step5Item": "Terminer la configuration",
 		"refreshMics": "Actualiser les microphones",
-		"noMicsHint": "Branchez un microphone ou vérifiez l'autorisation de microphone de votre système d'exploitation, puis cliquez sur Actualiser."
+		"noMicsHint": "Branchez un microphone ou vérifiez l'autorisation de microphone de votre système d'exploitation, puis cliquez sur Actualiser.",
+		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
 	},
 	"microphoneTest": {
 		"title": "Test Complete",

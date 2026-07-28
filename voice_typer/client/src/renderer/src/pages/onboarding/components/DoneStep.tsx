@@ -36,6 +36,26 @@ export function DoneStep({
 					hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
 				})}
 			</p>
+			{/* NH-26: inline progress indicator so first-run users see
+			    the model is loading in the background (and the button
+			    below is "Get Started" → navigates to Home where the
+			    Home page polls download progress). The spinner is
+			    decorative — the real progress UI lives on Home. The
+			    inline indicator here is just a visual cue that the
+			    app is alive and that something is happening in the
+			    background. Wrapped in `aria-hidden` so screen readers
+			    don't announce the spinner; the surrounding text
+			    already explains the state. */}
+			<div
+				aria-hidden="true"
+				className="mb-6 flex items-center gap-2 text-sm text-(--text-secondary)"
+			>
+				<span
+					className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+					role="presentation"
+				/>
+				<span>{t("onboarding.modelDownloadingHint")}</span>
+			</div>
 			<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
 				<p>
 					{t("onboarding.summaryHotkey")}{" "}
