@@ -652,6 +652,7 @@ class TranscriptionEngine:
         if not model_size or model_size in ("parakeet", "qwen"):
             log.debug("[MODEL] Skipping pre-download for non-Whisper model '%s'", model_size)
             return
+        integrity_failed = False
         try:
             from huggingface_hub import snapshot_download
 
@@ -703,18 +704,16 @@ class TranscriptionEngine:
                 if not verify_model_integrity(local_dir, repo_id):
                     log.error(
                         "[MODEL] Cached model '%s' failed integrity check (cache hit path) — "
-                        "removing tampered cache and re-downloading.",
+                        "will remove tampered cache after consent confirmation.",
                         model_size,
                     )
                     if progress_callback:
-                        progress_callback("Cached model failed integrity check; re-downloading.")
-                    # Cache cleanup on verify failure: remove
-                    # the offending cache dir so the re-download doesn't
-                    # get the same tampered files served from local cache.
-                    # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
-                    # in ``asr_utils`` (formerly ``_cleanup_failed_whisper_cache``
-                    # in this module).
-                    cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
+                        progress_callback("Cached model failed integrity check; re-downloading after consent.")
+                    integrity_failed = True
+                    # Do NOT delete the cache here — the consent check
+                    # below may block the re-download, which would leave
+                    # the user with no model at all.  Defer deletion
+                    # until after consent is confirmed (see after line 758).
                     # Fall through to the download path (do NOT return).
                 else:
                     log.info("[MODEL] Model '%s' already cached (integrity verified)", model_size)
@@ -756,6 +755,15 @@ class TranscriptionEngine:
                 raise ConsentRequiredError(
                     f"HuggingFace consent not given — refusing to download model '{model_size}'."
                 )
+
+            # Consent confirmed.  Now safe to delete a tampered cache
+            # (if any) — the re-download below will fetch fresh files.
+            if integrity_failed:
+                log.info(
+                    "[MODEL] Removing tampered cache for '%s' after consent confirmed.",
+                    model_size,
+                )
+                cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
 
             log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
             if progress_callback:
