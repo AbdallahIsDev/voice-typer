@@ -127,9 +127,13 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
     //     last-resort ASR backend unloads (typed in TS; latent).
     //   - `audio_clip`: registered in `event_bus._KNOWN_EVENTS` (typed in
     //     TS push_events.ts; latent subscriber today).
+    //   - `dictation_lost`: emitted by crash_recovery.py on startup when
+    //     it detects the previous process crashed mid-dictation (the
+    //     `.dictation-in-flight` sentinel was left behind). The renderer
+    //     shows a notification so the user knows their dictation was lost.
     "state_changed", "error", "mic_level", "llm_polish_failed",
     "device_lost", "asr_backend_disabled", "asr_last_resort_unloaded",
-    "audio_clip",
+    "audio_clip", "dictation_lost",
     // GT-E3-6: legacy aliases `relaunch_electron` and
     // `electron_notification` REMOVED. The Python sidecar has published
     // the canonical `relaunch_app` and `notification` event names for

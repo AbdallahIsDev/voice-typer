@@ -205,6 +205,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "error",
         "mic_level",
         "device_lost",
+        "dictation_lost",
     }
 )
 

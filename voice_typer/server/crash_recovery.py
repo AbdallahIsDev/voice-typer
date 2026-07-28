@@ -560,11 +560,43 @@ class CrashRecovery:
         Returns:
             List of unpasted entry dicts, or None if no unpasted entries.
         """
+        # Detect interrupted dictations: if the .dictation-in-flight sentinel
+        # exists, the previous process crashed mid-dictation. Emit a
+        # dictation_lost event so the renderer can notify the user.
+        self._detect_and_notify_lost_dictation()
         unpasted = self.get_unpasted()
         if unpasted:
             log.info("[RECOVERY] Found %d unpasted transcriptions from previous session", len(unpasted))
             return unpasted
         return None
+
+    def _detect_and_notify_lost_dictation(self) -> None:
+        """Detect if a dictation was in-flight when the previous process crashed.
+
+        If the ``.dictation-in-flight`` sentinel file exists in the config
+        directory, the previous process crashed mid-dictation. Delete the
+        sentinel (so it doesn't re-fire on every startup) and emit a
+        ``dictation_lost`` event via the event bus so the renderer can
+        show a user notification.
+        """
+        with contextlib.suppress(Exception):
+            from voice_typer.server import event_bus
+            from voice_typer.server._paths import config_dir as _config_dir
+            _sentinel = _config_dir() / ".dictation-in-flight"
+            if _sentinel.exists():
+                # Delete FIRST so a publish failure can't cause a re-fire loop.
+                _sentinel.unlink(missing_ok=True)
+                log.warning(
+                    "[RECOVERY] Detected interrupted dictation from previous"
+                    " session — emitting dictation_lost event"
+                )
+                event_bus.publish({
+                    "type": "dictation_lost",
+                    "data": {
+                        "message": "A dictation was interrupted by a crash. Partial audio may be recoverable.",
+                        "recoverable": True,
+                    },
+                })
 
     def clear(self) -> None:
         """Clear all recovery entries after user acknowledgment.

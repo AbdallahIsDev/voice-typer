@@ -201,6 +201,14 @@ class DictationPipeline:
         self._recorded_rms = recorded_rms
         self._cycle_id = cycle_id
         self._watchdog = watchdog
+        # Write an in-flight sentinel so crash_recovery can detect
+        # interrupted dictations on the next startup and emit a
+        # dictation_lost event. The sentinel is cleared in the finally
+        # block below — only a hard process crash leaves it behind.
+        with contextlib.suppress(Exception):
+            from voice_typer.server._paths import config_dir as _config_dir
+            _sentinel = _config_dir() / ".dictation-in-flight"
+            _sentinel.write_text(str(cycle_id), encoding="utf-8")
         # RW-13: publish cycle_id as the correlation id for this thread's
         # logging context.  Capture the token to reset in the finally block.
         from voice_typer.server.log import set_correlation_id
@@ -411,6 +419,14 @@ class DictationPipeline:
             self._app._schedule_timer(3.0, lambda: self._app.tray.set_state(AppState.IDLE))
 
         finally:
+            # Clear the in-flight sentinel — dictation completed (success,
+            # cancel, or handled exception). Only a hard process crash
+            # leaves the sentinel behind for crash_recovery to detect.
+            with contextlib.suppress(Exception):
+                from voice_typer.server._paths import config_dir as _config_dir
+                _sentinel = _config_dir() / ".dictation-in-flight"
+                if _sentinel.exists():
+                    _sentinel.unlink()
             # SEC-audit-008: Zero the audio array after transcription
             # completes to prevent forensic recovery of voice data
             # from process memory.  The audio buffer contains potentially
