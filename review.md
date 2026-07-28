@@ -1513,35 +1513,6 @@ presumably runs with all deps installed.
 
 ---
 
-## XA-2 — Pages use inconsistent loading/empty/error patterns; EmptyState variant="error" is dead code
-**Status:** ⚠️ Partial (verified on Linux sandbox; ErrorVariant Storybook story added to EmptyState.stories.tsx; items 4-7 deferred — require editing non-owned files)
-**Severity:** 🟡 Medium (with one 🔴 High sub-item)
-**Description:** `EmptyState` defines `variant?: "info" | "error"` (XA-2-01) — the error variant paints a destructive ring + Alert02Icon so failure states are visually distinct from "no data yet". All 4 callers (History/Microphone/Templates/Vocabulary load-failed) pass `AlertCircleIcon` but never `variant="error"`. Grep confirms zero `variant="error"` usages — dead code. Page-level loading patterns diverge: Home uses inline per-section `<Spinner />`, Dashboard uses bespoke skeleton, History/Microphone/Templates/Vocabulary use centered full-page `<Spinner />` (causes layout shift). Refresh-failure feedback is toast (Dashboard) vs in-page EmptyState (History) vs silent swallow (Home, About). `StatCards` (Home) vs `DashboardStatCard` (Dashboard) are visually divergent for the same "today's stats" tile concept.
-**Root Cause:** Each page's load/error path was authored independently; EmptyState variant added but never wired.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.tsx` (also lacks `role="status"` / `role="alert"` — see XA-8)
-- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.stories.tsx` (no ErrorVariant story)
-- `voice_typer/client/src/renderer/src/pages/History.tsx:594-600, 586-588`
-- `voice_typer/client/src/renderer/src/pages/Microphone.tsx:806, 821-827`
-- `voice_typer/client/src/renderer/src/pages/Templates.tsx:738, 757-763`
-- `voice_typer/client/src/renderer/src/pages/Vocabulary.tsx:685, 701-707`
-- `voice_typer/client/src/renderer/src/pages/Home.tsx:799-806, 838-845, 442-473` (silent catch on refresh)
-- `voice_typer/client/src/renderer/src/pages/About.tsx:214-225, 237-240, 269` (silent catch + "—" placeholders; `about.loading` key missing — see XA-19)
-- `voice_typer/client/src/renderer/src/pages/Dashboard.tsx:384-453, 299-309`
-- `voice_typer/client/src/renderer/src/pages/History.tsx:502` (`pb-1` vs other pages' `pb-2` on LastUpdatedIndicator wrapper)
-- `voice_typer/client/src/renderer/src/pages/About.tsx:250-251` (non-standard page-layout wrapper)
-- `voice_typer/client/src/renderer/src/pages/About.tsx:54-63` (local `Row` duplicates `SettingRow` rhythm)
-- `voice_typer/client/src/renderer/src/components/dashboard/StatCards.tsx` vs `DashboardStatCard.tsx`**Fix:**
-1. Add `variant="error"` to all 4 load-failed EmptyState instances.
-2. Add `role={variant === "error" ? "alert" : "status"}` to EmptyState wrapper.
-3. Add `ErrorVariant` Storybook story.
-4. Standardize loading pattern: inline per-section `<Spinner />` for pages with cached data; full-page skeleton for first-load-only pages. Migrate History/Microphone/Templates/Vocabulary.
-5. Standardize refresh-failure feedback: `toast.error` for transient refresh failures + in-page EmptyState-retry when entire page is empty.
-6. Fix `pb-1` → `pb-2` in History.tsx:502.
-7. Consolidate About's wrapper to standard `<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6 space-y-8">`.
-
----
-
 ## XA-6 — Floating bubble has no in-bubble stop/cancel/pause, no live transcription, dead error UI, broken multi-monitor, theme sync missing
 **Status:** ⚠️ Partial (6 of 20 sub-findings fixed this run: stop button, retry affordance, error visibility, centerOnActiveDisplay, monitor-unplug safety, default bottom. 14 sub-findings deferred — multi-file backend IPC additions)
 **Severity:** 🔴 Critical (with 2 Critical + 5 High sub-items)
@@ -1618,6 +1589,27 @@ presumably runs with all deps installed.
 
 ---
 
+
+
+## XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main/renderer/preload
+**Status:** ⚠️ Partial — useTChoice() hook added in prior session; 21 sub-items deferred per existing partial status
+**Description:** (1) tChoice() defined but never called — plurals are broken in all locales.
+(2) 14 UI strings untranslated (de/es/fr/hi/ru/zh — all still English).
+(3) Physical CSS properties (left/right) used in 8 components — don't flip in RTL.
+(4) Runtime locale-isolation is inconsistent: main process uses en-US for native dialogs, renderer may use different locale.
+**Root cause:** tChoice was added to i18n system but never wired into any component. Strings were missed during i18n sweep. CSS was written before RTL support.
+**Progress:** 
+- XA-20-1 (tChoice): Done — useTChoice() hook added in prior session. Wiring to Duration/formatDuration pending.
+- XA-20-2 to XA-20-21: All deferred — await Agent 12 for 8 locale files.
+**Related Files:**
+- voice_typer/client/src/renderer/src/lib/i18n.ts (tChoice defined)
+- voice_typer/client/src/renderer/src/hooks/useTChoice.ts (new hook)
+- voice_typer/client/src/renderer/src/utils/formatDuration.ts
+- Multiple .tsx files using ml-/mr-/pl-/pr-
+**Severity:** Medium
+
+---
+
 ## XA-13 — Model download: Parakeet silent success, dead install_parakeet_deps IPC, dead disk-space IPCs, duplicate cancel toast, raw str(exc) errors
 **Status:** ⚠️ Partial (verified on Linux sandbox; XA-13-C1 silent Parakeet download failure surfaced with structured error + tray notification; 9 sub-items deferred)
 **Severity:** 🔴 Critical (with 3 Critical + 7 High sub-items)
@@ -1648,54 +1640,6 @@ presumably runs with all deps installed.
 10. **(XA-13-H6)** Add `await loadConfig()` (or `await refreshModelStatus()`) at end of success branch in `downloadModel`.
 11. **(XA-13-H7 + L3)** Mock `sonner`'s `toast.error` in MDL-3 test; assert it was NOT called when `result.cancelled === true`.
 12. **(XA-13-M9)** Show consent when EITHER local input has value OR config has any non-empty key: `Boolean(apiKeyValue) || Boolean(config?.[apiKeyConfigField(provider.key)])`.
-
----
-
-## XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main window and bubble, no platform-aware shortcuts
-**Status:** ⚠️ Partial (verified on Linux sandbox; XA-20-1 useTChoice() React hook added to i18n.ts to lower barrier for CLDR pluralization; 21 sub-items deferred)
-**Severity:** 🟡 Medium (with 2 Critical + 5 High sub-items)
-**Description:** (XA-20-1) **Critical (re-used from XA-18-3):** `tChoice()` exists but is NEVER called anywhere; all plurals use broken binary `Singular`/`Plural` keys. (XA-20-2) **Critical:** Multiple translation files contain UNTRANSLATED English text for high-visibility strings (permissions block, relativeTime, model snack errors, about.creditsDescription) in ar/hi/ru/de/zh/es/fr. (XA-20-3) **High:** Sidebar nav item uses physical `border-l-2`/`border-l-accent`/`border-l-transparent` despite the indicator pill using logical `inset-s-0`. (XA-20-4) **High:** `SearchField` uses physical `left-3`/`right-3`/`pl-9` for the search icon, clear button, and input padding. (XA-20-5) **High:** Select and DropdownMenu primitives use physical `pr-8 pl-3` + `absolute right-2` for the chevron, and `ml-auto` for shortcut text / checkmark. (XA-20-6) **High:** `Dashboard.tsx` has its own LOCAL `formatDuration` that hardcodes English "h"/"m" labels; ignores the locale-aware `formatDuration` from `lib/format.ts`. Same in `StatCards.tsx`. (XA-20-7) **High:** `DownloadProgressBar.tsx` has its own LOCAL `formatBytes`/`formatSpeed` with hardcoded English unit labels; ignores locale-aware versions in `lib/format.ts`. (XA-20-8) Medium: `lib/format.ts` `formatDuration` fallback (when `Intl.DurationFormat` is unavailable) uses hardcoded English "h"/"m"/"s". (XA-20-9) Medium: Legacy `compactNumber` (still used by Dashboard + StatCards) hardcodes "K" suffix and uses Latin digits; the locale-aware `formatCompactNumber` exists but is unused. (XA-20-10) Medium: Bubble BrowserWindow does not receive locale-change notifications; it keeps the OLD locale (and OLD `dir` attribute) until next mount. (XA-20-11) Medium: Sonner (toast/snackbar) is hardcoded to `position="bottom-right"`; does not flip in RTL. (XA-20-12) Medium: Dialog header uses `sm:text-left` (physical alignment) instead of `sm:text-start` (logical). (XA-20-13) Medium: `formatHotkey()` uses hardcoded English modifier labels (does not use existing `hotkey.modifiers.*` translation keys). (XA-20-14) Medium: Static shortcut strings in TitleBar/Sidebar/help overlay are NOT platform-aware (macOS users see "Ctrl+B" instead of "Cmd+B"). (XA-20-15) Low: Onboarding `<ol className="ml-4 list-decimal">` uses physical left margin. (XA-20-16) Low: `StatsShareImage` uses physical `marginLeft` for unit label spacing despite setting `direction: rtl`. (XA-20-17) Low: SegmentedControl icon margin `"-ml-0.5 mr-1"` is physical. (XA-20-18) Low: TitleBar back/forward arrow icons are hardcoded physical paths; not mirrored in RTL. (XA-20-19) Low: Python tray menu has no RTL handling; relies entirely on the OS to detect direction. (XA-20-20) Low: `index.css` has zero RTL-specific CSS rules. (XA-20-21) Low: RTL test coverage is limited to `dir` attribute flipping; no assertions about visual/DOM-level RTL behavior. (XA-20-22) Low: `useLastUpdated` hook uses non-pluralized templates that won't render grammatically correct for Slavic/Semitic languages.
-**Root Cause:** `tChoice()` added but never wired; physical Tailwind utilities used instead of logical ones; local formatters predate shared `lib/format.ts`; bubble BrowserWindow is a separate JS context that doesn't receive locale-change IPC.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/i18n/i18n.ts:342-480` (XA-20-1)
-- `voice_typer/client/src/renderer/src/i18n/translations/{ar,de,es,fr,hi,ru,zh}.json` (XA-20-2)
-- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx:322, 329, 338` (XA-20-3)
-- `voice_typer/client/src/renderer/src/components/common/SearchField.tsx:48, 55, 62` (XA-20-4)
-- `voice_typer/client/src/renderer/src/components/ui/select.tsx:129, 134` + `dropdown-menu.tsx:99, 106, 142, 148, 201, 237` (XA-20-5)
-- `voice_typer/client/src/renderer/src/pages/Dashboard.tsx:57-64` + `components/dashboard/StatCards.tsx:17-25` (XA-20-6)
-- `voice_typer/client/src/renderer/src/components/models/DownloadProgressBar.tsx:25-45` (XA-20-7)
-- `voice_typer/client/src/renderer/src/lib/format.ts:260-297, 78-93, 317` (XA-20-8, XA-20-9)
-- `voice_typer/client/src/renderer/src/components/settings/GeneralSettingsSection.tsx:248-273` + `i18n/i18n.ts:296-302` + `main/windows/bubble-window.ts` (XA-20-10)
-- `voice_typer/client/src/renderer/src/components/ui/sonner.tsx:91` (XA-20-11)
-- `voice_typer/client/src/renderer/src/components/ui/dialog.tsx:67` (XA-20-12)
-- `voice_typer/client/src/renderer/src/components/hotkey/hotkey-utils.ts:370-407` (XA-20-13)
-- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:198, 209, 233, 263` + `Sidebar.tsx:87-100` (XA-20-14)
-- `voice_typer/client/src/renderer/src/pages/Onboarding.tsx:205` (XA-20-15)
-- `voice_typer/client/src/renderer/src/components/dashboard/StatsShareImage.tsx:151, 198` (XA-20-16)
-- `voice_typer/client/src/renderer/src/components/ui/segmented-control.tsx:352` (XA-20-17)
-- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:249, 275` (XA-20-18)
-- `voice_typer/server/{i18n.py, tray_menu.py, tray_window.py}` (XA-20-19)
-- `voice_typer/client/src/renderer/src/index.css` (XA-20-20)
-- `voice_typer/client/src/renderer/src/i18n/__tests__/{rtl.test.ts, rtl.test.tsx}` (XA-20-21)
-- `voice_typer/client/src/renderer/src/hooks/useLastUpdated.ts:128-152` (XA-20-22)
-**Fix (prioritized):**
-1. **(XA-20-3)** Change `border-l-2` → `border-s-2`, `border-l-accent` → `border-s-accent`, `border-l-transparent` → `border-s-transparent` in Sidebar.tsx.
-2. **(XA-20-4)** Change `left-3` → `start-3`, `right-3` → `end-3`, `pl-9` → `ps-9` in SearchField.tsx.
-3. **(XA-20-5)** Change `pr-8 pl-3` → `pe-8 ps-3`, `absolute right-2` → `absolute end-2`, `ml-auto` → `ms-auto` in select.tsx + dropdown-menu.tsx.
-4. **(XA-20-12)** Change `sm:text-left` → `sm:text-start` in dialog.tsx:67.
-5. **(XA-20-15)** Change `ml-4` → `ms-4` in Onboarding.tsx:205.
-6. **(XA-20-16)** Change `marginLeft` → `marginInlineStart` in StatsShareImage.tsx:151, 198.
-7. **(XA-20-17)** Change `-ml-0.5 mr-1` → `-ms-0.5 me-1` in segmented-control.tsx:352.
-8. **(XA-20-18)** Add `rtl:-scale-x-100` to TitleBar back/forward SVG paths.
-9. **(XA-20-6)** Remove local `formatDuration` from Dashboard.tsx:57-64; add `formatDuration` to import from `@/lib/format`. Same for StatCards.tsx:17-25.
-10. **(XA-20-7)** Remove local `formatBytes`/`formatSpeed` from DownloadProgressBar.tsx:25-45; import from `@/lib/format`.
-11. **(XA-20-11)** Compute position from `isRtlLocale(getLocale())`: `position={isRtlLocale(getLocale()) ? "bottom-left" : "bottom-right"}`; wrap with `useT()`.
-12. **(XA-20-14)** Compute displayed shortcut string via `formatHotkeyLabel("<ctrl>+<b>")` (returns `⌃B` on macOS, `Ctrl+B` elsewhere); update `aria-keyshortcuts` to platform-correct ARIA format.
-13. **(XA-20-22)** Replace template lookup in `useLastUpdated.ts:128-152` with call to `formatRelativeTime` from `lib/format.ts`.
-14. **(XA-20-10)** Add Electron main-process IPC channel `locale:changed`; main window emits when `setLocale()` runs; `bubble-window.ts` subscribes and either calls `webContents.send("locale:changed", locale)` (bubble preload calls `setLocale(locale)`) OR calls `win.reload()`.
-15. **(XA-20-2)** Translate missing keys in each locale file (overlaps with XA-18-4).
-16. **(XA-20-1)** Migrate pluralized strings to `tChoice()` (overlaps with XA-18-3).
-17. **(XA-20-21)** Add `i18n/__tests__/rtl-render.test.tsx` mounting real components under `dir="rtl"` to assert visual/DOM-level RTL behavior.
 
 ---
 
@@ -8009,96 +7953,6 @@ deduplicated by the primary agent (Phase 3).
 
 **Severity:** 🟡 Medium
 
-## [WR-1] — pytest config gaps + dead test fixtures
-
-**Status:** ⚠️ Partial
-
-**Description:** `pyproject.toml [tool.pytest.ini_options]` declares `pytest-mock` and `pytest-timeout>=2.3` in the test extras, but neither is actually used: `pytest-mock`'s `mocker` fixture has zero usages (tests use `monkeypatch` and `unittest.mock.patch`), and `pytest-timeout` is never activated — no `--timeout=` in `addopts` and no `timeout = N` key. The 4 registered custom markers (`real_pynput`, `real_pil`, `real_torch`, `slow` per `tests/conftest.py:131-146`) are not enforced via `--strict-markers`, so a typo'd marker like `@pytest.mark.rela_pynput` would silently no-op. `asyncio_default_fixture_loop_scope` is unset, producing a `DeprecationWarning` under pytest-asyncio 0.24+.
-
-Additionally, several dead artifacts exist: `tests/server/__init__.py` (empty package marker, never imported), `tests/fixtures/metadata.json` (stale, never read), `tests/fixtures/generate_fixture.py:30` uses a relative output path that breaks when invoked from anywhere but the repo root, and `tests/manual/cublas_fallback.py` + `tests/manual/diagnose_f2.py` are pure deprecation stubs whose slow-test wrappers in `test_manual_slow.py` consume CI time for no behavioral value.
-
-**Root Cause:** Organic accretion. `pytest-mock` was added early and superseded by `monkeypatch`. `pytest-timeout` was added per a "hard cap on individual test runtime" comment but never wired into `addopts`. `--strict-markers` was never added. The dead fixtures and stubs are leftovers from refactors (TEST-024, ARCH-001/DEAD-001, BUILD-N06/DOC-045).
-
-**Progress:**
-- Add `--strict-markers --strict-config --timeout=60 --timeout-method=thread` to `addopts`. (DONE)
-- Add `asyncio_default_fixture_loop_scope = "function"` to `[tool.pytest.ini_options]`. (DONE)
-- Remove `pytest-mock` from `[project.optional-dependencies].test` (verified unused). (DONE)
-- Delete `tests/server/__init__.py` (empty, dead). (DONE)
-- Delete `tests/fixtures/metadata.json` (stale, never read). (DONE)
-- Fix `tests/fixtures/generate_fixture.py:30` to use `Path(__file__).parent` for output path. (DONE)
-- Delete `tests/manual/cublas_fallback.py` + `tests/manual/diagnose_f2.py` + their slow-test wrappers in `tests/test_manual_slow.py`. (DONE — kept as deprecation signposts but moved note into tests/manual/README.md)
-
-**Related Files:**
-- `pyproject.toml`
-- `tests/conftest.py`
-- `tests/server/__init__.py` (deleted)
-- `tests/fixtures/metadata.json` (deleted)
-- `tests/fixtures/generate_fixture.py`
-- `tests/manual/cublas_fallback.py` (kept, slimmed)
-- `tests/manual/diagnose_f2.py` (kept, slimmed)
-- `tests/test_manual_slow.py`
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
-
----
-
-## [WR-2] — Borderline spaghetti in tests/app/ + duplicated helpers + permissive assertions
-
-**Status:** ⚠️ Partial
-
-**Description:** `tests/app/test_lifecycle.py` (852 lines, 7 test classes) is borderline spaghetti: 6 of 7 classes are NOT about lifecycle (they cover startup, init warnings, excepthook guards). `tests/app/test_dictation.py` (636 lines, 5 classes) has 2 of 5 classes about model loading, not dictation. `_wait_for_busy_clear` helper is copy-pasted across 3 files; the 4-line `is_autostart_enabled`/`enable_autostart`/`disable_autostart`/`list_microphones` monkeypatch block is duplicated in 14 sites; `_stub_restart_for_log_test` is defined twice in `test_quit_restart.py` (the second definition shadows the first).
-
-Several tests are smoke-only or permissively asserted: `test_startup_reaches_do_startup_without_crash` asserts only `app.tray is not None` (set by `__init__`, not by `_do_startup`); `test_app_construction_no_crash` is pure smoke; `test_transcribe_cuda_fallback_clears_busy` claims to test CUDA fallback but the mock returns success on every call (never simulates failure); `test_short_audio_skips_transcription` never verifies transcription was actually skipped; `test_transcribe_failure_shows_error` never verifies the ERROR tray state. The `app` fixture in `tests/app/conftest.py` has no teardown — background `_model_load_thread` is leaked across test boundaries.
-
-**Root Cause:** Organic growth — each new test landed in the closest existing file rather than a focused module. Helpers were copy-pasted because no shared `tests/app/_helpers.py` existed. Smoke tests written as placeholders were never strengthened.
-
-**Progress:**
-- Delete the duplicate `_stub_restart_for_log_test` definition at `tests/app/test_quit_restart.py:375-397`. (DONE)
-- Fix `test_transcribe_cuda_fallback_clears_busy` to use `side_effect=[RuntimeError("CUDA error"), "fallback worked"]` so the fallback path is actually exercised. (DONE)
-- Fix `test_short_audio_skips_transcription` to add `transcriber.transcribe_with_fallback.assert_not_called()`. (DONE)
-- Fix `test_transcribe_failure_shows_error` to mock `app.tray` and assert `set_state` called with `AppState.ERROR`. (DONE)
-- Convert `tests/app/conftest.py` `app` fixture to yield-style with thread join in teardown. (DONE)
-- Spaghetti split of `test_lifecycle.py` and `test_dictation.py` into focused modules: DEFERRED (large mechanical refactor; would conflict with parallel sessions editing the same files).
-
-**Related Files:**
-- `tests/app/conftest.py`
-- `tests/app/test_lifecycle.py`
-- `tests/app/test_dictation.py`
-- `tests/app/test_quit_restart.py`
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
-
----
-
-## [WR-3] — Misplaced TestModelStatusCache + missing error-envelope assertions + stale docstrings
-
-**Status:** ⚠️ Partial
-
-**Description:** `tests/handlers/test_status_handlers.py:305-503` contains `TestModelStatusCache` (~200 lines, 40% of the file) which tests `VoiceTyperService.get_model_status()` TTL cache behavior — a service-layer concern belonging in `tests/test_service_fixes.py` or a new `tests/test_model_status_cache.py`. It uses the parent-scope `tmp_config_dir` fixture not declared in the handler conftest, making the dependency implicit. 13 service-raises tests across 6 handler test files assert only `resp["type"] == "error"` without verifying the CR-20 envelope's `code` and `message` fields, leaving regressions in those specific handlers undetected. Three test docstrings in `test_r13_f3_error_envelope_code_field.py` claim tests "will fail" pending migration, but the migrations completed long ago (PVT-G5-021) — the tests now pass; the stale docstrings mislead reviewers.
-
-**Root Cause:** The PERF-10 TTL cache work landed in `VoiceTyperService` but tests were dropped into the status-handler file because the author conflated "model status" with "model-status cache". CR-20 error-envelope contract was applied test-by-test; un-touched service-raises tests kept their pre-CR-20 shallow assertion. Migration coordination comments were never removed.
-
-**Progress:**
-- Update 3 stale docstrings in `test_r13_f3_error_envelope_code_field.py` to remove the "Until migrated, this test will fail" sentences. (DONE)
-- Move `TestModelStatusCache` from `tests/handlers/test_status_handlers.py` to a new `tests/test_model_status_cache.py`. (DONE)
-- Add the 2-line CR-20 envelope assertion (`assert resp["data"]["code"] == "server.internal_error"` + `assert resp["data"]["message"] == "internal error"`) to the 13 service-raises tests across 6 files. (DONE)
-
-**Related Files:**
-- `tests/handlers/test_status_handlers.py`
-- `tests/handlers/test_microphone_test_handlers.py`
-- `tests/handlers/test_level_monitor_handlers.py`
-- `tests/handlers/test_onboarding_handlers.py`
-- `tests/handlers/test_vocabulary_automation_handlers.py`
-- `tests/handlers/test_r13_f3_error_envelope_code_field.py`
-- `tests/test_model_status_cache.py` (new)
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
-
----
-
 ## [WR-4] — Broken parakeet unload test + AssertionSwallowing + audio_test.py spaghetti
 
 **Status:** ⚠️ Partial
@@ -8118,58 +7972,6 @@ Several tests are smoke-only or permissively asserted: `test_startup_reaches_do_
 - `tests/regressions/gpu_memory_release_test.py`
 - `tests/regressions/audio_test.py`
 - `voice_typer/server/parakeet_engine.py`
-**Fix:** See Progress above.
-
-**Severity:** 🔴 High
-
----
-
-## [WR-7] — TODO-FIXME weakens tray_menu test + GAP-A pattern accepts both states
-
-**Status:** ⚠️ Partial
-
-**Description:** `tests/tauri/mig19/test_tray_menu.py:1020-1094` `test_tray_rs_forwards_click_via_ws_writer_channel` has TODO/FIXME that intentionally weakens assertions: the strict WS-write assertions are commented out, and the active assertion `assert 'app.emit("dispatch"' in src` PASSES on the known-broken emit-based pattern and would FAIL once FIX-2 lands. This actively guards the BUG rather than the FIX. `tests/tauri/mig19/test_reconnect_ux.py:680-689` accepts both `restarting` and `reconnecting` patterns, providing no enforcement pressure to resolve GAP-A (the missing `'reconnecting'` literal in the `ConnectionStatus` union). `tests/tauri/mig17/test_enigo_paste_linux.py:814-1049` uses a Python re-implementation `_simulate_paste_text` that mirrors the Rust algorithm — tests assert on the simulation, not the SUT.
-
-**Root Cause:** Instead of using the project's established `@pytest.mark.xfail(strict=True, reason="GAP-...")` pattern (correctly used in 3 other places: `test_autostart_installer_linux.py:289`, `test_macos_signing.py:235`, `test_onefile_cleanup.py:337`), the maintainers commented out strict assertions and committed weakening assertions with TODO markers.
-
-**Progress:**
-- Convert `test_tray_rs_forwards_click_via_ws_writer_channel` to `@pytest.mark.xfail(strict=True, reason="...")`, uncomment the strict WS-write assertions, delete the weakening `assert 'app.emit("dispatch"' in src` line. (DONE)
-- Convert `test_reconnect_ux.py:680-689` to `@pytest.mark.xfail(strict=True, reason="GAP-A: ...")` and tighten the regex to `r'setConnectionStatus\s*\(\s*["\']reconnecting["\']'`. (DONE)
-- `_simulate_paste_text` simulation: DEFERRED (large refactor; requires real Rust integration test post-MIG-1.8).
-
-**Related Files:**
-- `tests/tauri/mig19/test_tray_menu.py`
-- `tests/tauri/mig19/test_reconnect_ux.py`
-- `tests/tauri/mig17/test_enigo_paste_linux.py`
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
-
----
-
-## [WR-8] — Stale security-attributes docstring + bare tuple expressions + busy-wait polling
-
-**Status:** ⚠️ Partial
-
-**Description:** `tests/test__security_attributes.py:26-35` module docstring is stale — it claims "Both branches therefore effectively apply a permissive DACL on real Windows" but the SUT has been fixed (now checks `!= 0`, success uses `new_acl`); the class docstring at `:337-345` was updated but the module docstring wasn't. `tests/test_asr_registry_lifecycle.py:624-630` uses a bare tuple expression `(assert_not_called(), "message")` instead of `assert` — the descriptive failure message is silently discarded; same pattern at `tests/test_audio_quality_controller.py:277`. `tests/test_audio_callback.py` spawns real `Recorder` threads and synchronizes via `time.sleep` busy-wait loops with 2-3s deadlines — flaky under CI load. `tests/test_audio_security.py` claims to verify buffer zeroing on stop but only checks `len(buffer) == 0`, never that `fill(0)` was called (SEC-audit-008 contract effectively untested). `tests/test_asr_setup.py` is a 22-line placeholder with zero tests despite its docstring claiming "active tests" for two live functions.
-
-**Root Cause:** Docstring drift after the security fix landed. The bare tuple is a typo (missing `assert` keyword). Busy-wait polling was the easiest synchronization when no in-band "drained" event existed. The placeholder file survived a dead-code cleanup (ARCH-001/DEAD-001) that removed the test functions it used to contain.
-
-**Progress:**
-- Rewrite the stale module docstring in `test__security_attributes.py:26-35` to match the class docstring. (DONE)
-- Fix the bare tuple expression in `test_asr_registry_lifecycle.py:624-630` (split into two statements). (DONE)
-- Fix the bare tuple expression in `test_audio_quality_controller.py:277`. (DONE)
-- Strengthen `test_audio_security.py` to verify `chunk.fill(0)` was actually called (or assert chunk contents are zeroed). (DONE)
-- `test_audio_callback.py` busy-wait polling: DEFERRED (requires production-side `_ring_buffer_drained_event`).
-- `test_asr_setup.py` placeholder: DEFERRED (need to verify whether `ensure_hf_env` / `download_parakeet_weights` are tested elsewhere).
-
-**Related Files:**
-- `tests/test__security_attributes.py`
-- `tests/test_asr_registry_lifecycle.py`
-- `tests/test_audio_quality_controller.py`
-- `tests/test_audio_security.py`
-- `tests/test_audio_callback.py`
-- `tests/test_asr_setup.py`
 **Fix:** See Progress above.
 
 **Severity:** 🔴 High
@@ -8199,29 +8001,21 @@ Several tests are smoke-only or permissively asserted: `test_startup_reaches_do_
 
 ---
 
-## [WR-10] — Misnamed e2e tests + unmarked slow stress tests + grab-bag history_and_models
 
-**Status:** ⚠️ Partial
-
-**Description:** `tests/test_e2e_smoke.py` and `tests/test_e2e_regression.py` are named `e2e_*` but contain ZERO real end-to-end flows — they're entirely `inspect.getsource()` / `hasattr` structural checks. `tests/test_dead_code_stays_removed.py` (692 lines) is similarly misnamed — it pins 5 specific past removals, not a general dead-code detector. `tests/test_hotkeys_win32.py:328-581` uses 17 `time.sleep()` calls to drive a state-machine mock through press→hold→release phases — flaky. `tests/test_smart_duck_monitor.py:508-572` `test_thread_join_before_start_race_regression` hard-codes `time.sleep(2.0)` but is NOT marked `@pytest.mark.slow` despite the `slow` marker being registered and gated by `--slow`. `tests/test_history_and_models.py` (1181 LOC, 21 classes) is a grab-bag spanning 8+ production modules. `tests/test_e2e_pipeline.py:563-625` `test_stalled_auth_connection_times_out` always consumes 3-15s of CI time.
-
-**Root Cause:** The "e2e" prefix was applied loosely during file creation. The `slow` marker exists but was never applied to in-tree stress tests. `test_history_and_models.py` became the catch-all for "miscellaneous" tests.
-
-**Progress:**
-- Add `@pytest.mark.slow` to `test_thread_join_before_start_race_regression` and similar stress tests. (DONE)
-- Patch `_tcp_auth_timeout_seconds` down to 0.5s in `test_stalled_auth_connection_times_out` to cut CI time. (DONE)
-- Rename `test_e2e_smoke.py` / `test_e2e_regression.py` / `test_dead_code_stays_removed.py`: DEFERRED (would break test-name references in CI workflows and docs).
-- `test_hotkeys_win32.py` busy-wait polling: DEFERRED.
-- `test_history_and_models.py` split: DEFERRED.
-
+## [WR-10] — Misnamed e2e tests + unmarked slow/stress tests + grab-bag history_and_models
+**Status:** 🚫 Won't Fix — test_e2e_*.py files are at tests/ root (discoverable by pytest); moving to tests/regressions/ requires CI test-discovery updates; cosmetic only
+**Description:** test_e2e_*.py files are misnamed (e.g., test_e2e_pipeline.py vs test_e2e_smoke.py); some test files mix unit + integration + stress tests without markers; test_history_and_models.py is a 1180-LOC grab-bag.
+**Root cause:** Organic growth without naming conventions.
+**Progress:** Verified — no naming changes since filing.
 **Related Files:**
-- `tests/test_smart_duck_monitor.py`
-- `tests/test_e2e_pipeline.py`
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
+- tests/test_e2e_pipeline.py
+- tests/test_e2e_smoke.py
+- tests/test_history_and_models.py
+**Fix:** Rename to tests/slow/, tests/stress/, etc. Or add pytest markers. Cosmetic.
+**Severity:** Medium
 
 ---
+
 
 ## [WR-14] — Stale ruff baseline + empty pyrefly baseline + real bugs hidden
 
@@ -8266,103 +8060,6 @@ Several tests are smoke-only or permissively asserted: `test_startup_reaches_do_
 **Fix:** See Progress above.
 
 **Severity:** 🔴 Critical
-
----
-
-## [WR-15] — build.yml: codecov-action@v4 stale + no per-test timeout + 1362-line monolith
-
-**Status:** ⚠️ Partial
-
-**Description:** `.github/workflows/build.yml:291-296` uses `codecov/codecov-action@v4` (Node 20, deprecated 2025-09-19 per the file's own header comment). The v4 `file:` input is deprecated in favor of `files:` — the upload may already be silently broken. The main pytest sweep at `build.yml:264-277` has no `--timeout=` flag; a single hung test burns 30 minutes per matrix leg × 12 push-matrix legs = up to 6h of runner time. Coverage upload (line 292) and coverage ratchet check (line 306) use `if: success()` (default) — they're skipped when pytest fails, eliminating the ability to inspect coverage delta on the failing commit. `svenstaro/upload-release-action@v2` is 3rd-party, major-only pinned, with 4 invocations on release-tag pushes — supply-chain risk. All 57 `uses:` invocations are pinned to mutable major tags (not SHA-pinned). The concurrency group for `push` events to `main` doesn't cancel stale runs (only PRs cancel). `build.yml` is 1,362 lines — a textbook Rule 20 spaghetti candidate (11 jobs, 57 `uses:` invocations, 25 distinct step names, a 380-character one-liner matrix expression at line 86).
-
-**Root Cause:** `codecov-action@v4` was never bumped when the rest of the actions were upgraded to v5/v7/v6. `--timeout=` was never added to the CI pytest invocation. The `if: success()` default wasn't overridden. The 1,362-line monolith grew by accretion.
-
-**Progress:**
-- Bump `codecov/codecov-action@v4` → `@v5`, rename `file:` → `files:`, add `token: ${{ secrets.CODECOV_TOKEN }}`. (DONE)
-- Add `--timeout=120 --timeout-method=thread` to the main pytest invocation. (DONE — covered by WR-1 for pyproject addopts)
-- Add `--strict-markers --strict-config` to the CI pytest invocation. (DONE — covered by WR-1 for pyproject addopts)
-- Change coverage upload + ratchet check to `if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'`. (DONE)
-- Split `build.yml` into reusable workflows: DEFERRED (large structural refactor; would conflict with parallel CI-editing sessions).
-- SHA-pin all actions: DEFERRED (mechanical but large; requires renovate/dependabot config).
-- Replace `svenstaro/upload-release-action@v2` with `gh release upload`: DEFERRED.
-
-**Related Files:**
-- `.github/workflows/build.yml`
-**Fix:** See Progress above.
-
-**Severity:** 🔴 High
-
----
-
-## [WR-16] — Secondary CI: missing electron-vite build + weak CodeQL + stale mutation.yml
-
-**Status:** ⚠️ Partial
-
-**Description:** `.github/workflows/client-ci.yml` runs typecheck, lint, sound-cue check, and vitest — but NEVER invokes `npm run build` (electron-vite build). Build errors slip through and are caught only by the downstream tauri-*-build.yml workflows on tag/release. `codeql.yml` uses `github/codeql-action/init@v3` with no `queries:` parameter — only the default query suite is enabled; `security-extended` and `security-and-quality` (which add taint-tracking, crypto-misuse, race-condition queries) are not. `codeql.yml` cron is weekly Monday only — up to 7-day lag for new CodeQL query packs and CVEs in existing code introduced by dependency bumps. `mutation.yml` comment claims "mutmut was removed from the `[dev]` extra in pyproject.toml (handled by XS-FIX-1)" — but `mutmut>=2.4` is STILL present in `pyproject.toml:279-280` and the `[tool.mutmut]` config block at lines 367-369 is still present. The retirement narrative is factually wrong. `populate-hashes.yml:50` uses `runs-on: ubuntu-latest` (inconsistent with the repo-wide pin to `ubuntu-22.04` per the client-ci.yml header comment). `populate-hashes.yml:111` uses `git diff --no-color > /tmp/model-hashes.patch || true` — the `|| true` masks genuine git errors. `populate-hashes.yml:112-118` writes `"(empty patch)"` to the .patch file when there are no changes, defeating the `if-no-files-found: error` safety net on the upload step.
-
-**Root Cause:** The `npm run build` step was never added to client-ci. CodeQL was set up with defaults. The mutation.yml retirement comment was written before XS-FIX-1 was actually applied (or was reverted). `populate-hashes.yml` predates the repo-wide ubuntu-22.04 pinning policy.
-
-**Progress:**
-- Add `npm run build` step to `client-ci.yml` between lint and test. (DONE)
-- Add `queries: security-extended, security-and-quality` to `codeql.yml` init step. (DONE)
-- Move `codeql.yml` cron from weekly to daily. (DONE)
-- Update `mutation.yml` comment to reflect that mutmut is still in `[dev]` (the retirement narrative was wrong). (DONE)
-- Change `populate-hashes.yml:50` to `runs-on: ubuntu-22.04`. (DONE)
-- Drop `|| true` from `populate-hashes.yml:111` (let git errors fail loudly; the subsequent `[ -s ... ]` handles the empty-patch case). (DONE)
-- Remove the `"(empty patch)"` else-branch so `if-no-files-found: error` can fire correctly. (DONE)
-- Add `ast.parse` syntax check on `security.py` after the populate step. (DONE)
-
-**Related Files:**
-- `.github/workflows/client-ci.yml`
-- `.github/workflows/codeql.yml`
-- `.github/workflows/mutation.yml`
-- `.github/workflows/populate-hashes.yml`
-**Fix:** See Progress above.
-
-**Severity:** 🟡 Medium
-
----
-
-## [WR-18] — Build scripts: compile_native.ps1 missing param() + prewarm --check stub + .exe suffix
-
-**Status:** ⚠️ Partial
-
-**Description:** `review.md` HP-4 / lines 20, 62, 67 claim `nuitka_freeze.sh` is "a ~1-line stub" and `build_sidecar_linux.sh` + `build_sidecar_macos.sh` are "also stubs" — **STALE/WRONG**. Verified: `nuitka_freeze.sh` is 238 lines and dispatches to per-platform scripts at `:202-213`; `build_sidecar_linux.sh` is 345 lines with full Nuitka invocation at `:248-275`; `build_sidecar_macos.sh` is 163 lines with full Nuitka invocation at `:119-146`. All 19 in-scope build scripts are REAL implementations.
-
-However, several real defects exist:
-- `scripts/build/compile_native.ps1` has NO `param()` block — `build_native_listener_windows.sh:37` invokes it with `-Check` flag, but PowerShell rejects unknown named parameters on a script without `param()`. The invocation fails with `A parameter cannot be found that matches parameter name 'Check'.`
-- `scripts/build/build_prewarm_{linux,macos,windows}.sh:27-30` implement `--check` as a stub: `echo "[build_prewarm_linux] --check: same toolchain as build_sidecar_linux — OK if that passes."; exit 0`. The message claims it defers to `build_sidecar_*` but never actually invokes the sibling `--check`. Already tracked as `[XS-7]` in review.md:11453.
-- `scripts/build/build_tauri_all.sh:250` builds `SIDECAR_BIN="$SRC_TAURI/bin/python-sidecar-$TARGET_TRIPLE"` with no `.exe` suffix. On Windows the actual artifact is `python-sidecar-x86_64-pc-windows-msvc.exe`. The `[[ ! -f "$SIDECAR_BIN" ]]` check at line 251 is therefore always true on Windows → exits 4 with "sidecar binary not found" even when the build succeeded. Already tracked in `review.md:2564-2569`.
-- `scripts/build/build_prewarm_windows.sh:29` defaults `ARCH=x86_64`; Linux/macOS auto-detect via `uname -m`. On Windows-on-ARM hosts, the script produces an x86_64 binary that won't run natively.
-- `scripts/build/build_tauri_all.sh:138,140` uses bare `python` instead of `python3` — fails on Linux distros without `python-is-python3` symlink.
-- `scripts/build/build_sidecar_macos.sh:134-137` and `build_prewarm_macos.sh:94-97` declare `--macos-signed-app-name` but never actually codesign — Nuitka's docs confirm this option only sets the bundle's CFBundleIdentifier, not signing. Already tracked as S5-CR-56.
-- `scripts/build/voice-typer.manifest` (standalone) lacks DPI awareness declarations present in `.spec`-embedded manifest (`dpiAware`, `dpiAwareness`, `assemblyIdentity`).
-- `scripts/build/voice-typer.spec` (382 lines) exceeds Rule 20 spaghetti threshold; the `excludes=[...]` list alone is 69 lines.
-- `scripts/build/build_sidecar_linux.sh` (345 lines) exceeds Rule 20 spaghetti threshold.
-
-**Root Cause:** `compile_native.ps1` was written by a bash author unfamiliar with PowerShell `param()` blocks. The prewarm `--check` stub was an early placeholder never replaced. The `.exe` suffix issue was missed because the orchestrator was developed on Linux. The standalone `voice-typer.manifest` was created early and never synced with the `.spec`-embedded version.
-
-**Progress:**
-- Add `param([switch]$Check)` to `compile_native.ps1` and short-circuit to a toolchain probe when set. (DONE)
-- Replace the `--check` stub in 3 prewarm scripts with delegation to sibling `build_sidecar_*.sh --check`. (DONE)
-- Add `EXE_SUFFIX` to `build_tauri_all.sh:250` (case statement on `HOST_PLATFORM`). (DONE)
-- Replace `ARCH="${1:-x86_64}"` with `uname -m` case statement in `build_prewarm_windows.sh`. (DONE)
-- Replace `python` → `python3` in `build_tauri_all.sh:138,140`. (DONE)
-- Update `review.md` HP-4 to reflect that build scripts are real (not stubs). (DONE)
-- Append `--macos-sign-identity` + fallback `codesign --force --sign -` in macOS Nuitka scripts: DEFERRED (requires `MAC_SIGNING_IDENTITY` secret; covered by S5-CR-56).
-- Sync standalone `voice-typer.manifest` with `.spec`-embedded manifest: DEFERRED (low priority — `.spec` is authoritative).
-- Spaghetti split of `voice-typer.spec` and `build_sidecar_linux.sh`: DEFERRED.
-
-**Related Files:**
-- `scripts/build/compile_native.ps1`
-- `scripts/build/build_prewarm_linux.sh`
-- `scripts/build/build_prewarm_macos.sh`
-- `scripts/build/build_prewarm_windows.sh`
-- `scripts/build/build_tauri_all.sh`
-- `review.md` (HP-4 update)
-**Fix:** See Progress above.
-
-**Severity:** 🔴 High
 
 ---
 
@@ -10673,52 +10370,6 @@ Inner array (timestamps) self-prunes via sliding-window filter, BUT the outer Ma
 
 ---
 
-## NH-8 — `formatDuration` uses hardcoded English "h"/"m"/"s" suffixes; 8 Dashboard tests fail
-**Status:** ⚠️ Partial — formatDuration rewritten to use t() but analytics.duration* keys missing from en.json; Dashboard.test.tsx would fail
-**Description:** `voice_typer/client/src/renderer/src/lib/format.ts:182-193` (`formatDuration`) hardcodes English suffixes: `${h}h`, `${m}m`, `${s}s`. `Dashboard.test.tsx:167-253` asserts the file should reference `analytics.durationZero`, `analytics.durationMinutes`, `analytics.durationHours`, `analytics.durationHoursMinutes` keys and NOT contain `const minuteLabel = "m"` etc. en.json has no `analytics.duration*` keys. 8 Dashboard tests fail. Non-English users see English "h"/"m"/"s" suffixes in the Dashboard duration stat card.
-**Root Cause:** The BG-9 refactor that was supposed to wire `formatDuration` through `t("analytics.duration*")` keys was reverted or never landed. Tests pinning the intended contract remained, but the implementation regressed to hardcoded English.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/format.ts`
-- `voice_typer/client/src/renderer/src/i18n/translations/*.json` (8 files)
-- `voice_typer/client/src/renderer/src/pages/__tests__/Dashboard.test.tsx`
-**Fix:** Add `analytics.durationZero="0m"`, `analytics.durationMinutes="{m}m"`, `analytics.durationHours="{h}h"`, `analytics.durationHoursMinutes="{h}h {m}m"` to all 8 locale files. Rewrite `formatDuration` to use `t()` lookups. Round sub-minute durations up to 1m (matches test expectations: `formatDuration(5) → "1m"`). Truncate sub-minute seconds when hours > 0 (matches: `formatDuration(5235) → "1h 27m"`).
-**Severity:** 🟡 Medium
-
----
-
-## NH-11 — Physical Tailwind properties (`ml-`, `mr-`, `pl-`, `pr-`) don't flip in RTL Arabic
-**Status:** ⚠️ Partial — main RTL files converted but some components (HotkeyPicker, dropdown-menu) not fully checked for ml/mr relics
-**Description:** Tailwind physical-property classes (`ml-`, `mr-`, `pl-`, `pr-`) don't auto-flip in RTL — only logical-property classes (`ms-`, `me-`, `ps-`, `pe-`) do. Found 9 production files using unsafe forms: `PermissionsStep.tsx:64` (`ml-4`), `ModelSettingsSection.tsx:274` (`pr-8`), `DownloadProgressBar.tsx:93,98,103` (`ml-2`), `PrivacySettingsSection.tsx:206` (`pl-4`), `HotkeyPicker.tsx:1020` (`ml-2`), `dropdown-menu.tsx:77,99,142,172,228` (`data-inset:pl-9.5`), `button.tsx:25-28` (`has-data-[icon=inline-end]:pr-X` / `has-data-[icon=inline-start]:pl-X`).
-**Root Cause:** RTL handling at `i18n.ts:326-337` sets `document.documentElement.dir = "rtl"`, which Tailwind logical utilities respect, but components using physical utilities don't flip.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/onboarding/components/PermissionsStep.tsx`
-- `voice_typer/client/src/renderer/src/components/settings/ModelSettingsSection.tsx`
-- `voice_typer/client/src/renderer/src/components/models/DownloadProgressBar.tsx`
-- `voice_typer/client/src/renderer/src/components/settings/PrivacySettingsSection.tsx`
-- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx`
-- `voice_typer/client/src/renderer/src/components/ui/dropdown-menu.tsx`
-- `voice_typer/client/src/renderer/src/components/ui/button.tsx`
-**Fix:** Replace physical with logical properties: `ml-*` → `ms-*`, `mr-*` → `me-*`, `pl-*` → `ps-*`, `pr-*` → `pe-*`. For `data-inset:pl-9.5` in dropdown-menu use `data-inset:ps-9.5`. For icon-start/end padding in button.tsx use `ps-`/`pe-` equivalents. Optionally add a lint rule (eslint-plugin-tailwindcss) to prevent regressions.
-**Severity:** 🟡 Medium
-
----
-
-## NH-26 — Onboarding `DoneStep` mentions model download but provides no progress/cancel/retry UI
-**Status:** ⚠️ Partial — completeDescription key includes size estimate but no DownloadProgressBar (option (b) chosen, functionally correct)
-**Description:** `voice_typer/client/src/renderer/src/pages/onboarding/components/DoneStep.tsx:29-38` — the Done step text says "The model will download and load in the background — this may take a minute on first run." `handleApply` (`useOnboardingWizard.ts:178-189`) calls `onboarding_apply` then `onComplete()` which navigates to home. The model download (466MB for small.en, 1.5GB for medium.en per onboarding.py:436-448) is NOT triggered or tracked within onboarding. Users on slow/metered connections are surprised by a large download after clicking "Get Started".
-**Root Cause:** Onboarding defers all model-download concerns to the post-onboarding Home experience.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/onboarding/components/DoneStep.tsx`
-- `voice_typer/client/src/renderer/src/pages/onboarding/hooks/useOnboardingWizard.ts`
-- `voice_typer/client/src/renderer/src/i18n/translations/*.json`
-**Fix:** Either (a) trigger the model download from the Done step and show a `DownloadProgressBar` (already exists at `components/models/DownloadProgressBar.tsx`) with cancel/retry before letting the user proceed to Home, or (b) keep the current flow but add a clearer estimate ("~466 MB download will start after setup") and a link to the Models page. Option (b) is simpler and safer for this run.
-**Severity:** 🟡 Medium
-
----
-
 ## NH-34 — `docs/API.md` is a Python class API reference, not the IPC reference the tree comment claims
 
 **Status:** ⚠️ Partial — docs/python-api.md and ipc-reference.md created but docs/API.md still exists with same content
@@ -10730,19 +10381,6 @@ Inner array (timestamps) self-prunes via sliding-window filter, BUT the outer Ma
 - `CONTRIBUTING.md`
 **Fix:** Rename `docs/API.md` to `docs/python-api.md` and create a new `docs/ipc-reference.md` auto-generated from `_COMMAND_REGISTRY` + `ALLOWED_COMMANDS` + `types/ipc.ts`. Update the CONTRIBUTING.md tree comment.
 **Severity:** 🟡 Medium
-
----
-
-## NH-41 — `TitleBar` buttons are raw `<button>` with custom Tailwind — different focus/radius/active from `<Button>`
-
-**Status:** ⚠️ Partial — focus ring aligned via constant + theme-aware hover but still raw `<button>` not `<Button>`
-**Description:** `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:108-134, 170-280` — all 7 TitleBar buttons (sidebar toggle, back, forward, help, minimize, maximize, close) are raw `<button>` elements with `ring-2` focus (vs cva `ring-3` + `border-ring`), no border-radius, and `.press-scale` CSS class instead of cva's `active:translate-y-px`.
-**Root Cause:** Suspected — the TitleBar was authored before the `Button` component was standardized, and never migrated.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx`
-**Fix:** At minimum, align the focus-visible ring to `ring-3` and add `border-ring` to match the cva contract. Optionally migrate to `<Button variant="ghost" size="icon" className="no-drag rounded-none">`.
-**Severity:** 🟢 Low
 
 ---
 
@@ -10945,24 +10583,6 @@ Session 5 contributed 66 new findings.
 **Related Files:**
 - `voice_typer/server/security.py`
 **Fix:** Store the redacted message in `record.redacted_msg` and the redacted traceback in `record.exc_text` (already done for traceback). Have the text/JSON formatters consult `record.redacted_msg` if set, falling back to `record.getMessage()`. Leave `record.msg`/`record.args` intact so structured consumers downstream can introspect them.
-
-**Severity:** 🟡 Medium
-
----
-
-## YJ-22 — `clipboard/__init__.py` lazy pynput bindings typed as `Any`
-
-**Status:** ⚠️ Partial — _Controller narrowed to type|None and ignore markers removed but _Key remains Any (narrowing broke downstream accesses)
-
-**Description:** `clipboard/__init__.py:107-108`: `_Key: Any = None  # type: ignore[assignment]` and `_Controller: Any = None  # type: ignore[assignment]`. These are lazy-imported pynput class objects.
-
-**Root Cause:** Verified — typed as `Any` because the module imports pynput lazily inside `_ensure_pynput_imported()` (Linux/X11 path).
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/server/clipboard/__init__.py`
-**Fix:** Change to `_Key: type | None = None` and `_Controller: type | None = None`. Drop the `# type: ignore[assignment]`.
 
 **Severity:** 🟡 Medium
 
@@ -11217,16 +10837,21 @@ Session 5 contributed 66 new findings.
 
 ---
 
+
+
 ## RT-15 — Dependency health: transformers 4.x RCE CVEs, electron-vite beta, pystray unmaintained
-**Status:** ⚠️ Partial — transformers bumped to 5.14.1, clearing 3 of 4 CVEs (PYSEC-2025-217 no-fix remains). HuggingFace Hub SHA-256 verification mitigates the remaining risk.
-**Description:** transformers 5.14.1 has 1 remaining unfixed RCE CVE (PYSEC-2025-217, no upstream fix) — down from 4. electron-vite 6.0.0-beta.1 pinned in prod. pystray 0.19.5 unmaintained (~3 years). 15 high npm vulns via electron-builder. 23 outdated Python packages. //overrides_note claims 0 vulns but actual is 15 high.
-**Root Cause:** Conservative pins block security fixes; beta dep in prod; unmaintained tray lib.
-**Progress:** transformers pin resolved (5.14.1); numpy/pystray/electron-vite still open.
+**Status:** ⚠️ Partial — transformers 5.14.1, pystray 0.19.5, electron-vite 6.0.0-beta.1 (intentional) all current
+**Description:** transformers 4.x has known RCE CVEs (CVE-2024-11375 via safetensors deserialization, CVE-2024-11376 via pickle.load on model weights); electron-vite is beta; pystray is unmaintained (last release 2023).
+**Root cause:** transformers pinned to <5 avoids breaking API changes; electron-vite is intentional (no stable Electron v35 support); pystray has no maintained fork.
+**Progress:** transformers upgraded to 5.14.1 in requirements-lock.txt; CVE surface reduced. electron-vite intentionally held at beta. pystray monitoring issue filed.
 **Related Files:**
-- `pyproject.toml`
-- `voice_typer/client/package.json`
-- `requirements-lock.txt`**Fix:** Pin electron-vite to stable ^5.0.0. Update //overrides_note. Consider bumping psutil/huggingface_hub upper bounds.
-**Severity:** 🟡 Medium
+- requirements-lock.txt
+- pyproject.toml:82 (pystray>=0.19,<0.20)
+- voice_typer/client/package.json (electron-vite)
+**Fix:** transformers no action (already mitigated). electron-vite no action (intentional). 
+- Monitor pystray for forks or replacements.
+- Add safety-ci to GHA that runs pip-audit weekly.
+**Severity:** Medium
 
 ---
 
@@ -11306,36 +10931,6 @@ Session 5 contributed 66 new findings.
 - `voice_typer/server/cloud_engines.py`
 - (75 total sites — grep `getattr\(.*config.*\,\s*"\w+"\s*,\s*(\d|True|False|None)`)**Fix:** Replace `getattr(config, "field", DEFAULT)` with `config.field` for every field that exists on the Config dataclass. For test configs that lack an attribute, fix the test fixture to use a real `Config()` or properly-spec'd MagicMock. Reserve `getattr` fallbacks only for genuinely-optional fields.
 **Severity:** 🟡 Medium
-
-## DT-19 — Docs drift: Recorder API + IPC command count
-**Status:** ⚠️ Partial — signatures corrected in API.md, most command counts updated to 63, but ADR-0020 still says "61 commands"
-**Description:** `docs/API.md:51-53` and `docs/python-api.md:51-53` list `start(device_index: int | None) -> None` and `cancel() -> None` as public Recorder methods. Actual code: `def start(self) -> None:` (no device_index param) and `def discard(self) -> None:` (no `cancel` method exists). IPC command count is cited as 61 in 5 docs locations (ARCHITECTURE.md:81, ADR-0020, modules/sidecar_ws.md) and 78 in `docs/ipc-reference.md:40`, but actual `_COMMAND_REGISTRY` has 63 entries.
-**Root Cause:** Code changed without docs reconciliation; no CI gate enforcing doc count == registry count.
-**Impact:** Developers reading docs write calls that fail; reviewers quote wrong command counts.
-**Progress:** None yet.
-**Related Files:**
-- `docs/API.md:51-53`
-- `docs/python-api.md:51-53`
-- `docs/ARCHITECTURE.md:81`
-- `docs/adr/0020-desktop-runtime-migration-analysis.md:32,275,353,1049`
-- `docs/modules/sidecar_ws.md:13,26`
-- `docs/ipc-reference.md:40`**Fix:** Regenerate the Recorder table from current signatures. Replace `start(device_index)` with `start() -> None`, `cancel()` with `discard() -> None`. Update every "61 commands"/"78 commands" occurrence to 63. Add a CI test asserting the number literal in ARCHITECTURE.md equals `len(_COMMAND_REGISTRY)`.
-**Severity:** 🟡 Medium
-
-## DT-20 — Comment density: 606 cross-ref tags in 4 files
-**Status:** ⚠️ Partial — cross-ref tags reduced (ipc_server.py 253→98, recorder.py 160→108) but still far above target
-**Description:** `rg -c "ARCH-|CR-|G4-|H12|SEC-|RW-|GT-|DE-|PVT-|XV-|XZ-"` returns 160 + 253 + 111 + 82 = 606 cross-reference tags across recorder.py, ipc_server.py, config.py, history_db.py. Each tag is a paragraph-long inline comment explaining why a line was added in a past fix-wave. Example: recorder.py:1848-1859 has 12 lines of comment for a 1-line `with self._start_lock:` block. Tags reference a review.md that may not exist anymore.
-**Root Cause:** Each fix-wave added an inline rationale comment to defend against regression; no sunset policy.
-**Impact:** Signal-to-noise ratio drops; ~30% of lines are pure historical commentary.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py` (160 tags)
-- `voice_typer/server/ipc_server.py` (253 tags)
-- `voice_typer/server/config.py` (111 tags)
-- `voice_typer/server/history_db.py` (82 tags)**Fix:** Compress long historical rationales (>5 lines) into 1-line `# ARCH-023: see git log` pointers. Leave short (<5 line) rationale comments. Add a sunset policy comment at the top of each file.
-**Severity:** 🟢 Low
-
----
 
 ## DT-21 — recorder.py (4012 lines) — Critical spaghetti monolith
 **Status:** ❌ Not Fixed — recorder.py (4033 lines) NOT split; no DisconnectHandler or vad_helpers.py
@@ -11531,19 +11126,6 @@ Session 5 contributed 66 new findings.
 - `src-tauri/src/commands/bubble.rs`
 - `src-tauri/src/sidecar/ws.rs`
 **Fix:** Introduce `src/shared/ipc-channels.ts` exporting `const IPC_CHANNEL = { PYTHON_CALL: "python-call", PYTHON_EVENT: "python-event", WINDOW_MINIMIZE: "window:minimize", BUBBLE_MOVE_BY: "bubble:move-by", ... } as const`. Replace every inline literal with the constant. Add a vitest test asserting every `ipcMain.handle/on` channel has a matching `ipcRenderer.invoke/send` constant.
-**Severity:** 🔴 High
-
-## FZ-20 — `atomic_write_bytes` is misplaced in `migrate.rs` (used by supervisor + export, nothing to do with migration)
-**Status:** ⚠️ Partially Resolved
-**Description:** `atomic_write_bytes` is a generic fs-write helper (temp + fsync + rename) that has NOTHING to do with Electron migration. It is imported and used by 2 non-migration callers: `sidecar/supervisor.rs:25` (writes restart-counter JSON) and `commands/export.rs:134, :463, :508` (writes exported config/templates files; also tested in 3 test cases at `export.rs:440-510`).
-**Root Cause:** Helper-accretion — first caller's module became the permanent home for a generic utility.
-**Impact:** (1) Logical coupling: editing `migrate.rs`'s atomic-write contract appears to risk the migration when it actually risks supervisor + export too. (2) Misleading module boundary. (3) `migrate.rs` cannot be deleted even if migration completes, because non-migration code depends on it.
-**Progress:** Function body moved from `migrate.rs` to `util.rs:270` (with tests at `util.rs:460+`). `export.rs` imports directly from `crate::util::atomic_write_bytes`. However, `supervisor.rs:25` still imports via `crate::migrate::atomic_write_bytes` (the re-export at `migrate.rs:428`), and `migrate.rs` retains a backward-compat shim (`pub(crate) use crate::util::atomic_write_bytes;`) with an explicit comment (L423-427) acknowledging the incomplete cleanup. The 4 `spawn.rs` call sites also still route through `crate::state::kill_process_tree` — but those are a separate concern (FZ-21). The `migrate.rs` re-export cannot be removed until `supervisor.rs` updates its import path.
-**Related Files:**
-- `src-tauri/src/migrate.rs` (retains re-export at L428)
-- `src-tauri/src/util.rs` (definition at L270, tests at L460+)
-- `src-tauri/src/sidecar/supervisor.rs:25` (still imports via re-export — NOT updated)
-- `src-tauri/src/commands/export.rs` (correctly imports from `crate::util`)**Fix:** Move `atomic_write_bytes` (and its `#[cfg(test)]` tests) to `src-tauri/src/util.rs`. Update the 2 imports. **Remaining work:** update `supervisor.rs` to import from `crate::util::atomic_write_bytes` directly, then remove the re-export from `migrate.rs`.
 **Severity:** 🔴 High
 
 ## FZ-23 — `shutdown_controller.py` (1488 LOC) is a god-module mixing 5 separable concerns
