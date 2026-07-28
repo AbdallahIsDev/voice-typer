@@ -31,7 +31,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     consent dialog instead of a generic error toast.
     """
 
-    def _handle_microphone_test_start(self, data, resp) -> dict | None:
+    def _handle_microphone_test_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command.
 
         DE-45 (session-DE): ``duration`` is now in the schema with
@@ -147,7 +147,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_start")
         return resp
 
-    def _handle_microphone_test_stop(self, data, resp) -> dict | None:
+    def _handle_microphone_test_stop(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_stop`` IPC command."""
         try:
             result = self.service.microphone_test_stop()
@@ -158,7 +158,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_stop")
         return resp
 
-    def _handle_microphone_test_cancel(self, data, resp) -> dict | None:
+    def _handle_microphone_test_cancel(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_cancel`` IPC command."""
         try:
             result = self.service.microphone_test_cancel()
@@ -169,7 +169,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_cancel")
         return resp
 
-    def _handle_microphone_test_status(self, data, resp) -> dict | None:
+    def _handle_microphone_test_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_status`` IPC command."""
         try:
             result = self.service.microphone_test_status()
@@ -180,7 +180,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_status")
         return resp
 
-    def _handle_microphone_test_get_level(self, data, resp) -> dict | None:
+    def _handle_microphone_test_get_level(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_get_level`` IPC command."""
         try:
             result = self.service.microphone_test_get_level()

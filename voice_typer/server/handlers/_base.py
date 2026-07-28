@@ -19,7 +19,7 @@ This module is the result of merging two independent improvements:
   emits a GENERIC envelope::
 
       {"type": "error",
-       "data": {"code": "internal_error", "message": "internal error"}}
+       "data": {"code": LegacyErrorCodes.INTERNAL_ERROR, "message": "internal error"}}
 
   to avoid leaking server internals (file paths, CUDA error strings,
   internal module names, HF repo IDs) to a potentially-compromised
@@ -42,8 +42,8 @@ don't need ``_respond_with_error`` inherit directly from
 ``HandlerMixinBase`` (just the annotations). This preserves the
 architecture rule: thin base, focused subclasses.
 
-Per-command VALIDATION errors (e.g. ``{"code": "missing_field",
-"field": "id"}``, ``{"code": "payload_too_large"}``) are EXPLICIT and
+Per-command VALIDATION errors (e.g. ``{"code": LegacyErrorCodes.MISSING_FIELD,
+"field": "id"}``, ``{"code": LegacyErrorCodes.PAYLOAD_TOO_LARGE}``) are EXPLICIT and
 remain the handler's responsibility — they are part of the documented
 IPC contract that the renderer switches on. Only the catch-all
 ``Exception`` path is genericised via ``_respond_with_error``.
@@ -67,6 +67,7 @@ from voice_typer.server.asr_errors import (
     ConsentRequiredError,
 )
 from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes  # noqa: F401
 
 # The ``ErrorEnvelope`` TypedDict contract is kept in
 # :mod:`voice_typer.server.ipc.validation` (useful as documentation),
@@ -194,7 +195,7 @@ class HandlerBase(HandlerMixinBase):
     ``except Exception`` blocks through ``_respond_with_error`` — no
     ``str(e)`` is ever sent to the renderer. The three-way
     error-envelope drift is eliminated: every handler catch-all now
-    emits the same ``{"code": "server.internal_error", "message":
+    emits the same ``{"code": ErrorCodes.INTERNAL_ERROR, "message":
     "internal error"}`` envelope as the dispatcher's outer
     ``except Exception`` (namespaced form — the dispatcher itself may
     still emit the legacy ``internal_error`` alias on some paths; the
@@ -214,7 +215,7 @@ class HandlerBase(HandlerMixinBase):
         resp :
             The response dict the handler was building. Mutated in
             place: ``type`` is set to ``"error"`` and ``data`` is set
-            to the generic envelope ``{"code": "server.internal_error",
+            to the generic envelope ``{"code": ErrorCodes.INTERNAL_ERROR,
             "message": "internal error"}`` (namespaced form).
         exc :
             The exception that triggered the error path. Logged at
@@ -318,7 +319,7 @@ class HandlerBase(HandlerMixinBase):
             # (engine_name, consent_field, model_id) let the renderer
             # deep-link to the exact toggle in Settings.
             resp["data"] = {
-                "code": "client.consent_required",
+                "code": ErrorCodes.CONSENT_REQUIRED,
                 "message": str(exc) or "consent required",
                 **exc.to_dict(),
             }

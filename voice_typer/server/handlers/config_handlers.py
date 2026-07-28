@@ -11,7 +11,7 @@ from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response
+from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _error_response  # noqa: F401
 
 # DE-37: module-level "warned once" flag for the missing
 # ``_config_mutation_lock`` case. The handler runs on every ``set_config``
@@ -54,7 +54,7 @@ class ConfigHandlersMixin(HandlerBase):
     process instead of silently falling back to lock-free execution.
     """
 
-    def _handle_get_config(self, data, resp) -> dict | None:
+    def _handle_get_config(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_config`` IPC command."""
         resp["type"] = "config"
         # SEC-003: previously this returned config.__dict__.copy()
@@ -68,7 +68,7 @@ class ConfigHandlersMixin(HandlerBase):
         resp["data"] = self.service.get_config()
         return resp
 
-    def _handle_get_defaults(self, data, resp) -> dict | None:
+    def _handle_get_defaults(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_defaults`` IPC command."""
         # UX-018: return the default Config() values so the
         # renderer's "Reset to Defaults" button doesn't have to
@@ -83,7 +83,7 @@ class ConfigHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_defaults")
         return resp
 
-    def _handle_set_config(self, data, resp) -> dict | None:
+    def _handle_set_config(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_config`` IPC command."""
         try:
             # NEW-IPC-005: reject non-dict data with an explicit error
@@ -214,7 +214,7 @@ class ConfigHandlersMixin(HandlerBase):
                         )
                         model_errors.append(
                             {
-                                "code": "model_switch_failed",
+                                "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
                                 "field": "model_size",
                                 "value": validated["model_size"],
                             }
@@ -243,7 +243,7 @@ class ConfigHandlersMixin(HandlerBase):
                         )
                         model_errors.append(
                             {
-                                "code": "model_switch_failed",
+                                "code": LegacyErrorCodes.MODEL_SWITCH_FAILED,
                                 "field": "asr_backend",
                                 "value": validated["asr_backend"],
                             }

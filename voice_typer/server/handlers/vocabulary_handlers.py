@@ -21,7 +21,7 @@ class VocabularyHandlersMixin(HandlerBase):
     branch on the code rather than pattern-matching the message text.
     """
 
-    def _handle_get_vocabulary(self, data, resp) -> dict | None:
+    def _handle_get_vocabulary(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_vocabulary`` IPC command."""
         # ARCH-005: delegates to service layer
         try:
@@ -33,7 +33,7 @@ class VocabularyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_vocabulary")
         return resp
 
-    def _handle_save_vocabulary(self, data, resp) -> dict | None:
+    def _handle_save_vocabulary(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``save_vocabulary`` IPC command."""
         # ARCH-005: delegates to service layer
         # NEW-SEC-011: cap payload size to prevent DoS. A 1 GB JSON

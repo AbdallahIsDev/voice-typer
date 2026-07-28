@@ -41,7 +41,7 @@ also declares both service methods.
 
 CR-20 / G4-CR-09 (MIGRATED): this mixin's ``except Exception`` catch-alls
 call :meth:`HandlerBase._respond_with_error`, which emits the generic
-WS-path error envelope (``{"code": "internal_error", "message":
+WS-path error envelope (``{"code": LegacyErrorCodes.INTERNAL_ERROR, "message":
 "internal error"}``) and logs the traceback server-side. No
 ``str(e)`` is ever sent to the renderer — see
 ``voice_typer/server/handlers/_base.py`` for the migration plan.
@@ -55,7 +55,12 @@ envelope via :func:`_error_response` so the renderer can show
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import (  # noqa: F401
+    ErrorCodes,
+    LegacyErrorCodes,
+    _error_response,
+    _validate_dict_payload,
+)
 
 
 class PrivacyHandlersMixin(HandlerBase):
@@ -71,7 +76,7 @@ class PrivacyHandlersMixin(HandlerBase):
     so the renderer can show the user a targeted message.
     """
 
-    def _handle_delete_all_personal_data(self, data, resp) -> dict | None:
+    def _handle_delete_all_personal_data(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``delete_all_personal_data`` IPC command (CR-87).
 
         GDPR Art. 17 right-to-erasure. Wipes every user-data file the
@@ -146,7 +151,7 @@ class PrivacyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "delete_all_personal_data")
         return resp
 
-    def _handle_export_gdpr_bundle(self, data, resp) -> dict | None:
+    def _handle_export_gdpr_bundle(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``export_gdpr_bundle`` IPC command (CR-88).
 
         GDPR Art. 20 right-to-data-portability. Produces a ZIP bundle

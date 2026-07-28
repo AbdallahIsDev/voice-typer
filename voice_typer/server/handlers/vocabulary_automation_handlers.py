@@ -147,7 +147,7 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
     no ``str(e)`` leak).
     """
 
-    def _handle_get_vocabulary_suggestions(self, data, resp) -> dict | None:
+    def _handle_get_vocabulary_suggestions(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_vocabulary_suggestions`` IPC command.
 
         Returns the pending (not-yet-applied, not-yet-dismissed)
@@ -172,7 +172,7 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_vocabulary_suggestions")
         return resp
 
-    def _handle_apply_vocabulary_suggestion(self, data, resp) -> dict | None:
+    def _handle_apply_vocabulary_suggestion(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``apply_vocabulary_suggestion`` IPC command.
 
         Applies a single suggestion to the user's vocabulary.  The
@@ -248,7 +248,7 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "apply_vocabulary_suggestion")
         return resp
 
-    def _handle_dismiss_vocabulary_suggestion(self, data, resp) -> dict | None:
+    def _handle_dismiss_vocabulary_suggestion(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``dismiss_vocabulary_suggestion`` IPC command.
 
         Dismisses a single suggestion (user rejected it).  The

@@ -13,7 +13,7 @@ from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _validate_dict_payload  # noqa: F401
 from voice_typer.server.platform_utils import is_macos
 
 
@@ -65,7 +65,7 @@ class SystemHandlersMixin(HandlerBase):
     notification API would silently truncate or refuse to display.
     """
 
-    def _handle_restart_app(self, data, resp) -> dict | None:
+    def _handle_restart_app(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``restart_app`` IPC command."""
         resp["type"] = "ack"
         # NEW-IPC-006: ensure ack carries an explicit ``data: {}`` for
@@ -82,7 +82,7 @@ class SystemHandlersMixin(HandlerBase):
             # The ack was already sent; can't recover from here.
         return None
 
-    def _handle_quit_app(self, data, resp) -> dict | None:
+    def _handle_quit_app(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``quit_app`` IPC command."""
         resp["type"] = "ack"
         # NEW-IPC-006: same as restart_app — add explicit ``data: {}``.
@@ -94,7 +94,7 @@ class SystemHandlersMixin(HandlerBase):
             log.error("[IPC] quit_app failed: %s", e, exc_info=True)
         return None
 
-    def _handle_export_diagnostics(self, data, resp) -> dict | None:
+    def _handle_export_diagnostics(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``export_diagnostics`` IPC command."""
         try:
             result = self.service.export_diagnostics()
@@ -105,7 +105,7 @@ class SystemHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "export_diagnostics")
         return resp
 
-    def _handle_check_accessibility(self, data, resp) -> dict | None:
+    def _handle_check_accessibility(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``check_accessibility`` IPC command.
 
         PLAT-030: macOS Accessibility permission check.
@@ -201,7 +201,7 @@ class SystemHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "check_accessibility")
         return resp
 
-    def _handle_set_tray_locale(self, data, resp) -> dict | None:
+    def _handle_set_tray_locale(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_tray_locale`` IPC command.
 
         TRAY-008 / UX-6: accepts ``locale`` (required) and an optional
@@ -243,7 +243,7 @@ class SystemHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "set_tray_locale")
         return resp
 
-    def _handle_set_esc_cancel_paused(self, data, resp) -> dict | None:
+    def _handle_set_esc_cancel_paused(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_esc_cancel_paused`` IPC command.
 
         ARCH-ESC-001: this is now a thin wrapper around the
@@ -307,7 +307,7 @@ class SystemHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "set_esc_cancel_paused")
         return resp
 
-    def _handle_show_electron_notification(self, data, resp) -> dict | None:
+    def _handle_show_electron_notification(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``show_electron_notification`` IPC command.
 
         TRAY-035: Push a notification to the Electron UI for
@@ -383,7 +383,7 @@ class SystemHandlersMixin(HandlerBase):
             if isinstance(data, dict) and isinstance(data.get("duration_ms"), bool):
                 resp["type"] = "error"
                 resp["data"] = {
-                    "code": "client.invalid_field",
+                    "code": ErrorCodes.INVALID_FIELD,
                     "legacy_code": "invalid_field",
                     "field": "duration_ms",
                     "message": "'duration_ms' must be a number (milliseconds)",
@@ -471,7 +471,7 @@ class SystemHandlersMixin(HandlerBase):
                 if _has_control_chars(validated.get(fname, "")):
                     resp["type"] = "error"
                     resp["data"] = {
-                        "code": "client.invalid_field",
+                        "code": ErrorCodes.INVALID_FIELD,
                         "legacy_code": "invalid_field",
                         "field": fname,
                         "message": f"'{fname}' contains a control character",

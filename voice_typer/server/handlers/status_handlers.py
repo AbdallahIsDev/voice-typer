@@ -8,7 +8,7 @@ access ``self.app`` / ``self.service`` as before.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response
+from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _error_response  # noqa: F401
 from voice_typer.server.platform_utils import is_windows
 
 
@@ -25,7 +25,7 @@ class StatusHandlersMixin(HandlerBase):
     pattern-matching the message text.
     """
 
-    def _handle_get_status(self, data, resp) -> dict | None:
+    def _handle_get_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_status`` IPC command.
 
         DE-43 (session-DE): this was the only status handler with NO
@@ -48,7 +48,7 @@ class StatusHandlersMixin(HandlerBase):
                 else:
                     resp["type"] = "error"
                     resp["data"] = {
-                        "code": "client.invalid_payload",
+                        "code": ErrorCodes.INVALID_PAYLOAD,
                         "legacy_code": "invalid_payload",
                         "message": "data must be an object",
                     }
@@ -72,7 +72,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_status")
         return resp
 
-    def _handle_get_rms_level(self, data, resp) -> dict | None:
+    def _handle_get_rms_level(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_rms_level`` IPC command."""
         # AUDIO-RMS: return the current RMS level from the recorder.
         # Allows the Electron UI to show real-time audio level
@@ -86,7 +86,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_rms_level")
         return resp
 
-    def _handle_get_volume_backend_status(self, data, resp) -> dict | None:
+    def _handle_get_volume_backend_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_volume_backend_status`` IPC command."""
         # Returns the active volume backend's name + capability flags
         # ARCH-005: delegates to service layer
@@ -100,7 +100,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_volume_backend_status")
         return resp
 
-    def _handle_get_audio_status(self, data, resp) -> dict | None:
+    def _handle_get_audio_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_audio_status`` IPC command."""
         # ADR 0007: returns the current audio filter chain status
         # (filter names, degraded flags, VAD backend, sample rate).
@@ -114,7 +114,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_audio_status")
         return resp
 
-    def _handle_get_model_status(self, data, resp) -> dict | None:
+    def _handle_get_model_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_model_status`` IPC command."""
         # Item 10/11: check which models are actually on disk.
         # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.
@@ -128,7 +128,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_model_status")
         return resp
 
-    def _handle_get_prewarm_status(self, data, resp) -> dict | None:
+    def _handle_get_prewarm_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_prewarm_status`` IPC command.
 
         ADR-0009 Issue 3: returns a snapshot of the prewarm cache state
@@ -147,7 +147,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_prewarm_status")
         return resp
 
-    def _handle_run_prewarm(self, data, resp) -> dict | None:
+    def _handle_run_prewarm(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``run_prewarm`` IPC command.
 
         Task 3: triggers a manual prewarm run in a background subprocess.
@@ -262,7 +262,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "run_prewarm")
         return resp
 
-    def _handle_open_prewarm_log(self, data, resp) -> dict | None:
+    def _handle_open_prewarm_log(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``open_prewarm_log`` IPC command.
 
         Task 2: opens the dedicated prewarm log file in the OS default

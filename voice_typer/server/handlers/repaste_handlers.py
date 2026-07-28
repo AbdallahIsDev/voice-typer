@@ -33,7 +33,7 @@ class RepasteHandlersMixin(HandlerBase):
     no ``str(e)`` leak).
     """
 
-    def _handle_repaste_last(self, data, resp) -> dict | None:
+    def _handle_repaste_last(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``repaste_last`` IPC command (UX-23).
 
         Re-pastes the last transcription via

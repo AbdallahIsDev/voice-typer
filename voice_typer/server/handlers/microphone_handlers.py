@@ -16,7 +16,7 @@ class MicrophoneHandlersMixin(HandlerBase):
     no ``str(e)`` leak).
     """
 
-    def _handle_get_microphones(self, data, resp) -> dict | None:
+    def _handle_get_microphones(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_microphones`` IPC command."""
         try:
             resp["type"] = "microphones"
@@ -26,7 +26,7 @@ class MicrophoneHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_microphones")
         return resp
 
-    def _handle_refresh_microphones(self, data, resp) -> dict | None:
+    def _handle_refresh_microphones(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``refresh_microphones`` IPC command."""
         # AUDIO-MIC: re-query PortAudio for available microphones.
         # Called when the user clicks "Refresh Microphones" in the

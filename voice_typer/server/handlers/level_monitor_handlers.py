@@ -30,7 +30,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
     and the mic-test path (microphone_test_handlers.py).
     """
 
-    def _handle_level_monitor_start(self, data, resp) -> dict | None:
+    def _handle_level_monitor_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
         try:
             # XZ-PRIV-03: enforce voice_biometric_consent BEFORE
@@ -87,7 +87,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "level_monitor_start")
         return resp
 
-    def _handle_level_monitor_stop(self, data, resp) -> dict | None:
+    def _handle_level_monitor_stop(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_stop`` IPC command."""
         try:
             result = self.service.level_monitor_stop()
@@ -98,7 +98,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "level_monitor_stop")
         return resp
 
-    def _handle_level_monitor_status(self, data, resp) -> dict | None:
+    def _handle_level_monitor_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_status`` IPC command."""
         try:
             result = self.service.level_monitor_status()

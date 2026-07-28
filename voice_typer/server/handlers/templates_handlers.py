@@ -25,7 +25,7 @@ class TemplatesHandlersMixin(HandlerBase):
     no ``str(e)`` leak).
     """
 
-    def _handle_get_templates(self, data, resp) -> dict | None:
+    def _handle_get_templates(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_templates`` IPC command."""
         try:
             templates = self.service.get_templates()
@@ -36,7 +36,7 @@ class TemplatesHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_templates")
         return resp
 
-    def _handle_save_templates(self, data, resp) -> dict | None:
+    def _handle_save_templates(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``save_templates`` IPC command.
 
         The schema declares a 256 KB whole-payload cap via
