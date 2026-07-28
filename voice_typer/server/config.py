@@ -57,7 +57,24 @@ from voice_typer.server.config_internals.paths import (  # noqa: F401 — backwa
     _validate_systemroot,
 )
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
-from voice_typer.server.platform_utils import is_windows
+
+# ``is_macos`` is re-exported (not used directly in this module) so
+# ``config_internals.paths._is_macos()`` can look it up via
+# ``voice_typer.server.config.is_macos`` — the lazy-import shim in
+# ``paths.py`` was written assuming this attribute exists (see the
+# ``_is_macos`` docstring: "In production ``config.is_macos is
+# paths.is_macos``"), and the regression tests in
+# ``tests/tauri/mig{16,17}/test_faster_whisper_*.py`` monkeypatch
+# ``config_mod.is_macos`` directly. Without this re-export,
+# ``_is_macos()`` raises ``AttributeError`` in production on
+# non-Windows platforms (Linux fresh-install without the legacy
+# ``~/.voice-typer`` dir, or macOS), which breaks ``_config_dir()``
+# and every caller — including :func:`purge_user_data` and
+# :func:`purge_all_user_data`.
+from voice_typer.server.platform_utils import (  # noqa: F401 — is_macos re-exported for paths._is_macos()
+    is_macos,
+    is_windows,
+)
 from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compat re-export
     _secure_atomic_write,
     _secure_read_text,
@@ -235,6 +252,121 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
             errors.append(f"{base}: {e}")
 
     return {"removed": removed, "missing": missing, "errors": errors}
+
+
+def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
+    """Remove ALL user data for uninstall.
+
+    Unlike :func:`purge_user_data` (which preserves the config dir by
+    default and is intended for "keep my settings but wipe runtime
+    artifacts" flows), this function wipes the ENTIRE user-data root:
+    config files, history DB, logs, crash dumps, mic-test recordings,
+    the rotating Rust ``logs/`` subdirectory, the archived crash
+    diagnostics, AND (optionally) the GB-sized HuggingFace model cache.
+
+    Intended to be called from the uninstaller (Linux ``prerm --purge``,
+    Windows NSIS ``deleteAppDataOnUninstall`` hook, macOS ``Uninstall
+    Voice Typer.app`` helper). The function is idempotent — missing
+    files / dirs are silently skipped — and NEVER raises: an uninstall
+    script must not abort mid-cleanup if a single file is locked (the
+    lock holder is typically the dying backend process shutting down
+    in parallel).
+
+    Parameters
+    ----------
+    remove_models
+        If ``True`` (the default), also recursively delete the
+        HuggingFace model cache directory. This is potentially
+        GB-sized (a single Whisper / Parakeet / Qwen model is
+        500 MB – 3 GB), so callers that want to preserve models for a
+        re-install should pass ``remove_models=False``.
+
+        Implementation note: :func:`purge_user_data` with
+        ``remove_config_dir=True`` already recursively removes the
+        entire ``_config_dir()`` — which INCLUDES the canonical HF
+        cache subdir (``<config_dir>/huggingface`` per
+        :func:`voice_typer.server._paths.hf_cache_dir`). The explicit
+        HF-cache deletion below is a belt-and-suspenders pass that
+        also covers the LEGACY cache path
+        (``~/.voice-typer/huggingface`` — see
+        :func:`voice_typer.server._paths.legacy_hf_cache_dir`) used as
+        a defensive fallback when ``_config_dir()`` itself raises
+        (e.g. the BootTrigger scenario where ``$HOME`` is unset). On
+        a normal install the explicit pass is a no-op because
+        ``purge_user_data`` already unlinked the parent dir.
+
+    Returns
+    -------
+    dict
+        ``{"deleted": [...], "failed": [...]}`` — ``deleted`` lists
+        every file / dir path that was successfully removed (a
+        superset of :func:`purge_user_data`'s ``removed`` list,
+        plus the HF cache dir when ``remove_models=True``);
+        ``failed`` lists ``"<path>: <error>"`` strings for entries
+        that existed but could not be removed (permission errors,
+        locked files, etc.). The function NEVER raises — failures are
+        surfaced in ``failed`` so the uninstaller can log a report
+        without aborting.
+
+    The function does NOT remove OS keychain entries (call
+    ``credential_store.delete_all_secrets()`` separately for an
+    irreversible secret purge) or autostart entries (call
+    ``autostart_launcher.disable_autostart()`` separately).
+    """
+    import shutil
+
+    # 1. Wipe the entire config directory via the existing entry point.
+    #    ``remove_config_dir=True`` recursively removes every file /
+    #    subdir under ``_config_dir()`` (config.json, history.db + WAL,
+    #    logs/, huggingface/, crash_diagnostics_archive/, etc.) and
+    #    then the dir itself.
+    base_result = purge_user_data(remove_config_dir=True)
+    deleted: list[str] = list(base_result.get("removed", []))
+    failed: list[str] = list(base_result.get("errors", []))
+
+    # 2. Optionally also delete the HuggingFace model cache directory.
+    #    This is a belt-and-suspenders pass — see the docstring above
+    #    for why the explicit step is needed alongside
+    #    ``purge_user_data(remove_config_dir=True)``. We resolve BOTH
+    #    the canonical and the legacy cache paths and remove whichever
+    #    exist; a missing path is silently skipped (it's the common
+    #    case on fresh installs that never downloaded a model).
+    if remove_models:
+        cache_paths: list[Path] = []
+        # Canonical path: ``<config_dir>/huggingface``. Resolved via
+        # the public helper so we stay in lock-step with the ASR
+        # engines that actually populate the cache (they set
+        # ``HF_HOME=<config_dir>/huggingface`` via ``asr_setup``).
+        try:
+            from voice_typer.server._paths import (
+                hf_cache_dir,
+                legacy_hf_cache_dir,
+            )
+
+            cache_paths.append(hf_cache_dir())
+            cache_paths.append(legacy_hf_cache_dir())
+        except Exception as exc:
+            # ``_config_dir()`` itself may raise in the BootTrigger
+            # scenario (``$HOME`` / ``%USERPROFILE%`` unset). Surface
+            # the failure in ``failed`` so the uninstaller can log it
+            # — the legacy path may still be resolvable below.
+            failed.append(f"hf_cache_dir: {type(exc).__name__}: {exc}")
+
+        for cache_path in cache_paths:
+            try:
+                if not cache_path.exists():
+                    continue
+            except OSError as exc:
+                failed.append(f"{cache_path}: {type(exc).__name__}: {exc}")
+                continue
+            try:
+                shutil.rmtree(cache_path)
+                if str(cache_path) not in deleted:
+                    deleted.append(str(cache_path))
+            except OSError as exc:
+                failed.append(f"{cache_path}: {type(exc).__name__}: {exc}")
+
+    return {"deleted": deleted, "failed": failed}
 
 
 # DT-11: deferred imports for shared canonical constants.
