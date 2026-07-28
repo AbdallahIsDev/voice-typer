@@ -99,7 +99,14 @@ export function registerPythonCallHandler(): void {
 					: "command_failed";
 				logger.warn("python-call failed", { cmd, code, error: errMsg });
 				return {
-					_error: isTimeout ? `${ERROR_MESSAGES[code]} ${errMsg}` : errMsg,
+					// DE-86: for command_failed, return the generic localized
+					// message (NOT the raw Python traceback with filesystem
+					// paths).  The full errMsg is still logged server-side
+					// via logger.warn above.  For timeout the errMsg is safe
+					// (it's just "Request Timeout") so append it for clarity.
+					_error: isTimeout
+						? `${ERROR_MESSAGES[code]} ${errMsg}`
+						: ERROR_MESSAGES[code],
 					_code: code,
 				};
 			}

@@ -1,8 +1,8 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import type { WindowBridge } from "@/types/ipc";
 
 interface TitleBarProps {
