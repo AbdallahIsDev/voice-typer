@@ -1487,15 +1487,7 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit hygiene hooks
-        run: |
-          pre-commit run --all-files \
-            trailing-whitespace \
-            end-of-file-fixer \
-            check-yaml \
-            check-json \
-            check-merge-conflict \
-            check-added-large-files \
-            mixed-line-ending
+        run: pre-commit run --all-files trailing-whitespace end-of-file-fixer check-yaml check-json check-merge-conflict check-added-large-files mixed-line-ending
   notify:
     name: Notify on failure
     # `always()` so the job runs even when one of `needs` failed. Skipped
