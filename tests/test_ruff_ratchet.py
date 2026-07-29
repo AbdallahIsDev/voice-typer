@@ -185,6 +185,44 @@ def _pick_representative_rule(baseline: dict) -> tuple[str, int]:
 class TestCompareLogic:
     """Verify scripts/ruff_ratchet_check.py compare behavior with synthetic inputs."""
 
+    @pytest.fixture(autouse=True)
+    def _synthetic_baseline(self) -> Iterator[None]:
+        """Write a synthetic non-empty baseline before each test, restore after.
+
+        ZR-40: the repo's actual ``ruff-baseline.json`` was reset to
+        ``total_count: 0`` after parallel-agent cleanup, which broke
+        several tests in this class that assumed a non-empty baseline
+        (``_pick_representative_rule`` falls back to the synthetic
+        ``B007, 3`` pair, but the script then sees 3 B007 violations
+        against a baseline of 0 and reports REGRESSION instead of PASS).
+        The fix is to seed a known baseline (``B007: 3, UP007: 1``,
+        total 4) before each compare test so the test outcome is
+        independent of the actual repo baseline content. The
+        restore-after ensures the real baseline file is untouched on
+        disk.
+
+        The two-rule baseline (B007 + UP007) is needed by
+        ``test_per_rule_regression_with_same_total_fails`` which
+        grows one rule's count and shrinks another's to keep the
+        total constant — that's the only way to trigger the
+        per-rule-regression-with-same-total code path.
+        """
+        original = BASELINE_PATH.read_text(encoding="utf-8")
+        synthetic = json.dumps(
+            {
+                "_comment": "synthetic baseline for TestCompareLogic — restored after test",
+                "_target": "voice_typer/ tests/ scripts/ conftest.py",
+                "_schema_version": 1,
+                "total_count": 4,
+                "by_rule": {"B007": 3, "UP007": 1},
+            }
+        )
+        BASELINE_PATH.write_text(synthetic, encoding="utf-8")
+        try:
+            yield
+        finally:
+            BASELINE_PATH.write_text(original, encoding="utf-8")
+
     def test_equal_counts_passes(self) -> None:
         # Use a rule with count > 1 from the current baseline to avoid brittleness.
         # WR-14: previously hardcoded N806 with fallback 27, but N806 dropped to 0
@@ -222,11 +260,22 @@ class TestCompareLogic:
         assert "FAIL" in result.stdout
 
     def test_per_rule_regression_with_same_total_fails(self) -> None:
-        # Use a rule with baseline 0 to ensure per-rule regression triggers.
-        # B007 baseline + 1 extra B007 exceeds the per-rule count.
+        # Construct a per-rule regression with SAME total: B007 grows
+        # by 1 while UP007 shrinks by 1, so total stays at 4. The
+        # script must flag the B007 per-rule regression even though
+        # the total is unchanged.
+        # ZR-40: previously this test relied on the actual repo
+        # baseline having a B007 entry; the synthetic baseline
+        # fixture now provides B007: 3 + UP007: 1 = 4 total.
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         _b007 = _baseline["by_rule"].get("B007", 3)
-        stdin = json.dumps([{"code": "B007"}] * (_b007 + 1))
+        _up007 = _baseline["by_rule"].get("UP007", 1)
+        # Input: (_b007 + 1) B007 + max(0, _up007 - 1) UP007
+        # → B007 grew (per-rule regression), total = _b007 + 1 + _up007 - 1 = _b007 + _up007 (same)
+        stdin = json.dumps(
+            [{"code": "B007"}] * (_b007 + 1)
+            + [{"code": "UP007"}] * max(0, _up007 - 1)
+        )
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (per-rule regression), got {result.returncode}.\nstdout:\n{result.stdout}"
@@ -278,14 +327,42 @@ class TestRegenerateLogic:
     snapshot and restore the original content so the test suite is
     idempotent and does not leave the baseline in a broken state if
     a test fails.
+
+    ZR-40: the ``_restore_baseline`` fixture now ALSO seeds a
+    synthetic non-empty baseline before each test (in addition to
+    restoring the original after). The previous version only
+    restored, which left the test exposed to the actual repo
+    baseline content — when parallel-agent cleanup reset
+    ``total_count`` to 0, the regenerate-refuses-to-grow guard
+    rejected every test's synthetic input as a "regression" (3 > 0),
+    breaking 3 tests. Seeding a known starting point (3 violations
+    of UP007) makes the tests deterministic and independent of the
+    repo baseline state.
     """
 
     @pytest.fixture(autouse=True)
     def _restore_baseline(self) -> Iterator[None]:
-        """Snapshot baseline before each test, restore after."""
+        """Seed a synthetic baseline before each test, restore the original after."""
         original = BASELINE_PATH.read_text(encoding="utf-8")
-        yield
-        BASELINE_PATH.write_text(original, encoding="utf-8")
+        # ZR-40: seed a known starting point so tests are deterministic.
+        # Use 3 UP007 violations as the synthetic baseline — the
+        # regenerate tests below use 2 / 3 / etc. UP007 inputs and
+        # rely on the refuse-to-grow guard comparing against this
+        # known count.
+        synthetic = json.dumps(
+            {
+                "_comment": "synthetic baseline for TestRegenerateLogic — restored after test",
+                "_target": "voice_typer/ tests/ scripts/ conftest.py",
+                "_schema_version": 1,
+                "total_count": 3,
+                "by_rule": {"UP007": 3},
+            }
+        )
+        BASELINE_PATH.write_text(synthetic, encoding="utf-8")
+        try:
+            yield
+        finally:
+            BASELINE_PATH.write_text(original, encoding="utf-8")
 
     def test_regenerate_refuses_to_grow(self) -> None:
         # More violations than current baseline total — should refuse.

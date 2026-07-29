@@ -272,3 +272,116 @@ class TestTemplatesBackupAndQuarantine:
 
         # Load must have returned the default (empty templates list).
         assert len(tm.templates) == 0
+
+
+# ── XZ-R11-06: TemplateManager concurrency ─────────────────────────
+
+
+class TestTemplateManagerLock:
+    """XZ-R11-06: TemplateManager must guard ``_templates`` /
+    ``_exact_index`` / ``_contains_list`` with a lock so concurrent
+    ``match`` calls and CRUD mutations can't observe half-applied
+    state (the same race CR-23 fixed for VocabularyManager).
+    """
+
+    def test_manager_has_lock_attribute(self, tm):
+        """The manager must expose a ``_lock`` attribute (RLock or Lock)."""
+        import threading
+
+        assert hasattr(tm, "_lock"), "TemplateManager must define _lock (XZ-R11-06)."
+        # RLock because _save is called from inside already-locked CRUD
+        # methods (and add's rollback path re-mutates _templates).
+        assert isinstance(tm._lock, type(threading.RLock())), (
+            "_lock must be an RLock so nested locking (e.g. _save from add) doesn't deadlock."
+        )
+
+    def test_match_concurrent_with_mutations(self, tm):
+        """Run ``match`` in a worker thread while the main thread
+        aggressively mutates the templates list.  ``match`` must
+        never raise (no half-rebuilt-index observation).
+        """
+        import threading
+        import time
+
+        # Seed with a baseline template set.
+        for i in range(20):
+            tm.add(f"trigger-{i}", f"output-{i}")
+
+        errors: list[Exception] = []
+        stop = threading.Event()
+
+        def matcher():
+            while not stop.is_set():
+                try:
+                    tm.match(f"trigger-{5}")
+                except Exception as exc:
+                    errors.append(exc)
+                    return
+                time.sleep(0.001)
+
+        t = threading.Thread(target=matcher, daemon=True)
+        t.start()
+        try:
+            # Aggressively mutate while the matcher runs.
+            for i in range(50):
+                added = tm.add(f"concurrent-trigger-{i}", f"concurrent-output-{i}")
+                if added is not None:
+                    tm.delete(0)
+                tm.update(0, f"updated-trigger-{i}", f"updated-output-{i}")
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+        assert errors == [], (
+            f"match raised during concurrent CRUD mutations (XZ-R11-06 regression): {errors}"
+        )
+
+    def test_export_json_concurrent_with_delete(self, tm):
+        """``export_json`` snapshot under the lock so a concurrent
+        ``delete`` can't produce a half-serialized JSON."""
+        import json
+        import threading
+        import time
+
+        for i in range(50):
+            tm.add(f"trigger-{i}", f"output-{i}")
+
+        errors: list[Exception] = []
+        stop = threading.Event()
+
+        def exporter():
+            while not stop.is_set():
+                try:
+                    payload = tm.export_json()
+                    # Must always be valid JSON.
+                    json.loads(payload)
+                except Exception as exc:
+                    errors.append(exc)
+                    return
+                time.sleep(0.001)
+
+        t = threading.Thread(target=exporter, daemon=True)
+        t.start()
+        try:
+            for i in range(40):
+                if len(tm.templates) > 0:
+                    tm.delete(0)
+                tm.add(f"new-trigger-{i}", f"new-output-{i}")
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+        assert errors == [], (
+            f"export_json raised or produced invalid JSON during concurrent delete (XZ-R11-06): {errors}"
+        )
+
+    def test_templates_property_snapshot_is_consistent(self, tm):
+        """``templates`` property returns a copy under the lock —
+        mutating the returned list must not affect the manager."""
+        tm.add("hello", "Hello!")
+        snapshot = tm.templates
+        snapshot.clear()
+        # Manager's view must be unchanged.
+        assert len(tm.templates) == 1, (
+            "templates property returned a non-snapshot list (XZ-R11-06 regression)."
+        )

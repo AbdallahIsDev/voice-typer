@@ -43,10 +43,15 @@ def app_for_startup(tmp_config_dir, monkeypatch):
     enable/disable_autostart, list_microphones) and the
     hardware/IO-bound startup_tasks functions.
     """
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+    # SA-05: raising=False — these app-module attributes may have
+    # been removed/renamed in a prior refactor (autostart functions
+    # moved to voice_typer.server.server_platform). The monkeypatch
+    # is a defensive no-op when they're absent (the StartupSequence
+    # imports them directly from server_platform now).
+    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [], raising=False)
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -334,3 +339,198 @@ class TestStartupSequenceDoesNotCrashOnMissingDeps:
         # Sanity: hotkey + model load DID run (startup was not aborted).
         app_for_startup.hotkeys.register.assert_called_once()
         app_for_startup.models.start_background_load.assert_called_once()
+
+
+# ── XZ-R12-01: onboarding auto-heal must respect .onboarding_started marker ─
+
+
+class TestXZR1201OnboardingStartedMarkerGate:
+    """XZ-R12-01: ``startup_sequence.py``'s auto-heal logic must NOT
+    fire when the ``.onboarding_started`` marker is present. The marker
+    indicates the wizard is currently in progress (renderer called
+    ``onboarding_start`` IPC handler, which calls
+    ``OnboardingController.mark_started()``).
+
+    Pre-fix, auto-heal fired whenever ``not onboarding_completed AND
+    config.json exists`` — so a wizard that crashed/restarted mid-flow
+    silently had its in-progress selections overwritten with onboarding
+    defaults (``<caps_lock>``, ``small.en``, ``None``).
+
+    The fix gates auto-heal on ``config_file.exists() and not
+    started_marker.exists()`` — if the started marker is present, we
+    defer to the wizard (save default config + let the renderer pick
+    up where it left off).
+    """
+
+    def _stub_non_onboarding_startup(self, app_for_startup, monkeypatch):
+        """Stub everything except the onboarding block so we can isolate it."""
+        from voice_typer.server import startup_tasks
+
+        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, initial_state: None)
+
+        app_for_startup.hotkeys = MagicMock()
+        app_for_startup.models = MagicMock()
+        app_for_startup.config.bubble_behavior = "hidden"
+        app_for_startup.config.bubble_show_on_startup = False
+        monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
+
+    def test_auto_heal_skipped_when_started_marker_present(
+        self, app_for_startup, tmp_config_dir, monkeypatch
+    ):
+        """If ``.onboarding_started`` exists, auto-heal MUST NOT fire.
+
+        The user is mid-wizard (e.g. crashed/restarted before
+        completing) — auto-heal would silently overwrite their
+        in-progress selections with onboarding defaults. The fix
+        defers to the wizard: the default config is saved (so the
+        app can boot), but ``onboarding_completed`` stays False so
+        the renderer routes back to the wizard.
+        """
+        from voice_typer.server import startup_sequence as ss_mod
+        from voice_typer.server.onboarding import OnboardingController
+
+        # Force the onboarding block to enter the auto-heal decision
+        # point: not completed + is_first_run() returns True.
+        app_for_startup.config.onboarding_completed = False
+        monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
+
+        # Patch the module-level _config_dir binding in startup_sequence
+        # (it was imported via `from voice_typer.server.config import
+        # _config_dir`, so the conftest tmp_config_dir fixture's
+        # monkeypatch on voice_typer.server.config._config_dir does NOT
+        # affect this binding). Mirror the pattern used in
+        # test_startup_sequence_onboarding_fail_persistence.py.
+        monkeypatch.setattr(ss_mod, "_config_dir", lambda: tmp_config_dir)
+
+        # config.json exists (so the auto-heal path's first condition
+        # holds).
+        config_file = tmp_config_dir / "config.json"
+        config_file.write_text('{"onboarding_completed": false}', encoding="utf-8")
+
+        # The wizard-in-progress marker exists.
+        started_marker = tmp_config_dir / ".onboarding_started"
+        started_marker.write_text('{"started": true}', encoding="utf-8")
+
+        # Spy on OnboardingController.mark_complete — auto-heal calls
+        # it; the deferred-to-wizard path does NOT.
+        mark_complete_calls = []
+        monkeypatch.setattr(
+            OnboardingController,
+            "mark_complete",
+            lambda self: mark_complete_calls.append(1),
+        )
+
+        self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
+
+        ss_mod.StartupSequence(app_for_startup).run()
+
+        # Auto-heal was SKIPPED — mark_complete was NOT called.
+        assert mark_complete_calls == [], (
+            "XZ-R12-01: auto-heal must NOT call mark_complete when "
+            ".onboarding_started marker is present (wizard is in progress)"
+        )
+        # onboarding_completed was NOT flipped to True by auto-heal.
+        assert app_for_startup.config.onboarding_completed is False, (
+            "XZ-R12-01: auto-heal must NOT flip onboarding_completed when "
+            ".onboarding_started marker is present"
+        )
+
+    def test_auto_heal_fires_when_started_marker_absent(
+        self, app_for_startup, tmp_config_dir, monkeypatch
+    ):
+        """If ``.onboarding_started`` does NOT exist (and config.json
+        does), auto-heal MUST fire — this is the "stale state from a
+        previous install" scenario the auto-heal was designed for.
+
+        Without the started marker, the wizard has never run in this
+        config dir, so the False ``onboarding_completed`` flag is
+        genuinely stale (the marker was lost/deleted) — auto-heal
+        fixes it to prevent the wizard from re-showing and clobbering
+        the user's existing settings.
+        """
+        from voice_typer.server import startup_sequence as ss_mod
+        from voice_typer.server.onboarding import OnboardingController
+
+        app_for_startup.config.onboarding_completed = False
+        monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
+        monkeypatch.setattr(ss_mod, "_config_dir", lambda: tmp_config_dir)
+
+        config_file = tmp_config_dir / "config.json"
+        config_file.write_text('{"onboarding_completed": false}', encoding="utf-8")
+
+        # .onboarding_started is NOT present.
+        started_marker = tmp_config_dir / ".onboarding_started"
+        assert not started_marker.exists()
+
+        mark_complete_calls = []
+        monkeypatch.setattr(
+            OnboardingController,
+            "mark_complete",
+            lambda self: mark_complete_calls.append(1),
+        )
+
+        self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
+
+        ss_mod.StartupSequence(app_for_startup).run()
+
+        # Auto-heal DID fire — mark_complete was called exactly once.
+        assert len(mark_complete_calls) == 1, (
+            "XZ-R12-01: auto-heal MUST call mark_complete when "
+            ".onboarding_started marker is absent and config.json exists "
+            "(stale-state recovery path)"
+        )
+        # onboarding_completed was flipped to True by auto-heal.
+        assert app_for_startup.config.onboarding_completed is True, (
+            "XZ-R12-01: auto-heal must flip onboarding_completed to True "
+            "in the stale-state recovery path (no .onboarding_started marker)"
+        )
+
+    def test_auto_heal_defers_when_config_json_absent(
+        self, app_for_startup, tmp_config_dir, monkeypatch
+    ):
+        """If ``config.json`` does NOT exist, auto-heal must defer to
+        the wizard regardless of the ``.onboarding_started`` marker.
+
+        This is the genuine first-run path — no prior config to
+        clobber, so we save defaults and let the wizard show.
+        """
+        from voice_typer.server import startup_sequence as ss_mod
+        from voice_typer.server.onboarding import OnboardingController
+
+        app_for_startup.config.onboarding_completed = False
+        monkeypatch.setattr(OnboardingController, "is_first_run", lambda self: True)
+        monkeypatch.setattr(ss_mod, "_config_dir", lambda: tmp_config_dir)
+
+        # config.json is absent.
+        config_file = tmp_config_dir / "config.json"
+        assert not config_file.exists()
+
+        # .onboarding_started is also absent.
+        started_marker = tmp_config_dir / ".onboarding_started"
+        assert not started_marker.exists()
+
+        mark_complete_calls = []
+        monkeypatch.setattr(
+            OnboardingController,
+            "mark_complete",
+            lambda self: mark_complete_calls.append(1),
+        )
+
+        self._stub_non_onboarding_startup(app_for_startup, monkeypatch)
+
+        ss_mod.StartupSequence(app_for_startup).run()
+
+        # Genuine first run — auto-heal does NOT fire.
+        assert mark_complete_calls == [], (
+            "XZ-R12-01: auto-heal must NOT fire on genuine first run "
+            "(config.json absent) — defer to the wizard"
+        )
+        # onboarding_completed stays False so the wizard shows.
+        assert app_for_startup.config.onboarding_completed is False, (
+            "XZ-R12-01: onboarding_completed must stay False on genuine "
+            "first run so the wizard renders"
+        )

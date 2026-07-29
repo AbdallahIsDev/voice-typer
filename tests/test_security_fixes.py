@@ -897,15 +897,25 @@ class TestSEC10BuildPowershellLnkScript:
 
 
 class TestSEC10CreateLnkShortcutIntegration:
-    """SEC-10: end-to-end check that ``_create_lnk_shortcut`` writes
-    a single-quoted .ps1 file to disk when the win32com path is
-    unavailable. We mock subprocess.run so no real powershell.exe is
-    invoked (Linux CI doesn't have it).
+    """SEC-10: end-to-end check that ``_create_lnk_shortcut`` passes a
+    single-quoted PowerShell script to ``powershell -Command`` when the
+    win32com path is unavailable. We mock subprocess.run so no real
+    powershell.exe is invoked (Linux CI doesn't have it).
+
+    XZ-R6-AS-08: the previous implementation wrote the script to a
+    temp .ps1 file and invoked ``powershell -File <tmp>`` (TOCTOU
+    window). The current implementation passes the script directly via
+    ``-Command <script>`` — no on-disk artifact. The test was updated
+    to assert the new ``-Command`` invocation shape and to read the
+    script content from the captured cmd argument (the last element)
+    instead of from a temp file.
     """
 
-    def test_ps1_file_uses_single_quoted_strings(self, tmp_path, monkeypatch):
-        """The .ps1 file written to disk must contain single-quoted
-        strings (not the pre-SEC-10 double-quoted form).
+    def test_command_invocation_uses_single_quoted_strings(self, tmp_path, monkeypatch):
+        """The PowerShell script passed via ``-Command`` must contain
+        single-quoted strings (not the pre-SEC-10 double-quoted form),
+        and the cmd list must use ``-Command`` (not the pre-XZ-R6-AS-08
+        ``-File`` form).
         """
         # Force the win32com ImportError path so the PowerShell
         # fallback runs.
@@ -920,7 +930,8 @@ class TestSEC10CreateLnkShortcutIntegration:
 
         monkeypatch.setattr(builtins, "__import__", _fake_import)
 
-        # Capture the temp .ps1 file path so we can read it back.
+        # Capture the cmd list passed to subprocess.run so we can
+        # inspect the ``-Command`` argument and the script content.
         captured: dict = {}
 
         class _FakeCompletedProcess:
@@ -930,23 +941,11 @@ class TestSEC10CreateLnkShortcutIntegration:
 
         def _fake_run(cmd, *args, **kwargs):
             captured["cmd"] = cmd
-            # cmd is ["powershell", "-NoProfile", ..., "-File", tmp]
-            captured["ps1_path"] = cmd[-1]
-            # Read the .ps1 file content NOW, while it still exists.
-            # _create_lnk_shortcut's ``finally`` block deletes the
-            # temp .ps1 file before returning (correct production
-            # behavior — temp files must not leak), so we can't read
-            # it after the function returns. Capturing the content
-            # here (inside the mocked subprocess.run, which runs
-            # BEFORE the finally block) lets us verify the on-disk
-            # script content without disabling the production
-            # cleanup.
-            ps1_path = cmd[-1]
-            try:
-                with open(ps1_path, encoding="utf-8-sig") as f:
-                    captured["content"] = f.read()
-            except OSError as e:
-                captured["content_error"] = e
+            # XZ-R6-AS-08: cmd is now
+            # ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            #  "-Command", <script>]
+            # (previously: ["powershell", ..., "-File", <tmp_path>])
+            captured["script"] = cmd[-1]
             return _FakeCompletedProcess()
 
         monkeypatch.setattr("voice_typer.server.server_platform.subprocess.run", _fake_run)
@@ -964,25 +963,28 @@ class TestSEC10CreateLnkShortcutIntegration:
         )
 
         assert result is True, "shortcut creation should have succeeded"
-        assert "ps1_path" in captured, "subprocess.run was not invoked"
-        assert "content" in captured, (
-            f"failed to read .ps1 file content inside mocked subprocess.run: "
-            f"{captured.get('content_error', 'unknown error')}"
+        assert "script" in captured, "subprocess.run was not invoked"
+        cmd = captured["cmd"]
+        # XZ-R6-AS-08: must use ``-Command`` (not ``-File``) so no
+        # on-disk .ps1 artifact exists for a TOCTOU attacker to swap.
+        assert "-Command" in cmd, (
+            f"must use -Command (XZ-R6-AS-08); got cmd: {cmd}"
         )
-        content = captured["content"]
+        assert "-File" not in cmd, (
+            f"must NOT use -File (XZ-R6-AS-08 TOCTOU); got cmd: {cmd}"
+        )
+        content = captured["script"]
 
-        # The .ps1 file must use single-quoted strings.
-        assert "$s.CreateShortcut('" in content, f".ps1 file must use single-quoted strings; was:\n{content}"
+        # The script must use single-quoted strings.
+        assert "$s.CreateShortcut('" in content, (
+            f"script must use single-quoted strings; was:\n{content}"
+        )
         assert '$s.CreateShortcut("' not in content
         # The dangerous semicolon must appear literally inside the
         # description's single-quoted string.
         assert "Voice Typer; dictation" in content, (
-            f"semicolon in description must appear literally inside single-quoted string; .ps1 was:\n{content}"
+            f"semicolon in description must appear literally inside single-quoted string; script was:\n{content}"
         )
-        # The temp .ps1 file is cleaned up by the ``finally`` block
-        # in _create_lnk_shortcut (correct production behavior). We
-        # captured the content inside the mocked subprocess.run
-        # above, so we don't need to re-read it here.
 
 
 # ──────────────────────────────────────────────────────────────────────

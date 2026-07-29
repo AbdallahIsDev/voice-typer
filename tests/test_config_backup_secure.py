@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -363,3 +364,197 @@ class TestFR24SaveUnlockedBackupSecure:
         assert bak_path.exists()
         mode = 0o777 & os.stat(bak_path).st_mode
         assert mode == 0o600, f"FR-24: config.json.bak should be 0o600 on POSIX, got 0o{mode:o}"
+
+
+# ── XZ-R10-03 / XZ-CFG-11: pre-migration backup uses secure helpers + ────
+#   unique filename + retention cap                                       ────
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only symlink test")
+class TestXZR1003PreMigrationBackupSecure:
+    """XZ-R10-03: ``_backup_before_migration`` must use
+    ``_secure_read_text`` + ``_secure_atomic_write`` (not
+    ``shutil.copy2``).
+
+    XZ-CFG-11: the filename must embed a timestamp + PID + microsecond
+    fraction so a downgrade-then-upgrade cycle (or two app instances
+    launched in parallel during a downgrade, or back-to-back calls in
+    the same process) does not silently overwrite the first backup.
+    The retained pre-migration backups are capped at 3 (oldest
+    pruned) so the directory does not grow unbounded.
+    """
+
+    def test_pre_migration_backup_uses_secure_read(
+        self,
+        _isolated_config_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """XZ-R10-03: ``_backup_before_migration`` must read the source
+        config.json via ``_secure_read_text`` (O_NOFOLLOW + inode
+        re-verify), not ``shutil.copy2`` (which follows symlinks on
+        both source AND destination)."""
+        config_file = _isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
+        )
+
+        import voice_typer.server.config as config_mod
+
+        calls: list[str] = []
+        original_fn = config_mod._secure_read_text
+
+        def spy_read(path, *args, **kwargs):
+            calls.append(str(path))
+            return original_fn(path, *args, **kwargs)
+
+        monkeypatch.setattr(config_mod, "_secure_read_text", spy_read)
+
+        Config.load()
+
+        config_file_str = str(config_file)
+        assert any(config_file_str in c for c in calls), (
+            "XZ-R10-03: _backup_before_migration did not call "
+            "_secure_read_text on config.json. The backup READ must "
+            "use _secure_read_text (not shutil.copy2) to prevent "
+            "symlink-following on the source path."
+        )
+
+    def test_pre_migration_backup_uses_secure_atomic_write(
+        self,
+        _isolated_config_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """XZ-R10-03: the backup WRITE must go through
+        ``_secure_atomic_write`` (atomic os.replace + fsync + 0o600),
+        not ``shutil.copy2`` (non-atomic, no fsync, 0o644 window)."""
+        config_file = _isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
+        )
+
+        import voice_typer.server.config as config_mod
+
+        write_paths: list[str] = []
+        original_fn = config_mod._secure_atomic_write
+
+        def spy_write(path, content, *args, **kwargs):
+            write_paths.append(str(path))
+            return original_fn(path, content, *args, **kwargs)
+
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", spy_write)
+
+        Config.load()
+
+        assert any("pre-migration-v" in p and p.endswith(".bak") for p in write_paths), (
+            "XZ-R10-03: _backup_before_migration did not call "
+            "_secure_atomic_write with a pre-migration .bak path. "
+            f"Observed write paths: {write_paths}"
+        )
+
+    def test_pre_migration_backup_filename_has_timestamp_pid_microseconds(
+        self,
+        _isolated_config_dir: Path,
+    ) -> None:
+        """XZ-CFG-11: the backup filename must embed a Unix timestamp,
+        PID, and microsecond fraction so two backup events never
+        collide (downgrade-then-upgrade cycle, parallel app launches,
+        or back-to-back calls in the same process).
+
+        Pattern: ``config.json.pre-migration-v{N}-{ts}-{pid}-{us}.bak``
+        """
+        config_file = _isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
+        )
+
+        Config.load()
+
+        pre_mig_backups = list(_isolated_config_dir.glob("config.json.pre-migration-v*.bak"))
+        assert len(pre_mig_backups) >= 1, (
+            "XZ-CFG-11: expected at least one pre-migration backup, "
+            f"found {len(pre_mig_backups)}: {[p.name for p in pre_mig_backups]}"
+        )
+        import os as _os
+        import re as _re
+
+        for bak in pre_mig_backups:
+            match = _re.match(
+                r"^config\.json\.pre-migration-v(\d+)-(\d+)-(\d+)-(\d+)\.bak$",
+                bak.name,
+            )
+            assert match is not None, (
+                f"XZ-CFG-11: backup filename {bak.name!r} must match "
+                "'config.json.pre-migration-v<N>-<ts>-<pid>-<us>.bak'."
+            )
+            ts = int(match.group(2))
+            pid = int(match.group(3))
+            us = int(match.group(4))
+            now = int(time.time())
+            assert abs(now - ts) < 60, (
+                f"XZ-CFG-11: backup timestamp {ts} not recent (now={now})."
+            )
+            assert pid == _os.getpid(), (
+                f"XZ-CFG-11: backup PID {pid} does not match current "
+                f"PID {_os.getpid()} — the PID suffix must use os.getpid()."
+            )
+            assert 0 <= us < 1_000_000, (
+                f"XZ-CFG-11: microsecond fraction {us} out of range [0, 1_000_000)."
+            )
+
+    def test_pre_migration_backup_rejects_symlinked_source(
+        self,
+        _isolated_config_dir: Path,
+    ) -> None:
+        """XZ-R10-03: if config.json is a symlink, the secure read must
+        refuse it (POSIX O_NOFOLLOW). The backup must NOT contain the
+        symlink target's content — info disclosure prevention."""
+        secret_file = _isolated_config_dir / "attacker_secret.txt"
+        secret_content = "ATTACKER_SECRET_should_not_appear_in_pre_mig_bak"
+        secret_file.write_text(secret_content)
+
+        config_file = _isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
+        )
+
+        config_file.unlink()
+        config_file.symlink_to(secret_file)
+
+        Config._backup_before_migration(config_file, 0)
+
+        pre_mig_backups = list(_isolated_config_dir.glob("config.json.pre-migration-v*.bak"))
+        for bak in pre_mig_backups:
+            bak_text = bak.read_text()
+            assert secret_content not in bak_text, (
+                "XZ-R10-03 regression: _backup_before_migration copied "
+                "the symlink target's content into the pre-migration .bak "
+                "— info disclosure via .bak. The fix must use "
+                "_secure_read_text (O_NOFOLLOW) so symlinks are refused."
+            )
+
+    def test_pre_migration_backup_retention_caps_at_three(
+        self,
+        _isolated_config_dir: Path,
+    ) -> None:
+        """XZ-CFG-11: after the 4th pre-migration backup is created, the
+        oldest must be pruned so only the 3 newest remain."""
+        config_file = _isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
+        )
+
+        import os as _os
+        import time as _time
+
+        for i in range(4):
+            future_ts = _time.time() + i
+            _os.utime(config_file, (future_ts, future_ts))
+            Config._backup_before_migration(config_file, 0)
+            _time.sleep(0.01)
+
+        pre_mig_backups = list(_isolated_config_dir.glob("config.json.pre-migration-v*.bak"))
+        assert len(pre_mig_backups) == 3, (
+            "XZ-CFG-11: expected exactly 3 retained pre-migration backups "
+            f"after 4 backup events, got {len(pre_mig_backups)}: "
+            f"{[p.name for p in pre_mig_backups]}"
+        )

@@ -514,3 +514,171 @@ def test_delete_all_personal_data_succeeds_when_nothing_exists(tmp_path) -> None
         assert result["success"] is True
     finally:
         mp.undo()
+
+
+# ── XZ-SEC-03 regression guards ────────────────────────────────────
+# The original GDPR inventory missed several personal-data artifacts.
+# Each test seeds one artifact, runs delete_all_personal_data, and
+# asserts the artifact is gone. Covers every filename / glob added by
+# XZ-SEC-03 to ``_GDPR_PERSONAL_FILES`` and ``_GDPR_PERSONAL_GLOBS``.
+
+
+def _seed_xz_sec_03_artifacts(tmp_path: Path) -> dict[str, Path]:
+    """Create every artifact added by XZ-SEC-03.
+
+    Returns a dict mapping artifact-name → path. Each artifact contains
+    obvious PII markers so a failure (file survives delete) is a real
+    Art. 17 violation, not a false negative.
+    """
+    artifacts: dict[str, Path] = {}
+
+    # config.json.bak — single-slot backup of config.json.
+    bak_path = tmp_path / "config.json.bak"
+    bak_path.write_text(json.dumps({"llm_api_key": "sk-test-123"}))
+    artifacts["config.json.bak"] = bak_path
+
+    # config.json.lock — cross-process lock file.
+    lock_path = tmp_path / "config.json.lock"
+    lock_path.write_text(f"pid={os.getpid()}\nowner=test-user\n")
+    artifacts["config.json.lock"] = lock_path
+
+    # .restart_token — defensive entry.
+    token_path = tmp_path / ".restart_token"
+    token_path.write_text("restart-token-secret-pii")
+    artifacts[".restart_token"] = token_path
+
+    # history.db.corrupt-<timestamp> — corrupt DB backup.
+    corrupt_path = tmp_path / "history.db.corrupt-20240101-120000"
+    corrupt_path.write_bytes(b"corrupt sqlite plaintext secret='pii'")
+    artifacts["history.db.corrupt-*"] = corrupt_path
+
+    # voice-typer-diagnostics-<timestamp>.zip — diagnostic bundle.
+    diag_path = tmp_path / "voice-typer-diagnostics-20240101-120000.zip"
+    diag_path.write_bytes(b"PK\x03\x04 fake zip with pii markers")
+    artifacts["voice-typer-diagnostics-*.zip"] = diag_path
+
+    # gdpr-export-<timestamp>.zip — portability export bundle.
+    export_path = tmp_path / "gdpr-export-20240101-120000.zip"
+    export_path.write_bytes(b"PK\x03\x04 fake gdpr export with pii")
+    artifacts["gdpr-export-*.zip"] = export_path
+
+    return artifacts
+
+
+def test_delete_all_personal_data_erases_config_json_bak(tmp_path) -> None:
+    """XZ-SEC-03: ``config.json.bak`` must be erased."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["config.json.bak"].exists(), (
+            "config.json.bak must be deleted — retains plaintext API keys (XZ-SEC-03)."
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_config_json_lock(tmp_path) -> None:
+    """XZ-SEC-03: ``config.json.lock`` must be erased."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["config.json.lock"].exists(), (
+            "config.json.lock must be deleted — holds stale PID + writer username (XZ-SEC-03)."
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_restart_token(tmp_path) -> None:
+    """XZ-SEC-03: ``.restart_token`` must be erased if present."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts[".restart_token"].exists(), (
+            ".restart_token must be deleted — historically held restart auth secret (XZ-SEC-03)."
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_history_db_corrupt(tmp_path) -> None:
+    """XZ-SEC-03: ``history.db.corrupt-*`` must be erased."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["history.db.corrupt-*"].exists(), (
+            "history.db.corrupt-* must be deleted — retains dictated plaintext (XZ-SEC-03)."
+        )
+        remaining = list(tmp_path.glob("history.db.corrupt-*"))
+        assert remaining == [], (
+            f"history.db.corrupt-* files still present after GDPR delete: {remaining}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_diagnostics_zip(tmp_path) -> None:
+    """XZ-SEC-03: ``voice-typer-diagnostics-*.zip`` must be erased."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["voice-typer-diagnostics-*.zip"].exists(), (
+            "voice-typer-diagnostics-*.zip must be deleted — contains history + log fragments (XZ-SEC-03)."
+        )
+        remaining = list(tmp_path.glob("voice-typer-diagnostics-*.zip"))
+        assert remaining == [], (
+            f"voice-typer-diagnostics-*.zip files still present after GDPR delete: {remaining}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_gdpr_export_zip(tmp_path) -> None:
+    """XZ-SEC-03: ``gdpr-export-*.zip`` must be erased."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        svc.delete_all_personal_data()
+        assert not artifacts["gdpr-export-*.zip"].exists(), (
+            "gdpr-export-*.zip must be deleted — contains user's full personal data (XZ-SEC-03)."
+        )
+        remaining = list(tmp_path.glob("gdpr-export-*.zip"))
+        assert remaining == [], (
+            f"gdpr-export-*.zip files still present after GDPR delete: {remaining}"
+        )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_all_xz_sec_03_artifacts(tmp_path) -> None:
+    """XZ-SEC-03: all six artifacts must be erased in a single call."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        artifacts = _seed_xz_sec_03_artifacts(tmp_path)
+        result = svc.delete_all_personal_data()
+        assert result["success"] is True
+        for name, path in artifacts.items():
+            assert not path.exists(), (
+                f"{name} survived GDPR delete — XZ-SEC-03 regression."
+            )
+    finally:
+        mp.undo()

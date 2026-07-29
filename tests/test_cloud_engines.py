@@ -111,6 +111,46 @@ class TestCloudEngineProtocol:
         assert result == "local fallback text"
         local_engine.transcribe.assert_called_once_with(audio, audio_stats=(0.01, 0.5, 50.0))
 
+    def test_transcribe_with_fallback_publishes_cloud_fallback_used_event(self):
+        """XZ-R18-08: when cloud transcribe raises and the local engine
+        fallback runs, a ``cloud_fallback_used`` event is published to
+        ``event_bus`` so the renderer can surface a user-visible toast.
+
+        Without this signal the cloud outage is invisible until the
+        user checks the logs. The event payload includes the provider
+        name and a truncated reason (≤200 chars) for the toast body.
+        """
+        import numpy as np
+        from voice_typer.server import event_bus
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
+        audio = np.zeros(16000, dtype=np.float32)
+        local_engine = MagicMock()
+        local_engine.transcribe.return_value = "local fallback text"
+
+        received_events: list[dict] = []
+
+        def _subscriber(evt: dict) -> None:
+            received_events.append(evt)
+
+        event_bus.subscribe(_subscriber)
+        try:
+            with patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")):
+                result = engine.transcribe_with_fallback(audio, local_engine=local_engine)
+        finally:
+            event_bus.unsubscribe(_subscriber)
+
+        assert result == "local fallback text"
+        # Exactly one cloud_fallback_used event must have been published.
+        fallback_events = [e for e in received_events if e.get("type") == "cloud_fallback_used"]
+        assert len(fallback_events) == 1, f"expected 1 cloud_fallback_used event, got {fallback_events}"
+        evt = fallback_events[0]
+        assert evt["data"]["provider"] == "openai"
+        assert "cloud down" in evt["data"]["reason"]
+        # Reason is truncated to 200 chars to keep the toast body short.
+        assert len(evt["data"]["reason"]) <= 200
+
     def test_transcribe_with_fallback_uses_local_engine_factory(self):
         """G4-H-18: when ``local_engine`` is NOT passed but the engine
         was constructed with ``local_engine_factory``, the factory is

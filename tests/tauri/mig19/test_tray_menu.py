@@ -1143,35 +1143,55 @@ def test_main_rs_tray_ownership_documented_in_capability(
 def test_capability_file_grants_core_tray_permissions(
     capability_json,
 ) -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3: ``core:tray:*`` permissions ARE
-    granted to the Rust host.
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3 + XZ-R4-015: the MAIN window
+    capability grants the minimal ``core:tray:default`` permission only.
 
     The Rust host OWNS the system tray (renders the menu piped from the
-    sidecar's ``tray_menu`` event via Tauri's built-in tray API). It
-    therefore needs the full ``core:tray:*`` permission set
-    (``core:tray:default`` + the ``allow-*`` permissions for
-    set-icon / set-menu / set-tooltip / set-title / get-by-id /
-    remove-by-id / new). The capability file's ``permissions`` list
-    MUST contain these entries.
+    sidecar's ``tray_menu`` event via Tauri's built-in tray API). The
+    Rust host does NOT need a capability grant — capability files grant
+    permissions to WINDOWS (renderers), not to the host process. The
+    main renderer never manipulates the tray (it only listens for
+    tray-related events broadcast by the Rust host), so it only needs
+    ``core:tray:default`` (the read-only default permission set).
+
+    XZ-R4-015 reconciliation (2026-07-30): the previous broader grant
+    set (``core:tray:allow-set-icon`` / ``allow-set-menu`` /
+    ``allow-set-tooltip`` / ``allow-set-title`` / ``allow-get-by-id`` /
+    ``allow-remove-by-id`` / ``allow-new``) was removed because the
+    renderer does not invoke any tray-manipulation IPC. The capability
+    file's ``permissions`` list MUST contain ``core:tray:default`` and
+    MUST NOT contain the manipulation grants.
     """
     permissions = capability_json.get("permissions", [])
     tray_perms = [p for p in permissions if "tray" in p.lower()]
     assert tray_perms, (
         "capability file MUST grant core:tray:* permissions to the "
-        "Rust host (the Rust host owns the system tray under Tauri). "
-        "Found no tray permissions."
+        "main window (so the renderer can observe tray-related events "
+        "broadcast by the Rust host). Found no tray permissions."
     )
-    # The essential tray permissions must all be present.
-    required_tray_perms = [
-        "core:tray:default",
+    # The default tray permission must be present.
+    assert "core:tray:default" in permissions, (
+        "capability file must grant core:tray:default — the renderer "
+        "needs the default tray-observation permission set (ADR-0020 "
+        "§6.5 + XZ-R4-015)."
+    )
+    # XZ-R4-015: the explicit manipulation grants MUST NOT be present
+    # (the renderer never invokes them; the Rust host owns the tray
+    # and does not need a capability grant).
+    forbidden_tray_perms = [
         "core:tray:allow-set-icon",
         "core:tray:allow-set-menu",
+        "core:tray:allow-set-tooltip",
+        "core:tray:allow-set-title",
+        "core:tray:allow-get-by-id",
+        "core:tray:allow-remove-by-id",
         "core:tray:allow-new",
     ]
-    for perm in required_tray_perms:
-        assert perm in permissions, (
-            f"capability file must grant {perm} — the Rust host needs "
-            f"it to build + render the system tray (ADR-0020 §6.5)."
+    for perm in forbidden_tray_perms:
+        assert perm not in permissions, (
+            f"capability file must NOT grant {perm} to the main window — "
+            f"the Rust host owns the tray and the renderer does not "
+            f"manipulate it (XZ-R4-015 / ADR-0020 §6.5)."
         )
 
 

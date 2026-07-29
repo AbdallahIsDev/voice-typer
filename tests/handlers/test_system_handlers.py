@@ -124,6 +124,18 @@ class TestCheckAccessibility:
         assert resp["data"]["granted"] is True
         assert resp["data"]["platform"] == _sys.platform
 
+    def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
+        """XZ-R3-12: non-dict ``data`` → ``code: client.invalid_payload``."""
+        resp = ipc_server._handle_check_accessibility("not-a-dict", {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_payload"
+
+    def test_none_payload_returns_invalid_payload_error(self, ipc_server):
+        """XZ-R3-12: ``data=None`` is rejected by the validator."""
+        resp = ipc_server._handle_check_accessibility(None, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_payload"
+
 
 class TestSetTrayLocale:
     """``_handle_set_tray_locale`` — validates ``locale`` and returns ack."""
@@ -166,6 +178,77 @@ class TestSetTrayLocale:
         assert resp["type"] == "ack"
         assert resp["data"] == {"locale": "en"}
         assert captured == ["en"], "set_tray_locale must be called with the default"
+
+    def test_oversized_locale_returns_invalid_field_error(self, ipc_server):
+        """XZ-R3-04: ``locale`` > 64 chars → ``code: invalid_field`` error."""
+        resp = ipc_server._handle_set_tray_locale({"locale": "x" * 65}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["field"] == "locale"
+
+    def test_oversized_labels_value_returns_invalid_field_error(self, ipc_server, monkeypatch):
+        """XZ-R3-04: label value > 1024 chars → ``code: invalid_field`` error."""
+        monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
+        monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
+        registered: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "voice_typer.server.tray.register_tray_labels",
+            lambda loc, labels: registered.append((loc, labels)),
+        )
+        resp = ipc_server._handle_set_tray_locale(
+            {"locale": "en", "labels": {"app_name": "x" * 1025}}, {}
+        )
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["field"] == "labels"
+        assert registered == []
+
+    def test_non_string_label_key_returns_invalid_field_error(self, ipc_server, monkeypatch):
+        """XZ-R3-04: non-string label key → ``code: invalid_field`` error."""
+        monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
+        monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
+        monkeypatch.setattr(
+            "voice_typer.server.tray.register_tray_labels", lambda loc, labels: None
+        )
+        resp = ipc_server._handle_set_tray_locale(
+            {"locale": "en", "labels": {123: "value"}},  # type: ignore[dict-item]
+            {},
+        )
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["field"] == "labels"
+
+    def test_oversized_payload_returns_invalid_payload_error(self, ipc_server, monkeypatch):
+        """XZ-R3-04: total payload > 64 KiB → ``code: invalid_payload`` error."""
+        monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
+        monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
+        monkeypatch.setattr(
+            "voice_typer.server.tray.register_tray_labels", lambda loc, labels: None
+        )
+        # Each label value is ≤1024 chars (passes per-field cap) but
+        # the total payload exceeds 64 KiB.
+        big_labels = {f"key_{i:03d}": "v" * 1000 for i in range(70)}
+        resp = ipc_server._handle_set_tray_locale(
+            {"locale": "en", "labels": big_labels}, {}
+        )
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_payload"
+
+    def test_valid_labels_payload_returns_ack(self, ipc_server, monkeypatch):
+        """XZ-R3-04 happy path: small valid labels dict → ack."""
+        monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
+        monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "ar")
+        registered: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "voice_typer.server.tray.register_tray_labels",
+            lambda loc, labels: registered.append((loc, labels)),
+        )
+        resp = ipc_server._handle_set_tray_locale(
+            {"locale": "ar", "labels": {"app_name": "Voice Typer AR"}}, {}
+        )
+        assert resp["type"] == "ack"
+        assert resp["data"] == {"locale": "ar"}
+        assert registered == [("ar", {"app_name": "Voice Typer AR"})]
 
 
 class TestSetEscCancelPaused:

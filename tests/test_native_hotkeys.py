@@ -717,6 +717,19 @@ class TestLivenessWatchdog:
             "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
             lambda: fake_bin,
         )
+        # XZ-R6-NH-01: ``_spawn_process`` now re-verifies the binary's
+        # SHA-256 against the manifest on every spawn (including the
+        # watchdog respawn path). The fake binary in this test has no
+        # manifest entry, so the verifier would FAIL CLOSED and skip
+        # the spawn — breaking this test's stdin-PIPE assertion. Patch
+        # the verifier to return True so the spawn proceeds to the
+        # Popen call (the TOCTOU re-verification itself is pinned by
+        # the dedicated tests in
+        # ``test_native_hotkeys_base_toctou_verification.py``).
+        monkeypatch.setattr(
+            "voice_typer.server.native_hotkeys.binary_path.verify_native_binary_or_skip",
+            lambda _path: True,
+        )
 
         b = LinuxEvdevHotkey("<caps_lock>")
         captured_kwargs = {}

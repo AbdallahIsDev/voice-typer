@@ -891,10 +891,23 @@ class TestIsContentEditableWindows:
 
 
 class TestIsSafePasteTargetWindows:
-    def test_returns_false_for_uac_dialog_class(self, fake_win32):
-        """Class '#32770' (UAC/consent) → False."""
+    def test_returns_true_for_generic_dialog_class(self, fake_win32):
+        """Class '#32770' (generic Win32 Dialog) → True.
+
+        XZ-CLIP-07: ``#32770`` is the generic Win32 Dialog class used by
+        Open/Save As/Properties dialogs too, not just UAC/consent. Blocking
+        it prevented legitimate dictation into standard dialogs. Credential
+        prompts are still caught by the UIA ``IsPassword`` check and the
+        specific ``_CRED_DIALOG_CLASSES`` set (Credential Dialog Xaml Host,
+        CredDialog).
+        """
         fake_win32["buf"].return_value.value = "#32770"
-        assert ClipboardManager._is_safe_paste_target() is False
+        with (
+            patch("voice_typer.server.clipboard._is_elevated_target", return_value=False),
+            patch("voice_typer.server.clipboard._is_password_field", return_value=False),
+        ):
+            result = ClipboardManager._is_safe_paste_target()
+        assert result is True
 
     def test_returns_false_for_credential_dialog_xaml_host(self, fake_win32):
         """Class 'Credential Dialog Xaml Host' → False."""
@@ -961,10 +974,39 @@ class TestIsSafePasteTargetWindows:
         fake_win32["user32"].GetForegroundWindow.return_value = 0
         assert ClipboardManager._is_safe_paste_target() is True
 
-    def test_returns_true_on_outer_exception(self, fake_win32):
-        """Any unexpected exception → True (fail open)."""
+    def test_returns_false_on_outer_runtime_exception(self, fake_win32):
+        """XZ-CLIP-03: unexpected RuntimeError → False (fail CLOSED).
+
+        Previously the outer ``except Exception`` returned ``True`` (fail
+        open), which meant any unexpected error in the safety-check
+        infrastructure (e.g. Win32 APIs raising during shutdown, broken
+        COM init) silently disabled credential-prompt blocking. The
+        tightened outer handler now only fails OPEN for
+        ``ImportError``/``AttributeError`` (ctypes missing); every
+        other exception fails CLOSED so we never paste into an
+        unverified target.
+        """
         fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("boom")
-        assert ClipboardManager._is_safe_paste_target() is True
+        assert ClipboardManager._is_safe_paste_target() is False
+
+    def test_returns_true_on_outer_import_error(self, fake_win32):
+        """XZ-CLIP-03: ImportError → True (fail open, broken infra)."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fail_ctypes(name, *args, **kwargs):
+            if name == "ctypes":
+                raise ImportError("ctypes unavailable (simulated)")
+            return real_import(name, *args, **kwargs)
+
+        fake_win32["buf"].return_value.value = "Edit"
+        with (
+            patch("builtins.__import__", side_effect=_fail_ctypes),
+            patch.object(clip_mod, "log"),
+        ):
+            result = ClipboardManager._is_safe_paste_target()
+        assert result is True
 
     def test_returns_false_when_is_elevated_check_raises(self, fake_win32):
         """If _is_elevated_target raises, fail-closed → False.
@@ -1526,6 +1568,75 @@ class TestPasteWindowsBranches:
         assert result is True
         cm._keyboard.press.assert_any_call("cmd_key")
         cm._keyboard.press.assert_any_call("v")
+
+    def test_paste_aborts_on_macos_toctou_pid_change(self, fake_win32):
+        """XZ-CLIP-04: macOS paste aborts if frontmost app PID changes.
+
+        When the frontmost app PID captured right after the safety
+        check differs from the PID captured right before the Cmd+V
+        keystroke, paste() must return False and NOT send the
+        keystroke (TOCTOU defense: user Cmd-Tabbed to a credential
+        prompt in the ~5ms between the safety check and the send).
+        """
+        cm = self._make_cm()
+        with patch.object(clip_mod, "_Key") as mock_key, patch.object(clip_mod, "_Controller", MagicMock()):
+            mock_key.cmd = "cmd_key"
+            with patch.object(clip_mod, "time") as mock_time:
+                mock_time.monotonic.return_value = 100.0
+                mock_time.sleep = MagicMock()
+                with (
+                    patch.object(clip_mod, "is_windows", return_value=False),
+                    patch.object(clip_mod, "is_macos", return_value=True),
+                    patch.object(
+                        ClipboardManager,
+                        "_is_safe_paste_target",
+                        return_value=True,
+                    ),
+                    patch.object(
+                        ClipboardManager,
+                        "_detect_focused_process",
+                        return_value="notepad.exe",
+                    ),
+                    patch.object(
+                        ClipboardManager,
+                        "_get_frontmost_pid_macos",
+                        side_effect=[4242, 9999],
+                    ),
+                ):
+                    result = cm.paste()
+        assert result is False
+        assert not any("cmd_key" in str(c) for c in cm._keyboard.press.call_args_list)
+
+    def test_paste_proceeds_when_macos_pid_unavailable(self, fake_win32):
+        """XZ-CLIP-04: macOS paste proceeds (fail-open) when PID unavailable."""
+        cm = self._make_cm()
+        with patch.object(clip_mod, "_Key") as mock_key, patch.object(clip_mod, "_Controller", MagicMock()):
+            mock_key.cmd = "cmd_key"
+            with patch.object(clip_mod, "time") as mock_time:
+                mock_time.monotonic.return_value = 100.0
+                mock_time.sleep = MagicMock()
+                with (
+                    patch.object(clip_mod, "is_windows", return_value=False),
+                    patch.object(clip_mod, "is_macos", return_value=True),
+                    patch.object(
+                        ClipboardManager,
+                        "_is_safe_paste_target",
+                        return_value=True,
+                    ),
+                    patch.object(
+                        ClipboardManager,
+                        "_detect_focused_process",
+                        return_value="notepad.exe",
+                    ),
+                    patch.object(
+                        ClipboardManager,
+                        "_get_frontmost_pid_macos",
+                        return_value=None,
+                    ),
+                ):
+                    result = cm.paste()
+        assert result is True
+        cm._keyboard.press.assert_any_call("cmd_key")
 
     def test_paste_logs_rdp_session(self, fake_win32):
         """When is_remote_session() returns True, paste_delay is increased."""

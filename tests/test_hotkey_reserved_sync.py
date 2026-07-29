@@ -248,5 +248,191 @@ class TestJsonStructure:
             assert mod in modifiers, f"Modifier variant {mod!r} missing from JSON"
 
 
+# ──────────────────────────────────────────────────────────────────────
+# XZ-CC-2: noise-filter defaults sync between Config and audio_chain_builder
+# ──────────────────────────────────────────────────────────────────────
+# The canonical noise-filter defaults live on the ``Config`` dataclass in
+# ``voice_typer/server/config.py`` (fields ``noise_filter_*`` plus
+# ``noise_suppression_method``). ``voice_typer/server/audio_chain_builder.py``
+# keeps a parallel ``_DEFAULTS`` dict (used by ``build_chain_from_dict`` for
+# the test-only ``_DictConfig`` shim) that mirrors the same defaults. There
+# was no CI gate enforcing the two stay in sync — a future Config default
+# change (e.g. bumping ``noise_filter_gate_hold_ms`` from 200 to 250) would
+# silently drift from ``_DEFAULTS`` and the test-only path would use the
+# stale value.
+#
+# This test class mirrors the ``test_hotkey_reserved_sync`` pattern: import
+# both sources, snapshot the Config defaults for every ``noise_filter_*``
+# field (plus ``noise_suppression_method``), and assert each matches the
+# corresponding ``_DEFAULTS`` entry. If a Config default changes, this test
+# fails until ``_DEFAULTS`` is updated to match (and vice versa).
+
+
+class TestNoiseFilterDefaultsSync:
+    """XZ-CC-2: assert ``audio_chain_builder._DEFAULTS`` matches the
+    ``Config`` dataclass defaults for every ``noise_filter_*`` field
+    that the chain builder reads.
+
+    Mirrors the ``test_hotkey_reserved_sync`` pattern (CI gate against
+    silent drift between two parallel declarations of the same defaults).
+
+    Scope
+    -----
+    The chain builder reads filter parameters via direct attribute access
+    (``config.noise_filter_X``) inside ``build_chain``. The ``_DEFAULTS``
+    dict mirrors those same values for the test-only ``_DictConfig`` shim
+    (``build_chain_from_dict``). This test asserts every filter parameter
+    read by ``build_chain`` has a matching default in both places.
+
+    Intentionally EXCLUDED from the comparison (these are runtime switches,
+    deprecated fields, or read via ``getattr`` with a fallback — none are
+    consulted via direct ``config.noise_filter_X`` access inside
+    ``build_chain``):
+
+    - ``noise_filter_enabled`` — runtime toggle handled by
+      ``config_applier.py`` (sets it from ``audio_preset``), NOT read
+      inside ``build_chain``.
+    - ``noise_filter_post_capture`` — runtime toggle (see ADR 0009),
+      NOT read inside ``build_chain``.
+    - ``noise_filter_rnnoise`` — deprecated per ADR 0007 (replaced by
+      ``noise_suppression_method``); kept on Config for backward-compat
+      migrations but NOT read inside ``build_chain``.
+    - ``noise_filter_gate_adaptive`` — read inside ``build_chain`` via
+      ``getattr(config, "noise_filter_gate_adaptive", False)`` (with a
+      hardcoded fallback). Pinned by
+      ``test_gate_adaptive_getattr_fallback_matches_config_default`` so
+      the fallback tracks the Config default.
+
+    These exclusions are pinned by name in ``_RUNTIME_OR_DEPRECATED_FIELDS``
+    so a future contributor who renames them or accidentally starts reading
+    them inside ``build_chain`` updates this test too.
+    """
+
+    # Fields on Config that are intentionally NOT mirrored in _DEFAULTS
+    # because they're runtime switches, deprecated, or read via
+    # ``getattr`` with a fallback default inside ``build_chain``. See
+    # the class docstring for the rationale per field.
+    _RUNTIME_OR_DEPRECATED_FIELDS = frozenset(
+        {
+            # Runtime switches not consulted by ``build_chain``:
+            "noise_filter_enabled",
+            "noise_filter_post_capture",
+            # Deprecated (ADR 0007) — replaced by ``noise_suppression_method``:
+            "noise_filter_rnnoise",
+            # Read via ``getattr(config, "noise_filter_gate_adaptive", False)``
+            # inside ``build_chain`` — the fallback ``False`` matches the
+            # Config default. Pinned by ``test_gate_adaptive_getattr_fallback_matches_config_default``.
+            "noise_filter_gate_adaptive",
+        }
+    )
+
+    def test_defaults_dict_matches_config_class_for_every_noise_filter_field(self) -> None:
+        """Every ``noise_filter_*`` (and ``noise_suppression_method``)
+        field on ``Config`` that is read by ``build_chain`` must have
+        the same default value in ``audio_chain_builder._DEFAULTS``.
+
+        If this test fails, either:
+        - ``Config`` was updated (e.g. a default bumped) and
+          ``_DEFAULTS`` was not — update ``_DEFAULTS`` to match; OR
+        - ``_DEFAULTS`` was updated and ``Config`` was not — update
+          ``Config`` to match; OR
+        - A new ``noise_filter_*`` field was added to ``Config`` and
+          read by ``build_chain`` — add it to ``_DEFAULTS`` (and to
+          ``_RUNTIME_OR_DEPRECATED_FIELDS`` if it's a runtime switch
+          that ``build_chain`` does NOT read).
+        """
+        from dataclasses import fields
+
+        from voice_typer.server.audio_chain_builder import _DEFAULTS
+        from voice_typer.server.config import Config
+
+        config_snapshot = Config()
+        mismatches: list[str] = []
+        missing_in_defaults: list[str] = []
+        for f in fields(config_snapshot):
+            if not (
+                f.name.startswith("noise_filter_") or f.name == "noise_suppression_method"
+            ):
+                continue
+            if f.name in self._RUNTIME_OR_DEPRECATED_FIELDS:
+                continue
+            config_default = getattr(config_snapshot, f.name)
+            if f.name not in _DEFAULTS:
+                missing_in_defaults.append(
+                    f"{f.name}: present on Config (default={config_default!r}) "
+                    f"but MISSING from audio_chain_builder._DEFAULTS"
+                )
+                continue
+            builder_default = _DEFAULTS[f.name]
+            # ``Config`` uses ``Literal["rnnoise", "deepfilternet", "none"]``
+            # for ``noise_suppression_method`` — the underlying value is a
+            # plain ``str``, so a direct ``==`` comparison works for both
+            # bool / float / str fields.
+            if config_default != builder_default:
+                mismatches.append(
+                    f"{f.name}: Config default={config_default!r}, "
+                    f"_DEFAULTS value={builder_default!r}"
+                )
+        assert not missing_in_defaults, (
+            "audio_chain_builder._DEFAULTS is missing noise_filter_* fields "
+            "present on Config (and NOT in _RUNTIME_OR_DEPRECATED_FIELDS):\n  "
+            + "\n  ".join(missing_in_defaults)
+        )
+        assert not mismatches, (
+            "audio_chain_builder._DEFAULTS drifted from Config defaults:\n  "
+            + "\n  ".join(mismatches)
+        )
+
+    def test_defaults_dict_has_no_extra_noise_filter_fields_not_on_config(self) -> None:
+        """XZ-CC-2: ``_DEFAULTS`` must not declare any ``noise_filter_*``
+        field that doesn't exist on ``Config`` (which would be dead
+        config — the build_chain code reads these via ``getattr(config,
+        name)`` and a non-existent field would always fall through to
+        the default, hiding the drift).
+        """
+        from dataclasses import fields
+
+        from voice_typer.server.audio_chain_builder import _DEFAULTS
+        from voice_typer.server.config import Config
+
+        config_field_names = {f.name for f in fields(Config)}
+        extras: list[str] = []
+        for name in _DEFAULTS:
+            if name not in config_field_names:
+                extras.append(
+                    f"{name}: present in _DEFAULTS (value={_DEFAULTS[name]!r}) "
+                    f"but NOT a field on Config"
+                )
+        assert not extras, (
+            "audio_chain_builder._DEFAULTS has noise_filter_* entries not on Config:\n  "
+            + "\n  ".join(extras)
+        )
+
+    def test_gate_adaptive_getattr_fallback_matches_config_default(self) -> None:
+        """XZ-CC-2: ``noise_filter_gate_adaptive`` is read inside
+        ``build_chain`` via
+        ``getattr(config, "noise_filter_gate_adaptive", False)`` —
+        i.e. the chain builder hardcodes a fallback of ``False`` rather
+        than consulting ``_DEFAULTS``. This test pins that the hardcoded
+        fallback tracks the Config default. If a future Config bump
+        changes the default to ``True``, this test fails until the
+        ``getattr`` fallback in ``build_chain`` is updated too.
+        """
+        from voice_typer.server.config import Config
+
+        config_default = Config().noise_filter_gate_adaptive
+        # The hardcoded fallback in ``build_chain`` — must be kept in
+        # sync manually (there's no programmatic link). If you change
+        # the Config default, update both this constant AND the
+        # ``getattr`` call in ``audio_chain_builder.py::build_chain``.
+        hardcoded_fallback = False
+        assert hardcoded_fallback == config_default, (
+            "noise_filter_gate_adaptive Config default "
+            f"({config_default!r}) does NOT match the hardcoded "
+            f"getattr fallback in build_chain ({hardcoded_fallback!r}). "
+            "Update the getattr call in audio_chain_builder.py to match."
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

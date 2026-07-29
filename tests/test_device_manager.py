@@ -134,6 +134,68 @@ class TestServiceCacheInvalidator:
         assert called["count"] == 1, "unregistered callback must NOT fire"
 
 
+# ── TY-5: proactive disconnect recovery on hot-plug ─────────────────
+
+
+class TestHotplugDisconnectRecovery:
+    """TY-5 (High): when a hot-plug event arrives AND a device disconnect
+    is currently in-progress (``_device_disconnected=True``), the
+    ``_invalidate_device_cache`` hook proactively triggers a re-attempt
+    of the disconnect handler on a fresh daemon thread."""
+
+    def test_hotplug_triggers_recovery_when_disconnected(self):
+        """When ``_device_disconnected=True`` and recording is still
+        active, a hot-plug event spawns a fresh disconnect-handler
+        thread so the recorder can retry the restart against the newly-
+        plugged device."""
+        dm = _make_device_manager()
+        dm._device_disconnected = True
+        dm.recorder._recording_event.is_set.return_value = True
+        spawn_calls: list[dict] = []
+        dm.recorder._spawn_device_thread = lambda **kwargs: spawn_calls.append(kwargs)
+
+        dm._invalidate_device_cache()
+
+        assert dm._device_list_cache is None
+        assert len(spawn_calls) == 1, (
+            f"TY-5: expected 1 recovery spawn, got {len(spawn_calls)}"
+        )
+        assert spawn_calls[0]["name"] == "device-hotplug-recovery"
+        assert spawn_calls[0]["single_flight"] is True
+
+    def test_hotplug_no_recovery_when_not_disconnected(self):
+        """When ``_device_disconnected=False`` (normal operation), a
+        hot-plug event ONLY invalidates the cache — no recovery spawn
+        is needed."""
+        dm = _make_device_manager()
+        dm._device_disconnected = False
+        spawn_calls: list[dict] = []
+        dm.recorder._spawn_device_thread = lambda **kwargs: spawn_calls.append(kwargs)
+
+        dm._invalidate_device_cache()
+
+        assert dm._device_list_cache is None
+        assert spawn_calls == [], (
+            "TY-5: no recovery spawn expected when not disconnected"
+        )
+
+    def test_hotplug_no_recovery_when_recording_stopped(self):
+        """When recording has been deliberately stopped, a hot-plug event
+        does NOT spawn a recovery handler."""
+        dm = _make_device_manager()
+        dm._device_disconnected = True
+        dm.recorder._recording_event.is_set.return_value = False
+        spawn_calls: list[dict] = []
+        dm.recorder._spawn_device_thread = lambda **kwargs: spawn_calls.append(kwargs)
+
+        dm._invalidate_device_cache()
+
+        assert dm._device_list_cache is None
+        assert spawn_calls == [], (
+            "TY-5: no recovery spawn when recording has been stopped"
+        )
+
+
 # ── DJ-69: name-based device resolution ──────────────────────────────
 
 

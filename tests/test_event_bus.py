@@ -919,3 +919,105 @@ class TestCanonicalCatalogue:
         assert "Total: 28 events" in event_bus.__doc__
         # The old stale count must NOT still be present.
         assert "Total: 24 events" not in event_bus.__doc__
+
+
+# ── ZR-20: async dispatch option ───────────────────────────────────────
+
+
+class TestAsyncDispatch:
+    """ZR-20: ``publish(event, async_dispatch=True)`` defers fan-out to
+    the single-worker executor so non-RT publisher threads are not
+    blocked by slow subscribers (e.g. ``IPCServer.push`` →
+    ``socket.sendall`` to a stalled Electron renderer).
+
+    These tests pin:
+    1. ``async_dispatch=True`` queues the event and returns immediately
+       (subscriber is NOT invoked synchronously in the publisher's
+       thread).
+    2. The subscriber is eventually delivered the event on the
+       deferred-executor thread.
+    3. ``publish_sync(event)`` is an explicit-sync alias — subscribers
+       ARE invoked synchronously before the call returns.
+    4. The default ``publish(event)`` (no flag) preserves the existing
+       synchronous semantics (back-compat for the 30+ call sites).
+    """
+
+    def test_async_dispatch_returns_true_and_defers(self):
+        """``async_dispatch=True`` returns True immediately and the
+        subscriber is delivered on the deferred-executor thread (NOT
+        the publisher's thread).
+
+        We don't assert that ``received == []`` immediately after
+        ``publish`` returns — the single-worker executor may have
+        already drained the queue by the time the assertion runs
+        (especially on a fast machine). Instead we wait for delivery
+        and then assert the subscriber ran on the executor thread
+        (``event-bus-publisher-N``), not the publisher's thread
+        (``MainThread`` in this test)."""
+        received: list[dict] = []
+        received_thread: list[str] = []
+        cb = lambda m: (received.append(m), received_thread.append(threading.current_thread().name))  # noqa: E731
+        event_bus.subscribe(cb)
+        try:
+            publisher_thread = threading.current_thread().name
+            result = event_bus.publish({"type": "test"}, async_dispatch=True)
+            # Returns True (queued for delivery).
+            assert result is True
+            # Wait for deferred delivery (executor may drain instantly
+            # on a fast machine, so we cannot assert ``received == []``
+            # at this point — race-free assertion is the thread name
+            # check below).
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert received == [{"type": "test"}], "subscriber must be delivered asynchronously"
+            # The subscriber ran on the executor thread, NOT the publisher's.
+            assert received_thread, "subscriber thread name must be recorded"
+            assert received_thread[0] != publisher_thread, (
+                f"subscriber must run on the deferred-executor thread, not the publisher's "
+                f"({publisher_thread!r})"
+            )
+            assert "event-bus-publisher" in received_thread[0], (
+                f"subscriber must run on the event-bus-publisher thread; got {received_thread[0]!r}"
+            )
+        finally:
+            event_bus.unsubscribe(cb)
+
+    def test_publish_sync_invokes_subscriber_synchronously(self):
+        """``publish_sync`` is an explicit-sync alias — the subscriber
+        is invoked before the call returns."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+        try:
+            result = event_bus.publish_sync({"type": "test_sync"})
+            assert result is True
+            # Synchronous: subscriber was invoked before the call returned.
+            assert received == [{"type": "test_sync"}]
+        finally:
+            event_bus.unsubscribe(cb)
+
+    def test_default_publish_is_synchronous_backcompat(self):
+        """The default ``publish(event)`` (no flag) preserves the
+        existing synchronous semantics — subscriber is invoked before
+        the call returns. This protects the 30+ existing call sites
+        that rely on synchronous delivery."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+        try:
+            result = event_bus.publish({"type": "test_default"})
+            assert result is True
+            # Synchronous: subscriber was invoked before the call returned.
+            assert received == [{"type": "test_default"}]
+        finally:
+            event_bus.unsubscribe(cb)
+
+    def test_async_dispatch_with_no_subscribers_returns_false(self):
+        """``async_dispatch=True`` with no subscribers returns False
+        (same as the sync path — no one to deliver to)."""
+        # Make sure no subscribers are registered (the autouse
+        # _reset_event_bus fixture in conftest handles this between
+        # tests; we assert here defensively).
+        result = event_bus.publish({"type": "test_no_subs"}, async_dispatch=True)
+        assert result is False

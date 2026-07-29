@@ -95,16 +95,62 @@ class TestSystemRootNotepadPath:
     """Pin SYSTEMROOT-validated Notepad resolution (SEC-audit-011).
 
     The function must:
-      * Prefer ``%SYSTEMROOT%\\System32\\notepad.exe``.
-      * Fall back to ``C:\\Windows\\System32\\notepad.exe``.
+      * Prefer the hardcoded ``C:\\Windows\\System32\\notepad.exe`` (XZ-R6-AS-07).
+      * Fall back to ``%SYSTEMROOT%\\System32\\notepad.exe`` when the
+        hardcoded path is missing (e.g. non-standard Windows install
+        with system root on a different drive).
       * Return ``None`` only if neither exists.
       * Tolerate ``OSError`` during ``Path.exists()``.
       * Default to ``C:\\Windows`` when ``SYSTEMROOT`` is unset.
       * Never resolve a bare PATH-resolved ``notepad`` (SEC-audit-011).
+
+    XZ-R6-AS-07: the candidate order was REVERSED from the historical
+    ``%SYSTEMROOT%``-first order. The hardcoded ``C:\\Windows`` path
+    is now checked FIRST so an attacker setting
+    ``SYSTEMROOT=C:\\Users\\attacker`` cannot trick the helper into
+    returning an attacker-controlled binary.
     """
 
+    def test_prefers_hardcoded_default_when_both_exist(self, monkeypatch):
+        """XZ-R6-AS-07: when BOTH the hardcoded ``C:\\Windows`` path AND
+        the SYSTEMROOT-derived path exist, the HARDCODED path wins.
+
+        Pre-XZ-R6-AS-07 the SYSTEMROOT-derived path was preferred,
+        which let an attacker (or a misconfigured parent process)
+        setting ``SYSTEMROOT=C:\\Users\\attacker`` trick the helper
+        into returning an attacker-controlled binary. The hardcoded
+        path is the OS-installed Notepad (shipped with every Windows
+        install since Windows NT) — preferring it closes the trust
+        gap. The SYSTEMROOT candidate remains as a fallback for
+        non-standard Windows installs (system root on a different
+        drive).
+        """
+        # Use a SYSTEMROOT that resolves to a different path than the
+        # default, so the two candidates are distinguishable.
+        custom_root = r"D:\Attacker"
+        monkeypatch.setenv("SYSTEMROOT", custom_root)
+        default_path = Path(r"C:\Windows") / "System32" / "notepad.exe"
+        attacker_path = Path(custom_root) / "System32" / "notepad.exe"
+
+        # Both candidates "exist" — the helper must return the
+        # hardcoded default, NOT the attacker-controlled SYSTEMROOT path.
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+
+        result = _systemroot_notepad_path()
+        assert result == default_path, (
+            f"XZ-R6-AS-07: hardcoded default must be preferred over "
+            f"SYSTEMROOT-derived path; got {result!r}, expected {default_path!r}"
+        )
+        assert result != attacker_path, (
+            "XZ-R6-AS-07: SYSTEMROOT-derived path must NOT be returned "
+            "when the hardcoded default also exists"
+        )
+
     def test_returns_systemroot_path_when_it_exists(self, monkeypatch):
-        """When %SYSTEMROOT%\\System32\\notepad.exe exists, it's returned."""
+        """When ONLY the SYSTEMROOT-derived path exists (hardcoded
+        default is missing — e.g. non-standard Windows install), it's
+        returned as the fallback. XZ-R6-AS-07: this is now the
+        FALLBACK path, not the preferred path."""
         custom_root = r"D:\CustomWin"
         # Build the expected path with the same construction the code
         # under test uses (Path / operator) so the comparison is
@@ -115,6 +161,8 @@ class TestSystemRootNotepadPath:
         monkeypatch.setenv("SYSTEMROOT", custom_root)
 
         def fake_exists(self):
+            # ONLY the SYSTEMROOT-derived path exists; the hardcoded
+            # default does NOT (simulating a non-standard install).
             return self == expected
 
         monkeypatch.setattr(Path, "exists", fake_exists)
@@ -176,22 +224,37 @@ class TestSystemRootNotepadPath:
     def test_continues_on_oserror_during_exists(self, monkeypatch):
         """If the first candidate raises ``OSError`` (e.g. permission
         denied), the function must continue to the next candidate
-        instead of propagating the exception."""
-        monkeypatch.setenv("SYSTEMROOT", r"D:\PermissionDenied")
-        default_path = Path(r"C:\Windows") / "System32" / "notepad.exe"
+        instead of propagating the exception.
+
+        XZ-R6-AS-07: candidate order was reversed — the hardcoded
+        ``C:\\Windows\\System32\\notepad.exe`` is now checked FIRST
+        (closing the SYSTEMROOT env-var trust gap), with the
+        SYSTEMROOT-derived path as the fallback. This test was
+        updated to reflect the new order: the OSError is raised on
+        the FIRST candidate (default_path), and the SYSTEMROOT
+        candidate is the one returned.
+        """
+        # Use a SYSTEMROOT that resolves to a different path than the
+        # default, so the two candidates are distinguishable.
+        custom_root = r"D:\CustomWin"
+        monkeypatch.setenv("SYSTEMROOT", custom_root)
+        Path(r"C:\Windows") / "System32" / "notepad.exe"
+        systemroot_path = Path(custom_root) / "System32" / "notepad.exe"
         call_count = {"n": 0}
 
         def fake_exists(self):
             call_count["n"] += 1
             if call_count["n"] == 1:
+                # First candidate (default_path per XZ-R6-AS-07 order)
+                # raises OSError — function must continue to the next.
                 raise OSError("permission denied")
-            return self == default_path
+            return self == systemroot_path
 
         monkeypatch.setattr(Path, "exists", fake_exists)
 
         result = _systemroot_notepad_path()
         assert result is not None
-        assert result == default_path
+        assert result == systemroot_path
         assert call_count["n"] >= 2  # second candidate was tried
 
     def test_returns_path_object_not_string(self, monkeypatch):

@@ -177,6 +177,42 @@ class TestHistoryDBWALMode:
         assert mode.lower() == "wal"
 
 
+class TestHistoryDBForeignKeysPragma:
+    """XZ-R11-11: the writer connection must set ``PRAGMA foreign_keys=ON``.
+
+    The current schema has no FK constraints, so this is a no-op today —
+    but if a future migration adds FKs, the default-OFF behavior would
+    silently allow orphaned child rows. The PRAGMA is per-connection
+    (NOT database-persistent), so it must be set on every new writer
+    connection. We verify by directly invoking ``_open_write_conn`` and
+    reading back the PRAGMA value.
+    """
+
+    def test_writer_connection_has_foreign_keys_on(self, tmp_path):
+        from voice_typer.server.history_db import HistoryDB
+
+        db_instance = HistoryDB(db_path=tmp_path / "test_fk.db")
+        try:
+            # Wait for the writer thread to finish init so the
+            # connection helper is callable.
+            db_instance.flush()
+            conn = db_instance._open_write_conn()
+            try:
+                cur = conn.execute("PRAGMA foreign_keys")
+                row = cur.fetchone()
+                assert row is not None
+                # SQLite returns 0/1 for boolean PRAGMAs.
+                assert row[0] == 1, (
+                    f"XZ-R11-11: expected PRAGMA foreign_keys=1 (ON) on the "
+                    f"writer connection; got {row[0]}. Future schema migrations "
+                    f"adding FK constraints would silently allow orphaned rows."
+                )
+            finally:
+                conn.close()
+        finally:
+            db_instance.close()
+
+
 class TestHistoryDbRaisesOnErrorWhenFlagSet:
     """ERR-013: history_db methods must raise HistoryDBError when
     ``raise_on_error=True`` so the IPC layer can distinguish "empty
@@ -839,7 +875,6 @@ class TestPreMigrationBackup:
         """
         import sqlite3
 
-        from voice_typer.server import history_db as history_db_module
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "test_history.db"
@@ -866,9 +901,15 @@ class TestPreMigrationBackup:
                 value TEXT NOT NULL
             )
         """)
+        # _CURRENT_SCHEMA_VERSION was moved to history_db_internals.schema
+        # during the AC-92 / XZ-R10-03 decomposition; history_db.py no longer
+        # re-exports it. Import from the canonical location.
+        from voice_typer.server.history_db_internals.schema import (
+            _CURRENT_SCHEMA_VERSION,
+        )
         setup_conn.execute(
             "INSERT INTO schema_meta (key, value) VALUES ('version', ?)",
-            (str(history_db_module._CURRENT_SCHEMA_VERSION),),
+            (str(_CURRENT_SCHEMA_VERSION),),
         )
         setup_conn.commit()
         setup_conn.close()

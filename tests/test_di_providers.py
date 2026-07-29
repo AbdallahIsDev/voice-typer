@@ -740,3 +740,117 @@ class TestProtocolStructuralCompat:
         )
         # Also confirm via our manual check (belt-and-suspenders).
         assert _structurally_satisfies(real_service, ServiceProtocol)
+
+
+# ── Tests: YJ-7 — ServiceProtocol parameter type narrowing ────────────
+
+
+def _service_protocol_method_node(method_name: str):
+    """Return the ``ast.FunctionDef`` node for ``method_name`` on ``ServiceProtocol``.
+
+    Returns ``None`` if the method is not declared on the class.
+    """
+    import inspect
+
+    src_file = inspect.getsourcefile(ServiceProtocol)
+    assert src_file is not None, "ServiceProtocol must have a discoverable source file"
+    tree = ast.parse(Path(src_file).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "ServiceProtocol":
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == method_name:
+                    return item
+    return None
+
+
+class TestServiceProtocolTypeNarrowingYJ7:
+    """YJ-7 regression: ``ServiceProtocol`` must NOT use ``Any`` for
+    ``mic_id`` / ``duration`` / ``filters``.
+
+    The original finding flagged three methods that declared these
+    parameters as ``Any``:
+
+      * ``microphone_test_start(self, mic_id: Any = None, duration: Any = None, filters: Any = None)``
+      * ``level_monitor_start(self, mic_id: Any = None)``
+      * ``onboarding_set_microphone(self, mic_id: Any)``
+
+    The narrowing to concrete unions (``str | None``, ``float``,
+    ``dict | None``) matches the real ``VoiceTyperService`` impl
+    signatures and the IPC-layer validation that runs before the
+    service method is invoked.  This test parses the source AST so
+    a future refactor that re-widens the types to ``Any`` (or removes
+    the annotation entirely) is caught at test time.
+    """
+
+    @staticmethod
+    def _param_annotation_text(method_name: str, param_name: str) -> str:
+        """Return the source-text annotation for ``param_name`` on ``method_name``.
+
+        Returns the empty string if the parameter has no annotation.
+        """
+        import ast as _ast
+
+        func_node = _service_protocol_method_node(method_name)
+        assert func_node is not None, (
+            f"ServiceProtocol must declare `{method_name}()` — YJ-7 test "
+            f"depends on this method existing."
+        )
+        # Skip 'self' (positional 0); locate the named arg.
+        all_args = list(func_node.args.args) + list(func_node.args.kwonlyargs)
+        for arg in all_args:
+            if arg.arg == param_name:
+                if arg.annotation is None:
+                    return ""
+                # ast.unparse produces the exact annotation text as
+                # written in source (Python 3.9+).
+                return _ast.unparse(arg.annotation)
+        raise AssertionError(
+            f"`{method_name}()` does not declare a parameter named "
+            f"`{param_name}` — has the signature changed?"
+        )
+
+    def test_microphone_test_start_mic_id_not_any(self):
+        """``mic_id`` on ``microphone_test_start`` must not be ``Any``."""
+        ann = self._param_annotation_text("microphone_test_start", "mic_id")
+        assert ann != "Any", (
+            "YJ-7 regression: `microphone_test_start(self, mic_id: Any)` — "
+            "`mic_id` must be narrowed to a concrete union (e.g. "
+            "`str | None`).  The IPC handler validates it as `str | None`."
+        )
+        assert "str" in ann, (
+            f"YJ-7 regression: `mic_id` annotation `{ann}` must mention `str` "
+            f"(the renderer sends mic indices as strings)."
+        )
+
+    def test_microphone_test_start_duration_not_any(self):
+        """``duration`` on ``microphone_test_start`` must not be ``Any``."""
+        ann = self._param_annotation_text("microphone_test_start", "duration")
+        assert ann != "Any", (
+            "YJ-7 regression: `microphone_test_start(self, ..., duration: Any)` "
+            "— `duration` must be narrowed (e.g. `float`).  The IPC handler "
+            "coerces it to a float in [1.0, 60.0]."
+        )
+
+    def test_microphone_test_start_filters_not_any(self):
+        """``filters`` on ``microphone_test_start`` must not be ``Any``."""
+        ann = self._param_annotation_text("microphone_test_start", "filters")
+        assert ann != "Any", (
+            "YJ-7 regression: `microphone_test_start(self, ..., filters: Any)` "
+            "— `filters` must be narrowed (e.g. `dict | None`)."
+        )
+
+    def test_level_monitor_start_mic_id_not_any(self):
+        """``mic_id`` on ``level_monitor_start`` must not be ``Any``."""
+        ann = self._param_annotation_text("level_monitor_start", "mic_id")
+        assert ann != "Any", (
+            "YJ-7 regression: `level_monitor_start(self, mic_id: Any)` — "
+            "`mic_id` must be narrowed (e.g. `str | None`)."
+        )
+
+    def test_onboarding_set_microphone_mic_id_not_any(self):
+        """``mic_id`` on ``onboarding_set_microphone`` must not be ``Any``."""
+        ann = self._param_annotation_text("onboarding_set_microphone", "mic_id")
+        assert ann != "Any", (
+            "YJ-7 regression: `onboarding_set_microphone(self, mic_id: Any)` — "
+            "`mic_id` must be narrowed (e.g. `str | None`)."
+        )

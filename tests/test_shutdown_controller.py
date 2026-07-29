@@ -115,10 +115,10 @@ def fake_app(tmp_config_dir, monkeypatch):
     - ``voice_typer.server.app._register_devnull_file`` — no-op.
     - ``voice_typer.server.app.is_windows`` — returns False (POSIX test env).
     """
-    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
     return _FakeApp()
 
 
@@ -150,10 +150,13 @@ class TestShutdownControllerWiring:
 
     def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
         """``self.shutdown`` must be a ``ShutdownController`` instance."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        # SA-05: raising=False — these app-module attributes may have
+        # been removed/renamed in a prior refactor; the monkeypatch is
+        # a defensive no-op when they're absent.
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -163,10 +166,11 @@ class TestShutdownControllerWiring:
 
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        # SA-05: raising=False — see test_app_has_shutdown_attribute.
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [], raising=False)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -863,6 +867,124 @@ class TestGT70RecorderForceClosedBarrier:
 
         assert TIMEOUT is not None, "GT-70: TIMEOUT sentinel must not be None"
         assert TIMEOUT is TIMEOUT, "TIMEOUT sentinel identity check"
+
+
+# ── ZR-35: _force_closed read-side behavior test ──────────────────────
+
+
+class TestZR35ForceClosedReadSideGuard:
+    """ZR-35: the ``_force_closed`` flag must be a REAL behavior gate, not
+    a write-only test-visible attribute.
+
+    Pre-fix, ``shutdown_controller._do_cleanup()`` set
+    ``app.recorder._force_closed = True`` under a
+    ``contextlib.suppress(Exception)`` wrapper when ``recorder.stop()``
+    timed out — but the ``Recorder`` class never declared, read, nor
+    used ``_force_closed``. The attribute was dead write-only state,
+    and the old test (TestGT70RecorderForceClosedBarrier above) only
+    asserted the WRITE happened, not that any behavior depended on it.
+    The comment in ``shutdown_controller.py`` promised "so the
+    recorder itself can [use it]" — the read side never landed.
+
+    The fix (landed in ``recorder.py`` by another agent) implements
+    the read side: ``Recorder.__init__`` declares
+    ``self._force_closed: bool = False`` and
+    ``Recorder.shutdown_mic_watcher`` short-circuits with ``return``
+    when ``self._force_closed`` is True. These tests pin the
+    behavior contract — that calling ``shutdown_mic_watcher`` on a
+    force-closed recorder does NOT delegate to
+    ``_devices.shutdown_mic_watcher()`` (so the leaked worker thread
+    still touching the PortAudio stream is not raced).
+
+    The tests construct a real ``Recorder`` instance (not a MagicMock)
+    so the read-side guard in the production code path is exercised.
+    """
+
+    def _make_test_recorder(self):
+        """Construct a real ``Recorder`` with mocked collaborators.
+
+        Avoids PortAudio / sounddevice initialization — we only need
+        the ``shutdown_mic_watcher`` method to run, which delegates to
+        ``self._devices.shutdown_mic_watcher()``. The ``_devices``
+        attribute is replaced with a MagicMock so we can assert
+        whether the delegate was called.
+        """
+        from voice_typer.server.recording.recorder import Recorder
+
+        # Recorder.__init__ signature: (config, audio_processor, thread_registry)
+        # The body uses ``config`` only to read attributes; pass a MagicMock
+        # so any attribute access returns a mock by default.
+        config = MagicMock()
+        recorder = Recorder(
+            config=config,
+            audio_processor=MagicMock(),
+            thread_registry=MagicMock(),
+        )
+        # Replace the DeviceManager delegate with a MagicMock so we can
+        # assert call counts on ``shutdown_mic_watcher`` without touching
+        # the real PortAudio device-watcher teardown.
+        recorder._devices = MagicMock()
+        return recorder
+
+    def test_shutdown_mic_watcher_short_circuits_when_force_closed_set(self):
+        """ZR-35: when ``_force_closed = True``, calling
+        ``shutdown_mic_watcher`` must NOT delegate to
+        ``_devices.shutdown_mic_watcher()``.
+
+        This is the core read-side guard. Without it, the flag is dead
+        state — ``shutdown_controller`` writes True but nothing reads
+        it, so a subsequent cleanup call would race the leaked worker
+        thread still touching the PortAudio stream.
+        """
+        recorder = self._make_test_recorder()
+        # Sanity: flag starts False (declared in Recorder.__init__).
+        assert recorder._force_closed is False, (
+            "ZR-35: Recorder.__init__ must declare _force_closed: bool = False"
+        )
+
+        # Simulate the force-closed condition (as shutdown_controller
+        # does when recorder.stop() times out).
+        recorder._force_closed = True
+
+        # Call shutdown_mic_watcher — should short-circuit.
+        recorder.shutdown_mic_watcher()
+
+        # The delegate MUST NOT have been called.
+        recorder._devices.shutdown_mic_watcher.assert_not_called()
+
+    def test_shutdown_mic_watcher_delegates_when_force_closed_false(self):
+        """ZR-35 (companion): when ``_force_closed = False`` (the
+        default), ``shutdown_mic_watcher`` MUST delegate to
+        ``_devices.shutdown_mic_watcher()`` as usual. Pins that the
+        guard doesn't false-positive (skipping the delegate when it
+        shouldn't).
+        """
+        recorder = self._make_test_recorder()
+        assert recorder._force_closed is False
+
+        recorder.shutdown_mic_watcher()
+
+        # The delegate MUST have been called exactly once.
+        recorder._devices.shutdown_mic_watcher.assert_called_once_with()
+
+    def test_force_closed_is_declared_in_init(self):
+        """ZR-35 (init contract): ``Recorder.__init__`` must declare
+        ``_force_closed: bool = False`` so the attribute exists on
+        every instance (not just when ``shutdown_controller`` writes
+        it). Without this declaration, accessing
+        ``recorder._force_closed`` before any timeout would raise
+        ``AttributeError``.
+        """
+        recorder = self._make_test_recorder()
+        # The attribute must exist with the default False value —
+        # NOT raise AttributeError.
+        assert hasattr(recorder, "_force_closed"), (
+            "ZR-35: Recorder.__init__ must declare _force_closed so the "
+            "attribute exists before shutdown_controller writes it"
+        )
+        assert recorder._force_closed is False, (
+            "ZR-35: _force_closed must default to False"
+        )
 
 
 # ── GT-72: in-flight timer drain after _cancel_pending_timers ──────────

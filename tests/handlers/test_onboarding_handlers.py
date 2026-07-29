@@ -378,3 +378,114 @@ class TestOnboardingCheckPermissionsHandler:
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# XZ-EH-002: service-returned ``{"error": str(exc)}`` redaction
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestXzEh002ServiceErrorRedaction:
+    """XZ-EH-002: the five ``set_*`` / ``skip`` / ``apply`` handlers
+    pass the service-returned dict straight to ``resp["data"]``. The
+    service's ``str(exc)`` can contain secrets (API keys, file paths);
+    the handler now applies ``_redact_service_error`` before
+    forwarding so the redacted form lands in the IPC response.
+
+    These tests cover the redaction path: feed each handler a
+    service-returned dict whose ``"error"`` value contains a known
+    secret pattern, and assert the secret is replaced with ``***`` in
+    the response's ``data["error"]`` field.
+    """
+
+    _SECRET_BEARER = "Bearer abcdefghijklmnopqrstuvwxyz0123456789"
+    _SECRET_SK = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"
+
+    def test_apply_redacts_bearer_token(self, ipc_server, fake_service):
+        """``onboarding_apply`` service error containing a Bearer token
+        is redacted before landing in the IPC response."""
+        fake_service.onboarding_apply.return_value = {
+            "error": f"config write failed: auth header={self._SECRET_BEARER}"
+        }
+        resp = ipc_server._handle_onboarding_apply({}, {})
+        assert resp["type"] == "error"
+        # The Bearer token prefix is preserved but the secret suffix
+        # is replaced with ``***`` by ``redact_secret``.
+        assert "Bearer ***" in resp["data"]["error"]
+        assert self._SECRET_BEARER not in resp["data"]["error"]
+
+    def test_apply_redacts_openai_key(self, ipc_server, fake_service):
+        """``onboarding_apply`` service error containing an OpenAI
+        ``sk-...`` key is redacted."""
+        fake_service.onboarding_apply.return_value = {
+            "error": f"cloud config error: invalid key {self._SECRET_SK}"
+        }
+        resp = ipc_server._handle_onboarding_apply({}, {})
+        assert resp["type"] == "error"
+        # ``sk-...`` is fully replaced with ``***`` by ``redact_secret``
+        # (no prefix preservation for the bare ``sk-`` form).
+        assert self._SECRET_SK not in resp["data"]["error"]
+        assert "***" in resp["data"]["error"]
+
+    def test_set_microphone_redacts_error(self, ipc_server, fake_service):
+        """``onboarding_set_microphone`` service error is redacted."""
+        fake_service.onboarding_set_microphone.return_value = {
+            "error": f"mic probe failed: token={self._SECRET_BEARER}"
+        }
+        resp = ipc_server._handle_onboarding_set_microphone({"mic_id": "usb_1"}, {})
+        assert resp["type"] == "error"
+        assert self._SECRET_BEARER not in resp["data"]["error"]
+        assert "***" in resp["data"]["error"]
+
+    def test_set_hotkey_redacts_error(self, ipc_server, fake_service):
+        """``onboarding_set_hotkey`` service error is redacted."""
+        fake_service.onboarding_set_hotkey.return_value = {
+            "error": f"hotkey reserved: {self._SECRET_SK}"
+        }
+        resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": "<f2>"}, {})
+        assert resp["type"] == "error"
+        assert self._SECRET_SK not in resp["data"]["error"]
+
+    def test_set_model_redacts_error(self, ipc_server, fake_service):
+        """``onboarding_set_model`` service error is redacted."""
+        fake_service.onboarding_set_model.return_value = {
+            "error": f"model unavailable: {self._SECRET_BEARER}"
+        }
+        resp = ipc_server._handle_onboarding_set_model({"model": "small.en"}, {})
+        assert resp["type"] == "error"
+        assert self._SECRET_BEARER not in resp["data"]["error"]
+
+    def test_skip_redacts_error(self, ipc_server, fake_service):
+        """``onboarding_skip`` service error is redacted."""
+        fake_service.onboarding_skip.return_value = {
+            "error": f"skip failed: {self._SECRET_SK}"
+        }
+        resp = ipc_server._handle_onboarding_skip({}, {})
+        assert resp["type"] == "error"
+        assert self._SECRET_SK not in resp["data"]["error"]
+
+    def test_success_result_not_mutated_by_redaction(self, ipc_server, fake_service):
+        """When the service returns a success dict (no ``"error"`` key),
+        ``_redact_service_error`` is a no-op and the result is passed
+        through unchanged (no spurious ``"error"`` key added)."""
+        fake_service.onboarding_apply.return_value = {"ok": True, "step": "done"}
+        resp = ipc_server._handle_onboarding_apply({}, {})
+        assert resp["type"] == "ack"
+        assert resp["data"] == {"ok": True, "step": "done"}
+        # No ``"error"`` key was added by the redaction helper.
+        assert "error" not in resp["data"]
+
+    def test_none_error_value_left_untouched(self, ipc_server, fake_service):
+        """If the service returns ``{"error": None}`` (falsy but
+        present), the redaction helper skips it (``isinstance(None, str)``
+        is False) and the dict is passed through. The handler's
+        conditional still treats ``"error" in result`` as failure
+        (``resp["type"] = "error"``), preserving the existing
+        ack-vs-error contract from the class docstring."""
+        fake_service.onboarding_apply.return_value = {"error": None}
+        resp = ipc_server._handle_onboarding_apply({}, {})
+        # The contract: ``"error" in result`` → type is ``"error"``.
+        assert resp["type"] == "error"
+        # The ``None`` value is preserved (not redacted to a string).
+        assert resp["data"]["error"] is None
+

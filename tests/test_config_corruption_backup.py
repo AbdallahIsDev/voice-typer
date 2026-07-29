@@ -99,10 +99,21 @@ class TestCorruptConfigBackup:
             "(byte-for-byte) so the user can inspect/recover their settings manually."
         )
 
-        # The timestamp suffix must be a valid integer (Unix epoch seconds).
-        match = re.match(r"^config\.json\.corrupt-(\d+)$", corrupt_backups[0].name)
+        # XZ-R10-10: the filename pattern is now
+        # ``config.json.corrupt-<int-timestamp>-<pid>-<microseconds>``
+        # (PID + microsecond suffix added to disambiguate same-second
+        # loads from different processes and back-to-back loads within
+        # the same process). The first group must be a recent Unix
+        # timestamp (epoch seconds); the second group is the PID; the
+        # third group is ``time.time_ns() % 1_000_000`` (microsecond
+        # fraction, 0..999999).
+        match = re.match(
+            r"^config\.json\.corrupt-(\d+)-(\d+)-(\d+)$",
+            corrupt_backups[0].name,
+        )
         assert match is not None, (
-            f"Backup filename {corrupt_backups[0].name!r} must match the pattern 'config.json.corrupt-<int-timestamp>'."
+            f"Backup filename {corrupt_backups[0].name!r} must match the pattern "
+            "'config.json.corrupt-<int-timestamp>-<pid>-<microseconds>' (XZ-R10-10)."
         )
         ts = int(match.group(1))
         # The timestamp must be recent (within the last 60 seconds —
@@ -111,6 +122,22 @@ class TestCorruptConfigBackup:
         assert abs(now - ts) < 60, (
             f"Backup timestamp {ts} is not recent (now={now}) — "
             f"the .corrupt-<timestamp> suffix must use int(time.time())."
+        )
+        # XZ-R10-10: the PID group must match os.getpid() (the test
+        # runs in-process so the PID is the current process's PID).
+        import os as _os
+
+        assert int(match.group(2)) == _os.getpid(), (
+            f"Backup PID {match.group(2)} does not match current PID "
+            f"{_os.getpid()} — the .corrupt-<timestamp>-<pid> suffix "
+            "must use os.getpid() so same-second loads from different "
+            "processes produce unique filenames."
+        )
+        # The microsecond fraction must be in [0, 1_000_000).
+        us = int(match.group(3))
+        assert 0 <= us < 1_000_000, (
+            f"Backup microsecond fraction {us} out of range [0, 1_000_000) — "
+            "the suffix must be time.time_ns() % 1_000_000."
         )
 
     def test_corrupt_config_moved_atomically(self, tmp_path, monkeypatch):
@@ -231,20 +258,15 @@ class TestCorruptConfigBackup:
         assert corrupt_backups[0].read_text(encoding="utf-8") == "42"
 
     def test_multiple_corrupt_loads_create_unique_backups(self, tmp_path, monkeypatch):
-        """Two corrupt-loads in the same second must not overwrite each other.
+        """Two corrupt-loads in the same second must NOT overwrite each other.
 
-        The ``.corrupt-<timestamp>`` suffix uses 1-second resolution,
-        so two loads in the same second would produce the same backup
-        filename.  ``Path.replace`` would atomically overwrite the
-        first backup with the second — losing the first corrupt
-        content.
-
-        This test documents that behavior: the SECOND load's backup
-        wins.  If we wanted to preserve both, we'd need a higher-
-        resolution suffix (microseconds) or a counter.  For now, the
-        1-second resolution is good enough for forensic purposes —
-        rapid double-corruption is rare in practice (the user has to
-        manually corrupt the file twice in the same second).
+        XZ-R10-10: the previous ``.corrupt-<timestamp>`` suffix used
+        1-second resolution, so two loads in the same second produced
+        the same backup filename and ``Path.replace`` atomically
+        overwrote the first backup with the second — losing the first
+        corrupt content's forensic recovery point. The fix appends a
+        PID + microsecond-fraction suffix so back-to-back loads in the
+        same process always produce unique filenames.
         """
         _patch_config_dir(tmp_path, monkeypatch)
         config_file = tmp_path / "config.json"
@@ -257,20 +279,26 @@ class TestCorruptConfigBackup:
         config_file.write_text("CORRUPT_2", encoding="utf-8")
         Config.load()
 
-        # We expect either 1 or 2 backups:
-        # - 1 backup: both loads happened in the same second, second wins.
-        # - 2 backups: loads happened in different seconds.
+        # XZ-R10-10: two corrupt loads MUST produce two distinct
+        # backups (PID + microsecond suffix disambiguates them even
+        # within the same second from the same process).
         corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
-        assert 1 <= len(corrupt_backups) <= 2, (
-            f"Expected 1 or 2 .corrupt-<timestamp> backups, got: {len(corrupt_backups)}"
+        assert len(corrupt_backups) == 2, (
+            "XZ-R10-10 regression: expected exactly 2 .corrupt-* backups "
+            f"(one per corrupt load, made unique by the PID + microsecond "
+            f"suffix), got {len(corrupt_backups)}: "
+            f"{[p.name for p in corrupt_backups]}"
         )
-
-        # If there's only one backup, it must contain CORRUPT_2 (the
-        # second load's content, since Path.replace atomically
-        # overwrites the first).
-        if len(corrupt_backups) == 1:
-            content = corrupt_backups[0].read_text(encoding="utf-8")
-            assert content in ("CORRUPT_1", "CORRUPT_2"), f"Unexpected backup content: {content!r}"
+        assert corrupt_backups[0].name != corrupt_backups[1].name, (
+            "XZ-R10-10 regression: two corrupt loads produced identical "
+            f"backup filenames ({corrupt_backups[0].name!r}) — the PID + "
+            "microsecond suffix must disambiguate them."
+        )
+        contents = sorted(p.read_text(encoding="utf-8") for p in corrupt_backups)
+        assert contents == ["CORRUPT_1", "CORRUPT_2"], (
+            f"XZ-R10-10: backup contents should be both CORRUPT_1 and "
+            f"CORRUPT_2 (no overwrite), got {contents!r}"
+        )
 
     def test_corrupt_load_returns_defaults(self, tmp_path, monkeypatch):
         """Sanity: after moving the corrupt file aside, defaults are returned.
@@ -464,29 +492,22 @@ class TestSaveBackupBeforeOverwrite:
         cfg.save()
         assert config_file.exists()
 
-        # Mock write_text on the config_file's parent (or on Path
-        # objects) to raise OSError when writing the .bak.  We need a
-        # targeted mock that only affects the .bak write, not the
-        # _secure_atomic_write call.
+        # FR-24 / XZ-R10-02: the .bak write is routed through
+        # ``_secure_atomic_write`` (atomic os.replace + fsync + 0o600),
+        # NOT through ``Path.write_bytes``. We patch
+        # ``voice_typer.server.config._secure_atomic_write`` directly
+        # so the .bak WRITE raises OSError while the actual config.json
+        # WRITE (which uses the same function) still proceeds.
+        import voice_typer.server.config as config_mod
 
-        # Approach: mock config_file.read_text to return a non-matching
-        # content (so the .bak branch is entered), then mock
-        # backup.write_text to raise.  But we don't control the
-        # ``backup`` Path object directly.
+        original_secure_write = config_mod._secure_atomic_write
 
-        # Simpler approach: monkeypatch Path.write_bytes globally to
-        # raise ONLY when the path ends with .bak.  This way the
-        # _secure_atomic_write call (which writes to a unique .tmp
-        # file via mkstemp, not .bak) still works.  G4-H-09 uses
-        # write_bytes (not write_text) so the backup is byte-for-byte.
-        original_write_bytes = type(config_file).write_bytes
-
-        def selective_write_bytes(self, data):
-            if str(self).endswith(".bak"):
+        def selective_secure_write(path, content, *args, **kwargs):
+            if str(path).endswith(".bak"):
                 raise OSError("simulated permission denied on .bak write")
-            return original_write_bytes(self, data)
+            return original_secure_write(path, content, *args, **kwargs)
 
-        monkeypatch.setattr("pathlib.Path.write_bytes", selective_write_bytes)
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", selective_secure_write)
 
         # Change hotkey and save — .bak write will fail but save must proceed.
         cfg.hotkey = "<f9>"
@@ -494,7 +515,8 @@ class TestSaveBackupBeforeOverwrite:
         # Must NOT raise — the .bak failure is caught and logged.
         result = cfg.save()
 
-        # The save must succeed (the _secure_atomic_write call worked).
+        # The save must succeed (the _secure_atomic_write call for the
+        # actual config.json write worked — only the .bak write raised).
         assert result is True, (
             "Config.save() returned False when the .bak write failed — "
             ".bak failure must not block the save (best-effort backup)."

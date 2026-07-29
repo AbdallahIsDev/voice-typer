@@ -87,19 +87,30 @@ class TestSaveVocabulary:
         assert "too large" in resp["data"]["message"]
         fake_service.save_vocabulary_with_diff.assert_not_called()
 
-    def test_value_over_1024_chars_returns_error(self, ipc_server, fake_service):
-        """A single string value > 1024 chars → rejected (under the 1 MB total cap).
+    def test_value_over_500_chars_returns_error(self, ipc_server, fake_service):
+        """A single string value > 500 chars → rejected (under the 1 MB total cap).
 
-        The per-value cap prevents a single regex pattern from
-        blowing up transcription latency.
+        XZ-R11-07: the per-value cap was lowered from 1024 to 500 to
+        match the vocabulary-layer ``MAX_REPLACEMENT_LENGTH = 500``
+        ceiling. The per-value cap prevents a single regex pattern
+        from blowing up transcription latency AND fails fast at the
+        IPC layer instead of letting values 2× the CRUD ceiling reach
+        ``save_vocabulary_with_diff`` (which bypasses CRUD methods).
         """
-        # Total payload is well under 1 MB; just one value is too long.
-        too_long = "y" * 2000  # 2000 chars > 1024 cap.
+        too_long = "y" * 2000  # 2000 chars > 500 cap.
         resp = ipc_server._handle_save_vocabulary({"entries": {"word1": too_long}}, {})
         assert resp["type"] == "error"
         assert "too long" in resp["data"]["message"]
         assert "entries.word1" in resp["data"]["message"], "error message must identify the offending category.key"
         fake_service.save_vocabulary_with_diff.assert_not_called()
+
+    def test_value_at_500_chars_accepted(self, ipc_server, fake_service):
+        """XZ-R11-07: a value exactly at the 500-char cap is accepted."""
+        ok_value = "y" * 500  # exactly at cap → accepted
+        fake_service.save_vocabulary_with_diff.return_value = {"saved": True}
+        resp = ipc_server._handle_save_vocabulary({"entries": {"word1": ok_value}}, {})
+        assert resp["type"] == "ack"
+        fake_service.save_vocabulary_with_diff.assert_called_once()
 
     def test_value_too_long_in_list_entry_returns_error(self, ipc_server, fake_service):
         """List-form vocabulary entries also have per-value length validation.

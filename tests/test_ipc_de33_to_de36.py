@@ -565,40 +565,76 @@ class TestRateLimiterUsesElevatedCost:
     budget, not 1."""
 
     def test_cost_10_command_rejected_after_20_calls_in_burst_window(self):
-        """With burst=200 and cost=10 (e.g. ``delete_model``), the
+        """With burst=200 and cost=10 (e.g. ``clear_history``), the
         limiter accepts at most 20 calls in any 1-second window
         (20 * 10 = 200 = burst cap). The 21st call is rejected.
 
-        Pre-DE-34 ``delete_model`` had cost=1 (DEFAULT_COST fallthrough),
+        Pre-DE-34 ``clear_history`` had cost=1 (DEFAULT_COST fallthrough),
         so the limiter accepted 200 calls/s — exactly the bug DE-34
         fixes.
+
+        XZ-R3-02: ``delete_model`` was bumped from cost 10 to 50, so this
+        test now uses ``clear_history`` (still cost 10) to verify the
+        cost-10 behavioural guard.
         """
         # ``sustained_per_sec`` is the TOTAL budget over the 10s window
         # (the parameter name is misleading — it's a count, not a rate).
         # Set it high so only the burst check trips in this test.
+        assert COMMAND_COSTS["clear_history"] == 10, (
+            "clear_history cost changed — pick another cost-10 command "
+            "for this test"
+        )
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         # 25 calls at t=0 — should accept 20 (20*10=200=burst), reject 5.
         for _ in range(25):
-            if limiter.allow(command="delete_model", now=0.0):
+            if limiter.allow(command="clear_history", now=0.0):
                 accepted += 1
         assert accepted == 20, (
             f"Expected 20 acceptances (burst=200 / cost=10 = 20), got "
             f"{accepted}. The rate limiter is not applying the elevated "
-            f"COMMAND_COSTS['delete_model'] cost."
+            f"COMMAND_COSTS['clear_history'] cost."
         )
 
     def test_cost_1_command_accepted_200_times_in_burst_window(self):
-        """Sanity check: a cost-1 command (e.g. ``heartbeat``) still
+        """Sanity check: a cost-1 command (e.g. ``get_status``) still
         gets the full 200/s burst budget. Catches a regression where
         the cost map is applied incorrectly (e.g. every command gets
-        cost=10)."""
+        cost=10).
+
+        XZ-R3-01: ``heartbeat`` was removed from this test because it
+        now bypasses the rate limiter entirely (so it would always
+        accept all calls, not just 200). Use ``get_status`` (also
+        cost 1) for the cost-1 behavioural guard instead.
+        """
+        assert COMMAND_COSTS["get_status"] == 1, (
+            "get_status cost changed — pick another cost-1 command "
+            "for this test"
+        )
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         for _ in range(205):
-            if limiter.allow(command="heartbeat", now=0.0):
+            if limiter.allow(command="get_status", now=0.0):
                 accepted += 1
         assert accepted == 200, f"Expected 200 acceptances (cost=1), got {accepted}."
+
+    def test_heartbeat_bypasses_rate_limiter_under_burst_attack(self):
+        """XZ-R3-01 (High): a heartbeat must ALWAYS be accepted, even
+        when the burst budget is fully consumed by attack traffic on
+        other commands. Pre-fix, a compromised renderer sustaining
+        ≥200 msg/s of cheap commands would starve the heartbeat,
+        triggering the 45s watchdog → ``app.quit()`` → backend crash."""
+        limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
+        # Exhaust the burst budget with get_status calls (cost 1).
+        for _ in range(200):
+            assert limiter.allow(command="get_status", now=0.0) is True
+        # The 201st get_status is rejected.
+        assert limiter.allow(command="get_status", now=0.0) is False
+        # But a heartbeat is ALWAYS accepted, even under attack.
+        assert limiter.allow(command="heartbeat", now=0.0) is True
+        # And subsequent heartbeats continue to be accepted.
+        for _ in range(10):
+            assert limiter.allow(command="heartbeat", now=0.0) is True
 
 
 # ══════════════════════════════════════════════════════════════════════════

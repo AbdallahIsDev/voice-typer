@@ -257,17 +257,46 @@ class TestDE27PreMigrationBackupFailureLoggedAtWarning:
     """
 
     def test_backup_failure_logged_at_warning(self, tmp_path, monkeypatch, caplog):
-        """Simulate shutil.copy2 failure and verify a WARNING is logged."""
+        """Simulate ``_secure_atomic_write`` failure on the pre-migration
+        backup path (XZ-R10-03: the backup now reads via
+        ``_secure_read_text`` + writes via ``_secure_atomic_write``,
+        NOT ``shutil.copy2``) and verify a WARNING is logged.
+
+        DE-27 (original): the pre-migration backup failure was logged
+        at DEBUG, making it invisible in production logs (DEBUG is
+        usually off). The backup is the ONLY recovery mechanism if a
+        migrator corrupts the config (see DE-3), so the failure must
+        be logged at WARNING.
+
+        XZ-R10-03 update: the fix routes the backup READ through
+        ``_secure_read_text`` and the WRITE through
+        ``_secure_atomic_write``. We mock ``_secure_atomic_write`` to
+        raise OSError ONLY when the target path is a pre-migration
+        ``.bak`` file — this leaves the load's other
+        ``_secure_atomic_write`` calls (none during load, but
+        defensive) and the initial ``_secure_read_text`` for
+        ``_read_raw_json`` untouched so the load progresses past the
+        JSON parse step to reach ``_backup_before_migration``.
+        """
         config_file = tmp_path / "config.json"
         # Old schema so the pre-migration backup path runs.
         config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
-        import shutil as _shutil
+        # XZ-R10-03: patch _secure_atomic_write (the new backup WRITE
+        # path) to fail ONLY on pre-migration .bak targets. The
+        # initial _read_raw_json uses _secure_read_text (not patched)
+        # so the load progresses past JSON parsing to reach
+        # _backup_before_migration.
+        import voice_typer.server.config as _config_mod
 
-        def _failing_copy2(src, dst, *, follow_symlinks=True):
-            raise OSError(28, "No space left on device")
+        original_secure_write = _config_mod._secure_atomic_write
 
-        monkeypatch.setattr(_shutil, "copy2", _failing_copy2)
+        def _failing_secure_write(path, content, *args, **kwargs):
+            if "pre-migration-v" in str(path) and str(path).endswith(".bak"):
+                raise OSError(28, "No space left on device (simulated)")
+            return original_secure_write(path, content, *args, **kwargs)
+
+        monkeypatch.setattr(_config_mod, "_secure_atomic_write", _failing_secure_write)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()

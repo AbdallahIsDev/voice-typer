@@ -258,5 +258,95 @@ class TestNewUx026PunctuationCheatSheetSourceOfTruth:
         assert "PUNCT_WORD_MAP" not in source
 
 
+class TestXzR6As02ElectronBinaryHashCheck:
+    """XZ-R6-AS-02: optional SHA-256 verification of the Electron binary.
+
+    ``_electron_build._electron_binary`` returns the dev-mode Electron
+    binary path with no integrity check by default. The fix adds an
+    OPT-IN check: when ``VOICE_TYPER_ELECTRON_SHA256`` is set to a
+    64-char hex SHA-256, the binary is hashed on disk and compared.
+    On mismatch / unreadable file / malformed env var, the function
+    returns ``None`` (forcing fallback to ``npm run dev``). When the
+    env var is unset, behaviour is unchanged.
+    """
+
+    def test_no_env_var_returns_path_when_binary_exists(self, monkeypatch, tmp_path):
+        """Without ``VOICE_TYPER_ELECTRON_SHA256``, return the path."""
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        (fake_client / "node_modules" / "electron" / "dist").mkdir(parents=True)
+        binary = fake_client / "node_modules" / "electron" / "dist" / "electron"
+        binary.write_bytes(b"fake-electron-binary")
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        monkeypatch.setattr(eb, "is_windows", lambda: False)
+        monkeypatch.delenv("VOICE_TYPER_ELECTRON_SHA256", raising=False)
+        assert eb._electron_binary() == str(binary)
+
+    def test_matching_sha256_returns_path(self, monkeypatch, tmp_path):
+        """When the env var matches the binary's SHA-256, return path."""
+        import hashlib
+
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        (fake_client / "node_modules" / "electron" / "dist").mkdir(parents=True)
+        binary = fake_client / "node_modules" / "electron" / "dist" / "electron"
+        binary.write_bytes(b"known-good-electron-binary")
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        monkeypatch.setattr(eb, "is_windows", lambda: False)
+        expected = hashlib.sha256(b"known-good-electron-binary").hexdigest()
+        monkeypatch.setenv("VOICE_TYPER_ELECTRON_SHA256", expected)
+        assert eb._electron_binary() == str(binary)
+
+    def test_mismatching_sha256_returns_none(self, monkeypatch, tmp_path, caplog):
+        """When the env var does NOT match, return ``None``."""
+        import logging
+
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        (fake_client / "node_modules" / "electron" / "dist").mkdir(parents=True)
+        binary = fake_client / "node_modules" / "electron" / "dist" / "electron"
+        binary.write_bytes(b"tampered-electron-binary")
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        monkeypatch.setattr(eb, "is_windows", lambda: False)
+        wrong_sha = "0" * 64
+        monkeypatch.setenv("VOICE_TYPER_ELECTRON_SHA256", wrong_sha)
+        with caplog.at_level(logging.ERROR, logger="voice_typer.server._electron_build"):
+            result = eb._electron_binary()
+        assert result is None
+        assert any("CHECKSUM MISMATCH" in r.message for r in caplog.records)
+
+    def test_malformed_env_var_returns_none(self, monkeypatch, tmp_path, caplog):
+        """A non-hex env var value is rejected (rather than guessing)."""
+        import logging
+
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        (fake_client / "node_modules" / "electron" / "dist").mkdir(parents=True)
+        binary = fake_client / "node_modules" / "electron" / "dist" / "electron"
+        binary.write_bytes(b"electron-binary")
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        monkeypatch.setattr(eb, "is_windows", lambda: False)
+        # "xyz" * 32 = 96 chars, not a valid 64-char hex SHA-256.
+        monkeypatch.setenv("VOICE_TYPER_ELECTRON_SHA256", "xyz" * 32)
+        with caplog.at_level(logging.ERROR, logger="voice_typer.server._electron_build"):
+            result = eb._electron_binary()
+        assert result is None
+        assert any("not a 64-char hex SHA-256" in r.message for r in caplog.records)
+
+    def test_missing_binary_returns_none_with_env_var_set(self, monkeypatch, tmp_path):
+        """No binary on disk + env var set → ``None``."""
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        monkeypatch.setattr(eb, "is_windows", lambda: False)
+        monkeypatch.setenv("VOICE_TYPER_ELECTRON_SHA256", "0" * 64)
+        assert eb._electron_binary() is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
