@@ -45,6 +45,20 @@ const DASHBOARD_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "Dashboard.tsx"),
 	"utf8",
 );
+// DR-10: the 7-day activity chart JSX was extracted from Dashboard.tsx
+// into pages/dashboard/components/SevenDayActivityChart.tsx. The BG-3
+// assertions below target the chart's new home (the strings no longer
+// appear in DASHBOARD_SRC after the split).
+const SEVEN_DAY_SRC = fs.readFileSync(
+	path.resolve(
+		__dirname,
+		"..",
+		"dashboard",
+		"components",
+		"SevenDayActivityChart.tsx",
+	),
+	"utf8",
+);
 const STATCARDS_SRC = fs.readFileSync(
 	path.resolve(
 		__dirname,
@@ -71,19 +85,20 @@ const EN_JSON = JSON.parse(
 
 describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars", () => {
 	it('chart container <div> has role="img" and aria-label=', () => {
-		// The `flex items-end justify-between gap-2 h-20` class appears
-		// twice in the file — once in the loading skeleton (no
-		// role="img") and once in the rendered chart (with role="img").
-		// The chart container is the LAST occurrence, and the
-		// role="img" + aria-label= attributes appear in the 400-char
-		// window AFTER the className attribute (since they're listed
-		// after className in the JSX opening tag).
-		const chartIdx = DASHBOARD_SRC.lastIndexOf(
+		// DR-10: the chart JSX now lives in SevenDayActivityChart.tsx
+		// (extracted from Dashboard.tsx). The `flex items-end
+		// justify-between gap-2 h-20` class appears exactly once in
+		// that file (the chart container; the loading skeleton lives
+		// in DashboardSkeleton.tsx). The role="img" + aria-label=
+		// attributes appear in the 400-char window AFTER the className
+		// attribute (they're listed after className in the JSX opening
+		// tag).
+		const chartIdx = SEVEN_DAY_SRC.lastIndexOf(
 			"flex items-end justify-between gap-2 h-20",
 		);
 		expect(chartIdx).toBeGreaterThan(-1);
 
-		const window = DASHBOARD_SRC.slice(chartIdx, chartIdx + 400);
+		const window = SEVEN_DAY_SRC.slice(chartIdx, chartIdx + 400);
 		expect(window).toMatch(/role="img"/);
 		expect(window).toMatch(/aria-label=/);
 	});
@@ -92,8 +107,8 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 		// BG-8 / BG-3: the aria-label is built from the
 		// analytics.sevenDayActivityChartAria i18n key (with a {counts}
 		// interpolation param) rather than a literal English string.
-		expect(DASHBOARD_SRC).toContain("analytics.sevenDayActivityChartAria");
-		expect(DASHBOARD_SRC).toMatch(/counts:\s*d\.dailyActivity/);
+		expect(SEVEN_DAY_SRC).toContain("analytics.sevenDayActivityChartAria");
+		expect(SEVEN_DAY_SRC).toMatch(/counts:\s*d\.dailyActivity/);
 	});
 
 	it("bars are non-interactive <div> elements (not <button>)", () => {
@@ -103,11 +118,11 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 		// the closing `</div>` of the parent chart card. We search the
 		// full source for any `<button` that also has the bar's
 		// className (`bg-accent/`) — those are the bars (now <div>s).
-		const buttonWithAccentClass = /<button[^>]*bg-accent/.test(DASHBOARD_SRC);
+		const buttonWithAccentClass = /<button[^>]*bg-accent/.test(SEVEN_DAY_SRC);
 		expect(buttonWithAccentClass).toBe(false);
 
 		// And the bars are <div> with the accent class.
-		const divWithAccentClass = /<div[^>]*bg-accent/.test(DASHBOARD_SRC);
+		const divWithAccentClass = /<div[^>]*bg-accent/.test(SEVEN_DAY_SRC);
 		expect(divWithAccentClass).toBe(true);
 	});
 
@@ -117,15 +132,15 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 		// and an SR announcement of "button, button, ...". After BG-3
 		// the chart container owns the role/label and the bars are
 		// plain divs.
-		const chartIdx = DASHBOARD_SRC.lastIndexOf(
+		const chartIdx = SEVEN_DAY_SRC.lastIndexOf(
 			"flex items-end justify-between gap-2 h-20",
 		);
 		expect(chartIdx).toBeGreaterThan(-1);
 
 		// Take a window that covers the entire chart map() block.
 		const blockStart = chartIdx;
-		const blockEnd = DASHBOARD_SRC.indexOf("</div>", blockStart + 800);
-		const block = DASHBOARD_SRC.slice(blockStart, blockEnd);
+		const blockEnd = SEVEN_DAY_SRC.indexOf("</div>", blockStart + 800);
+		const block = SEVEN_DAY_SRC.slice(blockStart, blockEnd);
 		expect(block).not.toMatch(/tabIndex=\{0\}/);
 		expect(block).not.toMatch(/aria-label=\{ariaLabel\}/);
 	});
@@ -133,8 +148,8 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 	it("bar opacity is bg-accent/80 (WCAG 1.4.11 contrast, was /60)", () => {
 		// The chart bar is the only element with both `bg-accent/` and
 		// `rounded-sm` in the file. BG-3 bumps it from /60 to /80.
-		expect(DASHBOARD_SRC).toMatch(/bg-accent\/80/);
-		expect(DASHBOARD_SRC).not.toMatch(/bg-accent\/60/);
+		expect(SEVEN_DAY_SRC).toMatch(/bg-accent\/80/);
+		expect(SEVEN_DAY_SRC).not.toMatch(/bg-accent\/60/);
 	});
 });
 
