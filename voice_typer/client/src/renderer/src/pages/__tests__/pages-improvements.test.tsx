@@ -785,11 +785,12 @@ describe("R7-F18: Dashboard.tsx — dead setLoading removed", () => {
 describe("CR-57: Microphone.tsx — polling gated on visibility + active state", () => {
 	it("source checks document.visibilityState and the testRunning/micMonitoring refs inside the interval", async () => {
 		const fs = await import("node:fs");
-		// CR-57: the polling logic lives in useMicrophoneTest.ts
-		// (extracted from the former Microphone.tsx monolith). Read
-		// the actual source file that contains the interval closure.
+		// CR-57: the polling logic was extracted from the former
+		// useMicrophoneTest monolith into useMicrophoneLevelMonitor
+		// (DR-11). Read the actual source file that contains the
+		// mic_level push handler closure.
 		const src = fs.readFileSync(
-			"src/renderer/src/pages/microphone/hooks/useMicrophoneTest.ts",
+			"src/renderer/src/pages/microphone/hooks/useMicrophoneLevelMonitor.ts",
 			"utf8",
 		);
 		// The visibility check.

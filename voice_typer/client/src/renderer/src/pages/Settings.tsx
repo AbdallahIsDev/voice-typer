@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
@@ -36,6 +36,17 @@ import {
 } from "./_tabBarStyles";
 
 const LS_KEY = "voice-typer-settings-tab";
+
+// DR-9 / 1-C Finding 11: keys excluded from reset-to-defaults because they
+// encode one-time state (schema version, onboarding flag, OS-specific
+// warning dismissal) that must survive a factory reset of user-tunable
+// preferences. Hoisted to module scope so `resetToDefaults` can be a
+// stable useCallback without re-allocating the list each render.
+const CONFIG_PROTECTED_KEYS = [
+	"schema_version",
+	"wayland_warned",
+	"onboarding_completed",
+] as const;
 
 function getSavedTab(): SettingsTab {
 	try {
@@ -86,9 +97,6 @@ export default function SettingsPage() {
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
 	const [settingsFilter, setSettingsFilter] = useState("");
-	// UX-18: render-phase counter for the empty-state sentinel.
-	const visibleMatchCountRef = useRef(0);
-	const [hasAnyVisibleRow, setHasAnyVisibleRow] = useState(true);
 	const [activeTab, setActiveTab] = useState<SettingsTab>(getSavedTab);
 	const scrollPositionsRef = useRef<Record<SettingsTab, number>>({
 		appearance: 0,
@@ -191,7 +199,11 @@ export default function SettingsPage() {
 		}
 	}, [loadConfig]);
 
-	const resetToDefaults = async () => {
+	// DR-12: reset-to-defaults wrapped in useCallback so ConfirmDialog's
+	// `onConfirm` prop identity stays stable across renders. The
+	// CONFIG_PROTECTED_KEYS blocklist (above) is hoisted to module scope so
+	// it doesn't need to be a dep.
+	const resetToDefaults = useCallback(async () => {
 		if (!config) return;
 		setShowResetDialog(false);
 		try {
@@ -200,13 +212,7 @@ export default function SettingsPage() {
 				const safeDefaults: Record<string, unknown> = {};
 				for (const [key, value] of Object.entries(defaults)) {
 					if (value === "<redacted>") continue;
-					if (
-						[
-							"schema_version",
-							"wayland_warned",
-							"onboarding_completed",
-						].includes(key)
-					)
+					if ((CONFIG_PROTECTED_KEYS as readonly string[]).includes(key))
 						continue;
 					safeDefaults[key] = value;
 				}
@@ -219,7 +225,7 @@ export default function SettingsPage() {
 			console.error("Failed to reset to defaults:", err);
 			showSnack(t("settings.resetFailed"), "error");
 		}
-	};
+	}, [config, call, updateConfig, showSnack]);
 
 	// Local wrapper around the useTheme handleThemeChange so the Color
 	// Scheme Select doesn't revert while the debounced save is in flight.
@@ -233,37 +239,56 @@ export default function SettingsPage() {
 		[mergeExternalConfig, handleThemeChange],
 	);
 
-	// UX-18: empty-state sentinel — recompute on every render and push
-	// the boolean into state when it changes.
-	useEffect(() => {
-		const next = visibleMatchCountRef.current > 0;
-		setHasAnyVisibleRow((prev) => (prev === next ? prev : next));
-	});
-	useEffect(() => {
-		if (!settingsFilter.trim()) setHasAnyVisibleRow(true);
+	// DR-12: empty-state sentinel — previously a render-phase mutation
+	// anti-pattern (a ref bumped during children's render + a no-deps
+	// useEffect that flipped `hasAnyVisibleRow` state). Now derived
+	// purely from `settingsFilter` via useMemo: if no tab label (across
+	// all four tabs + the PrewarmAndUpdates rows) matches the query, the
+	// empty banner is shown. The label sets come from the same
+	// `getTabLabels()` / `getPrewarmAndUpdatesLabels()` helpers used by
+	// `handleSearchChange`, so the derivation stays consistent with the
+	// auto-switch scoring.
+	const hasAnyVisibleRow = useMemo(() => {
+		if (!settingsFilter.trim()) return true;
+		const q = settingsFilter.toLowerCase();
+		const tabLabels = getTabLabels();
+		const allLabels = [
+			...Object.values(tabLabels).flat(),
+			...getPrewarmAndUpdatesLabels(),
+		];
+		return allLabels.some((label) => label.toLowerCase().includes(q));
 	}, [settingsFilter]);
 
 	// Fix #1: filter predicate — wrapped in useCallback with
 	// [settingsFilter] deps so memoized section children don't re-render
-	// unless the query actually changes. Bumps a render-phase counter on
-	// every positive match; the layout effect above reads the counter to
-	// derive `hasAnyVisibleRow`. NOTE: declared BEFORE the `if (!config)`
-	// early return so React's Rules of Hooks are satisfied (useCallback
-	// is a hook and must be called unconditionally on every render).
-	visibleMatchCountRef.current = 0;
+	// unless the query actually changes. DR-12: this is now a PURE
+	// predicate (no render-phase side effect) — `hasAnyVisibleRow` is
+	// derived above via useMemo from the same label set. NOTE: declared
+	// BEFORE the `if (!config)` early return so React's Rules of Hooks are
+	// satisfied (useCallback is a hook and must be called unconditionally
+	// on every render).
 	const _filter_settings = useCallback(
 		(label: string, info?: string, sectionTitle?: string): boolean => {
 			if (!settingsFilter.trim()) return true;
 			const q = settingsFilter.toLowerCase();
-			const match =
+			return (
 				label.toLowerCase().includes(q) ||
 				info?.toLowerCase().includes(q) ||
 				sectionTitle?.toLowerCase().includes(q) ||
-				false;
-			if (match) visibleMatchCountRef.current++;
-			return match;
+				false
+			);
 		},
 		[settingsFilter],
+	);
+
+	const sectionProps = useMemo(
+		() => ({
+			config,
+			updateConfig,
+			updateConfigDebounced,
+			isVisible: _filter_settings,
+		}),
+		[config, updateConfig, updateConfigDebounced, _filter_settings],
 	);
 
 	if (!config) {
@@ -279,13 +304,6 @@ export default function SettingsPage() {
 
 	const showEmptyBanner = settingsFilter.trim() !== "" && !hasAnyVisibleRow;
 
-	const sectionProps = {
-		config,
-		updateConfig,
-		updateConfigDebounced,
-		isVisible: _filter_settings,
-	};
-
 	const renderTabPanel = (tab: SettingsTab, children: ReactNode) => (
 		<div
 			role="tabpanel"
@@ -300,13 +318,13 @@ export default function SettingsPage() {
 	return (
 		<div className="flex min-h-full flex-col">
 			{/* Sticky header: tabs + search (Fix #3 — SearchField
-				moved inside the sticky header below the tab bar
-				so it stays visible while scrolling settings). */}
+                                moved inside the sticky header below the tab bar
+                                so it stays visible while scrolling settings). */}
 			{/* : use the shared tabPageHeaderClassName /
-				tabPageIndicatorClassName from pages/_tabBarStyles so
-				Settings and Models render visually identical sticky
-				tab bars (same z-index, same wrapper bg + border, same
-				indicator style). */}
+                                tabPageIndicatorClassName from pages/_tabBarStyles so
+                                Settings and Models render visually identical sticky
+                                tab bars (same z-index, same wrapper bg + border, same
+                                indicator style). */}
 			<div className={tabPageHeaderClassName}>
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
@@ -352,12 +370,12 @@ export default function SettingsPage() {
 				</div>
 
 				{/* Fix #12: empty-state banner with Clear filter button using
-					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-					i18n keys. `searchNoMatch` preserves the original "{query}"
-					interpolation so screen readers + sighted users see what they
-					searched for; `noResultsMessage` adds the actionable hint
-					("Try a different search term or clear the filter..."); the
-					button gives a one-click escape hatch. */}
+                                        the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+                                        i18n keys. `searchNoMatch` preserves the original "{query}"
+                                        interpolation so screen readers + sighted users see what they
+                                        searched for; `noResultsMessage` adds the actionable hint
+                                        ("Try a different search term or clear the filter..."); the
+                                        button gives a one-click escape hatch. */}
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"
@@ -425,11 +443,11 @@ export default function SettingsPage() {
 			</div>
 
 			{/* Fix #4: sticky-bottom save indicator — stays pinned to
-				the bottom of the viewport while scrolling so
-				the user always sees the pending/saving/saved
-				state. Mirrors the sticky-top header (z-40,
-				bg-(--bg-subtle), border-border) for visual
-				rhythm. */}
+                                the bottom of the viewport while scrolling so
+                                the user always sees the pending/saving/saved
+                                state. Mirrors the sticky-top header (z-40,
+                                bg-(--bg-subtle), border-border) for visual
+                                rhythm. */}
 			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
 				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
 					<SettingsSaveIndicator

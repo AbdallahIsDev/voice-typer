@@ -9,8 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-import { checkHotkeyConflict } from "./checkHotkeyConflict";
-import { formatHotkeyLabel, validateHotkey } from "./hotkey-utils";
+import { formatHotkeyLabel, tryCommitHotkey } from "./hotkey-utils";
 import { useHotkeyCapture } from "./useHotkeyCapture";
 
 interface HotkeyPickerProps {
@@ -198,29 +197,22 @@ export function HotkeyPicker({
 									onSelect={() => {
 										const newValue =
 											mode === "single" ? `<${opt.value}>` : opt.value;
-										// Reject if another setting already uses this
-										// hotkey. The check is skipped when the user is
-										// re-selecting the current value (no actual
-										// change). The dropdown has no capture session
-										// to reset, so we just surface the error and
-										// bail.
-										const conflict = checkHotkeyConflict(
-											newValue,
+										// DR-14: shared validate-then-conflict-check.
+										// resetSession:false because the dropdown has no
+										// capture session to reset.
+										const r = tryCommitHotkey(newValue, {
+											mode,
 											value,
 											occupiedHotkeys,
 											t,
-										);
-										if (conflict) {
-											setError(conflict);
+											resetSession: false,
+										});
+										if (!r.ok) {
+											setError(r.error);
 											return;
 										}
-										const validationError = validateHotkey(newValue, mode);
-										if (validationError) {
-											setError(validationError);
-										} else {
-											setError(null);
-											onChange(newValue);
-										}
+										setError(null);
+										onChange(newValue);
 									}}
 								>
 									{opt.label}

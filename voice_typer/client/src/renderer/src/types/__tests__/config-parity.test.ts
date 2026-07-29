@@ -49,7 +49,16 @@ import type {
 } from "@/types/config";
 
 describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () => {
-	it("includes all 5 Python-allowed values (tiny.en, small.en, medium.en, qwen, parakeet)", () => {
+	it("includes all 8 Python-allowed values (tiny.en, small.en, medium.en, tiny, small, medium, qwen, parakeet)", () => {
+		// FR-4: CR-38 extended the Python allowlist to include the
+		// multilingual Whisper variants (tiny/small/medium, no `.en`
+		// suffix) that OnboardingController offers to non-English
+		// users, but the TS union was previously stuck at 5 values.
+		// The parity test previously asserted `toHaveLength(5)`,
+		// codifying the bug. Now asserts `toHaveLength(8)` to match
+		// Python `ALLOWED_USER_MODELS` in
+		// `voice_typer/server/config_validators.py:44-55`.
+		//
 		// Compile-time guard: each value must be assignable to `ModelSize`.
 		// If a future contributor removes one from the TS union, the
 		// corresponding assignment fails to compile.
@@ -57,10 +66,36 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 			"tiny.en",
 			"small.en",
 			"medium.en",
+			"tiny",
+			"small",
+			"medium",
 			"qwen",
 			"parakeet",
 		];
-		expect(values).toHaveLength(5);
+		expect(values).toHaveLength(8);
+	});
+
+	it("FR-4: includes the multilingual 'small' variant (positive conditional-type guard)", () => {
+		// FR-4: positive compile-time guard that the multilingual
+		// Whisper variants are present in the TS union. The conditional
+		// resolves to `true` while "small" is in `ModelSize`; if a
+		// future contributor removes it, the `true` assignment fails
+		// to compile.
+		type HasMultilingualSmall = "small" extends ModelSize ? true : false;
+		const _g: HasMultilingualSmall = true;
+		expect(_g).toBe(true);
+	});
+
+	it("FR-4: includes the multilingual 'tiny' and 'medium' variants (positive conditional-type guards)", () => {
+		// FR-4: additional positive compile-time guards covering the
+		// other two multilingual variants added by CR-38. Same
+		// pattern as the 'small' guard above.
+		type HasMultilingualTiny = "tiny" extends ModelSize ? true : false;
+		type HasMultilingualMedium = "medium" extends ModelSize ? true : false;
+		const _tiny: HasMultilingualTiny = true;
+		const _medium: HasMultilingualMedium = true;
+		expect(_tiny).toBe(true);
+		expect(_medium).toBe(true);
 	});
 
 	it("does NOT include the legacy 'large-v3' value (intentionally excluded by Python — see config_validators.py:39-42 comment)", () => {
@@ -138,6 +173,84 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		// open-ended preset forwarding).  Documented presets:
 		const values: string[] = ["professional", "casual", "email", "code"];
 		expect(values).toHaveLength(4);
+	});
+});
+
+describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate_threshold — REMOVED from wire post-v3", () => {
+	it("all three fields are OPTIONAL (omittable from a literal)", () => {
+		// FR-67: these fields were REMOVED from the Python Config
+		// dataclass (`voice_typer/server/config.py:775-781, 784-786,
+		// 837-840`) — existing `config.json` files that still carry
+		// them are silently scrubbed by the v3 schema migration, so
+		// they're NOT on the wire post-v3. The TS interface marks
+		// them as OPTIONAL (`?:`) with `@deprecated` tags, matching
+		// the precedent set by `push_to_talk_hotkey` (server-controlled
+		// only — kept in the type for config-file back-compat only).
+		//
+		// Compile-time guards: each of the three fields must be
+		// `T | undefined` (optional). We use a conditional-type guard:
+		// `undefined extends T ? true : false` resolves to `true` only
+		// when `T` admits `undefined` (i.e. is optional). If a future
+		// contributor re-adds the `?:` -> `:` (drops optionality), the
+		// `true` assignment fails to compile.
+		type IsOptional<T> = undefined extends T ? true : false;
+		type PerSessionOptional = IsOptional<
+			VoiceTyperConfig["volume_duck_per_session"]
+		>;
+		type SmartOptional = IsOptional<VoiceTyperConfig["volume_duck_smart"]>;
+		type GateThresholdOptional = IsOptional<
+			VoiceTyperConfig["noise_filter_gate_threshold"]
+		>;
+		const _perSession: PerSessionOptional = true;
+		const _smart: SmartOptional = true;
+		const _gate: GateThresholdOptional = true;
+		expect(_perSession).toBe(true);
+		expect(_smart).toBe(true);
+		expect(_gate).toBe(true);
+	});
+
+	it("the fields are still readable as `T | undefined` for back-compat with stale config files", () => {
+		// FR-67: even though the fields are no longer on the wire
+		// post-v3, the TS type keeps them OPTIONAL so renderer code
+		// can still read stale on-disk config files / older sidecar
+		// responses that echo them. The values surface as
+		// `T | undefined`.
+		const cfg = {} as VoiceTyperConfig;
+		const _perSession: boolean | undefined = cfg.volume_duck_per_session;
+		const _smart: boolean | undefined = cfg.volume_duck_smart;
+		const _gate: number | undefined = cfg.noise_filter_gate_threshold;
+		expect(_perSession).toBeUndefined();
+		expect(_smart).toBeUndefined();
+		expect(_gate).toBeUndefined();
+	});
+});
+
+describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture — RUNTIME switches per ADR 0009 (NOT deprecated)", () => {
+	it("both fields are still REQUIRED on VoiceTyperConfig (compile-time presence guard)", () => {
+		// FR-67: per ADR 0009, these two fields are RUNTIME switches
+		// (server-controlled, NOT IPC-settable). The Python Config
+		// dataclass at `voice_typer/server/config.py:842-843` declares
+		// them as `bool = True` and they're actively read by
+		// `level_monitor.py` / synced by `config_applier.py`. The
+		// previous `// DEPRECATED` TS comments were incorrect — these
+		// are live runtime switches, not deprecated fields. They're
+		// NOT in the IPC allowlist (renderer `set_config(...)` calls
+		// are rejected by the validator), but they ARE echoed on
+		// `get_config` and the renderer must surface them in the UI.
+		//
+		// Compile-time guard: accessing the fields on a value of type
+		// `VoiceTyperConfig` must type-check (NOT `boolean | undefined`
+		// — they're required). If a future contributor removes either
+		// field from the interface or makes them optional, the
+		// `boolean` (non-undefined) annotation fails to compile.
+		const cfg = {} as VoiceTyperConfig;
+		const _rnnoise: boolean = cfg.noise_filter_rnnoise;
+		const _postCapture: boolean = cfg.noise_filter_post_capture;
+		// Runtime sanity: `{} as VoiceTyperConfig` is an unsafe cast so
+		// the fields are actually `undefined` at runtime — but the
+		// *static* type is `boolean` (required, non-optional).
+		expect(_rnnoise).toBeUndefined();
+		expect(_postCapture).toBeUndefined();
 	});
 });
 

@@ -29,6 +29,7 @@ import {
 	isReserved,
 	validateHotkey as validateHotkeyShared,
 } from "./hotkey-validation";
+import { checkHotkeyConflict } from "./checkHotkeyConflict";
 
 // Re-export the shared validation API so callers can use either
 // ``hotkey-utils`` or ``hotkey-validation`` — they're equivalent.
@@ -501,4 +502,233 @@ export function validateHotkey(
 		return t("hotkey.errors.fnMacOnlyShort");
 	}
 	return null;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// DR-13: Hotkey capture state machine (reducer + types)
+//
+// Extracted from ``useHotkeyCapture.ts`` so the reducer is a pure,
+// unit-testable function. The hook calls ``useReducer(hotkeyCaptureReducer,
+// initialHotkeyCaptureState)`` and dispatches actions; side-effects
+// (calling ``onChange``, ``onCaptureStart``/``onCaptureEnd``, clearing
+// timers) live in the hook, NOT in the reducer.
+//
+// The reducer tracks ONLY the visible UI state:
+//   - status: idle → capturing → committed | cancelled (→ error is unused
+//     in practice because validation failures keep the user in capture
+//     mode; kept in the union for future use)
+//   - error: the localized error string shown under the picker
+//   - secondsRemaining: the 30s capture countdown
+//   - heldModifiersLabel: the live "Holding: …" label
+//
+// The hook retains refs for genuine mutable state NOT in the reducer
+// (held/session key sets, ESC-pressed flag, timer IDs, container DOM
+// ref, unsupported-combo label).
+// ────────────────────────────────────────────────────────────────────
+
+/** How long the picker stays in capture mode before auto-exiting. */
+export const CAPTURE_TIMEOUT_SECONDS = 30;
+
+/**
+ * Canonical modifier order. Modifiers are stored in the session set in
+ * insertion order, but the captured hotkey must be identical regardless
+ * of press order — so we always emit modifiers in this canonical order
+ * before committing.
+ */
+export const CANONICAL_MOD_ORDER = [
+	"ctrl",
+	"shift",
+	"alt",
+	"cmd",
+	"win",
+	"super",
+	"fn",
+] as const;
+
+export type HotkeyCaptureStatus =
+	| "idle"
+	| "capturing"
+	| "committed"
+	| "cancelled"
+	| "error";
+
+export type HotkeyCaptureState = {
+	status: HotkeyCaptureStatus;
+	error: string | null;
+	secondsRemaining: number;
+	heldModifiersLabel: string;
+};
+
+export type HotkeyCaptureAction =
+	| { type: "Start" }
+	| { type: "KeyDown"; modifiers: string; nonModifiers: string }
+	| { type: "KeyUp"; modifiers: string; nonModifiers: string }
+	| { type: "EscPressed" }
+	| { type: "EscReleased" }
+	| { type: "Timeout" }
+	| { type: "BackendCancel" }
+	| { type: "OutsideClick" }
+	| { type: "CommitAttempt"; hotkey: string }
+	| { type: "CommitSuccess" }
+	| { type: "CommitFailure"; error: string }
+	| { type: "Tick"; secondsRemaining: number }
+	// SetError is a slight extension to the DR-13 spec's action list:
+	// the hook exposes ``setError`` for the preset-dropdown onSelect
+	// (which can both set and clear the error), and that path doesn't
+	// represent a commit failure. ``CommitFailure`` requires a non-null
+	// error string, so we need a separate action that accepts ``null``.
+	| { type: "SetError"; error: string | null };
+
+export const initialHotkeyCaptureState: HotkeyCaptureState = {
+	status: "idle",
+	error: null,
+	secondsRemaining: 0,
+	heldModifiersLabel: "",
+};
+
+/**
+ * Build the human-readable "Holding: …" label from a comma-joined
+ * modifier list (the format the hook dispatches in ``KeyDown`` /
+ * ``KeyUp`` actions). Empty/blank string → empty label.
+ */
+function buildHeldModifiersLabelFromAction(modifiers: string): string {
+	if (!modifiers) return "";
+	const mods = modifiers
+		.split(",")
+		.map((m) => m.trim())
+		.filter(Boolean);
+	if (mods.length === 0) return "";
+	return formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
+}
+
+/**
+ * Pure reducer for the hotkey capture state machine.
+ *
+ * Invariants:
+ *   - No side effects. No DOM access, no timer manipulation, no IPC.
+ *   - All "leave capturing" transitions (cancel/commit/timeout) reset
+ *     ``heldModifiersLabel`` and ``secondsRemaining`` to 0 so the UI
+ *     doesn't flash a stale label/timer after exit.
+ *   - ``KeyDown``/``KeyUp`` are no-ops when not capturing (the hook
+ *     also short-circuits via ``capturingRef``, but the reducer guards
+ *     defensively in case a stale dispatch slips through).
+ *   - ``CommitFailure`` / ``SetError`` only touch ``error`` — they do
+ *     NOT change ``status``. The user stays in capture mode after a
+ *     validation error so they can try again without re-clicking
+ *     Record.
+ */
+export function hotkeyCaptureReducer(
+	state: HotkeyCaptureState,
+	action: HotkeyCaptureAction,
+): HotkeyCaptureState {
+	switch (action.type) {
+		case "Start":
+			return {
+				...state,
+				status: "capturing",
+				error: null,
+				secondsRemaining: CAPTURE_TIMEOUT_SECONDS,
+				heldModifiersLabel: "",
+			};
+		case "KeyDown":
+			if (state.status !== "capturing") return state;
+			return {
+				...state,
+				heldModifiersLabel: buildHeldModifiersLabelFromAction(action.modifiers),
+			};
+		case "KeyUp":
+			if (state.status !== "capturing") return state;
+			return {
+				...state,
+				heldModifiersLabel: buildHeldModifiersLabelFromAction(action.modifiers),
+			};
+		case "EscPressed":
+			// ESC-KEYUP-FIX: no visible state change here — the ESC
+			// press is tracked in ``escPressedRef`` (genuine mutable
+			// state) and the cancel happens on ESC release via
+			// ``EscReleased``.
+			return state;
+		case "EscReleased":
+		case "Timeout":
+		case "BackendCancel":
+		case "OutsideClick":
+			return state.status === "capturing"
+				? {
+						...state,
+						status: "cancelled",
+						error: null,
+						heldModifiersLabel: "",
+						secondsRemaining: 0,
+					}
+				: state;
+		case "CommitAttempt":
+			// The caller validates the hotkey (via ``tryCommitHotkey``)
+			// and dispatches ``CommitSuccess`` or ``CommitFailure``.
+			// No state change here.
+			return state;
+		case "CommitSuccess":
+			return state.status === "capturing"
+				? {
+						...state,
+						status: "committed",
+						error: null,
+						heldModifiersLabel: "",
+						secondsRemaining: 0,
+					}
+				: state;
+		case "CommitFailure":
+			// Validation/conflict failure: keep status as-is (user
+			// stays in capture mode). Only set the error.
+			return { ...state, error: action.error };
+		case "SetError":
+			return { ...state, error: action.error };
+		case "Tick":
+			return { ...state, secondsRemaining: action.secondsRemaining };
+		default:
+			return state;
+	}
+}
+
+/**
+ * DR-14: shared commit-validation helper. Consolidates the duplicated
+ * validate-then-conflict-check sequence that previously lived inline in
+ * ``commitModifierOnlyCombo``, ``commitFullCombo`` (useHotkeyCapture.ts)
+ * and the preset-dropdown ``onSelect`` (HotkeyPicker.tsx).
+ *
+ * Pure: returns ``{ ok: true }`` or ``{ ok: false, error }`` without
+ * touching any React state or calling any callbacks. The caller decides
+ * what to do with the result.
+ *
+ * @param newHotkey       The hotkey string to validate (e.g. ``"<ctrl>+<shift>+v"``).
+ * @param opts.mode       ``"single"`` (dictation key) or ``"combo"`` (re-paste etc.).
+ * @param opts.value      The picker's current value — re-selecting the same
+ *                        value is allowed (conflict check skips it).
+ * @param opts.occupiedHotkeys  Hotkey strings already claimed by sibling pickers.
+ * @param opts.t          The i18n ``t`` function.
+ * @param opts.resetSession  Hint flag for the caller: ``true`` for capture
+ *                        sessions (call ``resetCaptureSession()`` after),
+ *                        ``false`` for the preset dropdown (no session to
+ *                        reset). Currently unused inside this helper — the
+ *                        caller uses it to decide whether to reset.
+ */
+export function tryCommitHotkey(
+	newHotkey: string,
+	opts: {
+		mode: "single" | "combo";
+		value: string;
+		occupiedHotkeys: string[] | undefined;
+		t: (key: string, params?: Record<string, string>) => string;
+		resetSession: boolean;
+	},
+): { ok: true } | { ok: false; error: string } {
+	const validationError = validateHotkey(newHotkey, opts.mode);
+	if (validationError) return { ok: false, error: validationError };
+	const conflict = checkHotkeyConflict(
+		newHotkey,
+		opts.value,
+		opts.occupiedHotkeys,
+		opts.t,
+	);
+	if (conflict) return { ok: false, error: conflict };
+	return { ok: true };
 }

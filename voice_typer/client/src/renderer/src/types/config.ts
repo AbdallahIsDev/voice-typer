@@ -1,7 +1,19 @@
+// FR-4: must mirror Python `ALLOWED_USER_MODELS` in
+// `voice_typer/server/config_validators.py:44-55`. CR-38 extended the
+// Python allowlist to include the multilingual Whisper variants
+// (tiny/small/medium, no `.en` suffix) that OnboardingController offers
+// to non-English users, but the TS union was never updated — TS code
+// that pattern-matches on `ModelSize` silently missed 3 enum branches
+// and the Settings UI <select> couldn't surface multilingual variants
+// post-onboarding. `large-v3` is intentionally NOT included (it
+// normalizes to "small.en" — see config_validators.py:39-43 comment).
 export type ModelSize =
 	| "tiny.en"
 	| "small.en"
 	| "medium.en"
+	| "tiny"
+	| "small"
+	| "medium"
 	| "qwen"
 	| "parakeet";
 
@@ -267,9 +279,43 @@ export interface VoiceTyperConfig {
 	// Volume ducking
 	volume_duck_enabled: boolean;
 	volume_duck_level: number;
-	volume_duck_per_session: boolean;
+	/**
+	 * @deprecated FR-67 / UX-2 / GT-58: REMOVED from the Python Config
+	 * dataclass (`voice_typer/server/config.py:775-781`) — ducking now
+	 * always applies to the master volume cross-platform. Existing
+	 * `config.json` files that still carry the key are silently
+	 * scrubbed by the v3 schema migration, so the field is NOT on the
+	 * wire post-v3. Kept in the TS type as OPTIONAL for back-compat
+	 * with stale on-disk config files / older sidecar responses that
+	 * still echo it; renderer code MUST NOT read or write it.
+	 *
+	 * Following the precedent set by `push_to_talk_hotkey` (above):
+	 * the field survives only as a config-file back-compat key. A
+	 * future coordinated change should drop the field from the TS
+	 * interface AND from every test fixture that includes it —
+	 * deferred because the test fixtures are owned by other
+	 * sub-agents.
+	 */
+	volume_duck_per_session?: boolean;
 	volume_duck_fade_ms: number;
-	volume_duck_smart: boolean;
+	/**
+	 * @deprecated FR-67 / UX-2 / GT-58: REMOVED from the Python Config
+	 * dataclass (`voice_typer/server/config.py:784-786`) — smart duck
+	 * is now ALWAYS ON when `volume_duck_enabled` is True. Existing
+	 * `config.json` files that still carry the key are silently
+	 * scrubbed by the v3 schema migration, so the field is NOT on the
+	 * wire post-v3. Kept in the TS type as OPTIONAL for back-compat
+	 * with stale on-disk config files / older sidecar responses that
+	 * still echo it; renderer code MUST NOT read or write it.
+	 *
+	 * Following the precedent set by `push_to_talk_hotkey` (above):
+	 * the field survives only as a config-file back-compat key. A
+	 * future coordinated change should drop the field from the TS
+	 * interface AND from every test fixture that includes it —
+	 * deferred because the test fixtures are owned by other
+	 * sub-agents.
+	 */
+	volume_duck_smart?: boolean;
 	volume_duck_smart_poll_interval_ms: number;
 
 	// ADR 0007: Audio enhancement preset.
@@ -292,14 +338,54 @@ export interface VoiceTyperConfig {
 	noise_filter_highpass: boolean;
 	noise_filter_highpass_cutoff_hz: number;
 	noise_filter_gate: boolean;
-	noise_filter_gate_threshold: number; // DEPRECATED
+	/**
+	 * @deprecated FR-67 / GT-58: REMOVED from the Python Config
+	 * dataclass (`voice_typer/server/config.py:837-840`) — replaced
+	 * by the open/close threshold pair below per ADR 0007. Existing
+	 * `config.json` files that still carry the key are silently
+	 * scrubbed by the v3 schema migration, so the field is NOT on
+	 * the wire post-v3. Kept in the TS type as OPTIONAL for
+	 * back-compat with stale on-disk config files / older sidecar
+	 * responses that still echo it; renderer code MUST NOT read or
+	 * write it.
+	 *
+	 * Following the precedent set by `push_to_talk_hotkey` (above):
+	 * the field survives only as a config-file back-compat key. A
+	 * future coordinated change should drop the field from the TS
+	 * interface AND from every test fixture that includes it —
+	 * deferred because the test fixtures are owned by other
+	 * sub-agents.
+	 */
+	noise_filter_gate_threshold?: number; // DEPRECATED
 	noise_filter_gate_hold_ms: number;
 	noise_filter_gate_open_threshold_db: number;
 	noise_filter_gate_close_threshold_db: number;
 	noise_filter_gate_attack_ms: number;
 	noise_filter_gate_release_ms: number;
-	noise_filter_rnnoise: boolean; // DEPRECATED
-	noise_filter_post_capture: boolean; // DEPRECATED
+	// FR-67 / ADR 0009: RUNTIME (server-controlled, not IPC-settable
+	// per ADR 0009). The Python `Config` dataclass at
+	// `voice_typer/server/config.py:842` declares
+	// `noise_filter_rnnoise: bool = True` (legacy field kept for
+	// back-compat with old config.json files, migrated/ignored per
+	// ADR 0007 §5). It is NOT in the IPC allowlist — renderer
+	// `set_config({ noise_filter_rnnoise: ... })` calls are rejected
+	// by the validator. The field IS read by `level_monitor.py` and
+	// synced by `config_applier.py` (which derives it from
+	// `audio_preset`). The previous `// DEPRECATED` comment was
+	// incorrect — this is a live runtime switch, not a deprecated
+	// field.
+	noise_filter_rnnoise: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
+	// FR-67 / ADR 0009: RUNTIME (server-controlled, not IPC-settable
+	// per ADR 0009). The Python `Config` dataclass at
+	// `voice_typer/server/config.py:843` declares
+	// `noise_filter_post_capture: bool = True` (runtime switch — see
+	// ADR 0009). Actively read by `level_monitor.py` and synced by
+	// `config_applier.py`. NOT in the IPC allowlist — renderer
+	// `set_config({ noise_filter_post_capture: ... })` calls are
+	// rejected by the validator. The previous `// DEPRECATED`
+	// comment was incorrect — this is a live runtime switch, not a
+	// deprecated field.
+	noise_filter_post_capture: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
 	// GT-51: tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
 	// frozenset in `voice_typer/server/config_validators.py`
 	// ({"rnnoise", "deepfilternet", "none"}). The historical "speex"
