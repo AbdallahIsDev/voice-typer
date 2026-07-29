@@ -10954,7 +10954,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 ---
 
 ## DJ-76 — vad.compute_vad_prob rebuilds _expected_samples dict and uses always-copy .to(float32) per call
-**Status:** ✅ Fixed
+**Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
 **Description:** `vad.py:251-263, 255`. `compute_vad_prob` rebuilds a `_expected_samples` dict and runs `.to(torch.float32)` (always-copy) per call. `torch.Tensor.to(dtype, copy=False)` returns the same tensor if dtype already matches. The pipeline always feeds float32 (audio_pipeline.py:441, audio_processor.py:318 — both `.astype(np.float32)` upstream), so the copy is pure waste.
@@ -10963,7 +10963,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 **Root Cause:** Suspected — defensive dtype coercion that predates the float32-everywhere invariant upstream.
 
-**Progress:** Hoisted _EXPECTED_SAMPLES to module scope. Replaced .to(torch.float32) with .to(torch.float32, copy=False) in compute_vad_prob.
+**Progress:** NOT applied — `_expected_samples` dict still allocated locally in compute_vad_prob (vad.py:255); `.to(torch.float32)` still uses always-copy variant.
 
 **Related Files:**
 - `voice_typer/server/vad.py`
@@ -10992,7 +10992,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 ---
 
 ## DJ-78 — vad.is_speech RMS-fallback allocates intermediate squared array
-**Status:** ✅ Fixed
+**Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
 **Description:** `vad.py:322`. The RMS-fallback path in `is_speech()` allocates an intermediate squared array: `rms = float(np.sqrt(np.mean(audio_chunk**2)))`. `audio_chunk**2` materializes a full-sized float array before mean+sqrt. The rest of the codebase uses the allocation-free `np.dot(flat, flat) / flat.size` pattern. This path runs whenever VAD is unavailable (torch missing, model load failed) — which is exactly the configuration shipped to resource-constrained users.
@@ -11001,7 +11001,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 **Root Cause:** Verified — older pattern that was optimized elsewhere but not in is_speech.
 
-**Progress:** Replaced np.mean(audio**2) with np.dot(flat, flat)/flat.size in vad.is_speech RMS-fallback path.
+**Progress:** NOT applied — `vad.is_speech` (vad.py:322) still uses `np.mean(audio_chunk**2)` pattern.
 
 **Related Files:**
 - `voice_typer/server/vad.py`
@@ -11011,7 +11011,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 ---
 
 ## DJ-79 — Silero VAD never moved to CUDA — undocumented intentional decision
-**Status:** ✅ Fixed
+**Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
 **Description:** `vad.py:148` (`_load_model`) + `271` (model inference call). The Silero VAD model is loaded via `torch.jit.load(str(_VAD_MODEL_PATH))` and never moved to a CUDA device even when available. Inference: `return model(audio_tensor, sample_rate).item()` — the tensor is created via `torch.from_numpy(audio_chunk)` which is CPU-only. Every other ML path in the codebase explicitly probes CUDA: parakeet_engine.py:542, qwen_engine.py:144, transcription.py:295, config.py:442. VAD is the only one that doesn't even probe.
@@ -11020,7 +11020,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 **Root Cause:** Suspected (intentional but undocumented).
 
-**Progress:** Added documenting comment in vad._load_model explaining intentional CPU-only decision for Silero VAD.
+**Progress:** NOT applied — no CUDA device probe or explaining comment added to vad._load_model. Only a brief "runs in real-time on CPU" in module docstring.
 
 **Related Files:**
 - `voice_typer/server/vad.py`
@@ -11402,40 +11402,43 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 ---
 
 ## DJ-102 — Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read
-**Status:** ✅ Fixed
+**Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
-**Description:** `recorder.py:611-612, 1818-1819, 3114-3115`. `_previous_chunk_pending` and `_skipped_frames` are declared in `__init__`, reset in `_reset_session_state`, and `_skipped_frames` is incremented in `_audio_callback_dispatch` (line 3115: `self._skipped_frames += 1  # preserve old counter for diagnostics`). But NEITHER attribute is ever READ anywhere in the codebase. The reset comment even says: 'RT-SAFE-001: the _previous_chunk_pending flag is no longer used (replaced by ring buffer overflow detection), but we keep resetting it for diagnostic cleanliness.'
+**Description:** `recorder.py:638-639`, `session_state.py:205-210`, `capture.py:192`. `_previous_chunk_pending` and `_skipped_frames` are declared in `__init__`, reset in `_reset_session_state`, and `_skipped_frames` is incremented in capture.py (`self._skipped_frames += 1`). But NEITHER attribute is ever READ anywhere in the codebase. The reset comment says: 'RT-SAFE-001: the _previous_chunk_pending flag is no longer used (replaced by ring buffer overflow detection), but we keep resetting it for diagnostic cleanliness.'
 
 **User Impact:** 2 dead instance attributes + 3 lines of dead reset code + 1 line of dead increment code. Minor, but `_skipped_frames += 1` runs on every ring-buffer overflow (16 Hz hot path) for no benefit. The naming also misleads — `_skipped_frames` implies the value is consumed somewhere.
 
-**Root Cause:** Verified — `grep -r '_previous_chunk_pending'` finds only the 5 lines listed above (decl + reset + comment mentions); `grep -r '_skipped_frames'` finds the 4 lines listed above plus a `level_monitor.py` comment that REFERENCES the recorder's pattern by name. No production read, no test assertion.
+**Root Cause:** Verified — `grep -r '_previous_chunk_pending'` finds only declarations + resets + comment mentions; `grep -r '_skipped_frames'` finds only declarations + resets + increment. No production read, no test assertion.
 
-**Progress:** Deleted dead _previous_chunk_pending + _skipped_frames (init, reset, increment).
+**Progress:** NOT applied — both attrs still declared (recorder.py:638-639), reset (session_state.py:205-210), and incremented (capture.py:192). See `session_state.py:205` comment.
 
 **Related Files:**
 - `voice_typer/server/recording/recorder.py`
+- `voice_typer/server/recording/session_state.py`
+- `voice_typer/server/recording/capture.py`
 
-**Fix:** Delete the two `__init__` declarations (611-612), the two resets (1818-1819), and the increment in `_audio_callback_dispatch` (3115). Keep `_dropped_ring_chunks` (which IS read by tests and by `level_monitor.py`).
+**Fix:** Delete the two `__init__` declarations (recorder.py:638-639), the two resets (session_state.py:209-210), and the increment (capture.py:192). Keep `_dropped_ring_chunks` (which IS read by tests and by `level_monitor.py`).
 
 ---
 
 ## DJ-103 — Stale doc references to non-existent _callback_impl / _audio_callback_record
-**Status:** ✅ Fixed
+**Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
-**Description:** `recorder.py:269, 1062, 3220`. Three stale documentation references to methods that no longer exist: Line 269: 'The PortAudio callback (recording.py:start()._callback_impl) MUST complete before the next buffer arrives' — `_callback_impl` does not exist; current name is `_audio_callback_dispatch`. Line 1062: 'the primary disconnect detection is done in the audio callback via zero-filled indata detection (see _audio_callback_record)' — `_audio_callback_record` does not exist. Line 3220: 'This method contains the heavy processing pipeline that was previously in the PortAudio callback (`_callback_impl`)' — same stale reference.
+**Description:** `recorder.py:1101`, `audio_pipeline.py:544`. Two stale documentation references to methods that no longer exist: `recorder.py:1101` ('the primary disconnect detection is done in the audio callback via zero-filled indata detection (see _audio_callback_record)') — `_audio_callback_record` does not exist; current name is `_audio_callback_dispatch`. `audio_pipeline.py:544` ('This method contains the heavy processing pipeline that was previously in the PortAudio callback (`_callback_impl`)') — same stale reference to `_callback_impl`. A third reference at recorder.py:269 was cleaned up during the RW-04 refactoring.
 
-**User Impact:** Readers chasing the referenced method names waste time grepping for non-existent symbols. Especially harmful for the RT-SAFE-001 architecture comment (line 269) which is the primary documentation of the callback→worker split.
+**User Impact:** Readers chasing the referenced method names waste time grepping for non-existent symbols.
 
-**Root Cause:** Verified — these are leftover references from before the RT-SAFE-001 refactor that split the monolithic callback.
+**Root Cause:** Verified — leftover references from before the RT-SAFE-001 refactor that split the monolithic callback.
 
-**Progress:** Fixed 3 stale doc references: _callback_impl → _audio_callback_dispatch; _audio_callback_record → _audio_callback_dispatch.
+**Progress:** NOT applied — `_audio_callback_record` ref remains at recorder.py:1101; `_callback_impl` ref remains at audio_pipeline.py:544.
 
 **Related Files:**
 - `voice_typer/server/recording/recorder.py`
+- `voice_typer/server/recording/audio_pipeline.py`
 
-**Fix:** Update the three references: `_callback_impl` → `_audio_callback_dispatch` (or `_build_audio_callback` where the closure context is intended); `_audio_callback_record` → `_audio_callback_dispatch`.
+**Fix:** Update the references: `_callback_impl` → `_audio_callback_dispatch` (or `_build_audio_callback` where the closure context is intended); `_audio_callback_record` → `_audio_callback_dispatch`.
 
 ---
 
