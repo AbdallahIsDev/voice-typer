@@ -88,41 +88,6 @@ import { getLocale, type Locale, t } from "@/i18n/i18n";
 // and avoids serialising the options dict for the lookup.
 
 const _numberFormatCache = new Map<string, Intl.NumberFormat>();
-const _dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
-
-function _getCachedNumberFormat(
-	locale: Locale,
-	options: Intl.NumberFormatOptions,
-): Intl.NumberFormat {
-	// The cache key includes a stable stringification of the options
-	// so two call sites with different options don't share a formatter.
-	// The key shape is ``<locale>|<options-json>``. JSON.stringify of
-	// the small options dict is fast (microseconds) and the result is
-	// cached on the caller's options object literal (V8 caches the
-	// object-shape hash for literals), so in practice this is a single
-	// hash + string concat.
-	const key = `${locale}|${JSON.stringify(options)}`;
-	let fmt = _numberFormatCache.get(key);
-	if (fmt === undefined) {
-		fmt = new Intl.NumberFormat(locale, options);
-		_numberFormatCache.set(key, fmt);
-	}
-	return fmt;
-}
-
-function _getCachedDateTimeFormat(
-	locale: Locale,
-	options: Intl.DateTimeFormatOptions,
-): Intl.DateTimeFormat {
-	const key = `${locale}|${JSON.stringify(options)}`;
-	let fmt = _dateTimeFormatCache.get(key);
-	if (fmt === undefined) {
-		fmt = new Intl.DateTimeFormat(locale, options);
-		_dateTimeFormatCache.set(key, fmt);
-	}
-	return fmt;
-}
-
 // ── compactNumber (Dashboard / StatCards callers) ────────────────────
 
 export interface CompactNumberOptions {
