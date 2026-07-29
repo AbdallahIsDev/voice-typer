@@ -578,6 +578,22 @@ class TestDE46OpenPrewarmLogNoStrEcho:
         log_file.write_text("placeholder", encoding="utf-8")
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
 
+        # Force the POSIX editor path (xdg-open) regardless of host OS
+        # so the test is platform-independent. Patch the canonical
+        # module since status_handlers imports these inside the function.
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_windows",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_linux",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_macos",
+            lambda: False,
+        )
+
         leaky_path = "/Users/leaked_username/bin/xdg-open"
         monkeypatch.setattr(
             "subprocess.Popen",
@@ -605,6 +621,22 @@ class TestDE46OpenPrewarmLogNoStrEcho:
         log_file = log_dir / "prewarm.log"
         log_file.write_text("placeholder", encoding="utf-8")
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
+
+        # Force the POSIX editor path (xdg-open) regardless of host OS
+        # so the test is platform-independent. Patch the canonical
+        # module since status_handlers imports these inside the function.
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_windows",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_linux",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.platform_utils.is_macos",
+            lambda: False,
+        )
 
         leaky_path = "/Users/leaked_username/bin/xdg-open"
         monkeypatch.setattr(

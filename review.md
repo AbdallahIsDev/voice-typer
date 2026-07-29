@@ -1224,10 +1224,166 @@ presumably runs with all deps installed.
 **Related Files:**
 - `voice_typer/client/src/renderer/src/hooks/useConnection.ts`**Fix:** Group action selectors via `useShallow` (zustand v4.4+); OR extract actions via `useAppStore.getState()` for one-shot reads.
 **Severity:** 🟢 Low
+<<<<<<< Updated upstream
 
 ---
 
 ### XA-6 — Floating bubble has no in-bubble stop/cancel/pause, no live transcription, dead error UI, broken multi-monitor, theme sync missing
+=======
+
+## XA-1 — TitleBar mixes 3 icon systems, missing hover/transition classes on sidebar toggle, parallel button system
+
+**Status:** ⚠️ Partial (verified on Linux sandbox; sub-items 1-3 fixed (sidebar hover, duration-150, ring-3) + strokeWidth=2 standardization; sub-items 4,6 deferred — ThemeSwitch/Sidebar.test outside scope)
+**Severity:** 🟡 Medium (with one 🔴 High sub-item)
+**Description:** TitleBar.tsx uses HugeIcons, raw inline SVGs (3 different stroke widths: 1.25, 1.5, 2.0), and one text glyph (`?`) for its 8 buttons. The sidebar-toggle button (line 214) is missing the `rounded transition-colors duration-75 hover:bg-foreground/5` classes that its 3 sibling buttons (back/forward/help) have — it snaps instantly with no hover background. TitleBar buttons also use `focus-visible:ring-2 ring-ring/30` while design-system Button uses `ring-3`, creating a thinner focus ring on the top bar than on page content. TitleBar's `duration-75` hover transitions vs Sidebar's `duration-200` create two different motion languages.
+**Root Cause:** TitleBar pre-dates/sidesteps the Button component; each new button chose its own approach.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx`
+- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx` (active-state has redundant accent: both `border-l-accent` AND `before:` pseudo-element bar)
+- `voice_typer/client/src/renderer/src/components/layout/ThemeSwitch.tsx` (uses physical `bg-black/5 dark:bg-white/10` instead of `bg-foreground/5`; `rounded-full` vs Sidebar's `rounded-md`)
+- `voice_typer/client/src/renderer/src/components/ui/button.tsx` (cross-reference)
+- `voice_typer/client/src/renderer/src/components/layout/__tests__/Sidebar.test.tsx` (test asserts `border-l-(--accent)` but source uses `border-l-accent` — test rot)
+**Fix:**
+1. Add `rounded transition-colors duration-75 hover:bg-foreground/5` to sidebar-toggle button (TitleBar.tsx:214).
+2. Standardize transition timing: `duration-150` for hover/color across both TitleBar and Sidebar; keep `duration-200` for layout transitions only.
+3. Standardize focus ring: introduce shared `focusRing` class constant (`focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 outline-hidden`) in `lib/utils.ts` and apply to all primitives + TitleBar.
+4. ThemeSwitch: replace `hover:bg-black/5 dark:hover:bg-white/10` with `hover:bg-foreground/5`; consider `rounded-md` for consistency.
+5. Sidebar: remove redundant `border-l-accent` (keep only the `before:` pseudo-element, with `border-l-2 border-l-transparent` to reserve the slot).
+6. Update Sidebar.test.tsx: change `border-l-(--accent)` → `border-l-accent` to match source.
+
+---
+
+## XA-2 — Pages use inconsistent loading/empty/error patterns; EmptyState variant="error" is dead code
+
+**Status:** ⚠️ Partial (verified on Linux sandbox; ErrorVariant Storybook story added to EmptyState.stories.tsx; items 4-7 deferred — require editing non-owned files)
+**Severity:** 🟡 Medium (with one 🔴 High sub-item)
+**Description:** `EmptyState` defines `variant?: "info" | "error"` (XA-2-01) — the error variant paints a destructive ring + Alert02Icon so failure states are visually distinct from "no data yet". All 4 callers (History/Microphone/Templates/Vocabulary load-failed) pass `AlertCircleIcon` but never `variant="error"`. Grep confirms zero `variant="error"` usages — dead code. Page-level loading patterns diverge: Home uses inline per-section `<Spinner />`, Dashboard uses bespoke skeleton, History/Microphone/Templates/Vocabulary use centered full-page `<Spinner />` (causes layout shift). Refresh-failure feedback is toast (Dashboard) vs in-page EmptyState (History) vs silent swallow (Home, About). `StatCards` (Home) vs `DashboardStatCard` (Dashboard) are visually divergent for the same "today's stats" tile concept.
+**Root Cause:** Each page's load/error path was authored independently; EmptyState variant added but never wired.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.tsx` (also lacks `role="status"` / `role="alert"` — see XA-8)
+- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.stories.tsx` (no ErrorVariant story)
+- `voice_typer/client/src/renderer/src/pages/History.tsx:594-600, 586-588`
+- `voice_typer/client/src/renderer/src/pages/Microphone.tsx:806, 821-827`
+- `voice_typer/client/src/renderer/src/pages/Templates.tsx:738, 757-763`
+- `voice_typer/client/src/renderer/src/pages/Vocabulary.tsx:685, 701-707`
+- `voice_typer/client/src/renderer/src/pages/Home.tsx:799-806, 838-845, 442-473` (silent catch on refresh)
+- `voice_typer/client/src/renderer/src/pages/About.tsx:214-225, 237-240, 269` (silent catch + "—" placeholders; `about.loading` key missing — see XA-19)
+- `voice_typer/client/src/renderer/src/pages/Dashboard.tsx:384-453, 299-309`
+- `voice_typer/client/src/renderer/src/pages/History.tsx:502` (`pb-1` vs other pages' `pb-2` on LastUpdatedIndicator wrapper)
+- `voice_typer/client/src/renderer/src/pages/About.tsx:250-251` (non-standard page-layout wrapper)
+- `voice_typer/client/src/renderer/src/pages/About.tsx:54-63` (local `Row` duplicates `SettingRow` rhythm)
+- `voice_typer/client/src/renderer/src/components/dashboard/StatCards.tsx` vs `DashboardStatCard.tsx`
+**Fix:**
+1. Add `variant="error"` to all 4 load-failed EmptyState instances.
+2. Add `role={variant === "error" ? "alert" : "status"}` to EmptyState wrapper.
+3. Add `ErrorVariant` Storybook story.
+4. Standardize loading pattern: inline per-section `<Spinner />` for pages with cached data; full-page skeleton for first-load-only pages. Migrate History/Microphone/Templates/Vocabulary.
+5. Standardize refresh-failure feedback: `toast.error` for transient refresh failures + in-page EmptyState-retry when entire page is empty.
+6. Fix `pb-1` → `pb-2` in History.tsx:502.
+7. Consolidate About's wrapper to standard `<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6 space-y-8">`.
+
+---
+
+## XA-3 — UI primitives: inconsistent focus ring, hardcoded palette colors, parallel layout systems
+
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with two 🔴 High sub-items)
+**Description:** (XA-3-1) Focus ring inconsistency: core primitives (Button/Input/Select/Slider/Switch/Accordion) use `focus-visible:ring-3 focus-visible:ring-ring/30`; SegmentedControl/NumberInputStepper/KeyringStatusBadge/SearchField/InfoTooltip/ThemeSettingsSection-contrast-button use `focus-visible:ring-2 focus-visible:ring-ring/50` or `/30` — thinner+more opaque vs thicker+lighter. (XA-3-2) Hardcoded Tailwind palette colors in 4 settings/common files: SettingsSaveIndicator (`bg-amber-400/bg-sky-400/text-emerald-500`), PrewarmAndUpdates, KeyringStatusBadge, ThemeSettingsSection. No semantic `--success`/`--warning`/`--info` tokens — custom themes can't recolor status indicators. (XA-3-3) Three settings sections double-nest `divide-y divide-border` + apply `animate-fade-in` inconsistently. (XA-3-4) Bespoke action-button rows: 3 variants of `flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border`. (XA-3-5) `PrewarmAndUpdates` defines private `Row` component duplicating `SettingRow`. (XA-3-6) `ThemeSettingsSection` uses bespoke segmented-control + reset button instead of primitives. (XA-3-7) `RangeSlider` thumb uses hardcoded `bg-white` instead of `bg-background` — breaks dark mode. (XA-3-8) `ExportFormatMenu` overrides DropdownMenu primitive's content + item styling (preserves "pre-migration" visual). (XA-3-9) `Settings.tsx:385` "Clear search" button is a hand-rolled `<button>` duplicating Button's outline variant. (XA-3-10) Dead/unused prop variants: Button `size: "lg"/"icon"/"icon-lg"` (zero callers), `SettingRow.align`, `SegmentedControl.activeClassName`, `ConfirmDialog.variant="warning"` (no-op), `DialogClose`/`SelectGroup`/`SelectLabel`/`SelectSeparator` (zero callers), 11 unused DropdownMenu sub-components. (XA-3-11) `aria-label` vs `ariaLabel` prop naming inconsistent across primitives (RangeSlider/SegmentedControl use camelCase, others use JSX `aria-label`). (XA-3-12) `NumberInputStepper` disabled opacity (`opacity-30`) differs from every other primitive (`opacity-50`). (XA-3-13) `SettingRow` uses `<span>` for label (not `<label htmlFor>`) — parallel a11y system requires every caller to manually duplicate label as `aria-label`. (XA-3-14) ThemeSettingsSection fallback hex codes bypass theme token system. (XA-3-15) SegmentedControl default tabs indicator unsuitable — both production callers override.
+**Root Cause:** No shared focus-ring class constant; no semantic status tokens; primitives copied from shadcn wholesale without trimming to actual usage; SettingRow designed before useId-based label association.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/ui/{button,dialog,alert-dialog,select,slider,switch,input,tooltip,accordion,dropdown-menu,segmented-control,sonner,number-input-stepper}.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/{SettingsSaveIndicator,PrewarmAndUpdates,AiEnhancementSettingsSection,ModelSettingsSection,AudioSettingsSection,ThemeSettingsSection,TroubleshootingSettingsSection,PrivacySettingsSection}.tsx`
+- `voice_typer/client/src/renderer/src/components/common/{SettingRow,SettingsSection,PageHeading,Modal,ConfirmDialog,RangeSlider,SearchField,KeyringStatusBadge,LastUpdatedIndicator,ExportFormatMenu}.tsx`
+- `voice_typer/client/src/renderer/src/components/feedback/InfoTooltip.tsx`
+- `voice_typer/client/src/renderer/src/components/audio/AudioFilterChain.tsx`
+- `voice_typer/client/src/renderer/src/pages/Settings.tsx`
+- `voice_typer/client/src/renderer/src/lib/utils.ts` (target for shared `focusRing` constant)
+**Fix:**
+1. Add shared `focusRing` class constant in `lib/utils.ts`; migrate all primitives.
+2. Add semantic CSS variables `--success`/`--warning`/`--info` (+ foregrounds) to `:root` + `.dark` in `index.css`; replace hardcoded palette colors.
+3. Remove redundant `divide-y divide-border` inner wrappers in 3 settings sections.
+4. Add shared `SettingsActionsRow` + `SettingsBanner` primitives; migrate 3 call sites.
+5. Extend `SettingRow` with `valueVariant?: "control" | "value"` (or add `ValueRow` companion); migrate `PrewarmAndUpdates`.
+6. Replace ThemeSettingsSection bespoke tab buttons with `<SegmentedControl>`; replace reset button with `<Button variant="outline" size="sm">`.
+7. RangeSlider: `bg-white` → `bg-background`; reconsider `w-6` size override.
+8. ExportFormatMenu: drop className overrides on DropdownMenuContent/Item.
+9. Settings.tsx:385 "Clear search" → `<Button variant="outline" size="sm">`.
+10. Remove dead Button sizes / SettingRow.align / SegmentedControl.activeClassName / ConfirmDialog warning variant (or implement it).
+11. NumberInputStepper: `disabled:opacity-30` → `disabled:opacity-50`.
+12. Add dev-mode `console.warn` in SettingRow when child has no `aria-label` (or refactor to useId-based label association).
+
+---
+
+## XA-4 — Settings: search filtering inconsistent, save indicator missing i18n + error state, toast spam on every save
+
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with one 🔴 High sub-item)
+**Description:** (XA-4-1) AudioSettingsSection skips per-row search filtering — entire section shows when any row matches. (XA-4-2) Search shows Audio section but no matching row when preset ≠ "custom" (advanced filter labels in sectionItems don't correspond to rendered rows). (XA-4-3) Settings search auto-switches tabs without notice/undo/opt-out — disorienting. (XA-4-4) "Pending…" save-indicator string is hardcoded English literal — untranslated in all 8 locales. (XA-4-5) RecordingSettingsSection NumberInputStepper inline error messages and range hints are hardcoded English ("Range: 3–30 s", "Enter a whole number", "Must be between 3 and 30"). (XA-4-6) Hidden conditional Bubble rows ("Show on Startup", "Bubble Mic Button") break search-filter consistency. (XA-4-7) "Reset to Defaults" confirmation dialog is generic — doesn't disclose scope (theme, hotkeys, consents, audio chain) and doesn't distinguish what's preserved. (XA-4-8) "Re-run Setup Wizard" and "Reset to Defaults" buttons share identical `RefreshIcon` — visual confusion near destructive action. (XA-4-9) Destructive Reset button has no visual separator from 5 non-destructive buttons. (XA-4-10) Every successful save fires BOTH a transient snackbar toast AND the sticky "Saved ✓" indicator — redundant and noisy. (XA-4-11) General tab has 19 settings rows across 3 sections — cognitive overload. (XA-4-12) No per-row "modified" indicator during pending saves. (XA-4-13) "Agree to All" privacy button grants 6 distinct consents with no confirmation. (XA-4-14) SettingsSkeleton doesn't reflect section structure — uniform row placeholders flatten visual hierarchy during load. (XA-4-15) Manual "Refresh" button provides no visible feedback that the refresh happened if nothing changed.
+**Root Cause:** PVT-028/029 settings refactor left many edge cases unpolished.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/settings/AudioSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/RecordingSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/SettingsSaveIndicator.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/SettingsSkeleton.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/GeneralSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/PrivacySettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/TroubleshootingSettingsSection.tsx`
+- `voice_typer/client/src/renderer/src/components/settings/useSettingsConfig.ts`
+- `voice_typer/client/src/renderer/src/pages/Settings.tsx`
+- `voice_typer/client/src/renderer/src/components/audio/AudioFilterChain.tsx`
+**Fix:**
+1. Wrap each `<SettingRow>` in AudioSettingsSection (and AudioFilterChain rows) with `{isVisible(...) && (...)}`.
+2. When `audio_preset !== "custom"`, suppress advanced-filter labels from section-level check OR render a hint row "Switch to Custom preset to access Noise Gate".
+3. Update search placeholder to "Search settings (jumps to best match)…" OR add "Showing results from {TabName}" pill with "Go back".
+4. Add `settings.pending` i18n key to all 8 locale files; replace literal `Pending…` with `t("settings.pending")`.
+5. Add i18n keys `settings.hotkeySection.silenceRange` / `silenceParseError` / `silenceRangeError` / `maxRecordingRange` / `maxRecordingParseError` / `maxRecordingRangeError`; replace literals.
+6. Dynamically filter `overlayItems` based on `bubble_behavior`.
+7. Update `resetDialogMessage` to enumerate categories ("appearance, hotkeys, recording, audio, overlay, privacy consents, and language. API keys and onboarding progress are preserved.").
+8. Use different icon for Reset to Defaults (e.g., `Cancel01Icon` or `Delete02Icon`).
+9. Wrap Reset button in `<div className="mt-4 border-t border-border pt-3">`.
+10. Drop `showSnack(t("settings.savedToast"), "success")` from `flushPendingUpdates`; keep sticky indicator + error-case toast only.
+11. Split Recording into its own tab OR visually separate Recording from General/Overlay.
+12. Add per-row "modified" dot indicator during pending saves.
+13. Add ConfirmDialog to "Agree to All" OR rename + outline + amber.
+14. Add `title` prop to SettingsSkeleton; render skeleton heading bar above row placeholders.
+15. Call `markUpdated()` at end of `handleManualRefresh`.
+
+---
+
+## XA-5 — Feature pages: friction in add flows, missing test/preview, no inline retry for failed downloads, Audio preset buried
+
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with two 🔴 High sub-items)
+**Description:** (XA-5-1) Vocabulary & Templates "quick add" requires a modal every time — power users adding 20 entries must open the modal 20 times. (XA-5-2) Templates page has no way to test/preview/insert a template from the page — must use the bubble. (XA-5-3) Loading states are bare spinners with no contextual message (Microphone/Models/Templates/Vocabulary). (XA-5-4) Search/sort/category-filter state is not persisted across page navigation. (XA-5-5) Cloud provider "Test Connection" silently persists the API key before testing. (XA-5-6) Cancel download is not confirmation-guarded (destructive without undo). (XA-5-7) Failed/cancelled downloads have no inline Retry button — only an ephemeral toast. (XA-5-8) TestReviewPanel shows metrics but no actionable recommendation. (XA-5-9) "Estimated Transcription Quality" score has no inline explanation. (XA-5-10) Microphone "Start Test" button disabled during playback with no explanation. (XA-5-11) Cloud API key field has no show/hide toggle and no inline format validation. (XA-5-12) Audio preset selector is collapsed by default; primary "improve your mic" CTA is hidden. (XA-5-13) Microphone last-test recording is not cached; revisits lose A/B comparison. (XA-5-14) Templates list truncates expansion text with no click-to-expand or hover-tooltip. (XA-5-15) Vocabulary category filter doesn't show counts per category. (XA-5-16) `models.download.oneAtATime` translation key is missing; tooltip falls back to English literal. (XA-5-17) Models page lacks "currently active model" summary at the top. (XA-5-18) Models page offers no "fits your hardware" recommendation. (XA-5-19) Templates "match mode" badge uses unexplained "v" abbreviation. (XA-5-20) Import buttons don't communicate the expected file format/schema. (XA-5-21) Microphone "Other Microphones" list shows no device-type/transport indicators. (XA-5-22) Microphone "Use" button label is terse and state-ambiguous. (XA-5-23) Microphone permission banner's "Open Settings" deep-link may silently fail in Tauri. (XA-5-24) Vocabulary entries can't be tested against recent transcriptions.
+**Root Cause:** Feature pages designed as CRUD managers without bridge to "test/preview now"; progressive disclosure over-applied.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/pages/Vocabulary.tsx`
+- `voice_typer/client/src/renderer/src/pages/Templates.tsx`
+- `voice_typer/client/src/renderer/src/pages/Microphone.tsx`
+- `voice_typer/client/src/renderer/src/pages/Models.tsx`
+- `voice_typer/client/src/renderer/src/components/microphone/{MicrophoneListItem,TestReviewPanel,AudioPresetSelector}.tsx`
+- `voice_typer/client/src/renderer/src/components/models/{LocalModelsPanel,CloudProvidersPanel,ModelCardActions,DownloadProgressBar}.tsx`
+- `voice_typer/client/src/renderer/src/hooks/useModelLifecycle.ts`
+**Fix (prioritized):**
+1. **(XA-5-6)** Wrap Cancel-download button in `ConfirmDialog` with `variant="destructive"`.
+2. **(XA-5-16)** Add `models.download.oneAtATime` key to all 8 locale files; remove hardcoded fallback in ModelCardActions.tsx:63-69.
+3. **(XA-5-3)** Add labeled `<Spinner label={...}>` variant; add i18n keys `microphone.loading`/`templates.loading`/`vocabulary.loading`/`models.loading`.
+4. **(XA-5-10)** Add `title` attribute on Start Test button OR auto-stop playback when Start Test is clicked.
+5. **(XA-5-5)** Make `testConnection` use in-memory key directly (don't call `saveApiKey` first); or merge into "Save & Test" CTA.
+6. **(XA-5-7)** Track `failedDownload: { modelName, error } | null` in useModelLifecycle; render inline "Retry download" button on affected model card.
+7. **(XA-5-8)** Add `Recommended action` block per detected issue in TestReviewPanel with one-click CTA where applicable (e.g., `high_noise` → "Try the Noisy Room preset" [Apply]).
+8. **(XA-5-1)** Add inline quick-add row at top of Vocabulary/Templates lists (trigger + replacement inputs side-by-side, Enter-to-save).
+9. **(XA-5-2)** Add "Preview" button per Templates row showing expanded output with current variable values + Copy button.
+10. **(XA-5-12)** Render preset Select outside the collapsible; keep only per-filter Custom rows behind the toggle. OR auto-expand on first visit.
+11. **(XA-5-13)** Promote `testAudioBase64`/`rawAudioBase64`/`testQuality` to module-level cache (matching `_cachedMicrophones` pattern).
+12. **(XA-5-14)** Wrap truncated `<p>` in `InfoTooltip` showing full expansion text on hover.
+13. **(XA-5-4)** Wrap filter state in `useSessionStorage` hook keyed by page.
+14. **(XA-5-11)** Add eye-icon toggle button to API key input; add subtle format hint below field.
+
+---
+
+## XA-6 — Floating bubble has no in-bubble stop/cancel/pause, no live transcription, dead error UI, broken multi-monitor, theme sync missing
+>>>>>>> Stashed changes
 **Status:** ⚠️ Partial (6 of 20 sub-findings fixed this run: stop button, retry affordance, error visibility, centerOnActiveDisplay, monitor-unplug safety, default bottom. 14 sub-findings deferred — multi-file backend IPC additions)
 **Severity:** 🔴 Critical (with 2 Critical + 5 High sub-items)
 **Description:** (XA-6-1) **Critical:** No in-bubble cancel/stop/pause affordance in default `show_on_record` mode — pill renders only visualizer + REC dot. Only way to stop is the global hotkey. Window is `focusable: false` so no keyboard handler can rescue. (XA-6-2) **Critical:** Bubble never displays live transcription text — only state indicator (REC dot, "Transcribing…", "Ready", "⚠ Error"). Compare to macOS Dictation, Google Voice Typing — all surface live text. (XA-6-3) **High:** `error` UI branch is dead code; backend never calls `set_state("error")` — failure paths call `hide()` or `set_state("idle")` and surface error only via tray icon. (XA-6-4) **High:** `set_bubble_position` IPC ignores multi-monitor — calls `centerOnPrimaryDisplay()` instead of `centerOnActiveDisplay()` (helpers exist now); stale comment block. (XA-6-5) **High:** Saved bubble position not bounds-checked on monitor unplug — `moved` handler saves `[px, py]` unconditionally; no `screen.on("display-removed")` listener. (XA-6-6) **High:** Bubble position not persisted across app restarts — `savedBubblePos` is module-level state only; header comment acknowledges deferred work. (XA-6-7) **High:** Theme preset/theme_mode/custom_theme not actually pushed to bubble — `_push_bubble_config` only emits 3 keys (bubble_behavior/click_to_toggle/bubble_mic_button). (XA-6-8) **High:** No keyboard support for any bubble action (escape, arrow-nudge) — PVT-048 removed dead keydown handler but global hotkey replacement was never implemented. (XA-6-9) Medium: Punctuation cheat sheet not discoverable from bubble. (XA-6-10) Medium: Bubble not discoverable before first recording in `show_on_record` mode. (XA-6-11) Medium: No pause/cancel during transcription. (XA-6-12) Medium: LiveQualityFeedback and LevelBar not surfaced in the bubble. (XA-6-13) Medium: Error label is generic "⚠ Error" with no detail and no retry. (XA-6-14) Medium: Idle/REC labels use `text-[10px]` — readability concern at high DPI. (XA-6-15) Medium: No click-through option for `always_visible` mode. (XA-6-16) Low: No visual cue that the bubble is draggable. (XA-6-17) Low: `bubble_mic_button` toggle hidden behind `always_visible` mode. (XA-6-18) Low: Transcribing "…" dots animation may be too subtle. (XA-6-19) Medium: Bubble auto-hide on error/failure hides the symptom from the user. (XA-6-20) Low: `bubble_position` default inconsistency between Electron state ("top") and Python config ("bottom").
@@ -1259,7 +1415,71 @@ presumably runs with all deps installed.
 
 ---
 
+<<<<<<< Updated upstream
 ### XA-10 — Onboarding: missing i18n keys step4Item/step5Item (raw key strings on Welcome screen), completeDescription never rendered, setupCompleteSnack never wired, modelSelectAria not interpolated
+=======
+## XA-7 — Accessibility: no focus management on page navigation, modal focus contract untested, HotkeyPicker i18n gap, theme preview hover-only
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with 2 High sub-items)
+**Description:** (XA-7-1) **High:** No focus management on page navigation — `<main id="main-content" tabIndex={-1}>` exists but is never focused after `navigate(...)`. Screen-reader/keyboard-only users are left with focus on the trigger; must manually Tab forward. (XA-7-2) **High:** Modal/AlertDialog/ConfirmDialog focus-trap, Escape, and focus-restore behavior is unverified by tests — only source-pattern checks. (XA-7-3) Medium: HotkeyPicker "Clear" button and "Holding:" label are hardcoded English (acknowledged in source comment). (XA-7-4) Medium: Theme preset dropdown live-preview is hover-only — keyboard users navigating with ArrowUp/Down don't fire `onMouseEnter`. (XA-7-5) Medium: Bubble position cannot be adjusted via keyboard (PVT-048 known but unfixed — 7 tests `describe.skip`'d). (XA-7-6) Medium: Help overlay (Modal) has no visible close button. (XA-7-7) Low-Medium: `<main>` skip-link target has `focus:outline-none` — sighted keyboard users get no visual confirmation focus moved. (XA-7-8) Low: Document-level Ctrl+B/Ctrl+, shortcuts fire while Radix Modal is open (`?` handler has the guard, Ctrl+* handler does not). (XA-7-9) Low: HotkeyPicker capture mode is a keyboard trap (intentional, but lacks upfront AT announcement — current announcement is sufficient). (XA-7-10) Low: axe-core coverage gaps — Onboarding skipped (OOM), Models + Dashboard known-failing. (XA-7-11) Low: Templates/Vocabulary textarea uses weaker focus indicator than Input component. (XA-7-12) Low: Help-overlay Escape handling has redundant document-level + Radix handlers. (XA-7-13) Low: Sidebar roving tabindex has no on-screen hint about arrow-key navigation. (XA-7-14) Low: ConfirmDialog AlertDialog contract (Escape + outside-click suppression) is unverified by tests.
+**Root Cause:** SPA navigation pattern implemented without focus-management contract; a11y tests written as source-pattern checks rather than behavioral.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/App.tsx:384-433, 460-474, 192-282, 67-98, 575-622`
+- `voice_typer/client/src/renderer/src/components/common/Modal.tsx`
+- `voice_typer/client/src/renderer/src/components/common/ConfirmDialog.tsx`
+- `voice_typer/client/src/renderer/src/components/ui/dialog.tsx`
+- `voice_typer/client/src/renderer/src/components/ui/alert-dialog.tsx`
+- `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx:969-984, 1012-1014`
+- `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx:966-982, 903-904`
+- `voice_typer/client/src/renderer/src/Bubble.tsx:43-59`
+- `voice_typer/client/src/renderer/src/pages/Templates.tsx:1019-1024` (textarea focus)
+- `voice_typer/client/src/renderer/src/pages/Vocabulary.tsx` (textarea focus)
+- `voice_typer/client/src/renderer/src/a11y/accessibility.test.tsx`
+- `voice_typer/client/src/renderer/src/a11y/axe-core.test.tsx`
+**Fix (prioritized):**
+1. **(XA-7-1)** In `App.tsx`, add `useEffect` keyed on `currentPage` that calls `document.getElementById("main-content")?.focus()` after a tick; pair with `aria-live="polite"` announcement of new page name.
+2. **(XA-7-2)** Add `Modal-a11y.test.tsx` + `ConfirmDialog-a11y.test.tsx` covering Tab cycling, Escape close, focus restore, AlertDialog suppression of outside-click/Escape, initial focus on Cancel.
+3. **(XA-7-3)** Add i18n keys `hotkeyPicker.clearAria`/`clearTitle`/`holdingPrefix` to all 8 locale files; replace literals.
+4. **(XA-7-4)** Add `onFocus` handler on each `SelectItem` to call `handleThemeHover(theme.id)` for keyboard navigation.
+5. **(XA-7-6)** Add `<DialogClose asChild><Button variant="ghost" size="icon-sm" aria-label={t("common.close")}>…</Button></DialogClose>` to Modal header (or `Modal.tsx` itself via `showCloseButton?: boolean` prop).
+6. **(XA-7-7)** Replace `focus:outline-none` on `<main>` with `focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-2`.
+7. **(XA-7-8)** Add `document.querySelector('[role="dialog"][data-state="open"]')` guard to Ctrl+* handler in `App.tsx:194`.
+8. **(XA-7-11)** Add `focus-visible:ring-3 focus-visible:ring-ring/30` to textarea className in Templates/Vocabulary (or extract shared `Textarea` component).
+9. **(XA-7-10)** Split Onboarding component to reduce dep graph so axe test can run; promote Models consent `<h3>` → `<h2>`; add `role="progressbar"` to Dashboard loading `<div>`.
+
+---
+
+## XA-8 — ARIA: EmptyState no role, NumberInputStepper + ErrorBoundary hardcoded English aria, KeyringStatusBadge redundant aria, SegmentedControl icon-only unlabeled, SearchField no role=search, sonner aria hardcoded English
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with 1 High sub-item)
+**Description:** (XA-8-H1) **High:** `EmptyState` wrapper has no `role` attribute — used by 5 pages for empty/error states; SR users get no announcement on transition. (XA-8-M1) Medium: `NumberInputStepper` aria-label="Increment"/"Decrement" are literal English (existing `a11y.increase`/`a11y.decrease` keys unused). (XA-8-M2) Medium: `ErrorBoundary` 5 newer strings ("Copied!"/"Copy error"/"Open logs"/"Resetting…"/"Reset settings"/"Backend reset failed…") are hardcoded English. (XA-8-M3) Medium: `KeyringStatusBadge` aria-label duplicates `<TooltipContent>` text — SR users hear it twice. (XA-8-M4) Medium: `SegmentedControl` icon-only options have no `aria-label` (only `title`, which JAWS often ignores). (XA-8-M5) Medium: `SearchField` wrapper is plain `<div>` with no `role="search"` — SR users can't navigate via "search" landmark. (XA-8-M6) Medium: `sonner` Toaster aria-label="Notifications" + close button aria-label="Close" hardcoded English (sonner library default). (XA-8-L1 through L7) Low: Slider/Switch/Button primitives don't enforce aria-label (latent risk); InfoTooltip SVG has redundant `<title>`; LastUpdatedIndicator not in aria-live region; Spinner nested inside labeled button creates redundant live region; LevelBar relies on sibling LiveQualityFeedback for SR announcements (tight coupling).
+**Root Cause:** Component-level ARIA gaps from incremental feature additions.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.tsx`
+- `voice_typer/client/src/renderer/src/components/ui/number-input-stepper.tsx:234, 249`
+- `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx:320, 327, 336, 341`
+- `voice_typer/client/src/renderer/src/components/common/KeyringStatusBadge.tsx:66, 99`
+- `voice_typer/client/src/renderer/src/components/ui/segmented-control.tsx:313-358, 360-400`
+- `voice_typer/client/src/renderer/src/components/common/SearchField.tsx:41`
+- `voice_typer/client/src/renderer/src/components/ui/sonner.tsx:62-141`
+- `voice_typer/client/src/renderer/src/components/ui/{slider,switch,button}.tsx`
+- `voice_typer/client/src/renderer/src/components/feedback/{InfoTooltip,Spinner,LevelBar,LiveQualityFeedback}.tsx`
+- `voice_typer/client/src/renderer/src/components/common/LastUpdatedIndicator.tsx`
+**Fix (prioritized):**
+1. **(XA-8-H1)** Add `role={variant === "error" ? "alert" : "status"}` to EmptyState wrapper `<div>` (line 52).
+2. **(XA-8-M1)** Import `t` in number-input-stepper.tsx; replace `aria-label="Increment"` → `aria-label={t("a11y.increase")}` and `aria-label="Decrement"` → `aria-label={t("a11y.decrease")}`.
+3. **(XA-8-M2)** Add `errorBoundary.copyError`/`copied`/`openLogs`/`resetSettings`/`resetting`/`resetFailedNotice`/`resetSettingsHint`/`componentStackLabel` keys to all 8 locale files; replace literals.
+4. **(XA-8-M3)** Drop `aria-label={tooltipText}` in KeyringStatusBadge; in compact mode set `aria-label={t("settings.keyring.statusLabel")}`.
+5. **(XA-8-M4)** Add `aria-label={opt.title ?? opt.label}` on `<button>` (tabs variant) and `<input type="radio">` (default variant) in SegmentedControl; emit dev-mode `console.warn` when both empty.
+6. **(XA-8-M5)** Change SearchField wrapper `<div>` → `<div role="search">`.
+7. **(XA-8-M6)** Override sonner close button via custom render slot with localized `aria-label`; (b) post-mount walk DOM to set aria-label on `<ol>` and close button.
+8. **(XA-8-L3)** Remove `<title>{ariaLabel}</title>` from InfoTooltip SVG.
+9. **(XA-8-L6)** Add `decorative?: boolean` prop to Spinner; render plain `<div aria-hidden="true">` when decorative; update LastUpdatedIndicator to pass `decorative`.
+
+---
+
+## XA-10 — Onboarding: missing i18n keys step4Item/step5Item (raw key strings on Welcome screen), completeDescription never rendered, setupCompleteSnack never wired, modelSelectAria not interpolated
+>>>>>>> Stashed changes
 **Status:** ⚠️ Partial (verified on Linux sandbox; English keys already present; fixed stale step2Item/step3Item and permissionsCheckFailed in 7 non-English locales)
 **Severity:** 🔴 Critical (with 2 High sub-items)
 **Description:** (XA-10-1) **Critical:** WelcomeStep iterates `[1,2,3,4,5]` and renders `t('onboarding.step${n}Item')`. i18n catalog only defines `step1Item`/`step2Item`/`step3Item` — `step4Item` and `step5Item` are absent in ALL 8 locales. Every new user sees literal strings "onboarding.step4Item" and "onboarding.step5Item" on the very first screen. (XA-10-2) **High:** Non-English locales have stale `step2Item`/`step3Item` text (pre-CR-6 5-step flow) — doesn't reflect the new Permissions step. (XA-10-3) **High:** DoneStep never renders `onboarding.completeDescription` — user gets no warning that the model downloads in the background after clicking "Get Started". (XA-10-4) Medium: `onboarding.setupCompleteSnack` i18n key exists in all 8 locales but is never used — `handleApply` provides no success feedback. (XA-10-5) Medium: `onboarding.modelSelectAria` placeholder `{name}` is never interpolated — SR announces literal "Select model: {name}". (XA-10-6) Medium: Microphone step doesn't explain that "No microphones detected" may be an OS-level microphone permission issue. (XA-10-7) Medium: Wizard doesn't detect or surface "model already downloaded" status on the Model step. (XA-10-8) Medium: In-progress wizard selections are NOT persisted — closing the app mid-wizard loses mic/hotkey/model choices. (XA-10-9) Low: Renderer's appStore config is stale after onboarding completion. (XA-10-10) Low: Dead-code branch in `handleNext` — `DONE_STEP_NAME` case is unreachable. (XA-10-11) Low: `onboarding_check_permissions` failure silently downgrades to "No extra permission needed" — misleading. (XA-10-12) Low: Onboarding test coverage has significant gaps — would not catch Findings 1, 3, 4, 5. (XA-10-13) Medium: Main process i18n bootstrap is broken — `setMainLocale` is exported but never called; native Electron dialogs always in English. (XA-10-14) Low: WelcomeStep uses `<h1>` for visible heading while every other step uses `<h2>` — combined with sr-only `<h1>` on every step, Welcome has two `<h1>` elements.
@@ -1287,7 +1507,11 @@ presumably runs with all deps installed.
 
 ---
 
+<<<<<<< Updated upstream
 ### XA-12 — Recording flow: silent failure modes, no live transcription, swallowed IPC errors, no pause/resume, 61s crash detection delay
+=======
+## XA-12 — Recording flow: silent failure modes, no live transcription, swallowed IPC errors, no pause/resume, 61s crash detection delay
+>>>>>>> Stashed changes
 **Status:** ⚠️ Partial — XA-12-3 (toast.error on toggle failure) confirmed fixed; XA-12-1 (status_change message field) and XA-12-11 (5s undo window) NOT fixed
 **Severity:** 🔴 Critical (with 1 Critical + 4 High sub-items)
 **Description:** (XA-12-1) **Critical:** `status_change` push event at `ipc_server.py:1716-1722` accepts `message` param but drops it from payload — renderer never sees error messages. (XA-12-3) **High:** Fixed — `toast.error(t("home.toggleFailed"))` in `Home.tsx:700`. (XA-12-11) **Medium:** Unchanged — `LAST_TEXT_AUTO_CLEAR_MS = 5_000` at `Home.tsx:46`.
@@ -1355,7 +1579,214 @@ presumably runs with all deps installed.
 
 ---
 
+<<<<<<< Updated upstream
 ### XZ-SEC-03 — `config.json.bak` not in GDPR delete set (High)
+=======
+## XA-15 — Test infrastructure: dead helpers (590 lines), 3 duplicated baseConfig fixtures, mock boilerplate in 21-34 test files, orphan debug test
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium
+**Description:** (XA-15-1) Medium: `__tests__/helpers/` directory (3 files, 590 lines) is dead code — zero test files import from it. (XA-15-2) Medium: `makeConfig()` fixture exists but 3 test files roll their own ~120-line `baseConfig` (Settings.test.tsx, Settings-empty-state.test.tsx, debug-test.test.tsx). (XA-15-3) Medium: Mocks duplicated across 21-34 test files instead of using `helpers/mocks.tsx` factories. (XA-15-4) Medium: Per-test setup boilerplate (`localStorage.clear()` + `cleanup()` + `mockReset()`) duplicated across 16+ test files. (XA-15-5) Medium: Orphan debug test file `debug-test.test.tsx` (242 lines) with `expect(true).toBe(true)` tautology + 4 `console.log` calls. (XA-15-6) Medium: Duplicate RTL test files (`rtl.test.ts` and `rtl.test.tsx`) with 4/5 identical test cases. (XA-15-7) Medium: CONTRIBUTING.md §7.2 doesn't mention the shared test helpers. (XA-15-8) Medium: Flaky timing patterns — 9+ test files use bare `setTimeout` waits instead of `vi.waitFor`/`findBy*`/`vi.useFakeTimers`. (XA-15-9) Medium: Mega-test-file `ux-components-behavior.test.tsx` (1752 lines) mixes 7+ component concerns. (XA-15-10) Low: `#ui` path alias declared in 6 config files but ZERO usages in code. (XA-15-11) Low: `#utils` alias duplicated identically across 6 config files. (XA-15-12) Low: `biome.json` `overrides` block has no `include` field (no-op indirection). (XA-15-13) Low: `__tests__/` directory has no README; `rw0-rewrite/`/`rw1-rewrite/` jargon undocumented. (XA-15-14) Low: Coverage threshold inconsistency: vitest 70% vs Python 65% vs docs 65%. (XA-15-15) Low: `tsconfig.web.json` has redundant `*.json` include pattern. (XA-15-16) Low: `test-setup.ts` mixes polyfills with one mock stub (`window.bubble`).
+**Root Cause:** PVT-076 created central abstractions but migration of existing tests was never completed; RW-0/RW-1 rewrite rounds batched many component tests into one file.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/__tests__/helpers/{mocks,renderApp,fixtures}.tsx/.ts`
+- `voice_typer/client/src/renderer/src/test-setup.ts`
+- `voice_typer/client/src/renderer/src/pages/__tests__/{Settings,Settings-empty-state,debug-test}.test.tsx`
+- `voice_typer/client/src/renderer/src/i18n/__tests__/rtl.{test.ts,test.tsx}`
+- `voice_typer/client/{vitest.config,vite.config,electron.vite.config,electron.vite.renderer,tsconfig.web,tsconfig.node,tsconfig.json,biome.json,components.json}`
+- `voice_typer/client/package.json`
+- `CONTRIBUTING.md` §7.2
+- `voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx`
+**Fix (prioritized):**
+1. **(XA-15-5)** Delete `debug-test.test.tsx`.
+2. **(XA-15-6)** Delete `rtl.test.ts` (keep `rtl.test.tsx`).
+3. **(XA-15-4)** Add to `test-setup.ts`: `afterEach(() => { cleanup(); if (typeof localStorage !== "undefined") localStorage.clear(); });`
+4. **(XA-15-2)** Replace each `baseConfig` with `import { makeConfig } from "@/__tests__/helpers/fixtures"; const baseConfig = makeConfig({...});`.
+5. **(XA-15-12)** Either inline `suspicious: { noConsole: "off" }` into main `linter.rules` block OR add `include: ["src/main/**"]`.
+6. **(XA-15-10)** Remove `#ui` alias from all 6 config files.
+7. **(XA-15-15)** Remove redundant `"src/renderer/src/**/*.json"` line from `tsconfig.web.json:26-30`.
+8. **(XA-15-14)** Update `CONTRIBUTING.md` §7.2 to say "≥ 70% (vitest) / 65% (pytest)".
+9. **(XA-15-13)** Add `__tests__/README.md` explaining layout (co-locate next to source; `rw0-rewrite/`/`rw1-rewrite/` are FROZEN historical migration rounds; `helpers/` is shared test infrastructure).
+10. **(XA-15-7)** Add §7.2.1 "Shared test helpers" subsection to CONTRIBUTING.md.
+11. **(XA-15-8)** Replace `await new Promise((r) => setTimeout(r, N))` with `waitFor`/`findBy*`/`vi.useFakeTimers`.
+12. **(XA-15-1)** Migrate `App.test.tsx`, `App-ux-fixes.test.tsx`, `App-a11y.test.tsx`, etc. to use `renderApp` + `makeConfig` + `makeToastMock` + `makeHugeiconsReactMock`. (Larger refactor — partial in this run.)
+
+---
+
+## XA-16 — Error handling UX: ErrorBoundary 6 hardcoded English strings, EmptyState variant dead, Parakeet success toast wrong message, no in-context bug report
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with 1 High sub-item)
+**Description:** (XA-16-1) **High:** ErrorBoundary fallback hardcodes 6 English strings ("Copied!"/"Copy error"/"Open logs"/"Resetting…"/"Reset settings"/"Backend reset failed — clearing local state and reloading anyway." + tooltip) — non-English users see mixed-language crash screen. (XA-16-2) Medium: `EmptyState variant="error"` is defined but NEVER used (re-used from XA-2). (XA-16-3) Medium: Parakeet deps SUCCESS toast shows the WRONG message — `showSnack(t("models.snack.parakeetDepsRequired"), "success")` displays "Dependencies required for Parakeet. Download first." as a green success toast. (XA-16-4) Medium: ErrorBoundary has no in-context "Report bug / Send feedback" path. (XA-16-5) Medium: `handleRetryConnection` makes a single attempt with no backoff — health-check path has `HEALTH_CHECK_MAX_RETRIES = 2` with 500ms backoff, manual retry path does not. (XA-16-6) Medium: Inconsistent toast lifetimes — many call sites bypass `useSnackbar` (canonical durations: success=3000/info=4000/warning=6000/error=8000) and use sonner's default 4000ms for errors. (XA-16-7) Medium: `globalErrorHandler` shows the SAME generic toast for every unhandled error. (XA-16-8) Medium: ErrorBoundary tests do not cover the PVT-fix #11 recovery features. (XA-16-9) Low-Medium: `useSnackbar` has NO unit tests. (XA-16-10) Low: Redundant double `<ErrorBoundary>` wrap (main.tsx outer + App.tsx inner). (XA-16-11) Low: `showSnack` defaults `type` to `"success"` — footgun in catch blocks. (XA-16-12) Low: No error codes anywhere; backend `code` field is stripped before display. (XA-16-13) Low: `clearSnack` dismisses ALL toasts, not "the current snackbar". (XA-16-14) Low: `LastUpdatedIndicator` has no error state. (XA-16-15) Low: `KeyringStatusBadge` plaintext warning has no "Learn how to fix" link. (XA-16-16) Low: Three overlapping log files with two parallel loggers. (XA-16-17) Low-Medium: `ErrorBoundary` does not distinguish recoverable vs fatal errors. (XA-16-18) Low: `EmptyState` stories don't cover the error variant. (XA-16-19) Low: `App-help-overlay.test.tsx` mocks `ErrorBoundary` to a passthrough, masking integration regressions.
+**Root Cause:** PVT-fix #11 added 3 recovery affordances without i18n keys; PVT-032 migrated failure path to `toast.error` but tests not updated; ErrorBoundary written to prevent white-screens, not graduated severity.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx:300-338, 320, 327, 334, 336, 341, 157, 191, 262`
+- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.tsx`
+- `voice_typer/client/src/renderer/src/components/feedback/EmptyState.stories.tsx`
+- `voice_typer/client/src/renderer/src/hooks/useModelLifecycle.ts:575`
+- `voice_typer/client/src/renderer/src/hooks/useConnection.ts:342-350, 201-241`
+- `voice_typer/client/src/renderer/src/hooks/useSnackbar.ts:58-63, 94, 124-130`
+- `voice_typer/client/src/renderer/src/lib/globalErrorHandler.ts:73-85, 165, 183`
+- `voice_typer/client/src/renderer/src/lib/utils/models.ts:247-269`
+- `voice_typer/client/src/renderer/src/components/ui/sonner.tsx:62-141`
+- `voice_typer/client/src/renderer/src/components/common/LastUpdatedIndicator.tsx:24-73`
+- `voice_typer/client/src/renderer/src/components/common/KeyringStatusBadge.tsx:84-114`
+- `voice_typer/client/src/main/logging.ts:25-34, 239, 249, 382`
+- `voice_typer/client/src/renderer/src/components/__tests__/ErrorBoundary.test.tsx`
+- `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/App-help-overlay.test.tsx:73-77`
+- `voice_typer/client/src/renderer/src/main.tsx:57`
+- `voice_typer/client/src/renderer/src/App.tsx:437, 651`
+- Various files calling `toast.*` directly: `App.tsx`, `Home.tsx`, `History.tsx`, `ActivityList.tsx`, `useModelLifecycle.ts`
+**Fix (prioritized):**
+1. **(XA-16-1)** Add `errorBoundary.copyError`/`copied`/`openLogs`/`resetSettings`/`resetting`/`resetFailedNotice`/`resetSettingsHint`/`componentStackLabel` keys to all 8 locale files (overlaps with XA-8-M2); replace literals.
+2. **(XA-16-3)** Add `models.snack.parakeetDepsInstalled` key ("Parakeet dependencies installed successfully.") to all 8 locale files; use on `useModelLifecycle.ts:575` for success branch.
+3. **(XA-16-4)** Add 6th button "Report this bug" to ErrorBoundary that opens `https://github.com/AbdallahIsDev/voice-typer/issues/new` via `window.open(url, "_blank", "noopener,noreferrer")`. Extract URL to shared constant in `lib/links.ts`.
+4. **(XA-16-5)** Extract `probeWithBackoff(maxRetries, delayMs)` helper used by both health-check and manual retry; have `handleRetryConnection` retry 3-5 times with 500ms-2s backoff.
+5. **(XA-16-10)** Remove inner `<ErrorBoundary>` wrap in `App.tsx:437, 651` (keep outer in `main.tsx:57`).
+6. **(XA-16-2 + XA-16-18)** Add `variant="error"` to all 4 load-failed EmptyState instances; add `ErrorVariant` Storybook story.
+7. **(XA-16-8)** Add ErrorBoundary tests for `handleCopyError`/`handleOpenLogs`/`handleResetSettings`/`componentDidCatch` forwarding.
+8. **(XA-16-17)** Add `level: "fatal" | "page"` prop to ErrorBoundary; wrap each page in `renderPage()` with `<ErrorBoundary level="page">`.
+9. **(XA-16-12)** Preserve `code` on thrown Error as `err.code`; prepend `[VT-{code}]` in `formatErrorMessage`.
+
+---
+
+## XA-17 — Hooks & state: useTheme split-brain, useConnection 5+ concerns, no focus management, prop-drilling persists
+**Status:** ❌ Not Fixed
+**Severity:** 🟡 Medium (with 5 High sub-items)
+**Description:** (XA-17-1) **High:** `useTheme` exposes raw `useState` setters (`setThemePreset`/`setCustomTheme`/`setTextSize`) that silently bypass backend persistence — only `handleThemeChange` calls `call("set_config", ...)`. (XA-17-2) **High:** Theme state is split-brain: `appStore.config` AND `useTheme` local `useState` both own it. (XA-17-3) **High:** `useConnection` packs 5+ unrelated concerns into one 358-line hook (connection lifecycle, recording state subscription, backend error subscription, transient TCP recovery, connect-time snapshot, onboarding first-run routing, bubble window position sync, periodic health check, manual retry handler). (XA-17-4) **High:** Connection state machine is scattered across 6 code paths with no reducer — no central transition function, no `useReducer`, no state-machine diagram. `"restarting"` state has no timeout. (XA-17-5) **High:** Prop-drilling persists despite BACKLOG-004 store; `App.tsx` still passes `recordingState`/`lastError` as props to `Home`, `themeMode`/`onThemeChange` as props to `Sidebar`/`ThemeSwitch`. Only 3 production call sites subscribe to `useAppStore`; none of the pages do. (XA-17-6) **High:** `useTheme` should be a context provider, not a hook called once in App.tsx. (XA-17-7 through XA-24) Medium/Low: Hook return objects not memoized; no single "is backend connected?" selector; loading-state representation inconsistent; error-state shape inconsistent; `useBridgeReady` creates one polling interval per subscriber; test coverage gaps (4 of 8 in-scope hooks have zero direct tests); `appStore.test.ts` `beforeEach` doesn't reset `lastErrorAt`/`navVersion`; `useLastUpdated` over-engineers a ref; `useNavigation` derives `canGoBack`/`canGoForward` from refs at render time; `useTheme.reloadThemeFromConfig` swallows all errors silently; `useTheme.flushPendingThemeSave` discards a promise (rejection unhandled); `useTheme` localStorage write effect writes all 4 keys on any single field change; `usePythonEvent`'s `_error` envelope check is documented dead code on Tauri; `useNavigation` mouse-button handler uses `mouseup` instead of `auxclick`; `canShareStats` exported but has zero production callers; no documented pattern for adding a new hook.
+**Root Cause:** BACKLOG-004 added store for cross-cutting consumers but didn't migrate `useTheme` to read from it; `useConnection` grew organically; theme hook written before store existed.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/hooks/{useTheme,useConnection,useNavigation,useSnackbar,useLastUpdated,useSoundFeedback,useStatsShare,usePython}.ts`
+- `voice_typer/client/src/renderer/src/stores/appStore.ts`
+- `voice_typer/client/src/renderer/src/stores/appStore.test.ts`
+- `voice_typer/client/src/renderer/src/App.tsx:384-413, 113`
+- `voice_typer/client/src/renderer/src/lib/{utils,semver,format}.ts`
+**Fix (prioritized — these are larger refactors, scope-limited in this run):**
+1. **(XA-17-10)** Add `settings.pending` i18n key (re-used from XA-4-4).
+2. **(XA-17-13)** Reset all 6 fields in `appStore.test.ts:14-22` `beforeEach`; add tests for `lastErrorAt` and `bumpNavVersion`.
+3. **(XA-17-14)** Remove `setRefreshingRef` indirection in `useLastUpdated`; use `setRefreshing` directly with `[]` deps.
+4. **(XA-17-16)** Add `catch (err) { console.warn("[useTheme] get_config failed:", err); }` in `reloadThemeFromConfig`.
+5. **(XA-17-17)** `void call("set_config", { theme_mode: mode }).catch(() => { /* theme is local-only */ });`
+6. **(XA-17-21)** Either wire Dashboard.tsx/Home.tsx to use `canShareStats`, OR delete the export.
+7. **(XA-17-1 + XA-17-2 + XA-17-3 + XA-17-4 + XA-17-5 + XA-17-6)** Larger refactors — flag for follow-up; out of this run's scope due to risk of regressions across many files.
+
+---
+
+## XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main window and bubble, no platform-aware shortcuts
+**Status:** ⚠️ Partial (verified on Linux sandbox; XA-20-1 useTChoice() React hook added to i18n.ts to lower barrier for CLDR pluralization; 21 sub-items deferred)
+**Severity:** 🟡 Medium (with 2 Critical + 5 High sub-items)
+**Description:** (XA-20-1) **Critical (re-used from XA-18-3):** `tChoice()` exists but is NEVER called anywhere; all plurals use broken binary `Singular`/`Plural` keys. (XA-20-2) **Critical:** Multiple translation files contain UNTRANSLATED English text for high-visibility strings (permissions block, relativeTime, model snack errors, about.creditsDescription) in ar/hi/ru/de/zh/es/fr. (XA-20-3) **High:** Sidebar nav item uses physical `border-l-2`/`border-l-accent`/`border-l-transparent` despite the indicator pill using logical `inset-s-0`. (XA-20-4) **High:** `SearchField` uses physical `left-3`/`right-3`/`pl-9` for the search icon, clear button, and input padding. (XA-20-5) **High:** Select and DropdownMenu primitives use physical `pr-8 pl-3` + `absolute right-2` for the chevron, and `ml-auto` for shortcut text / checkmark. (XA-20-6) **High:** `Dashboard.tsx` has its own LOCAL `formatDuration` that hardcodes English "h"/"m" labels; ignores the locale-aware `formatDuration` from `lib/format.ts`. Same in `StatCards.tsx`. (XA-20-7) **High:** `DownloadProgressBar.tsx` has its own LOCAL `formatBytes`/`formatSpeed` with hardcoded English unit labels; ignores locale-aware versions in `lib/format.ts`. (XA-20-8) Medium: `lib/format.ts` `formatDuration` fallback (when `Intl.DurationFormat` is unavailable) uses hardcoded English "h"/"m"/"s". (XA-20-9) Medium: Legacy `compactNumber` (still used by Dashboard + StatCards) hardcodes "K" suffix and uses Latin digits; the locale-aware `formatCompactNumber` exists but is unused. (XA-20-10) Medium: Bubble BrowserWindow does not receive locale-change notifications; it keeps the OLD locale (and OLD `dir` attribute) until next mount. (XA-20-11) Medium: Sonner (toast/snackbar) is hardcoded to `position="bottom-right"`; does not flip in RTL. (XA-20-12) Medium: Dialog header uses `sm:text-left` (physical alignment) instead of `sm:text-start` (logical). (XA-20-13) Medium: `formatHotkey()` uses hardcoded English modifier labels (does not use existing `hotkey.modifiers.*` translation keys). (XA-20-14) Medium: Static shortcut strings in TitleBar/Sidebar/help overlay are NOT platform-aware (macOS users see "Ctrl+B" instead of "Cmd+B"). (XA-20-15) Low: Onboarding `<ol className="ml-4 list-decimal">` uses physical left margin. (XA-20-16) Low: `StatsShareImage` uses physical `marginLeft` for unit label spacing despite setting `direction: rtl`. (XA-20-17) Low: SegmentedControl icon margin `"-ml-0.5 mr-1"` is physical. (XA-20-18) Low: TitleBar back/forward arrow icons are hardcoded physical paths; not mirrored in RTL. (XA-20-19) Low: Python tray menu has no RTL handling; relies entirely on the OS to detect direction. (XA-20-20) Low: `index.css` has zero RTL-specific CSS rules. (XA-20-21) Low: RTL test coverage is limited to `dir` attribute flipping; no assertions about visual/DOM-level RTL behavior. (XA-20-22) Low: `useLastUpdated` hook uses non-pluralized templates that won't render grammatically correct for Slavic/Semitic languages.
+**Root Cause:** `tChoice()` added but never wired; physical Tailwind utilities used instead of logical ones; local formatters predate shared `lib/format.ts`; bubble BrowserWindow is a separate JS context that doesn't receive locale-change IPC.
+**Related Files:**
+- `voice_typer/client/src/renderer/src/i18n/i18n.ts:342-480` (XA-20-1)
+- `voice_typer/client/src/renderer/src/i18n/translations/{ar,de,es,fr,hi,ru,zh}.json` (XA-20-2)
+- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx:322, 329, 338` (XA-20-3)
+- `voice_typer/client/src/renderer/src/components/common/SearchField.tsx:48, 55, 62` (XA-20-4)
+- `voice_typer/client/src/renderer/src/components/ui/select.tsx:129, 134` + `dropdown-menu.tsx:99, 106, 142, 148, 201, 237` (XA-20-5)
+- `voice_typer/client/src/renderer/src/pages/Dashboard.tsx:57-64` + `components/dashboard/StatCards.tsx:17-25` (XA-20-6)
+- `voice_typer/client/src/renderer/src/components/models/DownloadProgressBar.tsx:25-45` (XA-20-7)
+- `voice_typer/client/src/renderer/src/lib/format.ts:260-297, 78-93, 317` (XA-20-8, XA-20-9)
+- `voice_typer/client/src/renderer/src/components/settings/GeneralSettingsSection.tsx:248-273` + `i18n/i18n.ts:296-302` + `main/windows/bubble-window.ts` (XA-20-10)
+- `voice_typer/client/src/renderer/src/components/ui/sonner.tsx:91` (XA-20-11)
+- `voice_typer/client/src/renderer/src/components/ui/dialog.tsx:67` (XA-20-12)
+- `voice_typer/client/src/renderer/src/components/hotkey/hotkey-utils.ts:370-407` (XA-20-13)
+- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:198, 209, 233, 263` + `Sidebar.tsx:87-100` (XA-20-14)
+- `voice_typer/client/src/renderer/src/pages/Onboarding.tsx:205` (XA-20-15)
+- `voice_typer/client/src/renderer/src/components/dashboard/StatsShareImage.tsx:151, 198` (XA-20-16)
+- `voice_typer/client/src/renderer/src/components/ui/segmented-control.tsx:352` (XA-20-17)
+- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:249, 275` (XA-20-18)
+- `voice_typer/server/{i18n.py, tray_menu.py, tray_window.py}` (XA-20-19)
+- `voice_typer/client/src/renderer/src/index.css` (XA-20-20)
+- `voice_typer/client/src/renderer/src/i18n/__tests__/{rtl.test.ts, rtl.test.tsx}` (XA-20-21)
+- `voice_typer/client/src/renderer/src/hooks/useLastUpdated.ts:128-152` (XA-20-22)
+**Fix (prioritized):**
+1. **(XA-20-3)** Change `border-l-2` → `border-s-2`, `border-l-accent` → `border-s-accent`, `border-l-transparent` → `border-s-transparent` in Sidebar.tsx.
+2. **(XA-20-4)** Change `left-3` → `start-3`, `right-3` → `end-3`, `pl-9` → `ps-9` in SearchField.tsx.
+3. **(XA-20-5)** Change `pr-8 pl-3` → `pe-8 ps-3`, `absolute right-2` → `absolute end-2`, `ml-auto` → `ms-auto` in select.tsx + dropdown-menu.tsx.
+4. **(XA-20-12)** Change `sm:text-left` → `sm:text-start` in dialog.tsx:67.
+5. **(XA-20-15)** Change `ml-4` → `ms-4` in Onboarding.tsx:205.
+6. **(XA-20-16)** Change `marginLeft` → `marginInlineStart` in StatsShareImage.tsx:151, 198.
+7. **(XA-20-17)** Change `-ml-0.5 mr-1` → `-ms-0.5 me-1` in segmented-control.tsx:352.
+8. **(XA-20-18)** Add `rtl:-scale-x-100` to TitleBar back/forward SVG paths.
+9. **(XA-20-6)** Remove local `formatDuration` from Dashboard.tsx:57-64; add `formatDuration` to import from `@/lib/format`. Same for StatCards.tsx:17-25.
+10. **(XA-20-7)** Remove local `formatBytes`/`formatSpeed` from DownloadProgressBar.tsx:25-45; import from `@/lib/format`.
+11. **(XA-20-11)** Compute position from `isRtlLocale(getLocale())`: `position={isRtlLocale(getLocale()) ? "bottom-left" : "bottom-right"}`; wrap with `useT()`.
+12. **(XA-20-14)** Compute displayed shortcut string via `formatHotkeyLabel("<ctrl>+<b>")` (returns `⌃B` on macOS, `Ctrl+B` elsewhere); update `aria-keyshortcuts` to platform-correct ARIA format.
+13. **(XA-20-22)** Replace template lookup in `useLastUpdated.ts:128-152` with call to `formatRelativeTime` from `lib/format.ts`.
+14. **(XA-20-10)** Add Electron main-process IPC channel `locale:changed`; main window emits when `setLocale()` runs; `bubble-window.ts` subscribes and either calls `webContents.send("locale:changed", locale)` (bubble preload calls `setLocale(locale)`) OR calls `win.reload()`.
+15. **(XA-20-2)** Translate missing keys in each locale file (overlaps with XA-18-4).
+16. **(XA-20-1)** Migrate pluralized strings to `tChoice()` (overlaps with XA-18-3).
+17. **(XA-20-21)** Add `i18n/__tests__/rtl-render.test.tsx` mounting real components under `dir="rtl"` to assert visual/DOM-level RTL behavior.
+
+---
+
+## Summary
+
+| Severity | Count |
+|---|---|
+| Critical | 8 (XA-6, XA-9, XA-10, XA-12, XA-13, XA-14, XA-20 ×2) |
+| High | 30+ |
+| Medium | 80+ |
+| Low | 60+ |
+| **Total findings** | **~250+** |
+
+**Top-priority fixes for Phase 4 implementation wave (by impact × confidence):**
+1. XA-10-1 + XA-11-1: Add `onboarding.step4Item`/`step5Item` i18n keys (Critical — first-impression regression on Welcome screen)
+2. XA-12-1: Extend `status_change` event payload to include message; populate `lastError` (Critical — unblocks 5 other findings)
+3. XA-13-C1: Unpack `download_parakeet_weights()` return value (Critical — silent false success)
+4. XA-13-C2 + C3: Implement `install_parakeet_deps`/`get_disk_info`/`open_models_folder`/`models_folder_supported` IPCs OR remove dead UI (Critical — dead buttons)
+5. XA-14-1: Port QUIT-FLUSH-FIX from `useTheme.ts` to `useSettingsConfig.ts` (Critical — silent data loss)
+6. XA-9-1 + XA-9-2 + XA-9-3 + XA-9-4: Fix focus ring + border + primary-foreground + muted-foreground contrast (Critical/High — WCAG violations)
+7. XA-6-1 + XA-6-3 + XA-6-7: Bubble stop affordance + error state + theme sync (Critical/High — bubble unusable)
+8. XA-4-4 + XA-19-7: Add `settings.pending` i18n key (Medium — i18n regression)
+9. XA-5-6 + XA-5-16: Cancel-download confirm + `models.download.oneAtATime` key (High/Medium — destructive without undo)
+10. XA-7-1: Focus management on page navigation (High — WCAG violation)
+11. XA-8-H1: Add `role` to EmptyState (High — WCAG 4.1.3 violation)
+12. XA-16-1 + XA-8-M2: ErrorBoundary i18n keys (High — mixed-language crash screen)
+13. XA-11-2: Add `.onboarding_started` marker check to `startup_sequence.py` (High — auto-heal incorrectly fires mid-wizard)
+14. XA-11-3 + XA-11-4 + XA-11-5: Fix 3 broken tests (High — CI red)
+15. XA-20-3 through XA-20-18: RTL physical→logical property migration (High — RTL broken)
+16. XA-20-6 + XA-20-7: Use shared `formatDuration`/`formatBytes`/`formatSpeed` (High — locale formatting broken)
+
+**Platform qualifier:** All findings investigated ON LINUX (sandbox). Windows/macOS runtime validation pending where noted (XA-6-4 multi-monitor, XA-7-5 bubble keyboard, XA-9-11 forced-colors mode, XA-18-1 native dialogs, XA-20-19 tray RTL).
+```
+
+### Findings from Session 4
+```
+# Consolidated Comprehensive Review — XZ Session (Group 4: Security & Data)
+
+> Append-only. Findings use `XZ-` prefix to avoid collision with prior sessions. Deduplicated against existing entries.
+> **Independent verification (2026-07-25):** All entries below still ❌ Not Fixed. No XZ-session code changes were applied in the working tree. The XZ session's committed fixes (Nuitka + prewarm only) do not address these findings.
+
+## Summary
+
+20 parallel review sub-agents investigated Group 4 (Security & Data) categories: Security, Privacy & data protection, Data integrity & persistence, Configuration management, Error handling, Error recovery & resilience, Logging consistency. ~170 findings returned; consolidated below by file scope to drive 20 disjoint implementation sub-agents.
+
+**Severity counts (XZ session):**
+- Critical: 1 (XZ-SEC-01)
+- High: ~30
+- Medium: ~50
+- Low: ~90
+
+**Platform validation:**
+- Linux sandbox: validated natively
+- Windows/macOS: code+tests implemented; host validation deferred with explicit steps
+
+---
+
+
+## XZ-SEC-02 — `_write_plaintext_fallback` skips `config.json.lock` (High)
+
+**Status:** ❌ Not Fixed
+**Description:** `credential_store.py:721-770` does a read-modify-write on `config.json` without acquiring `config.json.lock`. `Config.save()` and `migrate_secrets_to_keyring` both acquire the lock — only the plaintext fallback path skips it. Concurrent `delete_secret` vs `Config.save()` race loses the delete silently; plaintext API keys survive on disk despite user's delete request.
+**Root Cause:** Missing `_acquire_config_lock()` wrapping.
+**Related Files:**
+- `voice_typer/server/credential_store.py`
+- `voice_typer/server/config.py` (for `_acquire_config_lock` import)
+**Fix:** Wrap the read-modify-write body in `with _acquire_config_lock():`. Re-read config.json INSIDE the lock. Add regression test for concurrent `delete_secret` + `Config.save()`.
+**Severity:** 🔴 High
+
+## XZ-SEC-03 — `config.json.bak` not in GDPR delete set (High)
+
+>>>>>>> Stashed changes
 **Status:** ❌ Not Fixed
 **Description:** `service.py:2298-2304` (`_GDPR_PERSONAL_FILES`) lists `config.json` but NOT `config.json.bak` (created in `config.py:1115-1127`). After GDPR Art. 17 erasure, `config.json.bak` retains plaintext API keys for keyring-unavailable users. Also missing: `.restart_token`, `voice-typer-diagnostics-*.zip`, `gdpr-export-*.zip`, `config.json.lock`, `history.db.corrupt-*`.
 **Root Cause:** Incomplete GDPR file inventory.
