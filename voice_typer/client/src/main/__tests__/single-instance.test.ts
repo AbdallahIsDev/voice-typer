@@ -139,9 +139,36 @@ describe("XS-78: single_instance.ts", () => {
 
 		it("readStaleElectronPid() returns null when the PID is still alive (the current process)", () => {
 			writeElectronPidFile();
-			// The current process is, by definition, alive — so the
-			// stale-PID check must return null (NOT the live PID).
-			expect(readStaleElectronPid()).toBeNull();
+			// XZ-R5-009: readStaleElectronPid now also verifies the
+			// PID belongs to Voice Typer via /proc/<pid>/cmdline
+			// (Linux), ps (macOS), or wmic (Windows). The vitest
+			// runner process does NOT contain "electron" in its
+			// cmdline, so we mock fs.readFileSync for the /proc
+			// path to simulate a real Voice Typer process.
+			const realReadFileSync = fs.readFileSync;
+			const spy = vi
+				.spyOn(fs, "readFileSync")
+				.mockImplementation((file, ...rest) => {
+					if (typeof file === "string" && file.includes("/cmdline")) {
+						return "electron\0voice-typer";
+					}
+					return realReadFileSync(file as fs.PathOrFileDescriptor, ...rest);
+				});
+			try {
+				expect(readStaleElectronPid()).toBeNull();
+			} finally {
+				spy.mockRestore();
+			}
+		});
+
+		it("XZ-R5-009: readStaleElectronPid() returns the PID when alive but not Voice Typer (PID reuse)", () => {
+			writeElectronPidFile();
+			// On Linux, /proc/<pid>/cmdline returns the vitest
+			// cmdline (no "electron"). On macOS/Windows the spawn
+			// of ps/wmic returns the runner cmdline. Either way
+			// isPidVoiceTyper returns false → treat as stale.
+			const result = readStaleElectronPid();
+			expect(result).toBe(process.pid);
 		});
 
 		it("readStaleElectronPid() returns the dead PID when the process is gone", () => {

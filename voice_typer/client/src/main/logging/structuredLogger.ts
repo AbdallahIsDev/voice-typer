@@ -30,7 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
-import { appendLogLine } from "./rotation";
+import { appendLogLine, redactPii } from "./rotation";
 
 // Opt-in INFO persistence for support/enterprise deployments.
 // Set VOICE_TYPER_ELECTRON_INFO_LOG=1 to route INFO logs to
@@ -136,18 +136,29 @@ export function appendLifecycleLine(
 ): void {
 	try {
 		const tsStr = new Date().toISOString();
+		// XZ-LOG-03: redact PII / API keys / URL credentials from
+		// the message + args before persisting to the lifecycle
+		// log (mirrors `formatLine`'s redaction so the opt-in
+		// INFO persistence stream never leaks dictated-text
+		// fragments or secrets that the renderer may have logged
+		// via `logger.info`).
+		const safeMsg = redactPii(msg);
 		const formatted =
 			args.length > 0
-				? `${msg} ${args
+				? `${safeMsg} ${args
 						.map((a) => {
+							if (a instanceof Error) {
+								return redactPii(a.stack ?? `${a.name}: ${a.message}`);
+							}
+							if (typeof a === "string") return redactPii(a);
 							try {
-								return JSON.stringify(a);
+								return redactPii(JSON.stringify(a));
 							} catch {
-								return String(a);
+								return redactPii(String(a));
 							}
 						})
 						.join(" ")}`
-				: msg;
+				: safeMsg;
 		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
 		const p = lifecycleLogPath();
 		// FR-36: delegate to the shared `appendLogLine` helper so the
@@ -175,18 +186,29 @@ type Level = "debug" | "info" | "warn" | "error";
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = new Date().toISOString();
 	const sessionId = getSessionId();
+	// XZ-LOG-03: redact PII / API keys / URL credentials from the
+	// message + args before joining so the file log never leaks
+	// user-spoken text or secrets. Mirrors the parity already in
+	// `printfLogger.ts::formatArgsForFile`. Idempotent on already-
+	// redacted text so callers that pre-redact (e.g. via
+	// `cleanConsoleMsg` chains) don't double-redact.
+	const safeMsg = redactPii(msg);
 	const formatted =
 		args.length > 0
-			? `${msg} ${args
+			? `${safeMsg} ${args
 					.map((a) => {
+						if (a instanceof Error) {
+							return redactPii(a.stack ?? `${a.name}: ${a.message}`);
+						}
+						if (typeof a === "string") return redactPii(a);
 						try {
-							return JSON.stringify(a);
+							return redactPii(JSON.stringify(a));
 						} catch {
-							return String(a);
+							return redactPii(String(a));
 						}
 					})
 					.join(" ")}`
-			: msg;
+			: safeMsg;
 	return `${tsStr} [${sessionId}] [${level.toUpperCase()}] ${formatted}\n`;
 }
 

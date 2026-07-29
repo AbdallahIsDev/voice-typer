@@ -117,7 +117,14 @@ function isEnabled(): boolean {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw === null) return _enabled; // Fall back to in-memory default
 		return raw === "1";
-	} catch {
+	} catch (err) {
+		// XZ-R16-08: log the localStorage read failure at debug so silent
+		// audio-flag read failures are visible (e.g. SSR environments,
+		// private browsing mode where localStorage is unavailable).
+		console.debug(
+			"[sound-manager] isEnabled localStorage.getItem failed:",
+			err,
+		);
 		return _enabled;
 	}
 }

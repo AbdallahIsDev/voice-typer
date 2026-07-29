@@ -466,6 +466,26 @@ export interface VoiceTyperConfig {
 	// (pre-RW-01) don't include it; the renderer treats absence
 	// as "keyring unavailable, plaintext fallback".
 	keyring_status?: KeyringStatus;
+
+	// XZ-CFG-15: server-side load-time warnings (e.g. deprecated
+	// keys scrubbed by migration, invalid values clamped to
+	// defaults, missing optional files). Populated by
+	// ``Config.load()`` on the Python side and attached to the
+	// ``get_config`` IPC response via
+	// ``_sanitize_config_for_ipc`` (which copies ``config.__dict__``
+	// verbatim, so this attribute rides along). OPTIONAL because
+	// older sidecars (pre-XZ-CFG-15) didn't echo it; the renderer
+	// treats absence as "no warnings". When non-empty, the
+	// renderer surfaces a one-shot toast listing the warnings so
+	// the user knows their config was migrated/clamped.
+	//
+	// The field is typed as ``string[] | null`` (not just
+	// ``string[]``) to mirror the Python dataclass's
+	// ``last_load_warnings: list[str] | None = None`` default —
+	// a ``None`` value means "load() hasn't run yet" (e.g. fresh
+	// defaults response) while an empty list means "load() ran
+	// and produced zero warnings".
+	last_load_warnings?: string[] | null;
 }
 
 /**

@@ -25,6 +25,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { app, dialog } from "electron";
+import { APP_NAME } from "../branding";
 import { log } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
@@ -92,6 +93,54 @@ function _readRestartHistory(): number[] {
 		// a transient FS issue never blocks a legitimate restart.
 		log.warn("[RESTART] failed to read restart_history.json:", e);
 		return [];
+	}
+}
+
+/**
+ * XZ-R18-10: shared SIGTERM+SIGKILL-fallback helper. Extracted from
+ * the dev and prod kill branches to DRY the kill logic.
+ *
+ * - ``mode === "dev"``: sends ``SIGTERM`` first (graceful shutdown)
+ *   then ``SIGKILL`` after 3s if still alive.
+ * - ``mode === "prod"``: sends the default ``.kill()`` (SIGTERM on
+ *   POSIX, ``TerminateProcess`` on Windows) then ``SIGKILL`` after 3s
+ *   if still alive.
+ *
+ * Best-effort: all errors are logged at WARN. The caller proceeds
+ * regardless — the worst case is the old Python process surviving
+ * (and the new one failing to bind the single-instance mutex, which
+ * forces the next relaunch to clean it up).
+ */
+function _killPythonProcessWithSigkillFallback(mode: "dev" | "prod"): void {
+	try {
+		if (state.pythonProcess) {
+			const proc = state.pythonProcess;
+			proc.removeAllListeners("exit");
+			if (!proc.killed) {
+				if (mode === "dev") {
+					proc.kill("SIGTERM");
+				} else {
+					proc.kill();
+				}
+			}
+			// SIGKILL fallback — if Python doesn't exit within 3s
+			// (stuck in a C extension like torch/sounddevice),
+			// force-kill so the old process doesn't survive and
+			// hold the VoiceTyperSingleInstance mutex.
+			const killTimer = setTimeout(() => {
+				if (!proc.killed) {
+					try {
+						proc.kill("SIGKILL");
+					} catch {
+						/* best-effort */
+					}
+				}
+			}, 3000);
+			proc.once("exit", () => clearTimeout(killTimer));
+		}
+	} catch (e) {
+		// GT-B3-7: surface the kill failure instead of swallowing.
+		log.warn(`[RESTART] kill old Python (${mode}) failed:`, e);
 	}
 }
 
@@ -173,34 +222,10 @@ export function relaunchApp(): void {
 			"[RESTART] Dev mode: restarting Python backend (Electron stays alive)",
 		);
 
-		// Kill old Python (remove exit listener first to prevent race)
-		try {
-			if (state.pythonProcess) {
-				const proc = state.pythonProcess;
-				proc.removeAllListeners("exit");
-				if (!proc.killed) proc.kill("SIGTERM");
-				// PVT-G5-039: SIGKILL fallback — if Python
-				// doesn't exit within 3s (stuck in a C
-				// extension like torch/sounddevice),
-				// force-kill it so the old process
-				// doesn't survive and hold the
-				// VoiceTyperSingleInstance mutex.
-				const killTimer = setTimeout(() => {
-					if (!proc.killed) {
-						try {
-							proc.kill("SIGKILL");
-						} catch {
-							/* best-effort */
-						}
-					}
-				}, 3000);
-				proc.once("exit", () => clearTimeout(killTimer));
-			}
-		} catch (e) {
-			// GT-B3-7: surface the kill failure instead of swallowing.
-			log.warn("[RESTART] dev: kill old Python failed:", e);
-		}
-		state.pythonProcess = null;
+		// Kill old Python via the shared SIGTERM+SIGKILL-fallback
+		// helper (XZ-R18-10 dedup). The state-reset block below is
+		// branch-specific (dev mode clears more state than prod).
+		_killPythonProcessWithSigkillFallback("dev");
 
 		// Clean up TCP + state
 		try {
@@ -294,13 +319,13 @@ export function relaunchApp(): void {
 		);
 		try {
 			dialog.showErrorBox(
-				"Voice Typer cannot restart safely",
-				`Voice Typer has been asked to restart ${recentRestarts.length} times ` +
+				`${APP_NAME} cannot restart safely`,
+				`${APP_NAME} has been asked to restart ${recentRestarts.length} times ` +
 					`in the last ${RESTART_WINDOW_MS / 1000} seconds, which suggests ` +
 					`the Python backend is crashing on launch.\n\n` +
 					`To avoid a crash loop, the automatic restart has been cancelled. ` +
-					`Please check the log files in your Voice Typer config directory ` +
-					`(python_crash.*.txt and voice-typer.log), then start Voice Typer ` +
+					`Please check the log files in your ${APP_NAME} config directory ` +
+					`(python_crash.*.txt and voice-typer.log), then start ${APP_NAME} ` +
 					`manually once you've addressed the underlying issue.`,
 			);
 		} catch {
@@ -322,33 +347,9 @@ export function relaunchApp(): void {
 	// Electron alive and must preserve close-to-tray behavior).
 	app.isQuitting = true;
 
-	// Kill old Python (remove exit listener first to prevent race)
-	try {
-		if (state.pythonProcess) {
-			const proc = state.pythonProcess;
-			proc.removeAllListeners("exit");
-			if (!proc.killed) proc.kill();
-			// PVT-G5-039: SIGKILL fallback — same pattern as
-			// the dev branch above and stop-python.ts:38-43.
-			// If Python is stuck in a C extension and ignores
-			// SIGTERM, force-kill after 3s so the old process
-			// doesn't hold the single-instance mutex.
-			const killTimer = setTimeout(() => {
-				if (!proc.killed) {
-					try {
-						proc.kill("SIGKILL");
-					} catch {
-						/* best-effort */
-					}
-				}
-			}, 3000);
-			proc.once("exit", () => clearTimeout(killTimer));
-		}
-	} catch (e) {
-		// GT-B3-7: surface the kill failure instead of swallowing.
-		log.warn("[RESTART] prod: kill old Python failed:", e);
-	}
-	state.pythonProcess = null;
+	// Kill old Python via the shared SIGTERM+SIGKILL-fallback helper
+	// (XZ-R18-10 dedup — same pattern as the dev branch above).
+	_killPythonProcessWithSigkillFallback("prod");
 	try {
 		if (state.tcpSocket) state.tcpSocket.destroy();
 	} catch (e) {

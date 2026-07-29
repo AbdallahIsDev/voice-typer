@@ -94,9 +94,64 @@ export function clearElectronPidFile(): void {
 }
 
 /**
+ * Verify the process at ``pid`` is plausibly the Voice Typer Electron
+ * process (not an unrelated process that happened to reuse the PID
+ * after a crash). XZ-R5-009.
+ *
+ * On Linux, reads ``/proc/<pid>/cmdline`` and checks for an Electron /
+ * Voice Typer marker (``electron`` or ``voice-typer``). On macOS, runs
+ * ``ps -p <pid> -o comm=`` and applies the same check. On Windows,
+ * runs ``wmic process where processid=<pid> get commandline`` and
+ * applies the same check.
+ *
+ * Returns ``true`` if the PID exists AND the process command line
+ * matches Voice Typer; ``false`` otherwise. Any error (file missing,
+ * spawn failure, permission denied) returns ``false`` so the caller
+ * falls back to the conservative "PID is alive" path (treats the PID
+ * as still-held by Voice Typer — preventing accidental lockout of an
+ * unrelated process).
+ */
+function isPidVoiceTyper(pid: number): boolean {
+	try {
+		let cmdline = "";
+		if (process.platform === "linux") {
+			cmdline = fs
+				.readFileSync(`/proc/${pid}/cmdline`, "utf-8")
+				.replace(/\0/g, " ");
+		} else if (process.platform === "darwin") {
+			const { execSync } =
+				require("node:child_process") as typeof import("node:child_process");
+			cmdline = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf-8" });
+		} else if (process.platform === "win32") {
+			const { execSync } =
+				require("node:child_process") as typeof import("node:child_process");
+			cmdline = execSync(
+				`wmic process where processid=${pid} get commandline /value`,
+				{ encoding: "utf-8" },
+			);
+		} else {
+			return true;
+		}
+		const lower = cmdline.toLowerCase();
+		return (
+			lower.includes("electron") ||
+			lower.includes("voice-typer") ||
+			lower.includes("voice_typer")
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Read the PID file and return the PID if the process it points to is DEAD
  * (stale lock).  Returns null if the file doesn't exist, is unreadable, or
  * the PID is still alive.
+ *
+ * XZ-R5-009: a stale-PID check via ``process.kill(pid, 0)`` only verifies
+ * the PID exists — not that it's Voice Typer. PID reuse by an unrelated
+ * process would cause a lockout until that process exits. We now also
+ * verify the process command line via :func:`isPidVoiceTyper`.
  */
 export function readStaleElectronPid(): number | null {
 	try {
@@ -106,9 +161,19 @@ export function readStaleElectronPid(): number | null {
 		const pid = parseInt(content, 10);
 		if (!Number.isFinite(pid) || pid <= 0) return null;
 		try {
-			// process.kill(pid, 0) throws if the process doesn't exist.
 			process.kill(pid, 0);
-			return null; // still alive
+			// XZ-R5-009: verify it's actually Voice Typer before
+			// treating the lock as held. If the PID was reused by
+			// an unrelated process, treat the lock as stale so we
+			// don't lock out the unrelated process.
+			if (!isPidVoiceTyper(pid)) {
+				console.warn(
+					`[single_instance] PID ${pid} is alive but is not Voice Typer ` +
+						"(PID reuse) — treating lock as stale",
+				);
+				return pid;
+			}
+			return null; // still alive AND is Voice Typer
 		} catch {
 			return pid; // stale — process is gone
 		}

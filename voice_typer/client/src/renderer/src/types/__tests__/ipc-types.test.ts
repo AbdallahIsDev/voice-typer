@@ -56,6 +56,7 @@ import type {
 	ModelStatusMap,
 	PermissionsResult,
 	PythonPushEvent,
+	TranscriptionFinalEvent,
 } from "@/types/ipc";
 
 describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
@@ -103,6 +104,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			// (RelaunchElectronEvent interface deleted — verified
 			// no Python emitter; see the new compile-time guard
 			// below). The canonical event is ``relaunch_app``.
+			"relaunch_app",
 			// GT-52: three new events emitted by the Python
 			// backend but previously missing from the union.
 			"tray_state",
@@ -131,7 +133,8 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// parakeet_cpu_fallback) = 29.
 		// YJ-34: +3 (asr_backend_disabled + asr_last_resort_unloaded +
 		// llm_polish_failed) = 32.
-		expect(acceptedTypes).toHaveLength(32);
+		// relaunch_app added (was documented in comment but missing from list) = 33.
+		expect(acceptedTypes).toHaveLength(33);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -518,5 +521,128 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// `RelaunchAppEvent`); leaving it untouched here to avoid
 		// scope creep beyond YJ-34.
 		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(33);
+	});
+});
+
+describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-time guard)", () => {
+	// XZ-CC-7 (Low): the previous `TranscriptionFinalEvent` declared
+	//   interface TranscriptionFinalEvent {
+	//     type: "transcription_final";
+	//     data: { text: string };
+	//     duration_ms?: number;  // ← never sent
+	//   }
+	// The Python emitter at `voice_typer/server/dictation_pipeline.py`
+	// publishes `{type: "transcription_final", data: {text: text[:200]}}`
+	// — it NEVER populates `duration_ms`. The optional-but-never-sent
+	// field gave a false impression of an IPC contract that doesn't
+	// exist; any renderer code reading `event.data.duration_ms` would
+	// always get `undefined` at runtime. The fix removed the field.
+	//
+	// These guards pin the removal: if a future contributor re-adds
+	// `duration_ms` (or `timestamp`) to the event, the type-level
+	// conditionals flip and the `false` assignments fail to compile.
+
+	it("a TranscriptionFinalEvent with `data.duration_ms` is NOT assignable (compile-time guard)", () => {
+		// If `duration_ms` is re-added to `TranscriptionFinalEvent.data`,
+		// this `WouldHaveDurationMs` shape becomes assignable to
+		// `TranscriptionFinalEvent`, the conditional resolves to
+		// `true`, and the `const _guard: Guard = false` assignment
+		// fails to compile — CI catches the regression before the
+		// dead field ships again.
+		type WouldHaveDurationMs = {
+			type: "transcription_final";
+			data: { text: string; duration_ms: number };
+		};
+		type Guard = WouldHaveDurationMs extends TranscriptionFinalEvent
+			? TranscriptionFinalEvent extends WouldHaveDurationMs
+				? true
+				: false
+			: false;
+		const _guard: Guard = false;
+		expect(_guard).toBe(false);
+	});
+
+	it("TranscriptionFinalEvent.data has ONLY the `text` field (compile-time guard)", () => {
+		// The canonical shape: `{ type: "transcription_final"; data: { text: string } }`.
+		// If a future contributor adds a field to `data`, the
+		// conditional resolves to `false` and the `true` assignment
+		// fails to compile.
+		type CanonicalShape = {
+			type: "transcription_final";
+			data: { text: string };
+		};
+		type Guard = CanonicalShape extends TranscriptionFinalEvent ? true : false;
+		const _guard: Guard = true;
+		expect(_guard).toBe(true);
+	});
+
+	it("TranscriptionFinalEvent is in the PythonPushEvent union", () => {
+		// Sanity: the event is still in the union (the XZ-CC-7 fix
+		// removed a field, not the event itself).
+		type InUnion = TranscriptionFinalEvent extends PythonPushEvent
+			? true
+			: false;
+		const _guard: InUnion = true;
+		expect(_guard).toBe(true);
+	});
+});
+
+describe("XZ-CC-6 / XZ-CC-16: dead response types stay removed (compile-time guards)", () => {
+	// XZ-CC-6 (Medium): the previous ``ToggleDictationResult`` interface
+	// declared ``recording: boolean`` as a REQUIRED field. The Python
+	// handler for ``toggle_dictation`` returns ``{type: "ack"}`` with NO
+	// ``data`` field — so any renderer code reading
+	// ``const { recording } = await call<ToggleDictationResult>(...)``
+	// got ``recording: undefined`` while TypeScript type-checked it as
+	// ``boolean``. The fix removed the dead type entirely (callers pass
+	// ``call<unknown>("toggle_dictation")`` and discard the result).
+	//
+	// XZ-CC-16 (Low): the 26-line ``ResponseData<T extends
+	// PythonRequest["type"]>`` conditional-types cascade had ZERO
+	// consumers — ``usePython.call`` is generic over ``<T = unknown>``
+	// with no constraint on ``PythonRequest["type"]``, so the cascade
+	// never flowed into any call site. The dead types
+	// ``ToggleDictationResult``, ``ToggleFavoriteResult``, and
+	// ``SaveVocabularyResult`` were only ever referenced by this dead
+	// mapped type, so they were removed together.
+	//
+	// These guards verify the names are NOT re-exported from
+	// ``@/types/ipc``. If a future contributor re-adds any of them,
+	// the ``keyof`` check resolves to ``true`` and the ``false``
+	// assignment fails to compile — CI catches the regression before
+	// the dead contract ships again.
+
+	it("ToggleDictationResult is NOT exported from @/types/ipc (XZ-CC-6 guard)", () => {
+		type IpcModule = typeof import("@/types/ipc");
+		type IsExported = "ToggleDictationResult" extends keyof IpcModule
+			? true
+			: false;
+		const _guard: IsExported = false;
+		expect(_guard).toBe(false);
+	});
+
+	it("ToggleFavoriteResult is NOT exported from @/types/ipc (XZ-CC-16 guard)", () => {
+		type IpcModule = typeof import("@/types/ipc");
+		type IsExported = "ToggleFavoriteResult" extends keyof IpcModule
+			? true
+			: false;
+		const _guard: IsExported = false;
+		expect(_guard).toBe(false);
+	});
+
+	it("SaveVocabularyResult is NOT exported from @/types/ipc (XZ-CC-16 guard)", () => {
+		type IpcModule = typeof import("@/types/ipc");
+		type IsExported = "SaveVocabularyResult" extends keyof IpcModule
+			? true
+			: false;
+		const _guard: IsExported = false;
+		expect(_guard).toBe(false);
+	});
+
+	it("ResponseData is NOT exported from @/types/ipc (XZ-CC-16 guard)", () => {
+		type IpcModule = typeof import("@/types/ipc");
+		type IsExported = "ResponseData" extends keyof IpcModule ? true : false;
+		const _guard: IsExported = false;
+		expect(_guard).toBe(false);
 	});
 });

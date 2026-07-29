@@ -163,4 +163,34 @@ describe("SoundManager", () => {
 		// Should have attempted to construct an AudioContext
 		expect(mockCtor).toHaveBeenCalled();
 	});
+
+	it("XZ-R16-08: isEnabled logs debug message when localStorage.getItem throws", async () => {
+		const { isSoundFeedbackEnabled, _resetSoundManagerForTests } = await import(
+			"@/lib/sound-manager"
+		);
+		_resetSoundManagerForTests();
+
+		// Stub localStorage.getItem to throw (e.g. private browsing mode).
+		const originalGetItem = Storage.prototype.getItem;
+		Storage.prototype.getItem = vi.fn(() => {
+			throw new DOMException("SecurityError");
+		});
+		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+		try {
+			// Should NOT throw — falls back to the in-memory default.
+			const result = isSoundFeedbackEnabled();
+			// Default in-memory flag is false on a fresh reset.
+			expect(result).toBe(false);
+			// XZ-R16-08: the catch block must log a debug message so silent
+			// audio-flag read failures are visible to operators.
+			expect(debugSpy).toHaveBeenCalled();
+			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
+			expect(String(debugMsg)).toContain("[sound-manager]");
+			expect(Storage.prototype.getItem).toHaveBeenCalled();
+		} finally {
+			Storage.prototype.getItem = originalGetItem;
+			debugSpy.mockRestore();
+		}
+	});
 });
