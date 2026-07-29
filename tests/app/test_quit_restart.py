@@ -21,12 +21,12 @@ def _stub_restart_for_log_test(app, monkeypatch):
         "voice_typer.server.event_bus.publish",
         lambda msg: None,
     )
-    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(
         "voice_typer.server.app.sys.exit",
         lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
     )
-    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+    monkeypatch.setattr("os._exit", lambda code: None)
     app.hotkeys._hotkey_backend = MagicMock()
     app.hotkeys._esc_backend = MagicMock()
     app.hotkeys._repaste_backend = MagicMock()
@@ -51,7 +51,7 @@ class TestQuitAppCleanShutdown:
         """os._exit(0) must never be called from quit_app."""
         os_exit_called = []
         monkeypatch.setattr(
-            "voice_typer.server.app.os._exit",
+            "os._exit",
             lambda code: os_exit_called.append(code),
         )
         # Stub out clean-shutdown side effects so quit() can run without
@@ -96,7 +96,7 @@ class TestQuitAppCleanShutdown:
         )
         # Belt-and-suspenders: if quit_app falls through to os._exit
         # (it shouldn't after this fix), don't kill the pytest process.
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         with pytest.raises(SystemExit):
             app.quit_app()
@@ -115,7 +115,7 @@ class TestQuitAppCleanShutdown:
         # Stub self.quit() so we can verify the push happens before it.
         monkeypatch.setattr(app, "quit", lambda: (_ for _ in ()).throw(SystemExit(0)))
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         with pytest.raises(SystemExit):
             app.quit_app()
@@ -167,14 +167,14 @@ class TestRestartAppCleanShutdown:
     def test_restart_app_does_not_call_os_exit(self, app, monkeypatch):
         os_exit_called = []
         monkeypatch.setattr(
-            "voice_typer.server.app.os._exit",
+            "os._exit",
             lambda code: os_exit_called.append(code),
         )
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
         # Force the pre-restart sleep to no-op so the test is fast.
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -190,11 +190,11 @@ class TestRestartAppCleanShutdown:
         """RELIABILITY-003: restart_app must stop esc_backend and
         repaste_backend, not just hotkey_backend."""
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         # XZ-R17-02: shutdown_controller now nulls the backend attrs after
         # stop() — capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
@@ -217,11 +217,11 @@ class TestRestartAppCleanShutdown:
         """restart_app must call self.tray.stop() to break the pystray
         event loop so the process can actually exit via sys.exit(0)."""
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -241,10 +241,10 @@ class TestRestartAppCleanShutdown:
         kills from intentional restarts when triaging crash logs.
         """
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
@@ -279,10 +279,10 @@ class TestRestartAppCleanupPath:
         import subprocess as _sp
 
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         # XZ-R17-02: shutdown_controller now nulls the backend attrs after
         # stop() — capture mocks in locals so assertions still work.
@@ -307,10 +307,10 @@ class TestRestartAppCleanupPath:
         import subprocess as _sp
 
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
@@ -330,10 +330,10 @@ class TestRestartAppCleanupPath:
 
         os_exit_calls = []
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
-        monkeypatch.setattr("voice_typer.server.app.os.environ", {})
+        monkeypatch.setattr("os.environ", {})
         monkeypatch.setattr(sys, "argv", ["voice_typer"])
-        monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: os_exit_calls.append(code))
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        monkeypatch.setattr("os._exit", lambda code: os_exit_calls.append(code))
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
@@ -409,7 +409,7 @@ class TestAppQuitAppAlwaysPushesEvent:
             "voice_typer.server.event_bus.publish",
             lambda msg: pushed.append(msg),
         )
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
         app._shutting_down = True
@@ -440,7 +440,7 @@ class TestAppQuitAppAlwaysPushesEvent:
         )
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         assert app._shutting_down is False
 
