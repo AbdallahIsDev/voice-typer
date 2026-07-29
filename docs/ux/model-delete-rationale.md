@@ -11,7 +11,7 @@
 ## Context
 
 Every other destructive action in the renderer offers a 6-second undo toast via
-`showUndoableToast` (see `voice_typer/client/src/renderer/src/hooks/useSnackbar.tsx`):
+`showUndoableToast` (see `voice_typer/client/src/renderer/src/hooks/useSnackbar.ts`):
 
 | Page            | Action            | Undo IPC            |
 | --------------- | ----------------- | ------------------- |

@@ -490,7 +490,7 @@ Reduce the hardcoded delay from 30s to 15s (a reasonable middle ground), AND add
 **Part 1: Reduce delay to 15 seconds**
 
 ```python
-# server_platform.py::_autostart_command()
+# server_platform/autostart.py::_autostart_command()
 # Change --delay 30 to --delay 15
 
 

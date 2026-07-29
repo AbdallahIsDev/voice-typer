@@ -39,13 +39,16 @@ Implement a **client-side command allowlist** in the Electron main process:
 
 2. **Gate location:** The check is in `sendToPython()` (`voice_typer/client/src/main/python/send-to-python.ts`), immediately before the message is serialized and written to the TCP socket. If the command is not in the allowlist, the promise is rejected with `new Error("Disallowed IPC command: ${cmd}")`.
 
-3. **Synchronization rule (CONTRIBUTING.md §6.4):** Any new command added to `_COMMAND_REGISTRY` in the Python backend MUST also be added to `ALLOWED_COMMANDS` in `voice_typer/client/src/main/allowed-commands.ts`, AND to the renderer's type-safe `call()` wrapper (the `ipc.ts` module under `voice_typer/client/src/renderer/src/types/`). A bidirectional parity test (`tests/test_electron_ipc_and_build.py`) enforces this.
+3. **Synchronization rule (CONTRIBUTING.md §6.4):** Any new command added to `_COMMAND_REGISTRY` in the Python backend MUST also be added to `ALLOWED_COMMANDS` in `voice_typer/client/src/main/allowed-commands.ts`, AND to the renderer's type-safe `call()` wrapper (the `ipc/` package under `voice_typer/client/src/renderer/src/types/ipc/` (specifically `requests.ts` for the Request union and `push_events.ts` for the PushEvent union)). A bidirectional parity test (`tests/test_electron_ipc_and_build.py`) enforces this.
 
 4. **Exhaustive list:** See `voice_typer/client/src/main/allowed-commands.ts` for the canonical list. Parity between the TS allowlist, the Rust `allowed_commands()` in `src-tauri/src/commands/sidecar_cmds.rs`, and the Python `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py` is enforced by `tests/test_security_doc_command_count.py`.
 
 5. **Not in the renderer allowlist (intentionally):** Commands that should never originate from the renderer:
-   - `show_electron_notification` — Not in the renderer allowlist (GT-32): the renderer never invokes this command. YJ-64 correction: this entry is a **command on the request/response channel 1** in the legacy Electron path, NOT a push event (it was previously mis-categorized here as "pushed from Python, not invoked by renderer"). The command has since been **REMOVED from `_COMMAND_REGISTRY`** (see the `show_electron_notification ... were REMOVED` block in `voice_typer/server/ipc_server.py` — the Tauri host now handles tray notifications via a dedicated Rust command rather than bridging through Python IPC). It is retained in this ADR as a historical record of the deprecation. The Python-side service method may still exist for the legacy Electron path during the ADR-0020 mixed-mode period.
-   - Internal dispatch commands that are server-side only.
+   - `tray_click` — Rust-only; routed via `dispatch_inner` from `tray.rs::on_menu_event`. The renderer never dispatches it.
+   - `shutdown` — Rust-only cooperative shutdown via `shutdown_sidecar`. The renderer never dispatches it.
+   - `heartbeat` — TS-only; the Rust WS-reader dispatches this directly (RW-10 watchdog tick). The renderer never dispatches it.
+   - `relaunch_ack` — TS-only; the `relaunch_app` Tauri command dispatches this directly (PERF-005 relaunch ack). The renderer never dispatches it.
+   - Canonical enumerations: `_HOST_ONLY_COMMANDS` (`tray_click`, `shutdown` — host-only, present in Python `_COMMAND_REGISTRY` but absent from both the TS `ALLOWED_COMMANDS` and the Rust `allowed_commands()`) and `_TS_ONLY_EXCEPTIONS` (`heartbeat`, `relaunch_ack` — present in the TS `ALLOWED_COMMANDS` but absent from the Rust `allowed_commands()`) in `tests/test_security_doc_command_count.py`.
 
 ## Consequences
 
@@ -66,7 +69,7 @@ Implement a **client-side command allowlist** in the Electron main process:
 - `voice_typer/client/src/main/allowed-commands.ts` — `ALLOWED_COMMANDS` canonical declaration (moved from `index.ts` per R6-F10).
 - `voice_typer/client/src/main/python/send-to-python.ts` — `sendToPython()` gate implementation.
 - `voice_typer/server/ipc_server.py` — `_COMMAND_REGISTRY` definition.
-- The renderer's `ipc.ts` module (under `voice_typer/client/src/renderer/src/types/`) — type-safe `call()` wrapper.
+- The renderer's `ipc/` package (under `voice_typer/client/src/renderer/src/types/ipc/`, specifically `requests.ts` for the Request union and `push_events.ts` for the PushEvent union) — type-safe `call()` wrapper.
 - `tests/test_electron_ipc_and_build.py` — parity test that `ALLOWED_COMMANDS` matches `_COMMAND_REGISTRY`.
 - `tests/test_security_doc_command_count.py` — three-way parity test (TS ↔ Rust ↔ Python) command counts and entries.
 - `CONTRIBUTING.md` §6.4 — synchronization rule documentation.

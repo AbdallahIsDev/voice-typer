@@ -33,14 +33,17 @@ Python log is at `<DATA_DIR>/voice-typer.log` (directly under the data
 dir), while the Rust host log is at `<DATA_DIR>/logs/voice-typer.log`
 (in a `logs/` subdir). Verified via:
 
-- Python: `voice_typer/server/log.py:898` — `log_file = config_dir / "voice-typer.log"`
+- Python: `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point — re-exported from `app.py` for backwards compatibility) → delegates to `voice_typer/server/log.py:setup_logging`; path literal at `log.py:898` — `log_file = config_dir / "voice-typer.log"`
 - Rust: `src-tauri/src/platform/logging.rs:22,47,61` — `config_dir.join("logs")` + writer prefix `"voice-typer"`
 
 ### Python backend log
 
-Written by `RotatingFileHandler` in `voice_typer/server/log.py`. Rotates
+Written by `RotatingFileHandler` in `voice_typer/server/log.py`, invoked at
+startup via `voice_typer/server/logging_setup.py:_setup_logging()` (canonical
+entry point — re-exported from `app.py` for backwards compatibility). Rotates
 at 5 MiB with 5 backup files kept
-(`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)` — ADR-0020 §11).
+(`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)` — ADR-0020 §11;
+the in-code comment notes this replaced an earlier "1 MiB × 2" default).
 
 | Platform | Python log file path |
 |----------|----------------------|
@@ -127,7 +130,7 @@ Serialised `Config` dataclass. Written by `Config.save()`. Schema version tracke
 SQLite database (via `voice_typer.server.history_db.HistoryDB`). Contains transcription records with timestamps, model info, audio duration.
 
 ### `huggingface/`
-HuggingFace cache directory. Set via `os.environ["HF_HOME"]` in `app.py:_setup_logging()`. The `hub/` subdirectory uses HuggingFace's standard `snapshot_download` layout:
+HuggingFace cache directory. Set via `os.environ["HF_HOME"]` in `logging_setup.py:_setup_logging()` (re-exported from `app.py` for backwards compatibility). The `hub/` subdirectory uses HuggingFace's standard `snapshot_download` layout:
 - `models--org--name/` directories containing snapshots, blobs, refs
 - Managed entirely by `huggingface_hub` — the app does **not** write here directly
 
@@ -230,12 +233,12 @@ For an AI agent tasked with implementing the folder structure recommendations:
 
 ### 1. Remove junction hack
 - [ ] In `voice_typer/server/config.py` or `voice_typer/server/app.py`: remove any code that creates a junction/symlink from `<DATA_DIR>/huggingface/` to `~/.cache/huggingface/`
-- [ ] Keep `os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))` in `app.py:_setup_logging()`
+- [ ] Keep `os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))` in `logging_setup.py:_setup_logging()` (re-exported from `app.py` for backwards compatibility)
 - [ ] On first run after upgrade: detect existing junction, copy `hub/` contents, remove junction
 
 ### 2. Create `models/` → `huggingface/hub/` junction/symlink
 - [ ] Add `_ensure_model_junction()` helper in `config.py` or a new `setup.py`
-- [ ] Call it from `VoiceTyperApp.__init__()` or during `_setup_logging()`
+- [ ] Call it from `VoiceTyperApp.__init__()` or during `logging_setup.py:_setup_logging()`
 - [ ] Windows: `os.symlink(hub_path, models_path, target_is_directory=True)` with appropriate fallback to junction
 - [ ] macOS/Linux: `os.symlink(hub_path, models_path, target_is_directory=True)`
 - [ ] Handle existing broken symlinks (remove and recreate)
@@ -246,7 +249,7 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [x] Both files are optional — the app works without them using bundled defaults
 
 ### 4. Write `<DATA_DIR>/README.md` on first run
-- [ ] In `_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
+- [ ] In `logging_setup.py:_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
 - [ ] If not, write a copy of this document (or a condensed user-facing version)
 - [ ] The README should list every folder/file with a short description and tell the user not to delete model files manually
 

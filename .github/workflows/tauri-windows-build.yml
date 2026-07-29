@@ -115,12 +115,17 @@ jobs:
     runs-on: windows-2022
     # Nuitka + Scons + cl.exe compilation of the Python backend,
     # prewarm, and Tauri build takes 90-110 min on a windows-2022
-    # runner. Increased from 90 to 120 in 2026-07-27 to accommodate
-    # the full compile + code-sign + upload sequence. If the Nuitka
-    # C compilation stage (Scons with cl.exe) consistently exceeds
-    # 110 min, consider adding --nofollow-import-to exclusions for
-    # scipy/pytest/PIL or enabling Nuitka's ccache (see cache step).
-    timeout-minutes: 120
+    # runner. Increased from 90 → 120 (2026-07-27) → 240 (2026-07-28)
+    # after a real run hit the 120 min ceiling: the sidecar binary
+    # was built successfully but the job was canceled before prewarm
+    # + tauri + code-sign + upload could complete. 240 min gives
+    # ~2h buffer beyond the typical 100-110 min wall clock, which
+    # absorbs (a) timestamp-server retries during code-signing,
+    # (b) flaky upload retries, and (c) future dependency bumps
+    # that invalidate the Nuitka ccache. If the build still hits
+    # 240 min, the bottleneck is C compilation — add more
+    # --nofollow-import-to exclusions or move to a larger runner.
+    timeout-minutes: 240
     permissions:
       contents: read
       id-token: write   # required for actions/attest-build-provenance
@@ -275,19 +280,31 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
+              --jobs=3 `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
               --nofollow-import-to=torch._functorch `
+              --nofollow-import-to=torch.testing `
+              --nofollow-import-to=torch.onnx `
+              --nofollow-import-to=torch.package `
+              --nofollow-import-to=torch.utils.data.distributed `
+              --nofollow-import-to=torch.utils.benchmark `
               --nofollow-import-to=transformers `
               --nofollow-import-to=scipy._lib.cobyqa `
               --nofollow-import-to=scipy._lib.array_api_extra.testing `
+              --nofollow-import-to=scipy.spatial.transform `
+              --nofollow-import-to=scipy.ndimage `
+              --nofollow-import-to=scipy.sparse.linalg `
               --nofollow-import-to=sympy `
               --nofollow-import-to=mpmath `
               --nofollow-import-to=pytest `
               --nofollow-import-to=PIL.ImageQt `
+              --nofollow-import-to=PIL.ImageTk `
+              --nofollow-import-to=PIL.ImageCms `
               --nofollow-import-to=numpy.distutils `
               --nofollow-import-to=numpy.f2py `
+              --nofollow-import-to=numpy.testing `
               --nofollow-import-to=psutil._pslinux `
               --nofollow-import-to=psutil._psosx `
               --nofollow-import-to=psutil._psbsd `
@@ -328,6 +345,7 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
+              --jobs=3 `
               --nofollow-import-to=torch `
               --nofollow-import-to=transformers `
               --nofollow-import-to=faster_whisper `

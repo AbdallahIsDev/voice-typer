@@ -4,7 +4,7 @@
 # pyrefly ships a `winreg` stub, but on non-Windows runners it appears
 # to be minimal — voice-typer accesses (OpenKey, SetValueEx, etc.) are
 # reported as `missing-attribute`. This stub declares the full API
-# surface used by `voice_typer/server/server_platform.py` and
+# surface used by `voice_typer/server/server_platform/autostart_windows.py` and
 # `voice_typer/server/task_scheduler.py` so pyrefly can follow the
 # Windows autostart code paths without reporting false positives.
 #

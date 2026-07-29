@@ -18,9 +18,18 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
+
+# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# save / merge routines). This script previously duplicated these ~50
+# LOC alongside backfill_i18n_keys.py and apply_translations.py.
+from _i18n_common import (
+    flatten_keys,
+    load_json,
+    merge_en_into_locale,
+    save_json,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRANSLATIONS_DIR = REPO_ROOT / "voice_typer/client/src/renderer/src/i18n/translations"
@@ -28,68 +37,11 @@ EN_FILE = TRANSLATIONS_DIR / "en.json"
 NON_ENGLISH_LOCALES = ["ar", "de", "es", "fr", "hi", "ru", "zh"]
 
 
-def flatten_keys(obj: dict, prefix: str = "") -> set[str]:
-    """Recursively collect all dot-separated keys from a nested dict."""
-    keys: set[str] = set()
-    for k, v in obj.items():
-        full = f"{prefix}.{k}" if prefix else k
-        if isinstance(v, dict):
-            keys |= flatten_keys(v, full)
-        else:
-            keys.add(full)
-    return keys
-
-
 def find_missing(en_data: dict, locale_data: dict) -> set[str]:
     """Return the set of keys present in en_data but missing from locale_data."""
     en_keys = flatten_keys(en_data)
     locale_keys = flatten_keys(locale_data)
     return en_keys - locale_keys
-
-
-def add_missing_keys(en_data: dict, locale_data: dict) -> tuple[dict, set[str]]:
-    """Recursively add missing keys from en_data into locale_data (in place).
-
-    Returns the (possibly modified) locale_data and the set of added keys.
-
-    TYPE-CONFLICT HANDLING: when en_data has a dict at a key but locale_data
-    has a scalar (e.g. en has ``models.download: {resume: ...}`` but locale
-    has ``models.download: "Descargar"``), the scalar is replaced with the
-    dict (using English values).  This happens when a previously-scalar key
-    is promoted to a nested object in en.json.  The replaced scalar is
-    logged as an added key.
-    """
-    added: set[str] = set()
-
-    def _recurse(en_sub: dict, loc_sub: dict, prefix: str) -> None:
-        for k, v in en_sub.items():
-            full = f"{prefix}.{k}" if prefix else k
-            if k not in loc_sub:
-                loc_sub[k] = v
-                added.add(full)
-            elif isinstance(v, dict) and isinstance(loc_sub[k], dict):
-                _recurse(v, loc_sub[k], full)
-            elif isinstance(v, dict) and not isinstance(loc_sub[k], dict):
-                # Type conflict: en has a dict, locale has a scalar.
-                # Replace the scalar with the dict (English values).
-                # This happens when a scalar key is promoted to a nested object.
-                loc_sub[k] = v
-                added.add(full)
-            # else: both are scalars — never overwrite the existing translation
-
-    _recurse(en_data, locale_data, "")
-    return locale_data, added
-
-
-def load_json(path: Path) -> dict:
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_json(path: Path, data: dict) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent="\t", ensure_ascii=False)
-        f.write("\n")
 
 
 def main() -> int:
@@ -127,7 +79,17 @@ def main() -> int:
             continue
 
         if args.all or args.locale:
-            loc_data, added = add_missing_keys(en_data, loc_data)
+            # The "replace_scalar_with_dict" conflict policy preserves the
+            # historical TYPE-CONFLICT HANDLING: when en has a dict at a
+            # key but locale has a scalar (e.g. en has
+            # ``models.download: {resume: ...}`` but locale has
+            # ``models.download: "Descargar"``), the scalar is replaced
+            # with the dict (using English values). This happens when a
+            # previously-scalar key is promoted to a nested object in
+            # en.json. Existing scalar translations are NEVER overwritten.
+            loc_data, added = merge_en_into_locale(
+                en_data, loc_data, on_conflict="replace_scalar_with_dict"
+            )
             save_json(loc_file, loc_data)
             print(f"  {loc}: added {len(added)} missing keys -> {loc_file.name}")
             any_added = True

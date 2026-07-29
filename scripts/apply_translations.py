@@ -12,8 +12,12 @@ Usage:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# save / merge routines). This script previously duplicated load_json /
+# save_json alongside add_i18n_keys.py and backfill_i18n_keys.py.
+from _i18n_common import load_json, save_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRANSLATIONS_DIR = REPO_ROOT / "voice_typer/client/src/renderer/src/i18n/translations"
@@ -330,17 +334,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "history.clearAllAria": "清除所有历史记录",
     },
 }
-
-
-def load_json(path: Path) -> dict:
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_json(path: Path, data: dict) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent="\t", ensure_ascii=False)
-        f.write("\n")
 
 
 def set_nested(data: dict, dot_key: str, value: str) -> bool:

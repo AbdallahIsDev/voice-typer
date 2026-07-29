@@ -3,7 +3,7 @@
 # via the `pywin32` distribution).
 #
 # The runtime code only ever imports the `win32com.client` submodule
-# (see `voice_typer/server/server_platform.py::_create_windows_shortcut`).
+# (see `voice_typer/server/server_platform/autostart_windows.py::_create_windows_shortcut`).
 # Declaring the package surface here lets pyrefly resolve the submodule
 # import. All symbols are `Any` because the surrounding code is wrapped
 # in `try/except ImportError` and is Windows-only.

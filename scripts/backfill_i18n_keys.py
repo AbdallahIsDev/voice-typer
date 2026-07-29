@@ -9,8 +9,17 @@ Run: python scripts/backfill_i18n_keys.py
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# save / merge routines). This script previously duplicated these ~50
+# LOC alongside add_i18n_keys.py and apply_translations.py.
+from _i18n_common import (
+    flatten_keys,
+    load_json,
+    merge_en_into_locale,
+    save_json,
+)
 
 TRANSLATIONS_DIR = (
     Path(__file__).resolve().parent.parent
@@ -26,73 +35,34 @@ EN_FILE = TRANSLATIONS_DIR / "en.json"
 LOCALES = ["ar", "de", "es", "fr", "hi", "ru", "zh"]
 
 
-def collect_keys(d: dict, prefix: str = "") -> set[str]:
-    out: set[str] = set()
-    for k, v in d.items():
-        key = f"{prefix}{k}"
-        if isinstance(v, dict):
-            out |= collect_keys(v, key + ".")
-        else:
-            out.add(key)
-    return out
+def backfill_locale(locale: str, en: dict, en_keys: set[str]) -> int:
+    """Add any missing keys (English placeholder values) to ``locale``.
 
-
-def get_path(d: dict, dotted: str):
-    parts = dotted.split(".")
-    cur = d
-    for p in parts[:-1]:
-        cur = cur.setdefault(p, {})
-    return cur, parts[-1]
-
-
-def backfill_locale(locale: str, en: dict, en_keys: set[str]) -> tuple[int, int]:
+    Returns the number of keys added. Existing translations are never
+    overwritten (``on_conflict="skip"``).
+    """
     path = TRANSLATIONS_DIR / f"{locale}.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    locale_keys = collect_keys(data)
+    data = load_json(path)
+    locale_keys = flatten_keys(data)
     missing = en_keys - locale_keys
     if not missing:
-        return 0, 0
+        return 0
 
-    def get_en_value(dotted: str):
-        cur = en
-        for p in dotted.split("."):
-            cur = cur[p]
-        return cur
-
-    added = 0
-    for key in missing:
-        parent, leaf = get_path(data, key)
-        parent[leaf] = get_en_value(key)
-        added += 1
-
-    # Sort keys at every level for stable diffs (matching existing file order).
-    def sort_recursive(d):
-        if isinstance(d, dict):
-            return {k: sort_recursive(v) for k, v in sorted(d.items())}
-        return d
-
-    # Preserve existing top-level order — only insert new keys at the end of their parent.
-    # To do that, walk the en.json structure and append any missing keys in en's order.
-    def merge_in_en_order(en_node, locale_node):
-        for k, v in en_node.items():
-            if k not in locale_node:
-                locale_node[k] = v if not isinstance(v, dict) else json.loads(json.dumps(v))
-            elif isinstance(v, dict) and isinstance(locale_node[k], dict):
-                merge_in_en_order(v, locale_node[k])
-
-    # Reload original to preserve order, then merge.
-    original = json.loads(path.read_text(encoding="utf-8"))
-    merge_in_en_order(en, original)
-    path.write_text(json.dumps(original, ensure_ascii=False, indent="\t") + "\n", encoding="utf-8")
-    return added, 0
+    # Reload original to preserve existing top-level order, then merge
+    # en's missing keys into it. ``on_conflict="skip"`` preserves
+    # translator-authored values — only ADDS keys that are absent.
+    original = load_json(path)
+    _, added = merge_en_into_locale(en, original, on_conflict="skip")
+    save_json(path, original)
+    return len(added)
 
 
 def main() -> int:
-    en = json.loads(EN_FILE.read_text(encoding="utf-8"))
-    en_keys = collect_keys(en)
+    en = load_json(EN_FILE)
+    en_keys = flatten_keys(en)
     total_added = 0
     for loc in LOCALES:
-        added, _ = backfill_locale(loc, en, en_keys)
+        added = backfill_locale(loc, en, en_keys)
         if added:
             print(f"  {loc}.json: +{added} keys backfilled")
             total_added += added
