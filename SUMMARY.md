@@ -241,3 +241,143 @@ The `changes.zip` archive contains:
 - `archive/deleted_files.txt` (no deletions in this run)
 
 The archive does NOT contain: `node_modules/`, `.venv/`, build artifacts, cache directories, lockfiles (unchanged), `.git/`, OS junk, secrets.
+
+---
+
+# Addendum: CI Issues Fix Run (2026-07-30, later session)
+
+**Scope:** Fix 4 CI failures reported by user in chat (separate from the Fix-Existing run above).
+
+## Completed
+
+### 1. `compile_native.ps1` — MSVC `fatal error C1034: windows.h: no include path set`
+
+**Root cause:** The script located `cl.exe` directly via `vswhere` + hard-coded VS install paths, then invoked it with `& $clPath "/O2" ...`. But `cl.exe` requires `INCLUDE`/`LIB`/`LIBPATH` env vars to be set first (which `vcvars64.bat` does). The fallback path used `vcvars64.bat` correctly, but the primary path — the one CI actually hit — skipped it.
+
+**Fix:** Rewrote `scripts/build/compile_native.ps1` to ALWAYS discover `vcvars64.bat` first. Compilation now happens via a temp batch wrapper that `call`s `vcvars64.bat` (populating INCLUDE/LIB/LIBPATH) then chains into `cl.exe`. Temp-batch-file approach avoids the known PowerShell `cmd /c $string` quote-stripping bug.
+
+**File:** `scripts/build/compile_native.ps1`
+**Validation:** Manual code review (no PowerShell in Linux sandbox). **VALIDATE ON WINDOWS HOST:** `powershell -ExecutionPolicy Bypass -File scripts\build\compile_native.ps1` should produce `[compile_native] SUCCESS: ...windows-key-listener.exe (N KB)`.
+
+### 2. Tauri build — `resource path 'resources/native/windows-key-listener.exe' doesn't exist`
+
+**Root cause:** `tauri.conf.json` declares 14 resource paths (3 native key-listeners + 6 prewarm binaries + 5 linux-scripts) + 1 externalBin. At `cargo check` time, `tauri_build::build()` reads `tauri.conf.json` directly (NOT the per-platform override). The Linux smoke job's placeholder step only stubbed the sidecar, so the build script failed validating the Windows-only `windows-key-listener.exe`.
+
+**Fix:** Extended the placeholder step in `.github/workflows/tauri-linux-build.yml` to stub ALL 14 resources. The linux-scripts stubs use `[ -f ... ] || echo placeholder` so they don't overwrite real checked-in files.
+
+**File:** `.github/workflows/tauri-linux-build.yml`
+**Validation:** Bash syntax validated via `bash -n` + actual execution. All 14 placeholder files created correctly.
+
+### 3. Ruff ratchet regression — 5 new E501 (line too long) violations
+
+**Root cause:** 5 lines exceeded the 120-char limit (longest was 145 chars). Baseline was 0, so ratchet reported regression (0 → 5).
+
+**Fix:** Split each long line into multi-line equivalents. No semantic changes.
+
+| File | Line | Chars | Fix |
+|------|------|-------|-----|
+| `tests/test_dictation_pipeline_check_resources.py` | 533 | 140 | Wrapped `AssertionError` in multi-line concat |
+| `tests/test_env_validation_sidecar.py` | 82 | 145 | Split `_set_valid_sidecar_env` signature |
+| `tests/test_env_validation_sidecar.py` | 265 | 121 | Multi-line list comprehension |
+| `tests/test_env_validation_sidecar.py` | 276 | 122 | Multi-line list comprehension |
+| `voice_typer/server/config.py` | 1748 | 130 | Extracted `ts_sec`/`pid`/`ts_ns` locals |
+
+**Files:** `tests/test_dictation_pipeline_check_resources.py`, `tests/test_env_validation_sidecar.py`, `voice_typer/server/config.py`
+**Validation (ON LINUX sandbox):** `ruff check` → 0 violations; `ruff_ratchet_check.py` → PASS (baseline=0, current=0); `py_compile` → OK.
+
+### 4. Pre-commit invocation — `unrecognized arguments: end-of-file-fixer check-yaml ...`
+
+**Root cause:** `pre-commit run --all-files <7 hook IDs>` passes 7 positional args, but `pre-commit run` accepts at most ONE hook ID.
+
+**Fix:** Replaced with a bash loop in `.github/workflows/build.yml` that invokes `pre-commit run "$hook" --all-files` once per hook. Added `::group::`/`::endgroup::` GitHub Actions log folding.
+
+**File:** `.github/workflows/build.yml`
+**Validation:** Bash syntax validated via `bash -n` + actual execution.
+
+## Skipped as Not Real / Already Done
+
+None.
+
+## Fixed During Investigation
+
+None — investigation was scoped to the 4 reported CI issues.
+
+## Remaining Work
+
+### Pre-existing test failures (7 tests, NOT regressions)
+
+The following 7 tests fail identically on the unmodified `main` branch (verified via `git stash` + re-run). They are NOT caused by my CI fixes and are out of scope for this task.
+
+| Test | Likely root cause |
+|------|-------------------|
+| `test_env_validation_sidecar.py::TestEmptyValuesPopped::test_empty_native_dir_popped` | `_validate_env_vars()` doesn't pop `VOICE_TYPER_NATIVE_DIR` when empty |
+| `test_env_validation_sidecar.py::TestEmptyValuesPopped::test_empty_prewarm_exe_popped` | Same — `VOICE_TYPER_PREWARM_EXE` not popped when empty |
+| `test_env_validation_sidecar.py::TestPathSafetyValidation::test_overlength_path_popped` | Path-length validation not popping invalid value |
+| `test_env_validation_sidecar.py::TestPathSafetyValidation::test_path_outside_home_popped` | Path-outside-`$HOME` validation not popping |
+| `test_env_validation_sidecar.py::TestPathSafetyValidation::test_prewarm_exe_path_outside_home_popped` | Same — prewarm_exe |
+| `test_env_validation_sidecar.py::TestPathSafetyValidation::test_path_traversal_with_dots_popped` | Path-traversal validation not popping |
+| `test_dictation_pipeline_check_resources.py::TestCheckResourcesDisk::test_warns_when_disk_below_1_gb` | `_check_resources()` not emitting low-disk WARNING |
+
+**Priority:** P1 — these flag real bugs in env-var sanitization and disk-space warnings.
+**Complexity:** S–M (5-15 line fix per function; tests already describe expected behavior).
+
+### Platform host validation (deferred)
+
+- `compile_native.ps1` needs a real Windows host with VS Build Tools to verify end-to-end. The fix is logically correct (vcvars64.bat is the canonical way to set INCLUDE/LIB/LIBPATH).
+- The Tauri Linux smoke job and pre-commit hygiene job run on every push to `main` — the next push will validate both fixes automatically.
+
+## Improvement Percentage (this CI-fix run)
+
+- **Improvement this run:** ~3%
+- **Justification:** Fixed 4 CI gate failures blocking the build pipeline. MSVC fix unblocks Windows native binary compilation; Tauri placeholder fix unblocks `cargo check` on Linux CI; ruff fix restores the lint ratchet; pre-commit fix restores the hygiene gate. Combined, these unblock the entire CI pipeline. The 3% estimate reflects that these are infra/CI fixes (not user-facing feature improvements) but they're high-impact because they unblock all downstream CI signal.
+
+## Recommended Next Steps (CI-fix scope)
+
+### ⭐ Recommended Next Step: Fix the 7 pre-existing test failures in `_validate_env_vars()` and `_check_resources()`
+
+**Why valuable:** Real bugs — invalid env vars aren't being popped (sidecar inherits empty/unsafe paths), low-disk warnings aren't emitted (users risk heap-corruption crashes during model load). Tests already written and failing; production fix is small.
+
+**Expected impact:** Restores 7 failing tests to green. Closes correctness gap in env-var sanitization and disk-space warnings.
+
+**Estimated effort:** S (1-2 hours) — trace `_validate_env_vars()` in `voice_typer/server/env_validation_sidecar.py` and `_check_resources()` in `voice_typer/server/dictation_pipeline.py`.
+
+**Improvement if implemented:** +2%
+
+### 2. Add a Windows smoke job that runs `compile_native.ps1 -Check` on every PR
+
+**Why valuable:** Currently the MSVC toolchain discovery logic is only exercised on Windows release builds. A `-Check` invocation on every PR would catch regressions in `vswhere` / VS install path search earlier.
+
+**Expected impact:** Catches future MSVC discovery regressions before release cut.
+
+**Estimated effort:** S (1 hour) — new job in `.github/workflows/build.yml` with `runs-on: windows-2022`.
+
+**Improvement if implemented:** +1%
+
+### 3. Consolidate the 4 per-platform Tauri config files into a single config with conditional resource lists
+
+**Why valuable:** Currently `tauri.conf.json` declares ALL resources (Windows + macOS + Linux), and per-platform overrides only override the `resources` array. This is fragile — the placeholder hack in the Linux smoke job (stubbing all 14 resources) is a symptom. A platform-aware config at `cargo check` time would eliminate the need for non-host stubs.
+
+**Expected impact:** Eliminates the placeholder hack. Makes future resource additions safer.
+
+**Estimated effort:** M (3-4 hours) — requires understanding Tauri config merge semantics, possibly moving to a custom build script.
+
+**Improvement if implemented:** +1.5%
+
+**Total improvement if all 3 implemented:** ~4.5%
+
+---
+
+## Files in this CI-fix `changes.zip`
+
+The `changes.zip` archive contains:
+- 6 changed files (preserving original directory structure):
+  - `.github/workflows/build.yml`
+  - `.github/workflows/tauri-linux-build.yml`
+  - `scripts/build/compile_native.ps1`
+  - `tests/test_dictation_pipeline_check_resources.py`
+  - `tests/test_env_validation_sidecar.py`
+  - `voice_typer/server/config.py`
+- `SUMMARY.md` (this file)
+- `worklog.md` (copied from `/home/z/my-project/skills/_persistent/voice-typer/worklog.md`)
+- `review.md` (copied from `/home/z/my-project/skills/_persistent/voice-typer/review.md`)
+- `archive/deleted_files.txt` (no deletions in this run)

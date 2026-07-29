@@ -164,3 +164,48 @@ Stage Summary:
 - archive/deleted_files.txt included (no deletions this run)
 - All 96 changed files included with original directory structure preserved
 - No excluded content (no node_modules, .venv, build artifacts, .git, OS junk)
+
+---
+Task ID: CI-FIX-2026-07-30
+Task: Fix 4 CI failures reported by user: (1) compile_native.ps1 MSVC `fatal error C1034: windows.h: no include path set`, (2) Tauri build `resource path 'resources/native/windows-key-listener.exe' doesn't exist`, (3) Ruff ratchet regression (5 new E501), (4) pre-commit `unrecognized arguments` when passing 7 hook IDs as positional args.
+
+Work Log:
+- 2026-07-30 21:55 UTC: Cloned repo into /home/z/my-project/skills/_persistent/voice-typer/ (work area) and /home/z/my-project/voice-typer/ (diff baseline).
+- 21:58: Investigated compile_native.ps1 — root cause identified: the script finds cl.exe directly via vswhere/VS path search and invokes it with `& $clPath`, but cl.exe needs INCLUDE/LIB/LIBPATH env vars set (which vcvars64.bat does). The fallback path (lines 186-194) used vcvars64.bat correctly, but the primary path skipped it. CI log confirmed it took the primary path: `[compile_native] Using MSVC: C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64\cl.exe` then immediately failed with `fatal error C1034: windows.h: no include path set`.
+- 22:00: Investigated tauri-linux-build.yml — root cause: the `smoke-cargo-check` job creates a placeholder for `bin/python-sidecar-<triple>` only, but `tauri.conf.json` declares 14 resource paths (Windows + macOS + Linux native listeners + 6 prewarm binaries + 5 linux-scripts). `cargo check` invokes `tauri_build::build()` which reads `tauri.conf.json` directly (NOT the per-platform override) and validates ALL resource paths exist. Failing resource: `resources/native/windows-key-listener.exe`.
+- 22:02: Found 5 E501 violations via `ruff check`:
+  - tests/test_dictation_pipeline_check_resources.py:533 (140 chars)
+  - tests/test_env_validation_sidecar.py:82 (145 chars)
+  - tests/test_env_validation_sidecar.py:265 (121 chars)
+  - tests/test_env_validation_sidecar.py:276 (122 chars)
+  - voice_typer/server/config.py:1748 (130 chars)
+- 22:03: Investigated pre-commit invocation — `pre-commit run --all-files trailing-whitespace end-of-file-fixer check-yaml check-json check-merge-conflict check-added-large-files mixed-line-ending` fails because `pre-commit run` accepts at most ONE hook ID positional arg. The first ID (`trailing-whitespace`) was accepted, the rest were treated as unrecognized arguments.
+- 22:05: Fix #1 applied to scripts/build/compile_native.ps1: rewrote the discovery logic to ALWAYS find `vcvars64.bat` first (never cl.exe directly). Compilation now happens via a temp batch wrapper that `call`s vcvars64.bat (populates INCLUDE/LIB/LIBPATH) then chains into cl.exe. Temp batch file approach avoids the known PowerShell `cmd /c $string` quote-stripping bug (cmd rule 2 from `cmd /?` removes first/last quote chars when the string has >2 quotes, corrupting paths with spaces like "C:\Program Files\...").
+- 22:10: Fix #2 applied to .github/workflows/tauri-linux-build.yml: extended the placeholder step to create stub files for ALL 14 resources declared in tauri.conf.json (sidecar for 6 triples, 3 native key-listeners, 6 prewarm binaries, 5 linux-scripts). The linux-scripts stubs use `[ -f ... ] || echo placeholder` so they don't overwrite real checked-in files.
+- 22:13: Fix #3 applied: split 5 long lines into multi-line equivalents. All 5 files compile (py_compile OK). No semantic change — pure line-break refactoring.
+- 22:15: Fix #4 applied to .github/workflows/build.yml: replaced the single `pre-commit run --all-files <7 hooks>` invocation with a bash loop that runs each hook separately (`pre-commit run "$hook" --all-files`). Added `::group::`/`::endgroup::` GitHub Actions log folding for readability.
+- 22:17: Validation:
+  - `ruff check voice_typer/ tests/ scripts/ conftest.py`: All checks passed! (0 violations)
+  - `ruff_ratchet_check.py`: PASS — baseline=0, current=0, status=ok
+  - YAML parse: build.yml + tauri-linux-build.yml both parse OK
+  - Bash syntax: both modified workflow `run:` blocks pass `bash -n`
+  - py_compile: all 3 modified Python files compile OK
+  - Tauri v1→v2 config key check: grep for `(postInstall|preRemove)` (without "Script" suffix) returns no matches — config already uses correct v2 keys.
+  - Pre-existing test failures: 7 tests in test_env_validation_sidecar.py + test_dictation_pipeline_check_resources.py fail IDENTICALLY before and after my changes (verified via `git stash` + re-run). These are pre-existing failures in `_validate_env_vars()` (doesn't pop empty/invalid values from os.environ) and `_check_resources()` disk-warning path. NOT regressions from this work.
+- 22:20: All 4 CI issues fixed. No regressions introduced. Ready to package.
+
+Stage Summary:
+- Files changed (6 total):
+  1. scripts/build/compile_native.ps1 — rewrote MSVC discovery to use vcvars64.bat (sets INCLUDE/LIB) instead of invoking cl.exe directly. Uses temp batch wrapper to avoid cmd quote-stripping.
+  2. .github/workflows/tauri-linux-build.yml — extended placeholder step to stub ALL 14 resources declared in tauri.conf.json (not just the sidecar), so cargo check passes on Linux.
+  3. .github/workflows/build.yml — replaced single multi-hook `pre-commit run` (unsupported) with a bash loop invoking each hook separately.
+  4. tests/test_dictation_pipeline_check_resources.py — split 140-char line into multi-line AssertionError.
+  5. tests/test_env_validation_sidecar.py — split 145-char function signature and 2 long list comprehensions into multi-line form.
+  6. voice_typer/server/config.py — split 130-char f-string into named locals + shorter f-string.
+- Validation (ON LINUX sandbox):
+  - ruff check: 0 violations, ratchet holds (baseline=0, current=0)
+  - YAML + bash syntax: OK
+  - py_compile: OK for all 3 Python files
+  - 33 tests pass, 7 pre-existing failures unchanged (NOT regressions)
+- Windows/macOS host validation pending (compile_native.ps1 needs Windows runner with VS Build Tools; tauri-linux-build smoke job runs on every push to main).
+- No files deleted/moved/renamed — archive/deleted_files.txt will say "No deletions in this run."
