@@ -11401,44 +11401,6 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-100 — Dead code: Recorder._device_health_checker_loop delegator
-**Status:** ✅ Fixed
-**Severity:** 🟡 Medium
-
-**Description:** `recorder.py:1255-1261`. `Recorder._device_health_checker_loop` is a 6-line delegator. Repo-wide grep returns only: `device_manager.py:245` (the daemon thread target — calls `self._device_health_checker_loop` directly on the DeviceManager instance, NOT through Recorder) and `recorder.py:1261` (the delegator's own body). No code anywhere calls `recorder._device_health_checker_loop()`. The two other device-health-checker delegators (`_start_device_health_checker` at line 1217, `_stop_device_health_checker` at line 1225) ARE called from `start()` and `stop()`. The loop method is the odd one out.
-
-**User Impact:** 6 LOC + docstring of dead code. Minor, but it misleads readers into thinking Recorder participates in the health-checker loop dispatch.
-
-**Root Cause:** Verified — the daemon thread is started by `DeviceManager._start_device_health_checker` which uses `target=self._device_health_checker_loop` (bound to the DeviceManager instance), bypassing the Recorder delegator entirely.
-
-**Progress:** Deleted dead _device_health_checker_loop delegator (recorder.py:1273-1279).
-
-**Related Files:**
-- `voice_typer/server/recording/recorder.py`
-
-**Fix:** Delete `Recorder._device_health_checker_loop` (lines 1255-1261). Keep `_start_device_health_checker` and `_stop_device_health_checker` delegators (they have live call sites).
-
----
-
-## DJ-101 — Dead code: Recorder._compute_vad_enabled
-**Status:** ✅ Fixed
-**Severity:** 🟡 Medium
-
-**Description:** `recorder.py:1352-1376`. `Recorder._compute_vad_enabled(self, config: Any) -> bool` is a 26-LOC method that delegates to `self._vad.compute_vad_enabled(config)`. Repo-wide grep returns ZERO call sites — only the def line itself plus a historical reference in `docs/rw04-recording-decomposition.md`. The method is never called from `recorder.py`, never from any other production module, and never from any test.
-
-**User Impact:** 26 LOC of dead code. Misleads maintainers into thinking there's a public API surface to maintain here.
-
-**Root Cause:** Verified — `VadProcessor.compute_vad_enabled` is called directly by `VadProcessor.vad_enabled` (property) which is called by `Recorder._vad_enabled` (property, in vad_helpers.py). The `Recorder._compute_vad_enabled` wrapper is a vestigial delegator from RW-04.
-
-**Progress:** Deleted dead _compute_vad_enabled method (recorder.py:1370-1394).
-
-**Related Files:**
-- `voice_typer/server/recording/recorder.py`
-
-**Fix:** Delete `Recorder._compute_vad_enabled` (lines 1352-1376). Verify no test fails (the grep shows zero call sites).
-
----
-
 ## DJ-102 — Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read
 **Status:** ✅ Fixed
 **Severity:** 🟡 Medium
