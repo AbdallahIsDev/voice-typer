@@ -199,7 +199,37 @@ jobs:
             voice-typer.polkit; do
             [ -f "resources/linux-scripts/${f}" ] || echo 'placeholder' > "resources/linux-scripts/${f}"
           done
-          echo "[smoke] Placeholder stubs created for sidecar + native listeners + prewarm + linux-scripts"
+          # 5. Tauri icon files (not tracked in git — tauri.conf.json
+          # bundles icons at build time). cargo check invokes
+          # tauri_build::build() which validates EVERY icon declared in
+          # tauri.conf.json exists at compile time. Without these stubs,
+          # the smoke job fails with "failed to open icon icons/32x32.png".
+          mkdir -p icons
+          for icon in 32x32.png 128x128.png 128x128@2x.png icon.png; do
+            [ -f "icons/${icon}" ] || python3 -c "
+import struct, zlib
+def _png1x1(path):
+    """Create a minimal 1x1 transparent PNG."""
+    sig = b'\x89PNG\r\n\x1a\n'
+    # IHDR chunk: 1x1, 8-bit RGBA
+    ihdr_data = struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0)
+    ihdr_crc = struct.pack('>I', zlib.crc32(b'IHDR' + ihdr_data) & 0xffffffff)
+    ihdr_len = struct.pack('>I', len(ihdr_data))
+    ihdr = ihdr_len + b'IHDR' + ihdr_data + ihdr_crc
+    # IDAT chunk: raw uncompressed pixel (RGBA=black+transparent)
+    raw = zlib.compress(b'\x00\x00\x00\x00')
+    idat_crc = struct.pack('>I', zlib.crc32(b'IDAT' + raw) & 0xffffffff)
+    idat_len = struct.pack('>I', len(raw))
+    idat = idat_len + b'IDAT' + raw + idat_crc
+    # IEND chunk
+    iend_crc = struct.pack('>I', zlib.crc32(b'IEND') & 0xffffffff)
+    iend = struct.pack('>I', 0) + b'IEND' + iend_crc
+    with open(path, 'wb') as f:
+        f.write(sig + ihdr + idat + iend)
+_png1x1('icons/${icon}')
+"
+          done
+          echo "[smoke] Placeholder stubs created for sidecar + native listeners + prewarm + linux-scripts + icons"
 
       - name: cargo check (Tauri Rust host)
         working-directory: src-tauri
