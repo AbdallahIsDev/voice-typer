@@ -70,6 +70,18 @@ export function lifecycleLogPath(): string {
  * WARN/ERROR context out of the smaller log too quickly. Total disk
  * usage is bounded at ~2 MiB worst case (active file + `.1` backup).
  *
+ * FR-36: the rotation logic was previously inlined here (a `statSync`
+ * + `renameSync` + `appendFileSync` sequence). This bypassed the
+ * XV-154 file-size cache (`fileSizeCache.ts`) — every INFO write did
+ * a synchronous `fs.statSync` on the main process event loop, the
+ * exact perf bug XV-154 was designed to eliminate for
+ * `electron-main.log`. On a busy session (30 Hz bubble events) under
+ * `VOICE_TYPER_ELECTRON_INFO_LOG=1`, this was 30 `statSync` calls/sec
+ * on the main thread. Replacing the inline rotation with a call to
+ * `appendLogLine(p, line, 1024 * 1024)` routes the writes through the
+ * XV-154 cache and the shared rotation primitive. The `mode: 0o600`
+ * parity (FR-9) is also picked up for free via `appendLogLine`.
+ *
  * Exported (not in the public barrel) so `printfLogger.ts`'s `log.info`
  * can route its opt-in INFO persistence through the same writer.
  */
@@ -94,24 +106,11 @@ export function appendLifecycleLine(
 				: msg;
 		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
 		const p = lifecycleLogPath();
-		// 1 MiB rotation × 1 backup (same strategy as rotateIfNeeded
-		// but inlined to keep this helper self-contained and avoid the
-		// XV-154 file-size cache — the INFO stream is lower priority
-		// than WARN/ERROR and the extra stat on each write is
-		// acceptable for an opt-in diagnostic path).
-		try {
-			const stat = fs.statSync(p);
-			if (stat.size > 1024 * 1024) {
-				try {
-					fs.renameSync(p, `${p}.1`);
-				} catch {
-					/* ignore — best-effort rotation */
-				}
-			}
-		} catch {
-			/* file doesn't exist yet — fine, append will create it */
-		}
-		fs.appendFileSync(p, line, { flag: "a", mode: 0o600 });
+		// FR-36: delegate to the shared `appendLogLine` helper so the
+		// XV-154 file-size cache eliminates the per-write `statSync`
+		// and the rotation logic stays in one place. The 1 MiB cap
+		// matches the prior inline rotation's threshold.
+		appendLogLine(p, line, 1024 * 1024);
 	} catch {
 		// Never let logging crash the app.
 	}

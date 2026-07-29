@@ -120,6 +120,16 @@ export function rotateIfNeeded(
  * grown past `maxBytes`. Best-effort: any I/O error is swallowed —
  * logging must never break the caller's code path.
  *
+ * FR-9: the file is created with `mode: 0o600` (owner-read/write only)
+ * to prevent world-readable PII logs on POSIX. Per XZ-LOG-03 the
+ * Electron loggers (`electron-main.log`, `electron-runtime.log`,
+ * `electron-renderer-errors.log`) have no PII redaction, so dictated-
+ * text fragments may be present in these files. Pre-existing files
+ * with looser perms are tightened via `fs.chmodSync(filePath, 0o600)`
+ * after the append (best-effort — a chmod failure is swallowed).
+ * Matches the parity already in `appendLifecycleLine` (which passes
+ * `{ flag: "a", mode: 0o600 }`).
+ *
  * Exported so the bootstrap crash handlers + the main-window
  * `console-message` handler can share the same
  * rotate-then-append semantics without re-implementing them.
@@ -131,7 +141,30 @@ export function appendLogLine(
 ): void {
 	try {
 		rotateIfNeeded(filePath, maxBytes);
-		fs.appendFileSync(filePath, line, { encoding: "utf-8" });
+		// FR-9: `mode: 0o600` ensures newly-created log files are
+		// owner-only on POSIX (the umask is masked against this, not
+		// the default 0o666 → 0o644 world-readable default). The
+		// `flag: "a"` mirrors `appendLifecycleLine`'s explicit flag
+		// for parity — without it Node defaults to "a" anyway, but
+		// being explicit avoids future regressions if Node ever
+		// changes the default. The options shape `{ flag: "a",
+		// mode: 0o600 }` matches the prior `appendLifecycleLine`
+		// shape verbatim so tests asserting on the options object
+		// (e.g. `electron-info-log.test.ts:127`) continue to pass
+		// after FR-36 routes `appendLifecycleLine` through this
+		// helper.
+		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
+		// FR-9: tighten perms on a pre-existing file that may have
+		// been created with looser perms (e.g. by an older build
+		// before this fix, or by a umask of 0o000 on a misconfigured
+		// host). Best-effort — chmod failure is swallowed so a
+		// read-only file (e.g. on a network mount) doesn't break
+		// logging.
+		try {
+			fs.chmodSync(filePath, 0o600);
+		} catch {
+			/* best-effort perm tightening */
+		}
 		// XV-154: bump the cache after a successful append so the
 		// next call doesn't need to stat. Cache the NEW file size
 		// (previous cached size + line bytes).

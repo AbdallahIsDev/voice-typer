@@ -6,6 +6,14 @@
  * `_ColorFormatter` so Electron and Python log lines look identical in
  * the terminal.
  *
+ * FR-35 / LOG-COLOR-FIX: WARN was previously `38;5;214` (orange
+ * #FFAF00) on the Electron side while Python used `38;5;226` (yellow
+ * #FFFF00). On Windows conhost (the default terminal for
+ * `cargo tauri dev` on Windows), 256→16-color quantization maps
+ * orange to bright-red — making WARN look red and ERROR look yellow
+ * by comparison, the exact inversion the Python LOG-COLOR-FIX was
+ * designed to prevent. The TS side now matches Python's `38;5;226`.
+ *
  * Original visibility:
  *   - `RESET`, `BUBBLE_CLR`, `RENDERER_CLR` were already exported from
  *     `main/logging.ts` (imported by `index.ts`, `handle-message.ts`,
@@ -39,8 +47,16 @@ export const RENDERER_CLR = "\x1b[38;5;227m";
  */
 export const INFO_CLR = "\x1b[38;5;39m";
 
-/** Orange for `[WARN]` prefixes. */
-export const WARN_CLR = "\x1b[38;5;214m";
+/**
+ * Yellow (`38;5;226`) for `[WARN]` prefixes.
+ *
+ * FR-35 / LOG-COLOR-FIX: matches the Python backend's
+ * `_ColorFormatter` WARNING color (`log.py:447`). The previous value
+ * `38;5;214` (orange) quantized to bright-red on Windows conhost,
+ * making WARN look like ERROR. Yellow matches Python WARN and is
+ * visually distinct from `ERROR_CLR` (`38;5;196` bright-red).
+ */
+export const WARN_CLR = "\x1b[38;5;226m";
 
 /** Bright red for `[ERROR]` prefixes. */
 export const ERROR_CLR = "\x1b[38;5;196m";
