@@ -137,12 +137,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: Three packages install custom module subclasses that override `__getattr__` and `__setattr__` so test patches like `monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)` propagate to submodules. ~500 LOC of `__init__.py` boilerplate exists for test-patch compatibility.
 - Fix: Migrate tests to patch submodules directly; remove custom module classes and `_pkg.X` indirection. · **Found by**: R1
 
-### S1-CR-69 — ADR-0015 documentation drift (allowlist location, missing commands)
-**Status:** ❌ Not Fixed — out of file scope (targets docs/adr/0015-electron-command-allowlist.md; no docs/ paths in FIX-9 file list)
-- Location: `docs/adr/0015-electron-command-allowlist.md:5,56,75`
-- Evidence: (1) Says allowlist at `client/src/main/index.ts:532-627` — actually at 79-191. (2) Lists `show_electron_notification` under "Not in the allowlist" but `index.ts:186` includes it. (3) ADR's "exhaustive list" omits 8 commands added later: `repaste_last`, `force_cancel_transcription`, `refresh_microphones`, `get_rms_level`, `get_audio_status`, `get_vocabulary_suggestions`, `apply_vocabulary_suggestion`, `dismiss_vocabulary_suggestion`.
-- Fix: Update ADR-0015 to match actual allowlist. · **Found by**: R2
-
 ### S1-CR-78 — IPC protocol is unversioned — schema drift between Python/Rust/TS is undetectable at runtime
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - Location: All IPC frames across `voice_typer/server/ipc/server.py`, `voice_typer/server/sidecar_ws.py`, `src-tauri/src/sidecar/ws.rs`, `src-tauri/src/commands/sidecar_cmds.rs`, `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
@@ -166,12 +160,6 @@ plus the base repo's pre-existing comprehensive review.
 - Location: `voice_typer/server/native/macos-key-listener.swift:462-492`
 - Evidence: When env var is set, CGEventTap is never created. No key-up delivery (push-to-talk mode will never fire → recording starts but never stops). No key suppression (Caps Lock as hotkey will toggle OS caps state on every press). No warning logged when active in production.
 - Fix: Log a WARNING at binary startup when env var is set; emit `WARN:SKIP_ACCESSIBILITY` line that Python adapter can surface as tray notification. · **Found by**: R17
-
-### S1-CR-144 — `build_tray_menu_model` reads `controller._microphones` via untyped `getattr`
-**Status:** ⚠️ Partial — WARNING log added to tray_menu.py:maybe_publish_tray_menu when controller._microphones is None (silent failure → logged regression detection); typed-access (Protocol promotion) requires editing app.py (orphan) or tray_types.py (orphan) — out of agent_11 file scope
-- Location: `voice_typer/server/tray.py:661`
-- Evidence: `microphones=getattr(controller, "_microphones", None)`. Relies on `VoiceTyperApp._microphones` being initialized. If renamed, `getattr` silently returns `None` and the Microphones submenu disappears with no error.
-- Fix: Add `microphones: list[dict]` to the `TrayController` Protocol, or expose a `controller.get_microphones()` method. · **Found by**: R17
 
 ### S1-CR-145 — Linux autostart `.desktop` inconsistent with bundled `.desktop` template
 **Status:** ⚠️ Partial — Icon=voice-typer aligned in autostart_linux.py f-string body (re-applied in FIX-2-REAPPLY); Exec intentionally different per CR-145 comment (bundled template uses repo-relative path)
@@ -357,18 +345,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Confidence**: High
 - **Source**: R19
 
-### S2-CR-80 — Three platform branches in `_open_config_file` duplicate lock+reload pattern
-- **Severity**: High
-- **Status**: ⚠️ Partial — main 104-LOC concern resolved (app.py _open_config_file is now 12-line delegate to ConfigEditorLauncher.launch); residual macOS/Linux branch duplication (~14-line lock+reload blocks) in voice_typer/server/config_editor.py — out of agent_15 file scope
-- **Category**: Refactoring / Code quality
-- **Location**: `voice_typer/server/app.py:749-852`
-- **Evidence**: 104-LOC method. macOS (815-831) and Linux (832-849) branches contain verbatim ~14-line blocks: `with self._config_mutation_lock: with contextlib.suppress(Exception): subprocess.run([...], check=False); try: self.config = type(self.config).load() except Exception as exc: log.warning(...)`.
-- **Root cause**: Three platform branches each independently implement "acquire lock → run editor → reload config" pattern.
-- **Impact**: 28 lines of duplicated code. Change to "how to reload config after editor" must be made in two places.
-- **Proposed fix**: Extract `_reload_config_under_lock(self)` that does try/except reload. Each platform branch calls it after platform-specific editor launch.
-- **Confidence**: High
-- **Source**: R8
-
 ---
 
 ### S3-CR-3 — 65+ existing test failures (CI red)
@@ -495,12 +471,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Status**: Pending (deferred — requires devcontainer.json + .editorconfig edit; tracked for follow-up)
 - **Category**: Developer experience
 - **Location**: `.devcontainer/devcontainer.json:30-52`
-
-### H-15 — VoiceTyperService leaks VoiceTyperApp private state (14+ sites)
-- **Severity**: High
-- **Status**: Pending (blocked by H-1 service.py split — fix together)
-- **Category**: Backend architecture
-- **Location**: `voice_typer/server/service.py` (14+ sites)
 
 ### H-16 — TCP IPC write serialization race (concurrent push events interleave bytes on the wire)
 - **Severity**: High
@@ -1415,14 +1385,6 @@ presumably runs with all deps installed.
 - `voice_typer/client/src/renderer/src/components/common/KeyringStatusBadge.tsx` (UI toast)**Fix:** In `_handle_set_config`, after `apply_config(validated)`, call `credential_store.last_store_outcome()` and include in the `ack` payload under `data.store_outcome` (only when `stored_in != "keyring"`). Renderer's `KeyringStatusBadge` renders an ephemeral toast on plaintext fallback. Add regression test.
 **Severity:** 🟡 Medium
 
-### XZ-SEC-09 — `.restart_token`, diagnostics zips missing from GDPR delete set (Low)
-**Status:** ❌ Not Fixed
-**Description:** Same root as XZ-SEC-03 — `.restart_token` (bearer token granting app restart) and `voice-typer-diagnostics-*.zip` (containing redacted config + log) survive GDPR erasure.
-**Related Files:**
-- `voice_typer/server/service.py`
-- `voice_typer/server/security.py` (token generation/persistence)**Fix:** Folded into XZ-SEC-03 fix (add to `_GDPR_PERSONAL_FILES` and `_GDPR_PERSONAL_GLOBS`).
-**Severity:** 🟢 Low
-
 ---
 
 ### DE-23 — Non-string `api_key` silently breaks migration (Partial)
@@ -1461,12 +1423,6 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/ipc_server.py`**Fix:** Set per-connection idle-read timeout (60s) after auth, treat `socket.timeout` as disconnect. OR: change watchdog to fire if `_last_heartbeat_at is None AND connection open > _HEARTBEAT_TIMEOUT_SECONDS`.
 **Severity:** 🟢 Low
 
-### XZ-IPC-005 — WS `shutdown` bypasses rate limiter (Low)
-**Status:** ❌ Not Fixed
-**Description:** `sidecar_ws.py:321-344` handles `shutdown` BEFORE the rate-limiter check. Authenticated client can spam unlimited `shutdown` frames, each spawning a daemon thread that calls `app.quit()`.
-**Related Files:** `voice_typer/server/sidecar_ws.py`**Fix:** Add idempotency guard: `if server._shutdown_requested: return ack; server._shutdown_requested = True` before spawning the thread.
-**Severity:** 🟢 Low
-
 ### XZ-IPC-006 — Dead else branch in `_handle_tcp_connection` (Low)
 **Status:** ❌ Not Fixed
 **Description:** `ipc_server.py:881-947` — SEC-2 early-return at line 868-876 makes the `else` branch (line 946-947) unreachable. The `if expected_token:` guard at line 881 is redundant.
@@ -1479,22 +1435,10 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/ipc_server.py`**Fix:** Extract `main()` into `ipc_entry.py`. Extract `_send` branches into helpers. Extract auth handshake. Mechanical refactor preserving all public APIs and tests.
 **Severity:** 🟢 Low
 
-### XZ-IPC-008 — Dead `_ws_loop` variable + redundant loop reassignments (Low)
-**Status:** ❌ Not Fixed
-**Description:** `sidecar_ws.py:534, 550, 560` — three `loop = asyncio.get_running_loop()` assignments in same function. `_ws_loop` (line 550) is dead. Lines 560 and 570 are redundant.
-**Related Files:** `voice_typer/server/sidecar_ws.py`**Fix:** Delete line 550 and lines 560/570. Keep line 534 + `server._ws_loop = loop`.
-**Severity:** 🟢 Low
-
 ### XZ-IPC-009 — Stale line-number references in comments (Low)
 **Status:** ❌ Not Fixed
 **Description:** `ipc_server.py:952, 1573, 2445` — comments reference wrong line numbers (e.g. "set at line ~1171" but actual is line 861).
 **Related Files:** `voice_typer/server/ipc_server.py`**Fix:** Replace line-number references with function/label references.
-**Severity:** 🟢 Low
-
-### XZ-IPC-010 — Duplicated diagnostic-file writing blocks (Low)
-**Status:** ❌ Not Fixed
-**Description:** `ipc_server.py:2316-2382` and `:2513-2574` are near-identical ~65-line blocks writing PII-redacted traceback to `startup-error.log`. Block 2 does NOT redact `sys.argv` (potential `--ipc-token sk-...` leak).
-**Related Files:** `voice_typer/server/ipc_server.py`**Fix:** Extract `_write_startup_diagnostic(buf: StringIO, *, include_argv: bool = True) -> None` helper. Both blocks call it with `include_argv=True`.
 **Severity:** 🟢 Low
 
 ### XZ-IPC-011 — Stale test docstring (Low)
@@ -1523,14 +1467,6 @@ presumably runs with all deps installed.
 **Status:** ❌ Not Fixed
 **Description:** `ipc/rate_limiter.py:69-76` `COMMAND_COSTS` covers only 5 of 69 commands. Expensive uncovered commands (delete_model, test_llm_connection, run_prewarm, restart_app, quit_app, save_vocabulary, save_templates, microphone_test_start, level_monitor_start, force_cancel_transcription) default to cost 1.
 **Related Files:** `voice_typer/server/ipc/rate_limiter.py`**Fix:** Expand COMMAND_COSTS: delete_model=50, test_llm_connection=20, run_prewarm=50, save_vocabulary=10, save_templates=10, restart_app=100, quit_app=100, microphone_test_start=20, level_monitor_start=20, force_cancel_transcription=10. Add per-command-type sliding-window cap (max 1 restart_app per 10s).
-**Severity:** 🟡 Medium
-
-### XZ-R3-03 — Duplicated `_get_rate_limiter` implementation (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `ipc/rate_limiter.py:318-361` and `ipc_server.py:116-159` are byte-for-byte identical implementations. Drift risk: fix one, forget the other.
-**Related Files:**
-- `voice_typer/server/ipc/rate_limiter.py`
-- `voice_typer/server/ipc_server.py`**Fix:** Extract as `@classmethod get_or_create(cls, server)` on `_RateLimiter`. Both call sites import the single function. Tests still monkey-patch `ipc_server._RateLimiter` (classmethod resolves cls from instance).
 **Severity:** 🟡 Medium
 
 ### XZ-R3-04 — `set_tray_locale` unbounded input (Medium)
@@ -1574,12 +1510,6 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/env_validation.py`**Fix:** For `VOICE_TYPER_NATIVE_DIR` and `VOICE_TYPER_PREWARM_EXE`, run `_validate_path_safety` against expected parent. Pop on failure. Validate `VOICE_TYPER_IPC_TOKEN` against alphanumeric pattern.
 **Severity:** 🟢 Low
 
-### XZ-R3-10 — Path/URL leak in env-validation logs (Low)
-**Status:** ❌ Not Fixed
-**Description:** `env_validation.py:54-58, 89-93, 128-133` logs full path/URL values via `%r`. Path may contain username (e.g. `/home/real-username/...`).
-**Related Files:** `voice_typer/server/env_validation.py`**Fix:** Truncate to first 64 chars + "...<truncated>". Avoid `%r`. Or log only validation failure, not value.
-**Severity:** 🟢 Low
-
 ### XZ-R3-11 — Inconsistent `_error_response` usage (Low)
 **Status:** ❌ Not Fixed
 **Description:** `handlers/privacy_handlers.py:139-143, 206-210` calls `_error_response` without returning result. `system_handlers.py:359-365, 425-427` builds envelope inline because `_error_response` doesn't support `field` key.
@@ -1619,24 +1549,6 @@ presumably runs with all deps installed.
 **Related Files:** `src-tauri/src/sidecar/spawn.rs`**Fix:** Pass token via Unix domain socket ancillary fd, pipe between parent/child, or temp file with 0600 perms that sidecar reads + unlinks. Env-var is weakest link.
 **Severity:** 🟡 Medium
 
-### XZ-R4-003 — `.lock().unwrap()` in production despite poison-safe helper (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `state.rs:33` defines poison-safe `lock()` helper. ~10 production call sites use raw `.lock().unwrap()` instead: `main.rs:257,325,347`, `ws.rs:212`, `sidecar_cmds.rs:332,368,633,690`, `state.rs:336,362`. `panic = "abort"` in release profile means panic = abort.
-**Related Files:**
-- `src-tauri/src/main.rs`
-- `src-tauri/src/sidecar/ws.rs`
-- `src-tauri/src/commands/sidecar_cmds.rs`
-- `src-tauri/src/state.rs`**Fix:** Sweep all production `.lock().unwrap()` calls on `SidecarState` fields to use `crate::state::lock(&state.X)`. Add clippy lint to prevent regression.
-**Severity:** 🟡 Medium
-
-### XZ-R4-004 — `tauri.conf.json` shell scope allows `args: true` for sidecar (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `tauri.conf.json:117-125` allows `"args": true` for `bin/python-sidecar`. Host only ever sends `["--ws"]`. Compromised main renderer can spawn sidecar with arbitrary CLI args.
-**Related Files:**
-- `src-tauri/tauri.conf.json`
-- `src-tauri/capabilities/main-runtime.json`**Fix:** Change `"args": true` to `"args": ["--ws"]`.
-**Severity:** 🟡 Medium
-
 ### XZ-R4-005 — `withGlobalTauri: true` exposes full Tauri API (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `tauri.conf.json:13` `withGlobalTauri: true` exposes all Tauri plugin APIs on `window.__TAURI__`. Tauri v2 docs recommend `false` for production. Increases XSS blast radius.
@@ -1647,21 +1559,6 @@ presumably runs with all deps installed.
 **Status:** ❌ Not Fixed
 **Description:** `commands/system_cmds.rs:67-97` spawns `explorer.exe`/`open`/`xdg-open` via raw `std::process::Command`, bypassing `tauri-plugin-shell`'s scope mechanism.
 **Related Files:** `src-tauri/src/commands/system_cmds.rs`**Fix:** Route through `tauri_plugin_opener` with explicit scope. OR add sanity check that `path == config_dir(&app)` before spawning (make implicit invariant explicit).
-**Severity:** 🟢 Low
-
-### XZ-R4-007 — `main.rs` is 449 LOC, exceeds ~280 wiring-only target (Low)
-**Status:** ❌ Not Fixed
-**Description:** `main.rs:43` docstring claims "~280 lines" but file is 449. Inline relaunch listener (48 LOC) duplicates `dispatch_frame`'s send path.
-**Related Files:** `src-tauri/src/main.rs`**Fix:** Extract relaunch listener body into `sidecar_cmds::send_relaunch_ack(state)`. Listener becomes 4-5 lines.
-**Severity:** 🟢 Low
-
-### XZ-R4-008 — `SidecarState.token` is write-only dead state held in plain String (Low)
-**Status:** ❌ Not Fixed
-**Description:** `state.rs:247-263` field is documented as WRITE-ONLY dead state — written at `main.rs:325` and `supervisor.rs:352-353` but never read. Held in plain memory (no `zeroize`).
-**Related Files:**
-- `src-tauri/src/state.rs`
-- `src-tauri/src/main.rs:325`
-- `src-tauri/src/sidecar/supervisor.rs:352-353`**Fix:** Remove field + write sites. If retained for future, add `zeroize::Zeroizing<String>`.
 **Severity:** 🟢 Low
 
 ### XZ-R4-009 — restart counter file has no integrity protection (Low)
@@ -1689,12 +1586,6 @@ presumably runs with all deps installed.
 **Status:** ❌ Not Fixed
 **Description:** `sidecar/ws.rs:266-382` auth wait + JSON parse + emit — NOT wrapped in `catch_unwind`. Reader/writer task bodies ARE wrapped. Asymmetry.
 **Related Files:** `src-tauri/src/sidecar/ws.rs`**Fix:** Wrap auth-read block in `AssertUnwindSafe(async {...}).catch_unwind()` with fallback calling `cleanup_and_trigger_respawn` on panic.
-**Severity:** 🟢 Low
-
-### XZ-R4-013 — `migrate.rs::copy_missing_recursive` follows symlinks (Low)
-**Status:** ❌ Not Fixed
-**Description:** `migrate.rs:510-545` uses `path.is_dir()` / `path.is_file()` which follow symlinks. Attacker pre-planting symlink in old Electron `models/` dir could copy `~/.ssh/id_rsa` into new config dir.
-**Related Files:** `src-tauri/src/migrate.rs`**Fix:** Use `std::fs::symlink_metadata(path)` and check `file_type().is_symlink()` — skip symlinks entirely.
 **Severity:** 🟢 Low
 
 ### XZ-R4-014 — `paste_text` IPC accepts arbitrary-length text (Low)
@@ -1826,12 +1717,6 @@ presumably runs with all deps installed.
 
 ---
 
-### XZ-R6-NH-01 — Native hotkey binary TOCTOU on watchdog respawn (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `native_hotkeys/base.py:291-317` `_spawn_process` reuses cached `self._binary_path` on watchdog respawn WITHOUT re-running `verify_native_binary_or_skip`. Attacker swapping binary during respawn window achieves code execution.
-**Related Files:** `voice_typer/server/native_hotkeys/base.py`**Fix:** Call `verify_native_binary_or_skip(self._binary_path)` at top of `_spawn_process`. Return early / set `_failed=True` if verification fails.
-**Severity:** 🟡 Medium
-
 ### XZ-R6-NH-02 — Factory discards verified binary path (Low)
 **Status:** ❌ Not Fixed
 **Description:** `native_hotkeys/factory.py:18-31` verifies `binary` then passes only `hotkey_str` to constructor. `base.py:89` re-discovers via `get_native_binary_path()`.
@@ -1872,14 +1757,6 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/server_platform/autostart.py`**Fix:** Reject args containing `\n`/`\r` with `ValueError`.
 **Severity:** 🟢 Low
 
-### XZ-R6-AS-05 — plist f-string XML construction (Low)
-**Status:** ❌ Not Fixed
-**Description:** `server_platform/autostart_macos.py:116-138` and `prewarm_scheduler_posix.py:96-132` build plist via f-string + `xml.sax.saxutils.escape` (only escapes `&`, `<`, `>`). Doesn't escape `"` or `/`.
-**Related Files:**
-- `voice_typer/server/server_platform/autostart_macos.py`
-- `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** Build plist with `xml.etree.ElementTree` (handles all escaping). Match Windows Task Scheduler pattern.
-**Severity:** 🟢 Low
-
 ### XZ-R6-AS-06 — `_schtasks_elevated` cmd.exe arg quoting (Low)
 **Status:** ❌ Not Fixed
 **Description:** `task_scheduler.py:546` quotes args only if contains space or `&`. Doesn't escape embedded `"`. cmd.exe metacharacter injection.
@@ -1910,12 +1787,6 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/electron_launcher.py`**Fix:** Catch `subprocess.TimeoutExpired` explicitly and log at WARNING. Follow-up `os.kill(pid, signal.SIGTERM)` fallback.
 **Severity:** 🟢 Low
 
-### XZ-R6-AS-11 — systemd unit injection (Low)
-**Status:** ❌ Not Fixed
-**Description:** `prewarm_scheduler_posix.py:226-241` `_build_linux_service` interpolates `python` (from env var) into `ExecStart=` without escaping newlines.
-**Related Files:** `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** Validate that `python` and `args` contain no newlines. Use systemd literal escaping.
-**Severity:** 🟢 Low
-
 ---
 
 ### XZ-CLIP-01 — macOS/Linux password-field detection fails OPEN silently (High)
@@ -1942,23 +1813,11 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/clipboard/manager.py`**Fix:** Track cycle ownership via monotonic cycle ID or Win32 clipboard sequence number. Only skip restore if DIFFERENT owner took clipboard.
 **Severity:** 🟡 Medium
 
-### XZ-CLIP-06 — Wrong variable in seq-mismatch re-copy (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `clipboard/manager.py:725-726` uses `self._last_copied_text` (mutable instance state) instead of `pasted_text` (per-request value, per DP4). Concurrent `copy()` clobbers `_last_copied_text` → wrong text re-copied.
-**Related Files:** `voice_typer/server/clipboard/manager.py`**Fix:** Replace `self._last_copied_text` with `expected` (or `pasted_text`) at lines 725-726. Add regression test.
-**Severity:** 🟡 Medium
-
 ### XZ-CLIP-07 — Overly broad window-class block (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `clipboard/manager.py:302-305` `blocked_classes = {"#32770", ...}` — `#32770` is generic Win32 Dialog class (used by Open/Save As/Properties too). Blocks legitimate dictation into standard dialogs.
 **Related Files:** `voice_typer/server/clipboard/manager.py`**Fix:** Remove `#32770`. Rely on UIA `IsPassword` check + `_CRED_DIALOG_CLASSES` (specific). Unify the two class sets.
 **Severity:** 🟡 Medium
-
-### XZ-CLIP-08 — `_last_copied_text` retained when `clipboard_save_restore=False` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `clipboard/manager.py:148, 531, 951` — `_last_copied_text` set in `copy()` unconditionally. Cleared only in `_delayed_restore`'s finally block, which only runs when `snapshot is not None`. When `clipboard_save_restore=False`, snapshot is None → never cleared.
-**Related Files:** `voice_typer/server/clipboard/manager.py`**Fix:** Clear `self._last_copied_text = ""` at end of `paste()` (in `finally` block) when `snapshot is None`.
-**Severity:** 🟢 Low
 
 ### XZ-CLIP-09 — Dead production code (Low)
 **Status:** ❌ Not Fixed
@@ -1994,44 +1853,11 @@ presumably runs with all deps installed.
 **Related Files:** `voice_typer/server/log.py`**Fix:** Add startup sweep (mirror `_sweep_stale_diagnostics`) deleting `voice-typer.log.*` rotations older than 30 days. OR switch to `TimedRotatingFileHandler` with daily rotation + 30-day retention.
 **Severity:** 🟢 Low
 
-### XZ-R10-01 — Windows reparse-point check is dead code (High)
-**Status:** ❌ Not Fixed
-**Description:** `secure_file_io.py:127-141` `_secure_read_text` Windows branch: `raise OSError(...)` raised inside `try` block is immediately caught by same `try`'s `except (AttributeError, OSError): pass`. Repoint protection does not exist on Windows.
-**Related Files:** `voice_typer/server/secure_file_io.py`**Fix:** Split `try` so reparse-point `raise` is NOT covered by tolerant `except`:
-```python
-try:
-    stat_result = os.lstat(str(p))
-    attrs = getattr(stat_result, "st_file_attributes", 0) or 0
-except (AttributeError, OSError):
-    attrs = 0
-if attrs & 0x00000400:
-    raise OSError(f"SEC-002: refusing to follow reparse point: {p}")
-```
-**Severity:** 🔴 High
-
-### XZ-R10-02 — `.bak` backup write bypasses `_secure_atomic_write` (High)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1114-1129` `_save_locked` backup uses `Path.write_bytes` — follows symlinks on destination, not atomic, no fsync, brief 0o644 window before `os.chmod(bak_path, 0o600)`.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Use `_secure_atomic_write(bak_path, content.decode("utf-8"))` for backup too.
-**Severity:** 🔴 High
-
 ### XZ-R10-03 — Pre-migration backup uses `shutil.copy2` (High)
 **Status:** ❌ Not Fixed
 **Description:** `config.py:1297-1308` `shutil.copy2(config_file, pre_bak)` follows symlinks on destination, non-atomic, no fsync. Same vulnerability class as XZ-R10-02.
 **Related Files:** `voice_typer/server/config.py`**Fix:** Read source via `_secure_read_text(config_file)` and write via `_secure_atomic_write(pre_bak, raw_text)`.
 **Severity:** 🔴 High
-
-### XZ-R10-04 — `_write_plaintext_fallback` lock-free read-modify-write (High)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-SEC-02 — `credential_store.py:721-770` does read-modify-write on `config.json` without acquiring `config.json.lock`.
-**Related Files:** `voice_typer/server/credential_store.py`**Fix:** Folded into XZ-SEC-02 fix.
-**Severity:** 🔴 High
-
-### XZ-R10-05 — `_validate_non_numeric_fields` overwrites migration warnings (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1946` `data["_load_warnings"] = warnings` (fresh local list) overwrites migration-added list. Migration warnings silently dropped from `instance.last_load_warnings`.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Use `data.setdefault("_load_warnings", []).extend(warnings)`.
-**Severity:** 🟡 Medium
 
 ### XZ-R10-06 — `save()` doesn't catch `TypeError` from `json.dumps` (Medium)
 **Status:** ❌ Not Fixed
@@ -2071,12 +1897,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/config.py`**Fix:** Add `os.O_NOFOLLOW` to POSIX `os.open` flags. On Windows, add `os.lstat` reparse-point check before opening. Consider fail-closed when lock can't be acquired.
 **Severity:** 🟢 Low
 
-### XZ-R10-12 — `_secure_read_text` no file-size cap (Low)
-**Status:** ❌ Not Fixed
-**Description:** `secure_file_io.py:116, 137` `f.read()` reads entire file with no size limit. Memory-exhaustion DoS if config.json replaced with huge file.
-**Related Files:** `voice_typer/server/secure_file_io.py`**Fix:** Add `max_bytes` parameter (default 4 MB) and read in chunks, raising `ValueError` if exceeded. Or use `os.fstat` to check size before reading.
-**Severity:** 🟢 Low
-
 ### XZ-R10-13 — `config.py` is 2002-line monolith (Low)
 **Status:** ❌ Not Fixed
 **Description:** 8+ distinct concerns in one file. `_validate_systemroot` (104 lines) out of place. `Config.load()` is 482 lines in single try/except.
@@ -2089,12 +1909,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/config.py`**Fix:** Update docstring to reflect CR-97 wiring is done.
 **Severity:** 🟢 Low
 
-### XZ-R10-15 — `custom_theme: dict` not type-validated on load (Low)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:824` `custom_theme: dict | None = None` NOT in any of bool/str/int/float field sets. Hand-edited config with `"custom_theme": [...]` or `42` round-trips without complaint.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Add `dict_fields = {"custom_theme"}` set to `_validate_non_numeric_fields`. Coerce non-dict values to None with warning.
-**Severity:** 🟢 Low
-
 ---
 
 ### XZ-R11-01 — `save_vocabulary_with_diff` doesn't update in-memory VocabularyManager (High)
@@ -2104,14 +1918,6 @@ if attrs & 0x00000400:
 - `voice_typer/server/service.py`
 - `voice_typer/server/vocabulary.py`**Fix:** After `_secure_atomic_write` in `save_vocabulary_with_diff`, reload live manager: `with live_vm._lock: live_vm._load_and_merge()`. OR refactor to delegate to live VocabularyManager CRUD methods.
 **Severity:** 🔴 High
-
-### XZ-R11-02 — `history.db.corrupt-<ts>` survives GDPR delete (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `history_db.py:906-919` corrupt DB renamed (not deleted) — contains dictated text. `_GDPR_PERSONAL_FILES` only lists `history.db`, `history.db-wal`, `history.db-shm`. No glob for `history.db.corrupt-*`.
-**Related Files:**
-- `voice_typer/server/service.py` (GDPR delete + export)
-- `voice_typer/server/history_db.py`**Fix:** Add `"history.db.corrupt-*"` glob to both `delete_all_personal_data` and `export_gdpr_bundle`. Optional: rotation (keep most-recent N snapshots).
-**Severity:** 🟡 Medium
 
 ### XZ-R11-03 — Migration "duplicate column name" handler bumps version without verifying (Medium)
 **Status:** ❌ Not Fixed
@@ -2125,12 +1931,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/history_db.py`**Fix:** Consider optional SQLCipher integration gated behind user setting. OR application-layer encryption of `text` column with key from OS keystore. At minimum document threat model in `docs/privacy/`. VALIDATE ON WINDOWS/MACOS HOST (file-perm mitigations are POSIX-only).
 **Severity:** 🟡 Medium
 
-### XZ-R11-05 — Dead code in `_save_user` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `vocabulary.py:232-273` second retry block unreachable — `final_exc` is always set if loop didn't return. Trailing comment claims "best-effort" but live code raises.
-**Related Files:** `voice_typer/server/vocabulary.py`**Fix:** Delete lines 232-273. Keep only live first-loop + raise.
-**Severity:** 🟢 Low
-
 ### XZ-R11-06 — `TemplateManager` has no lock (Low)
 **Status:** ❌ Not Fixed
 **Description:** `templates.py:84-391` — no `threading.Lock`. `match()` iterates `self._templates` while CRUD methods mutate in place. Same race CR-23 fixed for vocabulary.
@@ -2143,12 +1943,6 @@ if attrs & 0x00000400:
 **Related Files:**
 - `voice_typer/server/handlers/vocabulary_handlers.py`
 - `voice_typer/server/service.py` (save_vocabulary_with_diff)**Fix:** Lower IPC `_max_value_len` to 500. OR enforce per-category limits inside `save_vocabulary_with_diff` before writing.
-**Severity:** 🟢 Low
-
-### XZ-R11-08 — WAL/SHM files not chmod'd after lazy creation (Low)
-**Status:** ❌ Not Fixed
-**Description:** `history_db.py:609-617` chmod loop runs in `_open_write_conn` BEFORE WAL/SHM created by first write. Files later created with default umask (0o644 = world-readable on Linux).
-**Related Files:** `voice_typer/server/history_db.py`**Fix:** After first write materializing WAL/SHM, re-run chmod loop. OR set `os.umask(0o077)` at process startup.
 **Severity:** 🟢 Low
 
 ### XZ-R11-09 — `_handle_restore_history` no payload-size cap (Low)
@@ -2191,61 +1985,11 @@ if attrs & 0x00000400:
 **Related Files:** `src-tauri/src/migrate.rs`**Fix:** Track `migration_failed` counter. Only write sentinel if ALL critical steps succeeded. If any failed, retry on next launch (no sentinel) OR write `.migration-partial` marker + surface user notification.
 **Severity:** 🔴 High
 
-### XZ-R12-04 — Model file copy non-atomic (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `migrate.rs:504-546` `std::fs::copy` not atomic, no fsync. Combined with `if dst_path.exists() { continue; }` guard, partial file looks "existing" on next launch — corrupt model file in target.
-**Related Files:** `src-tauri/src/migrate.rs`**Fix:** Use atomic copy (temp+fsync+rename) for model files too. OR write `.partial` marker file alongside destination, skip/rewrite on next launch if marker exists. At minimum fsync after `std::fs::copy`.
-**Severity:** 🟡 Medium
-
-### XZ-R12-05 — `VOICE_TYPER_RESTART` bypass dead code (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `single_instance.py:12-14, 203-205, 232-236` docstrings claim 30s time-limited restart bypass. Actual code never reads `VOICE_TYPER_RESTART` or calls `security.verify_restart_token()`. Function is dead in production.
-**Related Files:**
-- `voice_typer/server/single_instance.py`
-- `voice_typer/server/security.py`**Fix:** Either implement bypass in `_ensure_single_instance` by calling `security.verify_restart_token()`, OR delete dead SEC-001 infrastructure and update docstrings.
-**Severity:** 🟡 Medium
-
 ### XZ-R12-06 — Lockfile name mismatch (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `single_instance.py:21` docstring says `voice-typer.lock`; `:441` code creates `backend.lock`. Docstring claims `fcntl.flock` is primary; actual code uses `O_CREAT|O_EXCL` primary with flock as secondary.
 **Related Files:** `voice_typer/server/single_instance.py`**Fix:** Update docstring to match code: lockfile is `backend.lock`, primary mechanism is `O_CREAT|O_EXCL` with stale-PID recovery, flock is defense-in-depth.
 **Severity:** 🟡 Medium
-
-### XZ-R12-07 — Prewarm path parsing bug (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `prewarm_scheduler_posix.py:62-69` parses dev fallback `f'"{exe}" -m voice_typer.server.prewarm'` via `resolved.split(" ", 1)[0].strip('"')`. Fails when Python path contains space (common on macOS `/Users/My Name/...`).
-**Related Files:** `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** Use `shlex.split(resolved)[0]` to parse dev-fallback command line.
-**Severity:** 🟡 Medium
-
-### XZ-R12-08 — Onboarding fail counter in-memory only (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `startup_sequence.py:194-209` `_onboarding_fail_count` is `app` attribute (in-memory only). Counter resets on every process restart. "After 3 failures" circuit breaker only trips if all 3 in same session.
-**Related Files:** `voice_typer/server/startup_sequence.py`**Fix:** Persist fail counter to `.onboarding_fail_count` file with timestamp. Reset on successful completion.
-**Severity:** 🟡 Medium
-
-### XZ-R12-09 — Prewarm scheduler unit files non-atomic (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `prewarm_scheduler_posix.py:140, 270-271` `Path.write_text` (truncate-then-write). systemd/launchd refuse to load corrupt unit file on next reload. Silent failure.
-**Related Files:** `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** Use `_secure_atomic_write` for plist and unit files.
-**Severity:** 🟡 Medium
-
-### XZ-R12-10 — Linux prewarm no immediate start (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `prewarm_scheduler_posix.py:265-292` Linux registration `systemctl --user enable` but NOT `start`. Timer only fires at next boot. macOS path correctly does `launchctl load` (starts immediately).
-**Related Files:** `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** After `enable`, also run `systemctl --user start voice-typer-prewarm.timer` (best-effort, non-fatal).
-**Severity:** 🟡 Medium
-
-### XZ-R12-11 — `merge_config` docstring vs implementation mismatch (Low)
-**Status:** ❌ Not Fixed
-**Description:** `migrate.rs:312-316` docstring promises per-key mtime resolution. Implementation uses single whole-file mtime to decide ALL overlapping keys.
-**Related Files:** `src-tauri/src/migrate.rs`**Fix:** Update docstring to match implementation: "the entire newer file's values win for overlapping keys".
-**Severity:** 🟢 Low
-
-### XZ-R12-12 — `migrate.rs` parse-failure fail-open (Low)
-**Status:** ❌ Not Fixed
-**Description:** `migrate.rs:344-357` corrupt source `config.json` silently treated as `Value::Null` (empty). User's old Electron settings silently dropped. No backup preserved.
-**Related Files:** `src-tauri/src/migrate.rs`**Fix:** Before treating as Null, copy corrupt source to `config.json.corrupt-pre-migration.<timestamp>.bak`. Surface user notification.
-**Severity:** 🟢 Low
 
 ### XZ-R12-13 — docstring stale (Low)
 **Status:** ❌ Not Fixed
@@ -2275,18 +2019,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/crash_recovery.py`**Fix:** Acquire `self._lock` for the check, OR always call `_save_sync()` unconditionally.
 **Severity:** 🟢 Low
 
-### XZ-R12-17 — `history.db` WAL sidecar migration loses data (Low)
-**Status:** ❌ Not Fixed
-**Description:** `migrate.rs:252-266` copies WAL/SHM sidecars independently. If `-wal` copy fails, target has `history.db` without WAL → committed-but-uncheckpointed transactions lost.
-**Related Files:** `src-tauri/src/migrate.rs`**Fix:** If either sidecar copy fails, delete target sidecars (SQLite starts fresh) AND log user-visible warning. OR use SQLite `.backup` API.
-**Severity:** 🟢 Low
-
-### XZ-R12-18 — Prewarm unregister leaves in-flight service (Low)
-**Status:** ❌ Not Fixed
-**Description:** `prewarm_scheduler_posix.py:295-317` stops TIMER, not in-flight SERVICE. An in-flight oneshot continues. Unit files unlinked while service still running.
-**Related Files:** `voice_typer/server/prewarm_scheduler_posix.py`**Fix:** Also run `systemctl --user stop voice-typer-prewarm.service` (best-effort) before unlinking unit files.
-**Severity:** 🟢 Low
-
 ---
 
 ### XZ-CFG-02 — `ALLOWED_USER_MODELS` frozen at 8 entries while `MODEL_REGISTRY` has 18 (High)
@@ -2300,36 +2032,12 @@ if attrs & 0x00000400:
 - `tests/test_config.py` (stale test pins bug)**Fix:** Derive `ALLOWED_USER_MODELS = frozenset(MODEL_REGISTRY.keys())` at import time. Update or remove stale regression test. Update TS `ModelSize` to `string` (or generated union). Add WARNING log on Config.load reset.
 **Severity:** 🔴 High
 
-### XZ-CFG-03 — TS declares `bubble_x`/`bubble_y`/`bubble_scale`/`test_duration_seconds` Python doesn't have (High)
-**Status:** ❌ Not Fixed
-**Description:** `config.ts:135-164` declares 4 fields (2 required) that have no Python counterpart. Renderer calls `set_config({ bubble_x, bubble_y })` — IPC validator drops as unknown. User's bubble position setting silently lost. `bubble_x`/`bubble_y` declared REQUIRED (not optional).
-**Related Files:**
-- `voice_typer/client/src/renderer/src/types/config.ts`
-- `voice_typer/server/config.py`
-- `voice_typer/server/config_validators.py`**Fix:** Either add fields to Python Config dataclass + IPC_CONFIG_ALLOWLIST, OR mark `@deprecated` in TS and remove from interface. Make `bubble_x`/`bubble_y` optional (`?:`). Add CI parity test diffing TS interface keys against Python dataclass fields.
-**Severity:** 🔴 High
-
 ### XZ-CFG-05 — TS `DEFAULT_CONFIG` fixture drift (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `__tests__/helpers/fixtures.ts:32-187` `DEFAULT_CONFIG` differs from Python Config defaults in 30+ fields. `llm_preset: "default"` is invalid (not in Python Literal). `schema_version: 1` vs Python `_CURRENT_SCHEMA_VERSION = 3`.
 **Related Files:**
 - `voice_typer/client/src/renderer/src/__tests__/helpers/fixtures.ts`
 - `voice_typer/server/config.py`**Fix:** Replace hand-maintained fixture with fetch from server's `get_defaults` IPC in test setup hook. OR add CI parity test importing Python Config defaults. Fix `llm_preset` to valid value ("professional").
-**Severity:** 🟡 Medium
-
-### XZ-CFG-06 — TS types looser/tighter than Python validators (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `config.ts:243` includes `"speex"` for `noise_suppression_method` — Python doesn't accept. `:221-228` `audio_preset` includes legacy `"none"`/`"recommended"` — IPC validator excludes. `:103` `llm_preset: string` — IPC enforces enum. `:1-6` `ModelSize` missing `tiny`/`small`/`medium`.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/types/config.ts`
-- `voice_typer/server/config_validators.py`
-- `voice_typer/server/config.py`**Fix:** Generate TS types from Python dataclass + IPC_CONFIG_ALLOWLIST via build-time script. Short term: remove `"speex"`, `"none"`, `"recommended"` from TS; change `llm_preset` to union; add missing `ModelSize` values.
-**Severity:** 🟡 Medium
-
-### XZ-CFG-07 — Hand-maintained type-coercion lists (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1645-1947` `_validate_non_numeric_fields` has 4 hand-maintained sets (110+ entries). `int_fields` OMITS `schema_version`. `STARTUP-6` comment shows prior misclassification.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Derive coercion lists from `cls.__dataclass_fields__` and field type annotation at class-init time. OR replace with `__post_init__` running each field through type-coercion based on annotation.
 **Severity:** 🟡 Medium
 
 ### XZ-CFG-08 — Deprecated fields still in dataclass + IPC allowlist + TS type (Medium)
@@ -2339,15 +2047,6 @@ if attrs & 0x00000400:
 - `voice_typer/server/config.py`
 - `voice_typer/server/config_validators.py`
 - `voice_typer/client/src/renderer/src/types/config.ts`**Fix:** Add v4 migration pruning ALL deprecated fields. Remove from IPC_CONFIG_ALLOWLIST. Remove from `_validate_non_numeric_fields`. Remove from TS type (mark `@deprecated` for one release). Bump `_CURRENT_SCHEMA_VERSION` to 4.
-**Severity:** 🟡 Medium
-
-### XZ-CFG-09 — `push_to_talk_hotkey` settable but ignored (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:657-658` declares field. `config_validators.py:682` in IPC allowlist. TS comment at `:59-81` says "DEAD/UNUSED — server never reads it". Hotkey listener uses main `hotkey` for PTT. User sets PTT hotkey expecting it to gate mic — silently doesn't work.
-**Related Files:**
-- `voice_typer/server/config.py`
-- `voice_typer/server/config_validators.py`
-- `voice_typer/client/src/renderer/src/types/config.ts`**Fix:** Either remove from IPC_CONFIG_ALLOWLIST, OR have validator reject non-empty values with "not yet implemented; use main hotkey field", OR implement the feature.
 **Severity:** 🟡 Medium
 
 ### XZ-CFG-10 — `apply_preset` silently reverts user toggles (Medium)
@@ -2372,18 +2071,6 @@ if attrs & 0x00000400:
 **Related Files:**
 - `voice_typer/server/config.py`
 - `voice_typer/server/config_validators.py`**Fix:** Promote IPC validator unknown-key log to WARNING (matching Config.load). OR keep DEBUG but add renderer toast when `rejected_keys` non-empty.
-**Severity:** 🟢 Low
-
-### XZ-CFG-13 — `schema_version` missing from `int_fields` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1783-1796` `int_fields` set OMITS `schema_version` (an int field). Latent — current code always sets `schema_version` to int before construction.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Add `"schema_version"` to `int_fields`. OR derive int_fields from dataclass annotations (XZ-CFG-07).
-**Severity:** 🟢 Low
-
-### XZ-CFG-14 — Insecure default `llm_api_url` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:696` `llm_api_url: str = "https://api.openai.com/v1/chat/completions"` pre-fills OpenAI. `cloud_api_url` defaults to empty (safer). Inconsistent.
-**Related Files:** `voice_typer/server/config.py`**Fix:** Change `llm_api_url: str = ""` (empty) to match `cloud_api_url`. Renderer should require URL before `llm_polish` can be enabled.
 **Severity:** 🟢 Low
 
 ### XZ-CFG-15 — `last_load_warnings` undocumented IPC field (Low)
@@ -2440,12 +2127,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/service.py`**Fix:** Replace `pass` with `log.debug("[SERVICE] import_model: invalidate_model_availability_cache failed", exc_info=True)`.
 **Severity:** 🟢 Low
 
-### XZ-EH-008 — Silent `except Exception: pass` × 2 in `_check_resources` (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `dictation_pipeline.py:467-468` (RAM check) and `:578-579` (GPU check) silently swallow. Docstring at `:407-409` claims "failures logged at DEBUG" — code uses `pass`.
-**Related Files:** `voice_typer/server/dictation_pipeline.py`**Fix:** Replace `pass` with `log.debug("[RESOURCE] ... check failed (non-fatal)", exc_info=True)`. Fix docstring. Drop redundant `ImportError` from `(ImportError, Exception)`.
-**Severity:** 🟡 Medium
-
 ### XZ-EH-009 — Silent OSError in Windows registry probe (Medium)
 **Status:** ❌ Not Fixed — except OSError still silent at task_scheduler.py:325-326
 **Description:** `task_scheduler.py:331-333` `_is_prewarm_registered_registry` `except OSError: return False` with no log. Siblings `_register_prewarm_registry` and `_unregister_prewarm_registry` log at WARNING.
@@ -2464,12 +2145,6 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/task_scheduler.py`**Fix:** Change to `except Exception as exc: log.warning("[TASK] POSIX is_prewarm_registered raised: %s", exc); return False`.
 **Severity:** 🟢 Low
 
-### XZ-EH-012 — Silent `except Exception: pass` in onboarding start marker write (Low)
-**Status:** ❌ Not Fixed
-**Description:** `onboarding_handlers.py:79-84` `.onboarding_started` marker write silently swallowed. Comment claims "non-critical" but PVT-006 rationale says it prevents auto-heal clobbering.
-**Related Files:** `voice_typer/server/handlers/onboarding_handlers.py`**Fix:** Replace `pass` with `log.debug("[IPC] onboarding_start: mark_started failed (auto-heal may reset on restart)", exc_info=True)`.
-**Severity:** 🟢 Low
-
 ### XZ-EH-015 — Implicit ack-vs-error contract is fragile (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `onboarding_handlers.py:27-40, 154, 185, 209, 224, 239` — 5 handlers delegate ack-vs-error to whether service's return dict contains `"error"` key. If service returns `{"error": None}` (falsy but present), handler reports `ack` for failure.
@@ -2477,12 +2152,6 @@ if attrs & 0x00000400:
 - `voice_typer/server/handlers/onboarding_handlers.py`
 - `voice_typer/server/service.py` (onboarding methods)**Fix:** Migrate per documented PVT-G5-095 plan: service should `raise` on failure (typed `OnboardingError`), handler let propagate to outer `except Exception` which calls `_respond_with_error`. Eliminates implicit dict-key contract.
 **Severity:** 🟡 Medium
-
-### XZ-EH-017 — `i18n.t` interpolates raw exception into tray notification (Low)
-**Status:** ⚠️ Partial — raw str(e) replaced with type(e).__name__ (less leaky but still exposes exception class names instead of fully user-friendly message)
-**Description:** `app.py:728-729` `i18n.t("notify.app.undo_failed", error=e)` interpolates raw exception into user-facing tray notification. pynput failures include OS-level error strings, X11 paths, AT-SPI addresses.
-**Related Files:** `voice_typer/server/app.py`**Fix:** Pass fixed user-friendly message: `i18n.t("notify.app.undo_failed")` (omit `error=` kwarg). Raw `str(e)` already captured in `log.warning`. Current fix uses `type(e).__name__` which is better than raw str(e) but still exposes class names.
-**Severity:** 🟢 Low
 
 ### XZ-EH-018 — Unbounded `subprocess.Popen().wait()` holds IPC lock (Low)
 **Status:** ⚠️ Partial — main Windows _windows_wait_for_process_exit path fixed with 30min timeout; notepad fallback at config_editor.py:96 and POSIX paths at lines 108-124 still have no timeout
@@ -2502,29 +2171,7 @@ if attrs & 0x00000400:
 **Related Files:** `voice_typer/server/service.py`**Fix:** Use notify-once pattern: log first occurrence at WARNING, then DEBUG for subsequent.
 **Severity:** 🟢 Low
 
-### XZ-EH-022 — `_check_resources` docstring drift (Low)
-**Status:** ❌ Not Fixed
-**Description:** `dictation_pipeline.py:407-409` promises "failures logged at DEBUG level" — code uses `pass` (XZ-EH-008).
-**Related Files:** `voice_typer/server/dictation_pipeline.py`**Fix:** Folded into XZ-EH-008 fix.
-**Severity:** 🟢 Low
-
-### XZ-EH-023 — `_schtasks_elevated` lacks log for empty-output case (Low)
-**Status:** ❌ Not Fixed — task_scheduler.py:574-582 still has zero log lines in elevated-schtasks path
-**Description:** `task_scheduler.py:575-585` full elevated-schtasks path has zero log lines. Sibling `_schtasks` (line 481-499) logs WARNING on `FileNotFoundError` and ERROR on `TimeoutExpired`.
-**Related Files:** `voice_typer/server/task_scheduler.py`**Fix:** Add `log.debug` or `log.warning` for each failure mode per XZ-EH-010.
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-R16-01 — Rust poisonable mutexes (High)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-R4-003 — `state.rs:33` poison-safe `lock()` helper exists but ~10 production call sites use raw `.lock().unwrap()`. Panic while holding `state.ws_tx`/`state.child`/`state.token` aborts (release `panic = "abort"`).
-**Related Files:**
-- `src-tauri/src/main.rs`
-- `src-tauri/src/sidecar/ws.rs`
-- `src-tauri/src/commands/sidecar_cmds.rs`
-- `src-tauri/src/state.rs`**Fix:** Folded into XZ-R4-003 fix.
-**Severity:** 🔴 High
 
 ### XZ-R16-02 — `respawn_failed` event unconsumed by renderer (High)
 **Status:** ❌ Not Fixed
@@ -2534,61 +2181,11 @@ if attrs & 0x00000400:
 - `voice_typer/client/src/renderer/src/hooks/useConnection.ts`**Fix:** Add `makeListener` for `"respawn_failed"` synthesizing `{type: "error", data: {message: "respawn exhausted"}}`. In `useConnection`, subscribe and call `setConnectionStatus("disconnected")` + `setLastError(t("connection.respawnFailed"))`. Add "Relaunch app" button to disconnected UI.
 **Severity:** 🔴 High
 
-### XZ-R16-03 — Tauri/Electron error envelope inconsistency (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `usePython.ts:188-205` Electron path throws `Error` objects. Tauri path: `invoke` rejects with raw string (Tauri v2 behavior). Callers using `err instanceof Error ? err.message : String(err)` work; `Microphone.tsx:278` and `lib/utils/models.ts:252` don't — lose server error on Tauri.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/hooks/usePython.ts`
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/python-namespace.ts`**Fix:** Wrap `withCommandTimeout` call in try/catch normalizing rejection to `Error`:
-```ts
-try {
-    const result = (await withCommandTimeout(...)) as Record<string, unknown>;
-    ...
-} catch (err) {
-    if (err instanceof Error) throw err;
-    throw new Error(typeof err === "string" ? err : "unknown IPC error");
-}
-```
-Add Tauri-path test mocking `invoke` to reject with string.
-**Severity:** 🟡 Medium
-
 ### XZ-R16-04 — Silent `get_config` catch (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `useConnection.ts:166-173` outer catch swallows `get_config` error with no `console.error`/`console.warn`.
 **Related Files:** `voice_typer/client/src/renderer/src/hooks/useConnection.ts`**Fix:** Add `console.warn("[IPC] get_config connection probe failed (attempt ${retries}/${maxRetries}):", err)`.
 **Severity:** 🟡 Medium
-
-### XZ-R16-05 — `usePythonEvent` handler not wrapped (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `usePython.ts:294-303` `currentCleanup = handlerRef.current(event.data)` NOT wrapped in try/catch. Throwing handler escapes into Tauri/Electron dispatch. `currentCleanup` never updated (stale persists).
-**Related Files:** `voice_typer/client/src/renderer/src/hooks/usePython.ts`**Fix:** Wrap: `try { currentCleanup = handlerRef.current(event.data); } catch (err) { console.error("usePythonEvent handler threw:", err); currentCleanup = undefined; }`.
-**Severity:** 🟡 Medium
-
-### XZ-R16-06 — ErrorBoundary "Try Again" can loop (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `ErrorBoundary.tsx:130-139` `handleReset` clears error state but NOT underlying poisoned state (localStorage, malformed theme token). React re-renders same children against same state → same crash.
-**Related Files:** `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx`**Fix:** Rename "Try Again" to "Retry render" with tooltip. OR have `handleReset` clear localStorage keys known to feed render. OR only show "Try Again" after "Reset settings" attempted.
-**Severity:** 🟡 Medium
-
-### XZ-R16-07 — `globalErrorHandler.test.ts` listener leak (Low)
-**Status:** ❌ Not Fixed
-**Description:** `globalErrorHandler.test.ts:38-53` `_resetGlobalErrorHandlerStateForTests()` only resets `_installed` flag. Real listeners NEVER removed between tests. `vi.spyOn` + `mockRestore` doesn't remove listeners. After test N, `window` has `2*N` accumulated listeners.
-**Related Files:** `voice_typer/client/src/renderer/src/lib/__tests__/globalErrorHandler.test.ts`**Fix:** Track installed listeners and remove in `afterEach`:
-```ts
-let installedListeners: Array<{type: string; cb: EventListenerOrEventListenerObject}> = [];
-beforeEach(() => {
-    addEventListenerSpy = vi.spyOn(window, "addEventListener").mockImplementation((type, cb, opts) => {
-        installedListeners.push({type, cb: cb as EventListenerOrEventListenerObject});
-        return window.addEventListener.call(window, type, cb, opts);
-    });
-});
-afterEach(() => {
-    for (const {type, cb} of installedListeners) window.removeEventListener(type, cb);
-    installedListeners = [];
-    ...
-});
-```
-**Severity:** 🟢 Low
 
 ### XZ-R16-08 — Sound manager silent failures (Low)
 **Status:** ❌ Not Fixed
@@ -2602,52 +2199,7 @@ afterEach(() => {
 **Related Files:** Multiple renderer files**Fix:** Adopt single `[renderer:<module>]` convention. Mechanical sweep.
 **Severity:** 🟢 Low
 
-### XZ-R16-10 — Dead `_formatReasonForConsole` wrapper (Low)
-**Status:** ❌ Not Fixed
-**Description:** `globalErrorHandler.ts:130-132` is trivial passthrough to `_formatForConsole`.
-**Related Files:** `voice_typer/client/src/renderer/src/lib/globalErrorHandler.ts`**Fix:** Inline the call. Delete `_formatReasonForConsole`.
-**Severity:** 🟢 Low
-
-### XZ-R16-11 — Dead `SidecarState.token` field (Low)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-R4-008.
-**Related Files:** `src-tauri/src/state.rs`**Fix:** Folded into XZ-R4-008 fix.
-**Severity:** 🟢 Low
-
-### XZ-R16-12 — Brittle redacted-sentinel match in ErrorBoundary (Low)
-**Status:** ❌ Not Fixed
-**Description:** `ErrorBoundary.tsx:236-248` filters `"<redacted>"` via string equality. If backend changes sentinel format, filter fails silently and reset writes sentinel string as actual API key.
-**Related Files:** `voice_typer/client/src/renderer/src/components/feedback/ErrorBoundary.tsx`**Fix:** Either export sentinel constant from backend and import in renderer, OR skip ALL keys whose current value matches `/^<redacted.*>$/i` / is null / is empty string for known secret fields.
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-R17-02 — Hotkey callbacks no `_shutting_down` guard (High)
-**Status:** ❌ Not Fixed
-**Description:** `hotkey_dispatcher.py:220-226, 235-241, 279-295` callbacks call `toggle_dictation()` without checking `_shutting_down`. `recording_controller.py:148-201` `_toggle_impl` can START recording during shutdown. `shutdown_controller.py:436-475` stops backends with 5s timeout each but doesn't null refs.
-**Related Files:**
-- `voice_typer/server/hotkey_dispatcher.py`
-- `voice_typer/server/recording_controller.py`
-- `voice_typer/server/shutdown_controller.py`**Fix:** Add `_shutting_down` guard at TOP of `_dictation_callback`, `_esc_callback`, `_repaste_callback`, `_toggle_impl`. In `_do_cleanup`, after stopping each backend, set attribute to None (use `hotkey_dispatcher.stop_all()`).
-**Severity:** 🔴 High
-
-### XZ-R17-03 — `_crash_excepthook` writes marker non-atomically (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `crash_handler.py:940-956` `marker_path.write_text(content)` — truncate-then-write, default umask (022 on Linux → 0644 = world-readable). Compare to `crash_recovery.py:191` and `duck_crash_recovery.py:68` which use `_secure_atomic_write`.
-**Related Files:** `voice_typer/server/crash_handler.py`**Fix:** Use `_secure_atomic_write(marker_path, content)` — atomic write + O_NOFOLLOW + 0o600 on POSIX.
-**Severity:** 🟡 Medium
-
-### XZ-R17-04 — VEH handler only captures 4 of ~15 fatal Windows exception codes (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `crash_handler.py:59-71` `_CRASH_CODES` only includes STATUS_HEAP_CORRUPTION, STATUS_ACCESS_VIOLATION, STATUS_STACK_BUFFER_OVERRUN, STATUS_FATAL_APP_EXIT. Missing: STATUS_IN_PAGE_ERROR (0xC0000006), STATUS_ILLEGAL_INSTRUCTION (0xC000001D), STATUS_PRIVILEGED_INSTRUCTION (0xC0000096), STATUS_DATATYPE_MISALIGNMENT (0xC0000002), STATUS_BREAKPOINT (0x80000003), STATUS_SINGLE_STEP (0x80000004), etc.
-**Related Files:** `voice_typer/server/crash_handler.py`**Fix:** Expand `_CRASH_CODES` to include all fatal SEH codes. Add friendly names. Update `summary_parts` logic in `report_pending_crash`.
-**Severity:** 🟡 Medium
-
-### XZ-R17-05 — `duck_crash_recovery.save()` fire-and-forget (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `duck_crash_recovery.py:53-70` save() called AFTER volume reduced. If write fails (disk full, permissions, NFS hang), crash recovery file NOT written. App crash → next launch `load_stale()` returns None → system volume NEVER restored. User's speakers stuck at 25%.
-**Related Files:** `voice_typer/server/duck_crash_recovery.py`**Fix:** (1) Retry save() up to 3 times with 100ms backoff. (2) If all retries fail, DO NOT duck — call `VolumeDucker.restore()` immediately. (3) Surface tray notification. OR persist duck state BEFORE ducking volume.
-**Severity:** 🟡 Medium
 
 ### XZ-R17-06 — Windows logoff/shutdown: OS kills process before `_do_cleanup` finishes (Medium)
 **Status:** ❌ Not Fixed
@@ -2655,22 +2207,10 @@ afterEach(() => {
 **Related Files:** `voice_typer/server/shutdown_controller.py`**Fix:** Add fast-path for `ctrl_logoff_event`/`ctrl_shutdown_event` that skips non-critical cleanup, runs ONLY critical path (crash_recovery.flush, history_db.flush, recorder.stop/discard, _clear_backend_pid_file, CloseHandle) with 1s timeouts each. Target <3s total.
 **Severity:** 🟡 Medium
 
-### XZ-R17-07 — SIGTERM during startup race (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `shutdown_controller.py:706-757` `quit()` checks `is_main = threading.current_thread() is threading.main_thread()`. Signal watcher spawns on daemon thread → `is_main` is False → `sys.exit(0)` never called. If signal arrives BEFORE main thread enters `tray.run()`, main thread continues startup with torn-down subsystems → None-reference crashes.
-**Related Files:** `voice_typer/server/shutdown_controller.py`**Fix:** After `_do_cleanup()` returns in `quit()`, if NOT on main thread, call `os._exit(0)` as last resort (after cleanup_done flag set). OR set flag that main thread checks at key startup milestones.
-**Severity:** 🟡 Medium
-
 ### XZ-R17-08 — `_save_sync` redundant chmod per transcription (Low)
 **Status:** ❌ Not Fixed
 **Description:** `crash_recovery.py:177-191` `os.chmod(self._path.parent, 0o700)` called every save (after every transcription). Idempotent but wasteful syscall.
 **Related Files:** `voice_typer/server/crash_recovery.py`**Fix:** Guard with "first-run" flag: `if not self._dir_ensured: ... self._dir_ensured = True`.
-**Severity:** 🟢 Low
-
-### XZ-R17-10 — `duck_crash_recovery.load_stale()` doesn't clear file (Low)
-**Status:** ❌ Not Fixed
-**Description:** `duck_crash_recovery.py:72-96` returns saved state but does NOT clear file. If caller crashes between `load_stale()` and `clear()`, file persists. Next launch restores same state again — potentially to WRONG level.
-**Related Files:** `voice_typer/server/duck_crash_recovery.py`**Fix:** Add "consumed" flag to file. On next launch, if "consumed" is true, return None. OR clear file inside `load_stale()` and have caller re-save if restore fails.
 **Severity:** 🟢 Low
 
 ### XZ-R17-11 — `_do_cleanup` doesn't null hotkey backend refs (Low)
@@ -2685,44 +2225,12 @@ afterEach(() => {
 **Related Files:** `voice_typer/server/crash_recovery.py`**Fix:** Add `_final_save_done` flag both paths check. OR remove `__del__` entirely — atexit is documented safety net.
 **Severity:** 🟢 Low
 
-### XZ-R17-14 — `python_crash.*.txt` world-readable on POSIX (Low)
-**Status:** ❌ Not Fixed
-**Description:** `crash_handler.py:940-956` `write_text` uses default umask (0644). File lives in config_dir root (typically 0755 on multi-user systems). Contains `exc_value` (truncated to 200 chars) — can include user speech fragments.
-**Related Files:** `voice_typer/server/crash_handler.py`**Fix:** Folded into XZ-R17-03 fix (use `_secure_atomic_write` for 0o600).
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-R18-02 — Partial-failure in `_clean_text`/`_apply_punctuation` loses transcription (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `dictation_pipeline.py:198, 213` — `_clean_text()` and `_apply_punctuation()` are the only two middle-pipeline steps NOT wrapped in try/except. If either throws, exception propagates to outer `run()` → tray error + abort. Transcription NEVER saved to crash recovery because `_store_result()` (line 233) runs AFTER.
-**Related Files:** `voice_typer/server/dictation_pipeline.py`**Fix:** Wrap `_clean_text()` and `_apply_punctuation()` in try/except matching `_apply_vocabulary` pattern: `log.warning(...)` + notify-once + return original text.
-**Severity:** 🟡 Medium
 
 ### XZ-R18-03 — `stop-python.ts` missing SIGKILL fallback (Medium)
 **Status:** ❌ Not Fixed
 **Description:** `stop-python.ts:38-43` sends SIGTERM only, immediately nulls `state.pythonProcess`. Stuck Python (in C extension) → orphaned process. Holds single-instance mutex → next launch fails. `relaunch-app.ts:67-76` has correct SIGKILL fallback pattern.
 **Related Files:** `voice_typer/client/src/main/python/stop-python.ts`**Fix:** Add SIGKILL fallback matching `relaunch-app.ts`. Do NOT null `state.pythonProcess` inside kill timer — wait for `exit` event.
-**Severity:** 🟡 Medium
-
-### XZ-R18-04 — Early-exit dialog misleading for non-single-instance crashes (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `start-python.ts:134-137` shows "Only one instance can run" dialog for ALL early exits — including missing model, port collision, token mismatch, syntax error, OOM.
-**Related Files:** `voice_typer/client/src/main/python/start-python.ts`**Fix:** Include actual exit code in dialog ("Python backend exited early (code=N). Check logs."). OR read Python's last stderr lines for more specific message. At minimum log exit code prominently.
-**Severity:** 🟡 Medium
-
-### XZ-R18-05 — LLM polish failure silent (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `dictation_pipeline.py:886-887` catches but does NOT notify. `llm_polish.py:163-168` same pattern. User pays for LLM API never used, or believes feature broken without diagnostic.
-**Related Files:**
-- `voice_typer/server/dictation_pipeline.py`
-- `voice_typer/server/llm_polish.py`**Fix:** Add notify-once pattern (matching `_apply_vocabulary`). Publish `{"type": "llm_polish_failed"}` to event bus for renderer toast.
-**Severity:** 🟡 Medium
-
-### XZ-R18-06 — Sidecar WS allows multiple simultaneous authenticated connections (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `sidecar_ws.py:462-514` `_handle_connection` — NO check for existing authenticated connection. Old + new connections coexist during overlap window. Both have separate `outbound` queues + writer tasks + event_bus subscribers.
-**Related Files:** `voice_typer/server/sidecar_ws.py`**Fix:** Track `server._active_ws_connection` (set on auth, cleared in `finally`). If new connection authenticates while one is active, log warning and close OLD one (or reject new with 1008).
 **Severity:** 🟡 Medium
 
 ### XZ-R18-07 — `_tcpStartupTimeoutTimer` not reset by `relaunchApp()` (Low)
@@ -2745,31 +2253,7 @@ afterEach(() => {
 - `voice_typer/client/src/main/python/relaunch-app.ts`**Fix:** Extract shared `_killPythonAndResetState()` helper. Call from `stopPython()`, `relaunchApp()` dev branch, `relaunchApp()` prod branch.
 **Severity:** 🟢 Low
 
-### XZ-R18-11 — No max-retries/cooldown on `relaunchApp()` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `relaunch-app.ts:200-201` production branch — no retry counter, no cooldown. Deterministic Python-side `sys.exit(0)` loop would drain battery + spam system.
-**Related Files:** `voice_typer/client/src/main/python/relaunch-app.ts`**Fix:** Add restart counter (max 3 restarts per 60s window) stored in temp file. If exceeded, show dialog + `app.quit()`.
-**Severity:** 🟢 Low
-
-### XZ-R18-12 — `handle-message.ts` broadcasts unknown push events without type validation (Low)
-**Status:** ❌ Not Fixed
-**Description:** `handle-message.ts:133-143` — no validation that `msg.type` is string or in known set. Unknown events fall through to broadcast-to-renderer.
-**Related Files:** `voice_typer/client/src/main/python/handle-message.ts`**Fix:** Add type guard: `if (typeof msg.type !== "string") { console.warn("[TCP] push event missing type string, dropping"); return; }`. Optionally maintain known-event allowlist.
-**Severity:** 🟢 Low
-
-### XZ-R18-13 — Stale docstring in `app.py` `restart_app()` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `app.py:980, 985` docstring references `relaunch_electron` — actual code publishes `relaunch_app`.
-**Related Files:** `voice_typer/server/app.py`**Fix:** Folded into XZ-R18-01 fix.
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-LOG-01 — Python stderr fallback unredacted (High)
-**Status:** ❌ Not Fixed
-**Description:** `ipc_server.py:2350, 2546` `print(buf.getvalue(), file=sys.stderr)` — `buf` holds raw traceback from `traceback.print_exc(file=buf)`. `/tmp` fallback at line 2366 correctly redacts via `_redact_text`; stderr fallback does not. Rust `spawn.rs:120` captures sidecar stderr and logs via `log::info!` UNREDACTED (Rust `CombinedLogger` has no PII filter — XZ-LOG-02).
-**Related Files:** `voice_typer/server/ipc_server.py`**Fix:** Change `print(buf.getvalue(), file=sys.stderr)` to `print(_redact_text(buf.getvalue()), file=sys.stderr)`. Apply to both instances (lines 2350 and 2546).
-**Severity:** 🔴 High
 
 ### XZ-LOG-02 — No PII redaction in Rust `CombinedLogger::log` (High)
 **Status:** ❌ Not Fixed
@@ -2809,12 +2293,6 @@ afterEach(() => {
 **Related Files:** `voice_typer/client/src/main/logging.ts`**Fix:** Folded into XZ-R5-007 fix.
 **Severity:** 🟡 Medium
 
-### XZ-LOG-07 — Stale comment in `handlers/_log.py` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `handlers/_log.py:21-30` claims consolidation aspirational, 10 of 13 handlers declare inline. Reality: 0 handlers declare inline; 9 of 15 import from `_log.py`; 6 inherit `HandlerBase`.
-**Related Files:** `voice_typer/server/handlers/_log.py`**Fix:** Update docstring to reflect reality.
-**Severity:** 🟢 Low
-
 ### XZ-LOG-08 — No session_id/correlation_id in Rust/Electron (Low)
 **Status:** ❌ Not Fixed
 **Description:** Python's `_SessionFilter` injects 8-char per-process session_id + `_correlation_id` contextvar. Rust `CombinedLogger` and Electron `formatLine` have neither. Cross-process correlation relies on timestamp proximity only.
@@ -2834,36 +2312,13 @@ afterEach(() => {
 - `src-tauri/src/sidecar/ws.rs`**Fix:** Audit listed call sites. Apply `log_rate_limited` to cloud retry-loop warnings, WS heartbeat-miss, WS invalid-JSON/unexpected-frame.
 **Severity:** 🟢 Low
 
-### XZ-LOG-10 — `RotatingFileHandler` not inter-process safe (Low)
-**Status:** ❌ Not Fixed
-**Description:** `log.py:674-680` `RotatingFileHandler` uses `threading.Lock` (thread-safe, NOT inter-process safe). Main app + prewarm process both write to same `voice-typer.log`.
-**Related Files:** `voice_typer/server/log.py`**Fix:** Use `WatchedFileHandler` (re-opens file on each emit, detects rotation by inode change). OR add `fcntl.flock`/`msvcrt.locking` inter-process lock around rotation. OR route ALL prewarm logs to `prewarm.log` only.
-**Severity:** 🟢 Low
-
 ### XZ-LOG-11 — `print()` in `recorder.py:40` (Low)
 **Status:** ❌ Not Fixed — print(f"Captured: {result}") still present at native_hotkeys/recorder.py:40
 **Description:** `native_hotkeys/recorder.py:40` `print(f"Captured: {result}")` — debug print left in production. Under `--ws`/`--port` mode, triggers Rust host's "unexpected stdout line" warning per hotkey capture.
 **Related Files:** `voice_typer/server/native_hotkeys/recorder.py`**Fix:** Replace with `log.info("[HOTKEY] Captured: %s", result)` (or remove if debugging leftover).
 **Severity:** 🟢 Low
 
-### XZ-LOG-12 — `PIIRedactionFilter` blind spots (Low, Informational)
-**Status:** ❌ Not Fixed
-**Description:** `security.py:178-204` redacts structured PII patterns but not free-form transcription text. Mitigated by logging only SHA-256 hash + length. Risk: future regression logging `text` directly.
-**Related Files:**
-- `voice_typer/server/security.py`
-- `voice_typer/server/dictation_pipeline.py`**Fix:** Add regression test grepping for `log.*(text|transcript|partial|final_text|result)` calls interpolating variable directly. Document convention in CONTRIBUTING.md.
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-CC-1 — Duplicated VAD default constants (High)
-**Status:** ❌ Not Fixed
-**Description:** `vad_processor.py:73-78` (canonical) and `recording/recorder.py:160-165` (compat shim) define same 6 constants. Recorder comment admits "no longer referenced internally after VadProcessor extraction". 4 of 6 unused.
-**Related Files:**
-- `voice_typer/server/vad_processor.py`
-- `voice_typer/server/recording/recorder.py`
-- `voice_typer/server/recording/__init__.py`**Fix:** Delete 4 dead constants (`_DEFAULT_VAD_CALIBRATION_DURATION`, `_DEFAULT_VAD_HANGOVER_FRAMES`, `_DEFAULT_VAD_SILENCE_FRAMES`, `_DEFAULT_VAD_SPEECH_FRAMES`) from `recorder.py:162-165` and from `recording/__init__.py:171-176, 218-223`. For 2 used, import from `vad_processor`.
-**Severity:** 🔴 High
 
 ### XZ-CC-2 — Duplicated noise-filter defaults (Medium)
 **Status:** ❌ Not Fixed
@@ -2872,81 +2327,6 @@ afterEach(() => {
 - `voice_typer/server/audio_chain_builder.py`
 - `voice_typer/server/config.py`**Fix:** Replace `_DEFAULTS` with `Config()` instance snapshot: `_DEFAULTS = {f.name: getattr(Config(), f.name) for f in fields(Config) if f.name.startswith("noise_filter_")}`. OR add CI test mirroring `test_hotkey_reserved_sync.py`.
 **Severity:** 🟡 Medium
-
-### XZ-CC-3 — Duplicated LLM default URL + model (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `llm_polish.py:110-111` `_DEFAULT_URL`/`_DEFAULT_MODEL` duplicate `config.py:696-697` Config dataclass defaults. `LLMPolish.__init__` accepts `api_url`/`model` as optional kwargs and falls back to module-level constants.
-**Related Files:**
-- `voice_typer/server/llm_polish.py`
-- `voice_typer/server/config.py`**Fix:** Delete `_DEFAULT_URL`/`_DEFAULT_MODEL` from `llm_polish.py`. Make `api_url`/`model` required kwargs, OR import from Config. Update call sites to forward Config values.
-**Severity:** 🟡 Medium
-
-### XZ-CC-4 — Duplicated secret-redaction implementation (High)
-**Status:** ❌ Not Fixed
-**Description:** `credential_store.py:253-279` `_redact_sensitive` parallel implementation. Threshold mismatch: 32+ char vs `_secrets._KEY_PATTERNS` 20+ char. Provider coverage mismatch: `gsk_` (Groq) only in credential_store. Flag-form coverage mismatch: `_secrets` has `_FLAG_VALUE_PATTERN`/`_BARE_KEY_VALUE_PATTERN`, credential_store doesn't.
-**Related Files:**
-- `voice_typer/server/credential_store.py`
-- `voice_typer/server/_secrets.py`**Fix:** Folded into XZ-SEC-07 fix (delegate to `_secrets.redact_secret`, add `gsk_` + `sk-ant-` prefixes to canonical helper).
-**Severity:** 🔴 High
-
-### XZ-CC-5 — Dead compat-shim VAD constants (Low)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-CC-1 — 4 of 6 `_DEFAULT_VAD_*` in `recorder.py` unused.
-**Related Files:** (same as XZ-CC-1)**Fix:** Folded into XZ-CC-1 fix.
-**Severity:** 🟢 Low
-
-### XZ-CC-6 — `ToggleDictationResult.recording` phantom field (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `ipc.ts:478-480` declares `recording: boolean` as REQUIRED. Python `_handle_toggle_dictation` returns `{"type": "ack"}` with NO `data` field. `Home.tsx:635` calls `await call("toggle_dictation")` with `T = unknown` — result discarded. Future contributor writing `const { recording } = await call<ToggleDictationResult>(...)` gets `recording: undefined` while TS type-checks as `boolean`.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/types/ipc.ts`
-- `voice_typer/server/handlers/dictation_handlers.py`**Fix:** Either (a) update Python handler to populate `resp["data"] = {"recording": self.service.is_recording()}` so type matches wire, OR (b) change TS type to `ToggleDictationResult = undefined` and update mapping. Delete `ResponseData<T>` if no consumer.
-**Severity:** 🟡 Medium
-
-### XZ-CC-7 — `TranscriptionFinalEvent.duration_ms?` never sent (Low)
-**Status:** ❌ Not Fixed
-**Description:** `ipc.ts:105-108` declares optional `duration_ms?: number`. Python `dictation_pipeline.py:1091-1096` publishes `{text: string}` only. Comment claims "mirrors wire format" — misleading. Line reference `:911` stale (actual `:1093`).
-**Related Files:**
-- `voice_typer/client/src/renderer/src/types/ipc.ts`
-- `voice_typer/server/dictation_pipeline.py`**Fix:** Either (a) populate `duration_ms` in Python sender, OR (b) delete `duration_ms?` from TS type. Update stale line reference.
-**Severity:** 🟢 Low
-
-### XZ-CC-8 — `requirements.txt` missing 2 macOS pyobjc deps (High)
-**Status:** ❌ Not Fixed
-**Description:** `pyproject.toml:155, 163` declares `pyobjc-framework-CoreFoundation` and `pyobjc-framework-ApplicationServices` (macOS-only). `requirements.txt:43-64` declares `pyobjc-core`, `pyobjc-framework-CoreAudio`, `pyobjc-framework-Cocoa` but NOT the two above. `pip install -r requirements.txt` on macOS → silently broken mic watcher + accessibility probe.
-**Related Files:**
-- `requirements.txt`
-- `pyproject.toml`**Fix:** Add `pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin'` and `pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin'` to `requirements.txt`. Better: delete `requirements.txt` entirely and document `pip install -r requirements-lock.txt` as only supported path.
-**Severity:** 🔴 High
-
-### XZ-CC-9 — Three competing requirements files (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `requirements.txt` header claims hash-pinned but contains ZERO hashes. `pip install --require-hashes -r requirements.txt` will FAIL. `requirements-lock.txt` actually has hashes. Three sources of truth with no sync.
-**Related Files:**
-- `requirements.txt`
-- `requirements-lock.txt`
-- `pyproject.toml`**Fix:** Delete `requirements.txt`. Update `README.md`/`CONTRIBUTING.md` to point developers at `pip install -r requirements-lock.txt` or `uv sync`. If fast-path needed, document `pip install -e .` (reads `pyproject.toml` directly).
-**Severity:** 🟡 Medium
-
-### XZ-CC-10 — Cargo dep version drift (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `Cargo.toml:62` `rand = "0.8"` → Cargo.lock has BOTH `rand 0.8.7` and `rand 0.9.5` (dual-resolution, ~50-100 KB bloat). `Cargo.toml:53` `tokio-tungstenite = "0.24"` (current 0.27.x, 3 minors behind). `Cargo.toml:49` `enigo = "0.2"` (current 0.14.x, 12 minors behind).
-**Related Files:** `src-tauri/Cargo.toml`**Fix:** Bump `rand = "0.9"` (update `thread_rng()` → `rng()`). Bump `tokio-tungstenite = "0.27"`. Leave `enigo` for separate PR (larger refactor).
-**Severity:** 🟡 Medium
-
-### XZ-CC-11 — 62 `# type: ignore` / `pyrefly: ignore` in security-critical code (Medium)
-**Status:** ❌ Not Fixed
-**Description:** 62 occurrences across 29 Python files. Top concentrations: `native_adapter.py` (9), `clipboard_snapshot.py` (7), `credential_store.py` (6). Mix of legitimate platform-only import suppression + real type holes. Pyrefly baseline's `errors: []` hides 116 unsuppressed errors.
-**Related Files:** cross-cutting (29 files)**Fix:** Audit 62 suppression sites — verify each suppression reason documented inline. For 34 non-platform-specific pyrefly errors, fix one-by-one. Pin `pyrefly==1.1.1` in `pyproject.toml [dev]` + CI.
-**Severity:** 🟡 Medium
-
-### XZ-CC-12 — Stale TODO Fix-A cluster (Low)
-**Status:** ❌ Not Fixed
-**Description:** 5 cross-file TODOs about replacing `_wait_for_relaunch_ack` with public IPCServer API: `app.py:1074, 1169, 1191`, `hotkey_dispatcher.py:51, 55`. None have date/PR reference.
-**Related Files:**
-- `voice_typer/server/app.py`
-- `voice_typer/server/hotkey_dispatcher.py`**Fix:** Either execute Fix-A (add `IPCServer.wait_for_relaunch_ack(timeout) -> bool` public method, replace 3 `app.py` getattr call sites, delete 5 TODOs), OR convert to tracked issue with owner + date.
-**Severity:** 🟢 Low
 
 ### XZ-CC-13 — Stale TODO migrate-tests cluster (Low)
 **Status:** ❌ Not Fixed
@@ -2963,35 +2343,7 @@ afterEach(() => {
 **Related Files:** `pyrefly-baseline.json`**Fix:** (a) Pin `pyrefly==1.1.1` in `pyproject.toml [dev]` + `.github/workflows/build.yml`. (b) Fix 34 non-platform-specific real type bugs. (c) For 82 platform-specific false positives, regenerate baseline from real `pyrefly check` run on platform-appropriate interpreter. (d) DO NOT keep `errors: []` as "conservative floor" — silence-by-deletion pattern.
 **Severity:** 🔴 High
 
-### XZ-CC-16 — `ResponseData<T>` mapped type exported but never imported (Low)
-**Status:** ❌ Not Fixed
-**Description:** `ipc.ts:524-549` 26-line conditional-types cascade. `grep ResponseData` returns 1 hit — the declaration. `usePython.call` uses `async <T = unknown>(type: string, ...)` — generic over `T` with default `unknown`, NOT constrained to `PythonRequest["type"]`.
-**Related Files:** `voice_typer/client/src/renderer/src/types/ipc.ts`**Fix:** Either (a) wire `ResponseData<T>` into `usePython.call` by constraining generic, OR (b) delete `ResponseData<T>` and dead result types (`ToggleDictationResult`, `ToggleFavoriteResult`, `SaveVocabularyResult`).
-**Severity:** 🟢 Low
-
 ---
-
-### XZ-14-01 — Circuit breaker public API missing (High)
-**Status:** ❌ Not Fixed
-**Description:** `asr_registry.py` lacks `reset_failures` and `failure_count` public methods. 4 tests in `test_asr_registry_lifecycle.py` fail with `AttributeError`. Disabled backend permanently unreachable for session.
-**Related Files:**
-- `voice_typer/server/asr_registry.py`
-- `tests/test_asr_registry_lifecycle.py`**Fix:** Add `failure_count(name) -> int` and `reset_failures(name) -> None` public methods. Add IPC handler `reset_backend`. Add Settings UI affordance.
-**Severity:** 🔴 High
-
-### XZ-14-03 — `validate_config` dead code (Medium)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-CFG-04.
-**Related Files:**
-- `voice_typer/server/config_validators.py`
-- `voice_typer/server/config.py`**Fix:** Folded into XZ-CFG-04 fix.
-**Severity:** 🟡 Medium
-
-### XZ-14-07 — `VOICE_TYPER_CONFIG_DIR` validation weaker than `HF_HOME` (Low)
-**Status:** ❌ Not Fixed
-**Description:** `env_validation.py:52-58` only rejects NUL bytes via `_path_pattern = re.compile(r"^[^\0]+$")`. `HF_HOME` block at `:87-111` calls `_validate_path_safety(Path(hf_home), Path.home())`.
-**Related Files:** `voice_typer/server/env_validation.py`**Fix:** Add `_validate_path_safety(Path(config_dir), Path.home())` call to `VOICE_TYPER_CONFIG_DIR` block, mirroring `HF_HOME` pattern.
-**Severity:** 🟢 Low
 
 ### XZ-14-08 — `language` field no format check (Low)
 **Status:** ❌ Not Fixed
@@ -3005,30 +2357,10 @@ afterEach(() => {
 **Related Files:** `voice_typer/server/config_validators.py`**Fix:** Split into `validators/` package: `_primitives.py`, `_hotkey.py`, `_schema.py`, `_api.py`. Re-export via package `__init__.py`.
 **Severity:** 🟢 Low
 
-### XZ-14-11 — Hotkey_reserved.json intentional duplication (Low, Informational)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/hotkey_reserved.json` ↔ `voice_typer/client/src/renderer/src/data/hotkey_reserved.json` byte-identical. Documented as Vite HMR crash workaround. Drift caught by `tests/test_hotkey_reserved_sync.py`.
-**Related Files:**
-- `voice_typer/server/hotkey_reserved.json`
-- `voice_typer/client/src/renderer/src/data/hotkey_reserved.json`**Fix:** Re-test whether Vite HMR crash reproduces with current Vite version. If fixed, switch frontend to `@server/hotkey_reserved.json` import. If not fixed, add pre-commit hook running sync test.
-**Severity:** 🟢 Low
-
-### XZ-14-13 — Path env vars leak username in logs (Low)
-**Status:** ❌ Not Fixed
-**Description:** Same as XZ-R3-10.
-**Related Files:** `voice_typer/server/env_validation.py`**Fix:** Folded into XZ-R3-10 fix.
-**Severity:** 🟢 Low
-
 ### XZ-14-15 — `_make_custom_theme_validator` no key-count cap (Low)
 **Status:** ❌ Not Fixed
 **Description:** `config_validators.py:245-275` validates 6 required keys per mode but doesn't reject extra keys, doesn't bound total dict size, doesn't bound length of hex color values.
 **Related Files:** `voice_typer/server/config_validators.py`**Fix:** Add `if len(v) > 64: return "too many top-level keys"` and `if len(mode_dict) > 64: return f"{mode} has too many keys"`.
-**Severity:** 🟢 Low
-
-### XZ-14-16 — Migration runner bumps schema_version even on failure (Low)
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1224-1290` migration runner continues with partially-migrated data on migrator exception, bumps `schema_version` to `_CURRENT_SCHEMA_VERSION`. User's config stuck in half-migrated state.
-**Related Files:** `voice_typer/server/config.py`**Fix:** On migrator exception, do NOT bump `schema_version` — leave at `version - 1` so migration re-runs. Include timestamp or failed-version in `.bak` filename.
 **Severity:** 🟢 Low
 
 ### XZ-14-17 — `asr_setup.py` docstring/count mismatch (Low)
@@ -6317,39 +5649,6 @@ deduplicated by the primary agent (Phase 3).
 
 ---
 
-### ZR-7 — Triple-duplicated `#![warn(clippy::all, ...)]` attribute in main.rs (also declared in Cargo.toml)
-**Status:** ❌ Not Fixed
-**Description:** `src-tauri/src/main.rs:61-68` contains the IDENTICAL inner-attribute line three times:
-```rust
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
-
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
-
-// GT-D3-6: project-wide clippy lint gate.
-#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
-```
-
-The same lints are ALSO declared in `Cargo.toml:111-116`:
-```toml
-[lints.clippy]
-all = "warn"
-cast_possible_truncation = "warn"
-unwrap_used = "warn"
-```
-
-So the lint configuration is declared FOUR times total.
-**Root Cause:** Multiple sub-agents (GT-D3-6) added the same `#![warn(...)]` line without checking if it was already present. The `[lints.clippy]` Cargo.toml table was added as a fourth declaration in a later cleanup, but the redundant `#![warn(...)]` attributes were never deleted.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/main.rs` (lines 61-68)
-- `src-tauri/Cargo.toml` (lines 111-116)
-**Fix:** Delete the three `#![warn(...)]` blocks at `main.rs:61-68` (and their comments). Rely on `[lints.clippy]` in `Cargo.toml` as the single source of truth.
-**Severity:** 🟢 Low — 9 lines of dead source text; no functional effect (Rust dedupes identical lint attributes); minor contributor confusion.
-
----
-
 ### ZR-8 — `bubble_set_position(x: Value, y: Value)` leaky abstraction (x/y are actually positional keywords)
 **Status:** ❌ Not Fixed
 **Description:** The Rust command `bubble_set_position` takes TWO arguments `x: Value, y: Value` (bubble.rs, signature shown via bridge comment at `bubble-namespace.ts:146-149`). The renderer's `setPosition(position: string)` accepts ONE string (`"top"` | `"bottom"`), and the bridge is forced to forward it as BOTH x and y:
@@ -6532,27 +5831,6 @@ self.shutdown = ShutdownController(self)  # 269 (local import)
 
 ---
 
-### ZR-19 — `ipc_server._command_handlers` rebuilt per-instance via O(commands) `getattr` loop
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/ipc_server.py:488-509`:
-```python
-self._command_handlers: dict[str, CommandHandler] = {}
-for _cmd, _method_name in self._COMMAND_REGISTRY.items():
-    _bound = getattr(self, _method_name, None)
-    if not callable(_bound):
-        raise RuntimeError(...)
-    self._command_handlers[_cmd] = _bound
-```
-The class-level `_COMMAND_REGISTRY: dict[str, str]` maps command names to method-name strings; every `IPCServer.__init__` walks the registry and resolves each method via `getattr`. For ~70+ commands × every IPCServer construction (including every test fixture), this is O(commands) work.
-**Root Cause:** The string-name registry exists so static-source checks (grep / `inspect.getmembers`) can verify the registry is complete. The bound-method cache is rebuilt per-instance because bound methods are per-instance.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc_server.py` (lines 488-509)
-**Fix:** Either (a) make `_COMMAND_REGISTRY` a `dict[str, classmethod]` or `dict[str, Callable]` resolved at class-definition time; or (b) keep the string registry but generate it at class-definition time via a decorator: `@ipc_command("get_status")` on each handler method, with `__init_subclass__` collecting them into `_COMMAND_REGISTRY`.
-**Severity:** 🟢 Low (working-but-suboptimal) — not a perf bottleneck (microseconds), but adds conceptual complexity; a handler method rename surfaces only at IPCServer construction.
-
----
-
 ### ZR-20 — `event_bus.publish` calls subscribers SYNCHRONOUSLY (blocks transcription thread on slow IPC writes)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/event_bus.py:115-134` (per the docstring): "`subscribe` / `unsubscribe` / `publish` are all thread-safe. ... A subscriber that raises is logged at WARNING level (with exc_info) on the FIRST occurrence for that subscriber, then at DEBUG ... The subscriber is then skipped and other subscribers still receive the event."
@@ -6675,39 +5953,6 @@ Or use the `useState`-derived pattern: derive `savedPreset` from `config?.theme_
 
 ---
 
-### ZR-28 — `Home.tsx` and `Dashboard.tsx` still use module-level `let _cached*` (PVT-003 fix #9 was applied only to `useModelLifecycle`)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/client/src/renderer/src/pages/Home.tsx:36-37` (`let _cachedRecent`, `let _cachedStats`); `voice_typer/client/src/renderer/src/pages/Dashboard.tsx:36` (`let _cachedData`); contrast with `voice_typer/client/src/renderer/src/hooks/useModelLifecycle.ts:174-178` (`useRef<VoiceTyperConfig | null>(null)` per-mount cache):
-```ts
-// Home.tsx:36-37 — MODULE-LEVEL mutable cache
-let _cachedRecent: HistoryRecord[] = [];
-let _cachedStats: TodayStats | null = null;
-```
-```ts
-// Dashboard.tsx:36 — MODULE-LEVEL mutable cache
-let _cachedData: DashboardData | null = null;
-```
-```ts
-// useModelLifecycle.ts:174-178 — per-mount ref cache (PVT-003 fix #9)
-const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
-```
-The `useModelLifecycle` hook was refactored (PVT-003 fix #9) to use a `useRef` per-mount cache instead of a module-level `let`, with the comment: "replaces module-level `_cachedConfig` so the cache is per-mount (no cross-instance leakage across HMR / test re-renders)". But `Home.tsx` and `Dashboard.tsx` were NOT refactored.
-**Root Cause:** Incomplete migration. PVT-003 fix #9 was applied to `useModelLifecycle.ts` only.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/Home.tsx` (lines 36-37)
-- `voice_typer/client/src/renderer/src/pages/Dashboard.tsx` (line 36)
-- `voice_typer/client/src/renderer/src/hooks/useModelLifecycle.ts` (lines 174-178, reference fix)
-**Fix:** Apply the same `useRef` pattern to `Home.tsx` and `Dashboard.tsx`:
-```ts
-const cachedRecentRef = useRef<HistoryRecord[]>([]);
-const cachedStatsRef = useRef<TodayStats | null>(null);
-```
-Or move cross-cutting caches (recent history, today stats, dashboard data) into the Zustand `appStore` so they're reactive and shared across pages without prop drilling.
-**Severity:** 🟢 Low — tests that mount/unmount Home/Dashboard share `_cachedRecent`/`_cachedStats`/`_cachedData` across test cases (a test that loads stats can poison the next test's initial state); HMR re-imports preserve the cache, masking bugs during development.
-
----
-
 ### ZR-30 — `tauri-bridge/index.ts` auto-install side effect pollutes tests that transitively import it
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/client/src/renderer/src/lib/tauri-bridge/index.ts:147` (auto-install side effect) + `voice_typer/client/src/renderer/src/main.tsx:13` and `bubble-main.tsx:13` (side-effect imports):
@@ -6737,55 +5982,6 @@ Tests can then import `usePython` without triggering the bridge install.
 
 ---
 
-### ZR-34 — 47 of 162 pyrefly errors (29%) are `missing-attribute` on 8 service-layer mixins
-**Status:** ❌ Not Fixed
-**Description:** 47 of 162 pyrefly errors (29%) are `missing-attribute` on the 8 service-layer mixins:
-- `ModelMixin`: 20 errors (`service/model.py` L52,53,66,67,69,83,84,102,106,122,167,177,178,223,224,…)
-- `MicrophoneTestMixin`: 8 errors
-- `HistoryMixin`: 8 errors
-- `DictationMixin`: 4 errors
-- `StatusMixin`: 3 errors
-- `OnboardingMixin`: 2 errors
-- `TemplateMixin`: 1 error
-- `VocabularyMixin`: 1 error
-Example from `service/model.py`:
-```python
-class ModelMixin:
-    def _register_download(self, model_name: str) -> str:
-        ...
-        with self._download_cancel_lock:  # missing-attribute
-            self._download_cancel_events[download_id] = event  # missing-attribute
-            self._active_download_id = download_id  # bad-assignment (None vs str)
-```
-These attributes are set in `VoiceTyperService.__init__` (service/__init__.py L179,197,198,220,221,222) but never declared on the mixin classes.
-**Root Cause:** Same pattern that `HandlerMixinBase` (handlers/_base.py L93-124) already fixed for the 14 IPC handler mixins — by declaring `service: Any / app: Any / _send: Any` at class level. The 8 service mixins were not given the same treatment when service.py was split (ARCH-005).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/service/model.py`
-- `voice_typer/server/service/microphone_test.py`
-- `voice_typer/server/service/history.py`
-- `voice_typer/server/service/dictation.py`
-- `voice_typer/server/service/status.py`
-- `voice_typer/server/service/onboarding.py`
-- `voice_typer/server/service/template.py`
-- `voice_typer/server/service/vocabulary.py`
-- `voice_typer/server/service/__init__.py` (lines 179-222)
-**Fix:** Add a `ServiceMixinBase` class mirroring `HandlerMixinBase`:
-```python
-class ServiceMixinBase:
-    _app: Any
-    _download_cancel_lock: Any
-    _download_cancel_events: Any
-    _active_download_id: Any
-    _model_status_cache: Any
-    _model_status_cache_lock: Any
-    _model_status_cache_ts: Any
-```
-Repeat for the other 7 mixins. Also fix `service/__init__.py:199` to declare `_active_download_id: str | None = None`. Eliminates 47 errors (~29% of total).
-**Severity:** 🔴 High — 47 pyrefly errors that the type checker can't use to catch real bugs in mixin method bodies. Each `self._download_cancel_lock` access is unchecked; if a future refactor renames the attribute on `VoiceTyperService.__init__` without updating the mixin, the bug only surfaces at runtime.
-
----
-
 ### ZR-35 — `recorder_force_closed` flag is dead write-only state (set in shutdown_controller, never read by recorder)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/shutdown_controller.py:464-465, 480, 497`:
@@ -6808,32 +6004,6 @@ The comment at L465 explicitly claims "so the recorder itself can [use it]" — 
 - `voice_typer/server/recording/recorder.py` (no `_force_closed` references)
 - `tests/test_shutdown_controller.py` (line 849)**Fix:** Either (a) implement the read-side in `Recorder.shutdown_mic_watcher` (check `if self._force_closed: return`), declare `_force_closed: bool = False` in `Recorder.__init__`, and remove the `contextlib.suppress(Exception)` wrapper; OR (b) delete the dead writes (L480, L497), update the comment to "retained only as a test-visible flag", and convert the test to assert the intended behavior (recorder.shutdown_mic_watcher is skipped) rather than the attribute write.
 **Severity:** 🔴 High — dead write-only attribute on every timeout-induced shutdown; comment drift misleads future maintainers into thinking the recorder uses the flag for behavior branching. The test asserts the write happens but doesn't assert any behavior — it's a tautological test that pins an implementation detail.
-
----
-
-### ZR-37 — 5 latent type bugs flagged by pyrefly but not yet in baseline
-**Status:** ⚠️ Partial (verified on Linux sandbox; 1 of 5 pyrefly fixes applied to recorder.py queue type; 4 remaining in vad_processor.py, ipc_server.py, crash_handler.py, asr_registry.py)
-**Description:** 5 distinct sites with real type bugs flagged by pyrefly but not yet in baseline (because baseline is empty by design):
-1. `voice_typer/server/recording/recorder.py:477, 2283` — Queue type mismatch: `self._event_queue: queue.Queue[dict] = queue.Queue(maxsize=1000)` (L477) but L2283 does `self._event_queue.put_nowait(_EVENT_WORKER_STOP_SENTINEL)` where `_EVENT_WORKER_STOP_SENTINEL = _EventWorkerStopSentinel()` is NOT a `dict`. Pyrefly: `bad-argument-type`. Works at runtime because Python's `queue` doesn't enforce generic types.
-2. `voice_typer/server/vad_processor.py:447` — `vad_enabled` property declared `-> bool` but returns `self._vad_enabled_cached` typed `bool | None`. Pyrefly: `bad-return`. The code reads `cached = self._vad_enabled_cached; if cached is not None:` then re-reads the attribute (`return self._vad_enabled_cached`) instead of returning the local `cached`. Pyrefly can't narrow across attribute re-reads.
-3. `voice_typer/server/ipc_server.py:509` — `self._command_handlers[_cmd] = _bound` where `_bound = getattr(self, _method_name, None)` is `Any`. Pyrefly: `unsupported-operation — Cannot set item in dict[str, CommandHandler]`.
-4. `voice_typer/server/crash_handler.py:531,533` — `_write_to_file(_crash_file_path, body)` where `body = buf[:pos]` is `bytearray` but `_write_to_file` declares `data: bytes` (L556). Pyrefly: `bad-argument-type`. Works at runtime because `f.write()` accepts both `bytes` and `bytearray`.
-
-5. `voice_typer/server/asr_registry.py:517` — `subscribers` referenced in the outer `if tripped:` block but assigned only in the inner `if tripped:` block (under `self._lock`). Pyrefly: `unbound-name — subscribers may be uninitialized`. Currently safe at runtime but a refactor that reassigns `tripped` between the two blocks would cause `NameError`.
-**Root Cause:** Each is a small type-safety gap that pyrefly correctly identifies but isn't yet in the baseline.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py` (lines 477, 2283)
-- `voice_typer/server/vad_processor.py` (lines 204, 437-451)
-- `voice_typer/server/ipc_server.py` (line 509)
-- `voice_typer/server/crash_handler.py` (lines 531-533, 556)
-- `voice_typer/server/asr_registry.py` (line 517)**Fix:**
-1. `recorder.py`: `self._event_queue: queue.Queue[dict | _EventWorkerStopSentinel] = ...`
-2. `vad_processor.py:447`: `return cached` (use the narrowed local)
-3. `ipc_server.py:509`: `self._command_handlers[_cmd] = typing.cast(CommandHandler, _bound)` (after the `callable(_bound)` guard)
-4. `crash_handler.py`: change signature to `data: bytes | bytearray` (or `data: Buffer`), OR call site `_write_to_file(_crash_file_path, bytes(body))`
-5. `asr_registry.py:517`: declare `subscribers: list[Callable[[str, int], None]] = []` before the `with self._lock:` block, OR merge the two `if tripped:` blocks
-**Severity:** 🔴 High — 5 latent bugs that would surface under refactoring or unusual inputs. None currently cause runtime failures (verified by reading the surrounding code), but each is a footgun for the next maintainer.
 
 ---
 
@@ -6865,32 +6035,6 @@ The 4 SIM105 sites are all justified by comments ("atexit must never raise", "al
 - `voice_typer/server/hallucination.py:106`
 - `voice_typer/server/ipc_server.py:2176`**Fix:** (a) Convert the 4 production `try/except X: pass` to `with contextlib.suppress(X):`. (b) Wrap the 4 long lines. (c) Re-run `python scripts/ruff_ratchet_check.py --regenerate` to lock in the cleanup.
 **Severity:** 🟡 Medium — baseline drift on E501 (3 → 4) is a real ratchet regression.
-
----
-
-### ZR-48 — No "how to add a new IPC command / hotkey backend / ASR engine" guide (11 touchpoints, only 3 enforced)
-**Status:** ❌ Not Fixed
-**Description:** No documented "how to add a new IPC command / hotkey backend / ASR engine / config field" guide. `CONTRIBUTING.md` §3 lists files; `docs/ARCHITECTURE.md` lists modules; `docs/adr/0015-electron-command-allowlist.md` mentions "Every new IPC command requires updating three files" (now actually 6+).
-Adding a new IPC command requires touching 11 touchpoints:
-1. `voice_typer/server/ipc_server.py` `_COMMAND_REGISTRY`
-2. `voice_typer/server/handlers/<area>_handlers.py`
-3. `voice_typer/server/ipc/rate_limiter.py` `COMMAND_COSTS`
-4. `voice_typer/client/src/main/allowed-commands.ts` (TS allowlist)
-5. `src-tauri/src/commands/sidecar_cmds.rs` `allowed_commands()` (Rust allowlist)
-6. `voice_typer/client/src/renderer/src/types/ipc.ts` (renderer type union)
-7. `docs/API.md` (enforced by `test_api_doc_accuracy.py`)
-8. `SECURITY.md` command count (enforced by `test_security_doc_command_count.py`)
-9. `docs/ARCHITECTURE.md` command count (NOT enforced — see ZR-46)
-10. `CONTRIBUTING.md` command count (NOT enforced)
-11. If a new handler file: `voice_typer/server/handlers/__init__.py` `__all__`
-11 touchpoints across 3 languages, only 3 enforced by tests. No checklist in `CONTRIBUTING.md`.
-**Root Cause:** `rg "adding a new command|new IPC command|add a command" docs/ CONTRIBUTING.md README.md` returns only ADR-0015's acknowledgment that the burden is manual.
-**Progress:** None yet.
-**Related Files:**
-- `CONTRIBUTING.md`
-- `docs/ARCHITECTURE.md`
-- `docs/adr/0015-electron-command-allowlist.md`**Fix:** Add `docs/contributing/adding-an-ipc-command.md` with a numbered checklist (the 11 steps above) and an automated script `scripts/check-new-command.py <cmd_name>` that greps all 11 locations and reports which are missing. Add the same for hotkey backends and ASR engines.
-**Severity:** 🔴 High — every new command added by a new contributor will miss at least one of the unenforced touchpoints (ZR-46 shows this has already happened — CONTRIBUTING.md is 5 counts behind).
 
 ---
 
@@ -6987,18 +6131,6 @@ Common steps repeated across all three (with platform-specific divergence): Chec
 
 ---
 
-### ZR-54 — CHANGELOG.md is 4 weeks stale (no Tauri migration, no decompositions, no allowlist narrowing)
-**Status:** ❌ Not Fixed
-**Description:** `CHANGELOG.md` (188 lines, only `[Unreleased] - 2026-06-30` + `1.0.0 (2026-06-21)`). Worklog documents active sessions through at least 2026-07-24. None of these post-2026-06-30 changes appear in CHANGELOG.md: Tauri migration Phase 0-5 work, recorder.py / ipc_server.py / config.py / history_db.py decompositions, ADR-0020 acceptance, GT-32 allowlist narrowing, RW-9 god-class extractions.
-**Root Cause:** CHANGELOG hasn't been updated in ~4 weeks of active development.
-**Progress:** None yet.
-**Related Files:**
-- `CHANGELOG.md`
-**Fix:** Add a `[Unreleased]` section entry (or bump to `[1.1.0]` / `[1.0.1]`) covering: native hotkey architecture (ADR-0008), Tauri migration progress (ADR-0020), recorder/config/ipc_server/history_db decompositions, 17-command allowlist narrowing (GT-32), and any user-visible behavior changes. Add a pre-commit hook that warns if a PR touches `voice_typer/server/` without a CHANGELOG entry.
-**Severity:** 🟡 Medium — a user reading CHANGELOG.md to decide whether to upgrade sees nothing about the Tauri migration, the new native hotkey architecture, or the 4-week bug-fix backlog.
-
----
-
 ### ZR-55 — `ipc/rate_limiter.py:326-331` stale "kept in sync" comment (deduplication already complete)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/ipc/rate_limiter.py:326-331`:
@@ -7022,34 +6154,6 @@ PVT-MERGE-009 in `review.md` confirms: "_RateLimiter and _pick_available_port no
 - `voice_typer/server/ipc/rate_limiter.py` (lines 326-331)
 **Fix:** Delete the 6-line NOTE block at `rate_limiter.py:326-331`. Audit other "kept in sync with" / "this is a copy of" comments across the codebase for the same staleness pattern.
 **Severity:** 🟡 Medium (working-but-suboptimal) — comment lies about the code's structure. Erodes trust in surrounding comments. Future maintainer may attempt a redundant dedup.
-
----
-
-### ZR-56 — HMAC terminology mismatch in docs (implementation is bearer-token, not HMAC)
-**Status:** ❌ Not Fixed
-**Description:** `CONTRIBUTING.md` (line ~330: "HMAC/bearer-token auth handshake"); `docs/migration/{windows,macos,linux}-validation-runbook.md` (section headings: "WS + HMAC handshake"); `docs/migration/cutover-playbook.md` ("HMAC handshake: wrong token rejected").
-
-`src-tauri/Cargo.toml:48-54`:
-```
-# ADR-0020 §3: per-launch bearer token (32 random bytes hex-encoded).
-# The token is generated via `rand::rng().fill_bytes()` and
-# passed to the sidecar via `VOICE_TYPER_IPC_TOKEN`. Despite the ADR's
-# "HMAC" wording, the Rust host treats it as a bearer token (the
-# sidecar's `ipc_server.py` validates the literal string match). The
-# `hmac`+`sha2` crates are therefore NOT needed in the host.
-```
-The runbooks ACKNOWLEDGE the terminology is wrong but keep it anyway. CONTRIBUTING.md uses "HMAC/bearer-token auth handshake" (hedged but still misleading).
-**Root Cause:** ADR-0020 originally specified HMAC; implementation simplified to bearer-token literal match; ADR was never updated to reflect this; downstream docs copied the HMAC wording; the runbooks added a parenthetical note acknowledging the mismatch but didn't fix the heading.
-**Progress:** None yet.
-**Related Files:**
-- `CONTRIBUTING.md`
-- `docs/migration/windows-validation-runbook.md`
-- `docs/migration/macos-validation-runbook.md`
-- `docs/migration/linux-validation-runbook.md`
-- `docs/migration/cutover-playbook.md`
-- `src-tauri/Cargo.toml` (lines 48-54)
-**Fix:** Replace "HMAC" with "bearer-token" in CONTRIBUTING.md and the 3 runbook headings. Update ADR-0020 §3 to say "bearer token (originally specified as HMAC; simplified to literal-string match during implementation — see Cargo.toml comment)".
-**Severity:** 🟡 Medium — a security reviewer reading "HMAC handshake" assumes cryptographic authentication; the actual implementation is a constant-time-ish string comparison of a 32-byte hex token. The mismatch could lead to over-confidence in the auth mechanism.
 
 ---
 
@@ -7144,128 +6248,6 @@ Extract from `_handle_tcp_connection`:
 
 ---
 
-### ZR-62 — `config._validate_non_numeric_fields` 310 lines with hand-maintained field-name sets
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/config.py:1768-2078` (`_validate_non_numeric_fields`, 310 lines). Hand-maintained sets of field names: `bool_fields` (L1791-1871, ~60 names), `str_fields` (L1872-1898, ~30 names), `int_fields` (L1908-1921, ~12 names), `float_fields` (L1922-1961, ~30 names), `optional_str_fields` (L1988). The dataclass `Config` already has `__dataclass_fields__` with full type annotations. Comments at L1865, L1867, L1935, L1957 explicitly note fields that were REMOVED from the dataclass but linger in these sets, and others (`volume_duck_smart_poll_interval_ms`) that were misclassified.
-**Root Cause:** Verified drift hazard — comments document 4 fields that were renamed/removed but whose entries here either linger or required manual correction.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py` (lines 1768-2078)
-**Fix:** Derive the sets from the dataclass annotation at class-definition time:
-```python
-def _derive_field_type_registry() -> dict[str, type]:
-    import typing
-
-    hints = typing.get_type_hints(Config)
-    registry: dict[str, type] = {}
-    for name, field in Config.__dataclass_fields__.items():
-        ann = hints[name]
-        if typing.get_origin(ann) is typing.Union:
-            args = [a for a in typing.get_args(ann) if a is not type(None)]
-            if len(args) == 1:
-                ann = args[0]
-        registry[name] = ann
-    return registry
-```
-Then iterate `for name, expected_type in registry.items():` and apply the existing per-type coercion. Field renames/removals become free (the dataclass is the single source of truth).
-**Severity:** 🔴 High (refactor) — every new config field requires hand-adding its name to exactly one of 4 sets; a miss silently breaks coercion.
-
----
-
-### ZR-63 — `config.load()` 556 lines mixing JSON read + migration + coercion + validation + save-back
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/config.py:1212-1767` (`Config.load`, 556 lines) mixes: JSON read + parse + non-dict guard, unknown-key filtering, schema-version comparison + warning, migration runner loop with per-version try/except + .bak save, pre-migration .bak copy, per-field float/int coercion + clamping, model_size default, qwen_model_path validation, corrections_path validation, privacy consent warnings, `_validate_non_numeric_fields` call, `Config(**data)` construction, `__post_init__` validation, save-back path.
-
-Each phase is a try/except block with its own log format.
-**Root Cause:** PVT-055 noted the monolith; the specific split is the new contribution.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py` (lines 1212-1767)
-**Fix:** Extract named helpers (no behavior change):
-- `Config._read_raw_json(path) -> dict | None`
-- `Config._filter_unknown_keys(parsed) -> dict`
-- `Config._run_migrations(data, loaded_version) -> tuple[dict, int]`
-- `Config._backup_before_migration(config_file, loaded_version)`
-- `Config._coerce_streaming_fields(data)`
-- `Config._coerce_max_recording_time(data)`
-- `Config._validate_model_path(data)`
-- `Config._validate_qwen_model_path(data)`
-- `Config._validate_corrections_path(data)`
-- `Config._validate_privacy_consents(data)`
-
-`load()` becomes a ~50-line orchestrator. Each helper is independently unit-testable.
-**Severity:** 🔴 High (refactor) — a single bad value in one of ~15 inline validators can mask failures in others; testing each validator in isolation requires constructing a full Config fixture.
-
----
-
-### ZR-64 — `dictation_pipeline.run` has 10 duplicated stage-timing blocks (DRY)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/dictation_pipeline.py:119-402` (`run`, 286 lines) — 10 inline occurrences of:
-```python
-_stage_t0 = time.perf_counter()
-<step call>
-_<name>_ms = (time.perf_counter() - _stage_t0) * 1000
-```
-at L172/177, L197/199, L202/204, L207/209, L212/214, L217/219, L222/224, L227/229, L232/234, L272/274. The consolidated `[PIPE-PERF]` log line at L277-298 hardcodes 8 named variables.
-**Root Cause:** PERF-FIX-001 added the timing instrumentation but didn't abstract it.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/dictation_pipeline.py` (lines 119-402)
-**Fix:** Replace with a small context manager:
-```python
-@contextlib.contextmanager
-def _timed_stage(timings: dict[str, float], name: str):
-    t0 = time.perf_counter()
-    yield
-    timings[name] = (time.perf_counter() - t0) * 1000
-
-
-timings: dict[str, float] = {}
-with _timed_stage(timings, "transcribe"):
-    text = self._transcribe()
-log.info(
-    "[PIPE-PERF] total=%.0fms, stages: %s (cycle=%s)",
-    total_ms,
-    ", ".join(f"{k}={v:.0f}" for k, v in timings.items()),
-    self._cycle_id,
-)
-```
-**Severity:** 🔴 High (refactor) — adding an 11th stage means hand-copying the 3-line pattern AND hand-adding the variable to the consolidated log format string.
-
----
-
-### ZR-66 — `level_monitor.py` 25+ module-level mutable globals (no DI)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/level_monitor.py:50-202` — 25+ module-level mutable globals:
-```
-L50:  _monitor_lock = threading.Lock()
-L56:  _monitor_stream
-L57:  _monitor_active
-L58:  _monitor_level
-L59:  _monitor_peak
-L60:  _monitor_sample_rate
-L61:  _monitor_mic_id
-L70:  _level_processor
-L83:  _level_ring_buffer
-L84:  _level_worker_thread
-L85:  _level_worker_stop_event
-L86:  _level_worker_wake_event
-L90:  _dropped_level_chunks
-L96:  _last_drop_log_time
-L114: _test_mode
-L147: _test_chunks
-# ... 25 total
-```
-All accessed via `global X` statements. `shutdown_controller._do_cleanup` has to do `from voice_typer.server import level_monitor; level_monitor.stop_monitoring()` instead of `app.level_monitor.stop()`.
-**Root Cause:** Module-as-singleton pattern; tests must monkey-patch module attributes rather than inject instances.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/level_monitor.py` (full file, 1313 lines)
-**Fix:** Define a `class LevelMonitor:` encapsulating all 25 globals as instance attributes; expose a singleton `default_monitor = LevelMonitor()` for back-compat. Wire `VoiceTyperApp.__init__` to construct `self.level_monitor = LevelMonitor()`. Tests construct fresh instances per test.
-**Severity:** 🔴 High (refactor) — concurrent test runs share state; no way to run two monitors in one process; `shutdown_controller` has to import the module to call its functions.
-
----
-
 ### ZR-67 — Push-event types are stringly-typed (270+ string literals across server + 26+ renderer subscribers)
 **Status:** ❌ Not Fixed
 **Description:** Python emitters — `voice_typer/server/dictation_pipeline.py:995 ("vocabulary_suggestion")`, `:1093 ("transcription_final")`; `waveform_bubble_wiring.py:168 ("bubble_level")`; `app.py:935 ("quit_app")`, `:1028 ("relaunch_app")`; `ipc_server.py:2229-2235` `_shutdown_allowlist` tuple of 5 inline strings allocated per `_send` call; `:2392 if msg_type in ("bubble_level", "waveform"):`; `:1098-1103 state_changed`. Total `rg '"type": "[a-z_]+"' voice_typer/server/` = 77 sites.
@@ -7292,42 +6274,6 @@ A typo like `"past_failed"` then fails at compile time.
 
 ---
 
-### ZR-70 — `ipc_server._send` re-allocates `_shutdown_allowlist` tuple on every call (~16 Hz)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/ipc_server.py:2229-2235` — Inside `_send` (called for every push event, ~16 Hz during recording):
-```python
-_shutdown_allowlist = (
-    "relaunch_app",
-    "quit_app",
-    "transcription_final",
-    "transcription_partial",
-    "vocabulary_suggestion",
-)
-```
-Fresh tuple allocation every call. Combined with 2 inline magic numbers at L2295 `_drain_cap = 100` and L2338 `_pending_cap = 1000`.
-**Root Cause:** Tuple is in function body, not module-level constant.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc_server.py` (lines 2229-2235, 2295, 2338)
-**Fix:** Hoist to module-level constants:
-```python
-_SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "relaunch_app",
-        "quit_app",
-        "transcription_final",
-        "transcription_partial",
-        "vocabulary_suggestion",
-    }
-)
-_TCP_PENDING_DRAIN_CAP = 100
-_TCP_PENDING_BUFFER_CAP = 1000
-```
-Membership check becomes `msg_type in _SHUTDOWN_ALLOWLIST` (O(1) hash lookup, no allocation).
-**Severity:** 🟡 Medium (working-but-suboptimal) — small per-call allocation at 16 Hz.
-
----
-
 ### ZR-71 — Duplicated `_get_rate_limiter` function (80 LOC × 2 in `ipc_server.py` + `ipc/rate_limiter.py`)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/ipc_server.py:158-236` + `voice_typer/server/ipc/rate_limiter.py:335-378` — duplicated `_get_rate_limiter(server)` body in two files, both ~80 lines including comments.
@@ -7346,42 +6292,6 @@ PVT-MERGE-009 noted the same issue (and the dedup of `_RateLimiter` class itself
 - `tests/test_cr_fixes.py`
 **Fix:** Make `ipc_server.py` re-export the leaf module's `_get_rate_limiter` AND patch the leaf module's `_RateLimiter` attribute on demand from tests. Concretely, tests change from `monkeypatch.setattr("voice_typer.server.ipc_server._RateLimiter", CountingLimiter)` to `monkeypatch.setattr("voice_typer.server.ipc.rate_limiter._RateLimiter", CountingLimiter)` (single source). Then `ipc_server.py:158-236` (80 lines) is replaced with `from voice_typer.server.ipc.rate_limiter import _get_rate_limiter` (1 line).
 **Severity:** 🟡 Medium (refactor) — two 80-line bodies to keep in sync; the comment at L156 explicitly says "kept in sync."
-
----
-
-### ZR-72 — `recorder.__del__` has 6 sequential `contextlib.suppress(Exception)` blocks (DRY)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/recording/recorder.py:744-757` (`__del__`, 6 sequential `with contextlib.suppress(Exception):` blocks):
-```python
-def __del__(self) -> None:
-    """Best-effort cleanup. Must never raise."""
-    with contextlib.suppress(Exception):
-        self.shutdown_mic_watcher()
-    with contextlib.suppress(Exception):
-        self._recording_event.clear()
-    # ... 4 more
-```
-6 near-identical 2-line blocks.
-**Root Cause:** Six independent best-effort teardown calls; no shared helper.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py` (lines 744-757)
-**Fix:**
-```python
-def __del__(self) -> None:
-    """Best-effort cleanup. Must never raise."""
-    for step in (
-        self.shutdown_mic_watcher,
-        self._recording_event.clear,
-        self._worker_stop_event.set,
-        self._event_stop_event.set,
-        self._device_health_stop_event.set,
-        self._teardown_stream,
-    ):
-        with contextlib.suppress(Exception):
-            step()
-```
-**Severity:** 🟡 Medium (refactor) — minor readability / DRY violation.
 
 ---
 
@@ -7481,27 +6391,6 @@ Replace 6 inline blocks with `self._send_error_envelope(...)`. Combined with ZR-
 
 ---
 
----
-
-### ZR-78 — `tray.start()` 144 lines + `_build_menu` 113 lines (long methods)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/tray.py:437-580` (`start`, 144 lines) and `965-1078` (`_build_menu`, 113 lines). `start()` does: app-state restoration, hotkey backend wiring, icon selection, `Tray()` construction, event-handler attachment, `bg_work()` invocation. `_build_menu()` builds 10+ menu items inline with per-item callbacks, conditional visibility flags, and accelerator bindings.
-**Root Cause:** Long methods that grew as menu items / hotkey backends were added.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/tray.py` (lines 437-580, 965-1078)
-**Fix:** Extract:
-- `_restore_tray_state()`
-- `_wire_hotkey_backends()`
-- `_resolve_tray_icon()`
-- `_construct_tray_with_handlers()`
-- For menu: a `_MENU_SPEC: list[MenuItemSpec]` data table + a `_build_menu_item(spec)` renderer.
-
-`start()` becomes ~20 lines; `_build_menu` becomes a `for spec in self._MENU_SPEC: menu.append(self._build_menu_item(spec))` loop.
-**Severity:** 🟡 Medium (refactor) — adding a menu item or hotkey backend requires editing both methods.
-
----
-
 ### ZR-79 — `clipboard.paste()` 349 lines + `_is_safe_paste_target` 198 lines (long methods)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/clipboard/manager.py:627-976` (`paste`, 349 lines) interleaves: snapshot registration + thread spawn, stuck-modifier release, safety-target check, rate-limit check, paste_enabled gate, keystroke send, return-value bookkeeping. `_is_safe_paste_target()` is a 198-line function combining elevated-target check (calls `_is_elevated_target`), password-field check (calls `_is_password_field`), content-editable check (calls `_is_content_editable`), with platform branches.
@@ -7535,28 +6424,6 @@ The consent-gate block is duplicated between them; comment at `parakeet_engine.p
 - `voice_typer/server/transcription.py` (lines 590-790)
 **Fix:** Extract a single `_require_huggingface_consent(config, model_id, progress_callback)` helper into `asr_utils.py` (where `_download_with_retry` already lives). All three sites call it.
 **Severity:** 🟢 Low (refactor) — consent-gate logic drifts across the 3 sites.
-
----
-
-### ZR-82 — `level_monitor.py` (1313 lines) mixes 2 concerns: monitoring + test recording (SPLIT REQUIRED)
-**Status:** ❌ Not Fixed (Spaghetti / monolith detection)
-**Description:** `voice_typer/server/level_monitor.py` (1313 LOC). Module docstring (lines 1-32) explicitly states the file serves "TWO purposes": (1) continuous level monitoring and (2) ad-hoc microphone test recording.
-
-Section headers cleanly partition the two concerns:
-- "── Public API: monitoring" (line 205) → lines 205-527 (~322 LOC) — `is_monitoring` / `get_level` / `get_level_diagnostics` / `update_level_processor` / `start_monitoring` / `stop_monitoring`
-- "── Public API: test recording" (line 528) → lines 528-967 (~440 LOC) — `is_test_active` / `start_test_recording` / `stop_test_recording` / `update_test_filters` / `cancel_test_recording` / `_do_auto_stop_test` (line 971) / `_cancel_test_locked` (line 1009)
-
-Separate state blocks: monitor state (lines 48-96) vs test-recording state (lines 98-153, incl. `_test_chunks` / `_test_raw_chunks` / `_test_filtered_chunks` / `_test_auto_stop_timer`).
-**Root Cause:** Module grew by accretion. The "share one sounddevice stream to avoid PortAudio device conflict" optimization (docstring lines 10-13) was implemented by co-locating two concerns in one module instead of giving the test recorder its own module that imports the shared stream accessor.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/level_monitor.py` (1313 lines)
-- `tests/test_level_monitor.py` (existing)
-**Fix:**
-- `voice_typer/server/level_monitor.py` (≤ ~500 LOC) — monitor state, worker thread, `_process_level_chunk`, public monitoring API, plus a thin `get_shared_monitor_stream()` accessor for the test recorder.
-- `voice_typer/server/microphone_test_recorder.py` (~500 LOC) — all `_*test_*` state, the test-recording public API, `_do_auto_stop_test`, `_cancel_test_locked`, `update_test_filters`. Imports the shared stream + lock from `level_monitor`.
-- Tests in `tests/test_level_monitor.py` (existing) split accordingly into `tests/test_microphone_test_recorder.py` for the test-recording classes.
-**Severity:** 🟡 Medium — two distinct features (live level bar + mic-test recording) cannot be modified independently; merge conflicts on `_monitor_lock` and the test-chunk deques.
 
 ---
 
@@ -7618,21 +6485,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 
 ---
 
-### TY-2 — High: Eager `import numpy as np` at module top of 5 startup-path files adds ~335ms to every cold start
-**Status:** ❌ Not Fixed
-**Description:** `numpy` is imported eagerly at the top of `voice_typer/server/app.py:18`, `recording/__init__.py:135`, `audio_processor.py:22`, `audio_quality.py:11`, `transcription.py:12`. Measured `python -X importtime` shows numpy alone costs **335ms** cumulative on warm Linux cache (cold Windows cache historically 500-1000ms). None of these imports are needed during `VoiceTyperApp.__init__` or `start()` — numpy is only touched at first audio chunk (≥1s after dictation begins). The codebase already ships a lazy-import helper (`voice_typer/server/_lazy_import.py:lazy_module`) used for `sounddevice` and `pystray` for the exact same cold-start reason — numpy was simply missed.
-**Root Cause:** Verified via `python -X importtime -c "from voice_typer.server.app import VoiceTyperApp"` → 533ms cumulative, of which 335ms is numpy.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py:18`
-- `voice_typer/server/recording/__init__.py:135`
-- `voice_typer/server/audio_processor.py:22`
-- `voice_typer/server/audio_quality.py:11`
-- `voice_typer/server/transcription.py:12`
-- `voice_typer/server/_lazy_import.py` (helper to use)
-**Fix:** Replace each `import numpy as np` with `from voice_typer.server._lazy_import import lazy_module; np = lazy_module("numpy")`. The proxy is transparent — `np.ndarray` annotations need `from __future__ import annotations` (verify each file has it). The proxy re-reads `sys.modules` on every access, so `monkeypatch.setattr(np, ...)` in tests keeps working.
-**Severity:** 🔴 High
-**Overlaps:** ER-73 (estimated 50-100ms; actual measured 335ms — 3-7× higher)
 
 ---
 
@@ -7687,19 +6539,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 3. When the `MicrophoneDeviceWatcher` fires `_invalidate_device_cache`, proactively re-attempt restart if `_device_disconnected=True` — this would let the recorder auto-recover when the user plugs in a new mic.
 **Severity:** 🔴 High
 **Overlaps:** ER-16 (still unapplied)
-
----
-
-### TY-6 — High: VAD double-resamples already-resampled audio on 48kHz devices → biased-low speech probabilities → premature silence auto-stop
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/recording/recorder.py:2836-2842` — when `self._effective_sr not in (8000, 16000)` (true for 48kHz devices), the VAD branch enters and does `resample_poly(filtered.ravel(), up, down)` with `up=1, down=3`. But `filtered` was ALREADY resampled to 16kHz by `process_chunk` at line 2667. The `resample_poly` decimates the 16kHz audio 3:1 → ~170 samples presented to Silero as "16kHz" audio. Silero expects 512 samples at 16kHz → padding/truncation path triggers → Silero sees ~170 real + ~342 zeros → speech probability systematically biased low → silence_timer accumulates faster → recording auto-stops prematurely mid-sentence. ALSO wastes ~0.5-2ms per chunk × 16Hz = 8-32ms/s of CPU on a redundant `resample_poly` call.
-**Root Cause:** Verified — VAD path was never updated to use the post-`process_chunk` sample rate. Same root cause as TY-1 (`_buffer_sr` never set).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py:2753, 2836-2854`
-**Fix:** Use `self._buffer_sr` (per TY-1) as the source rate for the VAD branch — `if self._buffer_sr not in (8000, 16000):`. When AudioProcessor is active and `_buffer_sr == 16000`, the VAD branch is skipped entirely (the post-`process_chunk` audio is already at Silero's expected rate). When AudioProcessor is None, `_buffer_sr = _effective_sr` and the existing behavior is preserved. Cache `(up, down)` at `start()` time as `_cached_vad_resample_up_down` to avoid per-chunk `math.gcd` recomputation.
-**Severity:** 🔴 High
-**Overlaps:** S2-CR-20 / ER-8 (still unapplied)
 
 ---
 
@@ -7803,22 +6642,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 
 ---
 
-### TY-12 — High: Audio ring buffer sized at 4.0s — when worker falls behind (RNNoise on slow CPU), silence auto-stop latency balloons to 9.0s
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/recording/recorder.py:1830-1850` dynamically sizes the ring buffer to `int(sizing_sr / blocksize * 4.0)` — 4.0s of audio. The silence timer at line 2868-2869 uses `time.perf_counter()` (worker thread's "now"), NOT the `perf_ts` captured in the callback (line 2509). When the worker falls behind (RNNoise at 50ms/chunk on a 16kHz device where chunks arrive every 32ms), the ring buffer fills to 4s and stays there (worker throughput 20 chunks/s vs callback 31 chunks/s → backlog grows 11 chunks/s → ring fills in ~11s). Under this steady-state overload: steady-state silence auto-stop latency = silence_threshold (5s) + ring_backlog (4s) = **9.0s** from when user stopped speaking. Steady-state (no overload) latency = 5s + 1-2 chunks (32-64ms) = 5.03-5.06s. The 4s ring buffer was sized to "absorb VAD inference latency spikes" per the comment at line 1826, but Silero VAD is 1-5ms against a 32ms budget — the 4s headroom is ~1000× the actual spike absorption needed.
-**Root Cause:** Verified — ring buffer capacity sized for worst-case VAD spike (overkill) without accounting for the silence-detection latency trade-off. Silence timer anchored to worker time, not chunk arrival time.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py:1820-1850, 2505-2512, 2866-2896`
-**Fix:**
-1. Reduce ring buffer to ~1s headroom (`int(sr/blocksize * 1.0)` → 32 chunks at 16kHz, 94 at 48kHz). Limits worst-case silence latency to ~6s while still absorbing 1s spikes (GC pauses, etc.).
-2. Better: move RMS-based silence detection into the callback itself (RMS via `np.dot` is ~1µs, RT-safe). The callback already copies `indata`; adding `rms = float(np.sqrt(np.dot(flat, flat) / flat.size))` and a lightweight silence timer keeps the callback under ~10µs while eliminating ring-buffer-backlog latency for silence detection. VAD-based silence detection can remain on the worker for accuracy; the callback-based timer serves as a low-latency fallback.
-3. Either remove the dead `perf_ts` parameter (see TY-29) or actually use it for the silence-timer VALUE.
-**Severity:** 🔴 High
-**Overlaps:** None
-
----
-
 ### TY-14 — Medium: `kill_process_tree` runs 200ms unconditional sleep even when no descendants exist — on Tauri event-loop thread
 **Status:** ❌ Not Fixed
 **Description:** `src-tauri/src/state.rs:225-301` — the Unix branch of `kill_process_tree` runs `std::thread::sleep(Duration::from_millis(200))` UNCONDITIONALLY between the SIGTERM loop (lines 259-278) and the SIGKILL loop (lines 282-301), even when `all_descendants` is empty. The function does NOT short-circuit on `all_descendants.is_empty()`. `kill_tree` (state.rs:158-169) wraps this in `spawn_blocking` and is called from `shutdown_sidecar_for_exit` (state.rs:488), which is invoked on the `RunEvent::Exit` critical path via `tauri::async_runtime::block_on` (main.rs:490) — a thread that blocks the entire Tauri event loop. The 200ms is pure waste when the sidecar has no grandchildren.
@@ -7857,27 +6680,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 **Fix:** Replace the inner `for _ in range(60): if stop_event.wait(1.0): return` with a single `if stop_event.wait(timeout=60.0): return`. The `stop_event.set()` from `shutdown_all()` wakes the thread immediately on shutdown — the 60s timeout only governs the AXIsProcessTrusted() recheck interval, which is the actual purpose of the loop. If the defensive `app._shutting_down` check must be kept (for callers that don't go through the registry), lengthen the slice to 10-30s. **VALIDATE ON MACOS HOST** — verify `stop_event.set()` from `ThreadRegistry.shutdown_all()` reliably wakes the thread within 1s on real macOS.
 **Severity:** 🟡 Medium
 **Overlaps:** ER-95 (same 1-second poll pattern in `shutdown_controller.py` — different file, NOT a duplicate)
-
----
-
-### TY-17 — Medium: `level_monitor._process_level_chunk` RMS/peak computation uses un-optimized numpy pattern — 32-280 KB/s wasted allocations
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/level_monitor.py:1248-1270` — current code uses `abs_flat = np.abs(flat_filtered)` (allocates 2KB intermediate), `rms = float(np.sqrt(np.mean(flat_filtered**2)))` (allocates squared array 2KB + mean + sqrt), and `raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))` (triple-allocation: astype copy + square + mean). At 48kHz/512 = ~93.75 chunks/sec × 3-4 allocations × 2KB = ~24KB/sec extra GC. The AUDIO-NP optimization (use `np.dot(flat, flat)/flat.size` for RMS, use `max(flat.max(), -flat.min())` for peak) was applied to `recorder._process_audio_chunk` (lines 2740-2749, with explicit comments "AUDIO-NP: single-pass RMS using np.dot — avoids creating the intermediate abs_filtered**2 array" + "PERF-FIX-2: allocation-free peak") but NEVER ported to `level_monitor._process_level_chunk` even though the two computations are mathematically identical.
-**Root Cause:** Verified — AUDIO-NP / PERF-FIX-2 optimization applied to recorder.py but never ported to level_monitor.py.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/level_monitor.py:1248-1270`
-- `voice_typer/server/recording/recorder.py:2740-2749` (reference impl)
-**Fix:** Port the AUDIO-NP / PERF-FIX-2 pattern from recorder.py:
-```python
-flat = filtered.ravel() if filtered is not None else indata.ravel()
-if flat.size:
-    rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-    peak = max(float(flat.max()), -float(flat.min()))
-```
-And drop the `.astype(np.float32)` in L1269 (flat is already float32 from sounddevice's dtype=np.float32 InputStream at L435).
-**Severity:** 🟡 Medium
-**Overlaps:** M-17 (still applies), ER-14 (broader scope — RNNoise on every chunk)
 
 ---
 
@@ -7975,65 +6777,6 @@ The 3 `register()` call sites in recorder.py (lines 589, 2092, 2217) cover scipy
 
 ---
 
-### TY-24 — Medium: `ipc_server._send` re-allocates `_shutdown_allowlist` tuple + does per-write `settimeout`/`restore` dance on every push event
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/ipc_server.py:2229-2235` — `_shutdown_allowlist = ("relaunch_app", "quit_app", "transcription_final", "transcription_partial", "vocabulary_suggestion")` is re-constructed as a tuple on EVERY `_send()` call when `tcp_client is not None`. At 15-50 Hz waveform-bubble push events, that's 15-50 tuple allocations/sec. Line 2218: `getattr(self.app, "_shutting_down", False) is True` runs on every `_send()` call — `getattr` with a default is ~2× slower than a direct attribute access. Lines 2278-2328: the entire `with self._tcp_write_lock:` block does `_prev_timeout = tcp_client.conn.gettimeout()` → `settimeout(_TCP_WRITE_TIMEOUT_SECONDS)` → `write` → `flush` → `settimeout(_prev_timeout)` on EVERY push event — 4 syscalls per write × 15-50 writes/sec = 60-200 syscalls/sec.
-**Root Cause:** Verified — each `_send()` fix (NEW-CONC-003 write timeout, QUIT-CLEAN-001 shutdown suppress, PR-2-FIX-2 allowlist expansion) was added defensively inside the hot path without hoisting invariants out.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc_server.py:2218, 2229-2235, 2278-2328`
-**Fix:**
-1. Hoist `_shutdown_allowlist` to a module-level `frozenset` constant `_SHUTDOWN_ALLOWLIST` near `_READONLY_COMMANDS` (L129).
-2. Cache `_shutting_down` on the IPCServer instance: refresh in `start()` (set to `False`) and in `stop()` (set to `True`). Replace `getattr(self.app, "_shutting_down", False) is True` with `self._cached_shutting_down`.
-3. Set `_TCP_WRITE_TIMEOUT_SECONDS` once in `_handle_tcp_connection` after auth (combine with the existing `conn.settimeout(None)` at L1059-L1060). If a per-direction timeout is needed (read blocks, write times out), use `socket.setblocking(True)` + `select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)` before each write.
-**Severity:** 🟡 Medium
-**Overlaps:** None
-
----
-
-### TY-25 — Medium: Tray pending states/notifications lists grow unbounded on tray-unavailable systems (Wayland without SNI, VOICE_TYPER_NO_TRAY=1)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/tray.py:600-614` — when `_tray_unavailable=True and _icon is None`, the `run()` method does a ONE-SHOT clear of `_pending_states` and `_pending_notifications`, then blocks on `_run_event.wait()`. After the initial clear, the main thread blocks. Meanwhile, every `set_state()` (line 235-237), `notify()` (line 684-686), and `notify_safety()` (line 908-910) call appends to the module-level lists because `self._icon is None`. These lists are NEVER drained again until `stop()` sets `_run_event` (line 654). The drain paths at lines 623/628 only run on the pystray-loop branch (which is skipped when `_tray_unavailable`). Growth rate: ~4-6 state changes per dictation cycle × ~150 bytes/entry = ~750-900 bytes/cycle. A user dictating 50×/hour for 24h = ~600KB.
-**Root Cause:** Verified — the unavailable-path's clear-once-then-block design forgot that subscribers keep appending during the block.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/tray.py:235-237, 600-614, 684-686, 908-910`
-**Fix:** In the tray-unavailable branch, replace the one-shot clear + indefinite wait with a periodic drain loop (e.g., `while not self._run_event.wait(timeout=60): self._drain_pending()`) that drains the queues every 60s and drops them (since there's no icon to flush to). Alternatively, in `set_state`/`notify`/`notify_safety`, skip the append when `_tray_unavailable` is True (the state is already published to Tauri via `_publish_tray_state`, so the pystray queue is redundant on the unavailable path).
-**Severity:** 🟡 Medium
-**Overlaps:** None
-
----
-
-### TY-26 — Medium: `vad.py:251, 263` `.float()` always clones data — should be `.to(torch.float32)` (no-op when already float32)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/vad.py:251` (`audio_tensor = torch.from_numpy(audio_chunk).float()`) and line 263 (`audio_tensor = torch.from_numpy(padded).float()`). When `audio_chunk` (or `padded`) is already float32 — which is always the case in production because `recorder._process_audio_chunk` passes `vad_audio` from `filtered.ravel()` (float32) or from `resample_poly(...).astype(np.float32)` — `.float()` returns a NEW tensor with a CLONED data buffer (~2KB copy per chunk). Per chunk cost: ~2KB tensor allocation + memcpy = ~5-20µs. Frequency: 16 Hz. Total: ~80-320µs/sec wasted + ~32KB/sec extra allocation.
-**Root Cause:** Verified — `.float()` is unconditional. `torch.Tensor.to(torch.float32)` is a no-op (returns the same tensor) when dtype already matches; `.float()` is not.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/vad.py:251, 263`
-**Fix:** Replace `.float()` with `.to(torch.float32)`:
-```python
-audio_tensor = torch.from_numpy(audio_chunk).to(torch.float32)
-```
-Or guard explicitly: `if audio_tensor.dtype != torch.float32: audio_tensor = audio_tensor.float()`.
-**Severity:** 🟡 Medium (Low compute cost but easy win)
-**Overlaps:** ER-13 (VAD sequential torch inference — broader scope)
-
----
-
-### TY-28 — Low: `recorder.py:2639` xrun threshold `==` instead of `%` — callback fires EXACTLY ONCE per session
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/recording/recorder.py:2639` — `if self._xruns == self._xrun_threshold and self.on_xrun_threshold:` uses `==`, so the callback fires EXACTLY ONCE per session — when `_xruns` increments from 9 to 10. After that, `_xruns` is 11, 12, ... and `== 10` is never True again. A user with 100+ xruns in a session sees 1 UI notification (at xrun #10), then nothing — they may believe the xrun issue resolved when it actually worsened.
-**Root Cause:** Verified — `==` instead of `%` or rolling-window check.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py:2639`
-**Fix:** Change to `if self._xruns % self._xrun_threshold == 0 and self.on_xrun_threshold:` (fires every 10 xruns), OR use the already-computed `recent_count >= _XRUN_ALERT_THRESHOLD` (line 2629) to trigger the callback on a rolling-window basis.
-**Severity:** 🟢 Low
-**Overlaps:** None
-
----
-
 ### TY-34 — Low: `src-tauri/src/platform/logging.rs` does 4 syscalls per log line — should use BufWriter + in-memory byte counter
 **Status:** ❌ Not Fixed
 **Description:** `src-tauri/src/platform/logging.rs:271-275`:
@@ -8089,19 +6832,6 @@ Inner array (timestamps) self-prunes via sliding-window filter, BUT the outer Ma
 
 ---
 
-### TY-38 — Low: `recorder.py:2828` per-chunk VAD property triple-lookup + per-chunk `math.gcd` recomputation
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/recording/recorder.py:2828` — `if self._vad_enabled and self._use_silero_vad and self._silero_available:` runs on every audio chunk (16 Hz). Each of the three is a `property` that delegates to `self._vad.<attr>` via the `_make_vad_property` factory — i.e. 3 `getattr` calls + 3 `property.descriptor.__get__` dispatches per chunk × 16 Hz = 48 attribute lookups/sec. The values only change on `on_config_changed()`. Lines 2839-2842: when Silero VAD is active at a non-16 kHz native rate, `math.gcd(self._effective_sr, 16000)`, `up`, `down` are recomputed on EVERY chunk. The result is invariant within a session. Line 2556: `np.count_nonzero(indata) == 0` scans all 512 samples per chunk for disconnect detection.
-**Root Cause:** Verified — per-chunk methods grew organically; each fix added its own per-chunk check without coordinating with the existing ones.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py:2556, 2828, 2839-2842`
-**Fix:**
-1. In `start()` (after `_cached_target_sr = self.config.sample_rate`), cache `_cached_use_silero_vad`, `_cached_silero_available`, `_cached_vad_enabled`. Replace L2828 with the cached values. Refresh in `on_config_changed()`.
-2. In `start()` (after `effective_sr` is finalized), cache `_cached_vad_resample_up_down = (up, down)` (or `None` if `effective_sr in (8000, 16000)`). Replace L2839-L2842 with a tuple unpack.
-3. Move the zero-fill disconnect check to AFTER the RMS computation (L2744): replace `np.count_nonzero(indata) == 0` with `chunk_rms == 0.0` (which is already computed from `np.dot(flat, flat) / flat.size`).
-**Severity:** 🟢 Low
-**Overlaps:** TY-6 (caching the resample ratio is shared)
 
 ---
 
@@ -8154,16 +6884,6 @@ Inner array (timestamps) self-prunes via sliding-window filter, BUT the outer Ma
 
 ---
 
-### NH-34 — `docs/API.md` is a Python class API reference, not the IPC reference the tree comment claims
-**Status:** ⚠️ Partial — docs/python-api.md and ipc-reference.md created but docs/API.md still exists with same content
-**Description:** `CONTRIBUTING.md:333` declares `docs/API.md` as "IPC message reference", but `docs/API.md` (218 lines) is actually a Python class API reference (`VoiceTyperApp`, `Recorder`, etc.). A developer wanting to know "what IPC commands exist" must read three source files in parallel: `voice_typer/server/ipc_server.py:_COMMAND_REGISTRY` (lines 1820-1954), `voice_typer/client/src/main/allowed-commands.ts:ALLOWED_COMMANDS`, and `voice_typer/client/src/renderer/src/types/ipc.ts` (~500 lines covering ~30 of the 78 commands). The 78 commands and 24 events are documented inline across these files — there is no consolidated, human-readable doc.
-**Root Cause:** The CONTRIBUTING.md annotation is stale. API.md was written as a Python API doc and never became the IPC reference the tree comment claims.
-**Progress:** None yet.
-**Related Files:**
-- `docs/API.md`
-- `CONTRIBUTING.md`
-**Fix:** Rename `docs/API.md` to `docs/python-api.md` and create a new `docs/ipc-reference.md` auto-generated from `_COMMAND_REGISTRY` + `ALLOWED_COMMANDS` + `types/ipc.ts`. Update the CONTRIBUTING.md tree comment.
-**Severity:** 🟡 Medium
 
 ---
 
@@ -8198,15 +6918,6 @@ Session 5 contributed 66 new findings.
 
 ---
 
-### YJ-7 — `ServiceProtocol` declares `mic_id`/`duration`/`filters` as `Any`
-**Status:** ❌ Not Fixed
-**Description:** `providers.py:315-317`: `def microphone_test_start(self, mic_id: Any = None, duration: Any = None, filters: Any = None) -> dict[str, object]: ...`. `providers.py:324`: `def level_monitor_start(self, mic_id: Any = None) -> dict[str, object]: ...`. `providers.py:349`: `def onboarding_set_microphone(self, mic_id: Any) -> dict[str, object]: ...`.
-**Root Cause:** Verified — `mic_id` is `Any` because the renderer sends it as either a string (`"0"`) or an int (`0`); `duration` is `Any` because it can be `int` (seconds) or `None`; `filters` is `Any` because it's a `dict[str, object]` payload.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/providers.py`
-**Fix:** Replace with concrete unions: `mic_id: str | int | None = None`, `duration: int | float | None = None`, `filters: dict[str, object] | None = None`. Update `VoiceTyperService` impl to match (already mostly does).
-**Severity:** 🔴 High
 
 ---
 
@@ -8297,18 +7008,6 @@ Session 5 contributed 66 new findings.
 
 ---
 
-### YJ-34 — 3 Python push events are missing from TS `PythonPushEvent` union
-**Status:** ❌ Not Fixed
-**Description:** Python emits three push events that are NOT in the TS `PythonPushEvent` union (`ipc.ts:461-496`): (a) `{"type": "asr_backend_disabled", ...}` at `asr_registry.py:533`; (b) `{"type": "asr_last_resort_unloaded", ...}` at `asr_registry.py:332`; (c) `event_bus.publish({"type": "llm_polish_failed"})` at `dictation_pipeline.py:919`. Electron main `handleMessage` routes them via the catch-all `broadcastToMainWindow("python-event", msg)` so the events DO reach the renderer — but no renderer code can subscribe to them in a type-safe way.
-**Root Cause:** Verified — Python emitters were added without a corresponding TS interface update.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/types/ipc.ts`
-- `voice_typer/server/asr_registry.py`
-- `voice_typer/server/dictation_pipeline.py`**Fix:** Add `ASRBackendDisabledEvent`, `ASRLastResortUnloadedEvent`, and `LLMPolishFailedEvent` interfaces to `ipc.ts` and include them in the `PythonPushEvent` union. Add a parity test similar to `config-parity.test.ts` that grep-asserts every `event_bus.publish({"type": "..."})` literal in `voice_typer/server/` has a matching TS interface.
-**Severity:** 🟡 Medium
-
----
 ### YJ-39 — 5 monolith files at the IPC/contract boundary exceed 800 LOC
 **Status:** ❌ Not Fixed — deferred (large multi-file refactor)
 **Description:** `src-tauri/src/commands/bubble.rs` (1176 LOC) + `voice_typer/server/ipc_server.py` (2808 LOC) + `voice_typer/server/config.py` (2131 LOC) + `voice_typer/server/config_validators.py` (1445 LOC) + `voice_typer/client/src/renderer/src/types/ipc.ts` (1032 LOC) all exceed 800 LOC and mix wiring with logic. `bubble.rs` mixes 9 `#[tauri::command]` handlers with 5 helper functions. `ipc_server.py` mixes the `IPCServer` class body, `_COMMAND_REGISTRY`, handler mixins, `main()`, plus the `sys.modules` registration hack. `config.py` + `config_validators.py` together are 3576 LOC of mixed schema definition + validation + migration logic.
@@ -8322,31 +7021,6 @@ Session 5 contributed 66 new findings.
 - `voice_typer/client/src/renderer/src/types/ipc.ts`
 **Fix:** `bubble.rs` → split into `commands/bubble/{show.rs, position.rs, draggable.rs, resize.rs, toggle.rs}`. `ipc_server.py` → complete the planned shim conversion (S2-CR-71). `config.py` → split `Config` dataclass (schema) from `Config.load()` (migration) from `Config.save()` (IO). `ipc.ts` → split into `events.ts`, `requests.ts`, `responses.ts`.
 **Severity:** 🟡 Medium
-
----
-
-### YJ-46 — `handlers/_log.py` is aspirational: only 4 of 14 handler modules import from it
-**Status:** ❌ Not Fixed
-**Description:** `handlers/_log.py:21-30` module docstring states: "as of PVT-G5-058, 10 of 13 handler files still declare `log = logging.getLogger(...)` inline. Only `history_handlers`, `model_handlers`, `privacy_handlers`, and `_base.py` actually import from here."
-**Root Cause:** Verified — aspirational consolidation incomplete.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/handlers/_log.py`
-- `voice_typer/server/handlers/*.py` (10 files to migrate)
-**Fix:** Mechanically migrate the remaining 10 handler modules to `from voice_typer.server.handlers._log import log`. Add a test that asserts no handler file under `voice_typer/server/handlers/` contains `logging.getLogger(` outside `_log.py`.
-**Severity:** 🟢 Low
-
----
-
-### YJ-50 — `level_monitor.py` `_test_auto_stop_timer` is mutated without lock in 2 of 3 sites
-**Status:** ❌ Not Fixed
-**Description:** `level_monitor.py:670-674` (stop_test_recording) and :951-958 (cancel_test_recording) mutate `_test_auto_stop_timer` without `_monitor_lock`. The third site (`_do_auto_stop_test` at :971-985) holds the lock.
-**Root Cause:** Verified — inconsistent locking discipline.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/level_monitor.py`
-**Fix:** Move the timer cancel + clear block inside `with _monitor_lock:` in both `stop_test_recording` and `cancel_test_recording`.
-**Severity:** 🟢 Low
 
 ---
 
@@ -8388,16 +7062,6 @@ Session 5 contributed 66 new findings.
 
 ---
 
-### YJ-58 — `electron_launcher.py:139 is_spawned_by_electron` is dead in production
-**Status:** ❌ Not Fixed
-**Description:** `electron_launcher.py:139` — `is_spawned_by_electron` predicate. `rg --no-ignore -n 'is_spawned_by_electron' .` returns 9 hits: 1 definition, 7 in `tests/test_electron_launcher.py`, 1 in `electron_launcher.py:155` (the impl reads `VOICE_TYPER_IPC_TOKEN` env). Zero production call sites.
-**Root Cause:** Verified — `ipc_server.py:2700-2760` decides to call `launch_electron_frontend` based on `port is None and not ws_mode`, not by consulting `is_spawned_by_electron()`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/electron_launcher.py`
-- `tests/test_electron_launcher.py`
-**Fix:** Delete `is_spawned_by_electron` and the 3 tests in `test_electron_launcher.py` that only exercise it. OR wire it into `ipc_server.py`'s standalone-mode decision if there's a real use case.
-**Severity:** 🟢 Low
 
 ---
 
@@ -12186,3 +10850,37 @@ The following findings were identified during Phase 1 review but are documented 
 - **FR-S16:** `src-tauri/src/sidecar/spawn.rs` (845 lines) — Phase 4.5 candidate.
 
 Spaghetti splits are deferred to a future run due to the high risk of regression on 1000+ line files containing business logic. The splits require careful planning and test coverage that exceeds the 10-minute sub-agent ceiling.
+
+---
+
+## Verifier Findings (2026-07-30)
+
+The following items were identified during the verifier pass of the Fix-Existing sub-agent run. They are not compile errors or bugs — each is a documented maintenance item or deferred work item.
+
+### Verifier-1 — ws.rs G4-H-32 allowlist drift (Low)
+**Status:** ❌ Not Fixed
+**Description:** The `ALLOWED_EVENT_TYPES` list in `src-tauri/src/sidecar/ws.rs` contains 9 events that are NOT in the G4-H-32 spec comment block: `state_changed`, `error`, `mic_level`, `llm_polish_failed`, `device_lost`, `asr_backend_disabled`, `asr_last_resort_unloaded`, `audio_clip`, `dictation_lost`. While each has a code comment explaining why it was added and the allowlist is correct at runtime, the G4-H-32 spec block at lines ~76-89 is now out of date — a future contributor looking at the spec block won't see the full set of allowed events.
+**Root Cause:** Events were added to the allowlist one-by-one as new server features were implemented, without updating the spec block to match.
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+**Severity:** 🟢 Low
+
+### Verifier-2 — Capabilities tray permissions intentional reduction (Informational)
+**Status:** 🚫 Won't Fix
+**Description:** `main-runtime.json` was reduced from 8 tray permissions (`core:tray:allow-set-icon`, `allow-set-tooltip`, `allow-set-title`, `allow-set-menu`, `allow-new`, `allow-remove-by-id`, `allow-get-by-id`) to just `core:tray:default`. The renderer does not directly manipulate the system tray — the Python sidecar computes the menu structure and emits a `tray_menu` event; the Rust host renders it. This is an intentional security hardening per ADR-0020 §6.5. Any renderer code or third-party plugin that previously called `invoke('core:tray:setIcon')` will fail silently at runtime.
+**Root Cause:** Intentional security hardening — the renderer should not have tray-manipulation capabilities.
+**Related Files:**
+- `src-tauri/capabilities/main-runtime.json`
+**Severity:** 🟢 Low (Informational)
+
+### Verifier-4 — 14 test files named by task ID (Low)
+**Status:** ❌ Not Fixed
+**Description:** 14 new test files have names containing task-ID prefixes (XZ, SA, GT, YJ, ZR) instead of descriptive names. Examples: `test_sa09_xz_fixes.py`, `test_sidecar_ws_xz_ipc_003.ts`, `test_xz_cc_1_dead_vad_constants.py`. These work correctly (pytest/vitest don't care about names), but violate the project convention that code be named by purpose, not by ticket number. Task IDs are transient — a future session will have a different prefix.
+**Root Cause:** Sub-agents created test files named after their task/finding IDs.
+**Related Files:**
+- `tests/test_sa09_xz_fixes.py`
+- `tests/test_sidecar_ws_xz_ipc_003.ts`
+- `tests/test_xz_cc_1_dead_vad_constants.py`
+- (11 more with similar ID-prefix patterns)
+**Fix:** Rename files to descriptive names following `test_<feature>_<concern>.py` convention. Update any imports referencing the old names.
+**Severity:** 🟢 Low

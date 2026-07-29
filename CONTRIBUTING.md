@@ -772,8 +772,20 @@ Adding a new **ASR engine** has its own touchpoint set: see
   `metadata.json`. Regenerate via `tests/fixtures/generate_fixture.py`
   if you change the format expectations.
 - **Every fix ships with a regression test.** The test file naming
-  convention is `test_<feature>.py` or `test_round<N>_<theme>.py` for
-  batch review rounds.
+  convention is **`test_<feature>.py`** for new tests and
+  **`test_<feature>_<concern>.py`** for sub-files that decompose a
+  large feature (e.g. `test_clipboard_security.py`,
+  `test_clipboard_restore_race.py`). ZR-49 reconciliation (2026-07-30):
+  the legacy `test_round<N>_<theme>.py` batch-round convention is
+  **deprecated** — no files in the tree use it. The historical
+  `tests/regressions/*_test.py` (suffix form) and
+  `test_<feature>_<session>_fixes.py` (per-round session) patterns are
+  also **deprecated**; they are kept on disk for git-history continuity
+  but new tests MUST use `test_<feature>.py` or
+  `test_<feature>_<concern>.py`. To find every test touching feature X,
+  grep both `tests/test_X*.py` and `tests/**/test_X*.py` (the latter
+  catches sub-packages like `tests/handlers/`, `tests/server/`,
+  `tests/tauri/mig*/`).
 
 ### 7.2 Frontend — vitest + Testing Library
 
