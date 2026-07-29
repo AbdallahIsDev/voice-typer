@@ -108,7 +108,6 @@ function _getCachedNumberFormat(
 	return fmt;
 }
 
-
 // ── compactNumber (Dashboard / StatCards callers) ────────────────────
 
 export interface CompactNumberOptions {
