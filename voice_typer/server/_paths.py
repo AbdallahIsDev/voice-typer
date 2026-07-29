@@ -53,6 +53,15 @@ LOOPBACK_HOST: str = "127.0.0.1"
 DEFAULT_LLM_API_URL: str = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LLM_MODEL: str = "gpt-4o-mini"
 
+# DR-34: canonical default IPC port. Previously the literal ``9876`` was
+# duplicated in ``autostart_launcher.py`` (``IPC_PORT = 9876``),
+# ``ipc/transport.py`` (``_pick_available_port(start: int = 9876, ...)``),
+# ``ipc_server.py`` (``_pick_available_port(9876)``), and the TS main
+# process (``constants.ts: IPC_PORT = ... : 9876``). Centralising it here
+# means the parity test ``tests/test_ipc_port_sync.py`` can assert the TS
+# side uses the same value by extracting it via regex.
+IPC_PORT: int = 9876
+
 from voice_typer.server.config import _config_dir  # noqa: E402
 
 

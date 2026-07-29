@@ -12,6 +12,19 @@ bare PATH-resolved ``notepad``). macOS uses ``open -W``; Linux uses
 ``xdg-open``. All three branches block on the editor and reload
 afterwards.
 
+DR-19: the three platform branches previously each duplicated the
+``with self.app._config_mutation_lock: save() → [launch] → reload()``
+scaffold with only the middle ``[launch]`` call differing. The
+per-platform launch logic is now factored into a strategy table
+(``_PLATFORM_LAUNCHERS``) keyed by platform name; the
+``ConfigEditorLauncher.launch`` body is platform-agnostic. As part of
+the dedupe the Windows branch picked up the ``contextlib.suppress(
+Exception)`` wrapper around its launch call that the macOS / Linux
+branches already had — previously a Windows launch exception bubbled
+out to the outer try/except and triggered a tray notification, while
+the other two branches silently swallowed subprocess errors. The
+three branches are now consistent.
+
 The platform helpers (``is_windows``/``is_macos``/``is_linux``) and the
 Windows launch helpers (``_windows_open_with_default_app`` etc.) are
 resolved from the owning app's module namespace at call time so existing
@@ -45,6 +58,82 @@ def _resolve(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
     return default
 
 
+def _current_platform() -> str:
+    """Return the current platform key (``"windows"``/``"macos"``/``"linux"``).
+
+    Resolves ``is_windows`` / ``is_macos`` from the owning app module at
+    call time (mirrors the historical dynamic-lookup convention) so
+    tests that monkeypatch ``voice_typer.server.app.is_windows`` etc.
+    continue to take effect.
+    """
+
+    is_windows = _resolve("is_windows", _default_is_windows)
+    is_macos = _resolve("is_macos", _default_is_macos)
+    if is_windows():
+        return "windows"
+    if is_macos():
+        return "macos"
+    return "linux"
+
+
+# ── Platform launch strategies (DR-19) ─────────────────────────────────
+
+
+def _launch_windows_editor(config_path: Any) -> None:
+    """Windows-specific editor launch.
+
+    Uses ``ShellExecuteEx`` (via ``_windows_open_with_default_app``) to
+    honor the user's ``.json`` association; falls back to a
+    SystemRoot-validated Notepad (never a bare PATH-resolved
+    ``notepad``) and finally to ``os.startfile``.
+    """
+
+    _windows_open_with_default_app = _resolve(
+        "_windows_open_with_default_app", _default_windows_open_with_default_app
+    )
+    _windows_wait_for_process_exit = _resolve(
+        "_windows_wait_for_process_exit", _default_windows_wait_for_process_exit
+    )
+    _windows_close_process_handle = _resolve(
+        "_windows_close_process_handle", _default_windows_close_process_handle
+    )
+    _systemroot_notepad_path = _resolve(
+        "_systemroot_notepad_path", _default_systemroot_notepad_path
+    )
+
+    handle = _windows_open_with_default_app(str(config_path))
+    if handle is not None:
+        try:
+            _windows_wait_for_process_exit(handle)
+        finally:
+            _windows_close_process_handle(handle)
+    else:
+        notepad = _systemroot_notepad_path()
+        if notepad is not None:
+            subprocess.Popen([str(notepad), str(config_path)]).wait()
+        else:
+            os.startfile(str(config_path))  # type: ignore[attr-defined]
+
+
+def _launch_macos_editor(config_path: Any) -> None:
+    """macOS-specific editor launch — uses ``open -W`` (blocking)."""
+
+    subprocess.run(["open", "-W", str(config_path)], check=False)
+
+
+def _launch_linux_editor(config_path: Any) -> None:
+    """Linux-specific editor launch — uses ``xdg-open`` (blocking)."""
+
+    subprocess.run(["xdg-open", str(config_path)], check=False)
+
+
+_PLATFORM_LAUNCHERS: dict[str, Callable[[Any], None]] = {
+    "windows": _launch_windows_editor,
+    "macos": _launch_macos_editor,
+    "linux": _launch_linux_editor,
+}
+
+
 class ConfigEditorLauncher:
     """Open the config file in the user's editor, holding the mutation lock.
 
@@ -66,66 +155,29 @@ class ConfigEditorLauncher:
         Holds ``app._config_mutation_lock`` for the full editor session
         (XPLAT-01 / SEC-audit-011 / B-4 / CR-015) and reloads the config
         from disk after the editor exits.
+
+        DR-19: the per-platform launch logic is delegated to a strategy
+        function from ``_PLATFORM_LAUNCHERS``. All three platform
+        branches now wrap the launch call in
+        ``contextlib.suppress(Exception)`` — the Windows branch
+        previously lacked this wrapper (inconsistent with macOS / Linux
+        which already had it).
         """
 
-        is_windows = _resolve("is_windows", _default_is_windows)
-        is_macos = _resolve("is_macos", _default_is_macos)
-        _windows_open_with_default_app = _resolve(
-            "_windows_open_with_default_app", _default_windows_open_with_default_app
-        )
-        _windows_wait_for_process_exit = _resolve(
-            "_windows_wait_for_process_exit", _default_windows_wait_for_process_exit
-        )
-        _windows_close_process_handle = _resolve("_windows_close_process_handle", _default_windows_close_process_handle)
-        _systemroot_notepad_path = _resolve("_systemroot_notepad_path", _default_systemroot_notepad_path)
-
         try:
-            if is_windows():
-                with self.app._config_mutation_lock:
-                    if not self.app.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    handle = _windows_open_with_default_app(str(config_path))
-                    if handle is not None:
-                        try:
-                            _windows_wait_for_process_exit(handle)
-                        finally:
-                            _windows_close_process_handle(handle)
-                    else:
-                        notepad = _systemroot_notepad_path()
-                        if notepad is not None:
-                            subprocess.Popen([str(notepad), str(config_path)]).wait()
-                        else:
-                            os.startfile(str(config_path))  # type: ignore[attr-defined]
-                    try:
-                        self.app.config = type(self.app.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-            elif is_macos():
-                with self.app._config_mutation_lock:
-                    if not self.app.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    with contextlib.suppress(Exception):
-                        subprocess.run(
-                            ["open", "-W", str(config_path)],
-                            check=False,
-                        )
-                    try:
-                        self.app.config = type(self.app.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-            else:
-                with self.app._config_mutation_lock:
-                    if not self.app.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    with contextlib.suppress(Exception):
-                        subprocess.run(
-                            ["xdg-open", str(config_path)],
-                            check=False,
-                        )
-                    try:
-                        self.app.config = type(self.app.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
+            with self.app._config_mutation_lock:
+                if not self.app.config.save():
+                    log.warning("[CONFIG] Failed to save config before opening editor")
+                launcher = _PLATFORM_LAUNCHERS.get(_current_platform())
+                if launcher is None:
+                    log.warning("[CONFIG] No editor launcher for platform")
+                    return
+                with contextlib.suppress(Exception):
+                    launcher(config_path)
+                try:
+                    self.app.config = type(self.app.config).load()
+                except Exception as exc:
+                    log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
         except Exception as e:
             log.warning("[CONFIG] Could not open editor: %s", e)
             self.app.tray.notify(APP_NAME, f"Config file:\n{config_path}")

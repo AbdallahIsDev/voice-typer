@@ -409,7 +409,16 @@ class ConfigApplier:
 
         # NEW-UX-027: re-register the dictation hotkey when recording_mode
         # or hotkey changes.
-        if "recording_mode" in updates or "hotkey" in updates or "push_to_talk_hotkey" in updates:
+        # FR-21: dropped the push_to_talk_hotkey disjunct (the third
+        # ``or <field> in updates`` clause that lived here pre-fix) —
+        # ``push_to_talk_hotkey`` was deliberately removed from
+        # ``IPC_CONFIG_ALLOWLIST`` per GT-F2-8, so it can never appear
+        # in ``updates`` via the IPC path. The disjunct was dead code
+        # that misled reviewers into thinking the branch handled a
+        # user-tunable setting. If ``push_to_talk_hotkey`` is ever
+        # re-wired, the allowlist AND this side-effect branch must be
+        # added together.
+        if "recording_mode" in updates or "hotkey" in updates:
             # G4-H-17: snapshot the previous hotkey so we can restore it
             # if ``app.hotkeys.restart()`` raises. ``restart()`` sets
             # ``config.hotkey = <new>`` before calling ``register()`` —
@@ -515,34 +524,22 @@ class ConfigApplier:
                 # the user via a tray notification.
                 _notify_side_effect_failure(app, "bubble_behavior", e)
 
-        # BUGFIX: volume_duck_smart changes were not applied until restart.
-        if "volume_duck_smart" in updates:
-            try:
-                ducker = getattr(app, "_volume_ducker", None)
-                if ducker is not None:
-                    new_enabled = bool(updates["volume_duck_smart"])
-                    # G4-M-19: set_smart_duck_enabled() may block for up
-                    # to ~1s on macOS (it calls _stop_smart_duck_monitor
-                    # which joins a background thread with a 1s timeout).
-                    # Running it inside the config-mutation lock (held by
-                    # apply_config) blocks all concurrent set_config IPC
-                    # calls for that duration. Move the call to a daemon
-                    # thread so the lock is released immediately; the
-                    # boolean update is a single attribute assignment so
-                    # the race window is negligible (microseconds).
-                    import threading as _threading
-
-                    _threading.Thread(
-                        target=ducker.set_smart_duck_enabled,
-                        args=(new_enabled,),
-                        name="smart-duck-toggle",
-                        daemon=True,
-                    ).start()
-            except Exception as e:
-                log.warning("Failed to update smart duck: %s", e)
-                # PI-21: surface the smart duck update failure to the
-                # user via a tray notification.
-                _notify_side_effect_failure(app, "volume_duck_smart", e)
+        # FR-21: the ``volume_duck_smart`` side-effect branch (an
+        # ``if <field> in updates:`` block that lived here at lines
+        # 518-545 in the pre-fix source) was DEAD CODE — the
+        # ``volume_duck_smart`` field was removed from the Config
+        # dataclass (UX-2/GT-58) and from ``IPC_CONFIG_ALLOWLIST``,
+        # so the condition could never be True via the IPC path. The
+        # branch survived the field removal because the deletion was
+        # missed. We delete it outright (rather than leaving a comment
+        # + dead body) so code review reflects reality: smart duck is
+        # ALWAYS ON when ``volume_duck_enabled`` is True, and the only
+        # user-tunable volume-ducking controls are ``volume_duck_enabled``
+        # / ``volume_duck_level`` / ``volume_duck_fade_ms`` /
+        # ``volume_duck_smart_poll_interval_ms``. If
+        # ``volume_duck_smart`` is ever re-added to the dataclass AND
+        # the allowlist, the side-effect branch must be re-added here
+        # alongside them — the three changes go together.
 
         # BUGFIX: volume_duck_smart_poll_interval_ms changes not applied until restart.
         if "volume_duck_smart_poll_interval_ms" in updates:

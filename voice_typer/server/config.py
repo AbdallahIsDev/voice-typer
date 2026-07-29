@@ -38,6 +38,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.config_internals.migrations import (  # noqa: F401 — backward-compat re-export
     _CURRENT_SCHEMA_VERSION,
     _MIGRATIONS,
@@ -87,6 +88,36 @@ from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compa
 # this constant instead of repeating the literal.
 DEFAULT_CLIPBOARD_RESTORE_DELAY_MS: int = 150
 
+# DR-33: canonical default hotkey. Previously the literal ``"<caps_lock>"``
+# was duplicated in `_default_hotkey_for_platform`, `hotkey_dispatcher.register`,
+# `onboarding.OnboardingController.selected_hotkey` (3 sites), and the TS
+# renderer's `HOTKEY_DEFAULT`. Centralising it here means the parity test
+# ``tests/test_default_hotkey_sync.py`` can assert the TS side uses the
+# same value by extracting it via regex from
+# ``client/src/renderer/src/pages/onboarding/lib/constants.ts``.
+DEFAULT_HOTKEY: str = "<caps_lock>"
+
+# DR-37: canonical bounds + default for ``max_recording_time_seconds``.
+# Defined in ``config_validators.py`` (the import-safe leaf module) and
+# re-imported below so this module + the IPC validator share a single
+# source of truth. Previously:
+#   - The IPC validator in ``config_validators.py`` accepted ``lo=30`` (a
+#     typo from XZ-14-09 that lowered the bound from 300 without also
+#     updating the post-load clamp in ``_coerce_max_recording_time``).
+#   - ``_coerce_max_recording_time`` reset out-of-range / invalid values
+#     to the literal ``900`` in 3 places.
+#   - The TS fixture ``fixtures.ts`` also hardcoded ``900``.
+# Centralising the values here means a parity test can pin the TS fixture
+# to the same default, and the validator + clamp now read from the same
+# source (closing the split-brain bug where a user could set 30 seconds
+# via IPC but the clamp would silently bump it back to 300 on the next
+# ``Config.load()``).
+from voice_typer.server.config_validators import (  # noqa: E402
+    MAX_RECORDING_TIME_SECONDS_DEFAULT,
+    MAX_RECORDING_TIME_SECONDS_MAX,
+    MAX_RECORDING_TIME_SECONDS_MIN,
+)
+
 log = logging.getLogger("voice_typer.server.config")
 
 
@@ -113,7 +144,7 @@ def _default_hotkey_for_platform() -> str:
       used as a default — the function keys are not universally
       present on laptop keyboards without an Fn combo).
     """
-    return "<caps_lock>"
+    return DEFAULT_HOTKEY
 
 
 # S1-CR-43: enumerates the user-data files / subdirs that live under
@@ -433,7 +464,7 @@ class Config:
     hotkey: str = _default_hotkey_for_platform()
 
     # Recording
-    sample_rate: int = 16000
+    sample_rate: int = WHISPER_SAMPLE_RATE
     microphone: str | None = None  # None = system default
 
     # Transcription
@@ -643,6 +674,15 @@ class Config:
     bubble_mic_button: bool = True
 
     # History database
+    # FR-28: master toggle for whether dictated text is persisted to the
+    # history SQLite DB. When False, dictation_pipeline._store_result
+    # skips the ``add_transcription`` call entirely — nothing is written
+    # to disk for the current session. Defaults True to preserve the
+    # existing "history on" behavior for upgrades; users who dictate
+    # sensitive content (passwords, medical/financial/PII) can toggle
+    # this off via Settings → Privacy → "Disable history" (renderer
+    # wiring owned by P4-A6; pipeline gate owned by P4-A4).
+    history_enabled: bool = True
     history_retention_days: int = 90  # 0 = keep forever
     history_retention_count: int = 0  # 0 = unlimited
     history_max_entries: int = 1000
@@ -733,7 +773,13 @@ class Config:
     # (matches typical "stepped away from keyboard" cadence and keeps
     # cold-reload latency — 2-5 s warm, 5-15 s cold — off the critical
     # path of the next dictation).
-    model_idle_unload_minutes: int = 0
+    # DJ-44: default bumped from 0 (disabled) to 30 minutes. The TY-11
+    # idle-unload path arms a threading.Timer that calls
+    # release_gpu_memory() after the configured idle period. On laptops
+    # this frees GPU/CPU memory during long no-dictation periods (the
+    # common case for a tray app). Users who need always-loaded behavior
+    # (e.g. always-on desktop) can set this back to 0.
+    model_idle_unload_minutes: int = 30
 
     # AUDIO-013: VAD configuration for the recording callback.
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
@@ -1102,16 +1148,37 @@ class Config:
         if self._last_saved_bytes != content_bytes and config_file.exists():
             # G4-H-09: best-effort backup before overwrite.
             try:
-                existing_bytes = config_file.read_bytes()
+                # FR-24: read the existing config.json via
+                # ``_secure_read_text`` (O_NOFOLLOW + inode re-verify)
+                # instead of ``config_file.read_bytes()`` which calls
+                # ``open()`` internally and FOLLOWS SYMLINKS. A local
+                # attacker who replaces config.json with a symlink to
+                # ~/.bashrc between saves would otherwise get ~/.bashrc
+                # content copied into config.json.bak (info disclosure
+                # via the .bak). The subsequent ``_secure_atomic_write``
+                # uses ``os.replace`` which replaces the SYMLINK itself
+                # (safe), so the actual config.json write is fine — but
+                # the .bak was already poisoned. This mirrors the
+                # XZ-R10-02 fix prescribed for the .bak WRITE.
+                existing_text = _secure_read_text(config_file)
+                existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
                     bak_path = path / "config.json.bak"
-                    bak_path.write_bytes(existing_bytes)
+                    # FR-24 (cont.): also route the .bak WRITE through
+                    # ``_secure_atomic_write`` so the destination path
+                    # is created with O_NOFOLLOW (no symlink-following
+                    # on the destination either) + fsync + 0o600 perms.
+                    _secure_atomic_write(bak_path, existing_text)
                     if not is_windows():
                         try:
                             os.chmod(bak_path, 0o600)
                         except OSError as e:
                             log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
-            except OSError as e:
+            except (OSError, ValueError) as e:
+                # OSError covers filesystem errors; ValueError covers
+                # the SEC-002 inode-changed-during-read guard (symlink
+                # TOCTOU detection). Both are best-effort failures —
+                # the actual config.json write (below) still proceeds.
                 log.debug(
                     "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
                     e,
@@ -1280,11 +1347,58 @@ class Config:
                             "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
                             migrated_count,
                         )
-                # Always set the flag in-memory so the constructed
-                # Config (and the next save()) carries it forward,
-                # even if migration was a no-op (already migrated
-                # or no keys to migrate).
-                data["secrets_migrated"] = True
+                    # FR-1: re-read the on-disk ``secrets_migrated`` flag
+                    # AFTER ``migrate_secrets_to_keyring`` returns so we
+                    # pick up the XZ-SEC-04 deferral state. The migrate
+                    # function modifies ``config.json`` on disk but does
+                    # NOT touch the in-memory ``data`` dict — so the
+                    # in-memory dict is stale w.r.t. the on-disk flag.
+                    # If keyring was unavailable AND real plaintext was
+                    # skipped, the on-disk flag stays UNSET (only the
+                    # diagnostic ``secrets_migrated_keyring_was_unavailable``
+                    # is written). We MUST NOT clobber this — otherwise
+                    # the next ``Config.save()`` (which uses
+                    # ``asdict(self)``) persists ``secrets_migrated=True``
+                    # to disk, the next launch sees True and skips
+                    # migration entirely, and the plaintext API key
+                    # stays in config.json forever — defeating the RW-01
+                    # encryption-at-rest goal. Re-reading the on-disk
+                    # state is the authoritative way to know whether
+                    # migration actually completed (option (b) of the
+                    # FR-1 fix prescription).
+                    try:
+                        on_disk_text = _secure_read_text(config_file)
+                        on_disk_data = json.loads(on_disk_text)
+                        if isinstance(on_disk_data, dict):
+                            data["secrets_migrated"] = bool(
+                                on_disk_data.get("secrets_migrated", False)
+                            )
+                        else:
+                            # Corrupt or non-dict on-disk JSON —
+                            # conservatively set True so the next launch
+                            # doesn't keep retrying migrate (the migrate
+                            # function already handled the corrupt case
+                            # and returned 0).
+                            data["secrets_migrated"] = True
+                    except (OSError, json.JSONDecodeError, TypeError, ValueError) as re_err:
+                        # Best-effort: if re-reading fails (concurrent
+                        # writer, race, etc.), fall back to True. The
+                        # migrate function itself succeeded in writing
+                        # whatever state it intended; the in-memory dict
+                        # already has the plaintext values for
+                        # cloud_engines / llm_polish to use.
+                        log.debug(
+                            "[CONFIG] RW-01: could not re-read on-disk "
+                            "secrets_migrated flag after migrate (%s) — "
+                            "defaulting in-memory flag to True",
+                            type(re_err).__name__,
+                        )
+                        data["secrets_migrated"] = True
+                else:
+                    # Already migrated in a prior session — preserve
+                    # the in-memory flag (which came from the on-disk
+                    # config.json we just read).
+                    data["secrets_migrated"] = True
 
                 # Resolve keyring:// references to real values.
                 for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
@@ -1583,10 +1697,20 @@ class Config:
         if not isinstance(loaded_version, int):
             return
         versioned_bak = config_file.parent / f"config.json.v{loaded_version}.bak"
+        # FR-23: use the secure read/write helpers (O_NOFOLLOW + atomic
+        # os.replace + fsync + 0o600) instead of ``shutil.copy2``.
+        # ``shutil.copy2`` is (a) non-atomic (file-by-file copy — an
+        # interrupted copy leaves a partial .bak that gives a false
+        # sense of recoverability), (b) follows symlinks on both SOURCE
+        # and DEST (a local attacker who replaces config.json with a
+        # symlink to ~/.bashrc between the user's downgrade-launch and
+        # the copy2 call gets ~/.bashrc content copied into the .bak —
+        # info disclosure via the .bak file), (c) no fsync (the .bak
+        # may not be durable across power loss). Mirrors the XZ-R10-03
+        # fix prescribed for ``_backup_before_migration``.
         try:
-            import shutil
-
-            shutil.copy2(config_file, versioned_bak)
+            raw_text = _secure_read_text(config_file)
+            _secure_atomic_write(versioned_bak, raw_text)
             log.warning(
                 "[CONFIG] downgraded build loaded newer config schema_version=%d "
                 "(supported=%d); backed up original to %s before any save can overwrite",
@@ -1601,7 +1725,12 @@ class Config:
                 f"{versioned_bak.name} before any save can overwrite it — restore this "
                 f"file manually after upgrading to a newer build."
             )
-        except OSError as e:
+        except (OSError, ValueError) as e:
+            # OSError covers filesystem errors (read-only fs, out of
+            # disk, permission denied); ValueError covers the
+            # SEC-002 inode-changed-during-read guard (symlink TOCTOU
+            # detection). Both are best-effort failures — the load
+            # itself is NOT aborted.
             log.warning(
                 "[CONFIG] failed to back up newer-version config to %s before downgrade save: %s",
                 versioned_bak,
@@ -1720,22 +1849,31 @@ class Config:
         files that had ``0 = auto-select`` (which is now invalid).
         VALID-1 (MED-K): also wraps the ``int()`` coercion so a
         non-numeric value resets only this field, not the whole config.
+
+        DR-37: the bounds + default are now sourced from the module-level
+        constants ``MAX_RECORDING_TIME_SECONDS_MIN`` / ``_MAX`` /
+        ``_DEFAULT`` so the IPC validator (``config_validators.py``) and
+        this clamp share a single source of truth.
         """
         try:
-            max_rec = int(data.get("max_recording_time_seconds", 900))
+            max_rec = int(data.get("max_recording_time_seconds", MAX_RECORDING_TIME_SECONDS_DEFAULT))
         except (TypeError, ValueError):
             log.warning(
-                "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default 900",
+                "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default %d",
                 data.get("max_recording_time_seconds"),
+                MAX_RECORDING_TIME_SECONDS_DEFAULT,
             )
-            max_rec = 900
-            data["max_recording_time_seconds"] = 900
-        if max_rec < 300 or max_rec > 3600:
+            max_rec = MAX_RECORDING_TIME_SECONDS_DEFAULT
+            data["max_recording_time_seconds"] = MAX_RECORDING_TIME_SECONDS_DEFAULT
+        if max_rec < MAX_RECORDING_TIME_SECONDS_MIN or max_rec > MAX_RECORDING_TIME_SECONDS_MAX:
             log.warning(
-                "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], resetting to 900",
+                "[CONFIG] max_recording_time_seconds=%d outside valid range [%d, %d], resetting to %d",
                 max_rec,
+                MAX_RECORDING_TIME_SECONDS_MIN,
+                MAX_RECORDING_TIME_SECONDS_MAX,
+                MAX_RECORDING_TIME_SECONDS_DEFAULT,
             )
-            data["max_recording_time_seconds"] = 900
+            data["max_recording_time_seconds"] = MAX_RECORDING_TIME_SECONDS_DEFAULT
 
     @classmethod
     def _validate_model_path(cls, data: dict[str, Any]) -> None:

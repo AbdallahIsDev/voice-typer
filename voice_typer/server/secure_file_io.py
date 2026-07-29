@@ -72,13 +72,36 @@ def _secure_atomic_write(
     not be durable on disk), but saves ~2ms per write on SSDs and
     ~10-50ms on spinning rust — significant for high-frequency
     non-critical writes.
+
+    FR-50: the inner ``with os.fdopen(fd, ...)`` was previously
+    wrapped in a try/except that called ``os.close(fd)`` on any
+    exception.  But the with-block's ``__exit__`` ALREADY closes
+    the fd, so the except's ``os.close(fd)`` was a DOUBLE-CLOSE.
+    On a quiet fd-table this only emits EBADF (suppressed by
+    ``contextlib.suppress(OSError)``); but under concurrent load
+    the closed fd number can be REUSED by another thread's
+    ``os.open``/``socket``/etc., and the second ``os.close(fd)``
+    would close that unrelated fd — silent corruption of an
+    unrelated resource.  The fix uses an ``owned_fd`` sentinel
+    (set to ``-1`` immediately after ``os.fdopen`` succeeds) so the
+    except path only closes the fd if ``os.fdopen`` itself failed
+    (i.e. the fd is still owned by this function, not by ``f``).
     """
     from pathlib import Path
 
     target = Path(path)
     parent = target.parent
     tmp_path = None
-    tmp_fd = None
+    # FR-50: ``owned_fd`` tracks ownership of the raw fd.  ``-1`` is the
+    # sentinel meaning "fd is now owned by the file object ``f`` (or
+    # already closed); do NOT call ``os.close`` on it again".  Without
+    # this sentinel, a write/flush/fsync failure inside the with-block
+    # would trigger a double-close: with-block ``__exit__`` closes the
+    # fd, then the except path's ``os.close(fd)`` closes it AGAIN.  On a
+    # quiet fd-table that's a benign EBADF (suppressed); under concurrent
+    # load the fd number may have been reused by another ``os.open`` and
+    # the second close silently corrupts an unrelated resource.
+    owned_fd = -1
     try:
         # use a UNIQUE tmp name per call.  mkstemp returns
         # an open fd (with O_EXCL semantics) so we never collide with
@@ -88,22 +111,27 @@ def _secure_atomic_write(
             prefix=target.name + ".",
             suffix=".tmp",
         )
-        tmp_fd = fd
+        owned_fd = fd
         tmp_path = Path(tmp_name)
 
+        # FR-50: manual try/finally (not a with-block) so we can flip
+        # ``owned_fd`` to ``-1`` AFTER ``os.fdopen`` succeeds — proving
+        # to the outer except that the fd is now owned by ``f`` and
+        # must not be closed again.  Using a with-block here would
+        # reintroduce the double-close: the with-block's ``__exit__``
+        # closes the fd on any exception, but we can't set ``owned_fd
+        # = -1`` between ``os.fdopen(fd)`` and the body of the
+        # with-block.
+        f = os.fdopen(fd, "w", encoding="utf-8")
+        owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(content)
-                f.flush()
-                # ER-80: skip fsync of the file data when durability=False.
-                if durability:
-                    os.fsync(f.fileno())
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
-            tmp_fd = None
-            raise
-        tmp_fd = None  # the with-block closed the fd
+            f.write(content)
+            f.flush()
+            # ER-80: skip fsync of the file data when durability=False.
+            if durability:
+                os.fsync(f.fileno())
+        finally:
+            f.close()
 
         # os.replace is atomic and does NOT follow symlinks on the target.
         os.replace(str(tmp_path), str(target))
@@ -127,41 +155,126 @@ def _secure_atomic_write(
                     e,
                 )
     except Exception:
-        if tmp_fd is not None:
+        if owned_fd != -1:
             with contextlib.suppress(OSError):
-                os.close(tmp_fd)
+                os.close(owned_fd)
         if tmp_path is not None:
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
         raise
 
 
-def _secure_read_text(path: os.PathLike, *, encoding: str = "utf-8") -> str:
+# FR-53: default upper bound on a single ``_secure_read_text`` call.
+# 16 MiB is well above any legitimate config / vocabulary / templates /
+# credential-store / crash-recovery file size (those are all < 1 MB in
+# practice) but prevents a maliciously planted multi-GB file from
+# exhausting RAM.  Callers reading genuinely large files should pass an
+# explicit ``max_bytes`` (e.g. ``max_bytes=64 * 1024 * 1024`` for a 64
+# MiB cap).
+_DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024
+
+
+def _read_with_byte_limit(f, max_bytes: int | None) -> str:
+    """FR-53: bounded read helper used by :func:`_secure_read_text`.
+
+    Reads text from ``f`` in 64 KiB chunks.  After each chunk, encodes
+    the chunk to UTF-8 to count its byte length (text-mode ``len()``
+    counts CHARACTERS, not bytes — for non-ASCII content those differ by
+    up to 4x).  If the running byte total exceeds ``max_bytes``, raises
+    ``ValueError`` immediately (does NOT continue reading the rest of
+    the file).  If ``max_bytes is None``, reads the whole file
+    (unbounded — preserved for backward compat with callers that
+    explicitly opt out of the cap).
+
+    Mirrors the chunked-read pattern from
+    :func:`voice_typer.server.cloud_engines._read_capped` (SEC-030) so
+    the two bounded-read helpers behave consistently.
+    """
+    if max_bytes is None:
+        return f.read()
+    chunks: list[str] = []
+    total_bytes = 0
+    while True:
+        chunk = f.read(64 * 1024)
+        if not chunk:
+            break
+        # Encode to UTF-8 to count BYTES, not characters.  For ASCII
+        # content 1 char == 1 byte, but for non-ASCII (CJK, emoji, etc.)
+        # a single character can be 2-4 bytes.  Counting characters
+        # would under-report the memory footprint by up to 4x.
+        chunk_bytes = len(chunk.encode("utf-8", errors="replace"))
+        total_bytes += chunk_bytes
+        if total_bytes > max_bytes:
+            raise ValueError(
+                f"file exceeds max_bytes={max_bytes} "
+                f"(read {total_bytes} bytes so far, FR-53) — refusing to "
+                f"continue reading to prevent unbounded memory consumption"
+            )
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+def _secure_read_text(
+    path: os.PathLike,
+    *,
+    encoding: str = "utf-8",
+    max_bytes: int | None = _DEFAULT_MAX_READ_BYTES,
+) -> str:
     """SEC-002: Read text from a file securely, refusing to follow symlinks.
 
     On POSIX, opens the file with ``os.O_RDONLY | os.O_NOFOLLOW`` to
     prevent symlink-TOCTOU attacks. On Windows, checks for reparse
     points before reading.
+
+    FR-50: the inner ``os.fdopen`` was previously wrapped in a
+    try/except that called ``os.close(fd)`` on any exception.  But
+    ``f.close()`` in the ``finally`` block ALREADY closes the fd, so
+    the except's ``os.close(fd)`` was a DOUBLE-CLOSE.  On a quiet
+    fd-table this only emits EBADF (suppressed); but under concurrent
+    load the closed fd number can be REUSED by another thread's
+    ``os.open``/``socket``/etc., and the second ``os.close(fd)``
+    would close that unrelated fd.  The fix uses an ``owned_fd``
+    sentinel (set to ``-1`` immediately after ``os.fdopen`` succeeds)
+    so the except path only closes the fd if ``os.fdopen`` itself
+    failed.
+
+    FR-53: ``max_bytes`` (default 16 MiB) caps the total bytes read.
+    A maliciously planted multi-GB file at the config path would
+    otherwise exhaust RAM before the JSON parser saw a single byte.
+    The cap is enforced in 64 KiB chunks via
+    :func:`_read_with_byte_limit` so the read aborts as soon as the
+    cap is exceeded (not after reading the whole file).  Pass
+    ``max_bytes=None`` for the legacy unbounded behaviour (used by
+    tests that intentionally read large fixtures).
     """
     from pathlib import Path
 
     p = Path(path)
     if not is_windows():
+        # FR-50: ``owned_fd`` tracks ownership of the raw fd.  ``-1`` is
+        # the sentinel meaning "fd is now owned by the file object ``f``
+        # (or already closed); do NOT call ``os.close`` on it again".
+        owned_fd = -1
         fd = os.open(str(p), os.O_RDONLY | os.O_NOFOLLOW)
+        owned_fd = fd
         try:
             stat_before = os.fstat(fd)
             f = os.fdopen(fd, "r", encoding=encoding)
+            owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
             try:
-                content = f.read()
-                stat_after = os.fstat(fd)
+                # FR-53: bounded read — aborts with ValueError if the
+                # file exceeds max_bytes before the read completes.
+                content = _read_with_byte_limit(f, max_bytes)
+                stat_after = os.fstat(f.fileno())
                 if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
                     raise ValueError(f"SEC-002: inode changed during read of {p} -- possible TOCTOU attack")
             finally:
                 f.close()
             return content
         except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
+            if owned_fd != -1:
+                with contextlib.suppress(OSError):
+                    os.close(owned_fd)
             raise
     else:
         # XZ-R10-01: split the try so the deliberate reparse-point raise
@@ -174,9 +287,19 @@ def _secure_read_text(path: os.PathLike, *, encoding: str = "utf-8") -> str:
             attrs = 0
         if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
             raise OSError(f"SEC-002: refusing to follow reparse point: {p}")
+        # FR-53: pre-check file size on Windows (no fstat-on-fd pattern
+        # here because we use the high-level ``open()`` rather than
+        # ``os.open``).  This is a fast-path rejection of obviously
+        # oversized files; the chunked read below is the slow-path
+        # safety net for the TOCTOU case where the file grows between
+        # the lstat and the read.
+        if max_bytes is not None and stat_result is not None and stat_result.st_size > max_bytes:
+            raise ValueError(
+                f"file size {stat_result.st_size} exceeds max_bytes={max_bytes} (FR-53)"
+            )
         with open(p, encoding=encoding) as f:
             stat_before = os.fstat(f.fileno())
-            content = f.read()
+            content = _read_with_byte_limit(f, max_bytes)
             stat_after = os.fstat(f.fileno())
             if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
                 raise ValueError(f"SEC-002: inode changed during read of {p} -- possible TOCTOU attack")
@@ -291,6 +414,21 @@ class PersistedJSON:
         rename fails (cross-device, permissions), the failure is logged
         at debug level and swallowed so the caller's load still returns
         the default cleanly.
+
+        FR-51: uses :func:`os.replace` instead of :meth:`Path.rename`.
+        ``os.rename`` is atomic on POSIX but FAILS on Windows if the
+        destination already exists (``OSError`` winerror 183).  Even
+        though the ``while corrupt_path.exists()`` loop above tries to
+        find a non-existing destination, there is a TOCTOU race window
+        between the ``exists()`` check and the rename: another process
+        (or another thread in this process calling ``_quarantine_corrupt``
+        concurrently) can create the destination file in that window,
+        causing the rename to fail on Windows.  ``os.replace`` is
+        atomic AND overwrites an existing destination on BOTH POSIX and
+        Windows, closing the race.  The loop is retained so we don't
+        normally overwrite an existing corrupt-<ts> file (preserving
+        forensic history); ``os.replace`` is the safety net for the
+        race window.
         """
         try:
             if not self._path.exists():
@@ -301,7 +439,11 @@ class PersistedJSON:
             while corrupt_path.exists():
                 counter += 1
                 corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}.{counter}")
-            self._path.rename(corrupt_path)
+            # FR-51: os.replace is atomic AND overwrites the destination
+            # on both POSIX and Windows (Path.rename / os.rename would
+            # fail on Windows if the destination exists, which can happen
+            # in the TOCTOU race between the loop above and the rename).
+            os.replace(str(self._path), str(corrupt_path))
             log.warning(
                 "[PERSISTED_JSON] Quarantined corrupt file: %s -> %s",
                 self._path.name,
@@ -348,6 +490,23 @@ class PersistedJSON:
           module-level ``from voice_typer.server.config import ...``
           would create (``config`` itself imports from
           ``secure_file_io``).
+
+        FR-7: the previous implementation used ``Path.read_bytes()``
+        and ``Path.write_bytes()`` for the ``.bak`` comparison + write.
+        Both follow symlinks — so an attacker who planted symlinks at
+        BOTH ``self._path`` and ``self._bak_path`` got a
+        read-from-arbitrary-file + write-to-arbitrary-file primitive
+        (the previous config — which contains API keys for
+        ``credential_store`` — was read through the ``self._path``
+        symlink and written through the ``self._bak_path`` symlink).
+        The fix refuses to follow symlinks on EITHER path: if either
+        is a symlink, the backup is skipped (the main save still
+        proceeds because ``_secure_atomic_write`` already handles
+        symlinks safely via ``os.replace``).  The existing-file read
+        is routed through :func:`_secure_read_text` (POSIX
+        ``O_NOFOLLOW`` + inode re-verification); the ``.bak`` write
+        is routed through :func:`_secure_atomic_write` (atomic
+        ``os.replace`` does not follow the destination symlink).
         """
         # Lazy import so monkeypatches on
         # ``voice_typer.server.config._secure_atomic_write`` are
@@ -359,12 +518,55 @@ class PersistedJSON:
         content = json.dumps(data, indent=2, ensure_ascii=False)
         content_bytes = content.encode("utf-8")
 
-        # Best-effort single-slot .bak before overwrite.
-        if self._path.exists():
+        # FR-7: Best-effort single-slot .bak before overwrite.
+        #
+        # SECURITY: refuse to follow symlinks on EITHER path.  If
+        # ``self._path`` is a symlink, ``Path.read_bytes()`` (used
+        # pre-fix) would read the SYMLINK TARGET's bytes — exfiltrating
+        # an arbitrary file's content into the ``.bak``.  If
+        # ``self._bak_path`` is a symlink, ``Path.write_bytes()``
+        # (used pre-fix) would write THROUGH the symlink to its target
+        # — overwriting an attacker-chosen file with the exfiltrated
+        # bytes.  Together: read-from-arbitrary-file + write-to-
+        # arbitrary-file primitive (XZ-R10-02 finding that the CR-28
+        # split moved into this shared helper WITHOUT fixing).
+        #
+        # The fix:
+        #   - Explicitly check ``is_symlink()`` on both paths and
+        #     SKIP the backup entirely if either is a symlink (the
+        #     main save via ``_secure_atomic_write`` is unaffected —
+        #     it uses ``os.replace`` which does NOT follow the
+        #     destination symlink, it replaces it).
+        #   - Use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` +
+        #     inode re-verification) for the existing-file read.
+        #     Defense-in-depth: even without the explicit
+        #     ``is_symlink()`` check, ``O_NOFOLLOW`` would raise
+        #     ``OSError`` on a symlink.  The explicit check is for
+        #     Windows (where ``O_NOFOLLOW`` is not supported) and
+        #     for clarity.
+        #   - Use ``_secure_atomic_write`` for the ``.bak`` write.
+        #     Its ``os.replace`` semantics ensure we never write
+        #     THROUGH a symlink at ``self._bak_path``; we replace
+        #     the symlink itself with a fresh regular file.
+        if (
+            self._path.exists()
+            and not self._path.is_symlink()
+            and not self._bak_path.is_symlink()
+        ):
             try:
-                existing_bytes = self._path.read_bytes()
+                # Read via _secure_read_text (O_NOFOLLOW on POSIX,
+                # reparse-point check on Windows).  If the existing
+                # file is somehow not valid UTF-8 (e.g. corrupt or
+                # hand-edited with a different encoding), this raises
+                # OSError/UnicodeDecodeError — caught by the
+                # ``except OSError`` below, and the backup is skipped
+                # (acceptable: the .bak is best-effort, and a non-UTF-8
+                # file is by definition already corrupt — backing it
+                # up via the JSON-aware save path would not help).
+                existing_text = _secure_read_text(self._path, encoding="utf-8")
+                existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
-                    self._bak_path.write_bytes(existing_bytes)
+                    _secure_atomic_write(self._bak_path, existing_text)
                     _chmod_owner_only(self._bak_path)
             except OSError as e:
                 log.debug(
@@ -373,6 +575,19 @@ class PersistedJSON:
                     self._bak_path,
                     e,
                 )
+        elif self._path.is_symlink() or self._bak_path.is_symlink():
+            # FR-7: explicit log so a symlink-planting attack is
+            # visible in the logs (defense-in-depth visibility — the
+            # backup is silently skipped, but the operator can grep
+            # for this message to detect the attack).
+            log.warning(
+                "[PERSISTED_JSON] Refusing to back up %s to %s — one of "
+                "the paths is a symlink (FR-7 symlink-following defense). "
+                "The main save will still proceed (os.replace replaces "
+                "the symlink with a fresh regular file).",
+                self._path,
+                self._bak_path,
+            )
 
         _secure_atomic_write(self._path, content)
         _chmod_owner_only(self._path)

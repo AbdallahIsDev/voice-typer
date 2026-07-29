@@ -8,6 +8,21 @@ Extracted from ``voice_typer/server/app.py`` (REF-3). Re-exported from
 SEC-audit-011: this module calls ``_validate_systemroot`` from
 :mod:`voice_typer.server.config` to reject attacker-controlled SystemRoot
 values that could enable DLL injection.
+
+FR-18 (P4-A1): this module ALSO strips well-known cloud-provider API
+keys / model-download tokens (``HF_TOKEN``, ``HUGGING_FACE_HUB_TOKEN``,
+``OPENAI_API_KEY``, ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``,
+``DEEPGRAM_API_KEY``, ``GROQ_API_KEY``) from ``os.environ`` at startup.
+The Tauri production path strips these via ``env_clear()`` in
+``src-tauri/src/sidecar/spawn.rs``; the Electron launcher strips them
+from the Electron FRONTEND child but NOT from the Python sidecar
+process itself. Standalone mode (``python -m voice_typer.server``)
+inherits the parent shell env verbatim — so a developer with
+``HF_TOKEN`` exported in their shell would have huggingface_hub
+silently attach their personal HF token to model-download requests
+(``asr_setup.py:417`` calls ``snapshot_download()`` WITHOUT
+``token=``). This validator closes that gap for the
+Electron-sidecar / standalone paths.
 """
 
 import logging
@@ -15,6 +30,34 @@ import os
 import re
 
 log = logging.getLogger(__name__)
+
+
+# FR-18 (P4-A1): env-var names that are ALWAYS stripped from
+# ``os.environ`` by ``_validate_env_vars`` at startup. These are the
+# well-known cloud-provider API keys / model-download tokens that the
+# Python server NEVER reads from env (cloud keys come from the
+# keyring via ``credential_store``; the HF token is never used by
+# Voice Typer itself).
+#
+# This list MUST stay in sync with ``electron_launcher._SENSITIVE_ENV_NAMES``.
+# The duplication is deliberate (env_validation is a low-level startup
+# module; importing electron_launcher would pull in ``_electron_build``
+# and ``platform_utils`` at startup time, which is intentionally
+# avoided — see ``shutdown_controller.py:917`` and
+# ``ipc_server.py:2039`` which both lazy-import electron_launcher for
+# the same reason). Drift is caught by
+# ``tests/test_env_validation_sensitive_env.py::TestSensitiveEnvNamesDriftDetection``.
+_SENSITIVE_ENV_NAMES = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "DEEPGRAM_API_KEY",
+        "GROQ_API_KEY",
+    }
+)
 
 
 def _validate_env_vars() -> None:
@@ -185,6 +228,33 @@ def _validate_env_vars() -> None:
             os.environ.pop("HF_ENDPOINT", None)
         else:
             _validate_hf_endpoint(hf_endpoint)
+
+    # FR-18 (P4-A1): strip well-known cloud-provider API keys / model
+    # download tokens from ``os.environ``. The Tauri production path
+    # already strips these via ``env_clear()`` in
+    # ``src-tauri/src/sidecar/spawn.rs``; the Electron launcher
+    # (``electron_launcher._strip_sensitive_env``) strips them from the
+    # Electron FRONTEND child only — NOT from the Python sidecar
+    # process itself. Standalone mode (``python -m voice_typer.server``)
+    # inherits the parent shell env verbatim. Closing this gap prevents
+    # a developer's exported ``HF_TOKEN`` from being silently attached
+    # to ``huggingface_hub.snapshot_download()`` calls in
+    # ``asr_setup.py`` (which calls snapshot_download WITHOUT
+    # ``token=`` so huggingface_hub falls back to ``os.environ``).
+    #
+    # GT-63: log the key NAME only — never the value (these are
+    # secrets). The warning lets an operator diagnose "why is my env
+    # var being ignored?" without leaking the secret to the log.
+    for _sensitive_name in _SENSITIVE_ENV_NAMES:
+        if os.environ.pop(_sensitive_name, None) is not None:
+            log.warning(
+                "[ENV] Sensitive env var %s was set in the parent shell — "
+                "Voice Typer does not read it from env (cloud keys come from "
+                "the keyring; the HF token is never used by Voice Typer "
+                "itself). Discarding to prevent it from leaking into child "
+                "processes (e.g. huggingface_hub model downloads).",
+                _sensitive_name,
+            )
 
     # EC-FIX-10 / EC-24: wire the sidecar-env contract check into the
     # single env-validation entry point so missing sidecar env vars are

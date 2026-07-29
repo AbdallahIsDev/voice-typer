@@ -13,8 +13,10 @@ and any future HTTP client without coupling.
 from __future__ import annotations
 
 import inspect
+import ipaddress
 import logging
 import re
+import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
@@ -506,6 +508,96 @@ def get_url_allowlist() -> frozenset[str]:
     return _DEFAULT_ALLOWED_HOSTS | _user_extensions
 
 
+# ── FR-25: SSRF defense — IP-literal blocklist + best-effort DNS rebinding check ──
+#
+# The hostname allowlist above only checks the textual hostname.  If a
+# trusted hostname (e.g. ``api.openai.com``) is made to resolve to a
+# private/reserved IP — via ``/etc/hosts`` tampering, compromised DNS,
+# DNS rebinding, or a malicious local DNS resolver — the request is sent
+# to the private IP, exfiltrating the API key (in the Authorization
+# header) and the request body to the cloud metadata endpoint
+# (169.254.169.254) or any internal service.
+#
+# The two helpers below close that gap:
+#
+#   * ``_is_ip_literal(host)`` — True if the host string is already an
+#     IP literal (e.g. ``"10.0.0.1"``, ``"::1"``).  Used to decide
+#     between the IP-literal blocklist path and the DNS-rebinding path.
+#
+#   * ``_is_private_ip(ip_str)`` — True if the IP is in a
+#     private/reserved range.  Covers RFC 1918 (10/8, 172.16/12,
+#     192.168/16), link-local (169.254/16, including the cloud metadata
+#     endpoint 169.254.169.254), loopback (127/8, ::1), unspecified
+#     (0.0.0.0, ::), IPv6 ULA (fc00::/7), IPv6 link-local (fe80::/10),
+#     and the various ``ipaddress`` ``is_reserved`` ranges.
+
+
+def _is_ip_literal(host: str) -> bool:
+    """Return True if ``host`` is an IP literal (IPv4 or IPv6).
+
+    FR-25: used by :func:`assert_url_allowed` to decide between the
+    IP-literal blocklist path (host is already an IP) and the DNS-
+    rebinding path (host is a hostname that needs resolution).
+
+    ``urlparse().hostname`` strips brackets from IPv6 literals (e.g.
+    ``"[::1]"`` → ``"::1"``), so the caller passes the bracket-stripped
+    form.  ``ipaddress.ip_address`` accepts both bare IPv4 (``"1.2.3.4"``)
+    and bare IPv6 (``"::1"``, ``"fe80::1"``); it rejects hostnames,
+    empty strings, and malformed IPs with ``ValueError``.
+    """
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """Return True if ``ip_str`` is a private/reserved IP address.
+
+    FR-25: SSRF defense — rejects IP literals in private/reserved ranges
+    so an attacker cannot use a private-IP endpoint (planted in
+    ``/etc/hosts`` or via :func:`extend_url_allowlist`) to receive cloud
+    API keys.  Covers:
+
+    * RFC 1918 private: ``10/8``, ``172.16/12``, ``192.168/16``
+      (via ``ip.is_private``).
+    * Link-local: ``169.254/16`` (including the cloud metadata endpoint
+      ``169.254.169.254``) and IPv6 ``fe80::/10`` (via
+      ``ip.is_link_local``).
+    * Loopback: ``127/8`` and ``::1`` (via ``ip.is_loopback``).
+    * Unspecified: ``0.0.0.0`` and ``::`` (via ``ip.is_unspecified``).
+    * IPv6 unique-local: ``fc00::/7`` (covered by ``ip.is_private``).
+    * Reserved ranges: ``240/4``, ``255.255.255.255`` broadcast, etc.
+      (via ``ip.is_reserved``).
+
+    Returns ``False`` for non-IP strings (callers should check
+    :func:`_is_ip_literal` first to distinguish "not an IP" from
+    "public IP").  Returns ``True`` for any IP that would let an
+    attacker reach an internal service or the cloud metadata endpoint.
+    """
+    if not ip_str:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False  # not an IP literal — caller should resolve first
+    # ``is_private`` for IPv4 includes RFC 1918 + 127/8 + 169.254/16 +
+    # a few others (per CPython source).  We OR the other checks for
+    # defense-in-depth and to cover IPv6 cases that ``is_private`` may
+    # not catch (e.g. ``is_link_local`` is the canonical check for
+    # ``fe80::/10``).
+    return bool(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_unspecified
+        or ip.is_reserved
+    )
+
+
 def is_url_allowed(url: str) -> bool:
     """Return True if the URL's host is in the allowlist.
 
@@ -532,6 +624,7 @@ def assert_url_allowed(
     client_name: str = "client",
     require_https: bool = True,
     allow_loopback_http: bool = False,
+    check_dns_rebinding: bool = True,
 ) -> None:
     """Raise ``ValueError`` if ``url`` is not in the allowlist.
 
@@ -567,6 +660,20 @@ def assert_url_allowed(
         the caller's actual data flow never needed cleartext
         transmission. The opt-in kwarg makes the security posture
         explicit at every call site.
+    check_dns_rebinding : bool
+        FR-25: when True (default), after the allowlist + HTTPS checks
+        pass, perform an SSRF defense check.  For IP-literal hosts the
+        check is a blocklist lookup via :func:`_is_private_ip` (always
+        run).  For hostname hosts, the check resolves the hostname via
+        :func:`socket.getaddrinfo` and rejects if ANY resolved IP is
+        private/reserved (catches DNS rebinding, ``/etc/hosts``
+        tampering, and compromised-DNS attacks).  The DNS resolution
+        is best-effort: a ``socket.gaierror`` (no DNS, offline,
+        sandboxed test env) is silently swallowed and the URL is
+        allowed — the actual HTTP layer will surface the DNS error in
+        the normal way.  Callers that run in a no-network test
+        environment can set this to False to skip the resolution
+        entirely (the IP-literal blocklist still runs).
 
     Raises
     ------
@@ -621,3 +728,71 @@ def assert_url_allowed(
             f"for local development). Cleartext transmission of API keys "
             f"and transcribed text over the public internet is not permitted."
         )
+
+    # FR-25: SSRF defense — after the allowlist + HTTPS checks pass,
+    # verify the host is not a private/reserved IP literal (and
+    # best-effort, that a hostname doesn't resolve to a private IP).
+    #
+    # Loopback IPs (127.0.0.1, ::1) are EXEMPTED because they're
+    # explicitly allowlisted for local development — the user has
+    # already opted in to sending data to localhost.  All other
+    # private/reserved IP literals (10/8, 172.16/12, 192.168/16,
+    # 169.254/16 including the cloud metadata endpoint, fc00::/7,
+    # fe80::/10, 0.0.0.0, ::, etc.) are REJECTED even if the user
+    # explicitly added them to the allowlist — defense-in-depth
+    # against an attacker who tricks the user into calling
+    # ``extend_url_allowlist(["10.0.0.5"])`` and then sets
+    # ``cloud_api_url = "https://10.0.0.5/"`` to exfiltrate the API
+    # key to an internal service.
+    #
+    # For hostnames (e.g. ``api.openai.com``), the check resolves via
+    # ``socket.getaddrinfo`` and rejects if ANY resolved IP is
+    # private/reserved.  This catches DNS rebinding (attacker's DNS
+    # returns a public IP for the first resolution, then a private IP
+    # for the actual connection — TOCTOU on DNS) and ``/etc/hosts``
+    # tampering.  Best-effort: ``gaierror`` is swallowed (offline test
+    # environments) and the URL is allowed.
+    if is_loopback:
+        # Loopback IPs (127.0.0.1, ::1) are explicitly allowlisted for
+        # local development — skip the SSRF check (the user has opted
+        # in to sending data to localhost).
+        return
+    if _is_ip_literal(host):
+        # IP-literal blocklist (the minimum FR-25 fix).  Even if the
+        # user explicitly added a private IP to the allowlist, refuse
+        # to send cloud API keys to internal endpoints.
+        if _is_private_ip(host):
+            raise ValueError(
+                f"{client_name}: {field_name} host {host!r} is a "
+                f"private/reserved IP literal — refusing to prevent "
+                f"SSRF (FR-25). Even if explicitly allowlisted, "
+                f"private/reserved IP literals are rejected to "
+                f"prevent exfiltration of API keys to internal "
+                f"endpoints (e.g. cloud metadata 169.254.169.254)."
+            )
+    elif check_dns_rebinding:
+        # Best-effort post-resolution check (catches DNS rebinding,
+        # /etc/hosts tampering, compromised DNS).  Resolve via
+        # getaddrinfo; if any resolved IP is private/reserved, reject.
+        # Failure to resolve is NON-FATAL (gaierror swallowed) — the
+        # HTTP layer will surface the DNS error in the normal way.
+        # This means a no-network test environment won't reject
+        # allowlisted hostnames (the IP-literal blocklist above still
+        # runs for IP literals).
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except (socket.gaierror, OSError):
+            infos = []
+        for _family, _type, _proto, _canonname, sockaddr in infos:
+            # sockaddr[0] is the IP address string for both AF_INET
+            # (host, port) and AF_INET6 (host, port, flowinfo, scopeid).
+            ip = sockaddr[0]
+            if _is_private_ip(ip):
+                raise ValueError(
+                    f"{client_name}: {field_name} host {host!r} resolves "
+                    f"to private/reserved IP {ip!r} — refusing to "
+                    f"prevent SSRF (FR-25, DNS rebinding defense). If "
+                    f"this is a legitimate local endpoint, use the IP "
+                    f"literal directly (e.g. http://127.0.0.1:port) "
+                    f"which is allowlisted for local development."
+                )

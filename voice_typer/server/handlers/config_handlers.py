@@ -117,7 +117,30 @@ class ConfigHandlersMixin(HandlerBase):
                 # the renderer can branch on the code rather than
                 # pattern-matching the message text.
                 log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
-                return _error_response(resp, errors[0], code="invalid_field")
+                # FR-22: ``validate_config_update`` was changed (CR-25)
+                # to accumulate ALL field errors instead of stopping at
+                # the first. The handler previously threw away the
+                # extra context — only ``errors[0]`` was returned in
+                # the envelope, so the user had to fix-and-resubmit N
+                # times to see all N errors (bad UX for batched
+                # Settings flushes). We now include the FULL ``errors``
+                # list in the envelope under ``data.errors`` so a new
+                # renderer can surface them all at once. ``data.message``
+                # is kept as ``errors[0]`` for backward compat with
+                # older renderers that read only ``err.message`` (and
+                # for the toast dispatcher, which truncates long
+                # messages). We construct the envelope inline (rather
+                # than calling ``_error_response``) because that helper
+                # doesn't accept an extra-data dict — touching it
+                # would require modifying ``ipc/validation.py``, which
+                # is owned by a different agent (P4-A9).
+                resp["type"] = "error"
+                resp["data"] = {
+                    "code": "invalid_field",
+                    "message": errors[0],
+                    "errors": list(errors),
+                }
+                return resp
             # NEW-IPC-015: echo accepted + rejected keys so the
             # renderer can show the user which fields were applied
             # and which were silently dropped (unknown keys).
@@ -332,9 +355,12 @@ class ConfigHandlersMixin(HandlerBase):
                 )
             ):
                 try:
-                    on_config = getattr(self.app, "_waveform_bubble", None)
-                    if on_config is not None and on_config.on_config is not None:
-                        on_config.on_config(self.app.config)
+                    # DR-51 (S5-CR-26): delegate to the public
+                    # ``app.push_bubble_config`` method on
+                    # :class:`AppProtocol` instead of the prior
+                    # ``getattr(self.app, "_waveform_bubble", None)``
+                    # private-attribute access.
+                    self.app.push_bubble_config(self.app.config)
                 except Exception:
                     log.debug("[IPC] bubble_config push failed", exc_info=True)
 

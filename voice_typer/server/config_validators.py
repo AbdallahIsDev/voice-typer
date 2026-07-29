@@ -33,6 +33,19 @@ from urllib.parse import urlparse
 log = logging.getLogger("voice_typer.server.config_validators")
 
 
+# DR-37: canonical bounds + default for ``max_recording_time_seconds``.
+# Defined here (the import-safe leaf module) so ``config.py`` can import
+# them without participating in a circular import. Both the IPC validator
+# below and ``Config._coerce_max_recording_time`` read from these
+# constants — closing the split-brain bug where the IPC validator's
+# ``lo=30`` disagreed with the post-load clamp's ``lo=300``, causing a
+# user-set 30-second value to be silently bumped to 300 on the next
+# ``Config.load()``.
+MAX_RECORDING_TIME_SECONDS_DEFAULT: int = 900  # 15 minutes
+MAX_RECORDING_TIME_SECONDS_MIN: int = 300      # 5 minutes
+MAX_RECORDING_TIME_SECONDS_MAX: int = 3600     # 60 minutes
+
+
 # CR-38: extended to include the multilingual variants (tiny/small/medium,
 # no .en suffix) that OnboardingController.MODEL_OPTIONS offers to users.
 # Without these, non-English users who pick a multilingual model in
@@ -251,10 +264,28 @@ def _make_enum_validator(allowed: frozenset[str]) -> ValidatorFn:
 
 
 def _make_custom_theme_validator() -> ValidatorFn:
-    """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}."""
+    """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}.
+
+    FR-3: ``None`` is now accepted as a valid value — the renderer's
+    ``useTheme.ts`` sends ``custom_theme: null`` when the user clicks
+    "Clear custom theme / revert to preset". Previously the validator
+    rejected ``None`` with ``"must be a dict, got NoneType"`` and the
+    user's clear action silently failed (server returned
+    ``code: "invalid_field"`` while the local React state still held
+    the cleared theme). The expected_type tuple on the
+    ``IPC_CONFIG_ALLOWLIST["custom_theme"]`` entry is also widened to
+    ``(dict, type(None))`` so the pre-validator type check passes for
+    ``None`` before this validator runs.
+    """
     key_keys = {"--background", "--foreground", "--primary", "--bg-subtle", "--border", "--text-muted"}
 
     def _validate(v: object) -> str | None:
+        # FR-3: ``None`` is the canonical "clear custom theme" value —
+        # accept it without further checks. Config.load() / Config.save()
+        # treat None as "the field is unset / revert to preset" (the
+        # dataclass default for ``custom_theme`` is None).
+        if v is None:
+            return None
         if not isinstance(v, dict):
             # PVT-G5-071 (session-5): include the actual type (mirror
             # line 128's pattern). The value itself could be a long
@@ -1258,6 +1289,13 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "bubble_click_to_toggle": (bool, _bool_validator),
     "bubble_mic_button": (bool, _bool_validator),
     # ── History database ──────────────────────────────────────────────
+    # FR-28: ``history_enabled`` is the master toggle for whether dictated
+    # text is persisted to the history SQLite DB. Defaults True; users
+    # who dictate sensitive content can toggle it off via Settings →
+    # Privacy. The dictation_pipeline gate (owned by P4-A4) reads
+    # ``self._app.config.history_enabled`` to skip the add_transcription
+    # call when False.
+    "history_enabled": (bool, _bool_validator),
     "history_retention_days": (int, _make_int_validator(lo=0, hi=36500)),
     "history_retention_count": (int, _make_int_validator(lo=0, hi=1_000_000)),
     "history_max_entries": (int, _make_int_validator(lo=0, hi=1_000_000)),
@@ -1285,7 +1323,13 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
             )
         ),
     ),
-    "custom_theme": (dict, _make_custom_theme_validator()),
+    # FR-3: ``expected_type`` widened from bare ``dict`` to
+    # ``(dict, type(None))`` so the IPC validator's pre-check accepts
+    # ``None`` (the "clear custom theme" sentinel sent by useTheme.ts
+    # when the user reverts to preset). The validator itself (returned
+    # by ``_make_custom_theme_validator``) short-circuits ``None`` to
+    # success.
+    "custom_theme": ((dict, type(None)), _make_custom_theme_validator()),
     "text_size": (int, _make_int_validator(lo=8, hi=72)),
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
@@ -1294,7 +1338,20 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # minimum was an arbitrary / likely-typo value; 30 seconds still
     # guards against accidentally-zero values while allowing short
     # recordings for testing).
-    "max_recording_time_seconds": (int, _make_int_validator(lo=30, hi=3600)),
+    # DR-37: REVERTED — the IPC validator's ``lo=30`` disagreed with
+    # ``Config._coerce_max_recording_time``'s post-load clamp (``lo=300``),
+    # causing a split-brain bug where a user could set 30 seconds via IPC
+    # but the next ``Config.load()`` silently bumped it back to 300. Both
+    # sides now read from the shared module-level constants
+    # ``MAX_RECORDING_TIME_SECONDS_MIN`` / ``_MAX`` defined in
+    # ``voice_typer.server.config``.
+    "max_recording_time_seconds": (
+        int,
+        _make_int_validator(
+            lo=MAX_RECORDING_TIME_SECONDS_MIN,
+            hi=MAX_RECORDING_TIME_SECONDS_MAX,
+        ),
+    ),
     # GT-58: silence_rms_threshold / silence_peak_threshold REMOVED from
     # the IPC allowlist — they were also removed from the Config dataclass
     # (declared, validated, persisted, never read at runtime per ADR 0007
