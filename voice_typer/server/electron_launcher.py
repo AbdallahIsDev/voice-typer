@@ -217,7 +217,15 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             )
             return pid
         except Exception:
-            log.exception("[LAUNCHER] electron . failed; will try npm run dev")
+            # CR-76: include the operation inputs (exe path + cwd) so
+            # operators can tell which Electron binary was attempted
+            # without having to dig through the rest of the launcher log.
+            # ``log.exception`` already captures the underlying traceback.
+            log.exception(
+                "[LAUNCHER] electron . (exe=%s, cwd=%s) failed; will try npm run dev",
+                exe,
+                CLIENT_DIR,
+            )
 
     # Fallback: npm run dev (Vite dev server + Electron).
     try:
@@ -237,10 +245,20 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
         )
         return pid
     except FileNotFoundError:
-        log.exception("[LAUNCHER] npm not found")
+        # CR-76: include the resolved npm command (cmd) so operators
+        # can see which npm path the launcher tried to exec when the
+        # FileNotFoundError was raised.
+        log.exception("[LAUNCHER] npm not found (cmd=%s)", cmd)
         return None
     except Exception:
-        log.exception("[LAUNCHER] failed to spawn npm run dev")
+        # CR-76: include the operation inputs (cmd + port) so operators
+        # can tell which npm invocation failed and which backend port
+        # was supposed to receive the dev-server connection.
+        log.exception(
+            "[LAUNCHER] spawn npm run dev (cmd=%s, port=%d) failed",
+            cmd,
+            port,
+        )
         return None
 
 

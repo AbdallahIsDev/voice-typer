@@ -15,8 +15,10 @@ from typing import Any
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.i18n import DEFAULT_LOCALE
 from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
 
 log = logging.getLogger(__name__)
@@ -175,7 +177,7 @@ class ParakeetEngine:
     def __init__(
         self,
         device: str = "cuda",
-        language: str = "en",
+        language: str = DEFAULT_LOCALE,
         config: Any = None,
     ):
         self.device = device
@@ -662,7 +664,7 @@ class ParakeetEngine:
             if len(audio) == 0:
                 return ""
 
-            duration = len(audio) / 16000
+            duration = len(audio) / WHISPER_SAMPLE_RATE
             self._active_inference += 1
 
         try:
@@ -702,7 +704,7 @@ class ParakeetEngine:
         """
         inputs = self._processor(
             [audio],
-            sampling_rate=16000,
+            sampling_rate=WHISPER_SAMPLE_RATE,
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)
@@ -744,7 +746,7 @@ class ParakeetEngine:
 
     def _split_audio(self, audio: np.ndarray, chunk_sec: float, overlap_sec: float) -> list[np.ndarray]:
         """Split audio into overlapping chunks."""
-        sr = 16000
+        sr = WHISPER_SAMPLE_RATE
         chunk_len = int(chunk_sec * sr)
         overlap_len = int(overlap_sec * sr)
         step = chunk_len - overlap_len
@@ -795,7 +797,7 @@ class ParakeetEngine:
                     "[PARAKEET] Transcribing chunk %d/%d (%.1fs)",
                     i + 1,
                     len(chunks),
-                    len(chunk) / 16000,
+                    len(chunk) / WHISPER_SAMPLE_RATE,
                 )
                 text = self._transcribe_segment(chunk)
                 if text:
@@ -842,7 +844,7 @@ class ParakeetEngine:
         """Run ``processor`` + ``generate`` + ``decode`` on a batch of chunks."""
         inputs = self._processor(
             batch,
-            sampling_rate=16000,
+            sampling_rate=WHISPER_SAMPLE_RATE,
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)
@@ -1119,7 +1121,7 @@ class ParakeetEngine:
         uses _transcribe_segment() (with lock). The fallback path
         calls this after releasing the lock for CPU retry.
         """
-        duration = len(audio) / 16000
+        duration = len(audio) / WHISPER_SAMPLE_RATE
         if duration <= _CHUNK_SECONDS:
             return self._transcribe_segment_unlocked(audio)
 
@@ -1147,7 +1149,7 @@ class ParakeetEngine:
         """
         inputs = self._processor(
             [audio],
-            sampling_rate=16000,
+            sampling_rate=WHISPER_SAMPLE_RATE,
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)

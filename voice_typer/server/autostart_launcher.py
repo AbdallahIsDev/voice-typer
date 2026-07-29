@@ -123,7 +123,7 @@ def _close_log_files(sk: dict) -> None:
 # ``voice_typer.server.autostart_launcher.CLIENT_DIR`` still work.
 
 IPC_HOST = "127.0.0.1"
-IPC_PORT = 9876
+IPC_PORT = _paths.IPC_PORT
 
 
 def _read_ipc_port_from_pid_file() -> int | None:

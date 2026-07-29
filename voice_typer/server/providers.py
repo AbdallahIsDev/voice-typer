@@ -322,6 +322,26 @@ class AppProtocol(Protocol):
         """Start the application (typically blocks on the tray event loop)."""
         ...
 
+    def push_bubble_config(self, config: Any) -> None:
+        """Push a config-changed event to the waveform bubble renderer.
+
+        DR-51 (S5-CR-26): replaces the private ``getattr(self.app,
+        "_waveform_bubble", None)`` access in
+        :mod:`voice_typer.server.handlers.config_handlers` with a
+        public method on the app. The implementation on
+        :class:`voice_typer.server.app.VoiceTyperApp` preserves the
+        exact behavior of the prior inline block: it reads
+        ``self._waveform_bubble`` (which may be ``None`` before
+        ``_wire_waveform_bubble`` runs) and, if both the bubble and
+        its ``on_config`` callback are non-None, invokes
+        ``bubble.on_config(config)`` so the sandboxed bubble renderer
+        re-reads ``bubble_behavior`` / ``bubble_click_to_toggle`` /
+        ``bubble_mic_button`` and redraws. The ``config`` argument is
+        the app's :class:`Config` object (the same value the prior
+        inline block passed as ``self.app.config``).
+        """
+        ...
+
 
 @runtime_checkable
 class ServiceProtocol(Protocol):

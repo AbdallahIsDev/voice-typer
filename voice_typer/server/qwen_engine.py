@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.platform_utils import is_windows
 
@@ -376,7 +377,7 @@ class QwenEngine:
                 return ""
 
             # Qwen transcribe() expects (np.ndarray, sample_rate) tuples
-            sample_rate = 16000
+            sample_rate = WHISPER_SAMPLE_RATE
             duration = len(audio) / sample_rate
 
             if duration > _QWEN_CHUNK_SECONDS:
@@ -569,7 +570,7 @@ class QwenEngine:
         the Whisper-style attention matrix and GPU memory footprint stay
         predictable for multi-minute recordings.
         """
-        sr = 16000
+        sr = WHISPER_SAMPLE_RATE
         chunk_len = int(chunk_sec * sr)
         overlap_len = int(overlap_sec * sr)
         step = chunk_len - overlap_len

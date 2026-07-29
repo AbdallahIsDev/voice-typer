@@ -22,6 +22,7 @@ from urllib.request import Request
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._http_safety import (
     build_secure_opener,
 )
@@ -40,6 +41,7 @@ from voice_typer.server.asr_errors import (
     CloudServerError,
     ConsentRequiredError,  # noqa: F401  # re-exported for backward compat with `from cloud_engines import ConsentRequiredError`
 )
+from voice_typer.server.i18n import DEFAULT_LOCALE
 
 log = logging.getLogger(__name__)
 
@@ -77,85 +79,32 @@ def _cloud_http_error_class(code: int) -> type[CloudEngineError]:
 _opener = build_secure_opener()
 
 
-# Module-level cache of live CloudEngine
-# instances, keyed by provider.  Populated by callers that construct
-# long-lived CloudEngine objects (e.g. the model manager / cloud-engine
-# factory) via :func:`register_cached_cloud_engine`.  Consumers that
-# need to invalidate a cached engine after the user's credentials or
-# consent are revoked (e.g. ``delete_all_personal_data``) call
-# :func:`clear_cached_engine` / :func:`clear_all_cached_engines` to
-# release the cached instance so the next transcription creates a fresh
-# engine with no stale API key / consent state.
-_CACHED_ENGINES: "dict[str, CloudEngine]" = {}
-_CACHED_ENGINES_LOCK = threading.Lock()
-
-
-def register_cached_cloud_engine(provider: str, engine: "CloudEngine") -> None:
-    """Register a CloudEngine instance in the module-level cache.
-
-    Callers that construct a long-lived CloudEngine
-    SHOULD register the instance here so that :func:`clear_cached_engine`
-    / :func:`clear_all_cached_engines` can release it when the user's
-    credentials or consent are revoked.  Pass ``None`` to clear a single
-    provider without touching the others (equivalent to
-    :func:`clear_cached_engine`).
-    """
-    with _CACHED_ENGINES_LOCK:
-        if engine is None:
-            _CACHED_ENGINES.pop(provider, None)
-        else:
-            _CACHED_ENGINES[provider] = engine
-
-
-def get_cached_cloud_engine(provider: str) -> "CloudEngine | None":
-    """Return the cached CloudEngine for ``provider`` (or ``None``)."""
-    with _CACHED_ENGINES_LOCK:
-        return _CACHED_ENGINES.get(provider)
-
-
-def clear_cached_engine(provider: str) -> bool:
-    """Release the cached CloudEngine instance for ``provider``.
-
-    Called from ``delete_all_personal_data`` (and
-    similar credential-revocation paths) to ensure that a stale
-    CloudEngine — still holding the user's previous API key, consent
-    flag, or session state — is not reused after the user has revoked
-    their credentials.
-
-    Calls ``engine.unload()`` on the released instance (best-effort).
-    Returns ``True`` if a cached engine was present and released;
-    ``False`` if the cache held no entry for ``provider``.
-    """
-    with _CACHED_ENGINES_LOCK:
-        engine = _CACHED_ENGINES.pop(provider, None)
-    if engine is None:
-        return False
-    try:
-        engine.unload()
-    except Exception as exc:  # pragma: no cover — defensive
-        log.warning(
-            "[CLOUD] clear_cached_engine(%s): engine.unload() failed: %s",
-            provider,
-            exc,
-        )
-    log.info("[CLOUD] clear_cached_engine(%s): released cached engine", provider)
-    return True
-
-
-def clear_all_cached_engines() -> int:
-    """Release ALL cached CloudEngine instances.
-
-    Convenience helper for ``delete_all_personal_data``
-    — iterates every cached provider and releases each via
-    :func:`clear_cached_engine`.  Returns the number of engines released.
-    """
-    with _CACHED_ENGINES_LOCK:
-        providers = list(_CACHED_ENGINES.keys())
-    released = 0
-    for provider in providers:
-        if clear_cached_engine(provider):
-            released += 1
-    return released
+# FR-6 (P4-A1): CloudEngine lifecycle is **per-transcription**.
+#
+# Historically this module hosted an 80-line module-level cached-engine
+# infrastructure (``_CACHED_ENGINES``, ``register_cached_cloud_engine``,
+# ``get_cached_cloud_engine``, ``clear_cached_engine``,
+# ``clear_all_cached_engines``) intended to support long-lived
+# CloudEngine instances that could be invalidated on credential /
+# consent revocation. Verified by repo-wide grep (2026-07-28): ZERO
+# production callers — the only consumers were the unit tests in
+# ``tests/test_cloud_engines.py::TestCloudEngineCacheInvalidation`` and
+# ``app.py`` lazily sets ``self._cloud_engine = None`` but never
+# assigns a real CloudEngine. The cache was dead code in a "worst of
+# both worlds" state: maintenance burden + a docstring claim about
+# GDPR-delete invalidation that the runtime never actually performed.
+#
+# The infrastructure has been deleted. When a future PR wires
+# CloudEngine into production (per-transcription → long-lived), the
+# invalidation logic MUST be added at that time AND the
+# ``config_applier`` set_config path MUST invalidate the cached engine
+# when ``openai_api_key`` / ``groq_api_key`` / ``deepgram_api_key`` /
+# ``cloud_api_key`` changes (today only ``llm_*`` field changes
+# invalidate ``_llm_polisher``).
+#
+# Until then, each transcription constructs a fresh CloudEngine with
+# the current API key + consent flag from the Config dataclass, so
+# stale-credential reuse is structurally impossible.
 
 
 # Provider-specific defaults
@@ -175,7 +124,7 @@ _PROVIDER_DEFAULTS = {
 }
 
 
-def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = 16000) -> bytes:
+def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = WHISPER_SAMPLE_RATE) -> bytes:
     """Convert float32 numpy array to WAV bytes."""
     import wave
 
@@ -353,7 +302,7 @@ class CloudEngine:
         api_key: str,
         api_url: str | None = None,
         model: str | None = None,
-        language: str = "en",
+        language: str = DEFAULT_LOCALE,
         consent_given: bool = False,
         local_engine_factory: "Callable[..., Any] | None" = None,
     ):

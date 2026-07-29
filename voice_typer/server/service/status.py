@@ -8,6 +8,7 @@ Extracted verbatim from the original ``service.py`` god class
 import logging
 from typing import TYPE_CHECKING
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
@@ -126,5 +127,5 @@ class StatusMixin(ServiceMixinBase):
             "degraded_reasons": [],
             "latency_ms": 0.0,
             "vad_backend": "rms",
-            "sample_rate": 16000,
+            "sample_rate": WHISPER_SAMPLE_RATE,
         }

@@ -173,6 +173,25 @@ class DictationPipeline:
         # redaction gate, and fail-closed if ``redact_pii`` itself is
         # unimportable.
         self._templates_applied: bool = False
+        # DR-18: the 11-stage dictation pipeline. Each stage is a thin
+        # delegator that calls the corresponding ``_<step>`` method on
+        # this pipeline — see ``dictation_stages.build_default_stages``
+        # for the full ordering and per-stage documentation. The run
+        # loop iterates over this list (see ``run`` below) instead of
+        # inlining each stage call, so adding an 12th stage is a
+        # one-line list edit rather than a copy-paste of the
+        # 3-line ``with _timed_stage`` pattern plus a hand-edited
+        # consolidated-log format string.
+        #
+        # Built lazily on first access if missing — tests that bypass
+        # ``__init__`` via ``__new__`` (see
+        # ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``) don't
+        # set this attribute, and ``run`` rebuilds the default list
+        # when that happens so the finally-block teardown still
+        # exercises the production code paths.
+        from voice_typer.server.dictation_stages import build_default_stages
+
+        self._stages: list = build_default_stages()
 
     def run(
         self,
@@ -241,115 +260,64 @@ class DictationPipeline:
             # adding an 11th stage is a one-line ``with`` instead of a
             # 3-line ``_stage_t0`` / ``_<name>_ms =`` pair AND a
             # hand-edited format string in the consolidated log below.
+            #
+            # DR-18: the 11 stages themselves live in
+            # ``voice_typer.server.dictation_stages`` as a list of small
+            # single-responsibility objects (``TranscribeStage``,
+            # ``EmptyCheckStage``, …, ``PasteStage``). The run loop
+            # iterates over ``self._stages`` and delegates each call to
+            # the stage's ``run(text, ctx)`` method, which in turn calls
+            # the corresponding ``_<step>`` method on this pipeline.
+            # Cross-cutting concerns (cancellation check before paste,
+            # empty-transcription early-exit) are handled by stage
+            # wrappers / sentinel exceptions so the loop body stays
+            # uniform. See ``dictation_stages.build_default_stages`` for
+            # the full stage ordering and per-stage documentation.
             _timings: dict[str, float] = {}
 
-            # Step 1: Transcribe (streaming finalize or direct)
-            with _timed_stage(_timings, "transcribe"):
-                text = self._transcribe()
-
-            _elapsed = time.perf_counter() - _t0
-            log.info(
-                "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
-                len(text) if text else 0,
-                _elapsed,
-                self._cycle_id,
-            )
-            log.debug(
-                "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",
-                _timings.get("transcribe", 0.0),
-                self._cycle_id,
+            # Lazily rebuild the stage list if a test bypassed
+            # ``__init__`` (e.g. ``DictationPipeline.__new__`` in
+            # ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``).
+            # Production code always has ``self._stages`` set by
+            # ``__init__``.
+            from voice_typer.server.dictation_stages import (
+                PipelineContext,
+                _PipelineAbortCancelled,
+                _PipelineAbortEmpty,
+                build_default_stages,
             )
 
-            # Step 2: Check for empty result
-            if not text:
-                self._handle_empty_transcription()
-                return
-
-            # Step 3: Text cleanup
-            with _timed_stage(_timings, "clean"):
-                text = self._clean_text(text)
-
-            # Step 4: Vocabulary correction
-            with _timed_stage(_timings, "vocab"):
-                text = self._apply_vocabulary(text)
-
-            # Step 5: Template matching
-            with _timed_stage(_timings, "templates"):
-                text = self._apply_templates(text)
-
-            # Step 6: Auto-punctuation
-            with _timed_stage(_timings, "punct"):
-                text = self._apply_punctuation(text)
-
-            # Step 7: LLM polish
-            with _timed_stage(_timings, "llm"):
-                text = self._apply_llm_polish(text)
-
-            # Step 7b: AI enhancement (P4)
-            with _timed_stage(_timings, "ai"):
-                text = self._apply_ai_enhancement(text)
-
-            # Step 7c: Vocabulary automation analysis (P5)
-            with _timed_stage(_timings, "vocab_auto"):
-                self._analyze_vocabulary(text)
-
-            # Step 8: Store in history + crash recovery
-            with _timed_stage(_timings, "store"):
-                self._store_result(text)
-
-            # CR-006 (IMPROVE-mode run, 2026-07-21): check if this cycle was
-            # force-cancelled by the watchdog while the stuck ctranslate2 call
-            # was still running. If so, the user has already been notified
-            # ("Transcription took too long and was cancelled") and has likely
-            # alt-tabbed to another window. Pasting the late transcription
-            # now would corrupt whatever window currently has focus. Skip the
-            # paste, write the text to crash-recovery (so the user can review
-            # it manually), and exit gracefully.
-
-            # The membership check MUST be performed under
-            # ``_cancelled_cycle_ids_lock`` — the set is mutated under that
-            # lock elsewhere (see ``recording_controller._force_recover``).
-            # CPython's GIL makes ``set.__contains__`` atomic in isolation,
-            # but the consistent locking discipline avoids the torn-read
-            # hazard and keeps the audit story clean. Fall back to
-            # "not cancelled" if the lock or set is missing (defensive —
-            # the attrs always exist on a real RecordingController).
-            _cancelled_set = getattr(self._app.recording, "_cancelled_cycle_ids", None)
-            _cancelled_lock = getattr(self._app.recording, "_cancelled_cycle_ids_lock", None)
-            if _cancelled_set is not None and _cancelled_lock is not None:
-                with _cancelled_lock:
-                    _is_cancelled = self._cycle_id in _cancelled_set
-            else:
-                _is_cancelled = False
-            if _is_cancelled:
-                log.warning(
-                    "[DICTATION] skipping paste of late transcription (cycle %s was force-cancelled by watchdog)",
-                    self._cycle_id,
-                )
-                try:
-                    # Persist to crash-recovery so the user can review the
-                    # late transcription manually (without auto-pasting it).
-                    if hasattr(self._app, "_crash_recovery"):
-                        self._app._crash_recovery.add(text, pasted=False)
-                except Exception:
-                    log.debug("[DICTATION] crash-recovery write for cancelled cycle failed", exc_info=True)
-                # Tear down the bubble + tray state — the watchdog already
-                # set tray to IDLE, but the bubble may still be showing
-                # "Transcribing…" if the watchdog's tray update happened
-                # before the bubble wiring was reset.
-                try:
-                    if self._app.config.bubble_behavior == "always_visible":
-                        self._app._waveform_bubble.set_state("idle")
-                    else:
-                        self._app._waveform_bubble.hide()
-                except Exception:
-                    log.debug("[DICTATION] bubble hide on cancelled cycle failed", exc_info=True)
-                # Skip Step 9 (paste) — the cycle was cancelled.
-                return
-
-            # Step 9: Copy to clipboard + paste
-            with _timed_stage(_timings, "paste"):
-                self._copy_and_paste(text)
+            stages = getattr(self, "_stages", None) or build_default_stages()
+            ctx = PipelineContext(
+                cycle_id=self._cycle_id,
+                audio=self._audio,
+                app=self._app,
+                pipeline=self,
+            )
+            text = ""
+            for stage in stages:
+                if getattr(stage, "timed", True):
+                    with _timed_stage(_timings, stage.name):
+                        text = stage.run(text, ctx)
+                else:
+                    text = stage.run(text, ctx)
+                # Step 1's post-stage logging is unique (it reports the
+                # total elapsed time since run-entry, not just the
+                # stage's own duration). Kept inline here to preserve
+                # the exact log format and timing reference.
+                if stage.name == "transcribe":
+                    _elapsed = time.perf_counter() - _t0
+                    log.info(
+                        "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
+                        len(text) if text else 0,
+                        _elapsed,
+                        self._cycle_id,
+                    )
+                    log.debug(
+                        "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",
+                        _timings.get("transcribe", 0.0),
+                        self._cycle_id,
+                    )
 
             _total_ms = (time.perf_counter() - _t0) * 1000
             log.info(
@@ -375,6 +343,24 @@ class DictationPipeline:
                     self._cycle_id,
                 )
 
+        except _PipelineAbortEmpty:
+            # DR-18: ``EmptyCheckStage`` already called
+            # ``_handle_empty_transcription()`` (tray state, "no speech"
+            # notification, busy-event clear) and raised this sentinel
+            # to abort the pipeline cleanly. Fall through to the finally
+            # block (sentinel clear, audio zero, watchdog reset,
+            # transcription_thread clear, gc.collect, correlation reset)
+            # — same as the original ``return`` after
+            # ``_handle_empty_transcription``.
+            pass
+        except _PipelineAbortCancelled:
+            # DR-18 / CR-006: ``CancellationGuard`` (wrapping
+            # ``PasteStage``) already wrote the late transcription to
+            # crash-recovery and tore down the bubble, then raised this
+            # sentinel to skip the paste. Fall through to the finally
+            # block — same as the original ``return`` after the
+            # cancelled-cycle branch.
+            pass
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
             # XA-6-3 / XA-6-19: surface the failure in the bubble instead
@@ -1266,30 +1252,64 @@ class DictationPipeline:
         ``repaste_last()`` could fire. ``flush()`` blocks until the
         writer thread processes all queued writes (FIFO no-op with
         ``wait=True``). See ``history_db.py:flush()``.
+
+        FR-28 (privacy): if ``self._app.config.history_enabled`` is
+        ``False``, the ``add_transcription`` call is skipped entirely
+        (but the clipboard paste still happens — incognito mode only
+        disables persistence, not the dictation flow). ``flush()`` is
+        also skipped because there is no queued write to wait for.
+        ``history_enabled`` defaults to ``True`` (preserving the
+        pre-FR-28 behavior) so the field is only consulted when P4-A2
+        has added it to ``Config``. ``getattr(..., True)`` is used so
+        dictation still works on an older Config instance that hasn't
+        yet picked up the new field.
+
+        FR-10 (resilience): when ``add_transcription`` returns ``<= 0``
+        (writer thread is dead or schema init failed — see
+        ``history_db.add_transcription``'s FR-10 guard), we log +
+        trigger the notify-once tray message instead of silently
+        treating the placeholder as success. Previously the pipeline
+        would call ``flush()`` after the failed enqueue and block 30s
+        on a future that would never resolve — the FR-10 fix in
+        ``history_db._submit_write`` makes the failure instant, and
+        this check makes it visible to the user.
         """
-        try:
-            self._app.history_db.add_transcription(
-                text,
-                duration=self._duration,
-                model=self._app.config.model_size,
-                device=self._app.config.device,
-            )
-            # ADR-0010 §6.2: flush to guarantee the row is committed
-            # before repaste could fire. flush() blocks until the writer
-            # thread processes all queued writes (FIFO no-op with
-            # wait=True). See history_db.py:flush().
-            self._app.history_db.flush()
-        except Exception:
-            log.exception("[PIPELINE] History DB add failed")
-            # a-review Finding 2: notify-once flag lives on ``self._app``
-            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
-            if not getattr(self._app, "_history_fail_notified", False):
-                self._app._history_fail_notified = True
-                with contextlib.suppress(Exception):
-                    self._app.tray.notify(
-                        APP_NAME,
-                        "Could not save the transcription to history. Check the log file for details.",
+        # FR-28: gate the entire history-DB block on history_enabled.
+        history_enabled = getattr(self._app.config, "history_enabled", True)
+        if history_enabled:
+            try:
+                row_id = self._app.history_db.add_transcription(
+                    text,
+                    duration=self._duration,
+                    model=self._app.config.model_size,
+                    device=self._app.config.device,
+                )
+                # FR-10: add_transcription returns -1 when the writer
+                # thread is dead or schema init failed (see its FR-10
+                # guard). Surface the failure to the user via the
+                # notify-once path instead of silently treating the
+                # placeholder as success.
+                if row_id <= 0:
+                    raise RuntimeError(
+                        "history_db.add_transcription returned a non-positive row_id "
+                        f"({row_id}) — writer is unavailable; transcription was NOT persisted"
                     )
+                # ADR-0010 §6.2: flush to guarantee the row is committed
+                # before repaste could fire. flush() blocks until the writer
+                # thread processes all queued writes (FIFO no-op with
+                # wait=True). See history_db.py:flush().
+                self._app.history_db.flush()
+            except Exception:
+                log.exception("[PIPELINE] History DB add failed")
+                # a-review Finding 2: notify-once flag lives on ``self._app``
+                # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+                if not getattr(self._app, "_history_fail_notified", False):
+                    self._app._history_fail_notified = True
+                    with contextlib.suppress(Exception):
+                        self._app.tray.notify(
+                            APP_NAME,
+                            "Could not save the transcription to history. Check the log file for details.",
+                        )
 
         if self._app.config.crash_recovery_enabled:
             try:

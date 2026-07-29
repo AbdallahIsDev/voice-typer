@@ -27,6 +27,7 @@ from typing import Any, Protocol, runtime_checkable
 # intentional — those are hot paths that want to avoid the per-call
 # proxy ``_resolve()`` overhead. They shadow the lazy proxy for the
 # duration of the function.
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.asr_utils import (  # noqa: F401
@@ -36,6 +37,7 @@ from voice_typer.server.asr_utils import (  # noqa: F401
     release_gpu_memory,
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
+from voice_typer.server.i18n import DEFAULT_LOCALE
 from voice_typer.server.platform_utils import is_windows
 
 np = lazy_module("numpy")
@@ -90,7 +92,9 @@ class TranscriberProtocol(Protocol):
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...
 
 
-_WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
+# DR-32: re-exported from ``voice_typer.server._audio_constants`` for
+# back-compat with callers (and tests) that read this module attribute.
+# ``_WHISPER_SAMPLE_RATE`` is the canonical Whisper 16 kHz input rate.
 _nvidia_dll_path_handles: list[object] = []
 
 
@@ -241,7 +245,7 @@ class TranscriptionEngine:
         self,
         model_size: str = "small.en",
         device: str = "auto",
-        language: str = "en",
+        language: str = DEFAULT_LOCALE,
         beam_size: int = 1,
         best_of: int = 1,
         condition_on_previous_text: bool = False,

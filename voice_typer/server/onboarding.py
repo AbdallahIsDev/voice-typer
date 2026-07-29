@@ -19,6 +19,8 @@ import json
 import logging
 from pathlib import Path
 
+from voice_typer.server.config import DEFAULT_HOTKEY
+
 log = logging.getLogger(__name__)
 
 
@@ -66,7 +68,7 @@ class OnboardingController:
         # Collected settings
         self.selected_microphone: str | None = None
         # NATIVE-001: default hotkey is Caps Lock on all platforms
-        self.selected_hotkey: str = "<caps_lock>"
+        self.selected_hotkey: str = DEFAULT_HOTKEY
         self.selected_model: str = "small.en"
         # NEW-DEAD-033: removed the ``on_step_change`` and ``on_complete``
         # callbacks — they were declared but never set by any caller.
@@ -154,7 +156,12 @@ class OnboardingController:
                     "selected_model": self.selected_model,
                 }
             )
-            _secure_atomic_write(self._progress_path, payload)
+            # DJ-55: durability=False — onboarding progress is transient UI
+            # state recreated on every step. The atomic os.replace still
+            # guarantees consistency (no half-written files); only the
+            # fsync-on-every-save is skipped. Saves 2 fsyncs (~10-50ms on
+            # SSD) per onboarding step.
+            _secure_atomic_write(self._progress_path, payload, durability=False)
         except Exception:
             log.debug("[ONBOARDING] failed to persist progress marker", exc_info=True)
 
@@ -304,7 +311,7 @@ class OnboardingController:
         self._clear_progress()
         self._current_step = 0
         self.selected_microphone = None
-        self.selected_hotkey = "<caps_lock>"
+        self.selected_hotkey = DEFAULT_HOTKEY
         self.selected_model = "small.en"
         log.info("[ONBOARDING] Reset (markers removed)")
 
@@ -401,7 +408,7 @@ class OnboardingController:
         # Caps Lock is the recommended default — universally present,
         # isolated (rarely used in shortcuts), toggle suppressed by
         # the hotkey backend so it doesn't accidentally enable caps.
-        "<caps_lock>",
+        DEFAULT_HOTKEY,
         # F-keys remain available as alternatives for users with
         # full-size keyboards or those who prefer function keys.
         "<f2>",

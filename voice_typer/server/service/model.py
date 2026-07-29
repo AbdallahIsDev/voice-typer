@@ -14,6 +14,7 @@ import time
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.service._base import ServiceMixinBase
+from voice_typer.server.service._download_helpers import DownloadOutcome
 from voice_typer.server.service._helpers import _find_symlink_in_tree
 
 log = logging.getLogger(__name__)
@@ -709,64 +710,28 @@ class ModelMixin(ServiceMixinBase):
         writes to the HF cache dir — no critical cleanup. The download
         completes or fails naturally; on force-kill the partial
         download is resumed on next start via HF's resume_download=True.
+
+        DR-17: the original 558-LOC god method has been split into a
+        ~40-LOC dispatcher (this method) plus three branch methods
+        (``_download_whisper_family``, ``_download_qwen``,
+        ``_download_parakeet``).  The shared helpers
+        (:func:`push_progress`, :func:`notify`,
+        :func:`poll_download_progress`) live in
+        :mod:`voice_typer.server.service._download_helpers`.  Each
+        branch returns a :data:`DownloadOutcome` TypedDict; the
+        dispatcher converts it to a plain ``dict`` via ``dict(outcome)``
+        so the IPC layer sees the exact same runtime shape as before.
+        All 10 distinct return shapes are preserved verbatim.
         """
-        import os
-
-        # UX-005: helper to push progress events to the renderer.
-        from voice_typer.server import event_bus
-
-        def _push_progress(
-            progress: int,
-            status: str,
-            *,
-            downloaded_bytes: int | None = None,
-            total_bytes: int | None = None,
-            speed_bytes_per_sec: float | None = None,
-            eta_seconds: float | None = None,
-            paused: bool | None = None,
-            resumed: bool | None = None,
-        ) -> None:
-            """Push a download_progress event with rich metadata.
-
-            ``progress`` (0-100) and ``status`` (human-readable) are
-            always present (backward compat with UX-005 tests).  The
-            remaining fields are optional and only included when
-            meaningful (e.g. during active transfer, not for "cached"
-            or "cancelled" events).
-            """
-            data: dict = {
-                "model": model_name,
-                "progress": max(0, min(100, int(progress))),
-                "status": status,
-            }
-            if downloaded_bytes is not None:
-                data["downloaded_bytes"] = int(downloaded_bytes)
-            if total_bytes is not None:
-                data["total_bytes"] = int(total_bytes)
-            if speed_bytes_per_sec is not None:
-                data["speed_bytes_per_sec"] = float(speed_bytes_per_sec)
-            if eta_seconds is not None:
-                data["eta_seconds"] = float(eta_seconds)
-            if paused is not None:
-                data["paused"] = bool(paused)
-            if resumed is not None:
-                data["resumed"] = bool(resumed)
-            event_bus.publish({"type": "download_progress", "data": data})
-
-        def _notify(title: str, message: str) -> None:
-            try:
-                self._app.tray.notify(title, message)
-            except Exception:
-                log.debug("[SERVICE] tray notify failed", exc_info=True)
-
         # WR-14: pyrefly unbound-name — initialize download_id BEFORE the
         # outer ``try:`` block so the ``except Exception`` handler below
         # can safely reference it even if the very first statement inside
         # the try (the ``from voice_typer.server.model_registry import
-        # get_model_metadata`` import) raises ImportError before the
-        # previous (in-try) initialization at the old line 709 executed.
-        # The HIGH-8 / SERVICE-1 comment below still applies — this
-        # initialization is the safety net for the outer handler.
+        # get_model_metadata`` import) raises ImportError before any
+        # branch method has had a chance to set it via
+        # ``self._register_download``.  The HIGH-8 / SERVICE-1 comment
+        # below still applies — this initialization is the safety net
+        # for the outer handler.
         download_id: str | None = None
 
         try:
@@ -776,440 +741,24 @@ class ModelMixin(ServiceMixinBase):
             # any registry drift.
             from voice_typer.server.model_registry import get_model_metadata
 
-            # HIGH-8 / SERVICE-1: download_id is initialized above the
-            # outer ``try:`` so the outer ``except Exception`` handler
-            # can safely reference it (and call _unregister_download)
-            # even when the exception was raised before the inner
-            # _register_download call was reached.
-
             model_meta = get_model_metadata(model_name)
-            is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")
+            is_whisper_family = (
+                model_meta is not None
+                and model_meta.backend in ("whisper", "distil-whisper")
+            )
             if is_whisper_family:
-                # CR-11: HuggingFace consent gate.  Without this check,
-                # clicking "Download" on the Models page would phone
-                # home to huggingface.co before the user had explicitly
-                # opted in via the consent dialog (NEW-PRIV-005).
-                # Mirrors TranscriptionEngine._pre_download_model
-                # (transcription.py:835-849).  The gate must fire BEFORE
-                # any snapshot_download call (including the
-                # local_files_only cache probe) so that a user who has
-                # NOT consented cannot trigger any HuggingFace Hub
-                # interaction from the IPC path.
-                consent_err = self._require_huggingface_consent(model_name)
-                if consent_err is not None:
-                    return consent_err
-                log.info(
-                    "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
-                    model_name,
-                    model_meta.repo_id if model_meta else "unknown",
-                    model_meta.backend if model_meta else "unknown",
-                )
-                # NEW-PAUSE-001: reset the pause flag at the start of
-                # every fresh download so a stale ``paused=True`` from
-                # a previous download doesn't carry over.
-                from voice_typer.server.asr_setup import (
-                    clear_download_pause_state,
-                    is_download_paused,
-                    reset_download_pause_state,
-                    wait_while_paused,
-                )
-
-                reset_download_pause_state()
-
-                _push_progress(0, f"Starting download for {model_name}...")
-                # UX-005: pre-download via snapshot_download so we can
-                # poll the HF cache file size for progress reporting.
-                # TranscriptionEngine.load() blocks with no progress
-                # callback; doing the snapshot_download first lets us
-                # emit progress events, then load() just reads from
-                # the local cache.
-                try:
-                    from huggingface_hub import snapshot_download
-
-                    from voice_typer.server.config import _config_dir
-
-                    # NEW-MODEL-001: use the registry's repo_id so
-                    # distilled variants (Systran/faster-distil-whisper-*)
-                    # resolve correctly.
-                    assert model_meta is not None  # narrowed by is_whisper_family
-                    repo_id = model_meta.repo_id
-                    cache_dir = _config_dir() / "huggingface" / "hub"
-
-                    # SEC-audit-005: Allowlist of file patterns permitted in downloads
-                    _service_allow_patterns = [
-                        "*.safetensors",
-                        "*.bin",
-                        "config.json",
-                        "tokenizer.json",
-                        "tokenizer_config.json",
-                        "special_tokens_map.json",
-                        "preprocessor_config.json",
-                        "feature_extractor_config.json",
-                        "generation_config.json",
-                        "model.safetensors.index.json",
-                        "*.model",
-                    ]
-                    # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
-                    from voice_typer.server.security import MODEL_HASHES
-
-                    _service_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
-
-                    _push_progress(5, f"Checking cache for {model_name}...")
-                    # Try local-only first; if cached, skip the polling.
-                    try:
-                        snapshot_download(
-                            repo_id=repo_id,
-                            revision=_service_revision,
-                            allow_patterns=_service_allow_patterns,
-                            local_files_only=True,
-                        )
-                        log.info(
-                            "[SERVICE] Model '%s' already cached (repo=%s) — skipping download",
-                            model_name,
-                            repo_id,
-                        )
-                        _push_progress(100, f"{model_name} already cached")
-                    except Exception:
-                        # NEW-MODEL-001: pull target size from the
-                        # registry instead of the hard-coded size_targets
-                        # table.  Falls back to 500 MB if missing.
-                        target_mb = model_meta.download_size_mb if model_meta.download_size_mb else 500
-                        target_bytes = target_mb * 1024 * 1024
-                        _push_progress(
-                            10,
-                            f"Downloading {model_name} from HuggingFace...",
-                            total_bytes=target_bytes,
-                        )
-                        # Start the download in a thread so we can poll
-                        # the cache directory size while it runs.
-                        import threading
-                        import time
-
-                        # HIGH-8 / SERVICE-1: register a per-download
-                        # cancellation Event in the dict (under the
-                        # lock) instead of overwriting the shared
-                        # ``self._download_cancel_event`` attribute.
-                        # Two concurrent download_model calls now each
-                        # get their own Event keyed by download_id, so
-                        # neither can clobber the other's reference.
-                        download_id = self._register_download(model_name)
-                        download_err: list = []
-
-                        def _do_download():
-                            try:
-                                # PROD-004: use retry-with-backoff wrapper
-                                from voice_typer.server.transcription import _download_with_retry
-
-                                _download_with_retry(
-                                    snapshot_download,
-                                    repo_id=repo_id,
-                                    revision=_service_revision,
-                                    allow_patterns=_service_allow_patterns,
-                                    resume_download=True,
-                                    cache_dir=str(cache_dir),
-                                )
-                            except Exception as e:
-                                download_err.append(e)
-
-                        # RACE-008: daemon=True is acceptable because
-                        # _do_download only writes to the HF cache dir —
-                        # no critical cleanup. The download completes or
-                        # fails naturally; on force-kill the partial
-                        # download is resumed on next start via HF's
-                        # resume_download=True.
-                        t = threading.Thread(target=_do_download, daemon=True)
-                        t.start()
-                        log.info(
-                            "[SERVICE] Download thread started for '%s' (target=%d MB)",
-                            model_name,
-                            target_mb,
-                        )
-                        # Poll cache size until download thread exits OR
-                        # the user cancels OR the user pauses.
-                        cancelled = False
-                        # NEW-PAUSE-001: track pause/resume transitions
-                        # so we only push the event once per state
-                        # change (not once per 1-second poll iteration).
-                        last_paused_state = False
-                        # NEW-PAUSE-001: track timing for speed / ETA.
-                        last_progress_time = time.monotonic()
-                        last_total_bytes_seen = 0
-                        while t.is_alive():
-                            # HIGH-8 / SERVICE-1: check for cancellation
-                            # via the per-download helper so a sibling
-                            # download_model call's cancel signal (or
-                            # cleanup) doesn't bleed into this loop. The
-                            # helper does a None-guarded dict lookup
-                            # under the lock and returns False if our
-                            # entry has already been removed.
-                            if self._is_download_cancelled(download_id):
-                                cancelled = True
-                                log.info(
-                                    "[SERVICE] Download of %s cancelled by user",
-                                    model_name,
-                                )
-                                _push_progress(0, "Download cancelled")
-                                break
-                            # NEW-PAUSE-001: check for pause.  When
-                            # paused, block for up to 1s (replacing the
-                            # normal ``t.join(timeout=1.0)``), then
-                            # continue the loop.  We push a single
-                            # ``paused: True`` event on transition and a
-                            # single ``resumed: True`` event when the
-                            # pause clears.
-                            currently_paused = is_download_paused()
-                            if currently_paused != last_paused_state:
-                                # State transition — push the event.
-                                transition_pct = max(
-                                    0, min(95, int(10 + (last_total_bytes_seen / max(1, target_bytes)) * 85))
-                                )
-                                if currently_paused:
-                                    _push_progress(
-                                        transition_pct,
-                                        f"Download of {model_name} paused",
-                                        downloaded_bytes=last_total_bytes_seen,
-                                        total_bytes=target_bytes,
-                                        paused=True,
-                                    )
-                                else:
-                                    _push_progress(
-                                        transition_pct,
-                                        f"Download of {model_name} resumed",
-                                        downloaded_bytes=last_total_bytes_seen,
-                                        total_bytes=target_bytes,
-                                        resumed=True,
-                                    )
-                                last_paused_state = currently_paused
-                            if currently_paused:
-                                # Wait for resume (or cancel), then loop.
-                                wait_while_paused(timeout_s=1.0)
-                                continue
-                            t.join(timeout=1.0)
-                            try:
-                                # PERF-21 / XV-2 / PVT-025: scope the filesystem
-                                # walk to the in-progress model's HF cache subdir,
-                                # NOT the entire HF hub cache root. Previously
-                                # ``cache_dir.rglob("*")`` ran once per second
-                                # and stat'd every file in every cached model
-                                # dir (thousands of stat() syscalls/s, 10-40%
-                                # CPU). Now we only walk the downloading
-                                # model's own directory.
-                                model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
-                                if model_dir.exists():
-                                    total_bytes_seen = sum(
-                                        f.stat().st_size for f in model_dir.rglob("*") if f.is_file()
-                                    )
-                                    total_mb_seen = total_bytes_seen // (1024 * 1024)
-                                    pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
-                                    # Log progress at whole-number percentage thresholds
-                                    if pct >= 25 and pct % 25 == 0:
-                                        log.info(
-                                            "[SERVICE] Download of '%s': %d%% (%d MB / ~%d MB)",
-                                            model_name,
-                                            pct,
-                                            total_mb_seen,
-                                            target_mb,
-                                        )
-                                    # NEW-PAUSE-001: compute speed & ETA.
-                                    now = time.monotonic()
-                                    elapsed = now - last_progress_time
-                                    delta_bytes = total_bytes_seen - last_total_bytes_seen
-                                    speed_bps: float | None = None
-                                    eta_s: float | None = None
-                                    if elapsed > 0 and delta_bytes >= 0:
-                                        speed_bps = delta_bytes / elapsed
-                                        if speed_bps > 0:
-                                            eta_s = max(
-                                                0.0,
-                                                (target_bytes - total_bytes_seen) / speed_bps,
-                                            )
-                                    last_progress_time = now
-                                    last_total_bytes_seen = total_bytes_seen
-                                    _push_progress(
-                                        pct,
-                                        f"Downloading {model_name}: {total_mb_seen} MB / ~{target_mb} MB",
-                                        downloaded_bytes=total_bytes_seen,
-                                        total_bytes=target_bytes,
-                                        speed_bytes_per_sec=speed_bps,
-                                        eta_seconds=eta_s,
-                                    )
-                            except Exception:
-                                pass
-                        # NEW-PRIV-011: if cancelled, return early.
-                        # HIGH-8 / SERVICE-1: remove our per-download
-                        # Event from the dict so a sibling
-                        # download_model call's cancel signal can't
-                        # reach us after we've already exited the
-                        # polling loop.
-                        self._unregister_download(download_id)
-                        # NEW-PAUSE-001: also clear the pause flag so
-                        # a subsequent download starts unpaused.
-                        clear_download_pause_state()
-                        if cancelled:
-                            return {
-                                "success": False,
-                                "cancelled": True,
-                                "message": f"Download of {model_name} cancelled. "
-                                "Partial files remain in cache; "
-                                "retry to resume.",
-                            }
-                        if download_err:
-                            # B904: suppress context from the failed
-                            # cache-only snapshot_download attempt above.
-                            raise download_err[0] from None
-                        log.info(
-                            "[SERVICE] Download of '%s' complete (%d MB)",
-                            model_name,
-                            last_total_bytes_seen // (1024 * 1024),
-                        )
-                        _push_progress(100, f"{model_name} download complete")
-                except ImportError:
-                    log.debug("[SERVICE] huggingface_hub not available, falling back to engine.load()")
-
-                # VERIFY-LIGHT: skip the expensive full-model load verification.
-                # Previously this loaded a TranscriptionEngine and called
-                # engine.load() which allocated GPU/CPU memory and disrupted
-                # the currently active model (Parakeet).  The model files are
-                # already verified by HuggingFace's snapshot_download hash
-                # checks — there's no need to load the entire model just to
-                # confirm the files exist.
-                log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
-                _push_progress(100, f"Download of {model_name} complete")
-                # NEW-PERF-004: invalidate the tray models submenu cache
-                # so the next right-click reflects the newly-downloaded
-                # model without waiting for the 5-second TTL.
-                try:
-                    from voice_typer.server.tray_models import (
-                        invalidate_model_availability_cache,
-                    )
-
-                    invalidate_model_availability_cache()
-                except Exception:
-                    log.debug(
-                        "[SERVICE] failed to invalidate tray model cache",
-                        exc_info=True,
-                    )
-                # NEW-PRIV-011: clear cancel event on successful completion.
-                # HIGH-8 / SERVICE-1: unregister the per-download Event
-                # from the dict (no-op if download_id is None, e.g. the
-                # model was already cached and we never entered the
-                # polling-loop branch).
-                if download_id is not None:
-                    self._unregister_download(download_id)
-                # NEW-PAUSE-001: clear the pause flag so subsequent
-                # pause calls return False (no active download).
-                clear_download_pause_state()
-                _notify(APP_NAME, f"Model '{model_name}' downloaded successfully")
-                # PERF-10 / SVC-9: on-disk model state changed — force the
-                # next get_model_status() poll to recompute so the freshly
-                # downloaded model shows as available immediately.
-                self._invalidate_model_status_cache()
-                return {"success": True, "model": model_name}
+                outcome = self._download_whisper_family(model_name, model_meta)
             elif model_name == "qwen":
-                log.info("[SERVICE] Download requested for '%s' (Qwen backend)", model_name)
-                qwen_path = getattr(self._app.config, "qwen_model_path", None)
-                if qwen_path and os.path.isdir(qwen_path):
-                    _push_progress(100, "Qwen model already cached")
-                    return {"success": True, "model": model_name, "message": "Qwen model already cached"}
-                _notify(APP_NAME, "Qwen model path not configured")
-                return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
+                outcome = self._download_qwen(model_name)
             elif model_name == "parakeet":
-                # CR-11: HuggingFace consent gate.  Parakeet weights
-                # are fetched from huggingface.co via
-                # download_parakeet_weights(); gate the network call
-                # on explicit user consent (NEW-PRIV-005).  Mirrors
-                # TranscriptionEngine._pre_download_model
-                # (transcription.py:835-849).  Must fire BEFORE the
-                # asr_setup import + call so a user who has NOT
-                # consented cannot trigger any HuggingFace Hub
-                # interaction from the IPC path.
-                consent_err = self._require_huggingface_consent(model_name)
-                if consent_err is not None:
-                    return consent_err
-                log.info("[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)", model_name)
-                _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
-                from voice_typer.server.asr_setup import download_parakeet_weights
-
-                # XA-13-C1: surface silent failures. Previously the
-                # service called ``download_parakeet_weights()`` with no
-                # arguments and discarded the return value, so every
-                # failure (consent gate, missing huggingface_hub, disk
-                # space, retry exhaustion, integrity check) was logged
-                # as "complete" and pushed to the UI as 100% progress +
-                # "downloaded successfully". The user saw a green
-                # success toast but no model files were fetched.
-                #
-                # Now we:
-                #   1. Forward ``config=self._app.config`` so the consent
-                #      gate inside ``download_parakeet_weights`` passes
-                #      (the upstream ``_require_huggingface_consent``
-                #      check above already verified consent; this is
-                #      defense-in-depth).
-                #   2. Forward a ``progress_callback`` that bridges the
-                #      function's progress messages to the renderer's
-                #      ``download_progress`` event bus.
-                #   3. Unpack the ``(success, reason, exc_info)`` 3-tuple
-                #      and short-circuit to a structured error return on
-                #      failure, mapping the reason code to a
-                #      user-facing message via ``_PARAKEET_REASON_MESSAGES``.
-                #
-                # The unpack is defensive: some legacy / test fakes
-                # return a bare ``bool`` rather than the 3-tuple. Treat
-                # truthy → success, falsy → failure with reason
-                # "unknown" so the test fakes don't break.
-                def _parakeet_progress(message: str) -> None:
-                    # Map the function's textual progress messages to
-                    # the renderer's ``download_progress`` event. We
-                    # don't know the byte-count, so we leave the rich
-                    # metadata fields unset and just forward the status.
-                    _push_progress(50, message)
-
-                _push_progress(50, "Downloading Parakeet weights from HuggingFace...")
-                dpw_result = download_parakeet_weights(
-                    config=self._app.config,
-                    progress_callback=_parakeet_progress,
-                )
-                # Defensive unpack: handle both the documented 3-tuple
-                # and the legacy/test bare-bool shape.
-                if isinstance(dpw_result, tuple):
-                    success, reason, _exc_info = dpw_result
-                else:
-                    success = bool(dpw_result)
-                    reason = "" if success else "unknown"
-                if not success:
-                    msg = _PARAKEET_REASON_MESSAGES.get(reason, f"Download failed: {reason}")
-                    log.error(
-                        "[SERVICE] Parakeet download failed (reason=%s): %s",
-                        reason,
-                        msg,
-                    )
-                    _push_progress(0, msg)
-                    _notify(APP_NAME, f"Failed to download {model_name}: {msg}")
-                    return {
-                        "success": False,
-                        "error": msg,
-                        "reason": reason,
-                        "model": model_name,
-                    }
-                log.info("[SERVICE] Parakeet download complete")
-                _push_progress(100, "Parakeet download complete")
-                # NEW-PERF-004: invalidate the tray models submenu cache.
-                try:
-                    from voice_typer.server.tray_models import (
-                        invalidate_model_availability_cache,
-                    )
-
-                    invalidate_model_availability_cache()
-                except Exception:
-                    log.debug(
-                        "[SERVICE] failed to invalidate tray model cache",
-                        exc_info=True,
-                    )
-                _notify(APP_NAME, "Parakeet model downloaded successfully")
-                return {"success": True, "model": model_name}
+                outcome = self._download_parakeet(model_name)
             else:
-                log.warning("[SERVICE] Unknown model requested for download: '%s'", model_name)
+                log.warning(
+                    "[SERVICE] Unknown model requested for download: '%s'",
+                    model_name,
+                )
                 return {"success": False, "error": f"Unknown model: {model_name}"}
+            return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
             # NEW-PRIV-011: clear cancel event on failure too.
@@ -1224,7 +773,418 @@ class ModelMixin(ServiceMixinBase):
 
                 clear_download_pause_state()
             except Exception:
-                log.debug("[SERVICE] could not clear pause flag on failure", exc_info=True)
-            _push_progress(0, f"Download failed: {exc}")
-            _notify(APP_NAME, f"Failed to download {model_name}: {exc}")
+                log.debug(
+                    "[SERVICE] could not clear pause flag on failure", exc_info=True
+                )
+            from voice_typer.server import event_bus
+            from voice_typer.server.service._download_helpers import (
+                notify as _notify_helper,
+            )
+            from voice_typer.server.service._download_helpers import (
+                push_progress as _push_progress_helper,
+            )
+
+            _push_progress_helper(event_bus, model_name, 0, f"Download failed: {exc}")
+            _notify_helper(
+                self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {exc}"
+            )
             return {"success": False, "error": str(exc)}
+
+    def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
+        """Whisper / distil-whisper branch of :meth:`download_model`.
+
+        DR-17: extracted from the original ``is_whisper_family`` branch
+        of the monolithic ``download_model``.  Handles the CR-11
+        HuggingFace consent gate, the NEW-PAUSE-001 pause/resume state
+        machine (via :func:`poll_download_progress`), and the
+        per-download cancellation plumbing (HIGH-8 / SERVICE-1).
+
+        Takes explicit args (``model_name``, ``model_meta``) so it can
+        be unit-tested in isolation.  Returns a :data:`DownloadOutcome`
+        TypedDict with the same runtime shape the original branch
+        produced.
+        """
+        from voice_typer.server import event_bus
+        from voice_typer.server.service._download_helpers import (
+            notify as _notify,
+        )
+        from voice_typer.server.service._download_helpers import (
+            poll_download_progress,
+        )
+        from voice_typer.server.service._download_helpers import (
+            push_progress as _push_progress,
+        )
+
+        # CR-11: HuggingFace consent gate.  Without this check,
+        # clicking "Download" on the Models page would phone
+        # home to huggingface.co before the user had explicitly
+        # opted in via the consent dialog (NEW-PRIV-005).
+        # Mirrors TranscriptionEngine._pre_download_model
+        # (transcription.py:835-849).  The gate must fire BEFORE
+        # any snapshot_download call (including the
+        # local_files_only cache probe) so that a user who has
+        # NOT consented cannot trigger any HuggingFace Hub
+        # interaction from the IPC path.
+        consent_err = self._require_huggingface_consent(model_name)
+        if consent_err is not None:
+            return consent_err  # type: ignore[return-value]
+        log.info(
+            "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
+            model_name,
+            model_meta.repo_id if model_meta else "unknown",
+            model_meta.backend if model_meta else "unknown",
+        )
+        # NEW-PAUSE-001: reset the pause flag at the start of
+        # every fresh download so a stale ``paused=True`` from
+        # a previous download doesn't carry over.
+        from voice_typer.server.asr_setup import (
+            clear_download_pause_state,
+            reset_download_pause_state,
+        )
+
+        reset_download_pause_state()
+
+        _push_progress(event_bus, model_name, 0, f"Starting download for {model_name}...")
+        # UX-005: pre-download via snapshot_download so we can
+        # poll the HF cache file size for progress reporting.
+        # TranscriptionEngine.load() blocks with no progress
+        # callback; doing the snapshot_download first lets us
+        # emit progress events, then load() just reads from
+        # the local cache.
+        download_id: str | None = None
+        try:
+            from huggingface_hub import snapshot_download
+
+            from voice_typer.server.config import _config_dir
+
+            # NEW-MODEL-001: use the registry's repo_id so
+            # distilled variants (Systran/faster-distil-whisper-*)
+            # resolve correctly.
+            assert model_meta is not None  # narrowed by is_whisper_family
+            repo_id = model_meta.repo_id
+            cache_dir = _config_dir() / "huggingface" / "hub"
+
+            # SEC-audit-005: Allowlist of file patterns permitted in downloads
+            _service_allow_patterns = [
+                "*.safetensors",
+                "*.bin",
+                "config.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "preprocessor_config.json",
+                "feature_extractor_config.json",
+                "generation_config.json",
+                "model.safetensors.index.json",
+                "*.model",
+            ]
+            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
+            from voice_typer.server.security import MODEL_HASHES
+
+            _service_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+
+            _push_progress(event_bus, model_name, 5, f"Checking cache for {model_name}...")
+            # Try local-only first; if cached, skip the polling.
+            try:
+                snapshot_download(
+                    repo_id=repo_id,
+                    revision=_service_revision,
+                    allow_patterns=_service_allow_patterns,
+                    local_files_only=True,
+                )
+                log.info(
+                    "[SERVICE] Model '%s' already cached (repo=%s) — skipping download",
+                    model_name,
+                    repo_id,
+                )
+                _push_progress(event_bus, model_name, 100, f"{model_name} already cached")
+            except Exception:
+                # NEW-MODEL-001: pull target size from the
+                # registry instead of the hard-coded size_targets
+                # table.  Falls back to 500 MB if missing.
+                target_mb = (
+                    model_meta.download_size_mb if model_meta.download_size_mb else 500
+                )
+                target_bytes = target_mb * 1024 * 1024
+                _push_progress(
+                    event_bus,
+                    model_name,
+                    10,
+                    f"Downloading {model_name} from HuggingFace...",
+                    total_bytes=target_bytes,
+                )
+                # Start the download in a thread so we can poll
+                # the cache directory size while it runs.
+                import threading
+
+                # HIGH-8 / SERVICE-1: register a per-download
+                # cancellation Event in the dict (under the
+                # lock) instead of overwriting the shared
+                # ``self._download_cancel_event`` attribute.
+                # Two concurrent download_model calls now each
+                # get their own Event keyed by download_id, so
+                # neither can clobber the other's reference.
+                download_id = self._register_download(model_name)
+                download_err: list = []
+
+                def _do_download():
+                    try:
+                        # PROD-004: use retry-with-backoff wrapper
+                        from voice_typer.server.transcription import _download_with_retry
+
+                        _download_with_retry(
+                            snapshot_download,
+                            repo_id=repo_id,
+                            revision=_service_revision,
+                            allow_patterns=_service_allow_patterns,
+                            resume_download=True,
+                            cache_dir=str(cache_dir),
+                        )
+                    except Exception as e:
+                        download_err.append(e)
+
+                # RACE-008: daemon=True is acceptable because
+                # _do_download only writes to the HF cache dir —
+                # no critical cleanup. The download completes or
+                # fails naturally; on force-kill the partial
+                # download is resumed on next start via HF's
+                # resume_download=True.
+                t = threading.Thread(target=_do_download, daemon=True)
+                t.start()
+                log.info(
+                    "[SERVICE] Download thread started for '%s' (target=%d MB)",
+                    model_name,
+                    target_mb,
+                )
+                # Poll cache size until download thread exits OR
+                # the user cancels OR the user pauses.
+                # DR-17: the polling loop + pause/resume state
+                # machine was extracted to
+                # :func:`poll_download_progress` in
+                # :mod:`voice_typer.server.service._download_helpers`.
+                poll_outcome, last_total_bytes_seen = poll_download_progress(
+                    thread=t,
+                    target_bytes=target_bytes,
+                    target_mb=target_mb,
+                    model_name=model_name,
+                    repo_id=repo_id,
+                    cache_dir=cache_dir,
+                    download_id=download_id,
+                    event_bus=event_bus,
+                    is_cancelled_fn=self._is_download_cancelled,
+                )
+                # NEW-PRIV-011: if cancelled, return early.
+                # HIGH-8 / SERVICE-1: remove our per-download
+                # Event from the dict so a sibling
+                # download_model call's cancel signal can't
+                # reach us after we've already exited the
+                # polling loop.
+                self._unregister_download(download_id)
+                # NEW-PAUSE-001: also clear the pause flag so
+                # a subsequent download starts unpaused.
+                clear_download_pause_state()
+                if poll_outcome == "cancelled":
+                    return {
+                        "success": False,
+                        "cancelled": True,
+                        "message": f"Download of {model_name} cancelled. "
+                        "Partial files remain in cache; "
+                        "retry to resume.",
+                    }
+                if download_err:
+                    # B904: suppress context from the failed
+                    # cache-only snapshot_download attempt above.
+                    raise download_err[0] from None
+                log.info(
+                    "[SERVICE] Download of '%s' complete (%d MB)",
+                    model_name,
+                    last_total_bytes_seen // (1024 * 1024),
+                )
+                _push_progress(event_bus, model_name, 100, f"{model_name} download complete")
+        except ImportError:
+            log.debug("[SERVICE] huggingface_hub not available, falling back to engine.load()")
+
+        # VERIFY-LIGHT: skip the expensive full-model load verification.
+        # Previously this loaded a TranscriptionEngine and called
+        # engine.load() which allocated GPU/CPU memory and disrupted
+        # the currently active model (Parakeet).  The model files are
+        # already verified by HuggingFace's snapshot_download hash
+        # checks — there's no need to load the entire model just to
+        # confirm the files exist.
+        log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
+        _push_progress(event_bus, model_name, 100, f"Download of {model_name} complete")
+        # NEW-PERF-004: invalidate the tray models submenu cache
+        # so the next right-click reflects the newly-downloaded
+        # model without waiting for the 5-second TTL.
+        try:
+            from voice_typer.server.tray_models import (
+                invalidate_model_availability_cache,
+            )
+
+            invalidate_model_availability_cache()
+        except Exception:
+            log.debug(
+                "[SERVICE] failed to invalidate tray model cache",
+                exc_info=True,
+            )
+        # NEW-PRIV-011: clear cancel event on successful completion.
+        # HIGH-8 / SERVICE-1: unregister the per-download Event
+        # from the dict (no-op if download_id is None, e.g. the
+        # model was already cached and we never entered the
+        # polling-loop branch).
+        if download_id is not None:
+            self._unregister_download(download_id)
+        # NEW-PAUSE-001: clear the pause flag so subsequent
+        # pause calls return False (no active download).
+        clear_download_pause_state()
+        _notify(self._app.tray, model_name, APP_NAME, f"Model '{model_name}' downloaded successfully")
+        # PERF-10 / SVC-9: on-disk model state changed — force the
+        # next get_model_status() poll to recompute so the freshly
+        # downloaded model shows as available immediately.
+        self._invalidate_model_status_cache()
+        return {"success": True, "model": model_name}
+
+    def _download_qwen(self, model_name: str) -> DownloadOutcome:
+        """Qwen branch of :meth:`download_model`.
+
+        DR-17: extracted from the original ``elif model_name == "qwen"``
+        branch of the monolithic ``download_model``.  Qwen uses a local
+        file path (no HuggingFace call) so the CR-11 consent gate does
+        not apply.  Returns a :data:`DownloadOutcome` with the same
+        runtime shape the original branch produced.
+        """
+        import os
+
+        from voice_typer.server import event_bus
+        from voice_typer.server.service._download_helpers import (
+            notify as _notify,
+        )
+        from voice_typer.server.service._download_helpers import (
+            push_progress as _push_progress,
+        )
+
+        log.info("[SERVICE] Download requested for '%s' (Qwen backend)", model_name)
+        qwen_path = getattr(self._app.config, "qwen_model_path", None)
+        if qwen_path and os.path.isdir(qwen_path):
+            _push_progress(event_bus, model_name, 100, "Qwen model already cached")
+            return {"success": True, "model": model_name, "message": "Qwen model already cached"}
+        _notify(self._app.tray, model_name, APP_NAME, "Qwen model path not configured")
+        return {
+            "success": False,
+            "error": "Qwen model path not configured. Set qwen_model_path in Settings.",
+        }
+
+    def _download_parakeet(self, model_name: str) -> DownloadOutcome:
+        """Parakeet branch of :meth:`download_model`.
+
+        DR-17: extracted from the original ``elif model_name ==
+        "parakeet"`` branch of the monolithic ``download_model``.
+        Handles the CR-11 HuggingFace consent gate and the XA-13-C1
+        structured-error unpack of ``download_parakeet_weights``.
+        Returns a :data:`DownloadOutcome` with the same runtime shape
+        the original branch produced.
+        """
+        from voice_typer.server import event_bus
+        from voice_typer.server.service._download_helpers import (
+            notify as _notify,
+        )
+        from voice_typer.server.service._download_helpers import (
+            push_progress as _push_progress,
+        )
+
+        # CR-11: HuggingFace consent gate.  Parakeet weights
+        # are fetched from huggingface.co via
+        # download_parakeet_weights(); gate the network call
+        # on explicit user consent (NEW-PRIV-005).  Mirrors
+        # TranscriptionEngine._pre_download_model
+        # (transcription.py:835-849).  Must fire BEFORE the
+        # asr_setup import + call so a user who has NOT
+        # consented cannot trigger any HuggingFace Hub
+        # interaction from the IPC path.
+        consent_err = self._require_huggingface_consent(model_name)
+        if consent_err is not None:
+            return consent_err  # type: ignore[return-value]
+        log.info(
+            "[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)",
+            model_name,
+        )
+        _push_progress(event_bus, model_name, 0, "Starting Parakeet download (~2.5 GB)...")
+        from voice_typer.server.asr_setup import download_parakeet_weights
+
+        # XA-13-C1: surface silent failures. Previously the
+        # service called ``download_parakeet_weights()`` with no
+        # arguments and discarded the return value, so every
+        # failure (consent gate, missing huggingface_hub, disk
+        # space, retry exhaustion, integrity check) was logged
+        # as "complete" and pushed to the UI as 100% progress +
+        # "downloaded successfully". The user saw a green
+        # success toast but no model files were fetched.
+        #
+        # Now we:
+        #   1. Forward ``config=self._app.config`` so the consent
+        #      gate inside ``download_parakeet_weights`` passes
+        #      (the upstream ``_require_huggingface_consent``
+        #      check above already verified consent; this is
+        #      defense-in-depth).
+        #   2. Forward a ``progress_callback`` that bridges the
+        #      function's progress messages to the renderer's
+        #      ``download_progress`` event bus.
+        #   3. Unpack the ``(success, reason, exc_info)`` 3-tuple
+        #      and short-circuit to a structured error return on
+        #      failure, mapping the reason code to a
+        #      user-facing message via ``_PARAKEET_REASON_MESSAGES``.
+        #
+        # The unpack is defensive: some legacy / test fakes
+        # return a bare ``bool`` rather than the 3-tuple. Treat
+        # truthy → success, falsy → failure with reason
+        # "unknown" so the test fakes don't break.
+        def _parakeet_progress(message: str) -> None:
+            # Map the function's textual progress messages to
+            # the renderer's ``download_progress`` event. We
+            # don't know the byte-count, so we leave the rich
+            # metadata fields unset and just forward the status.
+            _push_progress(event_bus, model_name, 50, message)
+
+        _push_progress(event_bus, model_name, 50, "Downloading Parakeet weights from HuggingFace...")
+        dpw_result = download_parakeet_weights(
+            config=self._app.config,
+            progress_callback=_parakeet_progress,
+        )
+        # Defensive unpack: handle both the documented 3-tuple
+        # and the legacy/test bare-bool shape.
+        if isinstance(dpw_result, tuple):
+            success, reason, _exc_info = dpw_result
+        else:
+            success = bool(dpw_result)
+            reason = "" if success else "unknown"
+        if not success:
+            msg = _PARAKEET_REASON_MESSAGES.get(reason, f"Download failed: {reason}")
+            log.error(
+                "[SERVICE] Parakeet download failed (reason=%s): %s",
+                reason,
+                msg,
+            )
+            _push_progress(event_bus, model_name, 0, msg)
+            _notify(self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {msg}")
+            return {
+                "success": False,
+                "error": msg,
+                "reason": reason,
+                "model": model_name,
+            }
+        log.info("[SERVICE] Parakeet download complete")
+        _push_progress(event_bus, model_name, 100, "Parakeet download complete")
+        # NEW-PERF-004: invalidate the tray models submenu cache.
+        try:
+            from voice_typer.server.tray_models import (
+                invalidate_model_availability_cache,
+            )
+
+            invalidate_model_availability_cache()
+        except Exception:
+            log.debug(
+                "[SERVICE] failed to invalidate tray model cache",
+                exc_info=True,
+            )
+        _notify(self._app.tray, model_name, APP_NAME, "Parakeet model downloaded successfully")
+        return {"success": True, "model": model_name}

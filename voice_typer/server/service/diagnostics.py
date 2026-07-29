@@ -44,8 +44,11 @@ class DiagnosticsMixin(ServiceMixinBase):
     def export_diagnostics(self) -> dict:
         """PROD-010: Create a diagnostic bundle for support.
 
-        Delegates to CrashRecovery.create_diagnostic_bundle().
-        Returns ``{"success": bool, "path": str}`` on success or
+        Delegates to :func:`voice_typer.server.diagnostics_export.create_diagnostic_bundle`
+        (DR-27 — the bundle-building body was extracted out of
+        :class:`CrashRecovery` so that module can focus on its core
+        recovery-entry storage concern). Returns
+        ``{"success": bool, "path": str}`` on success or
         ``{"success": False, "message": str}`` on failure.
         """
         try:
@@ -61,7 +64,17 @@ class DiagnosticsMixin(ServiceMixinBase):
                 from voice_typer.server.crash_recovery import CrashRecovery
 
                 recovery = CrashRecovery()
-            path = recovery.create_diagnostic_bundle()
+            # DR-27: call the diagnostics_export module directly instead
+            # of going through the ``CrashRecovery.create_diagnostic_bundle``
+            # delegate. Same observable behavior — the delegate on
+            # ``CrashRecovery`` is preserved for back-compat with other
+            # callers (tests, CLI), but this mixin is the primary in-process
+            # caller and now uses the canonical entry point.
+            from voice_typer.server.diagnostics_export import (
+                create_diagnostic_bundle,
+            )
+
+            path = create_diagnostic_bundle(recovery)
             if path:
                 return {"success": True, "path": path}
             else:

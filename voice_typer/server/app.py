@@ -93,6 +93,8 @@ log = logging.getLogger(__name__)
 # SEC-audit-011: _validate_env_vars calls _validate_systemroot from
 # voice_typer.server.config to reject attacker-controlled SystemRoot values
 # that could enable DLL injection.  # ruff: noqa: F401
+from voice_typer.server.env_validation import _validate_env_vars  # noqa: F401, E402
+from voice_typer.server.logging_setup import _setup_logging  # noqa: F401, E402
 
 
 class VoiceTyperApp:
@@ -135,6 +137,16 @@ class VoiceTyperApp:
         # production log, and continue with init.
         try:
             _crash_handler.install_python_excepthook()
+            # FR-14: install the threading excepthook so unhandled
+            # exceptions in daemon threads (A11yPulse, ModelLoad,
+            # heartbeat_loop, crash-recovery-saver, history-retention,
+            # bubble-level-pusher, shutdown-watchdog, prewarm) produce
+            # a python_crash.<PID>.<thread_name>.txt marker file. Without
+            # this, sys.excepthook only catches MAIN-thread exceptions
+            # and daemon-thread crashes are silently lost (no marker,
+            # no next-startup notification). Best-effort — same try/except
+            # as the main excepthook install.
+            _crash_handler.install_threading_excepthook()
         except Exception:
             log.debug("[INIT] excepthook install failed", exc_info=True)
 
@@ -285,20 +297,25 @@ class VoiceTyperApp:
 
         self.audio_quality: AudioQualityController = AudioQualityController(self)
 
-        # S2-CR-24: undo / repaste / config-editor controllers extracted
-        # to focused ``controllers/`` package.  Each holds a reference to
-        # the owning app and exposes a small surface for one concern.
-        # The app keeps thin delegate methods (``repaste_last``,
-        # ``undo_last``, ``_open_config_file``) so tray menu callbacks,
-        # hotkey backends, and tests calling the app methods directly
-        # keep working unchanged.  The extracted classes live in
+        # S2-CR-24: config-editor controller extracted to a focused
+        # ``controllers/`` package. It holds a reference to the owning
+        # app and exposes a small surface for one concern. The app keeps
+        # a thin delegate method (``_open_config_file``) so tray menu
+        # callbacks, hotkey backends, and tests calling the app method
+        # directly keep working unchanged. The extracted class lives in
         # :mod:`voice_typer.server.controllers`.
+        #
+        # DR-24: the parallel delegator controllers (``UndoController``
+        # and ``RepasteController`` in ``controllers/``) were deleted —
+        # they were 1-line wrappers around ``self.undo.undo_last()`` /
+        # ``self.undo.repaste_last()`` (the canonical
+        # ``UndoRepasteController`` wired above). The app's
+        # ``undo_last()`` / ``repaste_last()`` delegate methods now call
+        # ``self.undo`` directly, eliminating the split-brain
+        # ``self._undo_controller`` / ``self._repaste_controller``
+        # parallel system.
         from voice_typer.server.controllers.config_editor_launcher import ConfigEditorLauncher as _ConfigLauncher
-        from voice_typer.server.controllers.repaste_controller import RepasteController
-        from voice_typer.server.controllers.undo_controller import UndoController
 
-        self._repaste_controller: RepasteController = RepasteController(self)
-        self._undo_controller: UndoController = UndoController(self)
         self._config_editor_launcher: _ConfigLauncher = _ConfigLauncher(self)
 
         # #2 Hotkey registration extracted to HotkeyDispatcher.
@@ -647,20 +664,45 @@ class VoiceTyperApp:
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
-        S2-CR-24: body extracted to
-        :class:`voice_typer.server.controllers.repaste_controller.RepasteController`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        DR-24: delegates directly to the canonical ``UndoRepasteController``
+        (``self.undo``) — the thin ``RepasteController`` wrapper in
+        ``controllers/`` was deleted as a parallel-system delegator.
+        Behaviour preserved verbatim — only the call chain shortened.
         """
-        return self._repaste_controller.repaste_last()
+        return self.undo.repaste_last()
 
     def undo_last(self) -> None:
         """UX-003: Undo last transcription by sending backspace keystrokes.
 
-        S2-CR-24: body extracted to
-        :class:`voice_typer.server.controllers.undo_controller.UndoController`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        DR-24: delegates directly to the canonical ``UndoRepasteController``
+        (``self.undo``) — the thin ``UndoController`` wrapper in
+        ``controllers/`` was deleted as a parallel-system delegator.
+        Behaviour preserved verbatim — only the call chain shortened.
         """
-        return self._undo_controller.undo_last()
+        return self.undo.undo_last()
+
+    def push_bubble_config(self, config: Any) -> None:
+        """Push a config-changed event to the waveform bubble renderer.
+
+        DR-51 (S5-CR-26): replaces the private ``getattr(self,
+        "_waveform_bubble", None)`` access that lived inline in
+        :mod:`voice_typer.server.handlers.config_handlers`'s
+        ``apply_config`` side-effect path. The handler now calls this
+        public method instead of reaching into the app's private
+        ``_waveform_bubble`` attribute.
+
+        Behaviour preserved verbatim from the prior inline block: read
+        ``self._waveform_bubble`` (which is ``None`` until
+        ``_wire_waveform_bubble`` has run, e.g. during very-early
+        config pushes), and if both the bubble and its ``on_config``
+        callback are non-None, invoke ``bubble.on_config(config)`` so
+        the sandboxed bubble renderer re-reads ``bubble_behavior`` /
+        ``bubble_click_to_toggle`` / ``bubble_mic_button`` and
+        redraws. ``config`` is the app's :class:`Config` object.
+        """
+        bubble = getattr(self, "_waveform_bubble", None)
+        if bubble is not None and bubble.on_config is not None:
+            bubble.on_config(config)
 
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
