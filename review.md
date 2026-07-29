@@ -149,8 +149,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: No `protocol_version` field in any frame. If any layer changes the envelope shape, other layers can't detect mismatch at runtime. `server_started` handshake already has a minor inconsistency (uses `event` key instead of `type`).
 - Fix: Add `protocol_version` field to the `server_started` handshake and to the auth frame. Have the Rust host check version on connect and fail fast on mismatch. · **Found by**: R3
 
-
-
 ### S1-CR-136 — Crash report lacks reproduction hint and app/system context
 **Status:** ⚠️ Partial — bug_report.md side done (Diagnostic Bundle + Reproduction Hint sections added in FIX-1-REAPPLY); crash_handler.py VEH blurb + tray.py notification portions out of agent_01 scope
 - Location: `voice_typer/server/crash_handler.py:521-525, 568-622`
@@ -162,8 +160,6 @@ plus the base repo's pre-existing comprehensive review.
 - Location: `docs/adr/0020-desktop-runtime-migration-analysis.md:32`, `docs/modules/sidecar_ws.md:13,26`, `docs/adr/0019-per-connection-rate-limiter.md:5`, `docs/ARCHITECTURE.md:15,81`
 - Evidence: ADR-0020:32 says 69. `sidecar_ws.md:13,26` says 68. ADR-0019:5 says 68. ARCHITECTURE.md:81 says "frozen for v1 at 68". Actual count (verified by grepping `_COMMAND_REGISTRY`): **73 entries**. All three documented numbers are stale.
 - Fix: Recount; update all references to the true value (73). · **Found by**: R20
-
-
 
 ### S1-CR-143 — macOS `VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1` silently disables key-up delivery and key suppression
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -361,10 +357,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Confidence**: High
 - **Source**: R19
 
-
-
-
-
 ### S2-CR-80 — Three platform branches in `_open_config_file` duplicate lock+reload pattern
 - **Severity**: High
 - **Status**: ⚠️ Partial — main 104-LOC concern resolved (app.py _open_config_file is now 12-line delegate to ConfigEditorLauncher.launch); residual macOS/Linux branch duplication (~14-line lock+reload blocks) in voice_typer/server/config_editor.py — out of agent_15 file scope
@@ -389,8 +381,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Impact:** CI is red. New refactors can't be validated. Tests provide negative value.
 - **Proposed fix:** Per-file triage: restore missing symbols OR update tests if source was intentionally refactored. Backfill 25 missing i18n keys per locale (or add to `RW2_BACKFILLED_PENDING_TRANSLATION`). Update frozen command tables in `test_phase4_validation.py`. Update SECURITY.md command count. Fix native_hotkeys path assertion.
 - **Confidence:** High (R14, R19, R20)
-
-
 
 ### S3-CR-21 — 164 `inspect.getsource` source-string tests across 35 files (refactor blocker)
 **Status:** ❌ Not Fixed — test files not in agent_08 file list (35 test files owned by other agents)
@@ -1342,8 +1332,6 @@ presumably runs with all deps installed.
 2. **(XA-12-11)** Increase `LAST_TEXT_AUTO_CLEAR_MS` from 5_000 to 30_000.
 
 ---
-
-
 
 ### XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main/renderer/preload
 **Status:** ⚠️ Partial — useTChoice() hook added in prior session; 21 sub-items deferred per existing partial status
@@ -6304,7 +6292,6 @@ deduplicated by the primary agent (Phase 3).
 
 ---
 
-
 ### [WR-10] — Misnamed e2e tests + unmarked slow/stress tests + grab-bag history_and_models
 **Status:** ❌ Not Fixed — test_e2e_*.py files are at tests/ root (discoverable by pytest); moving to tests/regressions/ requires CI test-discovery updates; cosmetic only
 **Description:** test_e2e_*.py files are misnamed (e.g., test_e2e_pipeline.py vs test_e2e_smoke.py); some test files mix unit + integration + stress tests without markers; test_history_and_models.py is a 1180-LOC grab-bag.
@@ -6318,7 +6305,6 @@ deduplicated by the primary agent (Phase 3).
 **Severity:** Medium
 
 ---
-
 
 ### [WR-14] — Stale ruff baseline + empty pyrefly baseline + real bugs hidden
 **Status:** ⚠️ Partial (verified on Linux sandbox; ruff-baseline.json regenerated; tests/test_ruff_ratchet.py::TestCompareLogic updated to use _pick_representative_rule helper; tests/test_dead_code_stays_removed.py verified; AC-128 deferred)
@@ -8995,13 +8981,9 @@ Session 5 contributed 66 new findings.
 **Fix:** Extract the IIFEs into named sub-components or `useMemo` hooks. Pass `isDark` as a prop from the parent instead of reading `document.documentElement.classList`.
 **Severity:** 🟢 Low
 
-## Session Findings
+---
 
-This section consolidates the unique findings contributed by each improvement session. Each session uses its own unique 2-char prefix (DR, DJ, FR) so findings never collide. Session 3 (prefix S3) modified existing baseline entries inline above (status updates from ❌ Not Fixed → ✅ Fixed) and did not contribute new top-level findings.
-
-### Findings from Session 1 (prefix DR — Architecture & Code Quality)
-
-## DR-1 — CRITICAL: Production entry point broken — missing re-export imports in app.py
+### DR-1 — CRITICAL: Production entry point broken — missing re-export imports in app.py
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/app.py:80-95` has 16-line comment blocks claiming `_setup_logging` (moved to `logging_setup.py`) and `_validate_env_vars` (moved to `env_validation.py`) are "re-exported here so callers keep working unchanged". The actual `from ... import ... # noqa: F401` lines are MISSING. Verified by `python3 -c "from voice_typer.server.app import _setup_logging"` → `ImportError`. The canonical production entry point `voice_typer.server.ipc_server:main` (per pyproject.toml console script) executes `from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging` at `ipc_server.py:1935` and immediately raises ImportError. Both `python -m voice_typer.server` and `python -m voice_typer` are broken at runtime.
 **User Impact:** Launching the app via the documented CLI entry points fails immediately with ImportError. The Electron/Tauri host may bootstrap Python differently and mask this, but any user running `python -m voice_typer` directly (or any tooling that calls `ipc_server.main()`) gets a crash with no clear cause.
@@ -9023,7 +9005,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-2 — Rust sidecar_cmds.rs: stale doc block + broken count assertions
+### DR-2 — Rust sidecar_cmds.rs: stale doc block + broken count assertions
 **Status:** ❌ Not Fixed
 **Description:** `src-tauri/src/commands/sidecar_cmds.rs:124-156` production doc block claims "17 entries removed in lockstep" but lists 4 of them as "added" elsewhere in the same comment. Test assertions at lines 860 and 875 contradict each other AND the actual literal count (59 entries). Both assertions will fail at runtime. The TS allowlist has 61 entries; correct Rust parity count is 59 (TS-only exceptions: `heartbeat`, `relaunch_ack`).
 **User Impact:** Any `cargo test` run on the Rust host produces a red CI signal. Cross-language parity test (`tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`) fails. Future contributors are misled by the doc block.
@@ -9037,7 +9019,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-3 — Rust monolith files: bubble.rs 1313 LOC, ws.rs 1241, supervisor.rs 1055, logging.rs 989, sidecar_cmds.rs 897, spawn.rs 845
+### DR-3 — Rust monolith files: bubble.rs 1313 LOC, ws.rs 1241, supervisor.rs 1055, logging.rs 989, sidecar_cmds.rs 897, spawn.rs 845
 **Status:** ❌ Not Fixed
 **Description:** AC-138 flagged these files at smaller sizes; they have WORSENED since (bubble.rs +86%, ws.rs +24%, logging.rs +60%, supervisor.rs +11%). 4 NEW files also crossed the 500-LOC threshold: `commands/system_cmds.rs` 627, `tray.rs` 647, `platform/process.rs` 689, `commands/export.rs` 527. 9 of 21 Rust files exceed the spaghetti trigger.
 **User Impact:** Compile times grow superlinearly; reviewer cognitive load per file is high; tests/production interleaving compounds navigation cost.
@@ -9060,7 +9042,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-4 — Rust bubble.rs: tests block in MIDDLE of file (lines 320-913)
+### DR-4 — Rust bubble.rs: tests block in MIDDLE of file (lines 320-913)
 **Status:** ❌ Not Fixed
 **Description:** The `#[cfg(test)] mod tests { ... }` block sits between production code (lines 1-319) and MORE production code (lines 914-1313). Every other Rust file in the slice places tests at the END.
 **User Impact:** Navigation friction; readers assume code after `mod tests` is also tests and skip it; new contributors may add a test outside the test module thinking the file has ended.
@@ -9074,7 +9056,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-5 — Rust ws.rs: `.expect()` in respawn_supervisor_sender can panic in resilience layer
+### DR-5 — Rust ws.rs: `.expect()` in respawn_supervisor_sender can panic in resilience layer
 **Status:** ❌ Not Fixed
 **Description:** `src-tauri/src/sidecar/ws.rs:255-270` ends with `.expect("GT-C4-4: failed to spawn respawn-supervisor thread")` on `std::thread::Builder::spawn`. This function is the entry point of the host's resilience layer — called from 8+ sites. On `std::thread::Builder::spawn` failure (RLIMIT_NPROC hit, OOM, fork failure), the host PANICS inside the very layer that's supposed to recover from panics. Cargo.toml's clippy gate has `expect_used = "allow"` which masks this.
 **User Impact:** A host under resource exhaustion (fork bomb, leak that hits RLIMIT_NPROC) panics in the resilience layer instead of falling back to a degraded state.
@@ -9089,7 +9071,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-6 — Rust util.rs: dead PASTE_* constants reference deleted commands/paste.rs
+### DR-6 — Rust util.rs: dead PASTE_* constants reference deleted commands/paste.rs
 **Status:** ❌ Not Fixed
 **Description:** Three constants in `src-tauri/src/util.rs` (lines 99-110, 145-156, 161-172) are dead code referencing the deleted `commands/paste.rs`: `PASTE_SHORT_THRESHOLD`, `PASTE_CLIPBOARD_RESTORE_DELAY_MS`, `PASTE_UIPI_FALLBACK_RESTORE_SECS`. The `commands/mod.rs:7-13` documents the deletion. `Cargo.toml:82-93` comment still references the non-existent `commands::sidecar_cmds::paste_text`.
 **User Impact:** ~60 LOC of dead production code that confuses readers into thinking the paste path still exists on the Rust side.
@@ -9104,9 +9086,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-## DR-8 — TS preload/bubble.ts: dead code, never loaded
+### DR-8 — TS preload/bubble.ts: dead code, never loaded
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/client/src/preload/bubble.ts` (35 LOC) is shipped by the CI-only `electron.vite.main.ts` build but never loaded at runtime — `bubble-window.ts:297` sets `webPreferences.preload = path.join(__dirname, "../preload/index.js")`, NOT `bubble.js`. The canonical `electron.vite.config.ts` doesn't even compile `bubble.ts`. The SEC-026 docstring describes a "dedicated preload for the bubble window" that doesn't actually run.
 **User Impact:** Dead/contradictory code. Security-reviewable surface (SEC-026) is documented as enforced by a dedicated preload that doesn't actually run.
@@ -9124,7 +9104,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-9 — TS: bubble-channel name strings duplicated across 4 files
+### DR-9 — TS: bubble-channel name strings duplicated across 4 files
 **Status:** ❌ Not Fixed
 **Description:** All 16 bubble-channel names (`bubble:level`, `bubble:show`, etc.) are duplicated as bare string literals across `bubble-handlers.ts`, `handle-message.ts`, `bubble-window.ts`, `_bubble-channels.ts`. Window/python channels (`window:minimize`, `python-call`, `python-event`, etc.) are similarly duplicated. A typo in one side compiles silently.
 **User Impact:** Silent IPC-channel drift between main and renderer. The `set_bubble_position` → `bubble:set-position` migration required touching every preload file by hand.
@@ -9145,11 +9125,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-## DR-12 — TS Settings.tsx: render-phase mutation anti-pattern
+### DR-12 — TS Settings.tsx: render-phase mutation anti-pattern
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/client/src/renderer/src/pages/Settings.tsx:90, 238-241, 253-267` implements a "render-phase mutation counter" pattern: `visibleMatchCountRef.current = 0` on every render, incremented inside `_filter_settings` (called by children during their render), then read by a `useEffect(() => { ... })` with NO dependency array to flip `hasAnyVisibleRow` state. Render-phase side effect + effect that runs after every render.
 **User Impact:** Render-phase ref mutation violates React purity expectations; StrictMode double-invokes renders, currently masked because children call `_filter_settings` symmetrically. Effect-without-deps runs after every render including unrelated state flips, causing extra reconciliation.
@@ -9163,15 +9139,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-
-
-
-
-## DR-17 — Python service/model.py: download_model 558 LOC god method
+### DR-17 — Python service/model.py: download_model 558 LOC god method
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/service/model.py:673-1230` `download_model(self, model_name)` spans 558 LOC — single largest method in the service package. Contains two nested function definitions, a 3-way branch (whisper/qwen/parakeet), an inline daemon-thread spawn, a polling loop with pause/resume state machine, two nested try/except blocks, 14 distinct return points.
 **User Impact:** Untestable in isolation (closures + branch state), unreadable in code review, high blast radius for any change to progress event shape or cancel semantics.
@@ -9185,11 +9153,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-## DR-20 — Python service/privacy.py: delete_all_personal_data 275 LOC + export_gdpr_bundle 189 LOC
+### DR-20 — Python service/privacy.py: delete_all_personal_data 275 LOC + export_gdpr_bundle 189 LOC
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/service/privacy.py:195-469` `delete_all_personal_data` interleaves 7 distinct responsibilities: HistoryDB checkpoint+close, Rust `logs/` rmtree, hardcoded-file unlink loop, glob-pattern unlink loop, crash-archive rmtree, keychain cleanup loop, in-memory config zeroing + engine invalidation, HistoryDB re-creation. `export_gdpr_bundle` (189 LOC) similarly interleaves.
 **User Impact:** Hard to test individual cleanup steps. Diff review is painful.
@@ -9203,7 +9167,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-21 — Python S1-CR-78 STILL REAL: IPC protocol unversioned
+### DR-21 — Python S1-CR-78 STILL REAL: IPC protocol unversioned
 **Status:** ❌ Not Fixed (verified still real)
 **Description:** `voice_typer/server/ipc_server.py:1218` dispatcher reads only `msg.get("type")` and `msg.get("data")` — no `protocol_version`, no handshake negotiation. Auth frame is `{"type": "auth", "token": "..."}` with no version field. ADR-0004 (IPC protocol ADR) does not mention versioning. TS-side `push_events.ts:534-558` documents the TODO but never implemented it.
 **User Impact:** A stale renderer talking to a newer Python backend gets opaque `unknown_command`/`auth_failed` errors instead of a structured `protocol_version_mismatch`. Field-level schema drift on any of the 63 commands is completely undetectable at runtime.
@@ -9221,7 +9185,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-22 — Python S1-CR-66 STILL REAL: sys.modules hack in ipc_server.py
+### DR-22 — Python S1-CR-66 STILL REAL: sys.modules hack in ipc_server.py
 **Status:** ❌ Not Fixed (verified still real, line numbers drifted)
 **Description:** `voice_typer/server/ipc_server.py:282-292` (was 622-632 in review.md) contains: `_CANONICAL = "voice_typer.server.ipc_server"; if _CANONICAL not in sys.modules: sys.modules[_CANONICAL] = sys.modules["__main__"]`. The hack exists because 16 handler mixins import back from the god-module they're mixed into, creating a circular dependency.
 **User Impact:** Surprising/fragile import-time behaviour. Moving the canonical name silently breaks the app at startup.
@@ -9235,7 +9199,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-23 — Python S1-CR-67 STILL REAL: _RecordingModule custom module class
+### DR-23 — Python S1-CR-67 STILL REAL: _RecordingModule custom module class
 **Status:** ❌ Not Fixed (verified still real)
 **Description:** `voice_typer/server/recording/__init__.py:328-453` defines `class _RecordingModule(sys.modules[__name__].__class__)` with custom `__getattr__`/`__setattr__` routing 5 mutable globals through to owning submodules. Same pattern in `prewarm/__init__.py` and `server_platform/__init__.py` (uses different mechanism — `_pkg.X` runtime-call-time indirection). ~500 LOC of `__init__.py` boilerplate exists purely for test-patch compatibility.
 **User Impact:** New contributors writing tests must use the old (wrong) patch path or the test silently no-ops. The `_RecordingModule.__setattr__` override is a global mutation point.
@@ -9251,7 +9215,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-24 — Python controllers/: 1-line delegators create parallel system
+### DR-24 — Python controllers/: 1-line delegators create parallel system
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/controllers/undo_controller.py:33-40` and `repaste_controller.py:32-39` are 1-line bodies: `return self._app.undo.undo_last()` and `return self._app.undo.repaste_last()`. The "real" controller `UndoRepasteController` lives in `app_undo.py` (OUTSIDE the `controllers/` package). App.py wires up BOTH: `self.undo = UndoRepasteController(self)` AND `self._undo_controller = UndoController(self)`. Split-brain organisation.
 **User Impact:** Three method calls per undo/repaste instead of one. New contributors must trace through two layers to find the real implementation.
@@ -9268,7 +9232,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-25 — Python ipc_server.py 2133 LOC: 16-mixin god class, abandoned split
+### DR-25 — Python ipc_server.py 2133 LOC: 16-mixin god class, abandoned split
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/ipc_server.py` (2133 LOC) `class IPCServer(` inherits from 16 mixins. The `ipc/__init__.py` docstring admits: "Phase 4.5 / ARCH-045 began a split... The split was abandoned mid-way." `IPCServer` still owns `_dispatch`, `_COMMAND_REGISTRY`, heartbeat watchdog, lifecycle, arg parsing, `main()`, process metadata, signal handlers, plus methods like `_handle_heartbeat`/`_handle_relaunch_ack`/`_handle_unknown_command`/`_handle_shutdown`/`_handle_tray_click` directly.
 **User Impact:** The 16-mixin inheritance is the canonical "mixin lasagna" anti-pattern. IDE "go to definition" rarely lands on the file a contributor expects.
@@ -9283,13 +9247,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-
-
-## DR-29 — Python S1-CR-65 PARTIALLY FIXED: apply_config_side_effects still if-chain
+### DR-29 — Python S1-CR-65 PARTIALLY FIXED: apply_config_side_effects still if-chain
 **Status:** ⚠️ Partial
 **Description:** `voice_typer/server/service/config_service.py:156-167` `apply_config_side_effects` on the mixin is now a 12-line thin delegate. The 215-line body was MOVED (not refactored) to `voice_typer/server/config_applier.py:308 ConfigApplier.apply_config_side_effects` — docstring explicitly states "branching structure itself is preserved verbatim... A future refactor can replace the if-chain with a registered ConfigSideEffect protocol + handler list (CR-65 step 2)." The proposed handler-list refactor was NOT applied.
 **User Impact:** Adding a new config side-effect requires editing the 215-line if-chain.
@@ -9304,7 +9262,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-30 — Python task_scheduler.py 812 LOC: 4 concerns mixed (only schedules prewarm)
+### DR-30 — Python task_scheduler.py 812 LOC: 4 concerns mixed (only schedules prewarm)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/task_scheduler.py` (812 LOC) bundles: (a) Task Scheduler XML generation (~145 LOC), (b) HKCU Run-key registry manipulation, (c) UAC elevation via ShellExecuteExW with inline 15-field ctypes `SHELLEXECUTEINFO` Structure (~78 LOC), (d) `schtasks.exe` subprocess wrappers. Despite the generic name, schedules ONLY the prewarm task.
 **User Impact:** Readers debugging scheduling logic must skim past 78 LOC of SHELLEXECUTEINFO boilerplate. Generic name invites future callers to assume it schedules arbitrary tasks.
@@ -9318,9 +9276,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-## DR-32 — Python DRY: 16000 sample rate hardcoded 30+ places (FZ-28)
+### DR-32 — Python DRY: 16000 sample rate hardcoded 30+ places (FZ-28)
 **Status:** ❌ Not Fixed (verified still real)
 **Description:** Literal `16000` appears 30+ times in production Python code and 20+ times in TS test fixtures. A canonical `_WHISPER_SAMPLE_RATE = 16000` exists in `transcription.py:93` but is module-local and NEVER imported by any other file.
 **User Impact:** If Whisper ever accepts 8 kHz / 24 kHz, every site must be hunted down. A wrong literal silently miscalculates duration.
@@ -9348,7 +9304,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-33 — Cross-language DRY: "<caps_lock>" default hotkey hardcoded 6 places (FZ-54)
+### DR-33 — Cross-language DRY: "<caps_lock>" default hotkey hardcoded 6 places (FZ-54)
 **Status:** ❌ Not Fixed (verified still real)
 **Description:** Literal `"<caps_lock>"` is hardcoded in 6 production sites across Python + TS. The comment at `hotkey_dispatcher.py:122` explicitly admits the duplication: `# platform default (see config._default_hotkey_for_platform)`.
 **User Impact:** If default ever changes, 6 sites must be hunted down. A wrong literal silently overrides the backend (already happened once with `<f2>`).
@@ -9365,7 +9321,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-34 — Cross-language DRY: IPC port 9876 hardcoded 4 places
+### DR-34 — Cross-language DRY: IPC port 9876 hardcoded 4 places
 **Status:** ❌ Not Fixed (NEW finding)
 **Description:** Literal `9876` is hardcoded in 4 production sites: `autostart_launcher.py:126` (`IPC_PORT = 9876`), `ipc/transport.py:20` (default arg), `ipc_server.py:2041` (call-site), `client/src/main/constants.ts:13-15` (`IPC_PORT = ... : 9876`). Docstrings reinforce the duplication.
 **User Impact:** If default port ever changes, 4 sites must be hunted down. `transport.py` and `ipc_server.py` use the literal directly — they won't pick up a change to `IPC_PORT`.
@@ -9382,7 +9338,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-35 — Cross-language DRY: EVENT_TYPES 3-way duplication (NEW)
+### DR-35 — Cross-language DRY: EVENT_TYPES 3-way duplication (NEW)
 **Status:** ❌ Not Fixed (NEW finding)
 **Description:** Four independent hand-maintained lists of the same event-type catalogue: Python `event_bus.py:169-220` (`EVENT_TYPES` frozenset ~32 entries), Rust `src-tauri/src/sidecar/ws.rs:74-144` (`ALLOWED_EVENT_TYPES` slice ~40 entries), TS `usePython.ts:121-163` (`KNOWN_EVENT_TYPES` ReadonlySet ~38 entries), plus TS `push_events.ts` per-event `PythonPushEvent["type"]` union. The Python docstring admits drift happened twice.
 **User Impact:** A missed Rust update silently drops legitimate events (Rust is a security gate). A typo in TS reaches production silently.
@@ -9399,7 +9355,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-36 — Cross-language DRY: hotkey_reserved.json byte-identical file copy
+### DR-36 — Cross-language DRY: hotkey_reserved.json byte-identical file copy
 **Status:** ❌ Not Fixed (NEW finding)
 **Description:** `voice_typer/server/hotkey_reserved.json` and `voice_typer/client/src/renderer/src/data/hotkey_reserved.json` are byte-identical (3179 bytes each). A sync test (`test_hotkey_reserved_sync.py`) is a backstop, not a build-time guarantee.
 **User Impact:** Drift risk if sync test is skipped in pre-commit.
@@ -9414,7 +9370,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-37 — Cross-language DRY: max_recording_time_seconds split-brain clamp
+### DR-37 — Cross-language DRY: max_recording_time_seconds split-brain clamp
 **Status:** ❌ Not Fixed (NEW finding)
 **Description:** Default `900` hardcoded in 4 Python production sites and 12 TS test sites. Worse, clamp range is split-brain: `config.py:1716-1738` clamps to `[300, 3600]` (5-60 min), but `config_validators.py:1297` IPC validator accepts `[30, 3600]` (0.5-60 min). A `set_config({max_recording_time_seconds: 60})` succeeds via IPC but is silently clamped to `300` on next `Config.load()`.
 **User Impact:** A user who sets `max_recording_time_seconds: 60` via Settings UI gets the value silently bumped to 300 on next restart.
@@ -9430,7 +9386,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-38 — Cross-language DRY: default locale "en" hardcoded 8+ places
+### DR-38 — Cross-language DRY: default locale "en" hardcoded 8+ places
 **Status:** ❌ Not Fixed (NEW finding)
 **Description:** Default locale `"en"` is hardcoded across 8+ files in Python + TS. The TS i18n.ts uses `"en"` as the fallback in 5 different code paths.
 **User Impact:** If default locale ever changes, every site must be hunted down.
@@ -9451,7 +9407,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-39 — Docs: stubs/README.md:21 stale server_platform.py path
+### DR-39 — Docs: stubs/README.md:21 stale server_platform.py path
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/stubs/README.md:21` table row reads `| winreg | (stdlib, Windows-only) | Windows | server/server_platform.py, task_scheduler.py |`. Actual code: `server_platform.py` was split into a package `server_platform/` (autostart.py, autostart_{linux,macos,windows}.py, microphone_list.py, etc.). The `winreg` import surface lives in `server_platform/autostart_windows.py`.
 **User Impact:** A maintainer following the stub README to find winreg call sites is sent to a non-existent file.
@@ -9467,7 +9423,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-40 — Docs: ADR-0015 §5 stale exception list + ipc.ts path
+### DR-40 — Docs: ADR-0015 §5 stale exception list + ipc.ts path
 **Status:** ❌ Not Fixed
 **Description:** `docs/adr/0015-electron-command-allowlist.md:42, 69, §5` references "the `ipc.ts` module under `voice_typer/client/src/renderer/src/types/`" — but there is no `ipc.ts` file; it's now an `ipc/` PACKAGE. §5 "Not in the renderer allowlist (intentionally):" lists ONLY `show_electron_notification` (historical, already REMOVED) and a vague "Internal dispatch commands". Actual current host-only commands are `shutdown` and `tray_click`; TS-only exceptions are `heartbeat` and `relaunch_ack`.
 **User Impact:** A maintainer extending the IPC allowlist consults ADR-0015 as the architecture-of-record and gets an incomplete picture, risking a misclassification (e.g., adding `tray_click` to the renderer allowlist thinking it's missing by accident).
@@ -9481,7 +9437,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-41 — Docs: IPC command count drift (CHANGELOG/SECURITY/FEATURES claim 61 Rust, actual is 59)
+### DR-41 — Docs: IPC command count drift (CHANGELOG/SECURITY/FEATURES claim 61 Rust, actual is 59)
 **Status:** ❌ Not Fixed
 **Description:** Multiple docs claim wrong command counts: CHANGELOG.md:78 "Rust allowlist = 61", SECURITY.md:64 "61 Rust", FEATURES.md:274 "61/61/63", docs/migration/cutover-playbook.md:330 "61-command", docs/adr/README.md:23 "≈ lines 40–159". Actual: TS=61, Rust=59 (NOT 61), Python=63. The +2 TS↔Rust delta is `_TS_ONLY_EXCEPTIONS` (`heartbeat`, `relaunch_ack`). CHANGELOG.md is internally inconsistent (line 78 says Rust=61, line 115 says Rust=59).
 **User Impact:** A future maintainer reading SECURITY.md or CHANGELOG.md will mis-size the Rust allowlist by 2; if they reconcile the Rust literal to "match" 61 they will re-add `heartbeat`/`relaunch_ack` and re-open the compromised-renderer attack surface that `_TS_ONLY_EXCEPTIONS` was created to close.
@@ -9505,7 +9461,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-42 — Docs: FEATURES.md architecture diagram doesn't show Tauri stack
+### DR-42 — Docs: FEATURES.md architecture diagram doesn't show Tauri stack
 **Status:** ❌ Not Fixed
 **Description:** `FEATURES.md:3, 35–97` "Last updated: 2026-06-22" — architecture ASCII diagram shows ONLY an "Electron Shell" with `Main Process (main/index.ts)`, "Spawns Python backend via pythonw", "TCP IPC bridge (port 9876)", "61 allowed IPC commands". No mention of the Tauri v2 + Python sidecar stack being migrated per ADR-0020.
 **User Impact:** A maintainer onboarding via FEATURES.md sees only the Electron architecture and is unaware of the Tauri migration in progress, leading to wrong assumptions about where to add new IPC commands.
@@ -9519,7 +9475,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-43 — Docs: home-directory.md _setup_logging path stale
+### DR-43 — Docs: home-directory.md _setup_logging path stale
 **Status:** ❌ Not Fixed
 **Description:** `docs/home-directory.md:130, 233` references `app.py:_setup_logging()`. Actual code: `_setup_logging()` was extracted to `voice_typer/server/logging_setup.py:20` per REF-3. The actual `os.environ.setdefault("HF_HOME", ...)` call is at `logging_setup.py:41`. `app.py` no longer mentions `HF_HOME` or `huggingface` directly.
 **User Impact:** A maintainer hunting the HF_HOME assignment in `app.py` will not find it, may assume the env var is unset, and may add a duplicate `os.environ.setdefault("HF_HOME", ...)` in `app.py` — silently overriding the `logging_setup.py` value at a different point in the boot sequence.
@@ -9533,7 +9489,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-44 — Docs: ADR-0011 line 493 stale server_platform.py path
+### DR-44 — Docs: ADR-0011 line 493 stale server_platform.py path
 **Status:** ❌ Not Fixed
 **Description:** `docs/adr/0011-prewarm-architecture-analysis.md:493` reads `# server_platform.py::_autostart_command()`. Actual code: `_autostart_command()` is now defined in `voice_typer/server/server_platform/autostart.py`.
 **User Impact:** A maintainer following ADR-0011's prewarm-coordination recipe opens `server_platform.py` to find `_autostart_command()`, lands on a missing file.
@@ -9547,7 +9503,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-45 — Python: _get_rate_limiter duplicate in 2 files
+### DR-45 — Python: _get_rate_limiter duplicate in 2 files
 **Status:** ❌ Not Fixed
 **Description:** `_get_rate_limiter(server)` is defined TWICE — once at `voice_typer/server/ipc_server.py:173-219` and once at `voice_typer/server/ipc/rate_limiter.py:406-449`. The two bodies are byte-for-byte identical except for the comment block. Comment at `ipc_server.py:154-172` explains: tests monkey-patch `ipc_server._RateLimiter` to widen the race window.
 **User Impact:** Any change to `_get_rate_limiter` MUST be made in two places — drift is silent.
@@ -9562,7 +9518,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-46 — Python text_cleanup.py 1044 LOC: 5 concerns mixed
+### DR-46 — Python text_cleanup.py 1044 LOC: 5 concerns mixed
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/text_cleanup.py` (1044 LOC) hosts 5 distinct text-cleanup concerns: (1) corrections loading, (2) spacing/punctuation normalization, (3) duplicate/phrase removal, (4) misspelling/phrase correction, (5) capitalization + file-extension fixing. Module-level constants are scattered across the file.
 **User Impact:** Adding a new cleanup rule requires touching a 1044-line file with 5 unrelated concerns.
@@ -9576,7 +9532,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-47 — TS: 4-way alias duplication in Vite configs
+### DR-47 — TS: 4-way alias duplication in Vite configs
 **Status:** ❌ Not Fixed
 **Description:** Identical `resolve.alias` block (`@` → `src/renderer/src`, `#ui` → `src/renderer/src/components/ui`, `#utils` → `src/renderer/src/lib/utils.ts`) hand-copied into 4 Vite configs: `electron.vite.config.ts`, `electron.vite.renderer.ts`, `vite.config.ts`, `vitest.config.ts`. Comment at `electron.vite.config.ts:7-9` says "Keep them in sync when modifying this file."
 **User Impact:** Adding/renaming an alias requires editing 4 files. Risk of drift — a contributor adding `#hooks` in one config and forgetting the other three would cause runtime `Cannot find module` errors in only some build paths.
@@ -9593,7 +9549,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-48 — TS: tsconfig strictness duplication
+### DR-48 — TS: tsconfig strictness duplication
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/client/tsconfig.node.json:9-16` and `tsconfig.web.json:9-16` both declare the same strictness flags (`noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noFallthroughCasesInSwitch`) with the same `// XS-63:` comment.
 **User Impact:** Adding a new strictness flag requires editing 2 files in lockstep.
@@ -9608,9 +9564,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-## DR-50 — Repo: root package-lock.json orphan
+### DR-50 — Repo: root package-lock.json orphan
 **Status:** ❌ Not Fixed
 **Description:** `/home/z/my-project/skills/_persistent/voice-typer/package-lock.json` (root) is a 90-byte stub: `{"name": "voice-typer", "lockfileVersion": 3, "requires": true, "packages": {}}`. No `package.json` exists at the repo root. The real client lockfile is `voice_typer/client/package-lock.json` (556KB).
 **User Impact:** Misleading — npm/IDE tooling may treat the repo root as an npm workspace root and waste time resolving an empty packages graph.
@@ -9624,7 +9578,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DR-51 — Python S5-CR-26 STILL REAL: handler accesses app._waveform_bubble private attr
+### DR-51 — Python S5-CR-26 STILL REAL: handler accesses app._waveform_bubble private attr
 **Status:** ❌ Not Fixed (verified still real)
 **Description:** `voice_typer/server/handlers/config_handlers.py:335` still uses `getattr(self.app, "_waveform_bubble", None)` — private attribute access preserved.
 **User Impact:** Encapsulation breach; service layer reaches into app's private attrs.
@@ -9639,11 +9593,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## End of Session DR Findings
-
-### Findings from Session 2 (prefix DJ — Performance & Resources)
-
-## DJ-1 — Numpy eagerly imported via audio_filters/recorder/vad_processor chain — defeats lazy_module proxy
+### DJ-1 — Numpy eagerly imported via audio_filters/recorder/vad_processor chain — defeats lazy_module proxy
 **Status:** ⚠️ Partial
 **Severity:** 🔴 High
 
@@ -9672,7 +9622,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-2 — VoiceTyperApp.__init__ god-constructor blocks tray icon appearance
+### DJ-2 — VoiceTyperApp.__init__ god-constructor blocks tray icon appearance
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9692,7 +9642,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-3 — Redundant eager Qwen engine init on main thread
+### DJ-3 — Redundant eager Qwen engine init on main thread
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9712,7 +9662,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-4 — Prewarm sync waits up to 10s in startup parallel pool, blocking hotkey registration
+### DJ-4 — Prewarm sync waits up to 10s in startup parallel pool, blocking hotkey registration
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9731,7 +9681,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-5 — Tauri setup hook runs migrate_electron_userdata synchronously, blocking event loop on first launch
+### DJ-5 — Tauri setup hook runs migrate_electron_userdata synchronously, blocking event loop on first launch
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9751,7 +9701,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-6 — Sidecar cleanup budget mismatch — host force-kills mid-cleanup causing data corruption
+### DJ-6 — Sidecar cleanup budget mismatch — host force-kills mid-cleanup causing data corruption
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 
@@ -9773,7 +9723,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-7 — ASR models not unloaded on shutdown — CUDA memory leak across restart cycles
+### DJ-7 — ASR models not unloaded on shutdown — CUDA memory leak across restart cycles
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9794,7 +9744,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-8 — WS dispatch pool 5s join doesn't bound atexit join — Python process hangs on stuck handler
+### DJ-8 — WS dispatch pool 5s join doesn't bound atexit join — Python process hangs on stuck handler
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9814,7 +9764,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-9 — In-flight WS handler races with DB teardown — silently loses final transcription
+### DJ-9 — In-flight WS handler races with DB teardown — silently loses final transcription
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9834,7 +9784,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-10 — Electron 3s SIGTERM-only killTimer with no SIGKILL escalation — orphans native hotkey binary
+### DJ-10 — Electron 3s SIGTERM-only killTimer with no SIGKILL escalation — orphans native hotkey binary
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9854,7 +9804,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-11 — _capitalize_pronoun_i is O(n²) — per-character scan with O(n) substring copies inside loop
+### DJ-11 — _capitalize_pronoun_i is O(n²) — per-character scan with O(n) substring copies inside loop
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9873,7 +9823,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-12 — Uninterruptible transcription inference — abort hotkey doesn't free compute
+### DJ-12 — Uninterruptible transcription inference — abort hotkey doesn't free compute
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9895,7 +9845,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-13 — Cloud engines block transcription thread up to 35s with no abort
+### DJ-13 — Cloud engines block transcription thread up to 35s with no abort
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9915,7 +9865,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-14 — GPU→CPU fallback cold-loads CPU model — 5-50s frozen tray
+### DJ-14 — GPU→CPU fallback cold-loads CPU model — 5-50s frozen tray
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9936,7 +9886,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-15 — _correct_whisper_phrases / _remove_extra_words O(N×M) — no Aho-Corasick automaton
+### DJ-15 — _correct_whisper_phrases / _remove_extra_words O(N×M) — no Aho-Corasick automaton
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -9955,7 +9905,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-16 — Per-segment redundant getattr + import in transcription logging loop
+### DJ-16 — Per-segment redundant getattr + import in transcription logging loop
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -9974,7 +9924,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-17 — RecordingController._current_audio retains last dictation's audio bytes until next stop
+### DJ-17 — RecordingController._current_audio retains last dictation's audio bytes until next stop
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -9994,7 +9944,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-18 — 11 cursors in history_db.py + 2 in schema/retention never explicitly closed — 20MB page cache per pinned cursor
+### DJ-18 — 11 cursors in history_db.py + 2 in schema/retention never explicitly closed — 20MB page cache per pinned cursor
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10015,7 +9965,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-19 — _all_read_connections pruning is reactive — dead-thread 20MB connections leak until next new-thread read
+### DJ-19 — _all_read_connections pruning is reactive — dead-thread 20MB connections leak until next new-thread read
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10034,7 +9984,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-20 — microphone_test_recorder.py is dead code that breaks MEM-02 deque invariant
+### DJ-20 — microphone_test_recorder.py is dead code that breaks MEM-02 deque invariant
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10053,7 +10003,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-21 — StreamingTextAssembler._seen_timestamps set grows without bound during finalize()
+### DJ-21 — StreamingTextAssembler._seen_timestamps set grows without bound during finalize()
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10072,7 +10022,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-22 — _pending_restores entry not removed in two error paths — orphaned snapshot pins 16-50MB
+### DJ-22 — _pending_restores entry not removed in two error paths — orphaned snapshot pins 16-50MB
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10091,7 +10041,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-23 — _stop_watchdog_thread doesn't join or null — dead Thread object persists between stop() calls
+### DJ-23 — _stop_watchdog_thread doesn't join or null — dead Thread object persists between stop() calls
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10110,7 +10060,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-24 — _plaintext_config_cache retains plaintext API keys after GDPR delete
+### DJ-24 — _plaintext_config_cache retains plaintext API keys after GDPR delete
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10130,7 +10080,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-25 — Config._last_saved_bytes retains plaintext API keys after GDPR delete
+### DJ-25 — Config._last_saved_bytes retains plaintext API keys after GDPR delete
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10150,7 +10100,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-26 — _pending_restores is unbounded plain list — 16MB×N snapshot accumulation under restore-lock contention
+### DJ-26 — _pending_restores is unbounded plain list — 16MB×N snapshot accumulation under restore-lock contention
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10169,7 +10119,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-27 — Stale keyring availability cache — secrets fall through to plaintext for entire session
+### DJ-27 — Stale keyring availability cache — secrets fall through to plaintext for entire session
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10188,7 +10138,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-28 — WaveformBubbleWiring closure reference cycle — stop() doesn't clear on_* callbacks
+### DJ-28 — WaveformBubbleWiring closure reference cycle — stop() doesn't clear on_* callbacks
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10207,7 +10157,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-29 — apply_config deep-copies full Config on every set_config IPC call
+### DJ-29 — apply_config deep-copies full Config on every set_config IPC call
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10226,7 +10176,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-30 — sender.py per-write settimeout syscall dance on 60Hz bubble_level hot path
+### DJ-30 — sender.py per-write settimeout syscall dance on 60Hz bubble_level hot path
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10247,7 +10197,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-31 — Per-dispatch lazy imports in ipc_server._dispatch + validation._validate_dict_payload
+### DJ-31 — Per-dispatch lazy imports in ipc_server._dispatch + validation._validate_dict_payload
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10267,7 +10217,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-32 — _dispatch uses getattr(self.app, '_shutting_down') instead of cached snapshot
+### DJ-32 — _dispatch uses getattr(self.app, '_shutting_down') instead of cached snapshot
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10286,7 +10236,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-33 — event_bus.publish allocates fresh list(_subscribers) per publish on 60Hz hot path
+### DJ-33 — event_bus.publish allocates fresh list(_subscribers) per publish on 60Hz hot path
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10305,7 +10255,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-34 — Tauri state.pending uses async Mutex for pure-sync HashMap ops
+### DJ-34 — Tauri state.pending uses async Mutex for pure-sync HashMap ops
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10326,7 +10276,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-35 — WS writer double-UTF-8-encodes every outbound frame for byte-length check
+### DJ-35 — WS writer double-UTF-8-encodes every outbound frame for byte-length check
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10345,13 +10295,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-
-
-## DJ-39 — sidecar_ws._push_to_ws closure subscriber leaks on abnormal WS teardown
+### DJ-39 — sidecar_ws._push_to_ws closure subscriber leaks on abnormal WS teardown
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10371,7 +10315,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-40 — Tray-unavailable run() polls 60s with empty queue
+### DJ-40 — Tray-unavailable run() polls 60s with empty queue
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10390,15 +10334,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-
-
-
-
-
-
-
-
-## DJ-45 — Prewarm double-logging — every prewarm line written to BOTH voice-typer.log and prewarm.log
+### DJ-45 — Prewarm double-logging — every prewarm line written to BOTH voice-typer.log and prewarm.log
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10417,7 +10353,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-46 — prewarm _warm_package_files runs ~70k stat() syscalls per boot
+### DJ-46 — prewarm _warm_package_files runs ~70k stat() syscalls per boot
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10436,7 +10372,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-47 — is_prewarm_running not memoized — up to 60 PEB walks / 60 powershell spawns on Windows
+### DJ-47 — is_prewarm_running not memoized — up to 60 PEB walks / 60 powershell spawns on Windows
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10455,7 +10391,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-48 — microphone_watcher 1s poll on Linux + macOS-fallback
+### DJ-48 — microphone_watcher 1s poll on Linux + macOS-fallback
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10474,7 +10410,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-49 — Multi-process log file race — prewarm + main backend both write voice-typer.log
+### DJ-49 — Multi-process log file race — prewarm + main backend both write voice-typer.log
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10494,7 +10430,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-51 — appendFileSync open/close per call — no persistent write stream
+### DJ-51 — appendFileSync open/close per call — no persistent write stream
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10514,7 +10450,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-52 — PersistedJSON.save always fsyncs — vocabulary/templates pay 2 fsyncs per edit
+### DJ-52 — PersistedJSON.save always fsyncs — vocabulary/templates pay 2 fsyncs per edit
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10535,7 +10471,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-53 — PersistedJSON.save reads entire file for diff check on every save
+### DJ-53 — PersistedJSON.save reads entire file for diff check on every save
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10554,7 +10490,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-54 — Windows directory-fsync gap — rename may not survive power loss
+### DJ-54 — Windows directory-fsync gap — rename may not survive power loss
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10573,7 +10509,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-55 — Non-critical callers use durability=True — PID files, onboarding sentinels, prewarm sentinels
+### DJ-55 — Non-critical callers use durability=True — PID files, onboarding sentinels, prewarm sentinels
 **Status:** ⚠️ Partial
 **Severity:** 🟢 Low
 
@@ -10597,7 +10533,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-56 — history_db per-row COMMIT when batch < 3
+### DJ-56 — history_db per-row COMMIT when batch < 3
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10616,7 +10552,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-57 — VAD model not preloaded + ring buffer drops oldest chunks — first 1-2s of speech lost
+### DJ-57 — VAD model not preloaded + ring buffer drops oldest chunks — first 1-2s of speech lost
 **Status:** ⚠️ Partial
 **Severity:** 🔴 Critical
 
@@ -10637,7 +10573,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-58 — Hardcoded blocksize=512 — at 48kHz callback fires 94Hz, overwhelming worker
+### DJ-58 — Hardcoded blocksize=512 — at 48kHz callback fires 94Hz, overwhelming worker
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10657,7 +10593,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-59 — Synchronous pre-roll filtering blocks start() — 100-500ms hotkey-to-recording latency
+### DJ-59 — Synchronous pre-roll filtering blocks start() — 100-500ms hotkey-to-recording latency
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10676,7 +10612,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-60 — Per-chunk redundant allocations on audio hot path — .copy() in apply_filter_chain duplicates callback's owned copy
+### DJ-60 — Per-chunk redundant allocations on audio hot path — .copy() in apply_filter_chain duplicates callback's owned copy
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10696,7 +10632,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-62 — stop() is fully synchronous — up to 9s hotkey-to-result latency
+### DJ-62 — stop() is fully synchronous — up to 9s hotkey-to-result latency
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10715,7 +10651,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-63 — Pre-roll buffer sized for preroll_seconds but only filled during start() setup window
+### DJ-63 — Pre-roll buffer sized for preroll_seconds but only filled during start() setup window
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10734,7 +10670,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-64 — Hot-swap to different sample rate corrupts in-flight audio buffer
+### DJ-64 — Hot-swap to different sample rate corrupts in-flight audio buffer
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10754,7 +10690,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-65 — G4-M-41 active-mic-lost hooks + on_device_lost callback are dead code — never wired
+### DJ-65 — G4-M-41 active-mic-lost hooks + on_device_lost callback are dead code — never wired
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10775,7 +10711,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-66 — Default device change not detected — app keeps using stale default for entire session
+### DJ-66 — Default device change not detected — app keeps using stale default for entire session
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -10795,7 +10731,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-67 — restart_stream skips original index on BT reconnect — falls back to laptop mic
+### DJ-67 — restart_stream skips original index on BT reconnect — falls back to laptop mic
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10814,7 +10750,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-68 — Service-layer mic cache not invalidated by OS watcher
+### DJ-68 — Service-layer mic cache not invalidated by OS watcher
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10834,7 +10770,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-69 — Device index used as persistent identifier — unstable across hot-swap
+### DJ-69 — Device index used as persistent identifier — unstable across hot-swap
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10854,7 +10790,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-70 — No BT HFP mode-switch retry logic — recording terminated on every BT mode switch
+### DJ-70 — No BT HFP mode-switch retry logic — recording terminated on every BT mode switch
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10875,7 +10811,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-72 — Limiter/Compressor allocate fresh b/a lists + zi arrays per chunk
+### DJ-72 — Limiter/Compressor allocate fresh b/a lists + zi arrays per chunk
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10895,7 +10831,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-73 — Limiter/Compressor allocate ~15 intermediate float64 arrays per chunk without out=
+### DJ-73 — Limiter/Compressor allocate ~15 intermediate float64 arrays per chunk without out=
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10915,7 +10851,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-74 — Equalizer allocates fresh prefix + concatenates per chunk for 3-sample delay line
+### DJ-74 — Equalizer allocates fresh prefix + concatenates per chunk for 3-sample delay line
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10934,7 +10870,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-75 — NoiseSuppressor _StreamingResampler allocates fresh zero-filled upsampled array per chunk
+### DJ-75 — NoiseSuppressor _StreamingResampler allocates fresh zero-filled upsampled array per chunk
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -10953,7 +10889,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-76 — vad.compute_vad_prob rebuilds _expected_samples dict and uses always-copy .to(float32) per call
+### DJ-76 — vad.compute_vad_prob rebuilds _expected_samples dict and uses always-copy .to(float32) per call
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10972,7 +10908,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-77 — Per-frame RNNoise int16/float32 conversion dance — 240 allocations/sec
+### DJ-77 — Per-frame RNNoise int16/float32 conversion dance — 240 allocations/sec
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -10991,7 +10927,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-78 — vad.is_speech RMS-fallback allocates intermediate squared array
+### DJ-78 — vad.is_speech RMS-fallback allocates intermediate squared array
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11010,7 +10946,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-79 — Silero VAD never moved to CUDA — undocumented intentional decision
+### DJ-79 — Silero VAD never moved to CUDA — undocumented intentional decision
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11029,7 +10965,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-81 — No priority queue — transcription_final stuck behind 60Hz bubble_level flood during disconnect
+### DJ-81 — No priority queue — transcription_final stuck behind 60Hz bubble_level flood during disconnect
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11049,7 +10985,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-82 — Post-reconnect drain: 101 separate sendall syscalls per _send cycle under lock
+### DJ-82 — Post-reconnect drain: 101 separate sendall syscalls per _send cycle under lock
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11069,7 +11005,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-83 — tcp-connect.ts main-thread JSON.parse storm — 100+ parses per chunk blocks UI
+### DJ-83 — tcp-connect.ts main-thread JSON.parse storm — 100+ parses per chunk blocks UI
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11089,7 +11025,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-84 — _pending_tcp plain list with O(N) del on every push during disconnect
+### DJ-84 — _pending_tcp plain list with O(N) del on every push during disconnect
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11109,7 +11045,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-85 — WS writer no batching — 60-125 separate WS frame sends/sec for bubble_level
+### DJ-85 — WS writer no batching — 60-125 separate WS frame sends/sec for bubble_level
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11128,7 +11064,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-86 — tcpBuffer is a string — O(N²) concat under burst reconnect
+### DJ-86 — tcpBuffer is a string — O(N²) concat under burst reconnect
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11148,7 +11084,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-87 — Reconnect drops in-flight requests — 'flaky button' feel during brief disconnects
+### DJ-87 — Reconnect drops in-flight requests — 'flaky button' feel during brief disconnects
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11168,7 +11104,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-88 — AudioFilterChain.tsx inline t() calls defeat useMemo labels optimization
+### DJ-88 — AudioFilterChain.tsx inline t() calls defeat useMemo labels optimization
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11187,7 +11123,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-89 — usePythonEvent subscribes to global stream — N listeners × 33 event types = 3N dispatches on Tauri
+### DJ-89 — usePythonEvent subscribes to global stream — N listeners × 33 event types = 3N dispatches on Tauri
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11208,7 +11144,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-90 — bubble-components useAudioLevels rAF loop runs at 60Hz even when bubble hidden/idle
+### DJ-90 — bubble-components useAudioLevels rAF loop runs at 60Hz even when bubble hidden/idle
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11227,7 +11163,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-91 — showBubbleWindow redundant OS calls — 2× setAlwaysOnTop + setVisibleOnAllWorkspaces per show
+### DJ-91 — showBubbleWindow redundant OS calls — 2× setAlwaysOnTop + setVisibleOnAllWorkspaces per show
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11246,7 +11182,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-92 — useHotkeyCapture effect with no deps array runs after every render
+### DJ-92 — useHotkeyCapture effect with no deps array runs after every render
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11265,7 +11201,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-93 — Dashboard recomputes maxCount + rebuilds 7 bars + 14 t() calls per render
+### DJ-93 — Dashboard recomputes maxCount + rebuilds 7 bars + 14 t() calls per render
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11284,7 +11220,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-94 — App.tsx inline handlers defeat React.memo on TitleBar/HelpOverlay children
+### DJ-94 — App.tsx inline handlers defeat React.memo on TitleBar/HelpOverlay children
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11303,7 +11239,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-95 — i18n t() has no per-(locale,key) resolved-string cache
+### DJ-95 — i18n t() has no per-(locale,key) resolved-string cache
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11322,7 +11258,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-96 — recorder.py is a 3772-line monolith mixing 7 concerns — Phase 4.5 mandatory split
+### DJ-96 — recorder.py is a 3772-line monolith mixing 7 concerns — Phase 4.5 mandatory split
 **Status:** ⚠️ Partial
 **Severity:** 🔴 Critical
 
@@ -11343,7 +11279,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-97 — _secure_clear_session_caches vs _secure_clear_caches — duplicated ~50 LOC
+### DJ-97 — _secure_clear_session_caches vs _secure_clear_caches — duplicated ~50 LOC
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11362,7 +11298,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-98 — _open_stream_for_candidates vs _open_stream_fallback — duplicated ~100 LOC
+### DJ-98 — _open_stream_for_candidates vs _open_stream_fallback — duplicated ~100 LOC
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11381,7 +11317,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-99 — AudioProcessor retune block duplicated between start() and DisconnectHandler.restart_stream()
+### DJ-99 — AudioProcessor retune block duplicated between start() and DisconnectHandler.restart_stream()
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 
@@ -11401,7 +11337,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-102 — Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read
+### DJ-102 — Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11422,7 +11358,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-103 — Stale doc references to non-existent _callback_impl / _audio_callback_record
+### DJ-103 — Stale doc references to non-existent _callback_impl / _audio_callback_record
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11442,7 +11378,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-104 — blocksize=512 literal hard-coded in 7 sites across 2 files
+### DJ-104 — blocksize=512 literal hard-coded in 7 sites across 2 files
 **Status:** ⚠️ Partial
 **Severity:** 🟡 Medium
 
@@ -11462,7 +11398,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-105 — _ensure_mono allocates fresh mean array per chunk on stereo input
+### DJ-105 — _ensure_mono allocates fresh mean array per chunk on stereo input
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 
@@ -11481,7 +11417,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-106 — _teardown_stream busy-poll instead of Event.wait
+### DJ-106 — _teardown_stream busy-poll instead of Event.wait
 **Status:** ⚠️ Partial
 **Severity:** 🟡 Medium
 
@@ -11500,7 +11436,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-107 — 8 device-state property shim pairs + 6 AudioPipeline delegators = ~120 LOC pure boilerplate
+### DJ-107 — 8 device-state property shim pairs + 6 AudioPipeline delegators = ~120 LOC pure boilerplate
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11519,7 +11455,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-108 — Event-queue drain loop duplicated between _start_event_worker and _stop_event_worker
+### DJ-108 — Event-queue drain loop duplicated between _start_event_worker and _stop_event_worker
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -11540,7 +11476,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ### Findings from Session 4 (prefix FR — Security & Data)
 
-## FR-1 — Critical: Config.load() defeats XZ-SEC-04 keyring-migration deferral
+### FR-1 — Critical: Config.load() defeats XZ-SEC-04 keyring-migration deferral
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 **Category:** Security · Privacy & data protection
@@ -11556,7 +11492,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-2 — Critical: Python RotatingFileHandler post-rotation file mode 0o644 (world-readable) on POSIX
+### FR-2 — Critical: Python RotatingFileHandler post-rotation file mode 0o644 (world-readable) on POSIX
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 **Category:** Privacy & data protection
@@ -11571,7 +11507,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-3 — Critical: useTheme.ts sends `custom_theme: null` but Python validator rejects null
+### FR-3 — Critical: useTheme.ts sends `custom_theme: null` but Python validator rejects null
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 **Category:** Configuration management
@@ -11588,7 +11524,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-4 — Critical: TS ModelSize missing 3 multilingual variants; parity test codifies the gap
+### FR-4 — Critical: TS ModelSize missing 3 multilingual variants; parity test codifies the gap
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 **Category:** Configuration management
@@ -11605,7 +11541,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-5 — Critical: Windows atomicWriteFileSync data loss on unlink failure
+### FR-5 — Critical: Windows atomicWriteFileSync data loss on unlink failure
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 Critical
 **Category:** Error handling · Data integrity & persistence
@@ -11620,7 +11556,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-6 — High: CloudEngine cached-engine infrastructure is dead code; false security claim about credential revocation
+### FR-6 — High: CloudEngine cached-engine infrastructure is dead code; false security claim about credential revocation
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Security
@@ -11637,7 +11573,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-7 — High: PersistedJSON.save symlink-following via read_bytes/write_bytes
+### FR-7 — High: PersistedJSON.save symlink-following via read_bytes/write_bytes
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Security · Data integrity & persistence
@@ -11652,7 +11588,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-8 — High: history_db._backup_before_migration uses shutil.copy2 (symlink-following, non-atomic)
+### FR-8 — High: history_db._backup_before_migration uses shutil.copy2 (symlink-following, non-atomic)
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Security · Data integrity & persistence
@@ -11667,7 +11603,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-9 — High: Electron appendLogLine missing mode:0o600 (world-readable PII logs on POSIX)
+### FR-9 — High: Electron appendLogLine missing mode:0o600 (world-readable PII logs on POSIX)
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Privacy & data protection
@@ -11682,7 +11618,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-10 — High: Silent dictation data loss + 30s pipeline hang when writer thread dies
+### FR-10 — High: Silent dictation data loss + 30s pipeline hang when writer thread dies
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience · Data integrity & persistence
@@ -11698,7 +11634,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-11 — High: respawn_supervisor_sender `.expect()` panics → permanently bricks resilience layer
+### FR-11 — High: respawn_supervisor_sender `.expect()` panics → permanently bricks resilience layer
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience
@@ -11713,7 +11649,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-12 — High: trigger_respawn_off_thread silent failure when supervisor channel closed, no fallback
+### FR-12 — High: trigger_respawn_off_thread silent failure when supervisor channel closed, no fallback
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience
@@ -11728,7 +11664,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-13 — High: VEH rate-limit lockout after non-fatal STATUS_GUARD_PAGE_VIOLATION
+### FR-13 — High: VEH rate-limit lockout after non-fatal STATUS_GUARD_PAGE_VIOLATION
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience
@@ -11745,7 +11681,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-14 — High: No threading.excepthook — daemon thread crashes silently lost
+### FR-14 — High: No threading.excepthook — daemon thread crashes silently lost
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience
@@ -11761,7 +11697,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-15 — High: F2 does not retry model load — tray message lies
+### FR-15 — High: F2 does not retry model load — tray message lies
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience
@@ -11777,7 +11713,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-16 — High: Rust log records before init_file_logger are silently dropped (no lastResort equivalent)
+### FR-16 — High: Rust log records before init_file_logger are silently dropped (no lastResort equivalent)
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Logging consistency · Error recovery & resilience
@@ -11794,7 +11730,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-17 — High: Mic permission revocation mid-recording goes undetected
+### FR-17 — High: Mic permission revocation mid-recording goes undetected
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
 **Category:** Error recovery & resilience · Privacy & data protection
@@ -11811,7 +11747,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-18 — Medium: HF_TOKEN env stripping not applied in Electron/standalone mode
+### FR-18 — Medium: HF_TOKEN env stripping not applied in Electron/standalone mode
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Security
@@ -11827,7 +11763,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-19 — Medium: config_sanitizer.SECRET_CONFIG_FIELDS not structurally linked to credential_store.PROVIDER_TO_CONFIG_FIELD
+### FR-19 — Medium: config_sanitizer.SECRET_CONFIG_FIELDS not structurally linked to credential_store.PROVIDER_TO_CONFIG_FIELD
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Security · Configuration management
@@ -11844,7 +11780,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-20 — Medium: config_sanitizer.sanitize_config_for_ipc leaks non-dataclass attrs via dict(config.__dict__)
+### FR-20 — Medium: config_sanitizer.sanitize_config_for_ipc leaks non-dataclass attrs via dict(config.__dict__)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Security · Privacy & data protection
@@ -11859,7 +11795,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-21 — Medium: dead volume_duck_smart / push_to_talk_hotkey branches in config_applier
+### FR-21 — Medium: dead volume_duck_smart / push_to_talk_hotkey branches in config_applier
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Configuration management
@@ -11874,7 +11810,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-22 — Medium: IPC handler returns only errors[0] despite CR-25 accumulating all errors
+### FR-22 — Medium: IPC handler returns only errors[0] despite CR-25 accumulating all errors
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error handling · Configuration management
@@ -11890,7 +11826,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-23 — Medium: _backup_before_downgrade uses shutil.copy2 (symlink-following, non-atomic)
+### FR-23 — Medium: _backup_before_downgrade uses shutil.copy2 (symlink-following, non-atomic)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Data integrity & persistence
@@ -11905,7 +11841,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-24 — Medium: Config._save_unlocked backup READ uses read_bytes (follows symlinks)
+### FR-24 — Medium: Config._save_unlocked backup READ uses read_bytes (follows symlinks)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Data integrity & persistence
@@ -11920,7 +11856,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-25 — Medium: DNS-based SSRF — hostname-only URL allowlist (no IP-level check)
+### FR-25 — Medium: DNS-based SSRF — hostname-only URL allowlist (no IP-level check)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Security
@@ -11936,7 +11872,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-26 — Medium: history_db WAL/SHM chmod race — files created with default umask (world-readable)
+### FR-26 — Medium: history_db WAL/SHM chmod race — files created with default umask (world-readable)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Privacy & data protection
@@ -11952,7 +11888,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-27 — Medium: FTS5 segment data survives clear_all + VACUUM (defeats secure_delete)
+### FR-27 — Medium: FTS5 segment data survives clear_all + VACUUM (defeats secure_delete)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Privacy & data protection
@@ -11968,7 +11904,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-28 — Medium: No incognito / disable-history toggle
+### FR-28 — Medium: No incognito / disable-history toggle
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Privacy & data protection
@@ -11984,7 +11920,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-29 — Medium: Corruption recovery silently replaces entire history DB (no user notification)
+### FR-29 — Medium: Corruption recovery silently replaces entire history DB (no user notification)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error recovery & resilience · Data integrity & persistence
@@ -11999,7 +11935,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-30 — Medium: tcp-connect.ts close-handler race — stale socket close wipes live socket's heartbeat/pending
+### FR-30 — Medium: tcp-connect.ts close-handler race — stale socket close wipes live socket's heartbeat/pending
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error recovery & resilience
@@ -12014,7 +11950,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-31 — Medium: python-call-handler regex-based /timeout/i classifier is brittle
+### FR-31 — Medium: python-call-handler regex-based /timeout/i classifier is brittle
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error handling
@@ -12030,7 +11966,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-32 — Medium: start-python.ts non-zero exit silently quits app (no user dialog)
+### FR-32 — Medium: start-python.ts non-zero exit silently quits app (no user dialog)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error handling · Error recovery & resilience
@@ -12045,7 +11981,7 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## FR-33 — Medium: Rust bubble_level filter has no level exception (drops WARNING+ records)
+### FR-33 — Medium: Rust bubble_level filter has no level exception (drops WARNING+ records)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Logging consistency
@@ -12071,7 +12007,7 @@ Preserves all WARNING+ records unconditionally. So a Rust `log::error!("[WS-READ
 
 ---
 
-## FR-34 — Medium: Cross-layer timestamp format divergence (Rust non-ISO-8601)
+### FR-34 — Medium: Cross-layer timestamp format divergence (Rust non-ISO-8601)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Logging consistency
@@ -12086,7 +12022,7 @@ Preserves all WARNING+ records unconditionally. So a Rust `log::error!("[WS-READ
 
 ---
 
-## FR-35 — Medium: WARN color divergence between Python and TS loggers
+### FR-35 — Medium: WARN color divergence between Python and TS loggers
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Logging consistency
@@ -12101,7 +12037,7 @@ Preserves all WARNING+ records unconditionally. So a Rust `log::error!("[WS-READ
 
 ---
 
-## FR-36 — Medium: appendLifecycleLine bypasses XV-154 cache (perf regression)
+### FR-36 — Medium: appendLifecycleLine bypasses XV-154 cache (perf regression)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Logging consistency · Performance
@@ -12122,7 +12058,7 @@ This does `statSync` + `appendFileSync` (2 syscalls) per INFO write. It does NOT
 
 ---
 
-## FR-37 — Medium: POSIX single-instance lockfile parent dir not chmod'd 0o700
+### FR-37 — Medium: POSIX single-instance lockfile parent dir not chmod'd 0o700
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Security
@@ -12137,7 +12073,7 @@ This does `statSync` + `appendFileSync` (2 syscalls) per INFO write. It does NOT
 
 ---
 
-## FR-38 — Medium: macOS autostart returns True even when launchctl load fails
+### FR-38 — Medium: macOS autostart returns True even when launchctl load fails
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error recovery & resilience
@@ -12152,7 +12088,7 @@ This does `statSync` + `appendFileSync` (2 syscalls) per INFO write. It does NOT
 
 ---
 
-## FR-39 — Medium: Windows/Linux check_microphone_permission always returns GRANTED
+### FR-39 — Medium: Windows/Linux check_microphone_permission always returns GRANTED
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error recovery & resilience
@@ -12167,7 +12103,7 @@ This does `statSync` + `appendFileSync` (2 syscalls) per INFO write. It does NOT
 
 ---
 
-## FR-40 — Medium: is_remote_session misses VNC/xrdp/Citrix/WVD
+### FR-40 — Medium: is_remote_session misses VNC/xrdp/Citrix/WVD
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Error recovery & resilience
@@ -12182,7 +12118,7 @@ This does `statSync` + `appendFileSync` (2 syscalls) per INFO write. It does NOT
 
 ---
 
-## Lower-Severity Findings (Documented; not all fixed this run)
+### Lower-Severity Findings (Documented; not all fixed this run)
 
 The following findings were identified during Phase 1 review but are documented here for tracking. Selected Low-severity items may be fixed if time permits during Phase 4.
 
