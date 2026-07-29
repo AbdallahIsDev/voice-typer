@@ -774,6 +774,23 @@ class VoiceTyperApp:
         """TrayController protocol: select microphone."""
         self._select_microphone(mic_id)
 
+    @property
+    def active_microphone_id(self) -> str | None:
+        """AC-53: TrayController protocol — return the currently selected
+        microphone ID from ``config.microphone`` (None = system default)."""
+        mic = getattr(self.config, "microphone", None)
+        return str(mic) if mic else None
+
+    def refresh_microphones(self) -> None:
+        """AC-53: TrayController protocol — re-enumerate microphones
+        and refresh the tray menu by delegating to startup_tasks."""
+        from voice_typer.server import startup_tasks
+
+        try:
+            startup_tasks.load_microphones(self)
+        except Exception:
+            log.warning("[TRAY] refresh_microphones failed", exc_info=True)
+
     def change_model(self, model_size: str) -> None:
         """TrayController protocol: change transcription model.
 

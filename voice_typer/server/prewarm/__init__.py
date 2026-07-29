@@ -108,7 +108,7 @@ mutable-state routing case) and :mod:`voice_typer.server.server_platform`.
 All three packages together account for ~500 LOC of ``__init__.py``
 boilerplate that exists purely for test-patch compatibility.
 
-TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+TODO (2026-07-28, CR-67 / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
 during the package reorganization.  Once CR-67 is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
@@ -122,7 +122,8 @@ test site has been migrated, the ``_pkg.X`` references and the
 ``from voice_typer.server import prewarm as _pkg`` lines in the
 submodules can be deleted.  Estimated scope: 30-50 test files per
 package (so 90-150 test files total across the three packages).
-Tracked as CR-67 / TECH-DEBT.
+Tracked as CR-67 / TECH-DEBT (no owner assigned; no ETA — see
+``docs/rw9-god-class-decomposition.md`` for the migration plan).
 
 Patch-path compatibility
 ------------------------
@@ -217,9 +218,11 @@ from .completion_events import (  # noqa: E402
     _wait_for_completion_event,
 )
 from .logging_setup import (  # noqa: E402
+    _BATTERY_LOW_CHARGE_THRESHOLD_PERCENT,
     _fast_startup_enabled,
     _free_ram_mb,
     _lower_io_priority,
+    _on_battery_and_low_charge,
     _setup_logging,
 )
 from .paths import (  # noqa: E402
@@ -238,6 +241,7 @@ from .pipeline import (  # noqa: E402
     EXIT_LOW_RAM,
     EXIT_NO_MODEL,
     EXIT_OK,
+    EXIT_ON_BATTERY,
     _run_warming_pipeline,
     run,
 )
@@ -261,6 +265,9 @@ __all__ = [
     "_fast_startup_enabled",
     "_free_ram_mb",
     "_lower_io_priority",
+    # ER-15: battery guard + threshold.
+    "_on_battery_and_low_charge",
+    "_BATTERY_LOW_CHARGE_THRESHOLD_PERCENT",
     # cache_probe
     "_resolve_hf_cache_dir",
     "_find_parakeet_weights",
@@ -312,6 +319,7 @@ __all__ = [
     "EXIT_LOW_RAM",
     "EXIT_NO_MODEL",
     "EXIT_IMPORT_FAILED",
+    "EXIT_ON_BATTERY",
     # cli
     "_parse_args",
     "_print_status",

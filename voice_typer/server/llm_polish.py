@@ -157,6 +157,20 @@ class LLMPolisher:
             # the exception before logging, so a leaked API key in
             # an error response body doesn't end up in the log file.
             log.warning("[LLM_POLISH] Polish failed: %s (returning original)", redact_secret(str(exc)))
+            # XZ-R18-05: publish ``llm_polish_failed`` so the renderer
+            # can surface a one-time toast. Without this the user pays
+            # for an LLM API call that never produces a polished result,
+            # and the only signal is a log line they will never see.
+            # Best-effort: ``event_bus`` import + publish are both
+            # wrapped in ``suppress(Exception)`` so a broken event bus
+            # cannot double-fault the polish path (the user still gets
+            # their un-polished transcription pasted).
+            try:
+                from voice_typer.server import event_bus
+
+                event_bus.publish({"type": "llm_polish_failed"})
+            except Exception:
+                log.debug("[LLM_POLISH] could not publish llm_polish_failed event", exc_info=True)
             return text
 
     def test_connection(self) -> tuple[bool, str]:

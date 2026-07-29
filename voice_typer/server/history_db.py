@@ -1530,8 +1530,8 @@ class HistoryDB:
                     (text, duration, model, device, word_count, char_count, language, favorite)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (text, duration, model, device, word_count, char_count, language, favorite),
-                )
+                        (text, duration, model, device, word_count, char_count, language, favorite),
+                    )
                 conn.commit()
                 new_id = cursor.lastrowid
                 if new_id is None:

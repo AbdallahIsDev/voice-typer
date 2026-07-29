@@ -42,8 +42,8 @@ log = logging.getLogger("voice_typer.server.config_validators")
 # user-set 30-second value to be silently bumped to 300 on the next
 # ``Config.load()``.
 MAX_RECORDING_TIME_SECONDS_DEFAULT: int = 900  # 15 minutes
-MAX_RECORDING_TIME_SECONDS_MIN: int = 300      # 5 minutes
-MAX_RECORDING_TIME_SECONDS_MAX: int = 3600     # 60 minutes
+MAX_RECORDING_TIME_SECONDS_MIN: int = 300  # 5 minutes
+MAX_RECORDING_TIME_SECONDS_MAX: int = 3600  # 60 minutes
 
 
 # CR-38: extended to include the multilingual variants (tiny/small/medium,

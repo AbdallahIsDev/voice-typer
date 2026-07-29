@@ -742,10 +742,7 @@ class ModelMixin(ServiceMixinBase):
             from voice_typer.server.model_registry import get_model_metadata
 
             model_meta = get_model_metadata(model_name)
-            is_whisper_family = (
-                model_meta is not None
-                and model_meta.backend in ("whisper", "distil-whisper")
-            )
+            is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")
             if is_whisper_family:
                 outcome = self._download_whisper_family(model_name, model_meta)
             elif model_name == "qwen":
@@ -773,9 +770,7 @@ class ModelMixin(ServiceMixinBase):
 
                 clear_download_pause_state()
             except Exception:
-                log.debug(
-                    "[SERVICE] could not clear pause flag on failure", exc_info=True
-                )
+                log.debug("[SERVICE] could not clear pause flag on failure", exc_info=True)
             from voice_typer.server import event_bus
             from voice_typer.server.service._download_helpers import (
                 notify as _notify_helper,
@@ -785,9 +780,7 @@ class ModelMixin(ServiceMixinBase):
             )
 
             _push_progress_helper(event_bus, model_name, 0, f"Download failed: {exc}")
-            _notify_helper(
-                self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {exc}"
-            )
+            _notify_helper(self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {exc}")
             return {"success": False, "error": str(exc)}
 
     def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
@@ -902,9 +895,7 @@ class ModelMixin(ServiceMixinBase):
                 # NEW-MODEL-001: pull target size from the
                 # registry instead of the hard-coded size_targets
                 # table.  Falls back to 500 MB if missing.
-                target_mb = (
-                    model_meta.download_size_mb if model_meta.download_size_mb else 500
-                )
+                target_mb = model_meta.download_size_mb if model_meta.download_size_mb else 500
                 target_bytes = target_mb * 1024 * 1024
                 _push_progress(
                     event_bus,

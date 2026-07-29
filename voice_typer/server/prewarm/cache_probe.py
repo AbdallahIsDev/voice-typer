@@ -62,7 +62,31 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # disk I/O.  ``.py`` is excluded on purpose: when a ``.pyc`` is present
 # CPython never reads the ``.py`` at import time, so warming the source
 # file wastes disk bandwidth and standby-cache space.
-_WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll", ".json", ".txt"})
+# ER-51: added ``.dylib`` (macOS dynamic libraries — equivalent to
+# ``.so`` on Linux and ``.dll`` on Windows; without it, a macOS
+# prewarm run would skip every native extension in a package like
+# ``torch`` / ``numpy`` / ``cv2``). ``.json`` / ``.txt`` are retained
+# because some packages (``tokenizers``, ``transformers``) read
+# tokenizer configs / vocab files at import time.
+_WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll", ".dylib", ".json", ".txt"})
+
+# ER-51: directory names whose contents NEVER contribute to import-time
+# disk I/O. Skipping these avoids paging in:
+#   - ``tests`` / ``test``: bundled test suites (pytest discovers them
+#     via ``__init__`` + ``conftest`` walks, not via package import).
+#   - ``docs``: rendered documentation (Sphinx HTML, Markdown sources).
+#   - ``__pycache__``: stale bytecode from a prior Python version that
+#     the current interpreter will never load (it'll regenerate its
+#     own ``.pyc`` with the matching magic number).
+#   - ``*.dist-info`` / ``*.egg-info``: package metadata directories
+#     (METADATA, RECORD, entry_points.txt) read by ``importlib.metadata``
+#     on demand, not at import time.
+# The skip happens during the ``rglob`` walk — when a directory's name
+# matches this set, we ``rglob``'s recursive descent is pruned by
+# checking the parent path of each file. This is cheaper than calling
+# ``rglob`` and filtering after the fact (which would still stat every
+# file under ``tests/`` / ``docs/``).
+_WARM_PACKAGE_SKIP_DIRS: frozenset[str] = frozenset({"tests", "test", "docs", "__pycache__"})
 
 # ADR-0009 Issue 3: parameters for the _cache_ratio() probe. Reads this
 # many random 4K pages from the model file and counts how many return in
@@ -126,11 +150,27 @@ def _warm_package_files(pkg_name: str) -> int:
         # directory walk into memory before the first read, doubling
         # peak RSS for large packages (torch has ~40k files).
         for path in root.rglob("*"):
-            if path.is_file() and path.suffix in _WARM_PACKAGE_SUFFIXES:
-                try:
-                    total += _pkg._warm_file(path)
-                except OSError as exc:
-                    log.debug("[PREWARM] skip %s: %s", path, exc)
+            if not path.is_file():
+                continue
+            if path.suffix not in _WARM_PACKAGE_SUFFIXES:
+                continue
+            # ER-51: skip files whose path crosses a skipped directory
+            # (``tests/``, ``docs/``, ``__pycache__``, ``*.dist-info``,
+            # ``*.egg-info``). ``rglob`` does not prune directories, so
+            # we filter on the relative path parts here. The cost is
+            # one ``Path.parts`` tuple allocation per file — cheaper
+            # than the ``open`` + ``read`` we'd otherwise do for files
+            # that never contribute to import-time I/O.
+            rel = path.relative_to(root)
+            if any(
+                part in _WARM_PACKAGE_SKIP_DIRS or part.endswith(".dist-info") or part.endswith(".egg-info")
+                for part in rel.parts[:-1]
+            ):
+                continue
+            try:
+                total += _pkg._warm_file(path)
+            except OSError as exc:
+                log.debug("[PREWARM] skip %s: %s", path, exc)
     elapsed = time.perf_counter() - t0
     # Defensive: file warmup must never have imported the package.
     assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup — must stay unimported"
@@ -215,16 +255,43 @@ def _warm_imports() -> None:
     # (the app re-executes faster_whisper in its own process anyway).
     # `_warm_package_files` pages in the file bytes via sequential reads,
     # matching the torch/transformers approach used above.
-    try:
-        t0 = time.perf_counter()
-        _warm_package_files("faster_whisper")
-        _warm_package_files("ctranslate2")
+    #
+    # ER-52: gate the warming on either (a) the active backend being
+    # ``whisper`` (the only backend that uses faster_whisper /
+    # ctranslate2 at runtime), OR (b) the Whisper tiny.en fallback
+    # cache dir being present on disk. The fallback path is checked
+    # via ``_active_model_cache_dirs()`` which already includes the
+    # tiny.en repo when it exists; if neither condition holds
+    # (e.g. a pure-parakeet install that has never downloaded the
+    # Whisper fallback), warming faster_whisper / ctranslate2 wastes
+    # ~50-100 MB of I/O on packages that will never be imported.
+    warm_whisper_files = active_backend == "whisper"
+    if not warm_whisper_files:
+        # Check whether the tiny.en fallback is actually present on disk
+        # before warming the Whisper runtime packages. ``_active_model_cache_dirs``
+        # already does the heavy lifting of resolving the HF cache dir +
+        # checking for ``models--Systran--faster-whisper-tiny.en``.
+        for cache_dir in _active_model_cache_dirs():
+            if "faster-whisper-tiny.en" in cache_dir.name:
+                warm_whisper_files = True
+                break
+    if warm_whisper_files:
+        try:
+            t0 = time.perf_counter()
+            _warm_package_files("faster_whisper")
+            _warm_package_files("ctranslate2")
+            log.info(
+                "[PREWARM] warmed faster_whisper + ctranslate2 bytes: %.2fs",
+                time.perf_counter() - t0,
+            )
+        except Exception as exc:
+            log.debug("[PREWARM] faster_whisper/ctranslate2 not warmable (skipping): %s", exc)
+    else:
         log.info(
-            "[PREWARM] warmed faster_whisper + ctranslate2 bytes: %.2fs",
-            time.perf_counter() - t0,
+            "[PREWARM] active backend=%s and no Whisper tiny.en fallback cached"
+            " — skipping faster_whisper/ctranslate2 file warming (ER-52)",
+            active_backend,
         )
-    except Exception as exc:
-        log.debug("[PREWARM] faster_whisper/ctranslate2 not warmable (skipping): %s", exc)
 
 
 @lru_cache(maxsize=1)

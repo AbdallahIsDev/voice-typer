@@ -1369,6 +1369,16 @@ class WindowsNativeHotkey(HotkeyBackend):
             log.exception("[HOTKEY] Failed to force caps lock off")
 
     def _modifiers_pressed(self) -> bool:
+        # AC-25: defensive guard — sibling methods (``_other_modifiers_pressed``
+        # at line 1263, ``_is_altgr_pressed`` at line 1387) already early-return
+        # ``False`` when ``self._user32`` is None (non-Windows test host).
+        # Without this guard, ``_key_pressed`` (below) would raise
+        # ``AttributeError: 'NoneType' object has no attribute 'GetAsyncKeyState'``
+        # when this method is invoked from a non-Windows test host (the hotkey
+        # listener is constructed lazily on Windows only, but tests exercise
+        # the polling path with ``_user32=None`` to verify the fallback).
+        if not self._user32:
+            return False
         # PLAT-ALTGR: Detect AltGr (Right Alt + Ctrl simulated by Windows).
         # On non-US keyboards, AltGr is used for characters like @, €, #.
         # Windows simulates AltGr as Ctrl+Alt. If AltGr is detected,
@@ -1402,6 +1412,15 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
 
     def _key_pressed(self, vk: int) -> bool:
+        # AC-25: defensive guard — sibling methods (``_other_modifiers_pressed``
+        # at line 1263, ``_is_altgr_pressed`` at line 1397, and now
+        # ``_modifiers_pressed`` above) already early-return ``False``
+        # when ``self._user32`` is None. Add the same guard here so a
+        # direct call to ``_key_pressed(vk)`` from any other call site
+        # doesn't raise ``AttributeError: 'NoneType' object has no
+        # attribute 'GetAsyncKeyState'`` on a non-Windows test host.
+        if not self._user32:
+            return False
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
 
     def stop(self) -> None:

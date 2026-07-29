@@ -115,9 +115,10 @@ def list_microphones() -> list[dict]:
             # "Bluetooth", "HFP", or "Hands-Free" in the device name,
             # and operate at 8 or 16 kHz sample rate.
             dev_name_lower = dev["name"].lower()
-            is_bluetooth = any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free")) or dev.get(
-                "default_samplerate", 0
-            ) in SILERO_VAD_SAMPLE_RATES
+            is_bluetooth = (
+                any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free"))
+                or dev.get("default_samplerate", 0) in SILERO_VAD_SAMPLE_RATES
+            )
             devices.append(
                 {
                     "id": str(i),

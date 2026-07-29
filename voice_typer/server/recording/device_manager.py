@@ -75,6 +75,23 @@ sd = lazy_module("sounddevice")
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
 
+# ER-90: when the mic device watcher fails to start (e.g. on macOS
+# where the OS-event hook isn't implemented, or on platforms where
+# /dev/snd inotify fails), fall back to a SHORTER device-list TTL for
+# a window after the failure so device hot-plug events are detected
+# sooner than the default 30s. Without this, a user who plugs in a
+# USB mic immediately after launch (a common pattern — start app,
+# realize mic is missing, plug it in) waits up to 30s for the device
+# list to refresh. The fast TTL is only active for
+# ``_DEVICE_LIST_FAST_TTL_WINDOW`` seconds after the watcher-start
+# failure; outside that window, the default 30s TTL applies (the
+# watcher is started exactly once in ``__init__`` and never retried,
+# so once we're past the failure window we revert to the conservative
+# fallback that matches the rest of the codebase's behavior on
+# watcher-less platforms).
+_DEVICE_LIST_FAST_TTL: float = 5.0
+_DEVICE_LIST_FAST_TTL_WINDOW: float = 60.0
+
 
 class DeviceManager:
     """Device enumeration, hot-swap, and health-checker for ``Recorder``.
@@ -130,6 +147,12 @@ class DeviceManager:
         self._device_list_cache: list[dict] | None = None
         self._device_list_cache_time: float = 0.0
         self._device_list_cache_ttl: float = 30.0  # seconds
+        # ER-90: monotonic timestamp of the most recent mic-watcher-start
+        # failure. Set in the except branch of the MicrophoneDeviceWatcher
+        # startup try/except below; consulted by ``_refresh_device_list``
+        # to decide whether to use the fast TTL (5s) or the default
+        # (30s). Stays at 0.0 if the watcher started successfully.
+        self._mic_watcher_failed_at: float = 0.0
 
         # PERF-MIC-001: OS-event-driven cache invalidation. The watcher
         # runs in a daemon thread and calls ``_invalidate_device_cache``
@@ -159,6 +182,10 @@ class DeviceManager:
                 exc_info=True,
             )
             self._mic_watcher = None
+            # ER-90: record the failure timestamp so ``_refresh_device_list``
+            # can use a shorter TTL (5s) for the next 60s to catch hot-plug
+            # events more aggressively than the default 30s fallback.
+            self._mic_watcher_failed_at = time.monotonic()
 
     # ── AUDIO-MIC: device list caching ──────────────────────────────────
 
@@ -171,9 +198,29 @@ class DeviceManager:
         cache the device list with a TTL of 30 seconds and re-query
         PortAudio when the cache expires or when the current device
         disappears.
+
+        ER-90: if the mic device watcher failed to start recently
+        (within ``_DEVICE_LIST_FAST_TTL_WINDOW``), use a shorter TTL
+        of ``_DEVICE_LIST_FAST_TTL`` (5s) instead of the default 30s.
+        This catches hot-plug events more aggressively in the window
+        right after a watcher-start failure (a common user pattern:
+        launch app → realize mic is missing → plug it in). Outside
+        the failure window, the default 30s TTL applies.
         """
         now = time.monotonic()
-        if self._device_list_cache is not None and now - self._device_list_cache_time < self._device_list_cache_ttl:
+        # ER-90: compute the effective TTL based on whether the mic
+        # watcher failed recently. ``_mic_watcher_failed_at`` is 0.0
+        # if the watcher started successfully (or hasn't tried yet),
+        # so the fast TTL only applies after an actual failure.
+        if (
+            self._mic_watcher is None
+            and self._mic_watcher_failed_at > 0.0
+            and now - self._mic_watcher_failed_at < _DEVICE_LIST_FAST_TTL_WINDOW
+        ):
+            effective_ttl: float = _DEVICE_LIST_FAST_TTL
+        else:
+            effective_ttl = self._device_list_cache_ttl
+        if self._device_list_cache is not None and now - self._device_list_cache_time < effective_ttl:
             return self._device_list_cache
 
         try:

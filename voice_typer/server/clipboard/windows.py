@@ -24,13 +24,19 @@ actually take effect on the code paths in this module.
 from __future__ import annotations
 
 import ctypes
-import logging
 from collections.abc import Callable
 from ctypes import wintypes
 
 from voice_typer.server import clipboard as _cb
 
-log = logging.getLogger("voice_typer.server.clipboard")
+# AC-41: the per-submodule `log = logging.getLogger(...)` definition that
+# used to live here was removed because it was unused — every log call in
+# this module routes through `_cb.log` (the package-level logger imported
+# above as `_cb`). Defining a separate `log` here would shadow the
+# package logger and risk future contributors adding `log.info(...)`
+# calls that bypass the `_cb.log` patch surface used by tests
+# (`tests/test_clipboard.py` patches `voice_typer.server.clipboard.log`).
+# The `import logging` was also removed (no remaining references).
 
 
 # ─── PLAT-027: Win32Clipboard abstraction ─────────────────────────────

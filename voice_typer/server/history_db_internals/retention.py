@@ -175,13 +175,10 @@ def apply_retention(
                 # has nothing to rebuild and would just churn the
                 # FTS index).
                 try:
-                    cursor.execute(
-                        "INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')"
-                    )
+                    cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
                     conn.commit()
                     log.info(
-                        "[HISTORY_DB] FTS5 segments rebuilt after retention "
-                        "(deleted %d rows)",
+                        "[HISTORY_DB] FTS5 segments rebuilt after retention (deleted %d rows)",
                         deleted,
                     )
                 except sqlite3.Error as e:

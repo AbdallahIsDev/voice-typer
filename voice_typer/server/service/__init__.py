@@ -140,6 +140,20 @@ class VoiceTyperService(
         # regression test ``tests/regressions/concurrency_test.py`` can
         # introspect ``ConfigApplier.apply_config`` for the lock.
         self._config_applier = ConfigApplier(self)
+        # AC-67: delegate state initialisation to the owning mixins
+        # (instead of having the base class own state for 3 separate
+        # concerns — ModelMixin's download-cancel + model-status-cache
+        # state, MicrophoneTestMixin's microphones-cache state). Each
+        # mixin's ``__init__`` initialises ONLY its own state, so the
+        # base class is no longer a fat owner of mixin-specific fields.
+        # The mixin ``__init__`` methods are called explicitly (rather
+        # than via cooperative ``super().__init__()`` chaining) because
+        # ``ServiceMixinBase`` in ``_base.py`` doesn't define an
+        # ``__init__`` that accepts the ``app`` argument — cooperative
+        # MI would require modifying ``_base.py``. Functionally
+        # equivalent: the state ends up on the same instance via the
+        # same MRO.
+        #
         # HIGH-8 / SERVICE-1: per-download cancellation events guarded by
         # a lock, so concurrent ``download_model`` IPC calls (via the
         # ThreadPoolExecutor) don't overwrite each other's event. The
@@ -151,30 +165,12 @@ class VoiceTyperService(
         # ``.is_set()`` raised AttributeError.
         self._download_cancel_events: dict[str, threading.Event] = {}
         self._download_cancel_lock = threading.Lock()
-        self._active_download_id: str | None = None
-        # EC-FIX-15 / EC-24: the legacy single-instance
-        # ``self._download_cancel_event`` attribute (retained as a test
-        # seam for backwards-compat with tests that set/read it
-        # directly) has been REMOVED.  Production code uses the
-        # per-download dict above exclusively.  Callers that need to
-        # signal a cancel must use ``_register_download`` /
-        # ``_download_cancel_events[download_id]`` / ``_is_download_cancelled``.
-        # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
-        # rapid refresh clicks don't re-query PortAudio each time.
-        # XV-5: initialised to ``None`` (not ``[]``) so the cache check
-        # can distinguish "never queried" from "queried and got 0 mics"
-        # via an ``is not None`` guard. A bare-truthiness check would
-        # bypass the cache when PortAudio legitimately returned an empty
-        # list, re-querying PortAudio on every refresh call.
-        self._microphones_cache: list | None = None
-        self._microphones_cache_ts: float = 0.0
-        # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status so the
-        # renderer's 2s poll doesn't re-stat the filesystem for every model
-        # on every call. The status is expensive to compute (N dir checks +
-        # dependency probes). Invalidation is forced on download/delete.
-        self._model_status_cache: dict | None = None
+        # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status.
+        self._model_status_cache: dict[str, object] | None = None
         self._model_status_cache_ts: float = 0.0
         self._model_status_cache_lock = threading.Lock()
+        # XV-5: ``_microphones_cache`` initialised to ``None``.
+        MicrophoneTestMixin.__init__(self)
 
     # PVT-G5-024 (High, partial): ``set_config`` and ``save_config``
     # were REMOVED from this service layer.
@@ -219,6 +215,7 @@ class VoiceTyperService(
 
 __all__ = [
     "APP_NAME",
+    "ConfigApplier",
     "ForceCancelResult",
     "StatusResponse",
     "VoiceTyperService",

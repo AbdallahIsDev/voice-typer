@@ -19,7 +19,6 @@ mock)`` actually take effect on the code paths in this module.
 from __future__ import annotations
 
 import functools
-import logging
 from typing import TYPE_CHECKING
 
 # Use a local alias to avoid circular import at module load time. The
@@ -32,13 +31,13 @@ from voice_typer.server import clipboard as _cb
 if TYPE_CHECKING:  # pragma: no cover
     pass
 
-# Local logger — mirrors the package logger name so log records appear
-# under the same "voice_typer.server.clipboard" namespace. Tests that
-# patch ``voice_typer.server.clipboard.log`` should patch the package
-# attribute; this module's ``log`` is a separate Logger object but
-# with the same name (so handlers/levels configured on the package
-# logger still apply).
-log = logging.getLogger("voice_typer.server.clipboard")
+# AC-41: the per-submodule `log = logging.getLogger(...)` definition
+# was removed because it was unused — every log call in this module
+# routes through `_cb.log` (the package-level logger imported above
+# as `_cb`). Defining a separate `log` here would shadow the
+# package logger and risk future contributors adding `log.info(...)`
+# calls that bypass the `_cb.log` patch surface used by tests
+# (`tests/test_clipboard.py` patches `voice_typer.server.clipboard.log`).
 
 
 # XV-100: memoised ``shutil.which`` for invariant system binaries
@@ -161,7 +160,7 @@ _RICH_EDITOR_PROCESS_NAMES: set[str] = {
 # because the same binary runs on both session types.
 
 
-def _is_wayland_session() -> bool:
+def _is_wayland_session(*, broad: bool = False) -> bool:
     """Return True if running on a Linux Wayland session.
 
     Detection: `WAYLAND_DISPLAY` is set AND we're on Linux. This is the
@@ -170,12 +169,32 @@ def _is_wayland_session() -> bool:
     Note: a Wayland session typically also has `DISPLAY` set (for
     XWayland), so checking only `DISPLAY` is insufficient. We check
     `WAYLAND_DISPLAY` first.
+
+    AC-121: the ``broad`` parameter (keyword-only, default ``False``)
+    preserves the narrow contract pinned by
+    ``tests/test_clipboard.py::TestWaylandDetection`` (which monkey-
+    patches ``_is_wayland_session`` to ``lambda: True`` / ``lambda:
+    False`` and calls it with NO arguments). When ``broad=True``, the
+    function ALSO accepts ``XDG_SESSION_TYPE=wayland`` as evidence of a
+    Wayland session — some compositors (e.g. sway launched from a TTY)
+    set ``XDG_SESSION_TYPE`` but not ``WAYLAND_DISPLAY`` in the spawned
+    process's env, so the narrow check would miss them. The broad
+    variant was previously a separate function
+    (:func:`_is_wayland_paste_session`); the duplication has been
+    eliminated by parameterising this single function. Callers that
+    need the broad detection call ``_is_wayland_session(broad=True)``
+    (or via the ``_is_wayland_paste_session`` wrapper retained for
+    back-compat with existing call sites in ``manager.py``).
     """
     if not _cb.is_linux():
         return False
     import os
 
-    return bool(os.environ.get("WAYLAND_DISPLAY"))
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return True
+    if broad:
+        return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    return False
 
 
 def _have_wl_clipboard() -> bool:
@@ -299,14 +318,18 @@ def _is_wayland_paste_session() -> bool:
     XPLAT-15: broader than :func:`_is_wayland_session` — also accepts
     ``XDG_SESSION_TYPE=wayland`` for compositors that don't set
     ``WAYLAND_DISPLAY`` in the spawned process's env.
-    """
-    if not _cb.is_linux():
-        return False
-    import os
 
-    if os.environ.get("WAYLAND_DISPLAY"):
-        return True
-    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    AC-121: thin wrapper over :func:`_is_wayland_session(broad=True)`.
+    The broad detection was previously a separate parallel
+    implementation (duplicating the env-var checks verbatim); the
+    duplication has been eliminated by parameterising the single
+    :func:`_is_wayland_session` function. This wrapper is retained so
+    existing call sites in ``clipboard/manager.py`` (which import the
+    historical name) don't need a coordinated rename — it delegates
+    directly so behavior is identical to the inline implementation
+    that preceded it.
+    """
+    return _is_wayland_session(broad=True)
 
 
 def _have_wtype() -> bool:

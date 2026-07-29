@@ -83,7 +83,17 @@ def sync_autostart(app: AppProtocol) -> dict:
     # enable_autostart, disable_autostart} still take effect.
     from voice_typer.server import app as _app_module
 
-    result: dict = {"registered": False, "error": None}
+    # ER-73(a): track the post-sync ACTUAL OS-level autostart state so the
+    # caller can pass it straight to ``tray.set_autostart_enabled(...)`` without
+    # re-invoking ``is_autostart_enabled()``. The pre-ER-73 startup path
+    # called ``is_autostart_enabled()`` twice back-to-back on the startup hot
+    # path (once inside sync_autostart, once immediately after in
+    # startup_sequence) — both calls hit the same platform helper (Win32
+    # registry / launchctl plist / XDG autostart file) and return the same
+    # value, so the second call was pure waste. The ``actual_post_sync``
+    # field is the post-sync OS state derived from the read + the
+    # enable/disable success flag, so callers no longer need to re-query.
+    result: dict = {"registered": False, "error": None, "actual_post_sync": False}
     try:
         actual = _app_module.is_autostart_enabled()
         if app.config.autostart and not actual:
@@ -94,9 +104,13 @@ def sync_autostart(app: AppProtocol) -> dict:
             # internally) it returns False — we surface that as
             # registered=False, error=None (the error is logged inside
             # enable_autostart_ex).
+            # ER-73(a): ``actual_post_sync`` is True iff the enable succeeded
+            # (registered is True); on failure the OS state is unchanged
+            # (still False, the value we read at the top of this branch).
             result = {
                 "registered": bool(registered),
                 "error": None,
+                "actual_post_sync": bool(registered),
             }
         elif not app.config.autostart and actual:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
@@ -105,16 +119,32 @@ def sync_autostart(app: AppProtocol) -> dict:
             # autostart entry now in the desired state?". After a
             # successful disable, the entry is NO LONGER registered,
             # so ``registered = removed`` (True if disable succeeded).
+            # ER-73(a): ``actual_post_sync`` is the post-disable OS state —
+            # False iff the disable succeeded (removed is True); on failure
+            # the OS state is unchanged (still True, the value we read at
+            # the top of this branch).
             result = {
                 "registered": bool(removed),
                 "error": None,
+                "actual_post_sync": not bool(removed),
             }
         else:
             # Already in sync — report the current state.
-            result = {"registered": bool(actual), "error": None}
+            # ER-73(a): ``actual_post_sync`` mirrors the unchanged OS state.
+            result = {
+                "registered": bool(actual),
+                "error": None,
+                "actual_post_sync": bool(actual),
+            }
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
-        result = {"registered": False, "error": str(e)}
+        # ER-73(a): on failure we don't know the post-sync OS state — leave
+        # ``actual_post_sync`` as False (the conservative default). Callers
+        # that need a definitive read can still call ``is_autostart_enabled()``
+        # explicitly, but the startup path treats this as "autostart is off"
+        # (the safer default for tray-menu display — avoids showing a
+        # stale "enabled" checkmark next to a disabled entry).
+        result = {"registered": False, "error": str(e), "actual_post_sync": False}
     return result
 
 

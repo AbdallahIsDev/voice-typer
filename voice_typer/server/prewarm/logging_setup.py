@@ -224,6 +224,68 @@ def _free_ram_mb() -> int | None:
     return None
 
 
+# ER-15: battery guard. Prewarming reads ~4.5 GB of torch+transformers
+# package files + ~2.4 GB of Parakeet weights off disk — ~2-3 Wh per run.
+# On a laptop booted on battery at < 60% charge, that drain is perceptible
+# (a user who reboots/registers 3-4×/day on battery wastes ~10 Wh/day).
+# Skip prewarm when on battery + low charge; defer to the next AC-plug
+# event. psutil is already a dependency (used by ``_free_ram_mb`` and
+# ``paths._boot_time``). The 60% threshold matches the entry's spec.
+_BATTERY_LOW_CHARGE_THRESHOLD_PERCENT = 60
+
+
+def _on_battery_and_low_charge() -> bool:
+    """Return True iff the host is on battery AND charge < 60%.
+
+    ER-15: skip prewarm with EXIT_ON_BATTERY when this returns True.
+    Returns False (don't skip) in any of these cases:
+      - The host is plugged in (``power_plugged is True``).
+      - The host is on battery but charge >= 60% (enough headroom to
+        absorb the ~2-3 Wh prewarm drain without materially shortening
+        the user's session).
+      - The host has no battery (desktop / server / VM —
+        ``sensors_battery()`` returns None).
+      - ``psutil`` is not installed (legacy fallback — don't block
+        prewarm on a missing optional dependency).
+      - ``psutil.sensors_battery()`` raises (some platforms / VMs
+        expose a broken ACPI battery interface).
+
+    The threshold (60%) and the (unplugged + low-charge) conjunction
+    are pinned by ``tests/test_prewarm_er_fix_e2.py`` — see
+    ``TestOnBatteryAndLowCharge``.
+    """
+    try:
+        import psutil  # type: ignore[import-untyped]
+    except ImportError:
+        # psutil is in requirements-lock.txt but defensively treat its
+        # absence as "not on battery" so prewarm still runs.
+        return False
+    try:
+        battery = psutil.sensors_battery()
+    except Exception as exc:  # noqa: BLE001 — broken ACPI can raise weirdly
+        log.debug("[PREWARM] psutil.sensors_battery() raised: %s", exc)
+        return False
+    if battery is None:
+        # Desktop / server / VM with no battery — don't skip.
+        return False
+    # psutil.sensors_battery() returns a 3-tuple/namedtuple
+    # ``(percent, secsleft, power_plugged)`` — unpack positionally so
+    # both the namedtuple and a plain tuple work (tests use a
+    # ``namedtuple(_FakeBattery, [...])`` stand-in).
+    try:
+        percent, _secs_left, power_plugged = battery  # noqa: F841 — _secs_left unused
+    except (TypeError, ValueError):
+        log.debug("[PREWARM] psutil.sensors_battery() returned non-3-tuple: %r", battery)
+        return False
+    if power_plugged:
+        return False
+    if percent is None:
+        # Some ACPI drivers return None for percent while still reporting
+        # power_plugged=False — treat as "not low" rather than blocking.
+        return False
+    return percent < _BATTERY_LOW_CHARGE_THRESHOLD_PERCENT
+
+
 def _lower_io_priority() -> None:
     """Drop this process's I/O and CPU priority so prewarming never
     competes with real user work.  Best-effort — silently no-op off Windows

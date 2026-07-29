@@ -294,9 +294,7 @@ def _secure_read_text(
         # safety net for the TOCTOU case where the file grows between
         # the lstat and the read.
         if max_bytes is not None and stat_result is not None and stat_result.st_size > max_bytes:
-            raise ValueError(
-                f"file size {stat_result.st_size} exceeds max_bytes={max_bytes} (FR-53)"
-            )
+            raise ValueError(f"file size {stat_result.st_size} exceeds max_bytes={max_bytes} (FR-53)")
         with open(p, encoding=encoding) as f:
             stat_before = os.fstat(f.fileno())
             content = _read_with_byte_limit(f, max_bytes)
@@ -548,11 +546,7 @@ class PersistedJSON:
         #     Its ``os.replace`` semantics ensure we never write
         #     THROUGH a symlink at ``self._bak_path``; we replace
         #     the symlink itself with a fresh regular file.
-        if (
-            self._path.exists()
-            and not self._path.is_symlink()
-            and not self._bak_path.is_symlink()
-        ):
+        if self._path.exists() and not self._path.is_symlink() and not self._bak_path.is_symlink():
             try:
                 # Read via _secure_read_text (O_NOFOLLOW on POSIX,
                 # reparse-point check on Windows).  If the existing

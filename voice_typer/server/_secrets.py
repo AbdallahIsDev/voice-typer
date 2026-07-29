@@ -589,13 +589,7 @@ def _is_private_ip(ip_str: str) -> bool:
     # defense-in-depth and to cover IPv6 cases that ``is_private`` may
     # not catch (e.g. ``is_link_local`` is the canonical check for
     # ``fe80::/10``).
-    return bool(
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_unspecified
-        or ip.is_reserved
-    )
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_reserved)
 
 
 def is_url_allowed(url: str) -> bool:

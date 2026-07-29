@@ -88,18 +88,10 @@ def _launch_windows_editor(config_path: Any) -> None:
     ``notepad``) and finally to ``os.startfile``.
     """
 
-    _windows_open_with_default_app = _resolve(
-        "_windows_open_with_default_app", _default_windows_open_with_default_app
-    )
-    _windows_wait_for_process_exit = _resolve(
-        "_windows_wait_for_process_exit", _default_windows_wait_for_process_exit
-    )
-    _windows_close_process_handle = _resolve(
-        "_windows_close_process_handle", _default_windows_close_process_handle
-    )
-    _systemroot_notepad_path = _resolve(
-        "_systemroot_notepad_path", _default_systemroot_notepad_path
-    )
+    _windows_open_with_default_app = _resolve("_windows_open_with_default_app", _default_windows_open_with_default_app)
+    _windows_wait_for_process_exit = _resolve("_windows_wait_for_process_exit", _default_windows_wait_for_process_exit)
+    _windows_close_process_handle = _resolve("_windows_close_process_handle", _default_windows_close_process_handle)
+    _systemroot_notepad_path = _resolve("_systemroot_notepad_path", _default_systemroot_notepad_path)
 
     handle = _windows_open_with_default_app(str(config_path))
     if handle is not None:

@@ -207,6 +207,11 @@ class StreamingTextAssembler:
     # a ``_base_offset`` counter so the external ``_word_key_index``
     # stores ABSOLUTE indices that don't shift on eviction.
     _MAX_WORDS = 10000
+    # ER-69: per-key bounded deque maxlen for _word_key_index. 8 entries
+    # cover ~2-8s of history per token (words arrive every 0.3-1s), well
+    # beyond the 0.25s near-duplicate window checked in
+    # ``_has_near_duplicate_unlocked``.
+    _WORD_KEY_INDEX_MAXLEN = 8
     _words: collections.deque[WordTiming] = field(
         default_factory=lambda: collections.deque(maxlen=StreamingTextAssembler._MAX_WORDS)
     )
@@ -217,7 +222,7 @@ class StreamingTextAssembler:
     # O(1) — no need to shift every stored index by 1.
     _base_offset: int = 0
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
-    _word_key_index: dict[str, list[int]] = field(default_factory=dict)
+    _word_key_index: dict[str, "collections.deque[int]"] = field(default_factory=dict)
     last_committed_time: float = 0.0
     _lock: threading.RLock = field(default_factory=threading.RLock)
     # PERF-018: cache the sorted committed_text and invalidate on mutation
@@ -398,9 +403,18 @@ class StreamingTextAssembler:
             self._base_offset += 1
             # Drop the index entry pointing at the evicted word. Other
             # indices stay valid (they're absolute, not relative).
+            # ER-69: _word_key_index values are bounded deques (maxlen=
+            # _WORD_KEY_INDEX_MAXLEN) so a single key can never accumulate
+            # more than a handful of recent indices. Iteration + filter
+            # is therefore bounded per-key by the deque maxlen — the
+            # per-eviction cost is O(MAXLEN × distinct_keys) instead of
+            # O(session_word_count × distinct_keys).
             for key, indices in list(self._word_key_index.items()):
                 if evicted_absolute_idx in indices:
-                    new_indices = [i for i in indices if i != evicted_absolute_idx]
+                    new_indices = collections.deque(
+                        (i for i in indices if i != evicted_absolute_idx),
+                        maxlen=self._WORD_KEY_INDEX_MAXLEN,
+                    )
                     if new_indices:
                         self._word_key_index[key] = new_indices
                     else:
@@ -425,7 +439,21 @@ class StreamingTextAssembler:
         absolute_idx = self._base_offset + len(self._words)
         self._words.append(word)
         if key:
-            self._word_key_index.setdefault(key, []).append(absolute_idx)
+            # ER-69: use a bounded deque (maxlen=_WORD_KEY_INDEX_MAXLEN)
+            # instead of an unbounded list. Near-duplicate detection
+            # (_has_near_duplicate_unlocked) only needs the last few
+            # occurrences within 0.25s — words arrive every 0.3-1s, so
+            # 8 entries cover ~2-8s of history per token, well beyond
+            # the 0.25s near-duplicate window. The previous unbounded
+            # list retained one int per committed word for the entire
+            # session lifetime (e.g. 10000 ints per recurring token in
+            # a 10000-word session), so this change caps per-key
+            # memory at O(MAXLEN) regardless of session length.
+            existing = self._word_key_index.get(key)
+            if existing is None:
+                self._word_key_index[key] = collections.deque((absolute_idx,), maxlen=self._WORD_KEY_INDEX_MAXLEN)
+            else:
+                existing.append(absolute_idx)
         # PERF-018: invalidate cached text on mutation
         self._words_dirty = True
 

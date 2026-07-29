@@ -45,10 +45,11 @@ def _log():
 # ─── PLAT-013: Elevated target detection ──────────────────────────────
 
 
-# CLIP-6: module-level cache for "are WE elevated?" — this value
-# never changes during the lifetime of the process, so computing it
-# on every paste is wasted work (OpenProcessToken + GetTokenInformation
-# + CloseHandle = 3 kernel calls per paste). Cached on first access.
+# Module-level cache for "are WE elevated?" — this value never changes
+# during the lifetime of the process, so computing it on every paste is
+# wasted work (OpenProcessToken + GetTokenInformation + CloseHandle =
+# 3 kernel calls per paste). Cached on first access.
+# (History: CLIP-6 — module-level cache.)
 # ``None`` = not yet computed.
 _WE_ELEVATED: bool | None = None
 
@@ -233,7 +234,7 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
             finally:
                 kernel32.CloseHandle(token)
 
-            # CLIP-6: check if WE are elevated (cached, computed once).
+            # Check if WE are elevated (cached, computed once).
             we_elevated = _get_we_elevated()
 
             # If target is elevated and we're not, warn
@@ -320,53 +321,67 @@ def _focused_window_is_credential_dialog(hwnd: int | None = None) -> bool:
 
 
 def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
-    """PLAT-014: Check if the focused element is a password field.
+    """Check if the focused element is a password field.
 
-    On Windows, uses UI Automation to check IsPasswordPropertyId.
-    If the focused element has IsPassword=True, skip paste and warn
-    the user that dictation into password fields is disabled for security.
+    On Windows, uses UI Automation to check ``IsPasswordPropertyId``.
+    If the focused element has ``IsPassword=True``, skip paste and warn
+    the user that dictation into password fields is disabled for
+    security. Returns ``True`` if a password field is detected,
+    ``False`` otherwise.
 
-    Returns True if a password field is detected, False otherwise.
+    Parameters
+    ----------
+    focused :
+        Pre-fetched UIA element (perf optimisation — see History
+        ``CLIP-4/5``). When ``None`` the function fetches the focused
+        element itself via :func:`_get_uia_focused_element` and manages
+        the per-call COM apartment (``CoInitialize`` / ``CoUninitialize``).
+    hwnd :
+        Pre-fetched foreground window handle (perf optimisation — see
+        History ``CLIP-12``). When the credential-dialog heuristic
+        fallback fires, this avoids a redundant ``GetForegroundWindow``
+        call.
 
-    PERF-FIX-001: previously this function created a fresh IUIAutomation
-    COM instance on every call (CoCreateInstance + GetModule), which is
-    a 10-50ms cross-process RPC.  Combined with ``_is_content_editable``
-    doing the same, that was 5+ UIA RPCs per paste (100-800ms total in
-    browsers/Electron/Office).  Now uses the module-level cached
-    ``_get_uia_focused_element()`` helper which:
-      - Creates the IUIAutomation instance ONCE (cached in
-        ``_UIA_SINGLETON``).
-      - Fetches the focused element ONCE per paste and returns it so
-        both password and content-editable checks can read multiple
-        properties from the same element without re-fetching.
+    History
+    -------
+    AC-124: this docstring consolidates the per-ticket rationale that
+    previously lived as multi-paragraph prose blocks inline in the
+    docstring (and inline ``# CLIP-N:`` comments in the body). Inline
+    body comments now describe only the *current* behavior; the
+    ticket-level rationale lives here so a new maintainer can answer
+    "why does this code look this way?" without replaying each
+    historical fix.
 
-    PLAT-014 (revised): The previous code had a no-op ctypes fallback
-    block (lines 310-316) that just did ``pass`` if comtypes wasn't
-    installed — meaning password detection silently failed open. Now
-    we explicitly log when comtypes is unavailable and the check is
-    skipped, so operators can install comtypes to enable the check.
-
-    CLIP-2 (High, Security): when comtypes IS installed but the UIA
-    call raises (e.g. desktop-bridge app, UAC dialog, broken COM
-    registration), the previous code failed OPEN — paste was allowed
-    into a potentially password-bearing field with no detection. Now
-    we ALSO call :func:`_focused_window_is_credential_dialog` as a
-    fallback heuristic; if the focused window class matches a known
-    credential dialog, we fail CLOSED (return True) so paste is
-    blocked. This closes the security gap when UIA is partially
-    broken.
-
-    CLIP-4/5 (Perf): ``focused`` parameter accepts a pre-fetched UIA
-    element so callers (:meth:`_is_safe_paste_target`) can fetch it
-    once and pass to both ``_is_password_field`` and
-    ``_is_content_editable``. When ``focused`` is provided, the
-    per-call ``CoInitialize``/``CoUninitialize`` is skipped (caller
-    is expected to manage the COM apartment).
-
-    CLIP-12 (Perf): ``hwnd`` parameter accepts a pre-fetched
-    foreground window handle to avoid redundant
-    ``GetForegroundWindow`` calls when invoking the credential-dialog
-    heuristic fallback.
+    * ``PLAT-014``: original implementation. No-op ctypes fallback
+      silently failed open when comtypes was absent — now logs at
+      WARNING and falls back to the credential-dialog window-class
+      heuristic (fail-closed for known credential UI, fail-open
+      otherwise to avoid blocking all dictation).
+    * ``PERF-FIX-001``: module-level cached ``IUIAutomation`` singleton
+      (``_UIA_SINGLETON``). The prior per-call ``CoCreateInstance`` was
+      10-50ms; caching eliminates that cost for every subsequent paste.
+      The cached singleton is also reused by ``_is_content_editable``.
+    * ``CLIP-2`` (High, Security): when comtypes IS installed but the
+      UIA call raises (desktop-bridge app, UAC dialog, broken COM
+      registration), the prior code failed OPEN — paste was allowed
+      into a potentially password-bearing field. Now ALSO calls
+      :func:`_focused_window_is_credential_dialog` as a fallback; if
+      the focused window class matches a known credential dialog, fail
+      CLOSED (return True) so paste is blocked.
+    * ``CLIP-4/5`` (Perf): ``focused`` parameter accepts a pre-fetched
+      UIA element so callers (:meth:`_is_safe_paste_target`) fetch it
+      once and pass to both ``_is_password_field`` and
+      ``_is_content_editable``. When ``focused`` is provided, the
+      per-call ``CoInitialize`` / ``CoUninitialize`` is skipped (caller
+      manages the COM apartment).
+    * ``CLIP-12`` (Perf): ``hwnd`` parameter accepts a pre-fetched
+      foreground window handle to avoid redundant
+      ``GetForegroundWindow`` calls when invoking the credential-dialog
+      heuristic fallback.
+    * ``EC-15``: per-branch fail-closed / fail-open semantics documented
+      inline at each catch site (the outer try fails CLOSED; the inner
+      comtypes-absence and UIA-error branches fail OPEN with the
+      cred-dialog heuristic as the last resort).
     """
     if not is_windows():
         return False
@@ -376,10 +391,10 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
             import comtypes
             import comtypes.client
 
-            # CLIP-5: when called via _is_safe_paste_target with a
-            # pre-fetched ``focused`` element, the caller has already
-            # CoInitialize'd the thread. Skip the per-call init/teardown
-            # to avoid COM ref-count churn on every paste.
+            # When called via _is_safe_paste_target with a pre-fetched
+            # ``focused`` element, the caller has already CoInitialize'd
+            # the thread. Skip the per-call init/teardown to avoid COM
+            # ref-count churn on every paste. (History: CLIP-5.)
             owns_com = focused is None
             if owns_com:
                 comtypes.CoInitialize()
@@ -606,7 +621,7 @@ def _is_content_editable(focused: Any = None) -> bool:
     try:
         import comtypes
 
-        # CLIP-5: skip per-call COM init when caller pre-fetched.
+        # Skip per-call COM init when caller pre-fetched the element.
         owns_com = focused is None
         if owns_com:
             comtypes.CoInitialize()
@@ -697,6 +712,34 @@ def reset_platform_unavailable_warnings() -> None:
     _PYATSPI_UNAVAILABLE_WARNED = False
 
 
+def _ax_result_value(result: Any) -> Any:
+    """AC-42: extract the value from a pyobjc AX out-parameter tuple.
+
+    ``ApplicationServices.AXUIElementCopyAttributeValue`` returns a
+    ``(OSStatus, value)`` tuple where ``OSStatus == 0`` signals success.
+    Three near-identical 5-line shape checks in
+    :func:`_is_password_field_macos` (for ``AXFocusedUIElement``,
+    ``AXRole``, ``AXIsSecure``) each replicated the truthy / tuple /
+    len>=2 / ``[0] == 0`` validation.  This helper consolidates them so
+    the validation logic lives in one place — the two later checks
+    (``AXRole`` and ``AXIsSecure``) had already drifted semantically
+    (they treated a non-tuple / short tuple as "not a password field"
+    rather than failing closed); the unified helper makes the contract
+    explicit.
+
+    Returns the value (``result[1]``) on success, or ``None`` if the
+    result is falsy, not a tuple, too short, or carries a non-zero
+    ``OSStatus``.  Callers that need to distinguish "API failed" from
+    "API succeeded with a None value" should inspect the raw result
+    themselves — every current caller treats both cases the same way.
+    """
+    if not result or not isinstance(result, tuple):
+        return None
+    if len(result) < 2 or result[0] != 0:
+        return None
+    return result[1]
+
+
 def _is_password_field_macos() -> bool:
     """G4-H-05: Detect macOS password fields via the Accessibility API.
 
@@ -780,11 +823,8 @@ def _is_password_field_macos() -> bool:
             # Block paste.
             _log().warning("paste-safety check failed; failing closed: %s", exc)
             return True
-        if not focused_result or not isinstance(focused_result, tuple):
-            return False
-        if len(focused_result) < 2 or focused_result[0] != 0:
-            return False
-        focused = focused_result[1]
+        # AC-42: consolidated AX-tuple shape check.
+        focused = _ax_result_value(focused_result)
         if focused is None:
             return False
 
@@ -794,13 +834,8 @@ def _is_password_field_macos() -> bool:
             role_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXRole", None)
         except Exception:
             role_result = None
-        if (
-            role_result
-            and isinstance(role_result, tuple)
-            and len(role_result) >= 2
-            and role_result[0] == 0
-            and role_result[1] == "AXSecureTextField"
-        ):
+        # AC-42: consolidated AX-tuple shape check.
+        if _ax_result_value(role_result) == "AXSecureTextField":
             _log().warning(
                 "[CLIPBOARD] macOS password field detected (AXSecureTextField) — "
                 "dictation into password fields is disabled for security"
@@ -813,13 +848,8 @@ def _is_password_field_macos() -> bool:
             secure_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXIsSecure", None)
         except Exception:
             secure_result = None
-        if (
-            secure_result
-            and isinstance(secure_result, tuple)
-            and len(secure_result) >= 2
-            and secure_result[0] == 0
-            and bool(secure_result[1])
-        ):
+        # AC-42: consolidated AX-tuple shape check.
+        if bool(_ax_result_value(secure_result)):
             _log().warning(
                 "[CLIPBOARD] macOS password field detected (AXIsSecure=True) — "
                 "dictation into password fields is disabled for security"
@@ -835,7 +865,11 @@ def _is_password_field_macos() -> bool:
         return False
 
 
-def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
+def _find_focused_atspi_accessible(
+    desktop: Any,
+    state_focused: Any,
+    max_depth: int = 10,
+) -> Any:
     """Walk the AT-SPI tree to find the focused accessible.
 
     The AT-SPI spec says the ``ATSPI_STATE_FOCUSED`` state is set on
@@ -848,6 +882,17 @@ def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
     trees (e.g. an app that reports itself as its own parent) and
     bounds the worst-case traversal time on huge trees (some apps
     expose thousands of accessibles).
+
+    AC-122: ``state_focused`` is now a REQUIRED parameter (was a
+    module-level ``_PYATSPI_STATE_FOCUSED`` global written by
+    ``_is_password_field_linux`` and read here). The caller resolves
+    ``pyatspi.STATE_FOCUSED`` once at the top of
+    ``_is_password_field_linux`` and passes it down — eliminates the
+    hidden cross-function coupling via the module global, and removes
+    the latent ``TypeError`` if ``_find_focused_atspi_accessible``
+    was ever called before the global had been initialized (the
+    global defaulted to ``None`` and ``root_state.contains(None)``
+    raised).
 
     Returns ``None`` when no focused accessible is found within the
     depth limit, or when the AT-SPI tree is malformed.
@@ -864,7 +909,7 @@ def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
         root_state = None
     if root_state is not None:
         try:
-            if root_state.contains(_PYATSPI_STATE_FOCUSED):
+            if root_state.contains(state_focused):
                 return desktop
         except Exception as exc:
             # EC-15: wire the one-shot paste-safety warning so the
@@ -902,16 +947,26 @@ def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
             continue
         if child is None:
             continue
-        result = _find_focused_atspi_accessible(child, max_depth - 1)
+        result = _find_focused_atspi_accessible(child, state_focused, max_depth - 1)
         if result is not None:
             return result
     return None
 
 
-# Cached reference to ``pyatspi.STATE_FOCUSED`` so we don't re-resolve
-# the attribute on every tree-walk iteration. Populated on first call
-# to ``_is_password_field_linux``. ``None`` means "not yet resolved"
-# (which is also the value when pyatspi is unavailable).
+# AC-122: the ``_PYATSPI_STATE_FOCUSED`` module-level global is now a
+# BACKWARD-COMPAT SENTINEL — it's still SET by ``_is_password_field_linux``
+# when it resolves ``pyatspi.STATE_FOCUSED`` (so external code that
+# inspects / patches the attribute, including the re-export in
+# ``voice_typer/server/clipboard/__init__.py`` and the test reset in
+# ``tests/test_clipboard_password_detection.py``, keeps working), but
+# it is NO LONGER READ by ``_find_focused_atspi_accessible``. The state
+# value is now passed explicitly as a function parameter, eliminating
+# the hidden cross-function coupling via the module global and removing
+# the latent ``TypeError`` if ``_find_focused_atspi_accessible`` was
+# ever called before the global had been initialized (the global
+# defaulted to ``None`` and ``root_state.contains(None)`` raised).
+# Initializing to ``None`` preserves the prior "not yet resolved"
+# sentinel semantics.
 _PYATSPI_STATE_FOCUSED: Any = None
 
 
@@ -962,18 +1017,34 @@ def _is_password_field_linux() -> bool:
             _log().debug("[CLIPBOARD] pyatspi not installed — Linux password field check skipped (already warned)")
         return False
 
-    # Resolve and cache the STATE_FOCUSED constant once.  The cached
-    # module-level global is read directly by ``_find_focused_atspi_accessible``
-    # during the tree walk below — no local binding is needed here.
-    if _PYATSPI_STATE_FOCUSED is None:
+    # AC-122: resolve ``pyatspi.STATE_FOCUSED`` ONCE per call (the
+    # attribute lookup is cheap — a single dict access on the pyatspi
+    # module) and pass it explicitly to ``_find_focused_atspi_accessible``
+    # as a parameter. Replaces the prior pattern where the module-level
+    # ``_PYATSPI_STATE_FOCUSED`` global was READ inside the tree-walk
+    # helper — that hidden cross-function coupling meant the helper
+    # would raise ``TypeError`` if called before this function had
+    # initialized the global. The global is still SET (as a backward-
+    # compat sentinel for external code that inspects / patches it),
+    # but it is no longer READ by the helper.
+    #
+    # The defensive fallback chain (try the canonical attribute, then
+    # retry, then use ``1 << 10``) is preserved verbatim.
+    try:
+        state_focused = pyatspi.STATE_FOCUSED
+    except AttributeError:
+        # Defensive: older pyatspi versions may expose it differently.
         try:
-            _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
-        except AttributeError:
-            # Defensive: older pyatspi versions may expose it differently.
-            try:
-                _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
-            except Exception:
-                _PYATSPI_STATE_FOCUSED = 1 << 10  # fallback value
+            state_focused = pyatspi.STATE_FOCUSED
+        except Exception:
+            state_focused = 1 << 10  # fallback value
+    # Backward-compat: mirror the resolved value into the module-level
+    # global so external code (re-exports in ``clipboard/__init__.py``,
+    # test patches in ``test_clipboard_password_detection.py``) that
+    # reads or resets ``_PYATSPI_STATE_FOCUSED`` keeps working. The
+    # tree-walk helper does NOT read this — it uses the local
+    # ``state_focused`` parameter.
+    _PYATSPI_STATE_FOCUSED = state_focused
 
     try:
         try:
@@ -987,7 +1058,7 @@ def _is_password_field_linux() -> bool:
         if desktop is None:
             return False
 
-        focused = _find_focused_atspi_accessible(desktop, max_depth=10)
+        focused = _find_focused_atspi_accessible(desktop, state_focused, max_depth=10)
         if focused is None:
             return False
 

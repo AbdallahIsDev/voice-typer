@@ -902,6 +902,9 @@ class Config:
     noise_filter_gate_close_threshold_db: float = -32.0
     noise_filter_gate_attack_ms: float = 25.0
     noise_filter_gate_release_ms: float = 150.0
+    # ER-10: when True, gate samples the first ~500ms of audio to estimate
+    # the ambient noise floor and derives open/close thresholds from it.
+    noise_filter_gate_adaptive: bool = False
 
     # Equalizer (3-band)
     noise_filter_eq: bool = True
@@ -1370,9 +1373,7 @@ class Config:
                         on_disk_text = _secure_read_text(config_file)
                         on_disk_data = json.loads(on_disk_text)
                         if isinstance(on_disk_data, dict):
-                            data["secrets_migrated"] = bool(
-                                on_disk_data.get("secrets_migrated", False)
-                            )
+                            data["secrets_migrated"] = bool(on_disk_data.get("secrets_migrated", False))
                         else:
                             # Corrupt or non-dict on-disk JSON —
                             # conservatively set True so the next launch

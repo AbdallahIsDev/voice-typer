@@ -32,12 +32,15 @@ class NativeHotkeyRecorder:
 
     Usage::
 
+        import logging
+        log = logging.getLogger(__name__)
+
         recorder = NativeHotkeyRecorder(timeout=10.0)
         recorder.start()
         result = recorder.wait_for_event()
         recorder.stop()
         if result:
-            print(f"Captured: {result}")
+            log.info("[HOTKEY] Captured: %s", result)
     """
 
     DUMMY_SPEC = "<f2>"

@@ -707,16 +707,6 @@ class ConfigApplier:
         # unchanged — G4-L-20) and for rollback on ``save_strict()``
         # failure (restore snapshot + re-run side-effects with original
         # values so live state matches disk — G4-H-12).
-        from dataclasses import asdict as _asdict
-
-        try:
-            pre_state_dict = _asdict(app.config)
-        except Exception:
-            # Snapshot failed (e.g. Config is a MagicMock in tests).
-            # Skip the dirty-check and rollback paths — they require a
-            # real dataclass instance to introspect.
-            pre_state_dict = None
-
         with app._config_mutation_lock:
             # RW-01: pre-route api_key fields through credential_store.
             # We do this BEFORE setattr so that even if save() is
@@ -804,12 +794,14 @@ class ConfigApplier:
             # O(len(Config fields)). It reuses the pre-setattr values
             # already captured in ``set_keys`` (G4-L-24 rollback log)
             # so no extra getattr pass is needed before setattr.
-            # ``pre_state_dict`` is still captured (above) for the
-            # G4-H-12 rollback path — it's NOT used by the dirty-check
-            # any more.
+            # DJ-29: the eager ``dataclasses.asdict()`` snapshot
+            # (``pre_state_dict``) has been removed entirely. The
+            # dirty-check uses only ``set_keys``, and the G4-H-12
+            # rollback path also uses ``set_keys`` to restore only the
+            # mutated keys instead of the full 150+ Config snapshot.
             post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
             pre_values = dict(set_keys)
-            state_unchanged = pre_state_dict is not None and pre_values == post_values
+            state_unchanged = pre_values == post_values
             if state_unchanged:
                 log.debug("[SERVICE] G4-L-20: apply_config detected no state change — skipping save_strict()")
             else:
@@ -824,28 +816,30 @@ class ConfigApplier:
                     # apply_config_side_effects with the ORIGINAL values
                     # so live side-effects (hotkey registration, audio
                     # filter rebuild, etc.) match the restored config.
-                    if pre_state_dict is not None:
-                        for k, v in pre_state_dict.items():
-                            try:
-                                setattr(app.config, k, v)
-                            except Exception:
-                                log.warning(
-                                    "[SERVICE] G4-H-12: failed to restore config key %s during save_strict rollback",
-                                    k,
-                                    exc_info=True,
-                                )
-                        # Build an "old updates" dict (only the keys
-                        # the caller asked to change) so the side-effects
-                        # re-run with the values that are now live.
-                        old_updates = {k: v for k, v in pre_state_dict.items() if k in updates}
-                        if old_updates:
-                            try:
-                                self.apply_config_side_effects(old_updates)
-                            except Exception:
-                                log.warning(
-                                    "[SERVICE] G4-H-12: failed to re-run side-effects during save_strict rollback",
-                                    exc_info=True,
-                                )
+                    # DJ-29: uses ``set_keys`` (the per-key pre-setattr
+                    # value log) instead of an eager ``dataclasses.asdict()``
+                    # snapshot of the full Config (150+ fields).
+                    for k, old_value in set_keys:
+                        try:
+                            setattr(app.config, k, old_value)
+                        except Exception:
+                            log.warning(
+                                "[SERVICE] G4-H-12: failed to restore config key %s during save_strict rollback",
+                                k,
+                                exc_info=True,
+                            )
+                    # Build an "old updates" dict (only the keys
+                    # the caller asked to change) so the side-effects
+                    # re-run with the values that are now live.
+                    old_updates = dict(set_keys)
+                    if old_updates:
+                        try:
+                            self.apply_config_side_effects(old_updates)
+                        except Exception:
+                            log.warning(
+                                "[SERVICE] G4-H-12: failed to re-run side-effects during save_strict rollback",
+                                exc_info=True,
+                            )
                     raise
 
             # ADR-0010 §8.3b: propagate clipboard config changes to the

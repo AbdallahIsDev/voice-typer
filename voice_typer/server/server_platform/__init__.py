@@ -77,7 +77,7 @@ the mutable-state routing case).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+TODO (2026-07-28, CR-67 / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
 during the package reorganization.  Once CR-67 is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
@@ -92,7 +92,8 @@ test site has been migrated, the ``_pkg.X`` references and the
 ``from voice_typer.server import server_platform as _pkg`` lines in
 the submodules can be deleted.  Estimated scope: 30-50 test files
 per package (so 90-150 test files total across the three packages).
-Tracked as CR-67 / TECH-DEBT.
+Tracked as CR-67 / TECH-DEBT (no owner assigned; no ETA — see
+``docs/rw9-god-class-decomposition.md`` for the migration plan).
 
 Patch-path compatibility
 ------------------------

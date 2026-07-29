@@ -48,6 +48,17 @@ import time
 # keep affecting production code defined here.
 from voice_typer.server import prewarm as _pkg
 
+# ER-15: import the battery-low-charge threshold constant directly from
+# ``logging_setup`` (where ``_on_battery_and_low_charge`` is defined) so
+# the log message in ``run()`` can reference the same threshold the
+# guard uses. Direct import (rather than ``_pkg.X``) because the
+# constant is a leaf value, not a test-patchable callable — tests patch
+# ``prewarm._on_battery_and_low_charge`` (the callable), not the
+# threshold constant.
+from voice_typer.server.prewarm.logging_setup import (
+    _BATTERY_LOW_CHARGE_THRESHOLD_PERCENT,
+)
+
 log = logging.getLogger("voice_typer.server.prewarm")
 
 # Skip prewarming when free RAM is below this.  ~6 GB covers the torch
@@ -62,6 +73,23 @@ EXIT_DISABLED = 10  # user turned fast_startup off
 EXIT_LOW_RAM = 20  # not enough free RAM to prewarm safely
 EXIT_NO_MODEL = 30  # model not cached yet (first-ever run)
 EXIT_IMPORT_FAILED = 40  # torch/transformers missing or broken
+# ER-15: skip prewarm when the host is on battery AND charge < 60%.
+# Prewarming reads ~6 GB off disk (~2-3 Wh drain); on a laptop booted
+# on battery at low charge, that drain is perceptible. Defer to the
+# next AC-plug event. See ``_on_battery_and_low_charge`` in
+# ``logging_setup.py`` and the regression tests in
+# ``tests/test_prewarm_er_fix_e2.py::TestOnBatteryAndLowCharge``.
+EXIT_ON_BATTERY = 50
+
+# ER-68: skip warming a weights file when its cache ratio is already
+# >= this threshold (i.e. the OS page cache already holds ~all of it).
+# Avoids re-reading the entire 2.4 GB model.safetensors when a prior
+# prewarm (or the app's own model load) already warmed it.
+_CACHE_RATIO_SKIP_WARMING_THRESHOLD = 0.9
+# ER-68: only probe cache ratio for files above this size — small files
+# are cheap to re-warm (a single read() call) and the probe itself
+# costs a few random reads, so the probe is pure overhead for them.
+_CACHE_RATIO_PROBE_MIN_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 # ─── Orchestration ───────────────────────────────────────────────────────
@@ -127,6 +155,23 @@ def run(
                 min_ram_mb,
             )
             return EXIT_LOW_RAM
+
+    # ER-15: BATTERY GUARD THIRD — skip prewarm when the host is on
+    # battery AND charge < 60%. Prewarming reads ~6 GB off disk
+    # (~2-3 Wh drain); on a laptop booted on battery at low charge,
+    # that drain is perceptible. Defer to the next AC-plug event
+    # (the next login/trigger after the user plugs in will re-run
+    # prewarm via the sentinel-recheck path). The guard runs AFTER
+    # the RAM check (cheaper than RAM probe is battery probe — both
+    # ~1μs — but RAM is the more common guard so we keep it first for
+    # log-message clarity on the common "low RAM" path).
+    if not force and _pkg._on_battery_and_low_charge():
+        log.info(
+            "[PREWARM] host is on battery with charge < %d%%"
+            " — skipping to avoid ~2-3 Wh drain (defer to next AC-plug event)",
+            _BATTERY_LOW_CHARGE_THRESHOLD_PERCENT,
+        )
+        return EXIT_ON_BATTERY
 
     _pkg._lower_io_priority()
 

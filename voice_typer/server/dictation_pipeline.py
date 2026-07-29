@@ -226,6 +226,7 @@ class DictationPipeline:
         # block below — only a hard process crash leaves it behind.
         with contextlib.suppress(Exception):
             from voice_typer.server._paths import config_dir as _config_dir
+
             _sentinel = _config_dir() / ".dictation-in-flight"
             _sentinel.write_text(str(cycle_id), encoding="utf-8")
         # RW-13: publish cycle_id as the correlation id for this thread's
@@ -410,6 +411,7 @@ class DictationPipeline:
             # leaves the sentinel behind for crash_recovery to detect.
             with contextlib.suppress(Exception):
                 from voice_typer.server._paths import config_dir as _config_dir
+
                 _sentinel = _config_dir() / ".dictation-in-flight"
                 if _sentinel.exists():
                     _sentinel.unlink()

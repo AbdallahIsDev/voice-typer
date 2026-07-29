@@ -615,6 +615,65 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
             await websocket.close(code=1008, reason="auth failed")
         return
 
+    # XZ-R18-06: enforce single-authenticated-connection invariant.
+    # The host (Rust / Electron) uses respawn rather than reconnect —
+    # a second authenticated WS implies a protocol bug (stale socket
+    # in the host's connect loop, a race between supervisor respawn
+    # and the old sidecar's accept loop, etc.). Both connections
+    # would have separate outbound queues + writer tasks + event_bus
+    # subscribers, causing duplicate event delivery (every
+    # ``event_bus.publish`` reaches both writers). The cleaner fix is
+    # to REJECT the new connection with 1008 ("Policy Violation") so
+    # the existing authenticated connection continues uninterrupted.
+    # The host's reconnect logic treats 1008 as a fatal-sidecar signal
+    # and respawns, which is the correct response to a duplicate-auth
+    # protocol bug. The previous connection is cleared from
+    # ``server._active_ws_connection`` in the ``finally`` block below
+    # (only if it still points at THIS socket — a race-safe compare).
+    #
+    # Defensive: ``server`` may be a ``MagicMock`` in tests, where
+    # ``getattr(server, "_active_ws_connection", None)`` auto-vivifies
+    # a child MagicMock (which would falsely trip the duplicate
+    # check). The ``is_closed`` probe below treats a non-bool
+    # ``.closed`` attribute (or any error reading it) as "closed" so
+    # the invariant is enforced only against a REAL open websocket.
+    with server._lock:
+        existing = getattr(server, "_active_ws_connection", None)
+    is_existing_open = False
+    if existing is not None and existing is not websocket:
+        try:
+            is_existing_open = not bool(getattr(existing, "closed", True))
+        except Exception:
+            is_existing_open = False
+    if is_existing_open:
+        log.warning(
+            "[SIDECAR-WS] duplicate authenticated connection from %s — "
+            "an existing authenticated connection is already active; "
+            "rejecting new connection with 1008 to preserve single-"
+            "connection invariant (XZ-R18-06)",
+            peer,
+        )
+        with contextlib.suppress(Exception):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            "code": "duplicate_connection",
+                            "message": "another authenticated connection is already active",
+                        },
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1008, reason="duplicate connection")
+        return
+    # Mark this as the active connection. Cleared in the ``finally``
+    # block below (only if it still points at THIS socket — a concurrent
+    # rejection path may have already swapped it).
+    with server._lock:
+        server._active_ws_connection = websocket
+
     # ADR-0020 round-2 fix: emit `ready` on the first authenticated
     # connection. The Tauri host waits for this event before hydrating
     # the UI (mirrors the Electron path's `ready` push at
@@ -878,6 +937,20 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         writer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await writer_task
+        # XZ-R18-06: clear the active-connection slot ONLY if it still
+        # points at THIS socket. A subsequent auth may have already
+        # replaced it (e.g. test scenarios that re-enter
+        # ``_handle_connection`` on the same server instance) — clearing
+        # unconditionally would clobber the new connection's marker and
+        # re-open the duplicate-auth window the slot exists to prevent.
+        # The compare-and-clear runs under ``server._lock`` so a
+        # concurrent auth in another asyncio task can't race the read +
+        # write (single event loop = no true parallelism, but the lock
+        # documents the invariant and future-proofs against a
+        # multi-loop refactor).
+        with server._lock:
+            if getattr(server, "_active_ws_connection", None) is websocket:
+                server._active_ws_connection = None
         # INFO reserved for this single "connection closed"
         # message so the rotating log shows one line per WS
         # connection lifecycle (clean OR abnormal), making it easy

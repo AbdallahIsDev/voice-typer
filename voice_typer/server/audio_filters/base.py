@@ -66,6 +66,11 @@ class AudioFilter(ABC):
 
     name: str = "AudioFilter"
 
+    # ER-46: per-filter runtime bypass flag. When False, FilterChain.process
+    # skips this filter without calling its process method. State (IIR zi,
+    # envelope follower, gate openness) survives the bypass window.
+    enabled: bool = True
+
     @abstractmethod
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         """Process a chunk of mono float32 audio.
@@ -161,6 +166,10 @@ class FilterChain:
         for f in filters_snapshot:
             if audio is None or audio.size == 0:
                 return audio
+            # ER-46: skip disabled filters without calling process() so
+            # internal state survives the bypass window.
+            if not getattr(f, "enabled", True):
+                continue
             try:
                 result = f.process(audio, sample_rate)
             except Exception as exc:

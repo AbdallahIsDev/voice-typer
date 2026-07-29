@@ -80,6 +80,9 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
                 hold_ms=config.noise_filter_gate_hold_ms,
                 release_ms=config.noise_filter_gate_release_ms,
                 sample_rate=sample_rate,
+                # ER-10: opt-in adaptive calibration — gate samples the first
+                # ~500ms of audio to estimate noise floor and derives thresholds.
+                adaptive=getattr(config, "noise_filter_gate_adaptive", False),
             )
         )
 

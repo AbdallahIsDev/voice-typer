@@ -74,7 +74,6 @@ if TYPE_CHECKING:
 from voice_typer.server._timeout_utils import (
     SHUTDOWN_WATCHDOG_TIMEOUT_S,
     TIMEOUT,
-    _DE11_GRACE_PERIOD_SECONDS,
     _run_parallel_with_timeout,
     _run_with_timeout,
 )

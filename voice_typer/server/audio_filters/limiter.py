@@ -67,7 +67,6 @@ class Limiter(AudioFilter):
 
         abs_x = np.abs(samples).astype(np.float64)
 
-
         attack_env, _ = lfilter(
             [1.0 - self._attack_coeff],
             [1.0, -self._attack_coeff],

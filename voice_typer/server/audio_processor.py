@@ -344,7 +344,17 @@ class AudioProcessor:
                 g = gcd(up, down)
                 up //= g
                 down //= g
-                chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
+                # ER-67: use cached FIR taps + upfirdn instead of
+                # resample_poly re-designing the filter on every call.
+                try:
+                    from scipy.signal import upfirdn
+
+                    from voice_typer.server.recording.resampling import _get_resample_fir_taps
+
+                    taps = _get_resample_fir_taps(up, down)
+                    chunk = upfirdn(taps, chunk, up=up, down=down).astype(np.float32, copy=False)
+                except Exception:
+                    chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
                 # XV-37: one-shot WARNING (rate-limited) so operators can
                 # spot devices that haven't been routed through
                 # ``set_sample_rate``. Subsequent calls at the same

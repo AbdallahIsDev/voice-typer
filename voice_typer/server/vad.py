@@ -40,6 +40,18 @@ log = logging.getLogger(__name__)
 # impose its own threshold on the rest of the pipeline.
 VAD_THRESHOLD = 0.5
 
+# ER-13: early-exit threshold for the multi-sub-chunk inference loop in
+# :func:`compute_vad_prob`. Once a sub-chunk returns a probability ≥ this
+# value, the loop breaks — speech is an "any sub-chunk contains it"
+# decision, so a single high-confidence sub-chunk is sufficient evidence
+# and we skip further torch inference cycles. The threshold is chosen
+# above the typical +50 dB speech-prob ceiling so the early-exit only
+# fires on high-confidence speech frames; the test contract in
+# ``tests/test_vad_dtype_optimization.py::test_compute_vad_prob_long_chunk_float32_input``
+# (probs 0.3 and 0.9 for the two sub-chunks) is preserved because both
+# values are below the threshold.
+_VAD_EARLY_EXIT_PROB: float = 0.95
+
 # XV-49: deadline for the ``torch.hub.load`` network fallback. On offline
 # or firewalled machines the call retries for 30+ seconds before failing;
 # bounding it to 5s keeps the audio worker responsive and lets the
@@ -239,6 +251,23 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
     sensitive than mean for short bursts. (Cost is bounded by the
     worker-thread context per RT-SAFE-001 — VAD no longer runs on the
     audio callback, so N× inference is acceptable.)
+
+    ER-13: option (c) "move compute_vad_prob to a dedicated VAD worker
+    thread fed by a queue (decouple from capture)" is ALREADY
+    IMPLEMENTED per RT-SAFE-001 — ``recorder._audio_callback_dispatch``
+    enqueues the chunk into an SPSC ring buffer and wakes the audio
+    worker thread (``_audio_worker_loop`` / ``_process_audio_chunk``),
+    which calls ``compute_vad_prob`` from ``audio_pipeline.run_vad_state_machine``.
+    The audio capture thread does NOT run torch inference. Options (a)
+    "drop the multi-sub-chunk loop" and (b) "batch sub-chunks as a
+    single 2D tensor" would break the ``test_compute_vad_prob_long_chunk_float32_input``
+    contract (pinned call_count=2 for a 1024-sample input sliced into
+    two 512-sample sub-chunks) and are NOT applied here — the worker-
+    thread context makes N× inference acceptable per RT-SAFE-001. The
+    ``_VAD_EARLY_EXIT_PROB`` threshold below provides a partial speed-up:
+    once a sub-chunk returns a very-high probability, no further sub-
+    chunks are inferred (speech is an "any sub-chunk contains it"
+    decision, so a single high-prob sub-chunk is sufficient evidence).
     """
     model, utils = _load_model()
     if model is None:
@@ -275,12 +304,29 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         # sub-chunk contains it" decision. The trailing remainder
         # (< 512 samples) is dropped: at 16 kHz that's ≤31 ms of audio,
         # below the Silero false-negative floor.
+        #
+        # ER-13: early-exit once a sub-chunk returns a very-high
+        # probability. Speech is an "any sub-chunk contains it"
+        # decision, so a single high-prob sub-chunk is sufficient
+        # evidence — no need to spend further torch inference cycles on
+        # the remaining sub-chunks. The threshold (0.95) is chosen
+        # above the typical noise-floor +50 dB speech-prob ceiling so
+        # the early-exit only fires on high-confidence speech frames;
+        # the test contract (probs 0.3 and 0.9 for the two sub-chunks
+        # in ``test_compute_vad_prob_long_chunk_float32_input``) is
+        # preserved (both values are below the threshold).
         num_sub = n // expected
         probs: list[float] = []
         with torch.no_grad():
             for i in range(num_sub):
                 sub = audio_tensor[i * expected : (i + 1) * expected]
-                probs.append(model(sub, sample_rate).item())
+                prob = model(sub, sample_rate).item()
+                probs.append(prob)
+                if prob >= _VAD_EARLY_EXIT_PROB:
+                    # High-confidence speech — skip remaining sub-chunks.
+                    # MAX is now ``prob`` (it's >= the threshold, and
+                    # all prior probs were < threshold).
+                    break
         return max(probs) if probs else 0.0
     except Exception as exc:
         log.debug("[VAD] Inference failed: %s", exc)

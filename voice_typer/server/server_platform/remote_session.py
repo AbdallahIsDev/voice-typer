@@ -222,6 +222,7 @@ def _is_windows_remote_session() -> bool:
             connect_state = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ulong)).contents.value
             # Free the buffer — WTSFreeMemory is mandatory on success.
             import contextlib
+
             with contextlib.suppress(Exception):
                 wtsapi32.WTSFreeMemory(buffer)
             # Get the physical console session ID. If the current

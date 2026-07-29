@@ -48,8 +48,7 @@ def atexit_log(controller: ShutdownController) -> None:
     app = controller._app
     if not app._shutting_down_event.is_set():
         log.warning(
-            "[ATEXIT] Process exiting without quit() -- "
-            "likely killed externally (console close, task manager, etc.)"
+            "[ATEXIT] Process exiting without quit() -- likely killed externally (console close, task manager, etc.)"
         )
 
 

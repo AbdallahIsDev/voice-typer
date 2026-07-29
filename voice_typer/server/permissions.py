@@ -833,8 +833,7 @@ def _check_windows_microphone() -> MicrophonePermissionState:
         # so we substring-match case-insensitively.
         if "access denied" in msg or "access is denied" in msg:
             log.warning(
-                "[PERMISSION] Windows mic permission DENIED (PortAudio "
-                "InputStream open raised 'access denied'): %s",
+                "[PERMISSION] Windows mic permission DENIED (PortAudio InputStream open raised 'access denied'): %s",
                 exc,
             )
             return MicrophonePermissionState.DENIED
@@ -917,8 +916,7 @@ def _check_linux_microphone() -> MicrophonePermissionState:
             # not have written it yet, or the app may not have any
             # portal permissions configured).
             log.debug(
-                "[PERMISSION] Flatpak mic permission file not found at "
-                "%s — falling back to GRANTED",
+                "[PERMISSION] Flatpak mic permission file not found at %s — falling back to GRANTED",
                 perm_path,
             )
             return MicrophonePermissionState.GRANTED
@@ -946,8 +944,7 @@ def _check_linux_microphone() -> MicrophonePermissionState:
 
         if str(mic_perm).lower() == "no":
             log.warning(
-                "[PERMISSION] Flatpak mic permission DENIED for app %s "
-                "(permissions.json reports microphone='no')",
+                "[PERMISSION] Flatpak mic permission DENIED for app %s (permissions.json reports microphone='no')",
                 app_id or "(unknown)",
             )
             return MicrophonePermissionState.DENIED

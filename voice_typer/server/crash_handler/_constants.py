@@ -194,5 +194,27 @@ _NAME_MISALIGNMENT = b"STATUS_DATATYPE_MISALIGNMENT: a misaligned memory access 
 _NAME_GUARD_PAGE = b"STATUS_GUARD_PAGE_VIOLATION: a guard page was touched (stack growth or probe)."
 _NAME_UNKNOWN = b"Unknown fatal exception."
 
+# AC-88: unified exception-code → (name_bytes, summary_str) lookup table.
+# Replaces the 13-clause if/elif chain that previously lived in
+# ``_vehtored_handler_impl``. Each entry maps an NTSTATUS code to the
+# pre-encoded friendly-name bytes and a human-readable summary string.
+# The VEH callback reads ``[0]`` (the name bytes) for the crash
+# diagnostics message; ``[1]`` is reserved for diagnostic UI or logs.
+_CODE_TO_INFO: dict[int, tuple[bytes, str]] = {
+    STATUS_HEAP_CORRUPTION: (_NAME_HEAP, "Process heap corrupted"),
+    STATUS_ACCESS_VIOLATION: (_NAME_ACCESS, "Invalid memory access"),
+    STATUS_STACK_BUFFER_OVERRUN: (_NAME_STACK, "Stack buffer overrun detected"),
+    STATUS_FATAL_APP_EXIT: (_NAME_FATAL, "Application requested fatal exit"),
+    STATUS_ILLEGAL_INSTRUCTION: (_NAME_ILLEGAL_INSTRUCTION, "CPU invalid opcode"),
+    STATUS_INT_DIVIDE_BY_ZERO: (_NAME_INT_DIVIDE_BY_ZERO, "Integer division by zero"),
+    STATUS_PRIVILEGED_INSTRUCTION: (_NAME_PRIVILEGED_INSTRUCTION, "Privileged instruction in user mode"),
+    STATUS_IN_PAGE_ERROR: (_NAME_IN_PAGE_ERROR, "Memory page I/O error"),
+    STATUS_STACK_OVERFLOW: (_NAME_STACK_OVERFLOW, "Thread stack exhausted"),
+    STATUS_NONCONTINUABLE_EXCEPTION: (_NAME_NONCONTINUABLE, "Non-continuable exception"),
+    STATUS_INVALID_HANDLE: (_NAME_INVALID_HANDLE, "Invalid kernel handle"),
+    STATUS_DATATYPE_MISALIGNMENT: (_NAME_MISALIGNMENT, "Misaligned memory access"),
+    STATUS_GUARD_PAGE_VIOLATION: (_NAME_GUARD_PAGE, "Guard page touched (stack growth)"),
+}
+
 # Lookup table for hex digit encoding (pre-computed)
 _HEX_CHARS = b"0123456789ABCDEF"

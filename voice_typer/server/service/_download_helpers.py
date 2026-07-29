@@ -133,9 +133,7 @@ def notify(tray, model_name: str, title: str, message: str) -> None:
     try:
         tray.notify(title, message)
     except Exception:
-        log.debug(
-            "[SERVICE] tray notify failed for model '%s'", model_name, exc_info=True
-        )
+        log.debug("[SERVICE] tray notify failed for model '%s'", model_name, exc_info=True)
 
 
 def poll_download_progress(
@@ -214,9 +212,7 @@ def poll_download_progress(
         # cancel signal (or cleanup) doesn't bleed into this loop.
         if is_cancelled_fn(download_id):
             cancelled = True
-            log.info(
-                "[SERVICE] Download of %s cancelled by user", model_name
-            )
+            log.info("[SERVICE] Download of %s cancelled by user", model_name)
             push_progress(event_bus, model_name, 0, "Download cancelled")
             break
         # NEW-PAUSE-001: check for pause.  When paused, block for up
@@ -263,9 +259,7 @@ def poll_download_progress(
         try:
             model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
             if model_dir.exists():
-                total_bytes_seen = sum(
-                    f.stat().st_size for f in model_dir.rglob("*") if f.is_file()
-                )
+                total_bytes_seen = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
                 total_mb_seen = total_bytes_seen // (1024 * 1024)
                 pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
                 # Log progress at whole-number percentage thresholds

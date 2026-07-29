@@ -33,22 +33,10 @@ from voice_typer.server.crash_handler._constants import (
     _ADDR_LABEL,
     _BOM,
     _CODE_LABEL,
+    _CODE_TO_INFO,
     _CRASH_CODES,
     _CRASH_LABEL,
     _HEX_CHARS,
-    _NAME_ACCESS,
-    _NAME_FATAL,
-    _NAME_GUARD_PAGE,
-    _NAME_HEAP,
-    _NAME_ILLEGAL_INSTRUCTION,
-    _NAME_IN_PAGE_ERROR,
-    _NAME_INT_DIVIDE_BY_ZERO,
-    _NAME_INVALID_HANDLE,
-    _NAME_MISALIGNMENT,
-    _NAME_NONCONTINUABLE,
-    _NAME_PRIVILEGED_INSTRUCTION,
-    _NAME_STACK,
-    _NAME_STACK_OVERFLOW,
     _NAME_UNKNOWN,
     _NL,
     _PID_LABEL,
@@ -60,19 +48,6 @@ from voice_typer.server.crash_handler._constants import (
     FILE_SHARE_WRITE,
     GENERIC_WRITE,
     OPEN_ALWAYS,
-    STATUS_ACCESS_VIOLATION,
-    STATUS_DATATYPE_MISALIGNMENT,
-    STATUS_FATAL_APP_EXIT,
-    STATUS_GUARD_PAGE_VIOLATION,
-    STATUS_HEAP_CORRUPTION,
-    STATUS_ILLEGAL_INSTRUCTION,
-    STATUS_IN_PAGE_ERROR,
-    STATUS_INT_DIVIDE_BY_ZERO,
-    STATUS_INVALID_HANDLE,
-    STATUS_NONCONTINUABLE_EXCEPTION,
-    STATUS_PRIVILEGED_INSTRUCTION,
-    STATUS_STACK_BUFFER_OVERRUN,
-    STATUS_STACK_OVERFLOW,
     _crash_msg_buf,
 )
 
@@ -286,34 +261,15 @@ def _vectored_handler_impl(exception_pointers) -> int:
     pos += 2
 
     # Friendly name
-    if exc_code == STATUS_HEAP_CORRUPTION:
-        name = _NAME_HEAP
-    elif exc_code == STATUS_ACCESS_VIOLATION:
-        name = _NAME_ACCESS
-    elif exc_code == STATUS_STACK_BUFFER_OVERRUN:
-        name = _NAME_STACK
-    elif exc_code == STATUS_FATAL_APP_EXIT:
-        name = _NAME_FATAL
-    elif exc_code == STATUS_ILLEGAL_INSTRUCTION:
-        name = _NAME_ILLEGAL_INSTRUCTION
-    elif exc_code == STATUS_INT_DIVIDE_BY_ZERO:
-        name = _NAME_INT_DIVIDE_BY_ZERO
-    elif exc_code == STATUS_PRIVILEGED_INSTRUCTION:
-        name = _NAME_PRIVILEGED_INSTRUCTION
-    elif exc_code == STATUS_IN_PAGE_ERROR:
-        name = _NAME_IN_PAGE_ERROR
-    elif exc_code == STATUS_STACK_OVERFLOW:
-        name = _NAME_STACK_OVERFLOW
-    elif exc_code == STATUS_NONCONTINUABLE_EXCEPTION:
-        name = _NAME_NONCONTINUABLE
-    elif exc_code == STATUS_INVALID_HANDLE:
-        name = _NAME_INVALID_HANDLE
-    elif exc_code == STATUS_DATATYPE_MISALIGNMENT:
-        name = _NAME_MISALIGNMENT
-    elif exc_code == STATUS_GUARD_PAGE_VIOLATION:
-        name = _NAME_GUARD_PAGE
-    else:
-        name = _NAME_UNKNOWN
+    # AC-88: replaced the 13-clause ``if exc_code == STATUS_X: name =
+    # _NAME_X`` ``elif`` chain with a single dict lookup into
+    # ``_CODE_TO_INFO`` (the unified code → (name_bytes, summary_str)
+    # table in ``_constants.py``). Drift eliminated: adding a new code
+    # now requires editing ONE place (``_CODE_TO_INFO``) rather than
+    # three (constants + VEH if-elif + read-side if-elif). The
+    # ``_NAME_UNKNOWN`` fallback mirrors the original ``else`` branch.
+    _info = _CODE_TO_INFO.get(exc_code)
+    name = _info[0] if _info is not None else _NAME_UNKNOWN
 
     n_name = len(name)
     buf[pos : pos + n_name] = name

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import logging
 import threading
 from typing import Any
 
@@ -52,7 +51,14 @@ from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 # sites without bloating the import line.
 from voice_typer.server.config import DEFAULT_CLIPBOARD_RESTORE_DELAY_MS as _DEFAULT_RESTORE_DELAY_MS
 
-log = logging.getLogger("voice_typer.server.clipboard")
+# AC-41: the per-submodule `log = logging.getLogger(...)` definition that
+# used to live here was removed because it was unused — every log call in
+# this module routes through `_cb.log` (the package-level logger imported
+# above as `_cb`). Defining a separate `log` here would shadow the
+# package logger and risk future contributors adding `log.info(...)`
+# calls that bypass the `_cb.log` patch surface used by tests
+# (`tests/test_clipboard.py` patches `voice_typer.server.clipboard.log`).
+# The `import logging` was also removed (no remaining references).
 
 
 # ─── CLIP-8: module-level registry of pending delayed-restores ────────
@@ -311,7 +317,8 @@ class ClipboardManager:
             import ctypes
 
             user32 = ctypes.windll.user32
-            # CLIP-12: fetch hwnd ONCE and pass to all helpers.
+            # Fetch hwnd ONCE and pass to all helpers (avoids redundant
+            # GetForegroundWindow calls — History: CLIP-12).
             hwnd = user32.GetForegroundWindow()
             if not hwnd:
                 return True
@@ -352,8 +359,9 @@ class ClipboardManager:
             # The user will see no paste and can investigate (the function
             # logs a warning explaining why).
             #
-            # CLIP-3: fail-closed on exception — if the elevation check
-            # itself raises, we block paste rather than risk UIPI failure.
+            # Fail-closed on exception — if the elevation check itself
+            # raises, we block paste rather than risk UIPI failure.
+            # (History: CLIP-3.)
             try:
                 if _cb._is_elevated_target(hwnd):
                     _cb.log.warning(
@@ -393,9 +401,9 @@ class ClipboardManager:
 
             try:
                 # PLAT-014: check if the focused element is a password field.
-                # CLIP-3: fail-closed on exception — if password-field
-                # detection itself raises, block paste rather than risk
-                # pasting into a credential prompt.
+                # Fail-closed on exception — if password-field detection
+                # itself raises, block paste rather than risk pasting
+                # into a credential prompt. (History: CLIP-3.)
                 try:
                     if _cb._is_password_field(focused, hwnd):
                         return False
@@ -412,8 +420,8 @@ class ClipboardManager:
                 # the user knows the paste target supports rich text and
                 # our plain-text paste may lose formatting.
                 #
-                # CLIP-3: keep fail-OPEN here — contentEditable is
-                # informational, not a security gate.
+                # Keep fail-OPEN here — contentEditable is informational,
+                # not a security gate. (History: CLIP-3.)
                 try:
                     if _cb._is_content_editable(focused):
                         _cb.log.info(
@@ -445,11 +453,11 @@ class ClipboardManager:
 
             return True
         except Exception:
-            # CLIP-3: outer exception — fail-open ONLY when truly
-            # broken infra (e.g. ctypes itself unavailable). This is
-            # rare and indicates a broken Python install rather than
-            # a security infra issue. Security-check exceptions are
-            # caught earlier (per-helper) and fail-closed.
+            # Outer exception — fail-open ONLY when truly broken infra
+            # (e.g. ctypes itself unavailable). This is rare and indicates
+            # a broken Python install rather than a security infra issue.
+            # Security-check exceptions are caught earlier (per-helper)
+            # and fail-closed. (History: CLIP-3.)
             _cb.log.warning("[CLIPBOARD] _is_safe_paste_target outer exception — failing open", exc_info=True)
             return True  # Fail open — don't block paste on outer infra error
 
@@ -711,10 +719,10 @@ class ClipboardManager:
         # re-checks the clipboard before restoring, so this is safe even
         # if the paste never lands.
         #
-        # CLIP-8: register the pending restore in the module-level
-        # _pending_restores list so the atexit handler can force-restore
-        # it if the app exits before the daemon thread fires. The daemon
-        # thread removes its entry on normal completion.
+        # Register the pending restore in the module-level _pending_restores
+        # list so the atexit handler can force-restore it if the app exits
+        # before the daemon thread fires. The daemon thread removes its
+        # entry on normal completion. (History: CLIP-8.)
         _pending_entry: tuple[Any, Any, str, float] | None = None
         if snapshot is not None:
             delay = restore_delay if restore_delay is not None else (self._restore_delay_ms / 1000.0)
@@ -737,7 +745,7 @@ class ClipboardManager:
                     name="clipboard-restore",
                 ).start()
             except (OSError, RuntimeError) as exc:
-                log.warning(
+                _cb.log.warning(
                     "[CLIPBOARD] failed to start clipboard-restore thread: %s — "
                     "removing orphaned _pending_restores entry to prevent leak",
                     exc,
@@ -764,7 +772,7 @@ class ClipboardManager:
                 _cb.log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
                 return False
 
-        # CLIP-13: rate-limit check moved BEFORE seq-mismatch re-copy.
+        # Rate-limit check moved BEFORE seq-mismatch re-copy.
         # Previously, a rate-limited paste would still trigger a
         # re-copy of the clipboard (via pyperclip.copy) even though no
         # keystroke would be sent — wasting the re-copy work and
@@ -938,9 +946,9 @@ class ClipboardManager:
             # through to the pynput path on X11, when wtype isn't
             # installed, or on non-Linux platforms.
             #
-            # CLIP-10: ``_linux_paste_via_wtype`` now always uses the
-            # Ctrl+V clipboard path (no more ``-d 50`` keystroke delay
-            # for short text).
+            # ``_linux_paste_via_wtype`` now always uses the Ctrl+V
+            # clipboard path (no more ``-d 50`` keystroke delay for
+            # short text). (History: CLIP-10.)
             use_wayland_wtype = _cb.is_linux() and _cb._is_wayland_paste_session() and _cb._have_wtype()
             paste_succeeded = True
             # DE-60 (session-DE): thread ``pasted_text`` (request-scoped
@@ -986,7 +994,7 @@ class ClipboardManager:
                             current_hwnd,
                         )
                         return False
-                # CLIP-14: check the return value of _send_ctrl_v_win32.
+                # Check the return value of _send_ctrl_v_win32.
                 # A False return means SendInput reported partial success
                 # (1..3 of 4 events delivered) — the paste did NOT
                 # complete cleanly. Previously this was silently dropped

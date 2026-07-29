@@ -740,6 +740,17 @@ def maybe_publish_tray_menu(tray) -> bool:
         build_models_submenu=tray._build_models_submenu,
         left_click_action=left_click,
         microphones=controller_mics,
+        # AC-53: VoiceTyperApp now exposes ``active_microphone_id``
+        # (property) and ``refresh_microphones`` (method) on the public
+        # TrayController Protocol. We keep the defensive ``getattr(..., None)``
+        # call sites ONLY for backward-compat with legacy test mocks in
+        # tests/test_tray.py::_MockController that pre-date the Protocol
+        # update (those test files are owned by a different agent batch
+        # and cannot be updated here). In production, ``controller`` is
+        # the live ``VoiceTyperApp`` instance and pyrefly verifies the
+        # attribute via the ``TrayController`` Protocol — so the getattr
+        # is a no-op on the production path and only falls back to None
+        # on the legacy-mock test path.
         active_mic_id=getattr(controller, "active_microphone_id", None),
         on_select_mic=getattr(controller, "change_microphone", None),
         on_refresh_mics=getattr(controller, "refresh_microphones", None),

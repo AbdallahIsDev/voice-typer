@@ -21,6 +21,25 @@ class MicrophoneTestMixin(ServiceMixinBase):
     import those modules directly.
     """
 
+    def __init__(self) -> None:
+        """AC-67: initialize MicrophoneTestMixin's own state.
+
+        Previously ``_microphones_cache`` / ``_microphones_cache_ts``
+        were initialised in ``VoiceTyperService.__init__`` even
+        though they are used ONLY by MicrophoneTestMixin (the
+        fat-base-class smell called out in AC-67). They are now
+        owned by MicrophoneTestMixin so each mixin is the single
+        source of truth for its own state.
+
+        XV-5: initialised to ``None`` (not ``[]``) so the cache check
+        can distinguish "never queried" from "queried and got 0 mics"
+        via an ``is not None`` guard. A bare-truthiness check would
+        bypass the cache when PortAudio legitimately returned an empty
+        list, re-querying PortAudio on every refresh call.
+        """
+        self._microphones_cache: list | None = None
+        self._microphones_cache_ts: float = 0.0
+
     # ── Microphones ─────────────────────────────────────────────
 
     def get_microphones(self) -> list[dict]:

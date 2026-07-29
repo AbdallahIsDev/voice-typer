@@ -317,6 +317,36 @@ class StartupSequence:
                     exc_info=True,
                 )
 
+        # ER-36: schedule PERIODIC retention sweeps so the DB doesn't
+        # grow monotonically during long sessions. The one-shot
+        # ``_apply_retention_bg`` above only prunes at startup; an 8-hour
+        # dictation session at ~1 transcription/minute accumulates ~480
+        # new rows above the configured ``history_max_entries`` ceiling
+        # and the DB file never shrinks during the session (VACUUM only
+        # runs inside ``apply_retention``). The periodic sweep calls
+        # ``apply_retention`` every 10 minutes (default) on a daemon
+        # thread registered with ThreadRegistry. ``apply_retention`` is
+        # already chunked + safe to call at runtime (it acquires the
+        # writer-thread lock per chunk, so concurrent ``add_transcription``
+        # calls are not blocked for the full sweep). The sweep re-reads
+        # ``app.config.history_*`` on each tick so a mid-session config
+        # change (e.g. the user lowers ``history_max_entries`` from 1000
+        # to 500) takes effect on the next sweep without requiring an
+        # app restart. Best-effort — failures are logged + swallowed.
+        try:
+            app.history_db.schedule_periodic_retention(
+                interval_s=600.0,
+                app=app,
+                retention_days=app.config.history_retention_days,
+                max_entries=app.config.history_max_entries,
+                retention_count=app.config.history_retention_count,
+            )
+        except Exception:
+            log.warning(
+                "[STARTUP] could not schedule periodic history retention — DB will grow until next app launch",
+                exc_info=True,
+            )
+
         # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
         if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland" and not app.config.wayland_warned:
@@ -354,13 +384,45 @@ class StartupSequence:
         _has_accessibility = False
         if is_macos():
             try:
-                import subprocess as _sp
-
                 # PLAT-030: Use AXIsProcessTrusted() via ctypes for the
                 # definitive check.  AXIsProcessTrusted() is the official
                 # API — it returns True iff the process has Accessibility
                 # permission.  We load it from ApplicationServices.framework
                 # via ctypes (no PyObjC dependency required).
+                #
+                # ER-6: the prior fallback to `osascript -e 'tell
+                # application "System Events" to keystroke " "'` was
+                # removed because:
+                #   1. It runs on the critical startup thread (before
+                #      hotkey registration at line 528 and before the
+                #      parallel prewarm/mic work at line 516) and blocks
+                #      for up to 3s on the subprocess + osascript
+                #      interpreter startup.
+                #   2. It synthesizes a REAL keystroke via System Events
+                #      (a space character), which is invasive — it
+                #      focuses the frontmost app and types into whatever
+                #      has keyboard focus. A user running Voice Typer
+                #      at login could see the space land in their
+                #      password prompt or terminal.
+                #   3. The osascript path is reached whenever ctypes
+                #      ApplicationServices load fails (stripped-down
+                #      macOS installs, code-signed bundles with
+                #      restricted dyld env, CI runners), so it's a
+                #      real production path — not just a dev fallback.
+                #
+                # Replacement strategy: if the ctypes probe fails (load
+                # error / symbol missing), treat the result as
+                # "permission not granted" (False) and let the periodic
+                # A11yPulse (started at line 406 below) detect the grant
+                # within 60s. A11yPulse uses the SAME ctypes probe but
+                # runs it off the startup hot path, so a transient
+                # load failure on startup doesn't wedge the user — the
+                # next A11yPulse tick re-tries and updates the tray.
+                #
+                # VALIDATE ON MACOS HOST: AXIsProcessTrusted() returns
+                # the correct value on real macOS (the existing
+                # tests/test_a11y_pulse.py suite exercises the same
+                # ctypes probe on macOS CI).
                 try:
                     import ctypes
 
@@ -368,16 +430,22 @@ class StartupSequence:
                         "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
                     )
                     _has_accessibility = bool(app_services.AXIsProcessTrusted())
-                except Exception:
-                    # Fallback: osascript check (less reliable but works
-                    # even if ctypes loading fails)
-                    result = _sp.run(
-                        ["osascript", "-e", 'tell application "System Events" to keystroke " "'],
-                        capture_output=True,
-                        text=True,
-                        timeout=3,
+                except Exception as exc:
+                    # ER-6: drop the osascript fallback entirely. Treat
+                    # ctypes-load failure as "permission not granted"
+                    # (False) — the A11yPulse task (started below at
+                    # line 406) will re-probe within 60s and update
+                    # `_has_accessibility` + the tray icon when the
+                    # grant is detected. This avoids the 3s osascript
+                    # subprocess on the startup hot path AND avoids
+                    # the invasive keystroke synthesis.
+                    log.warning(
+                        "[STARTUP] macOS AXIsProcessTrusted ctypes load "
+                        "failed (%s); treating as not-granted. A11yPulse "
+                        "will re-probe within 60s.",
+                        exc,
                     )
-                    _has_accessibility = result.returncode == 0
+                    _has_accessibility = False
 
                 if not _has_accessibility:
                     log.warning("[STARTUP] macOS Accessibility permission not granted")
@@ -412,8 +480,26 @@ class StartupSequence:
         # startup_tasks (and tests monkeypatch startup_tasks).
         from voice_typer.server import startup_tasks
 
-        startup_tasks.sync_autostart(app)
-        app.tray.set_autostart_enabled(is_autostart_enabled())
+        # ER-73(a): sync_autostart returns a result dict whose
+        # ``actual_post_sync`` field carries the post-sync OS-level
+        # autostart state (True iff the OS-level autostart entry is
+        # currently registered). Use that field instead of calling
+        # ``is_autostart_enabled()`` a second time — the pre-ER-73 path
+        # called the platform helper twice back-to-back on every startup,
+        # and the second call always returned the same value as the one
+        # sync_autostart already read internally. Falling back to a direct
+        # ``is_autostart_enabled()`` call only when sync_autostart's
+        # result lacks the field (older test stubs that monkeypatch
+        # sync_autostart to return ``None``).
+        autostart_result = startup_tasks.sync_autostart(app)
+        if isinstance(autostart_result, dict) and "actual_post_sync" in autostart_result:
+            autostart_enabled = bool(autostart_result["actual_post_sync"])
+        else:
+            # Test-stub fallback: the monkeypatched sync_autostart returned
+            # ``None`` (or a dict without the field). Fall back to the
+            # direct platform read so the tray menu shows the real state.
+            autostart_enabled = is_autostart_enabled()
+        app.tray.set_autostart_enabled(autostart_enabled)
 
         # RACE-020: check for shutdown after each major step
         if app._shutting_down:

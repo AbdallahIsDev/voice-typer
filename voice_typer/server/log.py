@@ -38,6 +38,8 @@ import time
 import uuid
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 # ── Module-level state ────────────────────────────────────────────────
 # Encapsulated here instead of in a class so it's accessible to filters
 # and formatters without passing references through the logging framework.
@@ -1140,40 +1142,89 @@ class _FlushingStreamHandler(logging.StreamHandler):
 
 
 class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
-    """``RotatingFileHandler`` that re-locks file perms after each rollover.
+    """``RotatingFileHandler`` that is inter-process safe AND re-locks perms.
 
-    FR-2: Python's stock ``RotatingFileHandler.doRollover`` opens the
-    new active log file with ``open(path, 'a')`` — the resulting file
-    mode is ``0o666 & ~umask``.  ``setup_logging`` only tightens the
-    umask *inside its own try/finally* scope, so by the time a rotation
-    fires (potentially hours/days later, after ``setup_logging`` has
-    returned and restored the parent's umask — typically 0o022 on
-    POSIX), the new active log is created with mode 0o644
-    (world-readable).  Dictated-text previews, exception tracebacks,
-    hotkey registrations, and config-path values all land in a
-    world-readable file on multi-user POSIX systems.
+    XZ-LOG-10 + FR-2: Combines two concerns:
+    1. Inter-process rotation safety (``fcntl.flock`` / ``msvcrt.locking``)
+       so the main app and prewarm process don't race on rotation.
+    2. Post-rotation ``os.chmod(self.baseFilename, 0o600)`` on POSIX so
+       the active log file is never world-readable (FR-2).
 
-    This subclass overrides ``doRollover`` to call
-    ``super().doRollover()`` first (which renames the active file to
-    ``.1``, shifts ``.1 -> .2``, etc., and opens a new active file),
-    then ``os.chmod(self.baseFilename, 0o600)`` on POSIX to restore the
-    0o600 mode on the freshly-created active log.  The rotated backup
-    files (``.1``, ``.2``, ...) inherit their mode from the original
-    active file via rename -- since the active file was 0o600 before
-    rotation, the backups are also 0o600.
-
-    Best-effort on Windows: ``os.chmod`` on POSIX-mode bits is a no-op
-    on Windows ACLs, but the file was already created with the
-    process's default DACL -- no harm in attempting the call.
+    The lock is held only for the brief rename+reopen window, NOT for
+    every ``emit()`` call.  After acquiring the lock the handler
+    re-checks whether rotation is still needed — another process may
+    have rotated while we waited.
     """
 
+    def __init__(self, filename, *args, **kwargs):
+        super().__init__(filename, *args, **kwargs)
+        self._rotation_lock_path = f"{filename}.rotate.lock"
+
+    def _acquire_rotation_lock(self):
+        """Open the lock file and acquire an inter-process lock on it."""
+        fd = None
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fd = os.open(self._rotation_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                return fd
+            if os.name == "nt":
+                import msvcrt
+
+                fd = os.open(self._rotation_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+                os.write(fd, b"\0")
+                os.lseek(fd, 0, os.SEEK_SET)
+                with contextlib.suppress(OSError):
+                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                return fd
+        except Exception as exc:
+            log.debug(
+                "[LOG-SETUP] inter-process rotation lock acquire failed (%s); falling back to racy rotation",
+                exc,
+            )
+            if isinstance(fd, int):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+        return None
+
+    def _release_rotation_lock(self, fd) -> None:
+        if fd is None:
+            return
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            elif os.name == "nt":
+                import msvcrt
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                with contextlib.suppress(OSError):
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except Exception:
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+    def _rotation_needed(self) -> bool:
+        """Re-check whether rotation is still needed after lock acquisition."""
+        try:
+            return os.path.getsize(self.baseFilename) >= self.maxBytes
+        except OSError:
+            return True
+
     def doRollover(self) -> None:  # noqa: D401, N802
-        super().doRollover()
-        # FR-2: re-lock the freshly-created active log file to 0o600 on
-        # POSIX.  ``super().doRollover()`` created it with mode 0o666 &
-        # ~umask (typically 0o644 in production), so the chmod below is
-        # what actually restores the privacy guarantee.  Best-effort --
-        # a perm-set failure must not mask the rotation.
+        lock_fd = self._acquire_rotation_lock()
+        try:
+            if not self._rotation_needed():
+                return
+            super().doRollover()
+        finally:
+            self._release_rotation_lock(lock_fd)
+        # FR-2: re-lock the freshly-created active log file to 0o600 on POSIX.
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(self.baseFilename, 0o600)

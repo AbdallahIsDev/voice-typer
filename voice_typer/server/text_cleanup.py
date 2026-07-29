@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Final
 
@@ -157,12 +158,29 @@ def _load_external_corrections(
             log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
             load_errors.append(f"{path.name}: {e}")
 
+    # AC-83: raise whenever ANY load error occurred — previously the
+    # raise was gated on ``not loaded_any``, which meant a malformed
+    # USER file was silently swallowed when the BUNDLED file loaded OK
+    # (the bundled corrections were returned as if nothing had gone
+    # wrong, and the caller had no way to know the user's edits were
+    # being ignored). ``configure_corrections`` catches this raise and
+    # surfaces it as its returned error-message string, then falls back
+    # to a bundled-only reload so ``clean_transcribed_text`` still
+    # works. The "no files existed" case (``loaded_any=False`` AND
+    # ``load_errors`` empty) still returns ``None`` (silent fallback —
+    # first-launch with no user file is the normal case).
+    #
+    # The message includes the word "malformed" so existing caller-side
+    # assertions (``tests/test_text_cleanup.py::
+    # TestConfigureCorrectionsSurfacesLoadErrors::test_returns_error_for_malformed_json``
+    # checks for ``"malformed" in result.lower() or "invalid" in
+    # result.lower()``) keep passing after the AC-83 refactor that
+    # replaced the inline parse with the typed-exception path.
+    if load_errors:
+        raise CorrectionsLoadError(
+            "Corrections file(s) existed but were malformed or could not be loaded: " + "; ".join(load_errors)
+        )
     if not loaded_any:
-        # ARCH-029: if we tried to load files and they all failed,
-        # raise so the caller can surface the error. If no files
-        # existed in the first place, return None (silent fallback).
-        if load_errors:
-            raise CorrectionsLoadError("Corrections file(s) existed but could not be loaded: " + "; ".join(load_errors))
         return None
 
     # SEC-010/SEC-011: Cap corrections to prevent ReDoS and resource exhaustion
@@ -170,71 +188,124 @@ def _load_external_corrections(
     max_pattern_length = 200
     max_replacement_length = 500
 
-    max_misspellings = max_corrections_entries
-    max_phrase_corrections = max_corrections_entries
-    max_extra_word_patterns = max_corrections_entries
+    # AC-82: the 3 per-correction-type truncation blocks + 3 per-correction-
+    # type length-filter loops were copy-paste with different variable names
+    # and subtly different filter semantics (misspellings/extra_words used
+    # separate pattern-vs-replacement counters; phrases used a single
+    # counter with an OR condition). Both helpers below collapse the
+    # 6 inline blocks into 6 one-liners, and the filter helper unifies
+    # on the OR semantics (drop if EITHER field exceeds its limit —
+    # identical drop BEHAVIOR to the prior separate-counter form, since
+    # an entry with both fields too long was dropped either way; only
+    # the per-counter log message granularity changes).
+    misspellings = _truncate_corrections(
+        list(misspellings.items()),
+        max_corrections_entries,
+        "misspellings",
+    )
+    phrase_corrections = _truncate_corrections(
+        phrase_corrections,
+        max_corrections_entries,
+        "phrase corrections",
+    )
+    extra_word_patterns = _truncate_corrections(
+        extra_word_patterns,
+        max_corrections_entries,
+        "extra word patterns",
+    )
 
-    if len(misspellings) > max_misspellings:
-        log.warning("[CLEANUP] Too many misspellings (%d > %d), truncating", len(misspellings), max_misspellings)
-        misspellings = dict(list(misspellings.items())[:max_misspellings])
-    if len(phrase_corrections) > max_phrase_corrections:
-        log.warning("[CLEANUP] Too many phrase corrections, truncating")
-        phrase_corrections = phrase_corrections[:max_phrase_corrections]
-    if len(extra_word_patterns) > max_extra_word_patterns:
-        log.warning("[CLEANUP] Too many extra word patterns, truncating")
-        extra_word_patterns = extra_word_patterns[:max_extra_word_patterns]
-
-    # SEC-011: Validate string lengths — patterns and replacements have
-    # separate limits to prevent ReDoS (long patterns cause expensive
-    # regex backtracking) and resource exhaustion (long replacements
-    # cause excessive memory/CPU during substitution).
-    _dropped_pattern = 0
-    _dropped_replacement = 0
-    misspellings_filtered = {}
-    for k, v in misspellings.items():
-        if len(k) > max_pattern_length:
-            _dropped_pattern += 1
-            continue
-        if len(v) > max_replacement_length:
-            _dropped_replacement += 1
-            continue
-        misspellings_filtered[k] = v
-    misspellings = misspellings_filtered
-    if _dropped_pattern:
-        log.warning("[CLEANUP] Dropped %d misspellings with pattern > %d chars", _dropped_pattern, max_pattern_length)
-    if _dropped_replacement:
-        log.warning(
-            "[CLEANUP] Dropped %d misspellings with replacement > %d chars",
-            _dropped_replacement,
+    misspellings = dict(
+        _filter_corrections_by_length(
+            misspellings,
+            max_pattern_length,
             max_replacement_length,
+            "misspellings",
         )
-
-    _dropped_phrase = 0
-    filtered_phrases = []
-    for b, g in phrase_corrections:
-        if len(b) > max_pattern_length or len(g) > max_replacement_length:
-            _dropped_phrase += 1
-            continue
-        filtered_phrases.append((b, g))
-    phrase_corrections = filtered_phrases
-    if _dropped_phrase:
-        log.warning("[CLEANUP] Dropped %d phrase corrections exceeding length limits", _dropped_phrase)
-
-    _dropped_extra = 0
-    filtered_extra = []
-    for b, g in extra_word_patterns:
-        if len(b) > max_pattern_length:
-            _dropped_extra += 1
-            continue
-        if len(g) > max_replacement_length:
-            _dropped_extra += 1
-            continue
-        filtered_extra.append((b, g))
-    extra_word_patterns = filtered_extra
-    if _dropped_extra:
-        log.warning("[CLEANUP] Dropped %d extra word patterns exceeding length limits", _dropped_extra)
+    )
+    phrase_corrections = _filter_corrections_by_length(
+        phrase_corrections,
+        max_pattern_length,
+        max_replacement_length,
+        "phrase corrections",
+    )
+    extra_word_patterns = _filter_corrections_by_length(
+        extra_word_patterns,
+        max_pattern_length,
+        max_replacement_length,
+        "extra word patterns",
+    )
 
     return misspellings, phrase_corrections, extra_word_patterns
+
+
+def _truncate_corrections(
+    items: list[tuple[str, str]],
+    max_count: int,
+    label: str,
+) -> list[tuple[str, str]]:
+    """AC-82: cap a corrections list at ``max_count`` entries.
+
+    Keeps the first ``max_count`` items (matching the prior
+    ``list(items)[:max_count]`` slice semantics — preserves load order
+    so bundled corrections, which load first, are never evicted by
+    user-provided corrections appended on top). Logs a single
+    ``[CLEANUP] Too many <label>...`` warning when truncation fires so
+    operators can spot a runaway corrections file.
+
+    The prior per-call-site inline form logged the literal count
+    (``(%d > %d)``) for misspellings but not for phrases/extra-words;
+    the unified helper logs the count for ALL three so the operator
+    sees the same diagnostic granularity regardless of correction type.
+    """
+    if len(items) <= max_count:
+        return items
+    log.warning(
+        "[CLEANUP] Too many %s (%d > %d), truncating",
+        label,
+        len(items),
+        max_count,
+    )
+    return items[:max_count]
+
+
+def _filter_corrections_by_length(
+    items: Iterable[tuple[str, str]],
+    max_pattern_length: int,
+    max_replacement_length: int,
+    label: str,
+) -> list[tuple[str, str]]:
+    """AC-82: drop corrections whose pattern OR replacement exceeds the
+    SEC-011 length limits.
+
+    SEC-011 rationale: long patterns cause expensive regex backtracking
+    (ReDoS vector); long replacements cause excessive memory/CPU during
+    substitution. The limit is per-field — an entry is dropped if EITHER
+    field exceeds its limit (the OR semantics unify the prior
+    per-correction-type variants, which all dropped the entry either way
+    but counted pattern-vs-replacement overflows separately for
+    misspellings).
+
+    Returns the filtered list (preserves input order). Logs a single
+    ``[CLEANUP] Dropped N <label> exceeding length limits`` warning
+    when any entries are dropped, so operators can spot a malformed
+    corrections file.
+    """
+    dropped = 0
+    kept: list[tuple[str, str]] = []
+    for pattern, replacement in items:
+        if len(pattern) > max_pattern_length or len(replacement) > max_replacement_length:
+            dropped += 1
+            continue
+        kept.append((pattern, replacement))
+    if dropped:
+        log.warning(
+            "[CLEANUP] Dropped %d %s exceeding length limits (pattern > %d or replacement > %d)",
+            dropped,
+            label,
+            max_pattern_length,
+            max_replacement_length,
+        )
+    return kept
 
 
 def _active_corrections(
@@ -359,26 +430,55 @@ def configure_corrections(
     global _active_phrase_patterns, _active_extra_word_patterns
 
     # Determine the user corrections path (mirrors _load_external_corrections)
-    user_path = None
+    # AC-83: the user_path was previously used by an inline parse block
+    # that duplicated ``_load_external_corrections``'s read+parse. The
+    # inline parse was removed; ``configure_corrections`` now relies on
+    # ``_active_corrections`` → ``_load_external_corrections`` to raise
+    # ``CorrectionsLoadError`` on a malformed file (which is then caught
+    # below and surfaced as the returned error-message string). The
+    # ``user_path`` variable is retained only so the docstring's
+    # reference to "the external file" remains accurate; it is no longer
+    # used by the function body.
+    _user_path = None
     if corrections_path:
-        user_path = Path(corrections_path)
+        _user_path = Path(corrections_path)
     elif config_dir is not None:
-        user_path = config_dir / "voice-typer-corrections.json"
+        _user_path = config_dir / "voice-typer-corrections.json"
 
-    # Check if the user file exists but is unloadable
+    # AC-83: previously this function did its OWN ``_secure_read_text`` +
+    # ``json.loads(raw)`` parse to detect a malformed user file, and then
+    # IMMEDIATELY called ``_active_corrections`` (which calls
+    # ``_load_external_corrections``) that re-parsed the SAME file via the
+    # SAME ``_secure_read_text`` + ``json.loads`` path — a redundant
+    # double-read+double-parse on every configure call (and a double
+    # failure on every malformed file). The inline parse was a leftover
+    # from before ARCH-029 introduced the typed ``CorrectionsLoadError``:
+    # the inline parse produced an error message string, while the typed
+    # exception is the canonical signal. We now rely on
+    # ``_active_corrections`` → ``_load_external_corrections`` to raise
+    # ``CorrectionsLoadError`` on a malformed file, and we surface that
+    # as the returned error message string. The error-message format
+    # changes slightly (``"Corrections file(s) existed but could not be
+    # loaded: <name>: <reason>"`` instead of the previous ``"Corrections
+    # file <name> is malformed: <reason>"``) but the contract — return a
+    # descriptive string on failure, ``None`` on success — is preserved.
     error_msg: str | None = None
-    if user_path is not None and user_path.exists():
-        try:
-            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
-            from voice_typer.server.config import _secure_read_text
-
-            raw = _secure_read_text(user_path, encoding="utf-8")
-            json.loads(raw)
-        except Exception as e:
-            error_msg = f"Corrections file {user_path.name} is malformed: {e}"
-            log.warning("[CLEANUP] %s", error_msg)
-
-    result = _active_corrections(config_dir, corrections_path)
+    try:
+        result = _active_corrections(config_dir, corrections_path)
+    except CorrectionsLoadError as e:
+        error_msg = str(e)
+        log.warning("[CLEANUP] %s", error_msg)
+        # Fall back to bundled-only path so cleanup() still works —
+        # mirrors the previous behavior where the inline parse set
+        # ``error_msg`` and then ``_active_corrections`` was called
+        # (which would have raised on a malformed file; the caller
+        # never saw the raise because the inline parse already
+        # detected the malformation). Now we catch the raise and
+        # re-load with the user path disabled (``config_dir=None,
+        # corrections_path=None``) so only the bundled corrections
+        # are loaded — the user file is skipped entirely, which is
+        # safe because we already know it's malformed.
+        result = _active_corrections(config_dir=None, corrections_path=None)
     # XV-42: eagerly precompile per-phrase patterns while we hold the
     # lock, so the hot cleanup path reuses precompiled Patterns for
     # substitution and uses a cheap ``in`` substring check (instead of
@@ -829,37 +929,53 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
     "x",
 }
 
+# AC-84: precompiled regex for standalone 'i' (not preceded or followed by
+# an alpha character — preserves the original semantics where 'i3' or '3i'
+# do NOT match, which differs from `\b` word boundaries that treat digits
+# and underscore as word characters). The regex is compiled once at module
+# load; `re.sub` scans the text in C and only invokes the Python replacer
+# for actual matches, eliminating the per-character Python loop the prior
+# implementation used (O(N) Python iteration + O(M·N) slicing → O(N) C
+# scan + O(M·N) slicing where M = number of standalone-'i' matches).
+_PRONOUN_I_RE = re.compile(r"(?<![a-zA-Z])i(?![a-zA-Z])")
+
 
 def _capitalize_pronoun_i(text: str) -> str:
-    """Capitalize the pronoun 'i' but not Roman numeral 'i'."""
-    result = []
-    i = 0
-    while i < len(text):
-        if (
-            text[i] == "i"
-            and (i == 0 or not text[i - 1].isalpha())
-            and (i + 1 >= len(text) or not text[i + 1].isalpha())
-        ):
-            preceding = text[:i].rstrip()
-            last_word = preceding.rsplit(None, 1)[-1] if preceding and preceding[-1].isalpha() else ""
-            if last_word.lower() in _ROMAN_NUMERAL_CONTEXT_WORDS:
-                result.append("i")
+    """Capitalize the pronoun 'i' but not Roman numeral 'i'.
+
+    AC-84: replaced the character-by-character loop with a single
+    :func:`re.sub` pass driven by :data:`_PRONOUN_I_RE`. The replacer
+    examines the surrounding words (last word before, first word after)
+    to decide whether the standalone ``i`` is a Roman numeral (kept
+    lowercase) or the pronoun (capitalized to ``I``).
+    """
+
+    def _replacer(match: "re.Match[str]") -> str:
+        start = match.start()
+        end = match.end()
+        # Check the preceding word: if it's a Roman-numeral context word
+        # (e.g. "King Henry i"), keep 'i' lowercase.
+        preceding = text[:start].rstrip()
+        if preceding and preceding[-1].isalpha():
+            last_word = preceding.rsplit(None, 1)[-1].lower()
+            if last_word in _ROMAN_NUMERAL_CONTEXT_WORDS:
+                return "i"
+        # Check the following word: if it's a Roman-numeral continuation
+        # (e.g. "i through iv"), keep 'i' lowercase.
+        following = text[end:].lstrip()
+        next_word_chars: list[str] = []
+        for ch in following:
+            if ch.isalpha():
+                next_word_chars.append(ch)
             else:
-                following = text[i + 1 :].lstrip()
-                next_word = ""
-                for ch in following:
-                    if ch.isalpha():
-                        next_word += ch
-                    else:
-                        break
-                if next_word.lower() in _ROMAN_NUMERAL_FOLLOWING_WORDS:
-                    result.append("i")
-                else:
-                    result.append("I")
-        else:
-            result.append(text[i])
-        i += 1
-    return "".join(result)
+                break
+        if next_word_chars:
+            next_word = "".join(next_word_chars).lower()
+            if next_word in _ROMAN_NUMERAL_FOLLOWING_WORDS:
+                return "i"
+        return "I"
+
+    return _PRONOUN_I_RE.sub(_replacer, text)
 
 
 # NEW-CQ-007: _add_terminal_punctuation deleted. The safe variant

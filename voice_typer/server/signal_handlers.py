@@ -173,9 +173,7 @@ def install_win32_console_handler(controller: ShutdownController) -> None:
 
         handler_routine = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
 
-        app._console_handler = handler_routine(
-            lambda ctrl_type: win32_console_handler(controller, ctrl_type)
-        )
+        app._console_handler = handler_routine(lambda ctrl_type: win32_console_handler(controller, ctrl_type))
         app._kernel32 = ctypes.windll.kernel32
         kernel32 = app._kernel32
         kernel32.SetConsoleCtrlHandler.argtypes = [handler_routine, wintypes.BOOL]

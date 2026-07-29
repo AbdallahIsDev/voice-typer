@@ -594,21 +594,23 @@ class CrashRecovery:
         with contextlib.suppress(Exception):
             from voice_typer.server import event_bus
             from voice_typer.server._paths import config_dir as _config_dir
+
             _sentinel = _config_dir() / ".dictation-in-flight"
             if _sentinel.exists():
                 # Delete FIRST so a publish failure can't cause a re-fire loop.
                 _sentinel.unlink(missing_ok=True)
                 log.warning(
-                    "[RECOVERY] Detected interrupted dictation from previous"
-                    " session — emitting dictation_lost event"
+                    "[RECOVERY] Detected interrupted dictation from previous session — emitting dictation_lost event"
                 )
-                event_bus.publish({
-                    "type": "dictation_lost",
-                    "data": {
-                        "message": "A dictation was interrupted by a crash. Partial audio may be recoverable.",
-                        "recoverable": True,
-                    },
-                })
+                event_bus.publish(
+                    {
+                        "type": "dictation_lost",
+                        "data": {
+                            "message": "A dictation was interrupted by a crash. Partial audio may be recoverable.",
+                            "recoverable": True,
+                        },
+                    }
+                )
 
     def clear(self) -> None:
         """Clear all recovery entries after user acknowledgment.

@@ -560,24 +560,79 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         sei.lpParameters = f'/c "{cmd_line}"'
         sei.nShow = sw_hide
 
+        # XZ-EH-023: parity with the non-elevated ``_schtasks`` helper
+        # (which logs WARNING on ``FileNotFoundError`` and ERROR on
+        # ``TimeoutExpired``). The elevated path previously had ZERO
+        # log lines — a UAC-cancel or stale-temp-file failure was
+        # silently swallowed, leaving the caller (e.g.
+        # ``register_prewarm_task``) to retry blind or give up with no
+        # diagnostic trail. Each failure mode now logs at the same
+        # severity as the sibling helper per XZ-EH-010.
         if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
             err = ctypes.WinError()
+            log.warning(
+                "[TASK] _schtasks_elevated: ShellExecuteExW failed (UAC declined or shell error) for args=%r: %s",
+                args,
+                err,
+            )
             return 1223, f"UAC elevation failed: {err}"
 
-        # Wait for the process to finish
-        ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, timeout_ms)
+        # Wait for the process to finish. ``WaitForSingleObject`` returns
+        # WAIT_TIMEOUT (258) if the process didn't exit within
+        # ``timeout_ms`` — surface that as a warning so a hung schtasks
+        # doesn't look like a silent success.
+        wait_result = ctypes.windll.kernel32.WaitForSingleObject(
+            sei.hProcess,
+            timeout_ms,
+        )
+        if wait_result == 258:  # WAIT_TIMEOUT
+            log.error(
+                "[TASK] _schtasks_elevated: WaitForSingleObject timed out after "
+                "%dms (schtasks may still be running) for args=%r",
+                timeout_ms,
+                args,
+            )
 
         exit_code = ctypes.wintypes.DWORD()
         ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
         ctypes.windll.kernel32.CloseHandle(sei.hProcess)
 
-        # Read output from the temp file
+        # Read output from the temp file. The empty-output case (e.g.
+        # schtasks exited 0 but produced no stdout) is logged at debug
+        # so a silent-success is distinguishable from a failed read.
+        # An ``OSError`` here (temp file deleted by AV, permissions,
+        # etc.) is logged at warning — same severity as the sibling
+        # ``_schtasks`` uses for ``FileNotFoundError``.
         output = ""
         try:
             with open(out_path, encoding="utf-8") as f:
                 output = f.read()
-        except OSError:
-            pass
+        except OSError as e:
+            log.warning(
+                "[TASK] _schtasks_elevated: could not read schtasks output file %s: %s",
+                out_path,
+                e,
+            )
+        else:
+            if not output:
+                log.debug(
+                    "[TASK] _schtasks_elevated: schtasks produced empty output for args=%r (exit_code=%d)",
+                    args,
+                    exit_code.value,
+                )
+
+        if exit_code.value != 0:
+            log.warning(
+                "[TASK] _schtasks_elevated: schtasks exited %d for args=%r (output: %r)",
+                exit_code.value,
+                args,
+                output[:200],
+            )
+        else:
+            log.debug(
+                "[TASK] _schtasks_elevated: schtasks exited 0 for args=%r",
+                args,
+            )
 
         return exit_code.value, output
 

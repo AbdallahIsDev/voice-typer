@@ -103,7 +103,21 @@ def should_reject_low_audio_hallucination(
     # preserved: when no silence info is available, very low RMS alone
     # is suspicious; when silence info IS available, it must corroborate
     # (>= 95% silence) before we reject.
-    if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0):
+    #
+    # ER-41: when ``duration`` is provided, additionally require
+    # ``duration < 1.0``. Hallucinations on near-silence are typically
+    # emitted by the decoder within the first ~1s of audio (Whisper's
+    # attention window produces a single spurious token cluster that
+    # resolves quickly). A deliberate quiet utterance like "thank you"
+    # or "bye" is usually ≥0.5s and recorded with rms > 0.005 (well
+    # above the 0.01 threshold) — but even quiet ones that creep under
+    # 0.01 RMS are still ≥1s long when spoken deliberately. The duration
+    # guard preserves XV-48's catch-rate on real hallucinations while
+    # eliminating the false-positive path where a legitimate quiet
+    # "thank you" / "bye" was cut. When ``duration`` is None (QwenEngine
+    # simple path — no segment timing), keep the existing behavior; the
+    # silence_pct corroboration (>= 95%) remains the backstop.
+    if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0) and (duration is None or duration < 1.0):
         return True
 
     # Tier 2: extended check (requires segment timing info)

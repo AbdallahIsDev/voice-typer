@@ -39,3 +39,19 @@ class TrayController(Protocol):
     def restart_app(self) -> None: ...
     def repaste_last(self) -> None: ...
     def undo_last(self) -> None: ...
+
+    # AC-53: Tauri-side ``maybe_publish_tray_menu`` consumes these two
+    # members to mark the active mic in the Microphones submenu and to
+    # wire the "Refresh mics" menu item. Previously the call sites used
+    # ``getattr(controller, "active_microphone_id", None)`` /
+    # ``getattr(controller, "refresh_microphones", None)`` against names
+    # that were NEVER defined on ``VoiceTyperApp`` — the defensive
+    # ``getattr`` silently returned ``None`` and the Tauri tray submenu
+    # never marked the active mic nor offered "Refresh mics". Promoting
+    # to the Protocol lets pyrefly verify the contract; the call sites
+    # in ``tray_menu.maybe_publish_tray_menu`` now use direct attribute
+    # access (drop the ``getattr`` defensive calls).
+    @property
+    def active_microphone_id(self) -> str | None: ...
+
+    def refresh_microphones(self) -> None: ...
