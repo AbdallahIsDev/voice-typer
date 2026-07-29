@@ -23,6 +23,7 @@ import {
 	RESET,
 	rendererErrorsLogPath,
 } from "../logging";
+import { WindowChannels } from "../ipc/channels";
 import { state } from "../state";
 
 /**
@@ -69,7 +70,7 @@ export function showMainWindow(): void {
  */
 export function broadcastMaximized(maximized: boolean): void {
 	BrowserWindow.getAllWindows().forEach((win) => {
-		win.webContents.send("window:maximized-changed", maximized);
+		win.webContents.send(WindowChannels.maximizedChanged, maximized);
 	});
 }
 

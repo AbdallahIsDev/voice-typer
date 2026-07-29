@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { makeBubbleApi } from "./_bubble-channels";
+import {
+	ExportChannels,
+	I18nChannels,
+	ModelChannels,
+	PythonChannels,
+	RendererChannels,
+	WindowChannels,
+} from "../main/ipc/channels";
 
 // SEC-026: single preload for both main and bubble windows.
 // The preload reads `location.href` to determine which window we are
@@ -16,70 +24,73 @@ contextBridge.exposeInMainWorld(
 if (!isBubble) {
 	contextBridge.exposeInMainWorld("python", {
 		call: (msg: Record<string, unknown>) =>
-			ipcRenderer.invoke("python-call", msg),
+			ipcRenderer.invoke(PythonChannels.call, msg),
 		onEvent: (callback: (msg: Record<string, unknown>) => void) => {
 			const handler = (_event: Electron.IpcRendererEvent, msg: unknown) =>
 				callback(msg as Record<string, unknown>);
-			ipcRenderer.on("python-event", handler);
+			ipcRenderer.on(PythonChannels.event, handler);
 			return () => {
-				ipcRenderer.removeListener("python-event", handler);
+				ipcRenderer.removeListener(PythonChannels.event, handler);
 			};
 		},
 	});
 
 	contextBridge.exposeInMainWorld("window_", {
-		minimize: () => ipcRenderer.invoke("window:minimize"),
+		minimize: () => ipcRenderer.invoke(WindowChannels.minimize),
 		toggleMaximize: () =>
-			ipcRenderer.invoke("window:toggle-maximize") as Promise<boolean>,
-		close: () => ipcRenderer.invoke("window:close"),
+			ipcRenderer.invoke(WindowChannels.toggleMaximize) as Promise<boolean>,
+		close: () => ipcRenderer.invoke(WindowChannels.close),
 		isMaximized: () =>
-			ipcRenderer.invoke("window:is-maximized") as Promise<boolean>,
+			ipcRenderer.invoke(WindowChannels.isMaximized) as Promise<boolean>,
 		onMaximizedChanged: (callback: (maximized: boolean) => void) => {
 			const handler = (_event: Electron.IpcRendererEvent, maximized: unknown) =>
 				callback(Boolean(maximized));
-			ipcRenderer.on("window:maximized-changed", handler);
+			ipcRenderer.on(WindowChannels.maximizedChanged, handler);
 			return () => {
-				ipcRenderer.removeListener("window:maximized-changed", handler);
+				ipcRenderer.removeListener(WindowChannels.maximizedChanged, handler);
 			};
 		},
 		exportHistory: (data: Record<string, unknown>[], format: "json" | "csv") =>
-			ipcRenderer.invoke("history:export", { data, format }) as Promise<{
+			ipcRenderer.invoke(ExportChannels.history, { data, format }) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		exportVocabulary: (data: Record<string, unknown>, format: "json" | "csv") =>
-			ipcRenderer.invoke("vocabulary:export", { data, format }) as Promise<{
+			ipcRenderer.invoke(ExportChannels.vocabulary, {
+				data,
+				format,
+			}) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		exportTemplates: (data: unknown) =>
-			ipcRenderer.invoke("templates:export", { data }) as Promise<{
+			ipcRenderer.invoke(ExportChannels.templates, { data }) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		exportConfig: (data: unknown) =>
-			ipcRenderer.invoke("config:export", { data }) as Promise<{
+			ipcRenderer.invoke(ExportChannels.config, { data }) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		openModelImportDialog: () =>
-			ipcRenderer.invoke("model:import-dialog") as Promise<{
+			ipcRenderer.invoke(ModelChannels.importDialog) as Promise<{
 				canceled: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		openLogs: () =>
-			ipcRenderer.invoke("window:open-logs") as Promise<{
+			ipcRenderer.invoke(WindowChannels.openLogs) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
 		setLocale: (locale: string) =>
-			ipcRenderer.invoke("i18n:set-locale", locale) as Promise<{
+			ipcRenderer.invoke(I18nChannels.setLocale, locale) as Promise<{
 				ok: boolean;
 				error?: string;
 			}>,
@@ -88,6 +99,6 @@ if (!isBubble) {
 			stack?: string;
 			componentStack?: string;
 			message?: string;
-		}) => ipcRenderer.invoke("renderer:log-error", payload),
+		}) => ipcRenderer.invoke(RendererChannels.logError, payload),
 	});
 }

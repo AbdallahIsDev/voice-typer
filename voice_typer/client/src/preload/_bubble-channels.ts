@@ -43,6 +43,7 @@
 // sender's frame label, but the preload gate is the first line).
 
 import type { IpcRenderer, IpcRendererEvent } from "electron";
+import { BubbleChannels } from "../main/ipc/channels";
 
 /** Shape of the level payload delivered on the `bubble:level` channel. */
 interface BubbleLevelPayload {
@@ -142,32 +143,32 @@ export function makeBubbleApi(
 	const shared: BubbleApi = {
 		onLevel: makeListener<BubbleLevelPayload>(
 			ipc,
-			"bubble:level",
+			BubbleChannels.level,
 			(d) => d as BubbleLevelPayload,
 		),
 		show: () => {
-			ipc.send("bubble:show-from-renderer");
+			ipc.send(BubbleChannels.showFromRenderer);
 		},
 		signalReady: () => {
-			ipc.send("bubble:ready");
+			ipc.send(BubbleChannels.ready);
 		},
 		setPosition: (position: "top" | "bottom") => {
-			ipc.send("bubble:set-position", position);
+			ipc.send(BubbleChannels.setPosition, position);
 		},
 		setDraggable: (draggable: boolean) => {
-			ipc.send("bubble:draggable", draggable);
+			ipc.send(BubbleChannels.draggable, draggable);
 		},
 		// ── Enter/exit animations ────────────────────────────────
-		onShow: makeVoidListener(ipc, "bubble:show"),
-		onHide: makeVoidListener(ipc, "bubble:hide"),
-		onDraggable: makeListener<boolean>(ipc, "bubble:draggable", (d) =>
+		onShow: makeVoidListener(ipc, BubbleChannels.show),
+		onHide: makeVoidListener(ipc, BubbleChannels.hide),
+		onDraggable: makeListener<boolean>(ipc, BubbleChannels.draggable, (d) =>
 			Boolean(d),
 		),
 		// NEW-A11Y-006 (Round 0 forward-port): keyboard-based move
 		// (accessibility alternative to drag). Main process clamps to
 		// screen bounds.
 		moveBy: (deltaX: number, deltaY: number) => {
-			ipc.send("bubble:move-by", { deltaX, deltaY });
+			ipc.send(BubbleChannels.moveBy, { deltaX, deltaY });
 		},
 	};
 
@@ -177,18 +178,20 @@ export function makeBubbleApi(
 
 	// Restricted channels — bubble window only.
 	const restricted: RestrictedBubbleApi = {
-		onSetState: makeListener<string>(ipc, "bubble:set-state", (s) => String(s)),
+		onSetState: makeListener<string>(ipc, BubbleChannels.setState, (s) =>
+			String(s),
+		),
 		// UX-10: receive bubble-relevant config (bubble_behavior /
 		// bubble_click_to_toggle / bubble_mic_button) pushed from the
 		// Python backend. The sandboxed bubble renderer has no get_config,
 		// so this is how it learns whether to show the mic button.
 		onConfig: makeListener<Record<string, unknown>>(
 			ipc,
-			"bubble:config",
+			BubbleChannels.config,
 			(c) => c as Record<string, unknown>,
 		),
 		hideComplete: () => {
-			ipc.send("bubble:hidden");
+			ipc.send(BubbleChannels.hidden);
 		},
 		// ── Auto-resize bubble window to match pill size ─────────
 		// The BrowserWindow is 74x27 initially, but the pill content
@@ -196,7 +199,7 @@ export function makeBubbleApi(
 		// so there's no invisible dead zone around the bubble that
 		// blocks clicks to the windows underneath.
 		resizeTo: (width: number, height: number) => {
-			ipc.send("bubble:resize", { width, height });
+			ipc.send(BubbleChannels.resize, { width, height });
 		},
 		// UX-10: toggle dictation from the bubble's own mic button. The
 		// bubble is a sandboxed renderer (SEC-026) with NO `python.call`,
@@ -205,7 +208,7 @@ export function makeBubbleApi(
 		// to the Python backend. Restricted to the bubble frame by the
 		// handler (assertFromBubble) so only the bubble can trigger it.
 		toggleDictation: () => {
-			ipc.send("bubble:toggle-dictation");
+			ipc.send(BubbleChannels.toggleDictation);
 		},
 		// BG-96: dismiss the bubble from its own '×' button. The bubble is
 		// sandboxed (SEC-026) and has NO `python.call`, so it sends a
@@ -220,7 +223,7 @@ export function makeBubbleApi(
 		// handler (assertFromBubble) so only the bubble can dismiss
 		// itself.
 		dismiss: () => {
-			ipc.send("bubble:dismiss");
+			ipc.send(BubbleChannels.dismiss);
 		},
 	};
 
