@@ -1,7 +1,7 @@
 /// <reference types="vitest" />
 
-import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
+import { aliases } from "./aliases";
 
 // BUILD-N11: vitest configuration for the renderer + main process.
 //
@@ -80,7 +80,6 @@ export default defineConfig({
 				// electron-vite builds, not via unit coverage.
 				"src/main/index.ts",
 				"src/preload/index.ts",
-				"src/preload/bubble.ts",
 			],
 			// PVT-075: floor coverage so deletions / untested branches
 			// surface in CI rather than silently rotting. Thresholds are
@@ -95,10 +94,6 @@ export default defineConfig({
 		},
 	},
 	resolve: {
-		alias: {
-			"@": resolve(__dirname, "src/renderer/src"),
-			"#ui": resolve(__dirname, "src/renderer/src/components/ui"),
-			"#utils": resolve(__dirname, "src/renderer/src/lib/utils.ts"),
-		},
+		alias: { ...aliases },
 	},
 });

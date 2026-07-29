@@ -1,30 +1,25 @@
 {
-	"compilerOptions": {
-		"composite": true,
-		"module": "ESNext",
-		"moduleResolution": "bundler",
-		"allowSyntheticDefaultImports": true,
-		"esModuleInterop": true,
-		"outDir": "./out",
-		"strict": true,
-		// XS-63: enable no-unused / no-implicit-* strict flags so dead
-		// code surfaces at compile time. Mirrors tsconfig.web.json so
-		// the two project-refs stay in sync on the strictness surface.
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
-		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true,
-		"target": "ESNext",
-		"skipLibCheck": true
-	},
-	"include": [
-		"electron.vite.config.ts",
-		"electron.vite.renderer.ts",
-		"electron.vite.main.ts",
-		"vitest.config.ts",
-		"vite.config.ts",
-		"csp-plugin.ts",
-		"src/main/**/*",
-		"src/preload/**/*"
-	]
+        "extends": "./tsconfig.base.json",
+        "compilerOptions": {
+                "composite": true,
+                "module": "ESNext",
+                "moduleResolution": "bundler",
+                "allowSyntheticDefaultImports": true,
+                "esModuleInterop": true,
+                "outDir": "./out",
+                "strict": true,
+                "target": "ESNext",
+                "skipLibCheck": true
+        },
+        "include": [
+                "electron.vite.config.ts",
+                "electron.vite.renderer.ts",
+                "electron.vite.main.ts",
+                "vitest.config.ts",
+                "vite.config.ts",
+                "csp-plugin.ts",
+                "aliases.ts",
+                "src/main/**/*",
+                "src/preload/**/*"
+        ]
 }

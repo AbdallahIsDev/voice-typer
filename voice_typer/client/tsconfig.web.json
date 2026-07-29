@@ -1,38 +1,32 @@
 {
-	"compilerOptions": {
-		"composite": true,
-		"target": "ES2020",
-		"lib": ["ES2020", "DOM", "DOM.Iterable"],
-		"module": "ESNext",
-		"moduleResolution": "bundler",
-		"jsx": "react-jsx",
-		"strict": true,
-		// XS-63: enable no-unused / no-implicit-* strict flags so dead
-		// code surfaces at compile time. These flags were already
-		// opt-in via `strict: true`'s family but were never turned on.
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
-		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true,
-		"esModuleInterop": true,
-		"skipLibCheck": true,
-		"forceConsistentCasingInFileNames": true,
-		"resolveJsonModule": true,
-		"isolatedModules": true,
+        "extends": "./tsconfig.base.json",
+        "compilerOptions": {
+                "composite": true,
+                "target": "ES2020",
+                "lib": ["ES2020", "DOM", "DOM.Iterable"],
+                "module": "ESNext",
+                "moduleResolution": "bundler",
+                "jsx": "react-jsx",
+                "strict": true,
+                "esModuleInterop": true,
+                "skipLibCheck": true,
+                "forceConsistentCasingInFileNames": true,
+                "resolveJsonModule": true,
+                "isolatedModules": true,
 
-		"allowImportingTsExtensions": true,
-		"emitDeclarationOnly": true,
-		"outDir": "./out",
-		"types": [],
-		"paths": {
-			"@/*": ["./src/renderer/src/*"],
-			"#ui/*": ["./src/renderer/src/components/ui/*"],
-			"#utils": ["./src/renderer/src/lib/utils.ts"]
-		}
-	},
-	"include": [
-		"src/renderer/src/**/*",
-		"src/renderer/src/**/*.json",
-		"package.json"
-	]
+                "allowImportingTsExtensions": true,
+                "emitDeclarationOnly": true,
+                "outDir": "./out",
+                "types": [],
+                "paths": {
+                        "@/*": ["./src/renderer/src/*"],
+                        "#ui/*": ["./src/renderer/src/components/ui/*"],
+                        "#utils": ["./src/renderer/src/lib/utils.ts"]
+                }
+        },
+        "include": [
+                "src/renderer/src/**/*",
+                "src/renderer/src/**/*.json",
+                "package.json"
+        ]
 }
