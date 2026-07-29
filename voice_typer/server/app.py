@@ -76,6 +76,7 @@ from voice_typer.server.text_cleanup import (  # noqa: F401 (re-exported for tes
     clean_transcribed_text,
     configure_corrections,
 )
+from voice_typer.server.transcription import TranscriptionEngine  # noqa: F401 (re-exported for tests)
 from voice_typer.server.thread_registry import ThreadRegistry
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
