@@ -17,12 +17,25 @@ the env var is honored as a restart hint only).
 
 PLAT-011: on ``error_already_exists`` we exit IMMEDIATELY — no retry loop.
 
-CR-11: on POSIX (Linux/macOS) single-instance is enforced via an exclusive
-``fcntl.flock`` on ``<config_dir>/voice-typer.lock``. The fd is held for the
-process lifetime (closed by ``_PosixSingleInstanceHandle.release()`` during
-graceful shutdown). The kernel auto-releases the flock if the process dies,
-so unlike the Windows named mutex there is no abandoned-lock recovery path
-— ``flock`` is authoritative.
+CR-11: on POSIX (Linux/macOS) single-instance is enforced via an
+``O_CREAT | O_EXCL`` exclusive-create on ``<config_dir>/backend.lock``
+(the *primary* mechanism). If the create fails because the file already
+exists, we fall back to ``fcntl.flock(LOCK_EX | LOCK_NB)`` on the
+existing lockfile as defense-in-depth (GT-41). The fd is held for the
+process lifetime (closed by ``_PosixSingleInstanceHandle.release()``
+during graceful shutdown). The kernel auto-releases the flock if the
+process dies, so unlike the Windows named mutex there is no
+abandoned-lock recovery path for the flock half — but the
+``O_CREAT | O_EXCL`` half CAN leave a stale lockfile if the process
+dies between ``open()`` and the first ``write()``, so the POSIX path
+also does stale-PID recovery (see ``_ensure_posix_single_instance``).
+
+XZ-R12-06: the prior docstring claimed the lockfile was named
+``voice-typer.lock`` and that ``fcntl.flock`` was the *primary*
+mechanism. Both claims were stale — the actual lockfile is
+``backend.lock`` (see ``_ensure_posix_single_instance`` line ~587) and
+the primary mechanism is ``O_CREAT | O_EXCL`` with ``flock`` as the
+secondary defense-in-depth.
 """
 
 import contextlib

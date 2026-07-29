@@ -48,14 +48,36 @@ class VocabularyMixin(ServiceMixinBase):
         ARCH-005: Moved from ipc_server.py.  Only saves user customizations
         (diff against bundled defaults) to the user file, preventing
         duplicate entries on next load.
+
+        XZ-R11-01: after writing the user file, reload the live
+        ``self._app._vocabulary_manager`` so its in-memory ``_data``
+        reflects the just-written user file. dictation_pipeline uses
+        ``_vocabulary_manager.apply_to_text()`` on the live instance;
+        without this reload it would use stale state until app restart.
+
+        XZ-R11-10: reuse the live VocabularyManager (already initialized
+        on the app) instead of constructing a throwaway per IPC call.
+        The old impl loaded bundled + user from disk and built a merged
+        ``_data`` only to discard it - a double file read on every IPC
+        call. We now read the bundled defaults from the live manager's
+        already-merged ``_data`` under its existing lock. A fresh-instance
+        fallback is kept for test fixtures / cold-start paths where
+        ``_vocabulary_manager`` is None.
         """
         import json
 
         from voice_typer.server.config import _config_dir
         from voice_typer.server.vocabulary import CATEGORIES, VOCAB_FILENAME, VocabularyManager
 
-        mgr = VocabularyManager()
-        bundled = mgr._load_bundled()
+        # XZ-R11-10: prefer the live VocabularyManager.
+        live_vm = getattr(self._app, "_vocabulary_manager", None)
+        if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_data"):
+            with live_vm._lock:
+                bundled = {cat: live_vm._data.get(cat) for cat in CATEGORIES}
+        else:
+            # Cold-start / test-fixture fallback.
+            mgr = VocabularyManager()
+            bundled = mgr._load_bundled()
 
         user_only: dict[str, object] = {}
         for cat in CATEGORIES:
@@ -92,5 +114,17 @@ class VocabularyMixin(ServiceMixinBase):
             user_path,
             json.dumps(user_only, indent=2, ensure_ascii=False),
         )
+
+        # XZ-R11-01: reload the live VocabularyManager so its in-memory
+        # ``_data`` reflects the just-written user file.
+        if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_load_and_merge"):
+            try:
+                with live_vm._lock:
+                    live_vm._load_and_merge()
+            except Exception:
+                log.debug(
+                    "[SERVICE] save_vocabulary_with_diff: live VocabularyManager reload failed",
+                    exc_info=True,
+                )
 
         return {"imported_categories": len(user_only)}

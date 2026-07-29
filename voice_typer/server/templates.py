@@ -17,6 +17,7 @@ import getpass
 import json
 import logging
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -129,6 +130,17 @@ class TemplateManager:
 
         self._store = PersistedJSON(self._path, default={"templates": []})
         self._templates: list[dict] = []
+        # XZ-R11-06: re-entrant lock guarding ``_templates`` +
+        # ``_exact_index`` + ``_contains_list``.  ``match`` iterates
+        # the indexes while CRUD methods (``add`` / ``update`` /
+        # ``delete`` / ``import_json``) mutate ``_templates`` and
+        # rebuild the indexes via ``_rebuild_indexes``.  Without a
+        # lock, a CRUD mutation interleaved with a ``match`` iteration
+        # could observe a half-rebuilt index — the same race CR-23
+        # fixed for ``VocabularyManager``.  ``RLock`` because ``_save``
+        # is called from inside already-locked CRUD methods and
+        # ``add``'s rollback path re-mutates ``_templates``.
+        self._lock = threading.RLock()
         # S5-CR-60: match indexes for O(1) exact lookup + reduced-scan
         # contains lookup. Rebuilt by ``_rebuild_indexes`` after every
         # mutation (add/update/delete/import/load). Pre-fix ``match`` did
@@ -207,8 +219,13 @@ class TemplateManager:
         The individual template dicts inside the list are NOT copied
         (shallow copy) — callers that need to mutate a template should
         use :meth:`update` so the change persists to disk.
+
+        XZ-R11-06: copies under the lock so a concurrent CRUD mutation
+        can't observe a half-updated list (e.g. ``_templates.pop``
+        mid-iteration by ``delete``).
         """
-        return list(self._templates)
+        with self._lock:
+            return list(self._templates)
 
     # ── Persistence ──────────────────────────────────────────────────
 
@@ -232,6 +249,11 @@ class TemplateManager:
         symlink-TOCTOU attack where an attacker replaces the templates
         file with a symlink to a sensitive file (e.g.
         ``~/.ssh/id_rsa``).
+
+        XZ-R11-06: ``_load`` is called only from ``__init__`` (before
+        the instance is published to other threads), so it does NOT
+        acquire ``self._lock`` — the lock guards public-method
+        interleaving, not single-threaded construction.
         """
         data = self._store.load()
         if isinstance(data, list):
@@ -264,6 +286,9 @@ class TemplateManager:
         would be lost. Now we log the error AND re-raise so callers
         can roll back their in-memory mutation and the IPC layer can
         surface the failure to the renderer.
+
+        XZ-R11-06: caller is expected to hold ``self._lock`` (all
+        current callers — the public CRUD methods — already do).
         """
         try:
             # PersistedJSON.save handles atomic write + .bak
@@ -291,50 +316,55 @@ class TemplateManager:
         M-62: persists first-then-mutates with rollback. If ``_save``
         raises, the appended entry is popped back off so the
         in-memory state stays consistent with the on-disk state.
+
+        XZ-R11-06: the entire read-validate-mutate-save-rebuild
+        sequence runs under ``self._lock`` so a concurrent ``match``
+        or CRUD call can't observe a half-applied mutation.
         """
         trigger_stripped = trigger.strip() if isinstance(trigger, str) else str(trigger).strip()
         output_str = output if isinstance(output, str) else str(output)
-        if len(trigger_stripped) > MAX_TRIGGER_LENGTH:
-            log.warning(
-                "[TEMPLATES] Trigger exceeds MAX_TRIGGER_LENGTH (%d > %d), rejecting",
-                len(trigger_stripped),
-                MAX_TRIGGER_LENGTH,
-            )
-            return None
-        if len(output_str) > MAX_OUTPUT_LENGTH:
-            log.warning(
-                "[TEMPLATES] Output exceeds MAX_OUTPUT_LENGTH (%d > %d), rejecting",
-                len(output_str),
-                MAX_OUTPUT_LENGTH,
-            )
-            return None
-        if len(self._templates) >= MAX_TEMPLATES:
-            log.warning(
-                "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), rejecting new template",
-                MAX_TEMPLATES,
-            )
-            return None
-        template = {
-            "trigger": trigger_stripped,
-            "output": output_str,
-            "match_mode": match_mode,  # "exact" or "contains"
-            "created_at": datetime.now().isoformat(),
-        }
-        self._templates.append(template)
-        try:
-            self._save()
-        except Exception:
-            # Rollback: remove the template we just appended.
-            # Use identity check (not equality) in case the template
-            # dict happens to equal an earlier entry.
-            for i in range(len(self._templates) - 1, -1, -1):
-                if self._templates[i] is template:
-                    del self._templates[i]
-                    break
-            raise
-        # S5-CR-60: rebuild match indexes after mutation.
-        self._rebuild_indexes()
-        return template
+        with self._lock:
+            if len(trigger_stripped) > MAX_TRIGGER_LENGTH:
+                log.warning(
+                    "[TEMPLATES] Trigger exceeds MAX_TRIGGER_LENGTH (%d > %d), rejecting",
+                    len(trigger_stripped),
+                    MAX_TRIGGER_LENGTH,
+                )
+                return None
+            if len(output_str) > MAX_OUTPUT_LENGTH:
+                log.warning(
+                    "[TEMPLATES] Output exceeds MAX_OUTPUT_LENGTH (%d > %d), rejecting",
+                    len(output_str),
+                    MAX_OUTPUT_LENGTH,
+                )
+                return None
+            if len(self._templates) >= MAX_TEMPLATES:
+                log.warning(
+                    "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), rejecting new template",
+                    MAX_TEMPLATES,
+                )
+                return None
+            template = {
+                "trigger": trigger_stripped,
+                "output": output_str,
+                "match_mode": match_mode,  # "exact" or "contains"
+                "created_at": datetime.now().isoformat(),
+            }
+            self._templates.append(template)
+            try:
+                self._save()
+            except Exception:
+                # Rollback: remove the template we just appended.
+                # Use identity check (not equality) in case the template
+                # dict happens to equal an earlier entry.
+                for i in range(len(self._templates) - 1, -1, -1):
+                    if self._templates[i] is template:
+                        del self._templates[i]
+                        break
+                raise
+            # S5-CR-60: rebuild match indexes after mutation.
+            self._rebuild_indexes()
+            return template
 
     def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
         """Update a template by index. Returns the updated template or None.
@@ -342,27 +372,32 @@ class TemplateManager:
         M-62: snapshots the original field values and restores them
         on save failure so the in-memory state stays consistent with
         the on-disk state.
+
+        XZ-R11-06: the snapshot-mutate-save-rebuild sequence runs
+        under ``self._lock`` so a concurrent ``match`` can't observe
+        a half-updated entry.
         """
-        if not (0 <= index < len(self._templates)):
-            return None
-        entry = self._templates[index]
-        # Snapshot originals for rollback.
-        old_trigger = entry.get("trigger")
-        old_output = entry.get("output")
-        old_match_mode = entry.get("match_mode")
-        entry["trigger"] = trigger.strip()
-        entry["output"] = output
-        entry["match_mode"] = match_mode
-        try:
-            self._save()
-        except Exception:
-            entry["trigger"] = old_trigger
-            entry["output"] = old_output
-            entry["match_mode"] = old_match_mode
-            raise
-        # S5-CR-60: rebuild match indexes after mutation.
-        self._rebuild_indexes()
-        return entry
+        with self._lock:
+            if not (0 <= index < len(self._templates)):
+                return None
+            entry = self._templates[index]
+            # Snapshot originals for rollback.
+            old_trigger = entry.get("trigger")
+            old_output = entry.get("output")
+            old_match_mode = entry.get("match_mode")
+            entry["trigger"] = trigger.strip()
+            entry["output"] = output
+            entry["match_mode"] = match_mode
+            try:
+                self._save()
+            except Exception:
+                entry["trigger"] = old_trigger
+                entry["output"] = old_output
+                entry["match_mode"] = old_match_mode
+                raise
+            # S5-CR-60: rebuild match indexes after mutation.
+            self._rebuild_indexes()
+            return entry
 
     def delete(self, index: int) -> bool:
         """Delete a template by index.
@@ -370,25 +405,38 @@ class TemplateManager:
         M-62: snapshots the deleted entry and re-inserts it at the
         same index on save failure so the in-memory state stays
         consistent with the on-disk state.
+
+        XZ-R11-06: the pop-save-rebuild sequence runs under
+        ``self._lock`` so a concurrent ``match`` can't observe the
+        list mid-pop.
         """
-        if not (0 <= index < len(self._templates)):
-            return False
-        removed = self._templates.pop(index)
-        try:
-            self._save()
-        except Exception:
-            # Rollback: re-insert at the original index.
-            self._templates.insert(index, removed)
-            raise
-        # S5-CR-60: rebuild match indexes after mutation.
-        self._rebuild_indexes()
-        return True
+        with self._lock:
+            if not (0 <= index < len(self._templates)):
+                return False
+            removed = self._templates.pop(index)
+            try:
+                self._save()
+            except Exception:
+                # Rollback: re-insert at the original index.
+                self._templates.insert(index, removed)
+                raise
+            # S5-CR-60: rebuild match indexes after mutation.
+            self._rebuild_indexes()
+            return True
 
     # ── Import / Export ───────────────────────────────────────────────
 
     def export_json(self) -> str:
-        """Export templates as a JSON string."""
-        return json.dumps({"templates": self._templates}, indent=2, ensure_ascii=False)
+        """Export templates as a JSON string.
+
+        XZ-R11-06: snapshot ``_templates`` under the lock before
+        serializing so a concurrent CRUD mutation can't produce a
+        half-serialized JSON (e.g. ``json.dumps`` observing a list
+        mid-``pop``).
+        """
+        with self._lock:
+            snapshot = list(self._templates)
+        return json.dumps({"templates": snapshot}, indent=2, ensure_ascii=False)
 
     def import_json(self, json_str: str) -> int:
         """Import templates from a JSON string. Returns number imported.
@@ -404,67 +452,72 @@ class TemplateManager:
         M-62: snapshots the list before appending and restores it on
         save failure so the in-memory state stays consistent with the
         on-disk state.
+
+        XZ-R11-06: the validate-extend-save-rebuild sequence runs
+        under ``self._lock`` so a concurrent ``match`` can't observe
+        a half-extended list.
         """
-        try:
-            data = json.loads(json_str)
-            templates = data if isinstance(data, list) else data.get("templates", [])
-            to_add: list[dict] = []
-            dropped = 0
-            for t in templates:
-                if not isinstance(t, dict) or "trigger" not in t or "output" not in t:
-                    continue
-                trigger_raw = t.get("trigger", "")
-                output_raw = t.get("output", "")
-                trigger_str = trigger_raw if isinstance(trigger_raw, str) else str(trigger_raw)
-                output_str = output_raw if isinstance(output_raw, str) else str(output_raw)
-                # Use the stripped length for the trigger cap to match
-                # the add() behavior (which strips before storing).
-                if len(trigger_str.strip()) > MAX_TRIGGER_LENGTH:
-                    dropped += 1
-                    continue
-                if len(output_str) > MAX_OUTPUT_LENGTH:
-                    dropped += 1
-                    continue
-                to_add.append(t)
-            if dropped:
-                log.warning(
-                    "[TEMPLATES] Dropped %d templates from import (oversized)",
-                    dropped,
-                )
-            # Total-count cap: truncate to fit within MAX_TEMPLATES.
-            current = len(self._templates)
-            available = MAX_TEMPLATES - current
-            if available <= 0:
-                log.warning(
-                    "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), dropping all %d imported templates",
-                    MAX_TEMPLATES,
-                    len(to_add),
-                )
-                return 0
-            if len(to_add) > available:
-                log.warning(
-                    "[TEMPLATES] Import exceeds MAX_TEMPLATES cap, truncating %d -> %d",
-                    len(to_add),
-                    available,
-                )
-                to_add = to_add[:available]
-            if not to_add:
-                return 0
-            # Snapshot for rollback.
-            old_len = len(self._templates)
-            self._templates.extend(to_add)
+        with self._lock:
             try:
-                self._save()
+                data = json.loads(json_str)
+                templates = data if isinstance(data, list) else data.get("templates", [])
+                to_add: list[dict] = []
+                dropped = 0
+                for t in templates:
+                    if not isinstance(t, dict) or "trigger" not in t or "output" not in t:
+                        continue
+                    trigger_raw = t.get("trigger", "")
+                    output_raw = t.get("output", "")
+                    trigger_str = trigger_raw if isinstance(trigger_raw, str) else str(trigger_raw)
+                    output_str = output_raw if isinstance(output_raw, str) else str(output_raw)
+                    # Use the stripped length for the trigger cap to match
+                    # the add() behavior (which strips before storing).
+                    if len(trigger_str.strip()) > MAX_TRIGGER_LENGTH:
+                        dropped += 1
+                        continue
+                    if len(output_str) > MAX_OUTPUT_LENGTH:
+                        dropped += 1
+                        continue
+                    to_add.append(t)
+                if dropped:
+                    log.warning(
+                        "[TEMPLATES] Dropped %d templates from import (oversized)",
+                        dropped,
+                    )
+                # Total-count cap: truncate to fit within MAX_TEMPLATES.
+                current = len(self._templates)
+                available = MAX_TEMPLATES - current
+                if available <= 0:
+                    log.warning(
+                        "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), dropping all %d imported templates",
+                        MAX_TEMPLATES,
+                        len(to_add),
+                    )
+                    return 0
+                if len(to_add) > available:
+                    log.warning(
+                        "[TEMPLATES] Import exceeds MAX_TEMPLATES cap, truncating %d -> %d",
+                        len(to_add),
+                        available,
+                    )
+                    to_add = to_add[:available]
+                if not to_add:
+                    return 0
+                # Snapshot for rollback.
+                old_len = len(self._templates)
+                self._templates.extend(to_add)
+                try:
+                    self._save()
+                except Exception:
+                    # Rollback: truncate back to the pre-import length.
+                    del self._templates[old_len:]
+                    raise
+                # S5-CR-60: rebuild match indexes after mutation.
+                self._rebuild_indexes()
+                return len(to_add)
             except Exception:
-                # Rollback: truncate back to the pre-import length.
-                del self._templates[old_len:]
-                raise
-            # S5-CR-60: rebuild match indexes after mutation.
-            self._rebuild_indexes()
-            return len(to_add)
-        except Exception:
-            log.exception("[TEMPLATES] Import failed")
-            return 0
+                log.exception("[TEMPLATES] Import failed")
+                return 0
 
     # ── Matching ─────────────────────────────────────────────────────
 
@@ -492,36 +545,52 @@ class TemplateManager:
         bound, and contains templates strictly shorter than that bound
         can still win — matching the pre-fix behavior where a short
         contains trigger beats a long exact trigger.
+
+        XZ-R11-06: snapshot the match indexes under ``self._lock``
+        BEFORE iterating so a concurrent CRUD mutation (which
+        reassigns ``_exact_index`` / ``_contains_list`` via
+        ``_rebuild_indexes``) can't leave ``match`` iterating a
+        half-rebuilt list.  ``substitute_variables`` is called OUTSIDE
+        the lock so the (potentially blocking) clipboard read in
+        ``{clipboard}`` doesn't block concurrent CRUD calls.
         """
-        if not text or not self._templates:
-            return None
+        with self._lock:
+            if not text or not self._templates:
+                return None
 
-        normalized = _WHITESPACE_RE.sub(" ", text.strip()).lower()  # ER-55
+            normalized = _WHITESPACE_RE.sub(" ", text.strip()).lower()  # ER-55
 
-        best_match: dict | None = None
-        best_len = float("inf")
+            best_match: dict | None = None
+            best_len = float("inf")
 
-        # S5-CR-60: O(1) exact lookup. The exact match (if any) sets
-        # the upper-bound length for the contains scan below.
-        exact_t = self._exact_index.get(normalized)
-        if exact_t is not None:
-            best_match = exact_t
-            best_len = len(normalized)
+            # S5-CR-60: O(1) exact lookup. The exact match (if any) sets
+            # the upper-bound length for the contains scan below.
+            exact_t = self._exact_index.get(normalized)
+            if exact_t is not None:
+                best_match = exact_t
+                best_len = len(normalized)
 
-        # S5-CR-60: reduced-scan contains lookup. The list is sorted by
-        # trigger length ascending; once we see a trigger whose length
-        # is >= best_len, no subsequent (longer) trigger can beat the
-        # current best, so we early-exit. Before any match is found
-        # (best_len == inf) we scan the entire contains list.
-        for trigger_norm, t in self._contains_list:
-            if len(trigger_norm) >= best_len:
-                break
-            if trigger_norm in normalized:
-                best_match = t
-                best_len = len(trigger_norm)
+            # S5-CR-60: reduced-scan contains lookup. The list is sorted by
+            # trigger length ascending; once we see a trigger whose length
+            # is >= best_len, no subsequent (longer) trigger can beat the
+            # current best, so we early-exit. Before any match is found
+            # (best_len == inf) we scan the entire contains list.
+            # XZ-R11-06: iterate a snapshot of the list so a concurrent
+            # ``_rebuild_indexes`` (which reassigns ``_contains_list``)
+            # can't truncate our iteration mid-scan.
+            contains_snapshot = list(self._contains_list)
+            for trigger_norm, t in contains_snapshot:
+                if len(trigger_norm) >= best_len:
+                    break
+                if trigger_norm in normalized:
+                    best_match = t
+                    best_len = len(trigger_norm)
 
-        if best_match is not None:
+            if best_match is None:
+                return None
             output = best_match["output"]
-            return substitute_variables(output)
 
-        return None
+        # Substitute variables OUTSIDE the lock so the (potentially
+        # blocking) clipboard read in ``{clipboard}`` doesn't block
+        # concurrent CRUD calls.
+        return substitute_variables(output)

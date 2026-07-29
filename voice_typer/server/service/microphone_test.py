@@ -243,7 +243,11 @@ class MicrophoneTestMixin(ServiceMixinBase):
                 }
             )
         except Exception:
-            pass
+            # XZ-EH-005: previously pass — silently swallowed update_level_processor failures
+            log.debug(
+                "[SERVICE] level_monitor_start: update_level_processor failed",
+                exc_info=True,
+            )
         return result
 
     def level_monitor_stop(self) -> dict[str, object]:

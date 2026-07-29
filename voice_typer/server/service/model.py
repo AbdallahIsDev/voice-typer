@@ -520,7 +520,17 @@ class ModelMixin(ServiceMixinBase):
                 shutil.copytree(src_path, dest, symlinks=False)
                 imported_models.append(model_name)
             except Exception as exc:
-                errors.append({"model": model_name, "error": str(exc)})
+                # XZ-EH-003: redact str(exc) before appending to per-model
+                # errors list. shutil.Error enumerates source/dest file paths,
+                # leaking cache layout to renderer. Sister IPC methods all
+                # wrap str(exc) with redact_secret(redact_url(...)).
+                redacted = redact_secret(redact_url(str(exc)))
+                log.warning(
+                    "[SERVICE] import_model: per-model import failed for '%s': %s",
+                    model_name,
+                    redacted,
+                )
+                errors.append({"model": model_name, "error": redacted})
 
         # Invalidate the tray models cache so the next right-click
         # reflects the newly-imported models.
@@ -532,7 +542,13 @@ class ModelMixin(ServiceMixinBase):
 
                 invalidate_model_availability_cache()
             except Exception:
-                pass
+                # XZ-EH-007: sister calls log cache-invalidation failures at
+                # DEBUG. Previous pass silently swallowed with no log entry,
+                # making stale tray-cache bugs invisible.
+                log.debug(
+                    "[SERVICE] import_model: invalidate_model_availability_cache failed",
+                    exc_info=True,
+                )
 
         if imported_models:
             log.info(
@@ -779,9 +795,14 @@ class ModelMixin(ServiceMixinBase):
                 push_progress as _push_progress_helper,
             )
 
-            _push_progress_helper(event_bus, model_name, 0, f"Download failed: {exc}")
-            _notify_helper(self._app.tray, model_name, APP_NAME, f"Failed to download {model_name}: {exc}")
-            return {"success": False, "error": str(exc)}
+            _push_progress_helper(event_bus, model_name, 0, f"Download failed: {redact_secret(redact_url(str(exc)))}")
+            _notify_helper(
+                self._app.tray,
+                model_name,
+                APP_NAME,
+                f"Failed to download {model_name}: {redact_secret(redact_url(str(exc)))}",
+            )
+            return {"success": False, "error": redact_secret(redact_url(str(exc)))}
 
     def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
         """Whisper / distil-whisper branch of :meth:`download_model`.

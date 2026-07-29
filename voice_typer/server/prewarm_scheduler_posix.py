@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -63,9 +64,13 @@ def _prewarm_python() -> str:
             return resolved  # frozen exe path
         # Dev fallback — extract the interpreter from the command line.
         # Format: "<path>" -m voice_typer.server.prewarm
+        # XZ-R12-07: use ``shlex.split`` instead of the prior
+        # ``resolved.split(" ", 1)[0].strip('"')`` so a Python path
+        # containing spaces (common on macOS `/Users/My Name/...`)
+        # parses correctly.
         try:
-            return resolved.split(" ", 1)[0].strip('"')
-        except Exception:
+            return shlex.split(resolved, posix=True)[0]
+        except (ValueError, IndexError):
             return sys.executable
     return sys.executable
 
@@ -99,45 +104,73 @@ def _build_macos_plist() -> str:
     RunAtLoad fires at every login (equivalent to Windows LogonTrigger).
     ProcessType=Background lowers the process priority (equivalent to
     Windows PROCESS_MODE_BACKGROUND_BEGIN).
+
+    XZ-R6-AS-05: built via ``xml.etree.ElementTree`` so all five XML
+    special characters are escaped by the stdlib. The prior f-string +
+    ``xml.sax.saxutils.escape`` builder only escaped &, <, >.
     """
-    from xml.sax.saxutils import escape
+    import xml.etree.ElementTree as ET
 
     python = _prewarm_python()
     args = _prewarm_args()
-    args_xml = "\n".join(f"        <string>{escape(a)}</string>" for a in args)
     log_path = _paths.prewarm_launchagent_log()
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{PREWARM_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{escape(python)}</string>
-{args_xml}
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>StandardOutPath</key>
-    <string>{escape(str(log_path))}</string>
-    <key>StandardErrorPath</key>
-    <string>{escape(str(log_path))}</string>
-</dict>
-</plist>
-"""
+
+    # XZ-R6-AS-05: build the <dict> body with ElementTree so escaping
+    # is automatic for all 5 XML special characters. We assemble the
+    # XML body via ElementTree and prepend the DOCTYPE + <plist>
+    # wrapper manually (ElementTree's default serialization omits the
+    # DOCTYPE, which launchctl accepts but plutil warns about).
+    def _text(parent, key, value):
+        k = ET.SubElement(parent, "key")
+        k.text = key
+        s = ET.SubElement(parent, "string")
+        s.text = value
+
+    dict_el = ET.Element("dict")
+    _text(dict_el, "Label", PREWARM_LABEL)
+    prog_key = ET.SubElement(dict_el, "key")
+    prog_key.text = "ProgramArguments"
+    arr = ET.SubElement(dict_el, "array")
+    for a in [python, *args]:
+        s = ET.SubElement(arr, "string")
+        s.text = a
+    for key, value in (
+        ("RunAtLoad", "true"),
+        ("KeepAlive", "false"),
+        ("ProcessType", "Background"),
+        ("StandardOutPath", str(log_path)),
+        ("StandardErrorPath", str(log_path)),
+    ):
+        if key in ("RunAtLoad", "KeepAlive"):
+            k = ET.SubElement(dict_el, "key")
+            k.text = key
+            ET.SubElement(dict_el, value)
+        else:
+            _text(dict_el, key, value)
+    body = ET.tostring(dict_el, encoding="unicode")
+    body = body.replace("<true />", "<true/>").replace("<false />", "<false/>")
+    body = "\n".join("    " + line if line else line for line in body.splitlines())
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        f"{body}\n"
+        "</plist>\n"
+    )
 
 
 def _register_prewarm_macos() -> bool:
     """Register the prewarm LaunchAgent. Returns True on success."""
     try:
+        from voice_typer.server.secure_file_io import _secure_atomic_write
+
         plist_path = _macos_plist_path()
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-        plist_path.write_text(_build_macos_plist())
+        # XZ-R12-09: use ``_secure_atomic_write`` so the plist is
+        # written atomically (temp file + ``os.replace``). The prior
+        # ``Path.write_text`` did truncate-then-write.
+        _secure_atomic_write(plist_path, _build_macos_plist(), durability=False)
         # SEC-003: Restrict plist file permissions to owner-only on POSIX.
         # The LaunchAgent plist contains the Python interpreter path and
         # arguments; restricting to 0o600 prevents other users from
@@ -223,17 +256,49 @@ def _linux_timer_path() -> Path:
     return _linux_unit_dir() / "voice-typer-prewarm.timer"
 
 
+def _systemd_escape_arg(token: str) -> str:
+    """Escape a single ExecStart token for systemd's literal syntax.
+
+    XZ-R6-AS-11: systemd's ``ExecStart=`` parses the command line with
+    a quote-aware tokenizer. We surround the token with double quotes
+    and backslash-escape any literal ``"`` or ``\\`` inside. Newlines
+    and other control chars are REJECTED (systemd unit files are
+    line-based — a newline in an ExecStart token would inject a new
+    unit-file directive, a privilege-escalation vector if the token
+    came from an env var).
+    """
+    if "\n" in token or "\r" in token:
+        raise ValueError(
+            "systemd ExecStart token contains a newline — refusing to "
+            "build a unit file that would inject a new directive"
+        )
+    for ch in token:
+        if ord(ch) < 0x20:
+            raise ValueError(
+                f"systemd ExecStart token contains control char 0x{ord(ch):02x} "
+                "— refusing to build a unit file with non-printable bytes"
+            )
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _build_linux_service() -> str:
     """Build the systemd user service unit for prewarm."""
     python = _prewarm_python()
-    args = " ".join(_prewarm_args())
+    args = _prewarm_args()
+    # XZ-R6-AS-11: validate + escape each ExecStart token to prevent
+    # directive injection via env-var-controlled paths.
+    exec_tokens = [_systemd_escape_arg(python)] + [
+        _systemd_escape_arg(a) for a in args
+    ]
+    exec_start = " ".join(exec_tokens)
     return f"""[Unit]
 Description=Voice Typer cache prewarm (torch + model weights)
 After=network.target
 
 [Service]
 Type=oneshot
-ExecStart={python} {args}
+ExecStart={exec_start}
 # Lower I/O and CPU priority so prewarm never disturbs the user
 # (equivalent to Windows PROCESS_MODE_BACKGROUND_BEGIN).
 IOSchedulingClass=idle
@@ -265,10 +330,19 @@ WantedBy=timers.target
 def _register_prewarm_linux() -> bool:
     """Register the prewarm systemd user timer. Returns True on success."""
     try:
+        from voice_typer.server.secure_file_io import _secure_atomic_write
+
         unit_dir = _linux_unit_dir()
         unit_dir.mkdir(parents=True, exist_ok=True)
-        _linux_service_path().write_text(_build_linux_service())
-        _linux_timer_path().write_text(_build_linux_timer())
+        # XZ-R12-09: write both unit files atomically (temp +
+        # ``os.replace``). The prior ``Path.write_text`` was
+        # truncate-then-write.
+        _secure_atomic_write(
+            _linux_service_path(), _build_linux_service(), durability=False
+        )
+        _secure_atomic_write(
+            _linux_timer_path(), _build_linux_timer(), durability=False
+        )
         # SEC-003: systemd user unit files are written to
         # ~/.config/systemd/user/ which is a per-user directory.
         # Restrictive permissions (0o600) are NOT applied here because:
@@ -277,9 +351,12 @@ def _register_prewarm_linux() -> bool:
         #    user's systemd instance, and overly restrictive permissions
         #    can cause systemd to silently skip the unit on some distros.
         # Try to enable + start the timer so it takes effect this session.
+        # XZ-R12-10: also ``start`` the timer (best-effort) so prewarm
+        # fires on the current session, not just the next boot.
         for cmd in (
             ["systemctl", "--user", "daemon-reload"],
             ["systemctl", "--user", "enable", "voice-typer-prewarm.timer"],
+            ["systemctl", "--user", "start", "voice-typer-prewarm.timer"],
         ):
             try:
                 subprocess.run(cmd, check=False, capture_output=True, timeout=10)
@@ -296,9 +373,13 @@ def _unregister_prewarm_linux() -> bool:
     """Remove the prewarm systemd user timer. Returns True on success."""
     try:
         # Try to stop + disable first (best-effort).
+        # XZ-R12-18: also stop the SERVICE unit (not just the timer)
+        # so an in-flight oneshot prewarm run is terminated before we
+        # unlink the unit files.
         for cmd in (
             ["systemctl", "--user", "disable", "voice-typer-prewarm.timer"],
             ["systemctl", "--user", "stop", "voice-typer-prewarm.timer"],
+            ["systemctl", "--user", "stop", "voice-typer-prewarm.service"],
         ):
             with contextlib.suppress(subprocess.TimeoutExpired, FileNotFoundError):
                 subprocess.run(cmd, check=False, capture_output=True, timeout=10)

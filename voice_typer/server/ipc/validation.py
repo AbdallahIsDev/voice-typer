@@ -247,6 +247,17 @@ class FieldRule(TypedDict, total=False):
     max_value_len: int
     clamp_range: tuple[int | float, int | float]
     max_payload_bytes: int
+    # XZ-R3-08: when ``True`` (the implicit default for backwards
+    # compat), an explicit ``None`` value for this field is treated
+    # the same as an ABSENT field — the ``default`` rule fires and
+    # the field is populated with ``rules["default"]``. Pre-XZ-R3-08
+    # a present ``None`` failed the ``type`` check (assuming the
+    # declared type didn't include ``type(None)``), forcing callers
+    # like ``_handle_show_electron_notification`` to pre-coerce
+    # ``None`` to the default with 8 lines of inline code. Set
+    # ``none_to_default=False`` to restore the strict pre-XZ-R3-08
+    # behavior (only ABSENT fields get the default).
+    none_to_default: bool
 
 
 # A schema is a mapping from field name to its rule dict. Used as
@@ -309,7 +320,12 @@ class ErrorEnvelope(_ErrorEnvelopeRequired, total=False):
     id: object | None
 
 
-def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, object] | None, "dict[str, object] | None"]:
+def _validate_dict_payload(
+    data: object,
+    schema: Schema,
+    *,
+    max_payload_bytes: int | None = None,
+) -> tuple[dict[str, object] | None, "dict[str, object] | None"]:
     """Validate IPC ``data`` against a declarative *schema*.
 
     Parameters
@@ -326,6 +342,13 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
           in ``data``.  Mutually exclusive with ``default``.
         - ``default``: default value when the field is absent.  Only
           valid when ``required=False``.
+        - ``none_to_default`` (bool, optional, default ``True``):
+          XZ-R3-08: when ``True``, an explicit ``None`` value for
+          the field is treated as ABSENT — the ``default`` rule
+          fires. Pre-XZ-R3-08 a present ``None`` failed the
+          ``type`` check (assuming ``type`` didn't include
+          ``type(None)``). Set ``False`` to restore the strict
+          behavior.
         - ``max_value_len`` (int, optional): if the value is a string
           longer than N characters, return an ``client.invalid_field``
           error. R4-F5: replaces the ad-hoc per-value length loops in
@@ -335,14 +358,25 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
           before storing it in ``validated``.  R4-F5: replaces the
           inline ``max(0, min(int(duration_ms), 24*60*60*1000))`` in
           ``show_electron_notification``.
-        - ``max_payload_bytes`` (int, optional): if the WHOLE
-          ``data`` dict serializes to more than N bytes, return an
-          ``client.invalid_payload`` error. R4-F5: replaces the inline
-          1 MB cap in ``save_vocabulary``.  Note: this rule is keyed
-          off any field but applies to the WHOLE payload — it's
-          checked ONCE before the per-field loop, so it should be
-          specified on at most one field (the helper checks the
-          first field that declares it).
+        - ``max_payload_bytes`` (int, optional, DEPRECATED): if the
+          WHOLE ``data`` dict serializes to more than N bytes, return
+          an ``client.invalid_payload`` error. R4-F5: replaces the
+          inline 1 MB cap in ``save_vocabulary``.  XZ-R3-07: this
+          rule is keyed off any field but applies to the WHOLE
+          payload — the helper now scans ALL fields and uses the
+          MINIMUM declared value (most restrictive), so the
+          "first-field-wins" fragility is gone. Prefer the
+          top-level ``max_payload_bytes`` keyword argument for new
+          schemas; the per-field rule is kept for backward compat.
+
+    max_payload_bytes :
+        XZ-R3-07: top-level whole-payload size cap. When provided,
+        takes precedence over any per-field ``max_payload_bytes``
+        rule. Prefer this for new schemas (the per-field rule was a
+        historical workaround that was fragile under multi-field
+        schemas — the helper only checked the FIRST field that
+        declared it and broke after, silently ignoring any second
+        field's value).
 
     Returns
     -------
@@ -383,39 +417,72 @@ def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, obje
             },
         }
 
-    # R4-F5: ``max_payload_bytes`` is a whole-payload rule. Scan the
-    # schema for the first field that declares it and enforce the cap
-    # before the per-field loop. The previous ``save_vocabulary`` impl
-    # did ``len(json.dumps(data))`` inline; centralizing here means
-    # every handler that opts into the rule gets the same DoS guard
-    # without re-implementing the size check.
+    # R4-F5 + XZ-R3-07: ``max_payload_bytes`` is a whole-payload rule.
+    # The top-level keyword argument takes precedence (the recommended
+    # way for new schemas); if not provided, scan ALL fields for the
+    # per-field ``max_payload_bytes`` rule and use the MINIMUM value
+    # (most restrictive). The previous implementation iterated
+    # schema.items() and BROKE after the first field that declared
+    # the rule — a second field's value was silently ignored, and
+    # the effective cap depended on dict iteration order (insertion
+    # order in py3.7+). The minimum-across-all-fields approach is
+    # backward-compatible (single-field schemas behave identically)
+    # AND removes the fragility. The cap is checked ONCE before the
+    # per-field loop, exactly as before.
     import json as _json_mod
 
-    for _field, _rules in schema.items():
-        max_bytes = _rules.get("max_payload_bytes")
-        if max_bytes is not None:
-            payload_size = len(_json_mod.dumps(data))
-            if payload_size > max_bytes:
-                # ErrorEnvelope contract — see validation.py
-                return None, {
-                    "type": "error",
-                    "data": {
-                        # DE-36: namespaced form (primary) + legacy
-                        # alias (one-release-cycle compat).
-                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
-                        "code": ErrorCodes.INVALID_PAYLOAD,
-                        "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
-                        "message": (f"payload too large ({payload_size} bytes; max {max_bytes})"),
-                    },
-                }
-            # Only check once — break after the first field that
-            # declares the rule, regardless of whether it tripped.
-            break
+    effective_max_bytes = max_payload_bytes
+    if effective_max_bytes is None:
+        # XZ-R3-07: scan ALL fields and use the minimum (most
+        # restrictive) declared cap. Previously the helper broke after
+        # the first field that declared the rule, silently ignoring
+        # any subsequent field's value.
+        field_maxes = [
+            r.get("max_payload_bytes")
+            for r in schema.values()
+            if r.get("max_payload_bytes") is not None
+        ]
+        if field_maxes:
+            effective_max_bytes = min(field_maxes)
+    if effective_max_bytes is not None:
+        payload_size = len(_json_mod.dumps(data))
+        if payload_size > effective_max_bytes:
+            # ErrorEnvelope contract — see validation.py
+            return None, {
+                "type": "error",
+                "data": {
+                    # DE-36: namespaced form (primary) + legacy
+                    # alias (one-release-cycle compat).
+                    # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                    "code": ErrorCodes.INVALID_PAYLOAD,
+                    "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
+                    "message": (f"payload too large ({payload_size} bytes; max {effective_max_bytes})"),
+                },
+            }
 
     validated = {}
     for field_name, rules in schema.items():
         if field_name in data:
             value = data[field_name]
+            # XZ-R3-08: if the field is explicitly ``None`` AND the
+            # rule opts in (``none_to_default`` defaults to True for
+            # backward compat with the renderer's pre-coercion
+            # behavior) AND a ``default`` is declared, treat ``None``
+            # as ABSENT and substitute the default. This removes the
+            # 8-line pre-coercion workaround in
+            # ``_handle_show_electron_notification`` (which manually
+            # converted ``{"title": null}`` to ``{"title": APP_NAME}``
+            # before calling this helper). Opt out per-field with
+            # ``none_to_default=False`` for the rare case where
+            # ``None`` is a meaningful value (e.g. nullable foreign
+            # keys).
+            if (
+                value is None
+                and rules.get("none_to_default", True)
+                and "default" in rules
+            ):
+                validated[field_name] = rules["default"]
+                continue
             expected_type = rules.get("type")
             if expected_type is not None and not isinstance(value, expected_type):
                 # IPC-3: format the expected-type name for the error

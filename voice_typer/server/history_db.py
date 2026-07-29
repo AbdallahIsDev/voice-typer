@@ -815,10 +815,34 @@ class HistoryDB:
         See that function for the full rationale (WAL mode, synchronous
         level, busy_timeout, cache_size, ``secure_delete=ON`` for
         G4-M-04, SEC-007 POSIX file/dir permissions).
+
+        XZ-R11-11: also set ``PRAGMA foreign_keys=ON`` on the returned
+        connection. The current schema has no FK constraints so this is a
+        no-op today, but it is a latent footgun if FKs are added later —
+        SQLite defaults to ``foreign_keys=OFF`` for backward compat with
+        pre-2004 schemas, silently allowing orphaned child rows. Setting
+        it here (per-connection PRAGMA, NOT database-persistent) means
+        every writer connection opts in regardless of what future schema
+        migrations add. Readers don't need this (FK enforcement is
+        write-path only); the existing reader connection helpers in
+        ``schema.py`` are left unchanged.
         """
         from voice_typer.server.history_db_internals.schema import open_write_conn
 
-        return open_write_conn(self.db_path)
+        conn = open_write_conn(self.db_path)
+        # XZ-R11-11: opt into FK enforcement. Per-connection PRAGMA —
+        # must be set on every new connection (NOT database-persistent).
+        # Wrapped in try/except so a read-only FS / locked DB doesn't
+        # abort connection setup (the FK setting is a hardening extra,
+        # not a correctness requirement for the current schema).
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+        except sqlite3.Error as e:
+            log.debug(
+                "[HISTORY_DB] PRAGMA foreign_keys=ON failed (best-effort): %s",
+                e,
+            )
+        return conn
 
     def _check_wal_mode(self, conn: sqlite3.Connection) -> None:
         """Verify WAL mode is actually enabled.

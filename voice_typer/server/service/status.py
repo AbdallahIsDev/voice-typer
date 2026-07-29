@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
@@ -30,6 +31,11 @@ class StatusMixin(ServiceMixinBase):
     These are read-only queries over ``self._app`` state; they don't
     mutate config or trigger side effects.
     """
+
+    # XZ-EH-021: notify-once guard for volume_ducker.initialize failures.
+    # The status endpoint is polled ~every 2s; log first occurrence at
+    # WARNING, subsequent at DEBUG.
+    _volume_ducker_init_warned: bool = False
 
     # ── Status ──────────────────────────────────────────────────
 
@@ -81,8 +87,22 @@ class StatusMixin(ServiceMixinBase):
             # merely because nothing has ducked yet).
             try:
                 ducker.initialize()
+                # XZ-EH-021: reset notify-once guard on success.
+                StatusMixin._volume_ducker_init_warned = False
             except Exception:
-                log.debug("volume_ducker.initialize failed", exc_info=True)
+                # XZ-EH-021: notify-once — log first failure at WARNING,
+                # subsequent at DEBUG (status endpoint polled ~every 2s).
+                if not StatusMixin._volume_ducker_init_warned:
+                    log.warning(
+                        "[SERVICE] volume_ducker.initialize failed - subsequent failures will be logged at DEBUG",
+                        exc_info=True,
+                    )
+                    StatusMixin._volume_ducker_init_warned = True
+                else:
+                    log.debug(
+                        "[SERVICE] volume_ducker.initialize failed (repeat)",
+                        exc_info=True,
+                    )
             return {
                 "available": bool(ducker.is_available),
                 "name": ducker.backend_name,
@@ -90,11 +110,19 @@ class StatusMixin(ServiceMixinBase):
                 "backend": type(ducker).__name__,
             }
         except Exception as exc:
+            # XZ-EH-001: redact exc string before returning to IPC layer.
+            # Sister methods (delete_model, test_llm_connection, etc.) all
+            # call redact_secret(redact_url(str(exc))) to avoid leaking
+            # secrets / URLs / file paths via the renderer.
+            log.warning(
+                "[SERVICE] get_volume_backend_status failed: %s",
+                redact_secret(redact_url(str(exc))),
+            )
             return {
                 "available": False,
                 "name": "disabled",
                 "supports_per_session": False,
-                "reason": str(exc),
+                "reason": redact_secret(redact_url(str(exc))),
             }
 
     def get_audio_status(self) -> dict:

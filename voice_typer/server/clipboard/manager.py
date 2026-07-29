@@ -339,7 +339,17 @@ class ClipboardManager:
             # ``#32770`` should NOT be blocked. The unification is
             # tracked as a follow-up; for now this matches the
             # existing test contract.
-            blocked_classes = {"#32770", "Credential Dialog Xaml Host", "CredDialog"}
+            #
+            # XZ-CLIP-07: ``#32770`` is the generic Win32 Dialog class
+            # (used by Open/Save As/Properties dialogs too). Blocking
+            # it prevented legitimate dictation into standard dialogs.
+            # Legitimate credential-prompt blocking is governed by the
+            # UIA ``IsPassword`` check + the specific
+            # ``_CRED_DIALOG_CLASSES`` set (Credential Dialog Xaml Host,
+            # CredDialog) — those remain blocked. Remove ``#32770``
+            # from the inline blocklist to allow dictation into Open/
+            # Save As / Properties dialogs.
+            blocked_classes = {"Credential Dialog Xaml Host", "CredDialog"}
             if class_name in blocked_classes:
                 _cb.log.warning("[CLIPBOARD] Blocked paste into security-sensitive window (class=%s)", class_name)
                 return False
@@ -452,14 +462,31 @@ class ClipboardManager:
                         comtypes.CoUninitialize()
 
             return True
-        except Exception:
-            # Outer exception — fail-open ONLY when truly broken infra
-            # (e.g. ctypes itself unavailable). This is rare and indicates
-            # a broken Python install rather than a security infra issue.
-            # Security-check exceptions are caught earlier (per-helper)
-            # and fail-closed. (History: CLIP-3.)
-            _cb.log.warning("[CLIPBOARD] _is_safe_paste_target outer exception — failing open", exc_info=True)
+        except (ImportError, AttributeError):
+            # XZ-CLIP-03: outer exception — fail-open ONLY for truly
+            # broken infra (ctypes itself unavailable, missing
+            # attribute on the windll proxy). This is rare and
+            # indicates a broken Python install rather than a security-
+            # infra issue. Security-check exceptions are caught earlier
+            # (per-helper) and fail-closed. (History: CLIP-3, XZ-CLIP-03.)
+            _cb.log.warning(
+                "[CLIPBOARD] _is_safe_paste_target infra unavailable (ImportError/AttributeError) — failing open",
+                exc_info=True,
+            )
             return True  # Fail open — don't block paste on outer infra error
+        except Exception:
+            # XZ-CLIP-03: any OTHER exception here is security-relevant
+            # (e.g. Win32 APIs raising during shutdown, broken COM init)
+            # — fail CLOSED so we never paste into an unverified target.
+            # The per-helper ``except Exception`` blocks above already
+            # caught and routed the expected exceptions; reaching this
+            # outer fallthrough means something genuinely unexpected
+            # happened in the safety-check infrastructure.
+            _cb.log.warning(
+                "[CLIPBOARD] _is_safe_paste_target outer exception — failing CLOSED (XZ-CLIP-03)",
+                exc_info=True,
+            )
+            return False
 
     @staticmethod
     def _is_terminal_process(process_name: str | None) -> bool:
@@ -511,6 +538,39 @@ class ClipboardManager:
                 exc_info=True,
             )
         return None
+
+    @staticmethod
+    def _get_frontmost_pid_macos() -> int | None:
+        """XZ-CLIP-04: return the frontmost macOS app's PID for TOCTOU re-check.
+
+        Uses ``AppKit.NSWorkspace`` (pyobjc) to fetch
+        ``frontmostApplication().processIdentifier()``. Returns ``None``
+        if pyobjc is unavailable, the workspace is unavailable, or the
+        query raises. The caller treats ``None`` as "unknown — skip the
+        TOCTOU re-check" (fail-open), preserving the legacy behavior on
+        systems without pyobjc.
+        """
+        try:
+            import AppKit  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+        try:
+            workspace = AppKit.NSWorkspace.sharedWorkspace()
+            if workspace is None:
+                return None
+            front_app = workspace.frontmostApplication()
+            if front_app is None:
+                return None
+            pid = front_app.processIdentifier()
+            # pyobjc returns an NSInteger; coerce to plain int so the
+            # equality comparison in the TOCTOU re-check is reliable.
+            return int(pid) if pid is not None else None
+        except Exception:
+            _cb.log.debug(
+                "[CLIPBOARD] _get_frontmost_pid_macos raised — skipping TOCTOU re-check",
+                exc_info=True,
+            )
+            return None
 
     def copy(self, text: str) -> ClipboardSnapshot | None:
         """Copy text to the clipboard. Returns a snapshot of the prior content.
@@ -903,7 +963,12 @@ class ClipboardManager:
             # during that window (TOCTOU). If the target is now unsafe
             # (e.g. focus moved to a credential prompt), abort — do NOT
             # send the paste into the wrong/unsafe window.
-            if not self._is_safe_paste_target():
+            #
+            # XZ-CLIP-14: only re-check when we actually slept. When
+            # ``paste_delay == 0`` the check above ran immediately before
+            # this branch, so a second UIA round-trip here would be
+            # redundant (no time for the foreground window to change).
+            if paste_delay > 0 and not self._is_safe_paste_target():
                 _cb.log.info("[CLIPBOARD] Paste blocked — foreground target became unsafe during paste delay")
                 return False
 
@@ -919,8 +984,16 @@ class ClipboardManager:
             # captured right after the safety check; if they differ,
             # abort paste to avoid sending Ctrl+V into the wrong window.
             #
-            # On non-Windows this is a no-op (no hwnd to compare).
+            # XZ-CLIP-04: extend the TOCTOU re-check to macOS by
+            # capturing the frontmost application's PID via
+            # ``NSWorkspace.sharedWorkspace().frontmostApplication()
+            # .processIdentifier()``. If the PID differs between the
+            # safety check and the keystroke send, abort. Linux Wayland
+            # has no equivalent atomic probe (wtype does not return the
+            # focused surface); the residual risk is documented in the
+            # Linux branch below.
             safe_hwnd: int = 0
+            safe_macos_pid: int | None = None
             if _cb.is_windows():
                 try:
                     import ctypes as _ctypes_mod
@@ -928,6 +1001,8 @@ class ClipboardManager:
                     safe_hwnd = _ctypes_mod.windll.user32.GetForegroundWindow()
                 except Exception:
                     safe_hwnd = 0
+            elif _cb.is_macos():
+                safe_macos_pid = self._get_frontmost_pid_macos()
 
             process_name = self._detect_focused_process()
             is_terminal = self._is_terminal_process(process_name)
@@ -962,12 +1037,51 @@ class ClipboardManager:
             wtype_text = pasted_text if pasted_text is not None else self._last_copied_text
             if is_terminal:
                 if _cb.is_macos():
+                    # XZ-CLIP-04: TOCTOU re-check on macOS. Re-fetch the
+                    # frontmost app PID and compare to ``safe_macos_pid``
+                    # captured above. If the user Cmd-Tabbed (or a
+                    # credential prompt stole focus) between the safety
+                    # check and the keystroke send, abort. If the PID
+                    # can't be re-fetched (pyobjc unavailable), fail
+                    # open — the safety check above already validated
+                    # the target.
+                    if safe_macos_pid is not None:
+                        current_pid = self._get_frontmost_pid_macos()
+                        if current_pid is not None and current_pid != safe_macos_pid:
+                            _cb.log.warning(
+                                "[CLIPBOARD] Frontmost macOS app changed during paste "
+                                "(TOCTOU: pid %d -> %d) — aborting paste to avoid "
+                                "sending Cmd+V into the wrong window (XZ-CLIP-04)",
+                                safe_macos_pid,
+                                current_pid,
+                            )
+                            return False
                     self._safe_key_press(_cb._Key.cmd, "v")
                 elif use_wayland_wtype:
+                    # XZ-CLIP-04: Linux Wayland residual risk — wtype
+                    # does not return the focused surface, so we cannot
+                    # re-verify the target atomically. The safety check
+                    # above ran immediately before this call (paste_delay
+                    # is 0 on Linux), so the TOCTOU window is bounded to
+                    # the wtype fork+exec time (~5-10ms). A user who
+                    # Alt-Tabs in that window may receive the paste into
+                    # the wrong target; documented as residual risk.
                     _cb._linux_paste_via_wtype(wtype_text)
                 else:
                     self._safe_key_press(_cb._Key.shift, _cb._Key.insert)
             elif _cb.is_macos():
+                # XZ-CLIP-04: same TOCTOU re-check as the terminal branch above.
+                if safe_macos_pid is not None:
+                    current_pid = self._get_frontmost_pid_macos()
+                    if current_pid is not None and current_pid != safe_macos_pid:
+                        _cb.log.warning(
+                            "[CLIPBOARD] Frontmost macOS app changed during paste "
+                            "(TOCTOU: pid %d -> %d) — aborting paste to avoid "
+                            "sending Cmd+V into the wrong window (XZ-CLIP-04)",
+                            safe_macos_pid,
+                            current_pid,
+                        )
+                        return False
                 self._safe_key_press(_cb._Key.cmd, "v")
             elif _cb.is_windows():
                 # G4-M-25 (session-4): TOCTOU re-check. Re-fetch the

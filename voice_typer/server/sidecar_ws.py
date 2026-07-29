@@ -166,6 +166,9 @@ _MAX_FRAME_BYTES = 1 * 1024 * 1024
 # (see S2-CR-1).
 _AUTH_TIMEOUT_SECONDS = 5.0
 
+# XZ-IPC-003: concurrent-connection limit (DoS protection).
+_MAX_WS_CONNECTIONS = 16
+
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
 # sends {"type":"shutdown"} the sidecar must release the mic, ack,
 # and exit within this window; if it doesn't, the host force-kills
@@ -564,27 +567,60 @@ def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
         log.warning("[SIDECAR-WS] outbound queue still full — dropping event")
 
 
+def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
+    """XZ-IPC-003: lazily create / return the per-server connection semaphore."""
+    sem = getattr(server, "_ws_connection_semaphore", None)
+    if not isinstance(sem, asyncio.Semaphore):
+        sem = asyncio.Semaphore(_MAX_WS_CONNECTIONS)
+        with contextlib.suppress(Exception):
+            server._ws_connection_semaphore = sem  # type: ignore[attr-defined]
+    return sem
+
+
 async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     """Per-connection WS handler: auth + read/dispatch loop.
 
-    ADR-0020 §1: the sidecar is the WS SERVER; the Rust host is the
-    WS CLIENT. Multiple connections are allowed (e.g. the host may
-    reconnect after a transient WS drop), but only one authenticated
-    connection at a time is meaningful — the host uses respawn
-    rather than reconnect, so a duplicate connection implies a
-    protocol bug worth logging.
+    XZ-IPC-003: enforces a concurrent-connection cap via a per-server
+    asyncio.Semaphore BEFORE delegating to _handle_connection_inner.
     """
-    # Lazy import so this module imports cleanly on the
-    # Electron-only build path (where websockets isn't installed).
-    # At runtime ``_handle_connection`` is only called by ``serve()``
-    # which is set up by ``run()`` AFTER the lazy websockets import
-    # there has already succeeded, so this inner import is guaranteed
-    # to succeed.
-    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
-
     peer = websocket.remote_address
     log.info("[SIDECAR-WS] client connected from %s", peer)
 
+    sem = _get_ws_connection_semaphore(server)
+    if sem.locked():
+        log.warning(
+            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s "
+            "with 1008 (XZ-IPC-003)",
+            _MAX_WS_CONNECTIONS,
+            peer,
+        )
+        with contextlib.suppress(Exception):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            "code": "max_connections_reached",
+                            "message": "server at max simultaneous connections",
+                        },
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1008, reason="max connections reached")
+        return
+    await sem.acquire()
+    try:
+        await _handle_connection_inner(websocket, server, dispatch, peer)
+    finally:
+        sem.release()
+
+
+async def _handle_connection_inner(
+    websocket, server: IPCServer, dispatch, peer
+) -> None:
+    """Auth + read/dispatch loop body (XZ-IPC-003 extraction)."""
+    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
     if not await _authenticate(websocket):
         # EC-11 (cross-transport parity): mirror the TCP path's
         # ``auth_failed`` error frame (ipc_server.py:~L925) BEFORE

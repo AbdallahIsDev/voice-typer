@@ -47,6 +47,7 @@ file only provides the primitives.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -72,12 +73,64 @@ def _electron_binary() -> str | None:
     ``.../electron`` (POSIX).  Returns ``None`` when not found, in which
     case the caller falls back to ``npm run dev`` (which itself starts
     Electron via the npm script).
+
+    XZ-R6-AS-02: optional integrity verification. When the environment
+    variable ``VOICE_TYPER_ELECTRON_SHA256`` is set to a 64-char hex
+    SHA-256, the binary is hashed on disk and compared against the
+    expected value. On mismatch, the function logs an ERROR and
+    returns ``None`` (forcing the caller to skip this binary and fall
+    back to ``npm run dev``). When the env var is unset, behaviour is
+    unchanged (no hash check; npm install integrity already covers the
+    download). Operators who pin a known-good Electron build set the
+    env var to detect a tampered or accidentally-upgraded binary.
     """
     if is_windows():
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
     else:
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"
-    return str(candidate) if candidate.exists() else None
+    if not candidate.exists():
+        return None
+    # XZ-R6-AS-02: optional SHA-256 verification. Only run when the
+    # operator has provided an expected hash.
+    expected_sha = os.environ.get("VOICE_TYPER_ELECTRON_SHA256", "").strip().lower()
+    if expected_sha:
+        if len(expected_sha) != 64 or not all(c in "0123456789abcdef" for c in expected_sha):
+            log.error(
+                "[ELECTRON-BUILD] VOICE_TYPER_ELECTRON_SHA256 is set but is not a "
+                "64-char hex SHA-256 (got %d chars) — refusing to launch the "
+                "binary rather than guessing; unset the env var to skip the check",
+                len(expected_sha),
+            )
+            return None
+        try:
+            import hashlib
+
+            actual_sha = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        except OSError as exc:
+            log.warning(
+                "[ELECTRON-BUILD] Failed to read %s for SHA-256 verification: %s "
+                "— skipping integrity check (treat as untrusted)",
+                candidate,
+                exc,
+            )
+            return None
+        if actual_sha != expected_sha:
+            log.error(
+                "[ELECTRON-BUILD] Electron binary CHECKSUM MISMATCH for %s — "
+                "expected %s, got %s. Refusing to launch this binary; falling "
+                "back to `npm run dev`. Unset VOICE_TYPER_ELECTRON_SHA256 to "
+                "skip the check (XZ-R6-AS-02).",
+                candidate,
+                expected_sha,
+                actual_sha,
+            )
+            return None
+        log.debug(
+            "[ELECTRON-BUILD] Electron binary checksum OK for %s (%s)",
+            candidate.name,
+            actual_sha,
+        )
+    return str(candidate)
 
 
 def _main_entry_built() -> bool:

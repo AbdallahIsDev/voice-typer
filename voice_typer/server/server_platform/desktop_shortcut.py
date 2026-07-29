@@ -44,7 +44,6 @@ read from this file.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import subprocess
@@ -247,7 +246,16 @@ def _create_lnk_shortcut(
         )
         return False
 
-    # 2) PowerShell fallback — write a temp .ps1 to avoid escaping issues.
+    # 2) PowerShell fallback — pass the script directly via `-Command`
+    # to avoid the temp-file TOCTOU window that the previous
+    # ``-File <tmp>`` invocation opened (XZ-R6-AS-08). The script is
+    # already string-built by ``_build_powershell_lnk_script`` (which
+    # single-quotes every user-supplied value via ``_ps_single_quote``,
+    # so PowerShell metacharacters cannot break out of the string
+    # literals), and ``-EncodedCommand`` is unnecessary here because
+    # we control the script content end-to-end (no Windows codepage
+    # quoting concerns for our pure-ASCII generated script).
+    #
     # SEC-10: every user-supplied value is wrapped in a single-quoted
     # PowerShell string (see _build_powershell_lnk_script /
     # _ps_single_quote). This is defense-in-depth against path /
@@ -255,10 +263,6 @@ def _create_lnk_shortcut(
     # metacharacters — even though Voice Typer controls most of these
     # values today, a future change (e.g. user-customizable shortcut
     # description) shouldn't silently introduce an injection vector.
-    import os as _os
-    import tempfile
-
-    tmp = None
     try:
         script = _build_powershell_lnk_script(
             lnk_path=lnk_path,
@@ -268,12 +272,19 @@ def _create_lnk_shortcut(
             description=description,
         )
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig") as f:
-            f.write(script)
-            tmp = f.name
-
+        # XZ-R6-AS-08: pass the script via ``-Command`` instead of
+        # writing it to a temp .ps1 file and invoking ``-File <tmp>``.
+        # The temp-file path opened a TOCTOU window between the write
+        # and the powershell read: a local attacker with write access
+        # to ``%TEMP%`` could swap the .ps1 file between the
+        # ``NamedTemporaryFile`` write (``delete=False``) and the
+        # ``powershell -File`` invocation, substituting arbitrary
+        # PowerShell code that would then execute with the user's
+        # privileges. The ``-Command`` form passes the script as a
+        # single process argument — no on-disk artifact exists for an
+        # attacker to swap.
         subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp],
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
             check=True,
             capture_output=True,
             timeout=30,
@@ -291,10 +302,6 @@ def _create_lnk_shortcut(
             e,
         )
         return False
-    finally:
-        if tmp is not None:
-            with contextlib.suppress(OSError):
-                _os.unlink(tmp)
 
 
 def create_launcher_shortcut() -> Path | None:

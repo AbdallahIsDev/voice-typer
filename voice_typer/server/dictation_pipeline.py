@@ -588,7 +588,19 @@ class DictationPipeline:
                     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
                     free_mb = stat.ullAvailPhys / (1024 * 1024)
             except Exception:
-                pass
+                # XZ-EH-008 / XZ-EH-022: previously a bare ``except
+                # Exception: pass`` — the docstring at the top of
+                # ``_check_resources`` promises "failures are logged at
+                # DEBUG level", but this branch silently swallowed the
+                # ctypes fallback failure (e.g. ``GlobalMemoryStatusEx``
+                # returning an error code on a stripped-down Windows
+                # IoT build), leaving operators with no clue why the
+                # RAM INFO line was missing. Emit a DEBUG line with the
+                # traceback so the docstring's promise is honored.
+                log.debug(
+                    "[RESOURCE] RAM check (ctypes fallback) failed (non-fatal)",
+                    exc_info=True,
+                )
 
         if free_mb is not None:
             log.info(
@@ -698,8 +710,20 @@ class DictationPipeline:
                         "[RESOURCE] Low GPU memory (%.0f MB free) — CUDA out-of-memory errors are likely.",
                         free_gpu,
                     )
-        except (ImportError, Exception):
-            pass
+        except Exception:
+            # XZ-EH-008 / XZ-EH-022: previously ``except (ImportError,
+            # Exception): pass``. ``ImportError`` was redundant (Exception
+            # already covers it) and the bare ``pass`` contradicted the
+            # docstring's promise that "failures are logged at DEBUG
+            # level". Emit a DEBUG line with the traceback so an
+            # operator looking at voice-typer.log sees why the GPU
+            # INFO line is absent (e.g. torch installed but CUDA
+            # driver mismatch, ``torch.cuda.get_device_properties``
+            # raising on a headless CI runner).
+            log.debug(
+                "[RESOURCE] GPU check failed (non-fatal)",
+                exc_info=True,
+            )
 
         log.debug("[RESOURCE] Pre-flight health check complete")
 
@@ -907,21 +931,45 @@ class DictationPipeline:
         self._app._schedule_timer(2.0, lambda: self._app.tray.set_state(AppState.IDLE))
 
     def _clean_text(self, text: str) -> str:
-        """Step 3: Apply text cleanup (spacing, self-corrections, capitalization)."""
-        from voice_typer.server.text_cleanup import clean_transcribed_text
+        """Step 3: Apply text cleanup (spacing, self-corrections, capitalization).
 
-        if self._app.config.text_cleanup_enabled:
-            vocab_enabled = getattr(self._app.config, "vocabulary_enabled", True)
-            raw = text
-            text = clean_transcribed_text(
-                text,
-                auto_punctuation=False,
-                skip_corrections=vocab_enabled,
-            )
-            if text != raw:
-                log.info("[CLEANUP] Text cleaned: len %d -> %d", len(raw), len(text))
-        else:
-            log.info("[CLEANUP] Text cleanup disabled (raw mode)")
+        XZ-R18-02: previously the only two middle-pipeline steps NOT
+        wrapped in try/except (this method and ``_apply_punctuation``).
+        If either threw, the exception propagated to the outer
+        ``run()`` ``except Exception`` block — the tray flipped to
+        ERROR, the dictation was aborted, and the transcription was
+        NEVER saved to crash recovery because ``_store_result()``
+        runs AFTER these steps. Wrap in try/except matching the
+        ``_apply_vocabulary`` pattern: ``log.warning(...)`` + notify-once
+        + return the original text so the user sees their (uncleaned)
+        transcription and the cycle completes normally.
+        """
+        try:
+            from voice_typer.server.text_cleanup import clean_transcribed_text
+
+            if self._app.config.text_cleanup_enabled:
+                vocab_enabled = getattr(self._app.config, "vocabulary_enabled", True)
+                raw = text
+                text = clean_transcribed_text(
+                    text,
+                    auto_punctuation=False,
+                    skip_corrections=vocab_enabled,
+                )
+                if text != raw:
+                    log.info("[CLEANUP] Text cleaned: len %d -> %d", len(raw), len(text))
+            else:
+                log.info("[CLEANUP] Text cleanup disabled (raw mode)")
+        except Exception:
+            log.warning("[PIPELINE] Text cleanup failed", exc_info=True)
+            # a-review Finding 2: notify-once flag lives on ``self._app``
+            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            if not getattr(self._app, "_clean_text_fail_notified", False):
+                self._app._clean_text_fail_notified = True
+                with contextlib.suppress(Exception):
+                    self._app.tray.notify(
+                        APP_NAME,
+                        "Text cleanup failed. Check the log file for details.",
+                    )
         return text
 
     def _apply_vocabulary(self, text: str) -> str:
@@ -1005,11 +1053,31 @@ class DictationPipeline:
         return text
 
     def _apply_punctuation(self, text: str) -> str:
-        """Step 6: Apply auto-punctuation."""
-        if self._app.config.auto_punctuation:
-            from voice_typer.server.text_cleanup import _add_safe_terminal_punctuation
+        """Step 6: Apply auto-punctuation.
 
-            text = _add_safe_terminal_punctuation(text)
+        XZ-R18-02: previously NOT wrapped in try/except — see
+        ``_clean_text`` for the rationale. ``_add_safe_terminal_punctuation``
+        is a pure string operation but can still raise on malformed
+        input (e.g. a ``text`` containing a surrogate that breaks
+        ``str.endswith``). Return the original text on failure so the
+        dictation completes.
+        """
+        try:
+            if self._app.config.auto_punctuation:
+                from voice_typer.server.text_cleanup import _add_safe_terminal_punctuation
+
+                text = _add_safe_terminal_punctuation(text)
+        except Exception:
+            log.warning("[PIPELINE] Auto-punctuation failed", exc_info=True)
+            # a-review Finding 2: notify-once flag lives on ``self._app``
+            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            if not getattr(self._app, "_punct_fail_notified", False):
+                self._app._punct_fail_notified = True
+                with contextlib.suppress(Exception):
+                    self._app.tray.notify(
+                        APP_NAME,
+                        "Auto-punctuation failed. Check the log file for details.",
+                    )
         return text
 
     def _apply_llm_polish(self, text: str) -> str:
@@ -1102,6 +1170,31 @@ class DictationPipeline:
                 from voice_typer.server._secrets import redact_secret
 
                 log.warning("[LLM_POLISH] Polish failed: %s", redact_secret(str(exc)))
+                # XZ-R18-05: previously this except block only logged a
+                # WARNING — the user paid for an LLM API call that never
+                # produced output (or believed the feature was broken)
+                # with NO diagnostic. Mirror the ``_apply_vocabulary``
+                # notify-once pattern (tray notification on the FIRST
+                # failure per session) AND publish a ``llm_polish_failed``
+                # event to the in-process event bus so the renderer can
+                # surface a one-time toast. The push event shape is a
+                # bare ``{"type": "llm_polish_failed"}`` frame (no
+                # payload) — see ``LLMPolishFailedEvent`` in
+                # ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``.
+                # The transcription itself is still delivered to the
+                # user UN-polished (the original ``text`` is returned
+                # below), so the event is purely informational.
+                if not getattr(self._app, "_llm_polish_fail_notified", False):
+                    self._app._llm_polish_fail_notified = True
+                    with contextlib.suppress(Exception):
+                        self._app.tray.notify(
+                            APP_NAME,
+                            "LLM polish failed. Transcription shown raw; check the log file for details.",
+                        )
+                with contextlib.suppress(Exception):
+                    from voice_typer.server import event_bus
+
+                    event_bus.publish({"type": "llm_polish_failed"})
         elif (
             self._app.config.llm_polish
             and effective_llm_key

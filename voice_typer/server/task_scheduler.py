@@ -322,7 +322,21 @@ def _is_prewarm_registered_registry() -> bool:
             winreg.CloseKey(key)
     except FileNotFoundError:
         return False
-    except OSError:
+    except OSError as exc:
+        # XZ-EH-009: parity with the sibling ``_register_prewarm_registry``
+        # and ``_unregister_prewarm_registry`` helpers, which both log at
+        # WARNING on registry access failures. The previous silent
+        # ``return False`` here made a registry permissions issue (or a
+        # transient kernel resource exhaustion) indistinguishable from
+        # "value not present" — the caller (``is_prewarm_registered``)
+        # then fell through to a schtasks /Query, masking the root cause.
+        # ``debug`` (rather than ``warning``) keeps the noise low on the
+        # common case where the Run key is simply absent on a fresh
+        # install (``FileNotFoundError`` above is the expected path and
+        # returns False without logging). ``OSError`` here means the key
+        # exists but couldn't be opened / queried — worth a diagnostic
+        # breadcrumb.
+        log.debug("[TASK] _is_prewarm_registered_registry: OSError reading HKCU Run key: %s", exc)
         return False
 
 
@@ -542,8 +556,25 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     see_mask_noclose = 0x00000040
     sw_hide = 0
 
-    # Build the arg string for schtasks
-    arg_str = " ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)
+    # XZ-R6-AS-06: build the arg string for schtasks using
+    # ``subprocess.list2cmdline`` (the same helper ``subprocess.Popen``
+    # uses on Windows internally). The previous hand-rolled join —
+    # ``" ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)``
+    # — only quoted args containing a space or ``&`` and NEVER escaped
+    # embedded ``"`` characters. A malicious or misconfigured arg
+    # containing ``"`` could break out of the quoting and inject
+    # arbitrary cmd.exe metacharacters into the ``cmd_line`` below
+    # (which is then wrapped in another layer of ``cmd.exe /c "..."``
+    # quoting via ``sei.lpParameters``). ``list2cmdline`` handles the
+    # full Windows command-line quoting rules: it double-quotes any
+    # arg containing whitespace, ``"``, or other special chars, and
+    # escapes embedded ``"`` as ``\\"`` so the resulting string parses
+    # back to the original argv on the cmd.exe side. ``schtasks`` args
+    # today are all safe (task name, /Query, /TN, etc.), but the
+    # function is a generic helper — hardening it removes a latent
+    # injection vector if a future caller passes a user-supplied arg
+    # (e.g. a custom ``--trigger`` value).
+    arg_str = subprocess.list2cmdline(args)
 
     # Redirect output to a temp file so we can read it back
     with tempfile.NamedTemporaryFile(mode="w+t", suffix=".txt", delete=False, encoding="utf-8") as out_file:
@@ -585,6 +616,15 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             sei.hProcess,
             timeout_ms,
         )
+        # XZ-EH-010: check both documented non-success return values.
+        # ``WAIT_TIMEOUT`` (258) means the process is still running
+        # after ``timeout_ms`` — log.error so a hung schtasks is
+        # visible. ``WAIT_FAILED`` (0xFFFFFFFF) means the wait itself
+        # failed (e.g. ``sei.hProcess`` is invalid) — log.warning so
+        # the failure is diagnosable before ``GetExitCodeProcess``
+        # reads garbage. The finding's suggested ``WAIT_TIMEOUT=124``
+        # is incorrect (124 is ETIMEDOUT, not a Win32 wait code); the
+        # correct value is 258 (``STATUS_TIMEOUT`` = ``0x102``).
         if wait_result == 258:  # WAIT_TIMEOUT
             log.error(
                 "[TASK] _schtasks_elevated: WaitForSingleObject timed out after "
@@ -592,9 +632,32 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
                 timeout_ms,
                 args,
             )
+        elif wait_result == 0xFFFFFFFF:  # WAIT_FAILED
+            log.warning(
+                "[TASK] _schtasks_elevated: WaitForSingleObject returned WAIT_FAILED "
+                "(handle invalid?) for args=%r — GetExitCodeProcess may return stale value",
+                args,
+            )
 
         exit_code = ctypes.wintypes.DWORD()
-        ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
+        # XZ-EH-010: ``GetExitCodeProcess`` returns a BOOL (nonzero on
+        # success, zero on failure). The previous call discarded the
+        # return value, so a failure (e.g. invalid handle) silently
+        # left ``exit_code`` at its zero-initialized value — the caller
+        # saw ``rc=0`` (success) and treated a failed read as a
+        # successful schtasks run. Now log the failure and fall
+        # through with ``STILL_ACTIVE`` (259) sentinel so the caller's
+        # ``rc != 0`` branch (which logs warning + retries) fires.
+        get_exit_ok = ctypes.windll.kernel32.GetExitCodeProcess(
+            sei.hProcess, ctypes.byref(exit_code)
+        )
+        if not get_exit_ok:
+            log.warning(
+                "[TASK] _schtasks_elevated: GetExitCodeProcess failed for args=%r "
+                "(handle may be invalid); treating as STILL_ACTIVE (259)",
+                args,
+            )
+            exit_code.value = 259  # STILL_ACTIVE
         ctypes.windll.kernel32.CloseHandle(sei.hProcess)
 
         # Read output from the temp file. The empty-output case (e.g.
@@ -677,7 +740,20 @@ def is_prewarm_registered() -> bool:
             from voice_typer.server.prewarm_scheduler_posix import is_prewarm_registered as _posix_is
 
             return _posix_is()
-        except Exception:
+        except Exception as exc:
+            # XZ-EH-011: parity with the sibling ``register_prewarm_task``
+            # and ``unregister_prewarm_task`` POSIX delegates (which log
+            # at WARNING on ``Exception``). The previous silent
+            # ``return False`` here masked import failures (e.g. the
+            # ``prewarm_scheduler_posix`` module not yet shipped on this
+            # platform) and runtime failures (e.g. a LaunchAgent/
+            # systemd query subprocess crash) — the caller's
+            # ``is_prewarm_registered`` simply reported "not registered",
+            # the Settings toggle was a no-op, and the user had no
+            # diagnostic trail to follow. ``warning`` (not ``debug``)
+            # because the POSIX path is the ONLY path on macOS/Linux —
+            # a failure here is never an expected state.
+            log.warning("[TASK] POSIX is_prewarm_registered raised: %s", exc)
             return False
     if not is_supported():
         return False

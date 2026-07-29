@@ -67,28 +67,28 @@ _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 # caller that does not pass ``command`` is treated as cost 1, identical
 # to the pre-G4-M-09 behavior).
 COMMAND_COSTS: dict[str, int] = {
-    # Heavy I/O or subprocess (cost 10).
+    # Heavy I/O or subprocess (cost 10+).
     "download_model": 50,
     "import_model": 20,
-    "delete_model": 10,
-    "run_prewarm": 10,
-    "restart_app": 10,
+    "delete_model": 50,  # XZ-R3-02: was 10 — model delete spawns subprocess + fs writes
+    "run_prewarm": 50,  # XZ-R3-02: was 10 — prewarm touches ~6GB of files
+    "restart_app": 100,  # XZ-R3-02: was 10 — full process restart
+    "quit_app": 100,  # XZ-R3-02: was 5 — full process teardown
     "resume_model_download": 10,
     "clear_history": 10,
-    # Moderate (cost 5).
-    "quit_app": 5,
+    # Moderate (cost 20).
+    "test_llm_connection": 20,  # XZ-R3-02: was 10 — network call to LLM provider
+    "microphone_test_start": 20,  # XZ-R3-02: was 5 — opens a PortAudio stream
+    "level_monitor_start": 20,  # XZ-R3-02: was 3 — opens a PortAudio stream + spawns thread
     "shutdown": 5,
     "onboarding_apply": 5,
-    "microphone_test_start": 5,
-    # Light-moderate (cost 3).
-    "level_monitor_start": 3,
     "get_vocabulary_suggestions": 3,  # NOTE: stale per registry — kept for back-compat
-    # Small file writes / single-row mutations (cost 2).
-    "save_vocabulary": 2,
-    "save_templates": 2,
+    # Small file writes / single-row mutations (cost 10).
+    "save_vocabulary": 10,  # XZ-R3-02: was 2 — writes vocabulary file
+    "save_templates": 10,  # XZ-R3-02: was 2 — writes templates file
+    "force_cancel_transcription": 10,  # XZ-R3-02: was 2 — interrupts ASR pipeline
     "delete_history": 2,
     "restore_history": 2,
-    "force_cancel_transcription": 2,
     "pause_model_download": 2,
     "cancel_model_download": 2,
     # Reads / cheap ops (cost 1) — explicitly listed so future DEFAULT_COST
@@ -147,7 +147,6 @@ COMMAND_COSTS: dict[str, int] = {
     "delete_all_personal_data": 20,
     "export_diagnostics": 10,
     "export_gdpr_bundle": 20,
-    "test_llm_connection": 10,
 }
 DEFAULT_COST = 1
 
@@ -324,6 +323,20 @@ class _RateLimiter:
         # Clamp to at least 1 so the limiter is always strict-ish.
         if cost < 1:
             cost = 1
+        # XZ-R3-01 (High): heartbeat bypasses the burst + sustained
+        # checks entirely. A compromised renderer sustaining ≥200
+        # msg/s of cheap commands would otherwise exhaust the per-
+        # process burst budget (200/s shared across ALL connections)
+        # and reject every heartbeat during the attack window — after
+        # 45s (3 missed @ 15s interval) the heartbeat watchdog calls
+        # ``app.quit()``, killing the backend. The bypass is safe
+        # because the watchdog only tracks the LAST heartbeat
+        # timestamp (not the count) — a flood of fake heartbeats from
+        # the (already-compromised) renderer is not a new attack
+        # vector, but a flood of OTHER commands must not be able to
+        # starve the legitimate heartbeat keep-alive.
+        if command == "heartbeat":
+            return True
         burst_cutoff = ts - self._burst_window
         sustained_cutoff = ts - self._window
         with self._lock:

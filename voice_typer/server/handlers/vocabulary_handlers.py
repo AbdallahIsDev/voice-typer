@@ -100,7 +100,22 @@ class VocabularyHandlersMixin(HandlerBase):
             # the renderer can branch on the code (matches the
             # ``max_payload_bytes`` envelope the helper emits for the
             # whole-payload size check above).
-            _max_value_len = 1024
+            #
+            # XZ-R11-07: lowered from 1024 to 500 to match the
+            # vocabulary-layer limit ``MAX_REPLACEMENT_LENGTH = 500``
+            # (``vocabulary.py:46-47``). The previous 1024 cap allowed
+            # values 2× the CRUD-layer ceiling, which
+            # ``save_vocabulary_with_diff`` would then reject anyway —
+            # but only after writing them through the diff path that
+            # bypasses the CRUD methods. A 500-char IPC cap fails fast
+            # at the handler layer with a clear ``payload_too_large``
+            # envelope instead of letting the larger value reach the
+            # vocabulary layer's own validation. ``MAX_PATTERN_LENGTH``
+            # (200) is enforced inside the CRUD methods; replacement
+            # values up to 500 chars are accepted here (the looser of
+            # the two SEC-011 limits) so legitimate long replacements
+            # (e.g. multi-sentence expansion templates) still pass.
+            _max_value_len = 500
             for cat, entries in data.items():
                 if isinstance(entries, dict):
                     for k, v in entries.items():

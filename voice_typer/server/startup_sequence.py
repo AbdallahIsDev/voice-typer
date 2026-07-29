@@ -29,8 +29,11 @@ appears in ``app.py``'s import-time graph.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from voice_typer.server import crash_handler as _crash_handler
@@ -48,6 +51,96 @@ if TYPE_CHECKING:
     from voice_typer.server.app import VoiceTyperApp
 
 log = logging.getLogger(__name__)
+
+# XZ-R12-08: name of the onboarding-fail-counter persistence file
+# (lives in the config dir alongside config.json). The file holds a
+# tiny JSON document: ``{"count": <int>, "last_fail_ts": <epoch-float>}``.
+# The counter survives process restarts so the "after 3 failures"
+# circuit breaker (see ``_do_onboarding_check``) actually trips even
+# when each failure occurs in a different process session. Pre-fix
+# the counter lived only on ``app._onboarding_fail_count`` (an
+# in-memory attribute), so a user whose onboarding kept failing once
+# per app-start would NEVER hit the circuit breaker and would be
+# stuck on the onboarding wizard forever.
+_ONBOARDING_FAIL_COUNTER_FILENAME = ".onboarding_fail_count"
+# Stale-counter cutoff: if the last failure is older than this window
+# (in seconds), the counter resets to 1 on the next failure. Prevents
+# a user who hit 2 failures a year ago from being marked
+# onboarding_failed the next time they restart with a transient
+# failure. 7 days matches the onboarding wizard's "won't bother the
+# user again" cadence.
+_ONBOARDING_FAIL_COUNTER_TTL_SECONDS: float = 7 * 24 * 60 * 60.0
+
+
+def _onboarding_fail_counter_path() -> Path:
+    """Return the absolute path to the onboarding fail-counter file."""
+    return _config_dir() / _ONBOARDING_FAIL_COUNTER_FILENAME
+
+
+def _read_onboarding_fail_count() -> tuple[int, float]:
+    """Read the persisted onboarding fail counter.
+
+    Returns ``(count, last_fail_ts)``. On any read failure (missing
+    file, corrupt JSON, schema drift), returns ``(0, 0.0)`` — the
+    safe default that lets the next failure start the counter fresh.
+    """
+    path = _onboarding_fail_counter_path()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0, 0.0
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return 0, 0.0
+    if not isinstance(data, dict):
+        return 0, 0.0
+    count = data.get("count", 0)
+    last_fail_ts = data.get("last_fail_ts", 0.0)
+    if not isinstance(count, int) or count < 0:
+        return 0, 0.0
+    if not isinstance(last_fail_ts, (int, float)):
+        last_fail_ts = 0.0
+    return count, float(last_fail_ts)
+
+
+def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
+    """Persist the onboarding fail counter to disk.
+
+    Failures are best-effort — a write error is logged at DEBUG and
+    swallowed (the in-memory counter on ``app._onboarding_fail_count``
+    is still incremented, so the circuit breaker can still trip
+    in-session even if persistence is broken).
+    """
+    path = _onboarding_fail_counter_path()
+    payload = json.dumps({"count": count, "last_fail_ts": last_fail_ts})
+    try:
+        path.write_text(payload, encoding="utf-8")
+    except OSError as exc:
+        log.debug(
+            "[STARTUP] Could not persist onboarding fail counter to %s: %s",
+            path,
+            exc,
+        )
+
+
+def _reset_onboarding_fail_count() -> None:
+    """Clear the persisted onboarding fail counter.
+
+    Called on successful onboarding completion so a future transient
+    failure doesn't accumulate against the stale count. Best-effort:
+    a missing file is a no-op, a write error is logged at DEBUG.
+    """
+    path = _onboarding_fail_counter_path()
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError as exc:
+        log.debug(
+            "[STARTUP] Could not reset onboarding fail counter at %s: %s",
+            path,
+            exc,
+        )
 
 
 class StartupSequence:
@@ -173,6 +266,12 @@ class StartupSequence:
                         app.config.onboarding_completed = True
                         onboarding.mark_complete()
                         app.config.save()
+                        # XZ-R12-08: clear the persisted fail counter
+                        # — the auto-heal path means onboarding is now
+                        # complete (no longer failing), so a future
+                        # transient failure should start fresh instead
+                        # of accumulating against the stale count.
+                        _reset_onboarding_fail_count()
                     else:
                         # Genuine first run -- no config.json exists yet.
                         # Save the default config so the frontend can
@@ -192,14 +291,52 @@ class StartupSequence:
                 # flag so the app remains usable.
                 log.exception("[STARTUP] Onboarding check failed: %s", e)
                 try:
-                    app._onboarding_fail_count = getattr(app, "_onboarding_fail_count", 0) + 1
-                    if app._onboarding_fail_count >= 3:
+                    # XZ-R12-08: persist the fail counter to disk so
+                    # the "after 3 failures" circuit breaker actually
+                    # trips across process restarts. Pre-fix the
+                    # counter lived only on ``app._onboarding_fail_count``
+                    # (in-memory), so a user whose onboarding failed
+                    # once per app-start would never hit the breaker
+                    # and be stuck on the onboarding wizard forever.
+                    # Read the persisted counter, apply a TTL so a
+                    # stale counter from months ago doesn't trip on
+                    # the next transient failure, increment, and
+                    # persist back. The in-memory attribute is also
+                    # updated so any in-session retry logic that reads
+                    # ``app._onboarding_fail_count`` sees the same
+                    # value as the persisted file.
+                    persisted_count, last_fail_ts = _read_onboarding_fail_count()
+                    now = time.time()
+                    if (
+                        persisted_count > 0
+                        and last_fail_ts > 0
+                        and (now - last_fail_ts) > _ONBOARDING_FAIL_COUNTER_TTL_SECONDS
+                    ):
+                        # Stale counter — start fresh. Log at INFO so
+                        # an operator can correlate the reset with the
+                        # subsequent failure log.
+                        log.info(
+                            "[STARTUP] Onboarding fail counter reset (last failure %.1f days ago > TTL %.1f days)",
+                            (now - last_fail_ts) / 86400.0,
+                            _ONBOARDING_FAIL_COUNTER_TTL_SECONDS / 86400.0,
+                        )
+                        persisted_count = 0
+                    new_count = persisted_count + 1
+                    app._onboarding_fail_count = new_count
+                    _write_onboarding_fail_count(new_count, now)
+                    if new_count >= 3:
                         app.config.onboarding_completed = True
                         app.config.onboarding_failed = True
                         try:
                             app.config.save()
                         except Exception:
                             log.exception("[STARTUP] Could not save onboarding_failed flag")
+                        # XZ-R12-08: reset the persisted counter once
+                        # the circuit breaker trips so a future
+                        # onboarding reset (user clears
+                        # onboarding_completed in settings) starts
+                        # fresh instead of immediately re-tripping.
+                        _reset_onboarding_fail_count()
                         # NEW-UX-018: critical — bypass show_notifications toggle.
                         with contextlib.suppress(Exception):
                             app.tray.notify_safety(

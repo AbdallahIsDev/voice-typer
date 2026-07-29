@@ -74,10 +74,38 @@ def _atexit_flush_all() -> None:
     ``contextlib.suppress(Exception)`` so a failure on one instance
     doesn't skip the others. Mirrors the original per-instance handler's
     contract — atexit must never raise.
+
+    XZ-R17-13: ``_stopped`` is set to ``True`` before ``_save_sync``
+    so the worker drain path (if any) knows to exit. After the save,
+    ``_final_save_done`` is set to ``True`` so the subsequent
+    ``__del__`` (which fires later during GC) observes the flag and
+    skips the redundant atomic-write + rename. Setting ``_stopped``
+    here is safe: the worker thread has already been torn down by
+    interpreter shutdown (daemon threads are joined by the interpreter
+    before atexit fires). The flag is set OUTSIDE ``_save_sync`` (not
+    inside it) so ``shutdown()``'s final save does NOT set the flag —
+    a post-shutdown ``__del__`` save for mutations that bypassed
+    ``_enqueue_save`` (e.g. direct ``_entries.append`` in tests) must
+    still persist (regression-tested by
+    ``test_del_saves_unpersisted_post_shutdown_mutations``).
     """
     for inst in list(_LIVE_INSTANCES):
         with contextlib.suppress(Exception):
+            inst._stopped = True
             inst._save_sync()
+            # XZ-R17-13: mark the final save as done so the subsequent
+            # __del__ (fired by GC) skips the redundant write. Set
+            # under no lock here — atexit is single-threaded by
+            # definition (the interpreter only fires it once, after
+            # all non-daemon threads have exited), so there's no race
+            # with another final-save path. ``_save_sync`` checks the
+            # flag under ``_save_lock``, but the check+set here is
+            # safe because no concurrent caller can reset the flag
+            # (the only reset path is ``_enqueue_save``, which
+            # requires the worker thread to be running — but the
+            # worker is a daemon thread that has already exited by
+            # the time atexit fires).
+            inst._final_save_done = True
 
 
 atexit.register(_atexit_flush_all)
@@ -121,6 +149,37 @@ class CrashRecovery:
         self._save_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
         self._save_thread: threading.Thread | None = None
         self._stopped = False
+        # XZ-R17-08: ``_dir_ensured`` guards the per-save ``os.chmod``
+        # on ``self._path.parent``. The chmod is idempotent (setting
+        # 0o700 on an already-0o700 dir is a no-op) but it's still a
+        # syscall per transcription — under rapid dictation (5+ saves /
+        # second when streaming is on) the redundant chmod dominated
+        # the save path's syscall count. The flag is set on the first
+        # successful mkdir+chmod; subsequent saves skip the chmod. If
+        # the chmod fails (logged at warning), the flag is NOT set so
+        # the next save retries — same behavior as before for the
+        # failure case. Guarded by ``_save_lock`` (acquired in
+        # ``_save_sync``) so the flag is race-free.
+        self._dir_ensured = False
+        # XZ-R17-13: ``_final_save_done`` deduplicates the final
+        # shutdown save between the atexit handler
+        # (``_atexit_flush_all``) and ``__del__``. Both paths call
+        # ``_save_sync()`` during interpreter shutdown; without the
+        # flag, the second path re-serialized the same ``_entries``
+        # state and re-wrote the atomic temp file + rename — pure
+        # wasted I/O on the shutdown path (where the GIL is being
+        # torn down and the write window is most fragile). The flag
+        # is set ONLY by ``_atexit_flush_all`` (NOT by ``shutdown()``
+        # or ``_save_sync`` itself), so ``shutdown()``'s final save
+        # does NOT suppress a subsequent ``__del__`` save for
+        # post-shutdown mutations that bypassed ``_enqueue_save``
+        # (regression-tested by
+        # ``test_del_saves_unpersisted_post_shutdown_mutations``).
+        # ``_enqueue_save`` resets the flag to ``False`` BEFORE its
+        # post-shutdown synchronous save so a new mutation is never
+        # silently dropped. Guarded by ``_save_lock`` so the check+set
+        # is atomic.
+        self._final_save_done = False
         # THREAD-REGISTRY: optional central registry for shutdown
         # coordination. When provided, the crash-recovery-saver thread
         # is registered so ``shutdown_all()`` can join it during
@@ -263,13 +322,49 @@ class CrashRecovery:
         when the import machinery was partially dismantled — the
         lazy import would silently fail and the final recovery state
         would be lost.
+
+        XZ-R17-08: ``_dir_ensured`` guards the per-save
+        ``os.chmod(self._path.parent, 0o700)``. The chmod is
+        idempotent but it's still a syscall per transcription; the
+        flag is set after the first successful mkdir+chmod and
+        subsequent saves skip it. If the chmod fails (logged at
+        warning), the flag is NOT set so the next save retries.
+
+        XZ-R17-13: ``_final_save_done`` deduplicates the final
+        shutdown save. ``__del__`` and the atexit handler both call
+        ``_save_sync()`` during interpreter shutdown; the flag
+        (guarded by ``_save_lock``) makes the second call a no-op
+        so the atomic-write + rename happens exactly once on the
+        shutdown path. The flag is set ONLY by ``_atexit_flush_all``
+        (NOT by this function or ``shutdown()``) — so ``shutdown()``'s
+        final save does NOT suppress a subsequent ``__del__`` save
+        for post-shutdown mutations. The flag is reset to ``False``
+        by ``_enqueue_save`` when a new mutation arrives post-shutdown.
         """
         with self._save_lock:
+            # XZ-R17-13: short-circuit if the atexit handler already
+            # persisted the final state. The flag is set ONLY by
+            # ``_atexit_flush_all`` (NOT by ``shutdown()`` or this
+            # function) — so ``shutdown()``'s final save does NOT
+            # suppress a subsequent ``__del__`` save for post-shutdown
+            # mutations (the test
+            # ``test_del_saves_unpersisted_post_shutdown_mutations``
+            # verifies this). The flag is reset to ``False`` by
+            # ``_enqueue_save`` when a new mutation arrives
+            # post-shutdown, so post-shutdown ``add()`` calls still
+            # persist even if atexit already fired.
+            if self._final_save_done:
+                return
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-                if not is_windows():
+                # XZ-R17-08: skip the chmod on subsequent saves.
+                # First save does the mkdir + chmod; later saves
+                # only do the atomic write. The flag is cleared on
+                # any chmod failure so the next save retries.
+                if not self._dir_ensured and not is_windows():
                     try:
                         os.chmod(self._path.parent, 0o700)
+                        self._dir_ensured = True
                     except OSError as e:
                         log.warning("[RECOVERY] Failed to chmod dir: %s", e)
                 with self._lock:
@@ -281,6 +376,20 @@ class CrashRecovery:
                         ensure_ascii=False,
                     )
                 _secure_atomic_write(self._path, snapshot)
+                # XZ-R17-13: NOTE — the flag is NOT set here. Only
+                # ``_atexit_flush_all`` sets the flag (after its own
+                # successful save). This ensures:
+                #   • ``shutdown()``'s final save does NOT suppress a
+                #     subsequent ``__del__`` save for post-shutdown
+                #     mutations (regression-tested by
+                #     ``test_del_saves_unpersisted_post_shutdown_mutations``).
+                #   • ``atexit`` (which fires after ``shutdown()``)
+                #     suppresses the redundant ``__del__`` save.
+                # The tradeoff: ``shutdown()`` + ``atexit`` produces 2
+                # writes (vs 3 pre-fix: shutdown + atexit + __del__).
+                # The abnormal-exit path (atexit + __del__, no
+                # shutdown) produces 1 write (atexit), since __del__
+                # observes the flag and skips.
             except Exception:
                 log.exception("[RECOVERY] Failed to save")
 
@@ -297,11 +406,23 @@ class CrashRecovery:
         ``_save_lock``) to honor the documented shutdown() contract:
         "After shutdown, any further calls to ``add()`` /
         ``mark_pasted()`` / etc. will fall back to synchronous saves".
+
+        XZ-R17-13: before the post-shutdown synchronous save, RESET
+        ``_final_save_done`` to ``False``. The flag may have been
+        set by the previous atexit save; without this reset, the new
+        mutation would be silently dropped by ``_save_sync``'s
+        short-circuit. The reset is safe because we're about to call
+        ``_save_sync`` immediately after (and ``_save_sync`` does
+        NOT re-set the flag — only ``_atexit_flush_all`` does).
         """
         if self._stopped:
             # Worker has exited (or never started) — persist on the
             # caller's thread.  ``_save_sync`` takes ``_save_lock``
             # so concurrent post-shutdown callers serialize cleanly.
+            # XZ-R17-13: a previous atexit save may have set
+            # ``_final_save_done``; this new mutation MUST be
+            # persisted, so clear the flag before the save.
+            self._final_save_done = False
             self._save_sync()
             return
         try:
@@ -646,18 +767,55 @@ class CrashRecovery:
         of worker state.  ``_save_lock`` serializes against any
         in-flight worker save.  The whole body stays wrapped in
         try/except so interpreter shutdown never raises from GC.
+
+        XZ-R12-16: the previous ``if self._entries:`` read
+        ``_entries`` WITHOUT holding ``_lock``. A concurrent
+        ``add()`` could mutate the deque mid-check, leaving the
+        GC path reading a stale (empty) view and skipping the
+        save — losing the just-added entry. The check now
+        acquires ``_lock`` for the boolean read. ``_save_sync``
+        re-acquires ``_lock`` internally for the snapshot, so the
+        race window between the check and the save is the same
+        as before (a concurrent ``add()`` may still miss this
+        GC save), but at least the check itself is no longer
+        torn.
+
+        XZ-R17-13: ``_final_save_done`` (set by ``_atexit_flush_all``
+        after a successful atexit save) makes this ``__del__`` save a
+        no-op if atexit already persisted the final state —
+        eliminating the redundant atomic-write + rename on the
+        shutdown path. Note ``shutdown()``'s final save does NOT
+        set the flag (only atexit does), so a post-shutdown
+        ``__del__`` save for mutations that bypassed
+        ``_enqueue_save`` (e.g. direct ``_entries.append`` in tests)
+        still persists (regression-tested by
+        ``test_del_saves_unpersisted_post_shutdown_mutations``).
         """
         try:
             # Signal the worker to stop, then do one final
             # synchronous save to capture any pending state.
             self._stopped = True
+            # XZ-R12-16: acquire ``_lock`` for the empty-check so a
+            # concurrent ``add()`` can't mutate ``_entries`` mid-read.
+            # The check is best-effort: even with the lock, a
+            # concurrent ``add()`` that arrives AFTER this check
+            # releases the lock will race with the GC, but that's
+            # inherent to ``__del__`` (the instance is being torn
+            # down — concurrent mutations are already UB).
+            with self._lock:
+                has_entries = bool(self._entries)
             # Save whenever there's any data to lose.  This covers
             # both "worker alive with pending queue items" (worker
             # is mid-save; _save_lock serializes) and "worker dead
             # after shutdown() with post-shutdown mutations" (the
             # Finding A3 regression).  If _entries is empty, this
-            # is a no-op.
-            if self._entries:
+            # is a no-op (matches the original behavior — saves
+            # are only triggered by state changes, not by GC).
+            # XZ-R17-13: if ``_atexit_flush_all`` already set
+            # ``_final_save_done``, ``_save_sync``'s short-circuit
+            # returns immediately — no redundant atomic-write +
+            # rename on the shutdown path.
+            if has_entries:
                 self._save_sync()
         except Exception:
             pass  # __del__ must never raise

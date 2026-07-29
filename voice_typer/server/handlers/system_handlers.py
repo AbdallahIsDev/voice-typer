@@ -134,7 +134,18 @@ class SystemHandlersMixin(HandlerBase):
           "reason": "check_failed"}`` so the renderer can show a
           "click here to retry" CTA instead of the "open System
           Settings" CTA.
+
+        XZ-R3-12: this handler ignores its ``data`` payload (the
+        command takes no arguments), but for consistency with the
+        other handlers we now run an empty-schema validation so a
+        non-dict payload is rejected with ``invalid_payload`` instead
+        of being silently accepted.
         """
+        # XZ-R3-12: empty-schema validation (consistency with siblings).
+        validated, error = _validate_dict_payload(data, {})
+        if error:
+            return error
+        assert validated is not None  # empty dict; handler ignores payload
         try:
             import sys as _sys
 
@@ -221,8 +232,31 @@ class SystemHandlersMixin(HandlerBase):
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "locale": {"type": str, "required": False, "default": "en"},
-                    "labels": {"type": dict, "required": False, "default": None},
+                    "locale": {
+                        "type": str,
+                        "required": False,
+                        "default": "en",
+                        # XZ-R3-04: cap locale length (POSIX locale names
+                        # are <=64 chars in practice; anything longer is
+                        # either a bug or a hostile payload). Without
+                        # this cap a multi-MB ``locale`` string would
+                        # be stored verbatim in the tray-i18n module's
+                        # locale dict and re-serialized into every tray
+                        # menu rebuild.
+                        "max_value_len": 64,
+                        # XZ-R3-04: whole-payload DoS cap. The
+                        # ``labels`` dict can legitimately carry a full
+                        # 8-locale label table (~16 keys x ~64 chars =
+                        # ~1 KiB per locale x 8 = ~8 KiB); 64 KiB
+                        # leaves generous headroom while rejecting a
+                        # multi-MB blob.
+                        "max_payload_bytes": 64 * 1024,
+                    },
+                    "labels": {
+                        "type": dict,
+                        "required": False,
+                        "default": None,
+                    },
                 },
             )
             if error:
@@ -230,7 +264,34 @@ class SystemHandlersMixin(HandlerBase):
             assert validated is not None  # narrowed by the error guard above
             locale = validated["locale"]
             labels = validated["labels"]
+            # XZ-R3-04: validate label dict contents. Keys must be
+            # strings <=64 chars (tray label keys like "app_name",
+            # "toggle_dictation" are all <=32 chars today); values must
+            # be strings <=1024 chars (a single menu-item label rarely
+            # exceeds 80 chars; 1024 leaves headroom for verbose
+            # translations). Reject with ``invalid_field`` so a hostile
+            # caller cannot turn the tray-i18n locale dict into a
+            # multi-MB memory sink.
             if labels is not None:
+                for k, v in labels.items():
+                    if not isinstance(k, str) or len(k) > 64:
+                        return {
+                            "type": "error",
+                            "data": {
+                                "code": "client.invalid_field",
+                                "field": "labels",
+                                "message": "label keys must be strings of <=64 chars",
+                            },
+                        }
+                    if not isinstance(v, str) or len(v) > 1024:
+                        return {
+                            "type": "error",
+                            "data": {
+                                "code": "client.invalid_field",
+                                "field": "labels",
+                                "message": "label values must be strings of <=1024 chars",
+                            },
+                        }
                 register_tray_labels(locale, labels)
             set_tray_locale(locale)
             # Force a tray menu rebuild so the new labels show immediately.

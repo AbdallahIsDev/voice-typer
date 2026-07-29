@@ -426,6 +426,94 @@ class ShutdownController:
         except Exception:
             log.error("[CLEANUP] tray.stop() failed", exc_info=True)
 
+    def _do_fast_cleanup(self) -> None:
+        """XZ-R17-06: critical-only cleanup for Windows logoff/shutdown.
+
+        Windows CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT give the process
+        ~5 seconds before the OS forcibly terminates it. The full
+        :meth:`_do_cleanup` body has a cumulative worst-case of ~85s.
+        This fast path runs ONLY critical-resource cleanup with 1s
+        timeouts each, targeting <3s total.
+
+        Critical path: crash_recovery.flush, history_db.flush,
+        recorder.stop, _clear_backend_pid_file, mutex CloseHandle/release.
+        Non-critical steps (tray.stop, Electron terminate, hotkey stop,
+        level_monitor, waveform worker, event_bus, devnull) are SKIPPED.
+
+        Idempotent with :meth:`_do_cleanup` via the shared ``_cleanup_done``
+        guard. DR-28: the actual ctrl_logoff/shutdown routing lives in
+        :func:`voice_typer.server.signal_handlers.win32_console_handler`;
+        the cross-file change to route logoff/shutdown to this method
+        instead of ``controller.quit()`` is tracked under XZ-R17-06.
+        """
+        app = self._app
+        with self._quit_lock:
+            if getattr(app, "_cleanup_done", False):
+                return
+            app._cleanup_done = True
+
+        log.warning(
+            "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
+            "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
+        )
+
+        # 1. crash_recovery.flush()
+        try:
+            if app._crash_recovery is not None:
+                app._crash_recovery.flush(timeout=1.0)
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path crash_recovery.flush failed", exc_info=True)
+
+        # 2. history_db.flush()
+        try:
+            if app.history_db is not None:
+                _run_with_timeout(
+                    "history_db.flush (fast-path)",
+                    app.history_db.flush,
+                    timeout=1.0,
+                )
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
+
+        # 3. recorder.stop() — release the PortAudio stream.
+        try:
+            if app.recorder is not None and app.recorder.recording:
+                _stop_result = _run_with_timeout(
+                    "recorder.stop (fast-path)",
+                    app.recorder.stop,
+                    timeout=1.0,
+                )
+                if _stop_result is TIMEOUT:
+                    with contextlib.suppress(Exception):
+                        app.recorder._force_closed = True
+                    log.warning(
+                        "[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path"
+                    )
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
+
+        # 4. _clear_backend_pid_file()
+        try:
+            from voice_typer.server import app as _app_module
+            _app_module._clear_backend_pid_file()
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
+
+        # 5. Win32 mutex CloseHandle / POSIX flock release.
+        try:
+            if hasattr(app, "_mutex_handle") and app._mutex_handle:
+                if is_windows():
+                    import ctypes
+                    ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
+                else:
+                    app._mutex_handle.release()
+                app._mutex_handle = None
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path mutex release failed", exc_info=True)
+
+        log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
+
+    # ─── XV-7 parallel teardown helpers ──────────────────────────────
     # ─── XV-7 parallel teardown helpers ──────────────────────────────
     #
     # Each helper takes ``self`` only (no args), accesses ``self._app``
@@ -681,6 +769,15 @@ class ShutdownController:
                     log.warning("[SHUTDOWN] %s failed: %s", _desc, _result)
                 elif _result is TIMEOUT:
                     log.warning("[SHUTDOWN] %s timed out", _desc)
+
+            # XZ-R17-11: null the hotkey backend refs after stop() so a
+            # subsequent _do_cleanup pass does NOT re-enter stop() on an
+            # already-torn-down backend. stop_all() on HotkeyDispatcher
+            # nulls these refs, but the shutdown path calls individual
+            # backends in parallel (XV-7); mirror the nulling here.
+            for _attr in ("_hotkey_backend", "_esc_backend", "_repaste_backend"):
+                with contextlib.suppress(Exception):
+                    setattr(app.hotkeys, _attr, None)
 
             log.info("[HOTKEY] All hotkey listeners stopped")
         except Exception:

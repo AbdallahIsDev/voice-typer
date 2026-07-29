@@ -430,6 +430,41 @@ def _legacy_voice_typer_dir() -> Path:
     return Path.home() / ".voice-typer"
 
 
+def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
+    """XZ-CFG-11: prune oldest backup files in ``directory`` whose name
+    starts with ``prefix``, keeping only the ``keep`` newest.
+
+    Best-effort: filesystem errors during stat / unlink of individual
+    candidates are swallowed (a single un-prunable file must not abort
+    the migration backup flow). The function is a no-op if fewer than
+    ``keep + 1`` matching files exist.
+
+    Selection criterion: ``Path.stat().st_mtime`` (newest kept). Ties
+    are broken by lexicographic name order so the prune is
+    deterministic across runs (important for tests).
+
+    Rationale: without pruning, every version bump creates a new
+    ``config.json.pre-migration-v{N}-{ts}-{pid}.bak`` and the
+    directory grows unbounded across many launches. Capping at 3
+    keeps the most recent three recovery points (typically enough to
+    roll back to the prior version after a botched migration) while
+    preventing disk bloat.
+    """
+    candidates = [p for p in directory.iterdir() if p.name.startswith(prefix) and p.is_file()]
+    if len(candidates) <= keep:
+        return
+    # Sort newest-first (mtime desc, name asc as tie-breaker).
+    candidates.sort(key=lambda p: (-p.stat().st_mtime, p.name))
+    for stale in candidates[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            # Best-effort: skip un-prunable files (locked, permission
+            # denied, etc.). A stale leftover is preferable to
+            # aborting the migration flow.
+            continue
+
+
 @dataclass
 class Config:
     """Application configuration."""
@@ -1080,6 +1115,26 @@ class Config:
         except (OSError, PermissionError) as e:
             log.error("[CONFIG] Failed to save config: %s", e)
             return False
+        except (TypeError, ValueError) as e:
+            # XZ-R10-06: ``json.dumps`` (called inside
+            # :meth:`_save_unlocked` via ``asdict(self)``) can raise
+            # ``TypeError`` when a field holds a non-JSON-serializable
+            # value (e.g. a ``set`` / ``datetime`` / custom object
+            # smuggled in via ``setattr`` or a botched migration), and
+            # ``ValueError`` for circular references. The previous
+            # ``except`` tuple only caught ``TimeoutError`` /
+            # ``OSError`` / ``PermissionError`` — a ``TypeError``
+            # propagated to the caller, violating the ``save()``
+            # docstring's "never raises" contract (which the IPC
+            # ``set_config`` path relies on: a ``TypeError`` would
+            # crash the IPC handler thread instead of returning a
+            # ``False`` ack the renderer can surface as a save-failed
+            # toast). Widen the tuple to include both serialization
+            # failure modes and return ``False`` (the underlying
+            # ``OSError``/``TypeError`` is logged at ERROR so the
+            # operator can diagnose which field is non-serializable).
+            log.error("[CONFIG] Failed to serialize config for save: %s", e)
+            return False
 
     def _save_with_mutation_lock(self) -> bool:
         """CR-25: acquire the mutation lock (if set) and delegate to
@@ -1221,9 +1276,12 @@ class Config:
         across the IPC boundary.  ``save()`` already logs the full
         error message on the server side.
 
-        Wiring ``apply_config`` (in ``service.py``) to call this
-        instead of ``save()`` is a follow-up task — out of scope for
-        this file.
+        CR-97 wiring: ``apply_config`` (in ``config_applier.py``) and
+        ``reset_config_to_defaults`` (in ``service/config_service.py``)
+        both call ``save_strict()`` so a silent disk failure is
+        surfaced as an IPC error rather than a successful-but-empty
+        ack. The "follow-up task" note in earlier revisions of this
+        docstring is now stale (XZ-R10-14).
         """
         ok = self.save()
         if not ok:
@@ -1549,7 +1607,28 @@ class Config:
             # file with defaults, destroying any chance of forensic
             # recovery.  Path.replace is atomic.  Best-effort.
             try:
-                corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}"
+                # XZ-R10-10: the previous ``int(time.time())`` suffix
+                # had 1-second resolution — two corrupt loads in the
+                # same second (e.g. the renderer triggers a quick
+                # config reload + the backend independently tries to
+                # load it during startup) silently overwrote each
+                # other via ``Path.replace``, destroying the first
+                # corrupt file's forensic recovery point. Adding the
+                # PID disambiguates same-second loads from DIFFERENT
+                # processes (the common race during backend restart);
+                # for same-process same-second loads (very rare in
+                # practice — requires a test loop or a hot-reload
+                # dev environment) we additionally append
+                # ``time.time_ns()`` mod 1_000_000 (microsecond
+                # fraction) so even back-to-back calls produce unique
+                # filenames. ``Path.replace`` is still atomic per
+                # call, so the worst case if the suffix collides is
+                # the previous-behavior overwrite (no corruption,
+                # just lost-forensics — strictly better than before).
+                corrupt_backup = (
+                    config_file.parent
+                    / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{time.time_ns() % 1_000_000}"
+                )
                 config_file.replace(corrupt_backup)
                 log.warning(
                     "[CONFIG] moved corrupt config %s -> %s for forensic recovery",
@@ -1637,25 +1716,71 @@ class Config:
     def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
         """G4-CR-07: best-effort backup of ``config.json`` BEFORE any migration runs.
 
-        Extracted verbatim from ``load()``. Uses ``shutil.copy2``
-        (not ``Path.replace``) so the original ``config.json`` stays in
-        place — the load must NOT modify the on-disk file mid-load.
+        XZ-R10-03 / XZ-CFG-11: the previous implementation used
+        ``shutil.copy2`` which (a) follows symlinks on both SOURCE and
+        DEST (a local attacker who replaces config.json with a symlink
+        to ~/.bashrc between loads gets ~/.bashrc content copied into
+        the .bak — info disclosure via the .bak file), (b) is
+        non-atomic (file-by-file copy — an interrupted copy leaves a
+        partial .bak that gives a false sense of recoverability), and
+        (c) has no fsync (the .bak may not be durable across power
+        loss). The fix routes the READ through ``_secure_read_text``
+        (POSIX ``O_NOFOLLOW`` + inode re-verify) and the WRITE through
+        ``_secure_atomic_write`` (atomic ``os.replace`` + fsync +
+        0o600). The original ``config.json`` stays in place — the load
+        must NOT modify the on-disk file mid-load (only ``os.replace``
+        is used on the .bak destination, not on config.json itself).
+
+        XZ-CFG-11: the previous filename
+        ``config.json.pre-migration-v{loaded_version}.bak`` had no
+        timestamp, so a downgrade-then-upgrade cycle silently
+        overwrote the first backup. The filename now embeds a Unix
+        timestamp + PID suffix so two backup events never collide
+        (even within the same second from different processes —
+        e.g. two app instances launched in parallel against the same
+        user account during a downgrade). We also cap retained
+        pre-migration backups to 3 (oldest pruned) so the directory
+        doesn't grow unbounded across many version bumps.
         """
         if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
-            pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}.bak"
+            pre_bak = (
+                config_file.parent
+                / f"config.json.pre-migration-v{loaded_version}-{int(time.time())}-{os.getpid()}-{time.time_ns() % 1_000_000}.bak"
+            )
             try:
-                import shutil
-
-                shutil.copy2(config_file, pre_bak)
-            except OSError as e:
-                # DE-27: backup failure must be visible at WARNING so
-                # operators notice (the backup is the ONLY recovery
-                # mechanism if a migrator corrupts the config). DEBUG is
-                # usually off in production.
+                raw_text = _secure_read_text(config_file)
+                _secure_atomic_write(pre_bak, raw_text)
+            except (OSError, ValueError) as e:
+                # OSError covers filesystem errors; ValueError covers
+                # the SEC-002 inode-changed-during-read guard (symlink
+                # TOCTOU detection). DE-27: backup failure must be
+                # visible at WARNING so operators notice (the backup
+                # is the ONLY recovery mechanism if a migrator
+                # corrupts the config). DEBUG is usually off in
+                # production.
                 log.warning(
                     "[CONFIG] failed to back up config.json to %s before migration: %s",
                     pre_bak,
                     e,
+                )
+                return
+            # XZ-CFG-11: cap retained pre-migration backups to 3 (oldest
+            # pruned). Match the prefix ``config.json.pre-migration-v``
+            # so versioned-downgrade backups (``config.json.v<N>.bak``)
+            # and fail-migration backups
+            # (``config.json.bak.failed-migration-*``) are NOT pruned
+            # (they serve different recovery purposes and have their
+            # own retention policies).
+            try:
+                _prune_kept_backups(
+                    config_file.parent,
+                    prefix="config.json.pre-migration-v",
+                    keep=3,
+                )
+            except OSError as prune_exc:
+                log.debug(
+                    "[CONFIG] failed to prune old pre-migration backups: %s",
+                    prune_exc,
                 )
 
     @classmethod

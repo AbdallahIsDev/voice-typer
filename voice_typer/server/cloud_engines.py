@@ -441,6 +441,33 @@ class CloudEngine:
                     cloud_err,
                     exc_info=True,
                 )
+                # XZ-R18-08: surface the fallback to the renderer so the
+                # user gets a visible toast ("cloud provider X failed,
+                # used local engine instead"). Without this signal the
+                # cloud outage is invisible until the user checks the
+                # logs. The event_bus is the LEAF of the dependency tree
+                # (stdlib-only) so the lazy import is safe and never
+                # creates a circular import. Best-effort: a publish
+                # failure (no subscribers, etc.) is logged at DEBUG and
+                # does NOT abort the fallback — the local engine still
+                # runs.
+                try:
+                    from voice_typer.server import event_bus
+
+                    event_bus.publish(
+                        {
+                            "type": "cloud_fallback_used",
+                            "data": {
+                                "provider": self.provider,
+                                "reason": str(cloud_err)[:200],
+                            },
+                        }
+                    )
+                except Exception as notify_exc:
+                    log.debug(
+                        "[CLOUD] could not publish cloud_fallback_used event: %s",
+                        notify_exc,
+                    )
                 try:
                     return resolved_local_engine.transcribe(audio, audio_stats=audio_stats)
                 except Exception as local_err:

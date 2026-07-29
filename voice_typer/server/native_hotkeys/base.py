@@ -123,7 +123,7 @@ class SubprocessHotkeyBackend(ABC):
         ("WARN:", "_on_warn_event", None),
     ]
 
-    def __init__(self, hotkey_str: str):
+    def __init__(self, hotkey_str: str, binary_path: Path | None = None):
         self.hotkey_str = hotkey_str
         self._parsed = parse_hotkey_spec(hotkey_str)
         self._on_release_callback: Callable[[], None] | None = None
@@ -133,7 +133,19 @@ class SubprocessHotkeyBackend(ABC):
         self._ready_event = threading.Event()
         self._failed = False
         self._error_message: str | None = None
-        self._binary_path: Path | None = get_native_binary_path()
+        # XZ-R6-NH-02: accept an explicit ``binary_path`` from the
+        # factory so the SHA-256-verified binary discovered by
+        # ``create_native_backend`` is the one we actually spawn —
+        # previously the constructor re-discovered via
+        # ``get_native_binary_path()``, discarding the factory's
+        # verification result and re-running the search. ``binary_path``
+        # is optional so existing tests that construct backends without
+        # a factory still work; when it's None we fall back to
+        # ``get_native_binary_path()`` to preserve the pre-fix behavior.
+        # The factory (owned by another agent) needs a follow-up to
+        # pass its verified ``binary`` here: see XZ-R6-NH-02 cross-file
+        # note in the assignment.
+        self._binary_path: Path | None = binary_path if binary_path is not None else get_native_binary_path()
         # CR-007 (IMPROVE-mode run, 2026-07-21): restart lock + instance-level
         # attempt counter. Pre-fix, ``_reader_loop`` used a LOCAL ``attempts``
         # counter and the old thread did ``continue`` after spawning a
@@ -264,6 +276,18 @@ class SubprocessHotkeyBackend(ABC):
         # Spawn the binary
         self._spawn_process()
 
+        # XZ-R6-NH-01: ``_spawn_process`` may set ``_failed=True`` and
+        # return early (without spawning) when SHA-256 verification
+        # fails OR the binary path is None. Check immediately so the
+        # operator sees the precise error message ("binary failed
+        # SHA-256 verification") instead of waiting for the
+        # ``_ready_event`` timeout below to overwrite it with the
+        # generic "Timed out waiting for READY" message.
+        if self._failed:
+            self.stop()
+            msg = self._error_message or f"{self.platform_name} binary failed to start"
+            raise RuntimeError(msg)
+
         # Wait for READY (or ERROR/early exit)
         if not self._ready_event.wait(timeout=READY_TIMEOUT_SECONDS):
             self._failed = True
@@ -356,7 +380,48 @@ class SubprocessHotkeyBackend(ABC):
     # ── Process management ───────────────────────────────────────────────
 
     def _spawn_process(self) -> None:
-        """Spawn the native binary with the hotkey spec as argv[1]."""
+        """Spawn the native binary with the hotkey spec as argv[1].
+
+        XZ-R6-NH-01: re-verify the binary's SHA-256 against the
+        manifest BEFORE every spawn. The factory's
+        ``verify_native_binary_or_skip`` call at construction time
+        covers the FIRST spawn, but the watchdog respawns the binary
+        on liveness timeout (every ``_WATCHDOG_RESPAWN_SECONDS=60s``
+        of inactivity) by calling ``stop()`` + ``start()`` →
+        ``_spawn_process()`` WITHOUT going back through the factory.
+        A TOCTOU window opens between the original verification and
+        the respawn: an attacker swapping the binary on disk during
+        that window achieves native-code execution as the user.
+        Re-running the checksum at the top of ``_spawn_process`` closes
+        the window for both the initial spawn and every respawn. On
+        verification failure we set ``_failed=True`` and return early
+        so the caller's ``_ready_event.wait(timeout=...)`` times out
+        and raises a clear ``RuntimeError`` (rather than spawning an
+        untrusted binary).
+        """
+        if self._binary_path is None:
+            self._failed = True
+            self._error_message = (
+                f"Native {self.platform_name} key-listener binary not found. "
+                f"Set VOICE_TYPER_NATIVE_BINARY or rebuild the project."
+            )
+            log.error("[NATIVE-HOTKEY] %s", self._error_message)
+            return
+        # Local import to avoid an import-cycle (binary_path.py imports
+        # from .spec_parser at module load; base.py also imports from
+        # .spec_parser — keeping this local avoids any chance of a
+        # cycle if binary_path.py grows additional deps).
+        from .binary_path import verify_native_binary_or_skip
+
+        if not verify_native_binary_or_skip(self._binary_path):
+            self._failed = True
+            self._error_message = (
+                f"Native {self.platform_name} binary failed SHA-256 verification "
+                f"on spawn/respawn (path={self._binary_path}). Refusing to spawn "
+                f"an untrusted binary — falling back to the legacy backend."
+            )
+            log.error("[NATIVE-HOTKEY] %s", self._error_message)
+            return
         cmd = [str(self._binary_path), self.hotkey_str]
         try:
             self._process = subprocess.Popen(

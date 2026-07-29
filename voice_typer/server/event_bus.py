@@ -551,26 +551,56 @@ def _deliver_deferred(event: dict, fns: list[typing.Callable[[dict], None]]) -> 
             _deferred_in_flight = max(0, _deferred_in_flight - 1)
 
 
-def publish(event: dict) -> bool:
-    """Broadcast *event* to every subscriber, synchronously.
+def publish(event: dict, *, async_dispatch: bool = False) -> bool:
+    """Broadcast *event* to every subscriber.
+
+    Parameters
+    ----------
+    event:
+        The event dict. Must contain a ``"type"`` key (validated at
+        dev-time when ``VOICE_TYPER_DEBUG_EVENTS=1``).
+    async_dispatch:
+        ZR-20: when ``True``, fan-out is deferred to the single-worker
+        :class:`ThreadPoolExecutor` so the caller returns immediately
+        (subscribers run on the executor thread, not the publisher's
+        thread). Useful for non-RT publisher threads that must not
+        block on slow IPC writes — e.g. the transcription thread
+        calling ``publish({"type": "transcription_final", ...})``
+        would otherwise block on ``IPCServer.push`` →
+        ``socket.sendall`` to a stalled Electron renderer (seconds of
+        latency if the renderer is paused in the debugger).
+
+        When ``False`` (default), subscribers are called synchronously
+        in the publisher's thread (existing ``_push_event_now``
+        semantics — most tests assert the callable was invoked by the
+        time ``publish`` returns).
+
+        The RT-thread auto-defer (PERF-2) takes precedence over this
+        flag: audio-worker / PortAudio threads always defer, regardless
+        of the ``async_dispatch`` value, so the RT loop never glitches.
 
     Returns
     -------
     bool
         ``True`` if at least one subscriber accepted the event
-        (returned without raising).  ``False`` if there are no
-        subscribers or every subscriber raised.
+        (returned without raising), OR if the event was queued for
+        deferred delivery (``async_dispatch=True`` or RT thread).
+        ``False`` if there are no subscribers or every subscriber
+        raised on the synchronous path.
 
     Notes
     -----
-    - Synchronous: subscribers are called in the publisher's thread.
-      This preserves the previous ``_push_event_now`` semantics
-      (existing tests assert that the callable was invoked by the
-      time ``publish`` returns).
+    - Synchronous (default): subscribers are called in the publisher's
+      thread. This preserves the previous ``_push_event_now`` semantics
+      (existing tests assert that the callable was invoked by the time
+      ``publish`` returns).
     - PERF-2: When called from a real-time audio thread (``audio-worker``
       or ``PortAudio``-prefixed), fan-out is deferred to a single-worker
       ``ThreadPoolExecutor`` so the RT thread returns in microseconds.
       Synchronous path is preserved for all other threads.
+    - ZR-20: ``async_dispatch=True`` opts non-RT threads into the same
+      deferred path. The bounded queue (PVT-031, ``_DEFERRED_QUEUE_MAX``)
+      protects against unbounded memory growth under backpressure.
     - Exception isolation: a subscriber that raises is logged at
       WARNING (with ``exc_info``) on the first occurrence per
       subscriber, then at DEBUG on subsequent occurrences
@@ -597,7 +627,11 @@ def publish(event: dict) -> bool:
     if not fns:
         return False
     # PERF-2: defer fan-out when called from an RT thread.
-    if _is_rt_thread():
+    # ZR-20: also defer when the caller explicitly opts in via
+    # ``async_dispatch=True`` (e.g. transcription thread that must not
+    # block on slow IPC writes). The RT-thread check takes precedence
+    # so audio hot-path latency stays bounded regardless of the flag.
+    if _is_rt_thread() or async_dispatch:
         global _deferred_in_flight, _deferred_drop_count
         # PVT-031: bound the deferred queue. If the single worker is
         # backed up (slow subscriber), drop new submissions rather than
@@ -633,6 +667,34 @@ def publish(event: dict) -> bool:
             return _deliver(event, fns)
         return True
     return _deliver(event, fns)
+
+
+def publish_sync(event: dict) -> bool:
+    """Broadcast *event* to every subscriber, synchronously (ZR-20).
+
+    Explicit-synchronous alias for :func:`publish` with
+    ``async_dispatch=False``. Use this when the caller needs ordering
+    guarantees (subscribers invoked before the caller proceeds) — e.g.
+    a sequence of related events where the second depends on the first
+    having been processed.
+
+    The default :func:`publish` is already synchronous, so this function
+    is primarily a self-documenting call site marker: it makes the
+    ordering intent explicit at the call site, and protects against a
+    future default-flip of ``publish``'s ``async_dispatch`` parameter
+    silently breaking ordering-sensitive callers.
+
+    Notes
+    -----
+    - The RT-thread auto-defer (PERF-2) still applies: an audio-worker
+      thread calling ``publish_sync`` will defer to the executor
+      regardless, because the RT loop must not block on subscriber
+      fan-out. The ``async_dispatch=False`` flag only controls the
+      non-RT path.
+    - Returns the same bool as :func:`publish` (True if at least one
+      subscriber accepted; False if no subscribers or all raised).
+    """
+    return publish(event, async_dispatch=False)
 
 
 def _subscriber_count() -> int:

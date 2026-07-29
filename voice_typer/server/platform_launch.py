@@ -183,14 +183,34 @@ def _windows_close_process_handle(handle) -> None:
 def _systemroot_notepad_path():
     """Return the SystemRoot-validated Notepad path, or ``None``.
 
-    SEC-audit-011: prefer ``%SYSTEMROOT%\\System32\\notepad.exe`` (existence
-    checked), falling back to the canonical ``C:\\Windows\\System32\\notepad.exe``.
-    Never resolves a bare ``notepad`` from PATH/cwd (which would be
-    tamperable). Returns ``None`` only if neither location exists.
+    SEC-audit-011: prefer the canonical ``C:\\Windows\\System32\\notepad.exe``
+    (existence checked), falling back to ``%SYSTEMROOT%\\System32\\notepad.exe``
+    for non-standard Windows installs. Never resolves a bare ``notepad``
+    from PATH/cwd (which would be tamperable). Returns ``None`` only if
+    neither location exists.
+
+    XZ-R6-AS-07: the candidate order is REVERSED from the historical
+    ``%SYSTEMROOT%``-first order. The previous order trusted
+    ``os.environ.get("SYSTEMROOT")`` first, then fell back to the
+    hardcoded ``C:\\Windows``. An attacker (or a misconfigured parent
+    process) setting ``SYSTEMROOT=C:\\Users\\attacker`` could trick this
+    helper into returning ``C:\\Users\\attacker\\System32\\notepad.exe``
+    (an attacker-controlled binary) AS LONG AS that file existed on
+    disk — which is trivial for an attacker who already controls
+    ``SYSTEMROOT``. The hardcoded ``C:\\Windows\\System32\\notepad.exe``
+    is the OS-installed Notepad (shipped with every Windows install
+    since Windows NT); preferring it FIRST closes the trust gap. The
+    ``%SYSTEMROOT%`` candidate is kept as a fallback for non-standard
+    Windows installs where the system root is on a different drive
+    (e.g. ``D:\\Windows``) — in that scenario, the attacker would
+    ALSO need write access to the SYSTEMROOT path, which is a strictly
+    higher privilege bar than setting an env var.
     """
     candidates = [
-        Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",
+        # XZ-R6-AS-07: hardcoded OS path FIRST — never trust env-controlled
+        # SYSTEMROOT ahead of the canonical install location.
         Path(r"C:\Windows") / "System32" / "notepad.exe",
+        Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",
     ]
     for candidate in candidates:
         try:

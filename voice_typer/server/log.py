@@ -40,6 +40,85 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# XZ-PII-07: log retention sweep — purge rotated log files older than
+# 30 days at startup. Mirrors ``crash_handler._sweep_stale_diagnostics``
+# (30-day mtime cutoff for crash diagnostics). The size-only rotation
+# (5 MiB × 5 backups) keeps at most 25 MiB of recent logs but does NOT
+# bound the age — a low-traffic install could keep a 6-month-old
+# ``voice-typer.log.5`` containing dictated-text fragments (XZ-PII-01 /
+# XZ-PRIV-04) indefinitely. The startup sweep closes that gap by
+# unlinking any rotated file older than 30 days, regardless of how
+# many backups are currently retained.
+_LOG_RETENTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 30 days
+_LOG_ROTATION_GLOBS: tuple[str, ...] = (
+    "voice-typer.log.*",     # main process rotations (``.1``..``.5``)
+    "prewarm.log.*",         # prewarm process rotations
+)
+
+
+def _sweep_stale_log_rotations(config_dir: Path) -> None:
+    """Delete rotated log files older than 30 days (XZ-PII-07).
+
+    Mirrors ``crash_handler._sweep_stale_diagnostics``: enumerate
+    ``voice-typer.log.*`` and ``prewarm.log.*`` in ``config_dir``,
+    unlink any whose ``st_mtime`` is older than
+    ``_LOG_RETENTION_MAX_AGE_SECONDS``. Best-effort — any error is
+    logged at DEBUG and swallowed so a single unreadable file does not
+    abort the sweep or ``setup_logging``.
+
+    The active log files (``voice-typer.log``, ``prewarm.log`` — no
+    suffix) are NEVER touched: they are the live sinks for the current
+    process. Only the numbered rotations (``.1``, ``.2``, ...) are
+    candidates for purging.
+
+    Called from :func:`setup_logging` after the file handler is
+    installed so the sweep runs once per process startup. Idempotent
+    if called multiple times (subsequent calls find nothing to delete).
+    """
+    try:
+        root = Path(config_dir).resolve()
+        if not root.is_dir():
+            return
+        now = time.time()
+        for pattern in _LOG_ROTATION_GLOBS:
+            for f in root.glob(pattern):
+                # Skip the live file (no numeric suffix). The glob
+                # ``voice-typer.log.*`` already excludes the bare
+                # ``voice-typer.log`` (no dot-suffix match), but be
+                # defensive — a stray ``voice-typer.log.rotate.lock``
+                # or similar should not be unlinked by the sweep.
+                if not f.is_file():
+                    continue
+                # XZ-LOG-10: NEVER touch the inter-process rotation
+                # lock file (``voice-typer.log.rotate.lock`` /
+                # ``prewarm.log.rotate.lock``). It is created by
+                # ``_SecureRotatingFileHandler.__init__`` and must
+                # persist across setups so the next process can
+                # acquire the flock. Deleting it would race with a
+                # concurrent writer's lock acquisition.
+                if f.name.endswith(".rotate.lock"):
+                    continue
+                try:
+                    age = now - f.stat().st_mtime
+                except OSError:
+                    continue
+                if age > _LOG_RETENTION_MAX_AGE_SECONDS:
+                    try:
+                        f.unlink()
+                        log.debug(
+                            "[LOG-SETUP] purged stale log rotation %s (age=%.0f days)",
+                            f.name,
+                            age / 86400,
+                        )
+                    except OSError as exc:
+                        log.debug(
+                            "[LOG-SETUP] failed to purge stale log rotation %s: %s",
+                            f.name,
+                            exc,
+                        )
+    except Exception as exc:  # noqa: BLE001 — best-effort sweep
+        log.debug("[LOG-SETUP] stale-log-rotation sweep failed: %s", exc)
+
 # ── Module-level state ────────────────────────────────────────────────
 # Encapsulated here instead of in a class so it's accessible to filters
 # and formatters without passing references through the logging framework.
@@ -1078,6 +1157,14 @@ def setup_logging(
                 lib_logger.setLevel(logging.WARNING)
                 lib_logger.handlers.clear()
                 lib_logger.propagate = True
+
+        # XZ-PII-07: sweep stale log rotations (voice-typer.log.*,
+        # prewarm.log.*) older than 30 days. Runs AFTER the file handler
+        # is installed so the sweep's own DEBUG messages land in the
+        # fresh log file. Best-effort — failures are swallowed inside
+        # the helper so a single unreadable file does not abort
+        # setup_logging.
+        _sweep_stale_log_rotations(config_dir)
 
         return _session_id
     finally:

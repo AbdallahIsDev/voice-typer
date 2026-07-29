@@ -1024,6 +1024,38 @@ class IPCServer(
 
     # ── Main loop (stdin, legacy) ──────────────────────────────────────
 
+    def _send_stdin_error_envelope(
+        self,
+        *,
+        message: str,
+        code: str | None = None,
+        legacy_code: str | None = None,
+        _out: typing.IO[str] | None = None,
+    ) -> None:
+        """Build + send an error envelope on the legacy stdin/stdout path.
+
+        ZR-76: consolidates the three inline error-envelope construction
+        sites in :meth:`_run` (invalid payload / invalid JSON /
+        internal_error) into a single helper so the envelope shape is
+        defined in one place. The TCP / WS paths use
+        :meth:`_shutting_down_error` (which returns the envelope; the
+        caller sends it via ``_send`` with the TCP ``_client`` kwarg);
+        this stdin-path helper sends directly because every call site
+        uses ``_out=stdout`` (the TextIO variant of ``_send``).
+
+        ``code`` is optional so the helper can express the bare
+        ``{"message": "invalid JSON"}`` envelope (IPC-5 backward-compat
+        with ``tests/test_server.py``'s ``test_handles_invalid_json``,
+        which asserts the no-``code`` shape). ``legacy_code`` carries
+        the one-release alias for the invalid-payload site.
+        """
+        data: dict[str, object] = {"message": message}
+        if code is not None:
+            data["code"] = code
+        if legacy_code is not None:
+            data["legacy_code"] = legacy_code
+        self._send({"type": "error", "data": data}, _out=_out)
+
     def _run(
         self,
         _stdin=None,
@@ -1065,17 +1097,15 @@ class IPCServer(
                     # hardened by ERR-018 but the stdin path was not
                     # updated in lockstep.
                     if not isinstance(msg, dict):
-                        self._send(
-                            {
-                                "type": "error",
-                                "data": {
-                                    # Namespaced form (canonical) +
-                                    # legacy alias (one-release compat).
-                                    "code": "client.invalid_payload",
-                                    "legacy_code": "invalid_payload",
-                                    "message": "message must be a JSON object",
-                                },
-                            },
+                        # ZR-76: route through the shared
+                        # ``_send_stdin_error_envelope`` helper so the
+                        # envelope shape is defined in one place.
+                        # Namespaced form (canonical) + legacy alias
+                        # (one-release compat).
+                        self._send_stdin_error_envelope(
+                            message="message must be a JSON object",
+                            code="client.invalid_payload",
+                            legacy_code="invalid_payload",
                             _out=stdout,
                         )
                         continue
@@ -1094,11 +1124,13 @@ class IPCServer(
                     # The stdin path is not in the IPC-5 parity scope
                     # (the directive only mentions TCP vs WS); a
                     # future task may align all three paths.
-                    self._send(
-                        {
-                            "type": "error",
-                            "data": {"message": "invalid JSON"},
-                        },
+                    # ZR-76: route through the shared helper. ``code``
+                    # is intentionally omitted to preserve the
+                    # IPC-5 backward-compat contract pinned by
+                    # ``tests/test_server.py::test_handles_invalid_json``
+                    # (bare ``{"message": "invalid JSON"}`` envelope).
+                    self._send_stdin_error_envelope(
+                        message="invalid JSON",
                         _out=stdout,
                     )
                 except Exception as dispatch_exc:
@@ -1117,14 +1149,10 @@ class IPCServer(
                     # ``server.internal_error`` form (same as the TCP
                     # dispatch-level error handler above) so the
                     # renderer can switch on a single canonical prefix.
-                    self._send(
-                        {
-                            "type": "error",
-                            "data": {
-                                "code": "server.internal_error",
-                                "message": "internal error",
-                            },
-                        },
+                    # ZR-76: route through the shared helper.
+                    self._send_stdin_error_envelope(
+                        message="internal error",
+                        code="server.internal_error",
                         _out=stdout,
                     )
         except OSError:
@@ -1167,10 +1195,12 @@ class IPCServer(
         # requests with a structured ``shutting_down`` error so the client
         # can stop retrying and tear down cleanly. ``is True`` (rather than
         # a truthiness check) mirrors the existing ``_send`` shutdown-
-        # suppress gate (line ~2166) so MagicMock-based test fixtures —
-        # which expose ``_shutting_down`` as a child mock that is truthy
-        # but not ``is True`` — keep exercising the dispatch path instead
-        # of short-circuiting here.
+        # suppress gate (see the ``_cached_shutting_down`` read in
+        # ``OutputMixin._send`` in ``voice_typer/server/ipc/sender.py``)
+        # so MagicMock-based test fixtures — which expose
+        # ``_shutting_down`` as a child mock that is truthy but not
+        # ``is True`` — keep exercising the dispatch path instead of
+        # short-circuiting here.
         if getattr(self.app, "_shutting_down", False) is True:
             return self._shutting_down_error(msg)
 
@@ -1957,12 +1987,27 @@ def main() -> None:
     from voice_typer.server.providers import build_ipc_server
 
     server = build_ipc_server(app)
-    # d-review Finding 1: in explicit TCP (--port) or Tauri WS (--ws) mode
-    # the backend is driven by Electron/Tauri over the network, not by
-    # legacy stdin/stdout IPC. Mark TCP mode BEFORE start() so the stdin
-    # listener (an unauthenticated command path) is not spawned.
-    if port is not None or ws_mode:
-        server._tcp_mode = True
+    # XZ-IPC-001 / d-review Finding 1: ``main()`` NEVER uses the
+    # unauthenticated stdin/stdout IPC path. The three launch modes are:
+    #   1. ``--port N``        — explicit TCP, Electron connects over the
+    #                            network with a session token.
+    #   2. ``--ws``            — Tauri sidecar WebSocket (also
+    #                            token-authenticated via env var).
+    #   3. standalone (neither flag) — auto-pick a port, set a session
+    #                            token, start TCP, and launch the
+    #                            Electron frontend to connect back. The
+    #                            Python process is the parent; stdin is
+    #                            the user's terminal (or /dev/null when
+    #                            launched by a desktop launcher).
+    # In ALL three modes the stdin listener would be an unauthenticated
+    # command channel: on Linux TIOCSTI injection is possible, and on
+    # every platform an accidental paste of JSON into the terminal
+    # triggers unintended IPC commands. We therefore set
+    # ``_tcp_mode = True`` UNCONDITIONALLY before ``server.start()`` so
+    # ``start()`` skips spawning the stdin listener thread. The standalone
+    # path below still calls ``start_tcp()`` (the bound-socket overload)
+    # after ``start()`` to begin accepting connections.
+    server._tcp_mode = True
     server.start()
     # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
     # of the TCP server. The WS server binds 127.0.0.1:0, prints the

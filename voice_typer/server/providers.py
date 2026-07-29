@@ -407,22 +407,27 @@ class ServiceProtocol(Protocol):
     def refresh_microphones(self) -> list: ...
 
     # ── Microphone test ────────────────────────────────────────────
-    # The renderer sends ``mic_id`` as either a string (e.g.
-    # ``"0"``) or an int (e.g. ``0``), ``duration`` as int/float
-    # seconds, and ``filters`` as a dict payload or absent.
-    # (Issue 2c) reverts the narrowed ``str | int | None`` /
-    # ``int | float | None`` / ``dict[str, object] | None`` annotations
-    # back to ``Any`` because callers pass ``object`` values pulled from
-    # a ``validated`` dict (whose value type is ``object``), and the
-    # narrowings made the call sites pyrefly-flagged. The narrowing is
-    # correct in principle but requires coordinated caller-side changes
-    # (typing the ``validated`` dict values per-field) that exceed the
-    # session budget — deferred follow-up.
+    # YJ-7: narrowed from ``Any`` to concrete unions matching the
+    # ``VoiceTyperService`` impl signatures in
+    # ``voice_typer/server/service/microphone_test.py:113-115`` and
+    # ``service/microphone_test.py:214``. The renderer's
+    # ``_handle_microphone_test_start`` IPC handler validates
+    # ``mic_id`` as ``str | None`` and ``duration`` as
+    # ``int | float | str`` (with a ``float()`` coercion + clamp to
+    # ``[1.0, 60.0]``), so by the time the service method is called
+    # ``duration`` is always a ``float``. ``filters`` is validated as
+    # ``list | None`` at the IPC layer but the impl signature is
+    # ``dict | None`` (the impl casts internally); the Protocol
+    # matches the impl here. ``onboarding_set_microphone``'s
+    # ``mic_id`` is ``str | None`` (validated at
+    # ``onboarding_handlers.py``). The previous ``Any`` annotations
+    # gave a false impression of an untyped contract; the narrowing
+    # is safe because the call sites already pass validated values.
     def microphone_test_start(
         self,
-        mic_id: Any = None,
-        duration: Any = None,
-        filters: Any = None,
+        mic_id: str | None = None,
+        duration: float = 10.0,
+        filters: dict | None = None,
     ) -> dict[str, object]: ...
     def microphone_test_stop(self) -> dict[str, object]: ...
     def microphone_test_cancel(self) -> dict[str, object]: ...
@@ -430,7 +435,7 @@ class ServiceProtocol(Protocol):
     def microphone_test_get_level(self) -> dict[str, object]: ...
 
     # ── Level monitor ──────────────────────────────────────────────
-    def level_monitor_start(self, mic_id: Any = None) -> dict[str, object]: ...
+    def level_monitor_start(self, mic_id: str | None = None) -> dict[str, object]: ...
     def level_monitor_stop(self) -> dict[str, object]: ...
     def level_monitor_status(self) -> dict[str, object]: ...
 
@@ -455,7 +460,7 @@ class ServiceProtocol(Protocol):
     def onboarding_get_step(self) -> dict[str, object]: ...
     def onboarding_next_step(self) -> dict[str, object]: ...
     def onboarding_prev_step(self) -> dict[str, object]: ...
-    def onboarding_set_microphone(self, mic_id: Any) -> dict[str, object]: ...
+    def onboarding_set_microphone(self, mic_id: str | None) -> dict[str, object]: ...
     def onboarding_set_hotkey(self, hotkey: str) -> dict[str, object]: ...
     def onboarding_set_model(self, model: str) -> dict[str, object]: ...
     def onboarding_skip(self) -> dict[str, object]: ...

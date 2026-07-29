@@ -108,7 +108,7 @@ mutable-state routing case) and :mod:`voice_typer.server.server_platform`.
 All three packages together account for ~500 LOC of ``__init__.py``
 boilerplate that exists purely for test-patch compatibility.
 
-TODO (2026-07-28, CR-67 / TECH-DEBT — OPEN, no migration in progress):
+TODO (2026-07-29, CR-67 / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
 during the package reorganization.  Once CR-67 is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,

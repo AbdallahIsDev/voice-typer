@@ -5,6 +5,7 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
@@ -12,6 +13,60 @@ from voice_typer.server.ipc.validation import (
     _error_response,
     _validate_dict_payload,
 )
+
+
+def _redact_service_error(result: dict) -> dict:
+    """XZ-EH-002: redact a service-returned ``{"error": str(exc)}`` dict
+    in place + return it, so exception strings never reach the renderer.
+
+    The five onboarding ``set_*`` / ``skip`` / ``apply`` handlers
+    historically delegated the ack-vs-error decision to whether the
+    service's return dict contained an ``"error"`` key, and passed the
+    dict straight through to the renderer. ``service.py:1452-1453``
+    returns ``{"error": str(exc)}`` unredacted — so an exception
+    message containing a secret (API key in a cloud-config validation
+    error, a file path under the user's home dir, a CUDA error string
+    with internal module names) would be exfiltrated to the renderer
+    (and to ``voice-typer.log`` if the renderer logged it).
+
+    The proper fix (per the finding's "Change service methods to
+    ``raise``" recommendation) is to migrate the service to raising
+    typed exceptions so the handler's CR-20 catch-all
+    (:meth:`HandlerBase._respond_with_error`) fires and emits the
+    generic ``internal error`` envelope. That migration is
+    cross-file work in ``voice_typer/server/service.py`` (owned by
+    another agent).
+
+    This helper is the minimum handler-side mitigation: when the
+    service returns a dict with a string-valued ``"error"`` key, we
+    apply :func:`redact_secret` (strips ``Bearer ...``, ``sk-...``,
+    ``gsk_...``, long bare alphanumeric runs, ``--token=...`` flag
+    forms, etc.) AND :func:`redact_url` (strips user-info from URLs,
+    replaces query-string API-key params) to the error string before
+    storing it in ``resp["data"]``. The handler also logs the
+    redacted error at ERROR server-side so operators have a
+    breadcrumb (the unredacted message never leaves the process —
+    :func:`redact_secret` / :func:`redact_url` are pure regex
+    transformations with no I/O, and the unredacted ``str(exc)`` is
+    dropped after redaction).
+
+    Parameters
+    ----------
+    result : dict
+        The service-returned dict. Mutated in place: if it contains a
+        string-valued ``"error"`` key, that value is replaced with its
+        redacted form.
+
+    Returns
+    -------
+    dict
+        The same ``result`` dict (returned so callers can write
+        ``resp["data"] = _redact_service_error(result)`` as a one-liner).
+    """
+    err = result.get("error")
+    if isinstance(err, str) and err:
+        result["error"] = redact_url(redact_secret(err))
+    return result
 
 
 class OnboardingHandlersMixin(HandlerBase):
@@ -211,11 +266,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # DE-40: log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb (the IPC envelope
             # alone is invisible to operators reading voice-typer.log).
+            # XZ-EH-002: redact the error string before forwarding to
+            # the renderer so exception messages containing secrets
+            # (API keys, file paths) are not exfiltrated.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_set_microphone: service returned error: %s",
                     result.get("error"),
                 )
+                result = _redact_service_error(result)
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -250,11 +309,13 @@ class OnboardingHandlersMixin(HandlerBase):
             #
             # DE-40: log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
+            # XZ-EH-002: redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_set_hotkey: service returned error: %s",
                     result.get("error"),
                 )
+                result = _redact_service_error(result)
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -282,11 +343,13 @@ class OnboardingHandlersMixin(HandlerBase):
             #
             # DE-40: log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
+            # XZ-EH-002: redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_set_model: service returned error: %s",
                     result.get("error"),
                 )
+                result = _redact_service_error(result)
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -305,11 +368,13 @@ class OnboardingHandlersMixin(HandlerBase):
             #
             # DE-40: log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
+            # XZ-EH-002: redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_skip: service returned error: %s",
                     result.get("error"),
                 )
+                result = _redact_service_error(result)
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -332,11 +397,30 @@ class OnboardingHandlersMixin(HandlerBase):
             # config.json + re-registers the hotkey); a silent failure
             # here is the worst-case "wizard says done but nothing
             # actually saved" bug, so the breadcrumb is essential.
+            # XZ-EH-002: redact the error string before forwarding to
+            # the renderer. ``onboarding_apply`` failures are the most
+            # likely to leak sensitive context (config-write errors
+            # can include ``str(exc)`` from the underlying
+            # ``PermissionError`` / ``OSError`` which carry absolute
+            # file paths under the user's home directory; cloud-config
+            # validation errors can include API keys). The unredacted
+            # message is logged at WARNING above (operator-only) and
+            # at ERROR below; only the redacted form lands in
+            # ``resp["data"]``.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_apply: service returned error: %s",
                     result.get("error"),
                 )
+                # XZ-EH-002: also log at ERROR with the same redacted
+                # form so the failure is visible in the ERROR-level
+                # log filter operators commonly tail.
+                redacted_result = _redact_service_error(dict(result))
+                log.error(
+                    "[IPC] onboarding_apply failed (redacted): %s",
+                    redacted_result.get("error"),
+                )
+                result = _redact_service_error(result)
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:

@@ -161,6 +161,13 @@ class DeviceManager:
         # remains as a fallback for platforms where the watcher can't
         # start (macOS) or for the case where the watcher thread crashes.
         self._mic_watcher: Any | None = None
+        # DJ-68: optional service-layer cache invalidator callback.
+        self._service_cache_invalidator: Any | None = None
+        # DJ-70: configurable sleep between BT-device disconnect retries.
+        self._bt_retry_sleep_seconds: float = 0.75
+        # DJ-69: one-shot flag so the name-mismatch warning fires at
+        # most once per DeviceManager instance.
+        self._device_name_mismatch_warned: bool = False
         try:
             from voice_typer.server.microphone_watcher import (
                 MicrophoneDeviceWatcher,
@@ -243,27 +250,77 @@ class DeviceManager:
             log.debug("[RECORDING] Could not enumerate devices: %s", e)
             return self._device_list_cache or []
 
+    def set_service_cache_invalidator(self, callback: Any | None) -> None:
+        """Register a service-layer cache invalidator (DJ-68).
+
+        The registered callback is invoked from ``_invalidate_device_cache``
+        whenever the OS microphone watcher fires a hot-plug event. The
+        service layer registers its cache-invalidation hook here so a
+        hot-plug immediately propagates to the UI's mic dropdown.
+
+        Pass ``None`` to unregister. Safe to call multiple times — the
+        most recent callback wins.
+        """
+        self._service_cache_invalidator = callback
+
     def _invalidate_device_cache(self) -> None:
         """Reset the device-list cache so the next ``_refresh_device_list``
         call re-queries PortAudio.
 
         PERF-MIC-001: called by ``MicrophoneDeviceWatcher`` from its
-        daemon thread when the OS reports a device plug/unplug event
-        (``WM_DEVICECHANGE`` on Windows, ``/dev/snd`` change on Linux).
-        The 30s TTL cache in ``_refresh_device_list`` remains as a
-        fallback for platforms where the watcher can't start (macOS)
-        or for the case where the watcher thread crashes.
+        daemon thread when the OS reports a device plug/unplug event.
+
+        DJ-68: also fires the registered service-layer cache invalidator
+        so the UI's mic dropdown refreshes immediately after a hot-plug.
+
+        TY-5 (High): when a hot-plug event arrives AND a device disconnect
+        is currently in-progress (``_device_disconnected=True``),
+        proactively trigger a re-attempt of the disconnect handler on a
+        fresh daemon thread. Pre-fix, the recorder stayed stuck (the
+        health-checker loop skipped) and the only path forward was the
+        user pressing the hotkey to stop+start. With this hook, plugging
+        in a new mic mid-session auto-recovers within one OS-event cycle.
 
         Thread-safety: writes to ``_device_list_cache`` and
         ``_device_list_cache_time`` are simple attribute assignments
-        guarded by the GIL. A concurrent reader in
-        ``_refresh_device_list`` may see either the old or new value
-        — both are correct (the reader either returns the stale cache
-        for one more call, or re-queries immediately).
+        guarded by the GIL.
         """
         self._device_list_cache = None
         self._device_list_cache_time = 0.0
         log.debug("[RECORDING] Device cache invalidated by OS-event watcher")
+
+        # DJ-68: fire the service-layer cache invalidator (best-effort).
+        service_cb = self._service_cache_invalidator
+        if service_cb is not None:
+            try:
+                service_cb()
+            except Exception:
+                log.debug(
+                    "[RECORDING] service cache invalidator callback raised",
+                    exc_info=True,
+                )
+
+        # TY-5 (High): proactive recovery on hot-plug while a disconnect
+        # is in-progress.
+        if not self._device_disconnected:
+            return
+        try:
+            if not self.recorder._recording_event.is_set():
+                return
+        except Exception:
+            pass
+        _captured_gen = getattr(self.recorder, "_stop_generation", 0)
+        with contextlib.suppress(Exception):
+            self.recorder._spawn_device_thread(
+                name="device-hotplug-recovery",
+                target=self.recorder._handle_device_disconnect,
+                kwargs={"_captured_generation": _captured_gen},
+                single_flight=True,
+            )
+        log.info(
+            "[RECORDING] TY-5: hot-plug event triggered disconnect recovery "
+            "(device was disconnected, re-attempting restart)"
+        )
 
     def shutdown_mic_watcher(self) -> None:
         """Stop the microphone device-change watcher.
@@ -516,18 +573,132 @@ class DeviceManager:
     def _resolve_device(self):
         """Resolve config.microphone to a sounddevice device specifier.
 
-        config.microphone is a string device index (from list_microphones)
-        or None for system default.  We convert to int for unambiguous
-        selection by sounddevice.
+        ``config.microphone`` is one of:
+
+        - ``None`` — system default → return ``None``.
+        - ``"<index>"`` (legacy bare index string) → return ``int(index)``.
+        - ``"<index>|<name>|<host_api>"`` (DJ-69 compound form) → prefer
+          name-based resolution via ``find_microphone_by_name`` so a
+          saved index that now points at a different physical device
+          (after Windows MME hot-swap renumbering) is NOT silently
+          substituted.
+
+        TY-22 (Medium): PortAudio device indices are NOT stable across
+        hot-swap on Windows MME. The compound form stores the device
+        NAME alongside the index so the resolver can re-find the
+        original physical device by name after renumbering.
+
+        DJ-69: when the saved index now points at a differently-named
+        device AND name lookup failed, emit a one-time WARNING.
         """
         mic = self.recorder.config.microphone
         if mic is None:
             return None
+        # Legacy / simple case: bare numeric index or non-compound string.
+        if not isinstance(mic, str) or "|" not in mic:
+            try:
+                return int(mic)
+            except (ValueError, TypeError):
+                return mic
+
+        # DJ-69: compound form "<index>|<name>|<host_api>".
+        parts = mic.split("|", 2)
+        if len(parts) < 2:
+            try:
+                return int(mic.split("|", 1)[0])
+            except (ValueError, TypeError):
+                return mic
+        saved_index_str, saved_name = parts[0], parts[1]
         try:
-            return int(mic)
+            saved_index = int(saved_index_str)
         except (ValueError, TypeError):
-            # Legacy: if someone put a device name string, pass it through
-            return mic
+            saved_index = None
+
+        # Prefer name-based resolution: this is the stable identifier
+        # that survives PortAudio hot-swap renumbering on Windows MME.
+        try:
+            from voice_typer.server.server_platform import find_microphone_by_name
+
+            match = find_microphone_by_name(saved_name)
+        except Exception:
+            match = None
+        if match is not None:
+            try:
+                return int(match.get("index", saved_index) if saved_index is not None else match["index"])
+            except (ValueError, TypeError, KeyError):
+                pass
+
+        # Name lookup failed — fall back to the saved index.
+        if saved_index is None:
+            return saved_name
+
+        # DJ-69 one-time name-mismatch warning.
+        if not self._device_name_mismatch_warned:
+            try:
+                current_info = sd.query_devices(saved_index)
+                current_name = str(current_info.get("name", "")).strip().lower()
+                if current_name and current_name != saved_name.strip().lower():
+                    log.warning(
+                        "[RECORDING] DJ-69: saved microphone index %d now points to "
+                        "'%s' (was '%s') — device may have been renumbered by hot-swap; "
+                        "re-select the microphone in Settings to update the saved reference",
+                        saved_index,
+                        current_info.get("name", ""),
+                        saved_name,
+                    )
+                    self._device_name_mismatch_warned = True
+            except Exception:
+                pass
+        return saved_index
+
+    def _build_device_info_for_retry_policy(self) -> dict | None:
+        """DJ-70: query the current device info for BT retry classification.
+
+        Returns the ``sd.query_devices(current_device)`` dict, or ``None``
+        if the query raised. Used by ``_get_max_retries_for_device`` and
+        ``_get_retry_sleep_for_device`` so the disconnect handler can
+        pick a BT-aware retry policy without each callsite duplicating
+        the query-and-classify logic.
+        """
+        try:
+            current = self._resolve_device()
+            if current is None:
+                return sd.query_devices(kind="input")
+            return sd.query_devices(current)
+        except Exception:
+            return None
+
+    def _get_max_retries_for_device(self, device_info: dict | None) -> int:
+        """DJ-70: return the max retry count for the given device.
+
+        Bluetooth HFP/HSP devices (identified by name keyword OR by an
+        8/16 kHz native sample rate — the HFP/HSP narrowband signature)
+        get 6 retries. Non-BT devices get 3 retries.
+        """
+        if device_info is None:
+            return 3
+        name = str(device_info.get("name", "")).lower()
+        if any(kw in name for kw in ("bluetooth", "hfp", "hands-free", "hands free")):
+            return 6
+        try:
+            sr = int(device_info.get("default_samplerate", 0))
+        except (ValueError, TypeError):
+            sr = 0
+        if sr in (8000, 16000):
+            return 6
+        return 3
+
+    def _get_retry_sleep_for_device(self, device_info: dict | None) -> float:
+        """DJ-70: return the per-retry sleep for the given device.
+
+        BT devices sleep ``_bt_retry_sleep_seconds`` (default 0.75s)
+        between retries. Non-BT devices sleep 0.0 (immediate retry).
+        """
+        if device_info is None:
+            return 0.0
+        if self._get_max_retries_for_device(device_info) >= 6:
+            return self._bt_retry_sleep_seconds
+        return 0.0
 
     def _host_api_name(self, host_api_index: int) -> str:
         try:

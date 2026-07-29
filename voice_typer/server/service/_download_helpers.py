@@ -297,7 +297,13 @@ def poll_download_progress(
                     eta_seconds=eta_s,
                 )
         except Exception:
-            pass
+            # XZ-EH-006: previously pass — silently swallowed per-iteration
+            # polling failures. Log at DEBUG (non-fatal) so a transient
+            # filesystem error doesn't freeze the progress bar with no log.
+            log.debug(
+                "[SERVICE] download progress poll failed (non-fatal)",
+                exc_info=True,
+            )
 
     return ("cancelled" if cancelled else "complete", last_total_bytes_seen)
 

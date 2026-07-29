@@ -98,6 +98,18 @@ class NativeHotkeyRecorder:
             # Fall back to original handler for unknown lines
             original_handler(line)
 
+        # XZ-CC-11: ``# type: ignore[assignment]`` is required because
+        # ``recording_handler`` is a free function (signature
+        # ``(line: str) -> None``) while ``backend._handle_line`` is a
+        # bound method (signature ``(self, line: str) -> None``). The
+        # override is intentional: the recorder needs to intercept ALL
+        # wire-protocol lines during capture mode (not just hotkey
+        # matches), so it replaces the bound method with a closure that
+        # captures ``backend`` (and ``self``) via closure scope instead
+        # of taking them as parameters. The override is reverted when
+        # ``stop()`` sets ``self._backend = None`` (the next
+        # ``start()`` call creates a fresh backend with the original
+        # bound method).
         backend._handle_line = recording_handler  # type: ignore[assignment]
         backend.start(lambda: None)
 

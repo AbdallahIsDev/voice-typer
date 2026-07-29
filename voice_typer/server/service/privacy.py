@@ -111,6 +111,12 @@ class PrivacyMixin(ServiceMixinBase):
         # guard. Per XZ-LOG-02 the Rust logger has no PII redaction, so
         # dictated-text fragments may be present in any Rust log file.
         "voice-typer-rust.log",
+        # XZ-SEC-03: config.json.bak retains plaintext API keys
+        "config.json.bak",
+        # XZ-SEC-03: config.json.lock can hold stale PID + username
+        "config.json.lock",
+        # XZ-SEC-03: .restart_token — defensive entry
+        ".restart_token",
     )
     # Glob patterns for personal-data files with timestamped / rotated
     # names.  See ``delete_all_personal_data`` / ``export_gdpr_bundle``
@@ -152,6 +158,12 @@ class PrivacyMixin(ServiceMixinBase):
         # swept up by the GDPR delete / export walk alongside the
         # canonical file above.
         "electron-renderer-errors.log.*",
+        # XZ-SEC-03: history.db.corrupt-* retains dictated plaintext
+        "history.db.corrupt-*",
+        # XZ-SEC-03: voice-typer-diagnostics-*.zip contains PII
+        "voice-typer-diagnostics-*.zip",
+        # XZ-SEC-03: gdpr-export-*.zip contains user full personal data
+        "gdpr-export-*.zip",
     )
 
     # ── Privacy / GDPR (CR-87 / CR-88) ───────────────────────────────
@@ -457,6 +469,20 @@ class PrivacyMixin(ServiceMixinBase):
                     "[SERVICE] GDPR delete: could not re-create HistoryDB after erase",
                     exc_info=True,
                 )
+
+        # XZ-SEC-03: post-cleanup sweep — credential_store.delete_secret re-creates
+        # config.json.lock; re-unlink it here so it doesn't survive GDPR delete.
+        for re_cleanup_name in ("config.json.lock", ".restart_token"):
+            re_cleanup_path = config_dir / re_cleanup_name
+            if not re_cleanup_path.exists():
+                continue
+            try:
+                re_cleanup_path.unlink()
+                erased.append(str(re_cleanup_path))
+            except PermissionError as exc:
+                failed[str(re_cleanup_path)] = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:
+                failed[str(re_cleanup_path)] = f"{type(exc).__name__}: {exc}"
 
         log.info(
             "[SERVICE] GDPR Art. 17 delete: erased %d file(s)/dir(s), %d failure(s)",

@@ -858,8 +858,12 @@ def _is_password_field_macos() -> bool:
 
         return False
     except Exception as exc:
-        _log().debug(
-            "[CLIPBOARD] macOS AX password check failed: %s — failing open",
+        # XZ-CLIP-01: surface a one-shot WARNING (deduped via
+        # _warn_paste_safety_once) so a degraded macOS AX infrastructure
+        # is visible to operators instead of silently failing open at DEBUG.
+        _warn_paste_safety_once(
+            "macos_ax_outer_exception",
+            "_is_password_field_macos",
             exc,
         )
         return False
@@ -1085,8 +1089,12 @@ def _is_password_field_linux() -> bool:
 
         return False
     except Exception as exc:
-        _log().debug(
-            "[CLIPBOARD] Linux AT-SPI2 password check failed: %s — failing open",
+        # XZ-CLIP-01: surface a one-shot WARNING (deduped via
+        # _warn_paste_safety_once) so a degraded Linux AT-SPI2 infrastructure
+        # is visible to operators instead of silently failing open at DEBUG.
+        _warn_paste_safety_once(
+            "linux_atspi_outer_exception",
+            "_is_password_field_linux",
             exc,
         )
         return False
