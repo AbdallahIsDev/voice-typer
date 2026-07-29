@@ -216,7 +216,16 @@ impl log::Log for CombinedLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let msg = record.args().to_string();
+        // XZ-LOG-02: redact PII from the log message before writing
+        // to file or stderr. The redactor is intentionally MINIMAL —
+        // it covers the highest-signal patterns (Bearer/Token/sk- prefix
+        // tokens, user:pass@host URL credentials, basic email addresses)
+        // using std-only substring scanning. The Python side's
+        // `_FAST_TRIGGER` shortcut (skip if no trigger char present) is
+        // mirrored here so the common-case cost is a single
+        // `str::contains('@')` / `str::contains('+')` / etc. scan.
+        let raw_msg = record.args().to_string();
+        let msg = redact_pii(&raw_msg);
         let ts = now_timestamp();
         // PVT-G5-084: include `file:line` so operators can jump
         // directly to the source location from a log line. Both
@@ -283,6 +292,115 @@ impl log::Log for CombinedLogger {
     }
 }
 
+// ─── XZ-LOG-02: PII redaction ───────────────────────────────────────────
+//
+// Minimal PII redactor for log output. Covers the highest-signal patterns
+// (Bearer/Token/sk- prefix tokens, user:pass@host URL credentials, basic
+// email addresses) using std-only substring scanning. Adding the `regex`
+// crate as a direct dependency would let us port the full Python pattern
+// set (SSN, CC, IBAN, international phone, …) — that's tracked as a
+// follow-up. The fast path checks for trigger characters before scanning:
+// if none of @, Bearer, Token, sk-, :// are present, returns the input
+// unchanged.
+
+/// Redact PII patterns from the input string. Returns the input unchanged
+/// (but as a newly-allocated `String`) if no trigger character is
+/// present. Otherwise returns a new `String` with each matched pattern
+/// replaced by its redaction placeholder.
+pub(crate) fn redact_pii(input: &str) -> String {
+    // Fast path: skip the whole pass if no trigger is present. Mirrors
+    // the Python side's `_FAST_TRIGGER` shortcut.
+    if !input.contains('@')
+        && !input.contains("Bearer")
+        && !input.contains("Token")
+        && !input.contains("sk-")
+        && !input.contains("://")
+    {
+        return input.to_string();
+    }
+
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        let rest = &input[i..];
+
+        // 1. `Bearer <token>` — token runs until whitespace or end.
+        if let Some(stripped) = rest.strip_prefix("Bearer ") {
+            let token_len = stripped
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(stripped.len());
+            out.push_str("Bearer ***");
+            i += "Bearer ".len() + token_len;
+            continue;
+        }
+        // 2. `Token <token>` — same shape as Bearer.
+        if let Some(stripped) = rest.strip_prefix("Token ") {
+            let token_len = stripped
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(stripped.len());
+            out.push_str("Token ***");
+            i += "Token ".len() + token_len;
+            continue;
+        }
+        // 3. `sk-<token>` — token runs until non-alphanumeric / non
+        //    dash / non underscore (the typical API-key charset).
+        if let Some(stripped) = rest.strip_prefix("sk-") {
+            let token_len = stripped
+                .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+                .unwrap_or(stripped.len());
+            if token_len >= 8 {
+                // Only redact if the token looks like a real key
+                // (>= 8 chars after the prefix); otherwise leave it
+                // alone (e.g. `sk-1234` in a model name).
+                out.push_str("sk-***");
+                i += "sk-".len() + token_len;
+                continue;
+            }
+        }
+
+        // 4. `user:pass@host` — strip everything up to and including
+        //    the `@` IF the prefix contains a `:` (the URL-credential
+        //    marker). The host part is preserved.
+        if rest.contains('@') {
+            if let Some(at_pos) = rest.find('@') {
+                let prefix = &rest[..at_pos];
+                if prefix.contains(':') && !prefix.contains(' ') && !prefix.is_empty() {
+                    out.push_str("***@");
+                    i += at_pos + 1;
+                    continue;
+                }
+                // 5. Basic email: `<name>@<domain>.<tld>`. We require
+                //    a `.` in the domain part (after the `@`) to avoid
+                //    false-positives on `user@host` (no TLD).
+                let after_at = &rest[at_pos + 1..];
+                let domain_end = after_at
+                    .find(|c: char| c.is_whitespace() || c == ',' || c == ';')
+                    .unwrap_or(after_at.len());
+                let domain = &after_at[..domain_end];
+                if domain.contains('.') && !domain.starts_with('.') {
+                    let local_valid = !prefix.is_empty()
+                        && prefix
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+');
+                    if local_valid {
+                        out.push_str("[EMAIL]");
+                        i += at_pos + 1 + domain_end;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // No pattern matched at this position — copy the byte and
+        // advance by one (UTF-8 safe: we're copying the raw byte and
+        // the input was already valid UTF-8 when we received it).
+        let ch = rest.chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 // ─── PVT-G5-083: panic hook ─────────────────────────────────────────────
 //
 // Install a panic hook that writes the panic payload + source location
@@ -338,8 +456,14 @@ pub fn install_panic_hook() {
             .copied()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("<non-string panic payload>");
-        eprintln!("[PANIC] {} -- {}", location, payload);
-        log::error!("panic at {} -- {}", location, payload);
+        // XZ-LOG-02: redact the payload before emitting — panic
+        // messages can carry arbitrary user-supplied strings (e.g. a
+        // serde_json error containing a fragment of the request body,
+        // which can include an email / API key) and we don't want
+        // those to land in `voice-typer.log` unredacted.
+        let payload_redacted = redact_pii(payload);
+        eprintln!("[PANIC] {} -- {}", location, payload_redacted);
+        log::error!("panic at {} -- {}", location, payload_redacted);
         // Chain to the previous hook so any prior behavior (e.g. the
         // default "print panic message + abort" path under
         // `panic=abort`) is preserved.
@@ -1426,5 +1550,98 @@ mod tests {
         // (suppressed here via stderr_verbose=false).
         early.log(&record);
         early.flush();
+    }
+
+    // ── XZ-LOG-02: redact_pii unit tests ──────────────────────────────
+
+    #[test]
+    fn test_redact_pii_no_trigger_returns_input_unchanged() {
+        let input = "WS reader connected on port 51829";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_bearer_token() {
+        let input = "Authorization: Bearer abc123def456ghi789";
+        let out = redact_pii(input);
+        assert_eq!(out, "Authorization: Bearer ***");
+    }
+
+    #[test]
+    fn test_redact_pii_token_keyword() {
+        let input = "Token sk-live-1234567890abcdef";
+        let out = redact_pii(input);
+        assert_eq!(out, "Token ***");
+    }
+
+    #[test]
+    fn test_redact_pii_sk_prefix_api_key() {
+        let input = "using key sk-1234567890abcdef for the cloud engine";
+        let out = redact_pii(input);
+        assert_eq!(out, "using key sk-*** for the cloud engine");
+    }
+
+    #[test]
+    fn test_redact_pii_sk_prefix_too_short_not_redacted() {
+        let input = "model name: sk-small.en";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_url_credentials() {
+        let input = "connecting to https://user:pass@host.com/path";
+        let out = redact_pii(input);
+        assert!(out.contains("***@host.com"), "got: {}", out);
+        assert!(!out.contains("user:pass"));
+    }
+
+    #[test]
+    fn test_redact_pii_email_address() {
+        let input = "user email is alice@example.com and that's it";
+        let out = redact_pii(input);
+        assert_eq!(out, "user email is [EMAIL] and that's it");
+    }
+
+    #[test]
+    fn test_redact_pii_email_with_dotted_local_part() {
+        let input = "contact first.last@example.co.uk for info";
+        let out = redact_pii(input);
+        assert_eq!(out, "contact [EMAIL] for info");
+    }
+
+    #[test]
+    fn test_redact_pii_at_without_dot_not_redacted() {
+        let input = "ssh user@host";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_no_false_positive_on_normal_log_lines() {
+        let inputs = [
+            "[WS-READER] bubble_level event rms=0.42",
+            "[SUPERVISOR] respawn attempt 1/3 after 500ms backoff",
+            "config dir: /home/user/.local/share/voice-typer",
+            "shutdown ack timeout (2000ms) — force-killing",
+        ];
+        for input in inputs {
+            let out = redact_pii(input);
+            assert_eq!(
+                out, input,
+                "false positive: input {input:?} was changed to {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_redact_pii_multiple_patterns_in_one_line() {
+        let input = "auth=Bearer abc123, email=alice@example.com, key=sk-1234567890abcdef";
+        let out = redact_pii(input);
+        assert_eq!(
+            out,
+            "auth=Bearer ***, email=[EMAIL], key=sk-***"
+        );
     }
 }

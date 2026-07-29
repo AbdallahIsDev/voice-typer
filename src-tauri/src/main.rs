@@ -489,24 +489,29 @@ fn main() {
         })
         .run(|app_handle, event| match event {
             RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                // Best-effort sidecar teardown. `shutdown_sidecar_for_exit`
-                // is idempotent (shutting_down swap) so it's safe to
-                // call from both ExitRequested and Exit, and also safe
-                // if the renderer's `shutdown_sidecar` command already
-                // ran. Wrapped in `block_on` + `tokio::time::timeout`
-                // so the run loop never hangs on a misbehaving sidecar
-                // (the helper self-limits to ~2s internally; the outer
-                // timeout is a safety backstop for the force-kill phase).
+                // ER-17: unblock the event loop. `block_on` can block
+                // for up to 3s on dev-mode shutdowns (the dev-mode
+                // sidecar has no `CommandEvent` stream, so
+                // `shutdown_sidecar_for_exit` always sleeps the full
+                // `SHUTDOWN_ACK_TIMEOUT_MS`=2s). The user saw a non-
+                // responsive window / lingering Dock icon during the
+                // sleep. Spawning a dedicated thread lets the event
+                // loop return immediately; the process tears down
+                // naturally once the spawned thread completes (Tauri
+                // keeps the runtime alive until all spawned tasks /
+                // threads resolve on exit paths).
                 let sidecar_state = app_handle
                     .state::<Arc<SidecarState>>()
                     .inner()
                     .clone();
-                tauri::async_runtime::block_on(async move {
-                    let _ = tokio::time::timeout(
-                        Duration::from_millis(HOST_SHUTDOWN_GRACE_MS + 1000),
-                        crate::state::shutdown_sidecar_for_exit(&sidecar_state),
-                    )
-                    .await;
+                std::thread::spawn(move || {
+                    tauri::async_runtime::block_on(async move {
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(HOST_SHUTDOWN_GRACE_MS + 1000),
+                            crate::state::shutdown_sidecar_for_exit(&sidecar_state),
+                        )
+                        .await;
+                    });
                 });
             }
             _ => {}

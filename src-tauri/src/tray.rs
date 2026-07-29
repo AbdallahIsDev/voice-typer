@@ -321,7 +321,17 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         };
         let app_inner = app_clone.clone();
-        tauri::async_runtime::spawn(async move {
+        // ER-66: `rebuild_tray_menu` is fully synchronous (no `.await`
+        // points), so wrapping it in `tauri::async_runtime::spawn(async
+        // move { ... })` paid Tokio task-scheduler overhead for no async
+        // benefit. Switched to `std::thread::spawn` so the work runs on
+        // a dedicated OS thread without round-tripping through the
+        // async runtime. The tray-menu rebuild is a low-frequency event
+        // (fires only when the Python sidecar publishes `tray_menu`),
+        // so the per-event thread-creation cost (~50µs) is negligible
+        // and the listener closure (which runs on the Tauri event-loop
+        // thread) returns immediately.
+        std::thread::spawn(move || {
             if let Err(e) = rebuild_tray_menu(&app_inner, &payload.items) {
                 log::error!("[TRAY] failed to rebuild menu: {}", e);
             }
@@ -352,7 +362,19 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         };
         let app_inner = app_clone_state.clone();
-        tauri::async_runtime::spawn(async move {
+        // ER-66: the body below is fully synchronous (no `.await`s —
+        // `tray_by_id`, `load_tray_icon`, `tray.set_icon`, and
+        // `tray.set_tooltip` are all blocking Tauri APIs). Wrapping the
+        // body in `tauri::async_runtime::spawn(async move { ... })` paid
+        // Tokio task-scheduler overhead for no async benefit. Switched
+        // to `std::thread::spawn` so the work runs on a dedicated OS
+        // thread. The `tray_state` event is low-frequency (fires only
+        // when the Python sidecar publishes icon/tooltip updates, which
+        // happens a handful of times per session), so the per-event
+        // thread-creation cost (~50µs) is negligible and the listener
+        // closure (which runs on the Tauri event-loop thread) returns
+        // immediately.
+        std::thread::spawn(move || {
             if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
                 if let Some(icon_name) = &payload.icon {
                     if let Some(img) = load_tray_icon(&app_inner, icon_name) {

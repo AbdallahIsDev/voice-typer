@@ -55,6 +55,24 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
     "resume_model_download",
 ];
 
+// AC-16: dedicated error code constants for the two disallowed-code
+// branches in `dispatch`. Using named constants instead of inline
+// string literals ensures the test assertions (which match on these
+// exact strings) stay in sync with the production code.
+//
+// `disallowed_window` is emitted by `commands/mod.rs::require_main_window`
+// (NOT extracted here — that file is outside this entry's files list;
+// see `commands::mod` for the literal). Listed here for documentation
+// parity so a future cleanup can centralize both constants.
+pub(crate) const DISALLOWED_COMMAND_CODE: &str = "disallowed_command";
+/// AC-16: companion Rust-host-only code. Emitted by
+/// `commands/mod.rs::require_main_window` (the main/bubble window guard).
+/// Kept here as a `pub(crate)` constant so the contract test
+/// (`tests/test_error_codes_registry.py`) can reference the canonical
+/// spelling without having to grep `commands/mod.rs` (which is outside
+/// the AC-16 entry's files list).
+pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
+
 /// DT-44: returns the dispatch timeout (in seconds) for `cmd`.
 ///
 /// - 120s (`DISPATCH_TIMEOUT_SECS`) for the 6 model lifecycle commands
@@ -321,10 +339,29 @@ pub(crate) async fn dispatch_inner(
 /// path — the bubble renderer is allowed to send only the fixed
 /// `toggle_dictation` command, see G4-L-03 sanctioned-bypass doc).
 ///
-/// The synthetic `id: 0` is special-cased server-side (the Python
-/// sidecar's `_handle_dispatch` does NOT echo `id=0` back) so the WS
-/// reader task's pending-map lookup is a no-op miss with a one-line
-/// `[WS-READER] unknown id` warning per toggle — acceptable noise.
+/// AC-101: the synthetic `id: 0` is NOT special-cased server-side.
+/// The Python sidecar's `dispatch` coroutine (in
+/// `voice_typer/server/sidecar_ws.py`) treats `id=0` like any other
+/// request id: it runs the handler, and if the handler returns a
+/// non-`None` response envelope (which `_handle_toggle_dictation`
+/// always does — it sets `resp["type"] = "ack"`), the server echoes
+/// the response back over the WS with `"id": 0` attached (see
+/// `sidecar_ws.py:843-851`). The Rust WS reader (`sidecar/ws.rs:612-
+/// 620`) then looks up `id=0` in `state.pending`, finds no entry
+/// (because `dispatch_fire_and_forget` never inserted one), and
+/// silently drops the frame via `continue` — NO `[WS-READER]` warning
+/// is logged (the `pending.remove(&id)` call returns `None`, the `if
+/// let Some(tx) = ...` branch is skipped, and execution continues to
+/// the next iteration without any log statement).
+///
+/// The previous doc text here was internally contradictory: it
+/// claimed BOTH "server does NOT echo `id=0` back" AND "one-line
+/// `[WS-READER] unknown id` warning per toggle" — two mutually
+/// exclusive statements. The actual behavior is: server echoes the
+/// response back, reader silently drops it. The net effect (no
+/// response delivered to the caller, no warning noise) is what the
+/// fire-and-forget semantics require, but the mechanism is "drop on
+/// the reader side" rather than "suppress on the server side".
 ///
 /// Replaces the inline `json!` + `lock` + `try_send` block that was
 /// duplicated in `bubble.rs:629-674` (the PVT-25 TODO that called for
@@ -596,7 +633,7 @@ pub async fn dispatch(
         let err = json!({
             "type": "error",
             "data": {
-                "code": "disallowed_command",
+                "code": DISALLOWED_COMMAND_CODE,
                 "message": "Command not in allowlist"
             }
         });

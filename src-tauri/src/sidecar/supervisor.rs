@@ -93,12 +93,12 @@ pub(crate) fn parse_restart_counter(v: &serde_json::Value) -> u32 {
 /// count is treated as 0 — a stale count from a previous session
 /// doesn't trip the circuit breaker on a single new crash.
 fn read_restart_counter() -> u32 {
-    let path = match crate::platform::paths::config_dir_from_env(
-        std::env::var("HOME").ok().as_deref(),
-        std::env::var("APPDATA").ok().as_deref(),
-        std::env::var("XDG_DATA_HOME").ok().as_deref(),
-        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
-    ) {
+    // ER-59: route through the cached `config_dir()` (OnceLock-backed)
+    // instead of re-resolving 4 env vars on every call. The prior
+    // inline `config_dir_from_env(...)` form was duplicated here + in
+    // `write_restart_counter` below — both call sites now share the
+    // single cached resolution.
+    let path = match crate::platform::paths::config_dir() {
         p if p.as_os_str().is_empty() => return 0,
         p => p.join("restart_counter.json"),
     };
@@ -156,12 +156,8 @@ fn read_restart_counter() -> u32 {
 /// path) AND on successful cold start (the new G4-H-28 path) so the
 /// counter doesn't accumulate stale failures across sessions.
 pub(crate) fn write_restart_counter(count: u32) {
-    let path = match crate::platform::paths::config_dir_from_env(
-        std::env::var("HOME").ok().as_deref(),
-        std::env::var("APPDATA").ok().as_deref(),
-        std::env::var("XDG_DATA_HOME").ok().as_deref(),
-        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
-    ) {
+    // ER-59: route through the cached `config_dir()` (OnceLock-backed).
+    let path = match crate::platform::paths::config_dir() {
         p if p.as_os_str().is_empty() => return,
         p => p.join("restart_counter.json"),
     };

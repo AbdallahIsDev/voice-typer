@@ -1001,16 +1001,30 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                     cmd: "heartbeat".to_string(),
                     data: None,
                 };
-                match tokio::time::timeout(
-                    Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
-                    dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
-                )
-                .await
-                {
-                    Ok(Ok(_)) => {
+                // AC-98: wrap the dispatch + timeout in `catch_unwind`
+                // so a panic inside `dispatch_inner` (e.g. a serde
+                // invariant violation, or a future-proofing regression
+                // in `dispatch_frame`'s pending-map insert path) is
+                // caught, logged at ERROR, and treated as a miss —
+                // instead of silently killing the heartbeat task and
+                // losing FT-1 detection entirely. The reader + writer
+                // tasks already wrap their bodies in `catch_unwind`
+                // (G4-H-26); the heartbeat task was added later
+                // (PVT-1) and missed the same treatment.
+                let dispatch_result = AssertUnwindSafe(async {
+                    tokio::time::timeout(
+                        Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
+                        dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
+                    )
+                    .await
+                })
+                .catch_unwind()
+                .await;
+                match dispatch_result {
+                    Ok(Ok(Ok(_))) => {
                         missed = 0;
                     }
-                    Ok(Err(e)) => {
+                    Ok(Ok(Err(e))) => {
                         missed += 1;
                         log::warn!(
                             "[HEARTBEAT] dispatch error (miss #{}/{}): {}",
@@ -1030,7 +1044,7 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                             break;
                         }
                     }
-                    Err(_) => {
+                    Ok(Err(_)) => {
                         missed += 1;
                         log::warn!(
                             "[HEARTBEAT] {}s response timeout (miss #{}/{})",
@@ -1041,6 +1055,33 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                         if missed >= HEARTBEAT_MAX_MISSES {
                             log::warn!(
                                 "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
+                                HEARTBEAT_MAX_MISSES
+                            );
+                            trigger_respawn_off_thread(
+                                heartbeat_app.clone(),
+                                heartbeat_state_for_task.clone(),
+                            );
+                            break;
+                        }
+                    }
+                    // AC-98: catch_unwind returned Err(_panic_payload).
+                    // Treat the panic as a miss and continue the loop so
+                    // the heartbeat task stays alive (mirrors the
+                    // existing timeout / dispatch-error arms). After
+                    // HEARTBEAT_MAX_MISSES consecutive panic-misses the
+                    // supervisor respawn is triggered — same threshold
+                    // as the other arms.
+                    Err(_) => {
+                        missed += 1;
+                        log::error!(
+                            "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}) — \
+                             task staying alive (AC-98)",
+                            missed,
+                            HEARTBEAT_MAX_MISSES
+                        );
+                        if missed >= HEARTBEAT_MAX_MISSES {
+                            log::warn!(
+                                "[HEARTBEAT] {} consecutive panic-misses — triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
                             trigger_respawn_off_thread(

@@ -22,6 +22,7 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
 use crate::commands::export::{export_data, require_main_window};
+use crate::platform::open_path::open_path_in_file_manager;
 use crate::platform::paths::config_dir;
 
 // ─── DE-73: defense-in-depth config redaction ─────────────────────────
@@ -202,9 +203,20 @@ pub async fn open_logs(
 ) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir();
-    // Best-effort mkdir — if it fails (e.g. permission denied), the
-    // open command below will surface the error to the user.
-    let _ = std::fs::create_dir_all(&log_dir);
+    // AC-34: capture mkdir failure rather than silently discarding it
+    // with `let _ = ...`. If the config_dir is unwritable (permission
+    // denied, read-only mount, etc.), the prior implementation
+    // returned `{"success": true}` based solely on whether
+    // `Command::spawn()` later succeeded — the OS file manager would
+    // then pop a "path not found" dialog to the user while the UI
+    // showed "logs opened". We now surface the mkdir failure as a
+    // structured error string so the renderer can display it.
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        return Ok(json!({
+            "success": false,
+            "error": format!("create_dir_all({}) failed: {}", log_dir.display(), e)
+        }));
+    }
 
     let open_result = open_path_in_file_manager(&log_dir);
     match open_result {
@@ -234,7 +246,16 @@ pub async fn open_host_logs(
 ) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir().join("logs");
-    let _ = std::fs::create_dir_all(&log_dir);
+    // AC-34: capture mkdir failure (see `open_logs` above for the full
+    // rationale — silently discarding the error led to a triple failure
+    // mode where the UI showed "logs opened" while the OS file manager
+    // popped a "path not found" dialog).
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        return Ok(json!({
+            "success": false,
+            "error": format!("create_dir_all({}) failed: {}", log_dir.display(), e)
+        }));
+    }
 
     let open_result = open_path_in_file_manager(&log_dir);
     match open_result {
@@ -287,41 +308,6 @@ pub async fn renderer_log_error(payload: Value, _app: tauri::AppHandle) -> Resul
     }
     log::error!("[RENDERER_ERROR] {}", serialized);
     Ok(())
-}
-
-/// Open a filesystem path in the OS-native file manager. Best-effort:
-/// returns an error string on failure (the caller surfaces it to the
-/// UI). Mirrors Electron's `shell.openPath()` semantics.
-fn open_path_in_file_manager(path: &std::path::Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer.exe")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("explorer.exe spawn failed: {e}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("open spawn failed: {e}"))?;
-        return Ok(());
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn()
-            .map_err(|e| format!("xdg-open spawn failed: {e}"))?;
-        return Ok(());
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        let _ = path;
-        Err("unsupported platform: open_logs is only implemented for Windows / macOS / Linux".to_string())
-    }
 }
 
 // ─── Tauri command: open_model_import_dialog (MODEL-IMPORT) ───────────
@@ -440,30 +426,6 @@ pub async fn export_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── open_path_in_file_manager (pure spawn, no side effects on the
-    //    test process — spawn fires-and-forgets, the child explorer /
-    //    open / xdg-open may or may not actually open in a headless
-    //    sandbox). We only assert the spawn doesn't panic. ──────────
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_open_path_in_file_manager_does_not_panic_on_existing_dir() {
-        // /tmp always exists on Linux — xdg-open may or may not be
-        // installed in the sandbox, but `spawn()` only fails if the
-        // binary itself can't be launched (it doesn't wait for exit).
-        // We accept either Ok or Err (sandbox may lack xdg-open) — the
-        // test only asserts the function doesn't panic.
-        let _ = open_path_in_file_manager(std::path::Path::new("/tmp"));
-    }
-
-    #[test]
-    fn test_open_path_in_file_manager_handles_nonexistent_path_gracefully() {
-        // A nonexistent path doesn't make `spawn()` fail (the file
-        // manager would open and then show an error, but that's the
-        // user's problem, not the host's). We just assert no panic.
-        let _ = open_path_in_file_manager(std::path::Path::new("/nonexistent/path/that/does/not/exist/voice-typer-test"));
-    }
 
     // ── DE-73: is_sensitive_key ───────────────────────────────────────
     //

@@ -291,11 +291,18 @@ pub(crate) async fn spawn_sidecar_release(
                 // Stdout lines for the server_started JSON.
                 let line = match event {
                     CommandEvent::Stdout(bytes) => {
-                        String::from_utf8_lossy(&bytes).to_string()
+                        // ER-66: `.into_owned()` reuses the inner String
+                        // when the Cow is Owned (invalid UTF-8 case —
+                        // Python sidecar stderr can contain non-UTF-8
+                        // bytes from a C extension traceback). The prior
+                        // `.to_string()` form always allocated a new
+                        // String, even when the Cow was already Owned.
+                        String::from_utf8_lossy(&bytes).into_owned()
                     }
                     CommandEvent::Stderr(bytes) => {
                         // Log stderr but don't parse it as server_started.
-                        let s = String::from_utf8_lossy(&bytes).to_string();
+                        // ER-66: same `.into_owned()` rationale as above.
+                        let s = String::from_utf8_lossy(&bytes).into_owned();
                         log::info!("[SIDECAR] stderr: {}", s.trim());
                         continue;
                     }

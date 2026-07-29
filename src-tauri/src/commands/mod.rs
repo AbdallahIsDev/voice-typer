@@ -24,6 +24,7 @@ pub(crate) mod system_cmds;
 // annotations are deleted here; `cargo check` confirms `generate_handler!`
 // still resolves every command via the direct submodule imports.
 pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
+pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
 
 // ─── DT-4: canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
 //
@@ -70,7 +71,7 @@ pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> 
         let err = serde_json::json!({
             "type": "error",
             "data": {
-                "code": "disallowed_window",
+                "code": DISALLOWED_WINDOW_CODE,
                 "message": "command only allowed from main window"
             }
         });
@@ -93,7 +94,7 @@ pub(crate) fn require_bubble_window(window: &tauri::Window) -> Result<(), String
         let err = serde_json::json!({
             "type": "error",
             "data": {
-                "code": "disallowed_window",
+                "code": DISALLOWED_WINDOW_CODE,
                 "message": "command only allowed from bubble window"
             }
         });

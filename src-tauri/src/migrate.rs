@@ -444,9 +444,19 @@ fn atomic_copy(src: &Path, dst: &Path) -> Result<(), String> {
 /// file_name (NOT to the extension) so `history.db` →
 /// `history.db-wal`.
 fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
-    let mut name = match db.file_name().and_then(|n| n.to_str()) {
-        Some(n) => n.to_string(),
-        None => return db.to_path_buf(),
+    // ER-66: `file_name()` returns `Option<&OsStr>`; `to_str()` borrows
+    // as `&str` and then `.to_string()` allocates a new String from
+    // the borrow. Using `to_os_string()` (which copies the OsStr into
+    // a new OsString) then `into_string()` (which moves the OsString's
+    // inner buffer into a String) avoids the second allocation on
+    // valid-UTF-8 file names. On non-UTF-8 names we fall through to
+    // the prior `db.to_path_buf()` fallback (same behavior).
+    let mut name = match db
+        .file_name()
+        .map(|n| n.to_os_string().into_string())
+    {
+        Some(Ok(n)) => n,
+        Some(Err(_)) | None => return db.to_path_buf(),
     };
     name.push_str(suffix);
     match db.parent() {
@@ -482,9 +492,19 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let name = match entry.file_name().to_str() {
-            Some(n) => n.to_string(),
-            None => continue,
+        // ER-66: `entry.file_name().into_string()` consumes the OsString
+        // and returns `Result<String, OsString>` — for valid-UTF-8 file
+        // names (the overwhelmingly common case on all platforms Voice
+        // Typer targets) this is a zero-allocation move out of the
+        // OsString's inner buffer. The prior `to_str()` + `.to_string()`
+        // form borrowed the OsString as `&str` then allocated a NEW
+        // String from the borrow, doubling the heap traffic per entry.
+        // On non-UTF-8 file names (rare; can occur on Linux ext4 with
+        // legacy byte-string filenames), `into_string()` returns Err and
+        // we `continue` — same behavior as the prior `None => continue`.
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
         };
         let dst_path = dst.join(&name);
         if path.is_dir() {

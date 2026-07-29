@@ -1,5 +1,7 @@
 //! Per-platform config-dir resolution (ADR-0020 §8).
 
+use std::sync::OnceLock;
+
 // ─── ADR-0020 §8: per-platform config-dir resolution ─────────────────
 
 /// ADR-0020 §8: resolve the per-platform config dir for Voice Typer.
@@ -56,16 +58,46 @@
 /// `tauri-plugin-single-instance` gate (§12). The Tauri plugin uses
 /// the same Win32 mutex approach under the hood (different name based
 /// on the app identifier) so the two gates don't collide.
+///
+/// # ER-59: caching
+///
+/// Env vars are invariant for the process lifetime, but every call to
+/// this function re-resolved 4 `std::env::var()` lookups. Under FT-1
+/// flapping (supervisor respawn loops), `read/write_ft1_restart_counter`
+/// in `supervisor.rs` each call this 4 times, summing to ~microseconds
+/// per call but adding up. The public `config_dir()` now routes
+/// through `config_dir_cached()` (below), which uses a `OnceLock` to
+/// resolve the env vars exactly once per process. The pure
+/// `config_dir_from_env()` helper remains un-cached so unit tests can
+/// exercise the per-platform logic without polluting the process-wide
+/// cache.
 pub(crate) fn config_dir() -> std::path::PathBuf {
-    config_dir_from_env(
-        std::env::var("HOME").ok().as_deref(),
-        std::env::var("APPDATA").ok().as_deref(),
-        std::env::var("XDG_DATA_HOME").ok().as_deref(),
-        // CR-39: VOICE_TYPER_CONFIG_DIR env-var override — mirrors
-        // Python's _config_dir() resolution order (env var → legacy →
-        // platform default).
-        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
-    )
+    config_dir_cached().to_path_buf()
+}
+
+/// ER-59: process-wide cached config dir. Resolved once on first call;
+/// subsequent calls return the cached `PathBuf` via a `OnceLock`. The
+/// env vars (`HOME`, `APPDATA`, `XDG_DATA_HOME`, `VOICE_TYPER_CONFIG_DIR`)
+/// are invariant for the process lifetime, so caching is safe — a
+/// `setenv` mid-process would not be reflected, but that's never
+/// legitimate (the Python side reads env vars once at startup too).
+///
+/// Returns a `&'static Path` (the `OnceLock` holds the `PathBuf` for
+/// the process lifetime) so callers can avoid the `PathBuf` clone when
+/// they only need to read.
+fn config_dir_cached() -> &'static std::path::Path {
+    static CACHED: OnceLock<std::path::PathBuf> = OnceLock::new();
+    CACHED.get_or_init(|| {
+        config_dir_from_env(
+            std::env::var("HOME").ok().as_deref(),
+            std::env::var("APPDATA").ok().as_deref(),
+            std::env::var("XDG_DATA_HOME").ok().as_deref(),
+            // CR-39: VOICE_TYPER_CONFIG_DIR env-var override — mirrors
+            // Python's _config_dir() resolution order (env var → legacy →
+            // platform default).
+            std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
+        )
+    })
 }
 
 /// Pure form of `config_dir` for unit testing (no env-var reads).
