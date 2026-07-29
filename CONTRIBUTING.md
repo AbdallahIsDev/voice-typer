@@ -206,8 +206,39 @@ section before touching deps than to read a JSON string field.
 
 ### Pre-commit hooks
 
+The project ships TWO complementary hook systems — they do NOT conflict:
+
+1. **Husky** (`.husky/pre-commit`, auto-installed via `npm install` in
+   `voice_typer/client/`) runs `ruff --fix` + `ruff format` on staged
+   Python files, then `lint-staged` (Biome check) on staged client
+   files, then — if `pre-commit` is on PATH — defers to the
+   `pre-commit` framework for the remaining hooks (mypy, sanity
+   checks). The `command -v pre-commit` guard means contributors who
+   haven't installed the `pre-commit` framework are silently skipped
+   (no hard failure).
+2. **pre-commit framework** (`.pre-commit-config.yaml`, install
+   separately via `pip install pre-commit && pre-commit install`)
+   provides mypy, trailing-whitespace, end-of-file-fixer, check-yaml,
+   check-json, check-merge-conflict, check-added-large-files,
+   mixed-line-ending, biome-check, client-typecheck, check-branding,
+   and hotkey-reserved-sync.
+
+XS-34 (prior conflict): both systems previously wrote
+`.git/hooks/pre-commit` and whichever install ran LAST won. The fix:
+husky's pre-commit script now INVOKES `pre-commit run` (when
+available) as its final step, so both mechanisms run together —
+no install-order dependency.
+
+XS-35 (pre-push performance): `mypy` is moved to `stages: [pre-push]`
+in `.pre-commit-config.yaml` so the 2GB torch install only happens on
+explicit `pre-commit run mypy` invocation, not on every commit.
+`.husky/pre-push` uses `npm run typecheck` (cached, ~5s) instead of
+`typecheck:ci` (cache-busting `tsc -b --force`), and scopes pytest to
+`-k 'not slow and not integration' -m 'not slow' --timeout=30` so the
+typical pre-push runs in 2-3 min instead of 10-15.
+
 ```bash
-pre-commit install        # runs ruff, mypy, biome, and basic checks
+pre-commit install        # runs ruff, mypy (pre-push stage), biome, sanity
 pre-commit install --hook-type commit-msg   # if you wire commit-msg checks
 pre-commit run --all-files   # run the whole suite manually
 ```

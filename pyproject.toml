@@ -61,14 +61,36 @@ classifiers = [
     "Topic :: Accessibility",
 ]
 dependencies = [
+    # CR-DEP-1: faster-whisper is the primary ASR backend (transcription.py,
+    # parakeet_engine.py, qwen_engine.py). The <2.0 cap guards against the
+    # pre-1.0 → 1.0 API churn (the `BatchedInferencePipeline` redesign);
+    # 2.x is expected to introduce a similar breaking-change wave.
+    # The `>=1.0` floor matches the first stable release of the new API.
     "faster-whisper>=1.0,<2.0",
+    # CR-DEP-2: sounddevice is the cross-platform PortAudio binding used by
+    # audio_processor.py + microphone_watcher.py. The <1.0 cap reflects
+    # that 1.x has not been released yet (upstream is on 0.5.x); a 1.0
+    # release would signal a major API redesign that needs validation.
+    # The `>=0.5` floor matches the first release with the `Stream` callback
+    # signature we depend on.
     "sounddevice>=0.5,<1.0",
     # BUILD-N03: tighten numpy to <2.0. numpy 2.x changed the default
     # integer type on Windows and broke ABI compat with several of our
     # pinned deps (faster-whisper, sounddevice). Pin to 1.26+ which has
     # all the bugfixes we need without the 2.x breakage.
     "numpy>=1.26,<2.0",
+    # CR-DEP-3: scipy.signal is used by audio_filters/ for the resampler
+    # + biquad filters. The <2.0 cap is the standard major-version guard —
+    # scipy 2.x is not yet on any announced roadmap but the project's
+    # backward-compat policy permits breaking changes at major bumps.
+    # The `>=1.10` floor matches the first release with the `sosfiltfilt`
+    # `padtype='even'` fix we use in noise_suppressor.py.
     "scipy>=1.10,<2.0",
+    # CR-DEP-4: pyperclip is the cross-platform clipboard bridge used by
+    # clipboard.py on Linux/BSD (Win/Mac use native ctypes calls instead).
+    # The <2.0 cap guards against the upstream maintainer's announced 2.x
+    # redesign (qtpy-style plugin backends). The `>=1.8` floor matches the
+    # first release with the Wayland `wl-copy` fallback we depend on.
     "pyperclip>=1.8,<2.0",
     # CR-16: pin pystray to the 0.19 minor series. tray.py:_apply_state
     # reaches into pystray's private `_icon_handle` attribute to work
@@ -79,9 +101,29 @@ dependencies = [
     # `>=0.19,<0.20` ensures the workaround stays effective until an
     # upstream `reset_icon_handle()` API lands (TODO CR-16: file upstream
     # issue for public reset_icon_handle() API).
+    #
+    # XS-76 SUPPLY-CHAIN NOTE: pystray 0.19.5 (Dec 2022, >3 years old)
+    # is licensed LGPL-3.0-or-later and has had no upstream releases for
+    # >3 years. The LGPL §4d re-linking obligation may not be satisfied
+    # when statically bundled into the Nuitka/PyInstaller frozen binary
+    # — see `docs/migration/signing-guide.md` for the open compliance
+    # gap. Alternative libraries (e.g. `trayicon`, `system-tray`) were
+    # evaluated but lack Linux SNI support. Track upstream activity at
+    # https://github.com/moses-palmer/pystray — a fork or replacement
+    # is queued as a CR follow-up (TODO XS-76).
     "pystray>=0.19,<0.20",
     # SEC-DEP-1: floor raised to >=10.3.0 — 13 CVEs affect Pillow <10.3.0.
     "Pillow>=10.3.0,<13.0",
+    # CR-DEP-5: pynput is the cross-platform hotkey + keyboard-event
+    # listener used by keyboard_ownership.py + native_hotkeys.py.
+    # The <2.0 cap is critical: pynput 2.x (released 2024) rearchitected
+    # the listener backend — the `Listener.thread` attribute, the
+    # `keyboard.Listener._on_release` hook, and the win32 `KeyboardEvent`
+    # shape all changed. Our keyboard_ownership watchdog depends on
+    # `Listener.thread` to detect a wedged listener; a 2.x bump would
+    # silently break the watchdog (it would never fire).
+    # The `>=1.7` floor matches the first release with the `mouse.Listener`
+    # `suppress=True` flag we use for the bubble-drag capture path.
     "pynput>=1.7,<2.0",
     # S4-CR-25: transformers 5.14.1 restored ``AutoModelForTDT`` (it was
     # absent in 5.0.0–5.5.0 but is present again by 5.14.1; verified
@@ -118,25 +160,60 @@ dependencies = [
     # load crashed with ModuleNotFoundError.
     # Bumped from <1.0 to <2.0 to satisfy transformers>=5.14.1.
     "huggingface_hub>=1.24.0,<2.0",
-    # Volume ducking on Windows (pycaw + comtypes).
+    # CR-DEP-6: Volume ducking on Windows — pycaw wraps the Win32
+    # IAudioSessionManager2 COM interface (used by WinVolumeBackend to
+    # duck other apps' audio while Voice Typer is dictating).
     # Lazy-imported in WinVolumeBackend — safe on other platforms.
-    "pycaw>=20230407; sys_platform == 'win32'",
-    "comtypes>=1.1; sys_platform == 'win32'",
+    #
+    # XS-75: `<20240407` upper bound caps at the next yearly release
+    # tag. pycaw uses date-based versioning (YYYYMMDD); a calendar-bump
+    # could include COM-binding changes that break the duck-session
+    # lifecycle. Re-validate the `ISAudioSessionControl` shim on each
+    # upstream release.
+    #
+    # XS-76 SUPPLY-CHAIN NOTE: pycaw 20230407 (Apr 2023, >3 years old)
+    # has had no upstream activity for >3 years (last commit Mar 2023).
+    # MIT-licensed (no LGPL concern), but the abandonment means CVEs in
+    # the COM marshalling path would go unfixed. Track upstream at
+    # https://github.com/AndreMiras/pycaw — alternative (direct ctypes
+    # bindings to the COM interface) is queued as a CR follow-up
+    # (TODO XS-76).
+    "pycaw>=20230407,<20240407; sys_platform == 'win32'",
+    # CR-DEP-7: comtypes is the generic Python ↔ COM bridge required
+    # by pycaw (transitively) and directly by
+    # microphone_watcher_win32.py (IMMNotificationClient callback).
+    # Lazy-imported — safe on other platforms.
+    #
+    # XS-75: `<2.0` upper bound — comtypes 2.x is in active development
+    # by the upstream maintainers (github.com/enthought/comtypes) and
+    # introduces breaking changes to the `GUID` / `IUnknown` runtime
+    # coercion. The `>=1.1` floor matches the first release with the
+    # `comtypes.client.GetEvents` sink we depend on.
+    "comtypes>=1.1,<2.0; sys_platform == 'win32'",
     # Volume ducking on macOS (CoreAudio via pyobjc).
     # Lazy-imported in MacVolumeBackend — safe on other platforms.
     # pyobjc 11+ has no wheels for Python 3.10/3.11 on macOS; use 9.x floor
     # for older Python, 11.0+ for Python 3.12+ (which needs the newer ABI).
-    "pyobjc-core>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-core>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
-    "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-CoreAudio>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    #
+    # XS-75: `<12.0` upper bound on every pyobjc-* dep — pyobjc 12.x is
+    # expected to drop support for macOS 11 (Big Sur), which is still
+    # in our support matrix (see docs/PLATFORM_STATUS.md). Bump the cap
+    # ONLY after the platform-support matrix is updated. The pyobjc-*
+    # packages share a coordinated release train — all four deps MUST
+    # stay on the same major to avoid ABI mismatches at the framework-
+    # bridge boundary (pyobjc-core's `objc.pyobjc_id` ABI is consumed
+    # by every pyobjc-framework-* package).
+    "pyobjc-core>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-core>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-CoreAudio>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-CoreAudio>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # NEW-XPLAT-004: pystray on macOS uses Cocoa (AppKit) via pyobjc.
     # Without pyobjc-framework-Cocoa installed, pystray.Icon() raises
     # ImportError at runtime and the tray silently fails.  Adding the
     # explicit dep here so a fresh ``pip install voice-typer`` on
     # macOS gets a working tray out of the box.
-    "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-Cocoa>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-Cocoa>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # CoreFoundation symbols (CFRunLoopRun / CFRunLoopStop / CFRunLoopGetCurrent)
     # are used by microphone_watcher_coreaudio.py for the event-driven
     # CoreAudio device-list listener. These symbols ship inside
@@ -150,13 +227,20 @@ dependencies = [
     # told accessibility permission is missing until the native hotkey
     # listener fails at runtime. Adding the explicit dep makes the probe
     # actually work on a fresh `pip install voice-typer[macos]`.
-    "pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-ApplicationServices>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-ApplicationServices>=9.0,<12.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-ApplicationServices>=11.0,<12.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # ADR 0007: RNNoise is now a default dependency (was optional).
     # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
     # filter in the audio filter chain.
     # Excluded on macOS ARM64 (no prebuilt wheel — see deepfilternet extra).
-    "pyrnnoise>=0.4; platform_machine != 'arm64' or sys_platform != 'darwin'",
+    #
+    # XS-75: `<1.0` upper bound — pyrnnoise is a thin ctypes wrapper over
+    # the upstream RNNoise C library; a 1.0 release would signal a
+    # re-architecture (the wrapper currently exposes `RNNModel.from_file`
+    # + `RNNoise.process_frame` — a 1.0 redesign could rename either).
+    # The `>=0.4` floor matches the first release with the macOS x86_64
+    # wheel our CI matrix needs.
+    "pyrnnoise>=0.4,<1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
     # ADR-0020 §14: websockets is required for the Tauri sidecar
     # transport. The Electron path uses raw TCP and does not need this
     # dep, but it is small (~200 KB) and pure-Python, so it's safe to

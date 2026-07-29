@@ -15,6 +15,14 @@ repos:
     rev: v1.15.0
     hooks:
       - id: mypy
+        # XS-35: mypy is moved to the ``pre-push`` stage so it does NOT
+        # run on every commit (the 2GB torch download + install on first
+        # ``pre-commit run mypy`` made commit-time invocation unusable —
+        # developers would just ``--no-verify`` past it). On push, the
+        # cost is amortized across many commits and is comparable to a
+        # CI run. Contributors who want mypy on every commit can run
+        # ``pre-commit run mypy --all-files`` manually.
+        stages: [pre-push]
         files: ^voice_typer/server/
         # CR-183: pre-CR-183 this hook passed `args: [--ignore-missing-imports,
         # --no-strict-optional]` which OVERRIDES pyproject.toml's

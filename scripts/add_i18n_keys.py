@@ -87,9 +87,7 @@ def main() -> int:
             # with the dict (using English values). This happens when a
             # previously-scalar key is promoted to a nested object in
             # en.json. Existing scalar translations are NEVER overwritten.
-            loc_data, added = merge_en_into_locale(
-                en_data, loc_data, on_conflict="replace_scalar_with_dict"
-            )
+            loc_data, added = merge_en_into_locale(en_data, loc_data, on_conflict="replace_scalar_with_dict")
             save_json(loc_file, loc_data)
             print(f"  {loc}: added {len(added)} missing keys -> {loc_file.name}")
             any_added = True

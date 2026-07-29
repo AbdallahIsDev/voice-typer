@@ -189,20 +189,41 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
     # macOS workflow in CI which builds both arches then `cargo tauri build
     # --target universal-apple-darwin`.
 
-    # XPLAT-17: the base tauri.conf.json `bundle.resources` lists every
-    # platform's native binaries + both prewarm arches (a documented superset
-    # so the Windows/macOS source-inspection tests keep passing). On a Linux
-    # host only the CURRENT arch's prewarm + (for x86_64) the native
-    # linux-key-listener exist, so we override `resources` per-arch with a
-    # --config file whose array REPLACES the base (Tauri overwrites conflicting
-    # values, including arrays — verified against tauri-cli 2.11.4). aarch64
-    # omits linux-key-listener because compile_native.sh can't cross-compile it
-    # (ADR-0020). macOS/Windows build the base-listed binaries directly, so no
-    # override is needed there.
+    # XPLAT-17 / XS-28: the base tauri.conf.json `bundle.resources` lists
+    # every platform's native binaries + both prewarm arches (a documented
+    # superset so the Windows/macOS source-inspection tests keep passing).
+    # On any host only the CURRENT arch's prewarm + native key-listener
+    # exist, so we override `resources` per-arch with a --config file whose
+    # array REPLACES the base (Tauri overwrites conflicting values, including
+    # arrays — verified against tauri-cli 2.11.4). Without this override
+    # `cargo tauri build` hard-fails at resource-copy because the base list
+    # references cross-platform binaries that don't exist on the host (e.g.
+    # `prewarm-x86_64-apple-darwin` on a Windows runner). The CI workflows
+    # (`.github/workflows/tauri-{macos,windows}-build.yml`) apply the same
+    # `--config` overrides; this bash script mirrors them for local builds.
+    #
+    # Linux aarch64 omits `linux-key-listener` because compile_native.sh
+    # can't cross-compile it (ADR-0020).
+    #
+    # macOS: `tauri.macos.conf.json` lists BOTH arches' prewarm binaries
+    # because the CI workflow builds universal (`universal-apple-darwin`).
+    # This script only builds host-arch sidecar, so a single-arch local
+    # build would still fail with the universal config — local macOS dev
+    # should use `cargo tauri dev` or run the CI workflow. We DO NOT add
+    # the macOS --config here for that reason (silently breaking local
+    # single-arch builds is worse than failing loud with the base config).
     TAURI_BUILD_ARGS=(--target "$TARGET_TRIPLE")
     if [[ "$HOST_PLATFORM" == "linux" && -f "tauri.linux-${HOST_ARCH}.conf.json" ]]; then
         TAURI_BUILD_ARGS+=(--config "tauri.linux-${HOST_ARCH}.conf.json")
         echo "[build_tauri_all] Linux: applying per-arch resource override tauri.linux-${HOST_ARCH}.conf.json"
+    elif [[ "$HOST_PLATFORM" == "windows" && -f "tauri.windows-x86_64.conf.json" ]]; then
+        # XS-28: Windows host — apply the Windows-only resource override so
+        # `cargo tauri build` doesn't try to copy macOS/Linux prewarm
+        # binaries that don't exist on a Windows runner. Mirrors the
+        # `--config tauri.windows-x86_64.conf.json` flag used by
+        # `.github/workflows/tauri-windows-build.yml`.
+        TAURI_BUILD_ARGS+=(--config "tauri.windows-x86_64.conf.json")
+        echo "[build_tauri_all] Windows: applying resource override tauri.windows-x86_64.conf.json"
     fi
     cargo tauri build "${TAURI_BUILD_ARGS[@]}"
 )

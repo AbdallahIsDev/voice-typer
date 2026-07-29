@@ -1,6 +1,28 @@
 #!/usr/bin/env sh
-echo "[pre-push] Running typecheck (client)..."
-cd voice_typer/client && npm run typecheck:ci || { echo "[pre-push] typecheck FAILED"; exit 1; }
+# XS-35: pre-push hook — scoped for speed.
+#
+# The previous version ran ``npm run typecheck:ci`` (``tsc -b --force``,
+# cache-busting, 30s-2min) + the FULL pytest suite minus 5 tauri dirs
+# (10+ min for 331 files). Combined: 10-15 min, which made
+# ``git push --no-verify`` the de-facto default.
+#
+# Fixes applied:
+#   1. ``typecheck:ci`` → ``typecheck`` — uses the tsbuildinfo cache
+#      (~5s incremental on a warm tree). ``typecheck:ci`` is reserved
+#      for CI where a clean build is required; pre-push only needs to
+#      catch NEW type errors introduced by the pushed commits, which
+#      the cached check does correctly.
+#   2. pytest scope tightened: ``--timeout=30`` (was 60), ``-k 'not
+#      slow and not integration'`` (was just ``-k "not slow"``), and
+#      ``-m 'not slow'`` marker filter. Drops the typical pre-push
+#      pytest time from 10+ min to ~2-3 min for the fast unit subset.
+#      Integration tests (which hit the filesystem / network / audio
+#      devices) are deferred to CI.
+#   3. mypy moved to ``stages: [pre-push]`` in .pre-commit-config.yaml
+#      (separate change) so the 2GB torch install only happens on
+#      explicit ``pre-commit run mypy`` invocation, not on every commit.
+echo "[pre-push] Running typecheck (client, cached)..."
+cd voice_typer/client && npm run typecheck || { echo "[pre-push] typecheck FAILED"; exit 1; }
 
 echo "[pre-push] Running pytest fast subset (server)..."
 cd ../..
@@ -22,6 +44,15 @@ if [ -z "$PY_BIN" ]; then
         echo "[pre-push] No Python interpreter found; skipping pytest."
         exit 1
 fi
-"$PY_BIN" -m pytest tests/ -x -q --timeout=60 --no-cov --ignore=tests/test_noise_suppressor_resampler.py --ignore=tests/test_permissions_pyobjc_cache.py --ignore=tests/tauri/mig15 --ignore=tests/tauri/mig16 --ignore=tests/tauri/mig17 --ignore=tests/tauri/mig18 --ignore=tests/tauri/mig19 -k "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
+"$PY_BIN" -m pytest tests/ -x -q --timeout=30 --no-cov \
+        --ignore=tests/test_noise_suppressor_resampler.py \
+        --ignore=tests/test_permissions_pyobjc_cache.py \
+        --ignore=tests/tauri/mig15 \
+        --ignore=tests/tauri/mig16 \
+        --ignore=tests/tauri/mig17 \
+        --ignore=tests/tauri/mig18 \
+        --ignore=tests/tauri/mig19 \
+        -k "not slow and not integration" \
+        -m "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
 
 echo "[pre-push] All checks passed."

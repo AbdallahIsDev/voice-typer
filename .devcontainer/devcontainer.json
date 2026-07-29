@@ -20,15 +20,14 @@
       "ppa": true
     }
   },
-  "postCreateCommand": "pip install --user -e '.[test,dev]' && (cd voice_typer/client && npm ci)",
+  "postCreateCommand": "pip install --user -e '.[test,dev]' && pre-commit install && pre-commit install --hook-type pre-push && (cd voice_typer/client && npm ci)",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-python.mypy-type-checker",
         "charliermarsh.ruff",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
+        "biomejs.biome",
         "bradlc.vscode-tailwindcss",
         "ms-azuretools.vscode-docker"
       ],
@@ -40,15 +39,14 @@
           "editor.formatOnSave": true
         },
         "[typescript]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.defaultFormatter": "biomejs.biome",
           "editor.formatOnSave": true
         },
         "[typescriptreact]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.defaultFormatter": "biomejs.biome",
           "editor.formatOnSave": true
         },
         "editor.codeActionsOnSave": {
-          "source.fixAll.eslint": "explicit",
           "source.organizeImports": "explicit"
         },
         "editor.tabSize": 2,
