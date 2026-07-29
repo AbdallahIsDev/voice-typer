@@ -71,7 +71,10 @@ from voice_typer.server.server_platform import (  # noqa: F401
 from voice_typer.server.streaming import (
     StreamingTranscriptionSession,  # noqa: F401  (re-exported for tests/test_app.py monkeypatch)
 )
-from voice_typer.server.text_cleanup import clean_transcribed_text  # noqa: F401 (re-exported for tests)
+from voice_typer.server.text_cleanup import (  # noqa: F401 (re-exported for tests)
+    clean_transcribed_text,
+    configure_corrections,
+)
 from voice_typer.server.thread_registry import ThreadRegistry
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
