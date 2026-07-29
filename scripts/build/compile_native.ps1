@@ -94,117 +94,92 @@ if (-not (Test-Path $SourceFile)) {
     exit 1
 }
 
-# Try to find MSVC compiler (cl.exe)
-$clPath = $null
+# ─── Locate vcvars64.bat ────────────────────────────────────────────────────
+# CRITICAL: cl.exe cannot find windows.h (or any standard SDK header) unless
+# the INCLUDE / LIB / LIBPATH environment variables are populated first.
+# Sourcing vcvars64.bat (the VS "Developer Command Prompt" bootstrap) is the
+# ONLY correct way to set those — invoking cl.exe directly (as this script
+# did previously) fails with `fatal error C1034: windows.h: no include path
+# set` because cl.exe only knows the compiler binary's own location, not the
+# Windows SDK / MSVC headers.
+#
+# Discovery order:
+#   1. vswhere.exe — the canonical VS 2017+ discovery tool.
+#   2. Hard-coded VS 2022 / 2019 install paths (Build Tools + per-edition).
+#   3. vcvars64.bat already on PATH (rare; cl.exe would also be there).
+$vcvarsFound = $null
 
-# 1. Try vswhere (VS 2017+)
+# 1. vswhere (VS 2017+) — canonical discovery.
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (Test-Path $vswhere) {
     $vsPath = & $vswhere -latest -property installationPath
     if ($vsPath) {
-        # Common MSVC tool locations under the VS install
-        $msvcSearchPaths = @(
-            "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
-            "$vsPath\VC\Tools\MSVC\*\bin\Hostx86\x64\cl.exe",
-            "$vsPath\VC\bin\cl.exe"
-        )
-        foreach ($pattern in $msvcSearchPaths) {
-            $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) {
-                $clPath = $found.FullName
-                break
-            }
-        }
+        $candidate = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+        if (Test-Path $candidate) { $vcvarsFound = $candidate }
     }
 }
 
-# 2. Try VS Build Tools environment variables
-if (-not $clPath) {
-    # Check for VS 2022 (latest)
-    $VsDir = "${env:ProgramFiles}\Microsoft Visual Studio\2022"
-    if (-not (Test-Path $VsDir)) {
-        $VsDir = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022"
-    }
-    if (-not (Test-Path $VsDir)) {
-        $VsDir = "${env:ProgramFiles}\Microsoft Visual Studio\2019"
-    }
-    if (-not (Test-Path $VsDir)) {
-        $VsDir = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019"
-    }
-
-    if (Test-Path $VsDir) {
-        # Try the most common MSVC paths
-        foreach ($edition in @("Enterprise", "Professional", "Community", "BuildTools")) {
-            $msvcPatterns = @(
-                "$VsDir\$edition\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe",
-                "$VsDir\$edition\VC\Tools\MSVC\*\bin\Hostx86\x64\cl.exe",
-                "$VsDir\$edition\VC\bin\cl.exe"
-            )
-            foreach ($pattern in $msvcPatterns) {
-                $found = Get-ChildItem $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($found) {
-                    $clPath = $found.FullName
-                    break
-                }
-            }
-            if ($clPath) { break }
-        }
-    }
-}
-
-# 3. Fallback: check PATH for cl.exe
-if (-not $clPath) {
-    $clPath = (Get-Command "cl.exe" -ErrorAction SilentlyContinue).Source
-}
-
-if (-not $clPath) {
-    Write-Warning "[compile_native] MSVC cl.exe not found via standard paths."
-    Write-Warning "[compile_native] Attempting to use Visual Studio Developer Command Prompt..."
-
-    # Try to find and run vcvarsall.bat first, then call cl.exe
-    $vcvarsPaths = @(
+# 2. Hard-coded VS 2022 / 2019 paths (Build Tools + per-edition).
+if (-not $vcvarsFound) {
+    $vcvarsCandidates = @(
         "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        "${env:ProgramFiles}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles}\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat",
         "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
-        "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
     )
+    foreach ($v in $vcvarsCandidates) {
+        if (Test-Path $v) { $vcvarsFound = $v; break }
+    }
+}
 
-    $vcvarsFound = $null
-    foreach ($v in $vcvarsPaths) {
-        if (Test-Path $v) {
-            $vcvarsFound = $v
-            break
-        }
-    }
+if (-not $vcvarsFound) {
+    Write-Error "MSVC toolchain not found. Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
+    Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
+    exit 1
+}
 
-    if ($vcvarsFound) {
-        Write-Host "[compile_native] Found vcvars64.bat at: $vcvarsFound"
-        # Use cmd to run vcvarsall.bat then cl.exe
-        $cmd = "`"$vcvarsFound`" > nul 2>&1 && cl.exe /O2 `"$SourceFile`" /link user32.lib /out:`"$OutputExe`""
-        cmd /c $cmd 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "MSVC compilation failed with exit code $LASTEXITCODE"
-            exit 1
-        }
-    } else {
-        Write-Error "MSVC (cl.exe) not found. Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
-        Write-Error "Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
-        exit 1
-    }
-} else {
-    Write-Host "[compile_native] Using MSVC: $clPath"
-    # Build the binary directly
-    & $clPath "/O2" $SourceFile "/link" "user32.lib" "/out:$OutputExe"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "MSVC compilation failed with exit code $LASTEXITCODE"
-        exit 1
-    }
+Write-Host "[compile_native] Using vcvars64.bat: $vcvarsFound"
+
+# ─── Compile via a temp batch wrapper that sources vcvars64.bat ─────────────
+# vcvars64.bat populates INCLUDE / LIB / LIBPATH and prepends the MSVC bin
+# dir to PATH, then we chain into cl.exe. We MUST run this through cmd.exe
+# (not PowerShell's `&` invocation of cl.exe directly) because the env-var
+# setup happens in the cmd subprocess and only applies inside that process.
+#
+# Why write a temp .bat instead of `cmd /c "$vcvars && cl.exe ..."`:
+#   When PowerShell passes a single string containing multiple quote chars
+#   to `cmd /c`, cmd's quote-stripping rule (see `cmd /?` → /C) removes the
+#   FIRST and LAST quote characters from the command line, which corrupts
+#   paths containing spaces (e.g. "C:\Program Files\Microsoft Visual
+#   Studio\..."). Writing a temp batch file and invoking `cmd /c <file>`
+#   avoids the issue entirely — no string quote-stripping possible.
+$batchContent = @"
+@echo off
+call `"$vcvarsFound`" >nul
+if errorlevel 1 exit /b %errorlevel%
+cl.exe /O2 /nologo `"$SourceFile`" /link user32.lib /nologo /out:`"$OutputExe`"
+exit /b %errorlevel%
+"@
+$batchFile = Join-Path $env:TEMP "voice-typer_compile_native_$(Get-Random).bat"
+Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
+try {
+    & cmd /c $batchFile
+    $exitCode = $LASTEXITCODE
+} finally {
+    Remove-Item -Path $batchFile -Force -ErrorAction SilentlyContinue
+}
+if ($null -eq $exitCode) { $exitCode = 1 }
+if ($exitCode -ne 0) {
+    Write-Error "MSVC compilation failed with exit code $exitCode"
+    exit 1
 }
 
 # Verify output
