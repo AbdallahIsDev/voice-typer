@@ -31,6 +31,12 @@ import { mainT } from "../i18n";
 import { appendLogLine, logger, rendererErrorsLogPath } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
+import {
+	I18nChannels,
+	ModelChannels,
+	RendererChannels,
+	WindowChannels,
+} from "./channels";
 
 // XA-20-10 / NH-3: `setMainLocale` is resolved lazily inside the
 // i18n:set-locale IPC handler (via dynamic `import("../i18n")`) rather
@@ -91,11 +97,11 @@ export function scrubComponentStackPii(s: string): string {
 }
 
 export function registerWindowHandlers(): void {
-	ipcMain.handle("window:minimize", () => {
+	ipcMain.handle(WindowChannels.minimize, () => {
 		state.mainWindow?.minimize();
 	});
 
-	ipcMain.handle("window:toggle-maximize", async () => {
+	ipcMain.handle(WindowChannels.toggleMaximize, async () => {
 		const win = state.mainWindow;
 		if (!win) return false;
 
@@ -112,11 +118,11 @@ export function registerWindowHandlers(): void {
 		return win.isMaximized();
 	});
 
-	ipcMain.handle("window:close", () => {
+	ipcMain.handle(WindowChannels.close, () => {
 		state.mainWindow?.close();
 	});
 
-	ipcMain.handle("window:is-maximized", () => {
+	ipcMain.handle(WindowChannels.isMaximized, () => {
 		return state.mainWindow?.isMaximized() ?? false;
 	});
 
@@ -145,7 +151,7 @@ export function registerWindowHandlers(): void {
 	// handler was unreachable. The Tauri bridge's
 	// `openElectronLogs` impl (which invoked the Rust
 	// `open_host_logs` command) was deleted in lockstep.
-	ipcMain.handle("window:open-logs", async () => {
+	ipcMain.handle(WindowChannels.openLogs, async () => {
 		try {
 			const logDir = computeConfigDir();
 			const result = await shell.openPath(logDir);
@@ -174,7 +180,7 @@ export function registerWindowHandlers(): void {
 	// body in try/catch and return a structured `{ canceled: true,
 	// error?: string }` envelope so the renderer can show a snackbar
 	// instead of the whole app dying.
-	ipcMain.handle("model:import-dialog", async () => {
+	ipcMain.handle(ModelChannels.importDialog, async () => {
 		try {
 			const { canceled, filePaths } = await dialog.showOpenDialog({
 				title: mainT("dialog.selectModelFolder.title"),
@@ -230,7 +236,7 @@ export function registerWindowHandlers(): void {
 	// persistence is best-effort and the renderer shouldn't care if it
 	// failed.
 	ipcMain.handle(
-		"renderer:log-error",
+		RendererChannels.logError,
 		async (
 			_event,
 			payload: {
@@ -287,7 +293,7 @@ export function registerWindowHandlers(): void {
 	// The handler is async because the bubble notification uses a
 	// dynamic import (to avoid a static-import cycle in test
 	// environments that don't mock the bubble-window module).
-	ipcMain.handle("i18n:set-locale", async (_event, payload) => {
+	ipcMain.handle(I18nChannels.setLocale, async (_event, payload) => {
 		let locale: string | undefined;
 		if (typeof payload === "string") {
 			locale = payload;

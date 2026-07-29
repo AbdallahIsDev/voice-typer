@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { mainT } from "../i18n";
+import { ExportChannels } from "./channels";
 
 /**
  * R6-F9: validated format set for `history:export` and
@@ -97,9 +98,9 @@ function csvEscape(v: unknown): string {
  * Writes `content` to a sibling temp file (`<filePath>.tmp`) first,
  * then renames the temp file into place. POSIX `rename(2)` is atomic
  * (the destination is either the OLD file or the NEW file, never a
- * truncated half). On Windows where `fs.renameSync` refuses to
- * overwrite an existing destination, unlink the destination first
- * (mirrors the pattern at `logging.ts:rotateIfNeeded` lines 246-252).
+ * truncated half). Node 10+ on Windows sets `MOVEFILE_REPLACE_EXISTING`
+ * on `fs.renameSync`, so the rename overwrites the destination
+ * atomically on both platforms.
  *
  * The user-picked destination may be on a network drive, USB stick, or
  * sync-client-watched folder (Dropbox/OneDrive). A non-atomic
@@ -113,6 +114,20 @@ function csvEscape(v: unknown): string {
  * by `src-tauri/src/commands/export.rs:export_data`) and the Python
  * backend's `_secure_atomic_write`. Three-language parity for the
  * user-data export path (history, vocabulary, templates, config).
+ *
+ * FR-5 (Critical fix): the previous Windows-only implementation
+ * unlinked the destination BEFORE renaming. If `unlinkSync(filePath)`
+ * failed with anything other than ENOENT (EPERM/EACCES on a
+ * sync-client-held destination, antivirus lock, or network share ACL),
+ * the catch block deleted the NEW content's tmp file and re-threw —
+ * the user lost BOTH the pre-existing export AND the new content. The
+ * fix attempts `fs.renameSync(tmpPath, filePath)` unconditionally
+ * first (Node 10+ overwrites on both POSIX and Windows). The
+ * unlink+rename fallback runs ONLY on EEXIST/EPERM (legacy
+ * pre-Node-10 behavior or rare Windows lock that defeats
+ * MOVEFILE_REPLACE_EXISTING), and the fallback's unlink-failure path
+ * does NOT delete the tmp file — keeping it lets the user manually
+ * rename `<filePath>.tmp` to `<filePath>` for recovery.
  *
  * Exported so unit tests can exercise it directly without going
  * through the Electron-coupled `registerExportHandlers`.
@@ -139,36 +154,59 @@ export function atomicWriteFileSync(
 	} else {
 		fs.writeFileSync(tmpPath, content);
 	}
-	// POSIX `rename(2)` overwrites the destination atomically.
-	// Windows `MoveFileEx` refuses to overwrite an existing
-	// destination unless `MOVEFILE_REPLACE_EXISTING` is set,
-	// which Node's `fs.renameSync` does NOT set. Unlink the
-	// destination first on Windows so the rename succeeds.
-	if (process.platform === "win32") {
-		try {
-			fs.unlinkSync(filePath);
-		} catch (e) {
-			const code = (e as NodeJS.ErrnoException).code;
-			if (code !== "ENOENT") {
-				try {
-					fs.unlinkSync(tmpPath);
-				} catch {
-					/* best-effort cleanup */
-				}
-				throw e;
-			}
-		}
-	}
+	// FR-5: try `fs.renameSync(tmpPath, filePath)` unconditionally first.
+	// Node 10+ on Windows uses `MOVEFILE_REPLACE_EXISTING` so the rename
+	// overwrites the destination atomically (matching POSIX `rename(2)`
+	// semantics). This avoids the destination-unlink-then-rename window
+	// that, on a non-ENOENT unlink failure, used to lose BOTH the old
+	// destination AND the new tmp file.
 	try {
 		fs.renameSync(tmpPath, filePath);
+		return;
 	} catch (e) {
-		try {
-			fs.unlinkSync(tmpPath);
-		} catch {
-			/* best-effort cleanup */
+		const code = (e as NodeJS.ErrnoException).code;
+		// EEXIST/EPERM: Windows refused to overwrite the destination
+		// (legacy pre-Node-10 behavior, or a sync-client/antivirus lock
+		// that defeats MOVEFILE_REPLACE_EXISTING). Fall through to the
+		// unlink+rename fallback. Any other error (ENOSPC, ENOENT on the
+		// tmp, EACCES on the parent dir) is unrecoverable — clean up the
+		// tmp file and re-throw (the user has no way to recover it).
+		if (code !== "EEXIST" && code !== "EPERM") {
+			try {
+				fs.unlinkSync(tmpPath);
+			} catch {
+				/* best-effort cleanup */
+			}
+			throw e;
 		}
-		throw e;
+		// Fall through to the unlink+rename fallback below.
 	}
+	// Fallback: unlink the destination first, then retry the rename.
+	// The unlink-then-rename window is racy on Windows if another
+	// process holds the file open, but at this point the atomic rename
+	// already failed — this is the best-effort fallback.
+	try {
+		fs.unlinkSync(filePath);
+	} catch (e) {
+		const code = (e as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT") {
+			// FR-5: do NOT unlink `tmpPath` here. The destination unlink
+			// failed (EPERM/EACCES), so the destination may still exist
+			// — but the NEW content's tmp file is the user's lifeline.
+			// Throwing without deleting tmp lets the user manually
+			// rename `<filePath>.tmp` → `<filePath>` for recovery,
+			// preserving the new export content even though the atomic
+			// swap failed.
+			throw e;
+		}
+		// ENOENT on destination unlink is fine — the destination didn't
+		// exist, so the retry rename below will succeed atomically.
+	}
+	// FR-5: again, do NOT unlink `tmpPath` here — keep it so the
+	// user can manually rename it for recovery. The destination may
+	// have already been unlinked by the fallback above, so losing
+	// the tmp file too would be unrecoverable.
+	fs.renameSync(tmpPath, filePath);
 }
 
 /**
@@ -183,7 +221,7 @@ export function _atomicWriteTempPath(filePath: string): string {
 export function registerExportHandlers(): void {
 	// ── History export ──────────────────────────────────────────────
 	ipcMain.handle(
-		"history:export",
+		ExportChannels.history,
 		async (
 			_event,
 			{
@@ -248,7 +286,7 @@ export function registerExportHandlers(): void {
 
 	// ── Vocabulary export ──────────────────────────────────────────
 	ipcMain.handle(
-		"vocabulary:export",
+		ExportChannels.vocabulary,
 		async (
 			_event,
 			{
@@ -318,7 +356,7 @@ export function registerExportHandlers(): void {
 	// of access) and Art. 20 (right to data portability).  This handler
 	// writes the templates list to a JSON file chosen by the user.
 	ipcMain.handle(
-		"templates:export",
+		ExportChannels.templates,
 		async (_event, { data }: { data: unknown }) => {
 			// GT-A3-9: wrap the ENTIRE handler body in try/catch.
 			try {
@@ -365,7 +403,7 @@ export function registerExportHandlers(): void {
 	// backend's get_config handler (SEC-003) so they don't leak via
 	// this export path.
 	ipcMain.handle(
-		"config:export",
+		ExportChannels.config,
 		async (_event, { data }: { data: unknown }) => {
 			// GT-A3-9: wrap the ENTIRE handler body in try/catch.
 			try {

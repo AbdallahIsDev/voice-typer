@@ -32,6 +32,7 @@ import {
 	resetSavedBubblePosition,
 	showBubbleWindow,
 } from "../windows/bubble-window";
+import { BubbleChannels } from "./channels";
 
 // Bubble resize bounds: min/max resize constraints for the bubble pill. The
 // renderer's auto-resize useLayoutEffect measures the pill content and
@@ -110,7 +111,7 @@ export function registerBubbleHandlers(): void {
 	// hostile renderer) would have slipped past `tsc` and crashed the
 	// main process when destructuring `undefined`. The runtime checks
 	// silently drop bad payloads instead.
-	ipcMain.on("bubble:move-by", (event, payload: unknown) => {
+	ipcMain.on(BubbleChannels.moveBy, (event, payload: unknown) => {
 		if (!assertFromBubble(event)) return;
 		if (typeof payload !== "object" || payload === null) return;
 		const { deltaX, deltaY } = payload as Record<string, unknown>;
@@ -153,7 +154,7 @@ export function registerBubbleHandlers(): void {
 	// draggable: boolean)` annotation was compile-time only; a
 	// non-boolean payload would have silently set `bubbleDraggable`
 	// to a string/object and then echoed it back to the bubble.
-	ipcMain.on("bubble:draggable", (_event, payload: unknown) => {
+	ipcMain.on(BubbleChannels.draggable, (_event, payload: unknown) => {
 		// The draggable toggle is a config value that BOTH the main window
 		// (Settings page, via window.bubble.setDraggable) and the bubble
 		// renderer need to sync, so it is NOT restricted to the bubble frame.
@@ -163,7 +164,7 @@ export function registerBubbleHandlers(): void {
 		const draggable = payload;
 		state.bubbleDraggable = draggable;
 		if (state.bubbleWindow && !state.bubbleWindow.isDestroyed()) {
-			state.bubbleWindow.webContents.send("bubble:draggable", draggable);
+			state.bubbleWindow.webContents.send(BubbleChannels.draggable, draggable);
 		}
 	});
 
@@ -179,7 +180,7 @@ export function registerBubbleHandlers(): void {
 	// Runtime-`typeof`-narrow the payload. A malformed (or hostile)
 	// payload could previously crash `clampBubbleSize` by passing
 	// `undefined`; the runtime check drops it instead.
-	ipcMain.on("bubble:resize", (event, payload: unknown) => {
+	ipcMain.on(BubbleChannels.resize, (event, payload: unknown) => {
 		if (!assertFromBubble(event)) return;
 		if (typeof payload !== "object" || payload === null) return;
 		const { width, height } = payload as Record<string, unknown>;
@@ -195,7 +196,7 @@ export function registerBubbleHandlers(): void {
 		});
 	});
 
-	ipcMain.on("bubble:show-from-renderer", (event) => {
+	ipcMain.on(BubbleChannels.showFromRenderer, (event) => {
 		// SEC-016: bubble show/hide from the bubble's own UI is allowed;
 		// the main window uses `set_config` (allowlisted) for global toggle.
 		if (!assertFromBubble(event)) return;
@@ -209,7 +210,7 @@ export function registerBubbleHandlers(): void {
 	// the main process forwards it to the Python backend as the
 	// allowlisted `toggle_dictation` command. SEC-016: restricted to the
 	// bubble frame so only the bubble can trigger dictation this way.
-	ipcMain.on("bubble:toggle-dictation", (event) => {
+	ipcMain.on(BubbleChannels.toggleDictation, (event) => {
 		if (!assertFromBubble(event)) return;
 		// `toggle_dictation` is in ALLOWED_COMMANDS, so this is a
 		// sanctioned backend call (never an arbitrary command).
@@ -266,12 +267,12 @@ export function registerBubbleHandlers(): void {
 	// `applyBubblePosition` and silently ignored by the inner
 	// `if (position === "top" || position === "bottom")` guard.
 	// The runtime check makes the drop explicit at the boundary.
-	ipcMain.on("bubble:set-position", (_event, payload: unknown) => {
+	ipcMain.on(BubbleChannels.setPosition, (_event, payload: unknown) => {
 		if (payload !== "top" && payload !== "bottom") return;
 		applyBubblePosition(payload);
 	});
 
-	ipcMain.on("bubble:ready", (event) => {
+	ipcMain.on(BubbleChannels.ready, (event) => {
 		// SEC-016: only the bubble window signals readiness.
 		if (!assertFromBubble(event)) return;
 		log.warn("[BUBBLE] renderer reports ready");
@@ -287,7 +288,7 @@ export function registerBubbleHandlers(): void {
 	// plays its exit animation and the rapid-toggle guard correctly
 	// cancels any in-flight show. SEC-016: restricted to the bubble
 	// frame so only the bubble can dismiss itself.
-	ipcMain.on("bubble:dismiss", (event) => {
+	ipcMain.on(BubbleChannels.dismiss, (event) => {
 		if (!assertFromBubble(event)) return;
 		hideBubbleWindow();
 	});
@@ -304,7 +305,7 @@ export function registerBubbleHandlers(): void {
 	// cleared the slot, this event becomes a no-op (and vice versa).
 	// SEC-016: restricted to the bubble frame so a compromised main
 	// renderer can't fire a fake "animation complete" signal.
-	ipcMain.on("bubble:hidden", (event) => {
+	ipcMain.on(BubbleChannels.hidden, (event) => {
 		if (!assertFromBubble(event)) return;
 		const cb = consumeHideAnimationCallback();
 		if (cb) cb();

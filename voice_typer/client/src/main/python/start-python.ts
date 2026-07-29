@@ -168,6 +168,28 @@ export function startPython() {
 			// Non-zero exit code = crash. Shut down Electron so the user
 			// isn't left with a broken UI that spams TCP reconnect errors
 			// (ENOBUFS on Windows).
+			// FR-32: surface a user-visible error dialog before quitting so
+			// the user has an actionable message instead of a silent app
+			// exit. Distinguish `code === null` (POSIX signal-based exit,
+			// e.g. SIGSEGV/SIGABRT — `null !== 0` evaluates true, so
+			// signal-based crashes used to silently fall through this
+			// branch with no distinguishing message) from `code !== 0`
+			// (numeric exit) with separate message bodies so signal
+			// diagnostics are not lost. The main i18n bundle doesn't ship
+			// `dialog.pythonCrash.*` keys, so the strings are hardcoded
+			// English — matching the existing `tcpConnect` startup-timeout
+			// dialog (tcp-connect.ts:64-72) and the `proc.on("error")`
+			// spawn-failure dialog (below) which also hardcode English.
+			const crashTitle = "Python backend crashed";
+			const crashBody =
+				code === null
+					? "Voice Typer's Python backend was terminated by a signal (likely SIGSEGV or SIGABRT) and will now exit.\n\nPlease check the logs and try again."
+					: `Voice Typer's Python backend exited unexpectedly with code ${code} and will now exit.\n\nPlease check the logs and try again.`;
+			try {
+				dialog.showErrorBox(crashTitle, crashBody);
+			} catch {
+				// dialog may not be available in headless mode
+			}
 			state.pythonProcess = null;
 			state.tcpSocket = null;
 			state._tcpAuthed = false;

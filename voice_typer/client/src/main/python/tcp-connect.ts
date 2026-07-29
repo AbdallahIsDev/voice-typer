@@ -14,6 +14,7 @@ import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
 import { log } from "../logging";
 import { state } from "../state";
 import { createWindows } from "../windows";
+import { PythonChannels } from "../ipc/channels";
 import { broadcastToMainWindow } from "../windows/main-window";
 import { handleMessage } from "./handle-message";
 import { sendToPython } from "./send-to-python";
@@ -76,6 +77,13 @@ export function tcpConnect(port: number): void {
 
 	function tryConnect(): void {
 		const client = new net.Socket();
+		// DJ-80: disable Nagle's algorithm so small push events
+		// (bubble_level at 15-50 Hz, heartbeat_ack) are not
+		// coalesced into larger segments — eliminates up to 40ms
+		// of per-write latency on the waveform-bubble hot path.
+		// The matching server-side setsockopt(TCP_NODELAY) lives
+		// in transport_tcp.py:_handle_tcp_connection.
+		client.setNoDelay(true);
 		// CRITICAL: do NOT set `tcpSocket = client` here.  Setting it
 		// before the socket is connected and authed means sendToPython()
 		// would write to the unconnected socket; Node.js buffers those
@@ -142,7 +150,7 @@ export function tcpConnect(port: number): void {
 			// TCP drops that don't warrant a full process restart.)
 			if (state._hadConnectedBefore) {
 				// GT-A3-8: route through broadcastToMainWindow.
-				broadcastToMainWindow("python-event", {
+				broadcastToMainWindow(PythonChannels.event, {
 					type: "reconnected",
 					_session_nonce: state.sessionNonce,
 				});
@@ -264,30 +272,40 @@ export function tcpConnect(port: number): void {
 			// STALE socket close (e.g. an old retry-generation socket finishing
 			// TCP teardown after a newer socket already connected) would wipe
 			// the live socket's in-flight partial frame.
+			//
+			// FR-30: the heartbeat-interval clear and pending-request reject
+			// loop were left UNCONDITIONAL in the GT-44 fix. A stale socket
+			// closing AFTER a newer socket had installed a heartbeat + pending
+			// requests would wipe the live socket's heartbeat (→ Python-side
+			// heartbeat watchdog fires after ~120s → Python exits) AND reject
+			// the live socket's in-flight IPC calls. Scoping them to
+			// `state.tcpSocket === client` (matching the GT-44 pattern for
+			// buffer/socket/auth) ensures only the owning socket's teardown
+			// releases these resources.
 			if (state.tcpSocket === client) {
 				state.tcpBuffer = "";
 				state.tcpSocket = null;
 				state._tcpAuthed = false;
-			}
-			// RW-10: stop the heartbeat interval — the socket is
-			// dead, so further sendToPython() calls would just
-			// queue up rejected promises.  A fresh interval is
-			// started in the connect callback when the next
-			// retry succeeds.
-			if (state.heartbeatInterval) {
-				clearInterval(state.heartbeatInterval);
-				state.heartbeatInterval = null;
-			}
-			// SEC-022: reject all outstanding pendingRequests so the UI
-			// doesn't hang forever. Without this, every `await
-			// window.electronAPI.python(...)` would leak when the socket
-			// died - the renderer's loading spinners would never resolve.
-			const closeErr = state._relaunching
-				? new Error("Application is restarting")
-				: new Error("Python socket closed");
-			for (const [id, entry] of state.pendingRequests) {
-				state.pendingRequests.delete(id);
-				entry.reject(closeErr);
+				// RW-10: stop the heartbeat interval — the socket is
+				// dead, so further sendToPython() calls would just
+				// queue up rejected promises.  A fresh interval is
+				// started in the connect callback when the next
+				// retry succeeds.
+				if (state.heartbeatInterval) {
+					clearInterval(state.heartbeatInterval);
+					state.heartbeatInterval = null;
+				}
+				// SEC-022: reject all outstanding pendingRequests so the UI
+				// doesn't hang forever. Without this, every `await
+				// window.electronAPI.python(...)` would leak when the socket
+				// died - the renderer's loading spinners would never resolve.
+				const closeErr = state._relaunching
+					? new Error("Application is restarting")
+					: new Error("Python socket closed");
+				for (const [id, entry] of state.pendingRequests) {
+					state.pendingRequests.delete(id);
+					entry.reject(closeErr);
+				}
 			}
 			// If a newer retry generation is active, stop retrying.
 			if (retryGen !== state._tcpRetryGeneration) return;

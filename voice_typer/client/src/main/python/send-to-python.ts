@@ -222,9 +222,22 @@ export function sendToPython(
 			if (state.pendingRequests.has(id)) {
 				state.pendingRequests.delete(id);
 				const cmd = String(msg?.type ?? "unknown").trim();
-				reject(
-					new Error(`Timeout after ${timeoutMs / 1000}s for command: ${cmd}`),
+				// FR-31: attach a typed `code = "timeout"` property to
+				// the Error so downstream consumers (the
+				// `python-call-handler` IPC bridge) can branch on the
+				// error class WITHOUT regex-matching the human-readable
+				// message. The previous contract was a `/timeout/i`
+				// regex on the message string, which silently broke if
+				// the message wording ever changed (localization,
+				// rewording, unit change from seconds to ms). The
+				// `code` property mirrors the existing pattern at
+				// `handle-message.ts:68-72` where Python-side error
+				// codes are attached as `err.code`.
+				const err = new Error(
+					`Timeout after ${timeoutMs / 1000}s for command: ${cmd}`,
 				);
+				(err as Error & { code: string }).code = "timeout";
+				reject(err);
 			}
 		}, timeoutMs);
 		state.pendingRequests.set(id, {

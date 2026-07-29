@@ -88,11 +88,20 @@ describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => 
 // the hide-callback slot unconditionally (not just when _hideTimeout is set).
 // The old removeAllListeners("bubble:hidden") global side-effect was
 // replaced by clearCurrentHideAnimationCallback() in FZ-13.
+//
+// DR-7 update: `showBubbleWindow` / `hideBubbleWindow` were extracted
+// from `bubble-window.ts` into `windows/bubble/show-hide.ts`. The
+// `bubble-window.ts` file is now a thin re-export aggregator. The
+// source-text inspection below reads from the new home of
+// `showBubbleWindow`; the second test (no ipcMain in bubble-window.ts)
+// still reads `bubble-window.ts` because the re-export aggregator must
+// stay free of `electron.ipcMain` imports too.
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", () => {
 	it("source: clearCurrentHideAnimationCallback() appears in showBubbleWindow body", () => {
-		const src = readSrc("../windows/bubble-window.ts");
+		// DR-7: showBubbleWindow moved to ./bubble/show-hide.ts.
+		const src = readSrc("../windows/bubble/show-hide.ts");
 		const showIdx = src.indexOf("export function showBubbleWindow");
 		expect(showIdx).toBeGreaterThan(-1);
 		// Slice from showBubbleWindow to hideBubbleWindow — that's

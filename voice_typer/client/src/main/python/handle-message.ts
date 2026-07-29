@@ -24,6 +24,8 @@ import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
 // GT-A3-8: broadcastToMainWindow imported directly from main-window
 // (windows/index.ts is owned by another sub-agent and doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
+import { BubbleChannels, PythonChannels } from "../ipc/channels";
+import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
 
@@ -111,16 +113,16 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			log.info(
 				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
 			);
-			state.bubbleWindow?.webContents.send("bubble:set-state", state_);
+			state.bubbleWindow?.webContents.send(BubbleChannels.setState, state_);
 		} else if (msg.type === "bubble_level") {
-			state.bubbleWindow?.webContents.send("bubble:level", msg.data);
+			state.bubbleWindow?.webContents.send(BubbleChannels.level, msg.data);
 		} else if (msg.type === "bubble_config") {
 			// UX-10: bubble-relevant config (bubble_behavior /
 			// bubble_click_to_toggle / bubble_mic_button) pushed from the
 			// Python backend so the sandboxed bubble renderer (which has
 			// no get_config) knows whether to show its mic button.
 			state.bubbleWindow?.webContents.send(
-				"bubble:config",
+				BubbleChannels.config,
 				typeof msg.data === "object" && msg.data !== null
 					? (msg.data as Record<string, unknown>)
 					: {},
@@ -156,6 +158,15 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			sendToPython({ type: "relaunch_ack" }).catch(() => {});
 			relaunchApp();
 		}
+		// ER-22: bubble-only events (bubble_show, bubble_hide,
+		// bubble_set_state, bubble_level, bubble_config) were handled
+		// above and sent to the bubble window exclusively.  They must
+		// NOT be broadcast to the main window — the main renderer has
+		// no handlers for them, and bubble_level (15-50 Hz) would waste
+		// IPC throughput.
+		if (typeof msg.type === "string" && BUBBLE_ONLY_TYPES.has(msg.type)) {
+			return;
+		}
 		// SEC-029: tag each python-event with a per-session nonce so the
 		// renderer can detect replayed frames from an unauthenticated TCP
 		// attacker (SEC-018). The nonce is generated once per Electron
@@ -172,6 +183,6 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// GT-A3-8: route through broadcastToMainWindow instead of calling
 		// webContents.send directly. Centralizes CR-28 pythonReady flip +
 		// destroyed-window guard.
-		broadcastToMainWindow("python-event", msg);
+		broadcastToMainWindow(PythonChannels.event, msg);
 	}
 }

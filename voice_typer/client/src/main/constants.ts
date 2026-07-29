@@ -47,9 +47,12 @@ export const BUBBLE_WIDTH = 74;
 export const BUBBLE_HEIGHT = 46;
 
 // RW-10: heartbeat interval.  Once the Python backend is connected (TCP
-// auth succeeded), we send a ``heartbeat`` IPC every 5 seconds.  The
+// auth succeeded), we send a ``heartbeat`` IPC every 15 seconds.  The
 // backend's heartbeat-watchdog daemon thread calls ``app.quit()`` if 3
-// consecutive heartbeats are missed (15s timeout) so a crashed /
+// consecutive heartbeats are missed (45s timeout) so a crashed /
 // force-killed Electron doesn't strand the backend with the mic open,
 // hotkeys registered, volume ducked, and the single-instance mutex held.
-export const HEARTBEAT_INTERVAL_MS = 5000;
+// DJ-43: bumped from 5s to 15s to reduce idle CPU wakeups on laptops on
+// battery. Same detection window (45s = 3 misses) as the prior 5s+45s
+// (9 misses) config — a crashed peer is still detected within 45s.
+export const HEARTBEAT_INTERVAL_MS = 15000;

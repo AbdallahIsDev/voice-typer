@@ -30,6 +30,7 @@ import { ipcMain } from "electron";
 import { logger } from "../logging";
 import { sendToPython } from "../python";
 import { state } from "../state";
+import { PythonChannels } from "./channels";
 
 /**
  * Structured error codes for the `python-call` envelope.
@@ -63,7 +64,7 @@ const ERROR_MESSAGES: Record<PythonCallErrorCode, string> = {
 
 export function registerPythonCallHandler(): void {
 	ipcMain.handle(
-		"python-call",
+		PythonChannels.call,
 		async (event, msg: Record<string, unknown>): Promise<unknown> => {
 			const cmd =
 				msg && typeof msg === "object" && "type" in msg
@@ -93,7 +94,18 @@ export function registerPythonCallHandler(): void {
 				return await sendToPython(msg, senderId);
 			} catch (err) {
 				const errMsg = (err as Error).message ?? String(err);
-				const isTimeout = /timeout/i.test(errMsg);
+				// FR-31: classify timeouts via the typed `err.code`
+				// property set by `sendToPython` instead of regex-
+				// matching the human-readable message string. The
+				// `code` property is stable across message rewording,
+				// localization, and unit changes (the previous
+				// `/timeout/i` regex silently broke if the message
+				// ever changed). Falls back to message regex ONLY if
+				// the code is missing (defense-in-depth for callers
+				// that throw timeout-shaped Errors without setting
+				// the code).
+				const errCode = (err as { code?: string }).code;
+				const isTimeout = errCode === "timeout" || /timeout/i.test(errMsg);
 				const code: PythonCallErrorCode = isTimeout
 					? "command_timeout"
 					: "command_failed";
