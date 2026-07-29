@@ -340,10 +340,33 @@ export function usePython() {
 			// imposed by the Electron main / Rust host. The underlying
 			// promise may still resolve later; the caller sees the timeout
 			// rejection first.
-			const result = (await withCommandTimeout(
-				api.call({ type, data }),
-				type,
-			)) as Record<string, unknown>;
+			//
+			// XZ-R16-03: Tauri/Electron error-envelope normalization. On
+			// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)
+			// when the Rust `dispatch` command returns an Err — the host's
+			// `e.to_string()` becomes the rejection value verbatim. Callers
+			// that guard with `err instanceof Error ? err.message : String(err)`
+			// work, but callers that do `err.message` directly
+			// (e.g. `Microphone.tsx:278`, `lib/utils/models.ts:252`) read
+			// `undefined` and lose the server error message. We wrap the
+			// `await withCommandTimeout` call in try/catch and re-throw:
+			//   - Error instances propagate unchanged (no double-wrapping);
+			//   - string rejections are normalized into `new Error(string)`;
+			//   - other shapes (numbers, objects) become `new Error("unknown IPC error")`.
+			// The catch ALSO swallows the post-rejection envelope checks
+			// below — on Tauri the await throws before we ever inspect the
+			// resolved value (the in-code `_error`/`type:"error"` checks
+			// are Electron-path-only, see the comment below).
+			let result: Record<string, unknown>;
+			try {
+				result = (await withCommandTimeout(
+					api.call({ type, data }),
+					type,
+				)) as Record<string, unknown>;
+			} catch (err) {
+				if (err instanceof Error) throw err;
+				throw new Error(typeof err === "string" ? err : "unknown IPC error");
+			}
 			// NEW-IPC-107 (d-review NEW-IPC-007): handle BOTH error
 			// envelope shapes that can flow back over the Electron
 			// path, surfacing each as a real JS Error so callers
@@ -439,7 +462,7 @@ export function usePython() {
  *
  * NH-32: the first overload is now generic AND narrows ``data`` to the
  * per-event payload shape declared in ``types/ipc/push_events.ts`` (e.g.
- * ``TranscriptionFinalEvent.data: { text: string; duration_ms?: number }``).
+ * ``TranscriptionFinalEvent.data: { text: string }``).
  * For events with NO ``data`` field (e.g. ``RecordingStartedEvent``),
  * ``ExtractEventData<K>`` resolves to ``undefined``, so the handler is
  * typed as ``(data?: undefined) => ...`` — callers that ignore ``data``
@@ -561,9 +584,31 @@ export function usePythonEvent(
 				// without `data` simply yield `undefined`,
 				// matching the prior `EventCallback`-based
 				// behaviour.
-				currentCleanup = handlerRef.current(
-					(event as { data?: Record<string, unknown> }).data,
-				);
+				//
+				// XZ-R16-05: wrap the user-supplied handler in
+				// try/catch so a throwing handler doesn't escape
+				// into the Tauri/Electron dispatch loop. Previously
+				// an exception in `handlerRef.current(...)` would
+				// bubble up through `api.onEvent`'s callback into
+				// the underlying event-listener dispatch (Tauri's
+				// `listen` invoker or Electron's IPC dispatcher),
+				// which either re-throws (Electron → unhandled
+				// exception in the renderer) or swallows with a
+				// generic warning (Tauri). Worse, the assignment to
+				// `currentCleanup` never ran, so the stale cleanup
+				// from the PREVIOUS event persisted — the next
+				// event's `runCleanup()` would call the wrong
+				// (stale) cleanup function. We log the error and
+				// reset `currentCleanup` to `undefined` so the next
+				// event starts from a clean slate.
+				try {
+					currentCleanup = handlerRef.current(
+						(event as { data?: Record<string, unknown> }).data,
+					);
+				} catch (err) {
+					console.error("usePythonEvent handler threw:", err);
+					currentCleanup = undefined;
+				}
 			}
 		});
 

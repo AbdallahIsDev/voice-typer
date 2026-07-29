@@ -45,8 +45,8 @@ import {
 	getModifierCodeMap,
 	hotkeyCaptureReducer,
 	IS_MAC,
-	KEY_CODE_TO_PYNPUT,
 	initialHotkeyCaptureState,
+	KEY_CODE_TO_PYNPUT,
 	tryCommitHotkey,
 } from "./hotkey-utils";
 

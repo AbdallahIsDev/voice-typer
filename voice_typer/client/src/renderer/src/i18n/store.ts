@@ -21,12 +21,12 @@
 // but whose identity is stable) plus a small mutator for ``_currentLocale``
 // (which IS reassigned on locale switch).
 
-import { SUPPORTED_LOCALES, type Locale } from "./locale";
+import { notifyLocaleSubscribers } from "./hooks";
+import { type Locale, SUPPORTED_LOCALES } from "./locale";
+import { pushLocaleToMainProcess, pushLocaleToPythonBackend } from "./push";
+import { isRtlLocale } from "./rtl";
 // ER-65: ar/de/es/fr/hi/ru/zh dynamically imported via ensureLocaleLoaded()
 import en from "./translations/en.json";
-import { isRtlLocale } from "./rtl";
-import { notifyLocaleSubscribers } from "./hooks";
-import { pushLocaleToMainProcess, pushLocaleToPythonBackend } from "./push";
 
 type TranslationDict = Record<string, unknown>;
 

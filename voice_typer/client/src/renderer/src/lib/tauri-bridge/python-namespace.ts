@@ -58,6 +58,19 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// status stays "connected" while the sidecar is dead, and the
 		// user sees a frozen UI with no feedback.
 		//
+		// XZ-R16-02: when `supervisor_relaunching` carries
+		// `reason: "backoff_exhausted"` (emitted by `supervisor.rs:495`
+		// right before the full-app `app.restart()`), synthesize an
+		// `error` event instead of a `reconnecting` event — the
+		// supervisor has given up retrying and the renderer must flip
+		// to `"disconnected"` with a user-facing error message rather
+		// than staying stuck on the transient `"restarting"` UI. The
+		// `useConnection` `error` handler is enhanced to also call
+		// `setConnectionStatus("disconnected")` when the message
+		// matches the respawn-exhausted sentinel so the user sees the
+		// "Lost connection" screen with the cause instead of an
+		// indefinite "Restarting…" banner.
+		//
 		// BG-85: the handlers below used to cast the synthesized
 		// event via `as unknown as PythonPushEvent` because the
 		// `PythonPushEvent` union previously lacked `ReconnectingEvent`
@@ -77,10 +90,43 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 			);
 			const supervisorRelaunching = makeListener<PythonPushEvent>(
 				(handler) =>
-					tauri.event.listen("supervisor_relaunching", () => {
+					tauri.event.listen("supervisor_relaunching", (e) => {
+						// XZ-R16-02: inspect the reason payload to distinguish
+						// a transient relaunch (status="restarting") from a
+						// terminal exhaustion (status="disconnected" with a
+						// user-facing error). The supervisor emits
+						// `{"reason": "backoff_exhausted"}` from
+						// `supervisor.rs:495` immediately before calling
+						// `app.restart()`. Other reason values (e.g.
+						// `"tcp_disconnected"`, `"ws_closed"`) indicate a
+						// transient relaunch that should keep the UI in the
+						// `"restarting"` state.
+						const payload = (e.payload ?? {}) as { reason?: string };
+						const reason =
+							typeof payload?.reason === "string" ? payload.reason : "";
+						if (reason === "backoff_exhausted") {
+							const event: PythonPushEvent = {
+								type: "error",
+								data: {
+									code: "internal_error" as never,
+									// Sentinel: useConnection's `error` handler
+									// checks for this exact substring to flip
+									// `connectionStatus` to `"disconnected"`.
+									// Kept as a plain English string (no i18n
+									// yet) because the hook doesn't currently
+									// use the translation system; a future
+									// i18n pass can swap it for
+									// `t("connection.respawnFailed")` once the
+									// key is added to the locale files.
+									message: "respawn exhausted",
+								},
+							};
+							handler(event);
+							return;
+						}
 						const event: PythonPushEvent = {
 							type: "reconnecting",
-							data: { reason: "supervisor_relaunching" },
+							data: { reason: reason || "supervisor_relaunching" },
 						};
 						handler(event);
 					}),
@@ -97,10 +143,63 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 					}),
 				callback,
 			);
+			// XZ-R16-02: also listen for the circuit-breaker event
+			// emitted by `supervisor.rs:207-221` when the disk-
+			// persisted restart counter reaches
+			// ``MAX_RESTART_ATTEMPTS``. The supervisor stops
+			// retrying and emits ``supervisor_failed`` with
+			// ``reason: "circuit_breaker_tripped"`` plus a
+			// user-facing reinstall prompt in ``message``. The
+			// renderer must transition to the terminal
+			// ``"disconnected"`` state (with the supervisor's
+			// message as ``lastError``) so the user sees the
+			// "Lost connection" screen with the reinstall
+			// prompt, instead of staying stuck on the
+			// transient ``"restarting"`` banner. We synthesise
+			// the same ``"respawn exhausted"`` sentinel
+			// substring so ``useConnection``'s ``error`` handler
+			// flips the connection status — the supervisor's
+			// ``message`` field is appended so the user-facing
+			// text in ``lastError`` carries the reinstall
+			// instructions verbatim.
+			const supervisorFailed = makeListener<PythonPushEvent>(
+				(handler) =>
+					tauri.event.listen("supervisor_failed", (e) => {
+						const payload = (e.payload ?? {}) as {
+							reason?: string;
+							message?: string;
+							restart_count?: number;
+						};
+						const supervisorMessage =
+							typeof payload?.message === "string" ? payload.message : "";
+						const event: PythonPushEvent = {
+							type: "error",
+							data: {
+								code: "internal_error" as never,
+								// Sentinel: useConnection's `error`
+								// handler checks for the
+								// ``"respawn exhausted"``
+								// substring to flip
+								// ``connectionStatus`` to
+								// ``"disconnected"``. The
+								// supervisor's user-facing
+								// ``message`` (reinstall prompt)
+								// is appended so ``lastError``
+								// surfaces the actionable text.
+								message: supervisorMessage
+									? `respawn exhausted: ${supervisorMessage}`
+									: "respawn exhausted",
+							},
+						};
+						handler(event);
+					}),
+				callback,
+			);
 			return () => {
 				mainListener();
 				supervisorRelaunching();
 				supervisorReconnected();
+				supervisorFailed();
 			};
 		},
 	};

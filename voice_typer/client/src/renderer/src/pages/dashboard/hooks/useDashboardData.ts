@@ -21,9 +21,8 @@ import { usePythonEvent } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
-
-import { computeDailyActivity, computeStreaks } from "../lib/streaks";
 import type { DashboardData } from "../lib/streaks";
+import { computeDailyActivity, computeStreaks } from "../lib/streaks";
 
 /**
  * Arguments for {@link useDashboardData}.

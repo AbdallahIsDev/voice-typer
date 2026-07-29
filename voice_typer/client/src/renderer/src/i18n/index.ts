@@ -20,42 +20,26 @@
 // The auto-call is idempotent — subsequent calls (from ``main.tsx``
 // or tests) are no-ops.
 
-import { SUPPORTED_LOCALES, detectBrowserLocale, type Locale } from "./locale";
+import { detectBrowserLocale, type Locale, SUPPORTED_LOCALES } from "./locale";
 import { isRtlLocale } from "./rtl";
-import { ensureLocaleLoaded, _setCurrentLocale } from "./store";
+import { _setCurrentLocale, ensureLocaleLoaded } from "./store";
 
 // ── Public API re-exports ────────────────────────────────────────
 
-// locale.ts — Locale type, SUPPORTED_LOCALES, labels, browser-locale detection.
-export {
-	SUPPORTED_LOCALES,
-	getLocaleLabel,
-	detectBrowserLocale,
-} from "./locale";
-export type { Locale } from "./locale";
-
-// rtl.ts — RTL helpers (DR-9 1-N Finding 7: extracted for layout-component reuse).
-export { RTL_LOCALES, isRtlLocale } from "./rtl";
-
-// store.ts — translation state container + locale orchestrator.
-export {
-	getLocale,
-	setLocale,
-	registerTranslations,
-	ensureLocaleLoaded,
-} from "./store";
-
-// translate.ts — translation + pluralization functions.
-export { t, tChoice } from "./translate";
-
 // hooks.ts — React hooks + subscriber registry.
 export {
+	getLocaleSnapshot,
+	subscribeLocale,
 	useT,
 	useTChoice,
-	subscribeLocale,
-	getLocaleSnapshot,
 } from "./hooks";
-
+export type { Locale } from "./locale";
+// locale.ts — Locale type, SUPPORTED_LOCALES, labels, browser-locale detection.
+export {
+	detectBrowserLocale,
+	getLocaleLabel,
+	SUPPORTED_LOCALES,
+} from "./locale";
 // push.ts — tray-label resolver + IPC push helpers.
 //
 // `pushLocaleToMainProcess` and `pushLocaleToPythonBackend` are
@@ -63,10 +47,21 @@ export {
 // the bridge surfaces these helpers call). They are still considered
 // semi-internal — production code should drive them via `setLocale`.
 export {
-	trayLabelsForLocale,
 	pushLocaleToMainProcess,
 	pushLocaleToPythonBackend,
+	trayLabelsForLocale,
 } from "./push";
+// rtl.ts — RTL helpers (DR-9 1-N Finding 7: extracted for layout-component reuse).
+export { isRtlLocale, RTL_LOCALES } from "./rtl";
+// store.ts — translation state container + locale orchestrator.
+export {
+	ensureLocaleLoaded,
+	getLocale,
+	registerTranslations,
+	setLocale,
+} from "./store";
+// translate.ts — translation + pluralization functions.
+export { t, tChoice } from "./translate";
 
 // ── Explicit initialization ──────────────────────────────────────
 

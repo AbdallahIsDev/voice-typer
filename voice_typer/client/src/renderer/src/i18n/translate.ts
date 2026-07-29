@@ -9,8 +9,8 @@
 // Reads shared state (``_currentLocale`` via ``getLocale``, ``_translations``)
 // from ``./store`` — never mutates it directly.
 
-import { getLocale, _translations } from "./store";
 import type { Locale } from "./locale";
+import { _translations, getLocale } from "./store";
 
 // ER-20: cache the per-parameter interpolation RegExp. ``t()`` /
 // ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``

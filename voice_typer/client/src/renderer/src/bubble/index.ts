@@ -18,6 +18,16 @@
  *     `BubbleStopButton`, `BubbleDismissButton`
  */
 
+export { BubbleDismissButton } from "./BubbleDismissButton";
+export { BubbleMicButton } from "./BubbleMicButton";
+export { BubbleStopButton } from "./BubbleStopButton";
+// components
+export { BubbleVisualizer } from "./BubbleVisualizer";
+export type {
+	AnimState,
+	BubbleAction,
+	BubbleMode,
+} from "./constants";
 // constants — types + tuning knobs + shared button className
 export {
 	BUBBLE_BUTTON_CLASS,
@@ -29,24 +39,11 @@ export {
 	MIN_HEIGHT,
 	TRANSCRIBING_DOT_COUNT,
 } from "./constants";
-export type {
-	AnimState,
-	BubbleAction,
-	BubbleMode,
-} from "./constants";
-
 // helpers — pure functions
 export { rmsToNorm, tf } from "./helpers";
-
-// hooks
-export { useThemeSync } from "./useThemeSync";
 export { useAudioLevels } from "./useAudioLevels";
 export { useBubbleLifecycle } from "./useBubbleLifecycle";
-export { useBubbleStateMachine } from "./useBubbleStateMachine";
 export type { BubbleStateMachine } from "./useBubbleStateMachine";
-
-// components
-export { BubbleVisualizer } from "./BubbleVisualizer";
-export { BubbleMicButton } from "./BubbleMicButton";
-export { BubbleStopButton } from "./BubbleStopButton";
-export { BubbleDismissButton } from "./BubbleDismissButton";
+export { useBubbleStateMachine } from "./useBubbleStateMachine";
+// hooks
+export { useThemeSync } from "./useThemeSync";

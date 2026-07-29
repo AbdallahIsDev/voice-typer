@@ -40,9 +40,9 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { getLocaleSnapshot, subscribeLocale, t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import { FilterRow, type AudioFilterSet } from "./FilterRow";
-import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
 import { buildAudioFilterLabels } from "./audioFilterLabels";
+import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
+import { type AudioFilterSet, FilterRow } from "./FilterRow";
 
 export interface AudioFilterChainProps {
 	/** Full config — used to read the individual noise_filter_* fields. */

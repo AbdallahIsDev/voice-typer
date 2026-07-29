@@ -22,6 +22,8 @@
 //     fallback). Matches the original
 //     `(config.noise_filter_X ?? parentDefault) && (<row>...)` wrap.
 
+import { RangeSlider } from "@/components/common/RangeSlider";
+import { SettingRow } from "@/components/common/SettingRow";
 import {
 	Select,
 	SelectContent,
@@ -29,8 +31,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { RangeSlider } from "@/components/common/RangeSlider";
-import { SettingRow } from "@/components/common/SettingRow";
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";

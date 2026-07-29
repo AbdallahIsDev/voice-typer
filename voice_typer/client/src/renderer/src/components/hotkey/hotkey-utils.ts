@@ -24,12 +24,12 @@
  */
 
 import { t } from "@/i18n/i18n";
+import { checkHotkeyConflict } from "./checkHotkeyConflict";
 import {
 	detectPlatform,
 	isReserved,
 	validateHotkey as validateHotkeyShared,
 } from "./hotkey-validation";
-import { checkHotkeyConflict } from "./checkHotkeyConflict";
 
 // Re-export the shared validation API so callers can use either
 // ``hotkey-utils`` or ``hotkey-validation`` — they're equivalent.

@@ -35,19 +35,58 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 		typeof window.addEventListener
 	>;
 
+	// XZ-R16-07: track listeners actually registered on ``window`` so
+	// ``afterEach`` can remove them. Pre-fix,
+	// ``_resetGlobalErrorHandlerStateForTests()`` only reset the
+	// module-level ``_installed`` flag — the REAL
+	// ``window.addEventListener`` calls still went through (the spy
+	// delegated to the real method) and accumulated 2 listeners per
+	// test (one ``error`` + one ``unhandledrejection``).
+	// ``vi.spyOn(...).mockRestore()`` un-spies the method but does NOT
+	// remove the listeners the spy already forwarded. After N tests,
+	// ``window`` had ``2*N`` listeners — a real listener leak that
+	// could mask regressions in subsequent test files sharing the
+	// jsdom ``window``.
+	let installedListeners: Array<{
+		type: string;
+		cb: EventListenerOrEventListenerObject;
+	}> = [];
+
 	beforeEach(() => {
 		// Reset the module-level `_installed` flag so each test
 		// starts from a clean slate (otherwise the first test
 		// would flip the flag and subsequent tests would see a
 		// no-op install).
 		_resetGlobalErrorHandlerStateForTests();
-		addEventListenerSpy = vi.spyOn(
-			window,
-			"addEventListener",
-		) as unknown as typeof addEventListenerSpy;
+		installedListeners = [];
+		addEventListenerSpy = vi
+			.spyOn(window, "addEventListener")
+			.mockImplementation(
+				(
+					type: string,
+					cb: EventListenerOrEventListenerObject,
+					options?: boolean | AddEventListenerOptions,
+				) => {
+					// Record the listener so afterEach can remove it.
+					// Forward to the real ``window.addEventListener``
+					// so the handler is actually installed (the
+					// "logs to console.error" tests below dispatch
+					// real ``ErrorEvent``s and need the real
+					// listener to fire).
+					installedListeners.push({ type, cb });
+					return window.addEventListener.call(window, type, cb, options);
+				},
+			) as unknown as typeof addEventListenerSpy;
 	});
 
 	afterEach(() => {
+		// XZ-R16-07: remove every listener the spy forwarded so the
+		// jsdom ``window`` is clean for the next test (and for
+		// subsequent test files in the same vitest worker).
+		for (const { type, cb } of installedListeners) {
+			window.removeEventListener(type, cb);
+		}
+		installedListeners = [];
 		_resetGlobalErrorHandlerStateForTests();
 		addEventListenerSpy.mockRestore();
 	});
@@ -103,14 +142,50 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
  */
 describe("G4-CR-10: installed listener logs to console.error", () => {
 	let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+	// XZ-R16-07: this describe block calls ``installGlobalErrorHandlers()``
+	// (which calls ``window.addEventListener`` for real) inside each
+	// ``it``. Track the listeners so ``afterEach`` can remove them.
+	// Pre-fix, each test leaked one ``error`` + one ``unhandledrejection``
+	// listener onto the shared jsdom ``window``.
+	let installedListeners: Array<{
+		type: string;
+		cb: EventListenerOrEventListenerObject;
+	}> = [];
+	let addEventListenerSpy: import("vitest").MockInstance<
+		typeof window.addEventListener
+	>;
 
 	beforeEach(() => {
 		_resetGlobalErrorHandlerStateForTests();
+		installedListeners = [];
+		// Spy on ``window.addEventListener`` ONLY to record the
+		// listeners for cleanup — forward to the real method so the
+		// dispatched ``ErrorEvent`` / ``PromiseRejectionEvent`` below
+		// actually fire the installed handlers.
+		addEventListenerSpy = vi
+			.spyOn(window, "addEventListener")
+			.mockImplementation(
+				(
+					type: string,
+					cb: EventListenerOrEventListenerObject,
+					options?: boolean | AddEventListenerOptions,
+				) => {
+					installedListeners.push({ type, cb });
+					return window.addEventListener.call(window, type, cb, options);
+				},
+			) as unknown as typeof addEventListenerSpy;
 		consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	});
 
 	afterEach(() => {
+		// XZ-R16-07: remove every listener the spy forwarded so the
+		// jsdom ``window`` is clean for the next test.
+		for (const { type, cb } of installedListeners) {
+			window.removeEventListener(type, cb);
+		}
+		installedListeners = [];
 		_resetGlobalErrorHandlerStateForTests();
+		addEventListenerSpy.mockRestore();
 		consoleErrorSpy.mockRestore();
 	});
 

@@ -75,6 +75,7 @@ export type ErrorCodes =
 	| "server.unknown_command"
 	| "server.unknown_tray_item"
 	| "server.not_found"
+	| "server.not_initialized"
 	| "server.consent_required"
 	| "server.cloud_auth_failed"
 	| "server.cloud_rate_limited"

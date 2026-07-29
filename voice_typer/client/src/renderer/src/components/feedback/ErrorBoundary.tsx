@@ -56,6 +56,19 @@ interface ErrorBoundaryState {
 	copied: boolean;
 	resetting: boolean;
 	resetFailed: boolean;
+	// XZ-R16-06: loop guard. ``handleReset`` clears React error state
+	// but NOT the underlying poisoned state (localStorage, malformed
+	// theme token) that caused the render crash. Without this guard,
+	// clicking "Try Again" re-mounts the children against the same
+	// poisoned state → same crash → same error UI → user clicks "Try
+	// Again" again → infinite loop. We cap the count at 1: after the
+	// first failed retry, the "Try Again" button is disabled and the
+	// user is steered to "Reset settings" (which DOES clear poisoned
+	// state via ``localStorage.clear()`` + backend ``get_defaults``).
+	// A successful ``handleResetSettings`` resets the counter to 0
+	// (because the underlying state is now clean and "Try Again"
+	// becomes safe again).
+	tryAgainCount: number;
 }
 
 export class ErrorBoundary extends Component<
@@ -71,6 +84,7 @@ export class ErrorBoundary extends Component<
 			copied: false,
 			resetting: false,
 			resetFailed: false,
+			tryAgainCount: 0,
 		};
 	}
 
@@ -129,14 +143,22 @@ export class ErrorBoundary extends Component<
 	}
 
 	handleReset = (): void => {
-		this.setState({
+		// XZ-R16-06: increment the loop-guard counter so the
+		// "Try Again" button is disabled after the first failed
+		// retry (see ``tryAgainCount`` field docstring). The user
+		// must then use "Reset settings" (which clears poisoned
+		// localStorage state) before "Try Again" becomes safe to
+		// retry. The counter is reset to 0 by ``handleResetSettings``
+		// on a successful backend reset.
+		this.setState((prev) => ({
 			hasError: false,
 			error: null,
 			errorInfo: null,
 			copied: false,
 			resetting: false,
 			resetFailed: false,
-		});
+			tryAgainCount: prev.tryAgainCount + 1,
+		}));
 	};
 
 	handleReload = (): void => {
@@ -231,18 +253,16 @@ export class ErrorBoundary extends Component<
 		// the freshly-defaulted config.
 		this.setState({ resetting: true, resetFailed: false });
 		const tryReset = async (): Promise<void> => {
+			let backendResetOk = false;
 			try {
 				const defaults = (await window.python?.call({
 					type: "get_defaults",
 				})) as Record<string, unknown> | undefined;
 				if (defaults && typeof defaults === "object") {
-					// Filter out redacted API-key sentinels so we
-					// don't overwrite the user's real keys with
-					// "<redacted>" placeholders (mirrors the
-					// Settings → Reset to Defaults flow).
+					const REDACTED_RE = /^<redacted.*>$/i;
 					const safe: Record<string, unknown> = {};
 					for (const [k, v] of Object.entries(defaults)) {
-						if (v === "<redacted>") continue;
+						if (typeof v === "string" && REDACTED_RE.test(v)) continue;
 						if (
 							[
 								"schema_version",
@@ -258,15 +278,16 @@ export class ErrorBoundary extends Component<
 						data: safe,
 					});
 				}
+				backendResetOk = true;
 			} catch (err) {
 				console.error(
 					"[ErrorBoundary] Backend reset failed, falling back to localStorage clear + reload:",
 					err,
 				);
-				// Don't bail — the localStorage clear + reload
-				// below is still a useful escape hatch even if
-				// the Python round-trip failed.
 				this.setState({ resetFailed: true });
+			}
+			if (backendResetOk) {
+				this.setState({ tryAgainCount: 0 });
 			}
 			try {
 				localStorage.clear();
@@ -339,7 +360,22 @@ export class ErrorBoundary extends Component<
 								? t("errorBoundary.resetting")
 								: t("errorBoundary.resetSettings")}
 						</Button>
-						<Button type="button" variant="default" onClick={this.handleReset}>
+						<Button
+							type="button"
+							variant="default"
+							onClick={this.handleReset}
+							// XZ-R16-06: disable after the first failed retry so the
+							// user cannot loop on "Try Again" against poisoned state.
+							// The hint routes them to "Reset settings" instead.
+							// Re-enabled when ``handleResetSettings`` clears the
+							// counter on a successful backend reset.
+							disabled={this.state.tryAgainCount >= 1}
+							title={
+								this.state.tryAgainCount >= 1
+									? t("errorBoundary.resetSettingsHint")
+									: undefined
+							}
+						>
 							{t("errorBoundary.tryAgain")}
 						</Button>
 						<Button type="button" variant="outline" onClick={this.handleReload}>

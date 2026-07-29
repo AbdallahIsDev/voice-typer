@@ -62,13 +62,23 @@ export interface ErrorEvent {
 // fail tsc if this is re-added (the union length assertion drops by 1).
 
 // PVT-G5-010 (part 1): `transcription_final` payload nests inside `data`
-// (matching `voice_typer/server/dictation_pipeline.py:911`), NOT at the
+// (matching `voice_typer/server/dictation_pipeline.py:1331`), NOT at the
 // root. The old shape declared `text: string` at the root — a type lie.
 // Runtime reader `Home.tsx:428` already accesses `data?.text`, so this
 // fix aligns the type with the wire format AND the existing consumer.
+//
+// XZ-CC-7: the optional `duration_ms?: number` field was REMOVED —
+// verified the Python emitter (`event_bus.publish({"type":
+// "transcription_final", "data": {"text": text[:200]}})`) never
+// populates it. Keeping an optional-but-never-sent field gave a false
+// impression of an IPC contract that doesn't exist; any renderer code
+// reading `event.data.duration_ms` would always get `undefined` at
+// runtime. Do NOT re-add this field without ALSO wiring up the
+// Python emitter to populate it (and a parity test in
+// `types/__tests__/ipc-types.test.ts`).
 export interface TranscriptionFinalEvent {
 	type: "transcription_final";
-	data: { text: string; duration_ms?: number };
+	data: { text: string };
 }
 
 // PVT-G5-010 (part 2): the Python emitters for `recording_started` and

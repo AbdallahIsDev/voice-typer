@@ -147,17 +147,6 @@ function _formatForConsole(err: unknown): string {
 }
 
 /**
- * Format a Promise rejection reason for the console log.
- *
- * Same heuristic as ``_formatForConsole`` but with a distinct prefix
- * so operators can tell unhandled rejections apart from synchronous
- * errors in the log.
- */
-function _formatReasonForConsole(reason: unknown): string {
-	return _formatForConsole(reason);
-}
-
-/**
  * BG-89: safely resolve a localized string, falling back to the
  * provided English default when i18n is unavailable or the key is
  * missing. Mirrors the defensive pattern in ``_genericUserMessage``
@@ -291,7 +280,7 @@ export function installGlobalErrorHandlers(): void {
 	window.addEventListener(
 		"unhandledrejection",
 		(event: PromiseRejectionEvent) => {
-			const detail = _formatReasonForConsole(event.reason);
+			const detail = _formatForConsole(event.reason);
 			console.error("[Renderer] unhandled promise rejection:", detail);
 			try {
 				toast.error(_genericUserMessage(), _buildToastOptions(detail));

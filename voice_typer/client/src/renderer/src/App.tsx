@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { APP_NAME } from "@/branding";
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
@@ -19,21 +26,55 @@ import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-import AboutPage from "@/pages/About";
-import DashboardPage from "@/pages/Dashboard";
-import HistoryPage from "@/pages/History";
+// ER-25: route-level code splitting. Home is the default landing page
+// and stays eagerly imported so first paint is fast. The other 9 pages
+// (History, Templates, Vocabulary, Models, Microphone, Analytics,
+// Settings, About, Onboarding) are loaded on demand via React.lazy so
+// Vite emits per-route chunks and the initial JS payload only carries
+// the Home page's transitive deps. Each lazy import resolves to the
+// page module's default export.
 import Home from "@/pages/Home";
-import MicrophonePage from "@/pages/Microphone";
-import ModelsPage from "@/pages/Models";
-import OnboardingPage from "@/pages/Onboarding";
+
+const AboutPage = lazy(() => import("@/pages/About"));
+const DashboardPage = lazy(() => import("@/pages/Dashboard"));
+const HistoryPage = lazy(() => import("@/pages/History"));
+const MicrophonePage = lazy(() => import("@/pages/Microphone"));
+const ModelsPage = lazy(() => import("@/pages/Models"));
+const OnboardingPage = lazy(() => import("@/pages/Onboarding"));
+const SettingsPage = lazy(() => import("@/pages/Settings"));
+const TemplatesPage = lazy(() => import("@/pages/Templates"));
+const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
+
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
-import SettingsPage from "@/pages/Settings";
-import TemplatesPage from "@/pages/Templates";
-import VocabularyPage from "@/pages/Vocabulary";
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { WindowBridge } from "@/types/ipc";
+
+/**
+ * ER-25: Suspense fallback for the lazy-loaded secondary routes.
+ *
+ * Inline (not a separate component file) so we don't introduce a new
+ * module outside the refactor scope. The spinner matches the visual
+ * style already used by ``DoneStep.tsx``, ``RecordingErrorCard.tsx``,
+ * and ``MicToggleButton.tsx`` (``animate-spin rounded-full border-2
+ * border-current border-t-transparent``) so the user sees a consistent
+ * loading indicator across the app.
+ *
+ * The fallback is intentionally minimal — a route chunk typically
+ * loads in <100ms on a local dev server and <300ms from a packaged
+ * build, so a full-screen skeleton would flash too briefly to register.
+ */
+function RouteSuspenseFallback() {
+	return (
+		<output
+			aria-live="polite"
+			className="flex h-full w-full items-center justify-center p-8"
+		>
+			<span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-(--text-muted) border-t-transparent" />
+		</output>
+	);
+}
 
 export default function App() {
 	const t = useT();
@@ -434,7 +475,9 @@ export default function App() {
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (
-								renderPage()
+								<Suspense fallback={<RouteSuspenseFallback />}>
+									{renderPage()}
+								</Suspense>
 							) : (
 								<ConnectionStatusScreen
 									status={connectionStatus}

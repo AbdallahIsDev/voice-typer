@@ -31,14 +31,19 @@
  */
 import { useEffect } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
-import { initAudioContext, playSoundCue } from "@/lib/sound-manager";
+import {
+	closeAudioContext,
+	initAudioContext,
+	isSoundFeedbackEnabled,
+	playSoundCue,
+} from "@/lib/sound-manager";
 
 // Re-export the canonical API so existing importers of this module
 // continue to work. No production code currently imports these symbols
 // from here (the only consumer is the hook itself, below), but the
 // re-exports keep the public surface stable for tests and external
 // integrations and document that this module is the single entry point.
-export { initAudioContext, playSoundCue };
+export { initAudioContext, isSoundFeedbackEnabled, playSoundCue };
 
 /**
  * App-level hook that subscribes to recording_started / recording_stopped
@@ -58,9 +63,43 @@ export { initAudioContext, playSoundCue };
  * regardless of which page is currently shown.
  */
 export function useSoundFeedback(): void {
-	// Eagerly initialize the AudioContext on first mount.
+	// ER-28: gate AudioContext construction on the enabled flag.
+	//
+	// Previously this effect called ``initAudioContext()`` unconditionally
+	// on App mount — so the AudioContext was constructed and (after first
+	// user gesture) transitioned to "running" state even when the user
+	// had ``sound_feedback_enabled=false`` in config. The ``playSoundCue``
+	// early-return ``if (!isEnabled()) return;`` prevented oscillator
+	// creation but did NOT close the already-alive AudioContext. Each
+	// AudioContext in "running" state holds the audio output device open
+	// and runs an internal audio-thread.
+	//
+	// The fix:
+	//   - On mount: only call ``initAudioContext()`` if sound feedback is
+	//     currently enabled. If disabled, the AudioContext is never
+	//     constructed and the gesture-listener is never installed.
+	//   - On unmount: call ``closeAudioContext()`` to release the
+	//     AudioContext + detach gesture listeners (the cleanup runs when
+	//     the App root unmounts, which is rare, but the close is still
+	//     correct behavior — a re-mount will re-init if still enabled).
+	//
+	// Note: if the user toggles sound feedback at runtime via Settings,
+	// ``setSoundFeedbackEnabled`` writes the flag to localStorage but
+	// does NOT itself close/re-init the AudioContext. The next App
+	// re-mount (or a manual ``closeAudioContext()`` call) is what
+	// releases the context. This is a known limitation — fully
+	// reactive enable/disable would require a settings-change
+	// subscription here, which is out of scope for the ER-28 fix.
 	useEffect(() => {
-		initAudioContext();
+		if (isSoundFeedbackEnabled()) {
+			initAudioContext();
+		}
+		return () => {
+			// ER-28: on unmount, release the AudioContext + gesture
+			// listeners so we don't leak an alive audio thread when
+			// the hook is unmounted (e.g. during HMR or test teardown).
+			closeAudioContext();
+		};
 	}, []);
 
 	usePythonEvent("recording_started", (): (() => void) | undefined => {

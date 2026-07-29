@@ -36,11 +36,11 @@
  */
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 import {
+	type BubbleMode,
 	DOT_COUNT,
 	DOT_WEIGHTS,
 	MAX_HEIGHT,
 	MIN_HEIGHT,
-	type BubbleMode,
 } from "./constants";
 import { rmsToNorm } from "./helpers";
 

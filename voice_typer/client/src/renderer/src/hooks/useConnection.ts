@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -86,6 +86,21 @@ export function useConnection({
 	const recordingState = useAppStore((s) => s.recordingState);
 	const lastError = useAppStore((s) => s.lastError);
 
+	// ER-61: timestamp of the last push event received from the Python
+	// backend (any type — state_changed, status_change, bubble_level,
+	// etc.). Updated by every `usePythonEvent` subscriber below via the
+	// shared `_markEventReceived` callback. Used by the periodic health
+	// check to skip the redundant `get_status` probe when a push event
+	// has landed recently (the backend's RW-10 heartbeat + push events
+	// already prove liveness; the 15s poll is belt-and-suspenders for
+	// the case where pushes stop entirely). Stored in a ref (not state)
+	// because it doesn't need to trigger a re-render — only the
+	// periodic-probe effect reads it.
+	const lastEventReceivedAtRef = useRef<number>(0);
+	const markEventReceived = useCallback(() => {
+		lastEventReceivedAtRef.current = Date.now();
+	}, []);
+
 	// ── Connection lifecycle ──────────────────────────────────────
 
 	useEffect(() => {
@@ -171,7 +186,22 @@ export function useConnection({
 						}
 					}
 				}
-			} catch {
+			} catch (err) {
+				// XZ-R16-04: surface the swallowed get_config error to the
+				// renderer console so a hung backend probe is observable
+				// (previously this catch silently swallowed the error with
+				// no log line, making it impossible to diagnose why the
+				// connection probe kept retrying). `retries + 1` reports
+				// the 1-indexed attempt number that just failed (retries
+				// is 0-indexed; it's incremented below for the next loop
+				// iteration). The `err` argument is passed through so the
+				// underlying cause (network error, IPC rejection, etc.) is
+				// visible in the devtools console alongside the attempt
+				// counter.
+				console.warn(
+					`[IPC] get_config connection probe failed (attempt ${retries + 1}/${maxRetries}):`,
+					err,
+				);
 				retries++;
 				if (!cancelled && retries < maxRetries) {
 					timer = setTimeout(checkConnection, 2000);
@@ -218,6 +248,18 @@ export function useConnection({
 	// tolerates transient flaps; the steady-state IPC load is one
 	// ``get_status`` call every 15s (trivial — the response is a
 	// 30-byte JSON envelope).
+	//
+	// ER-61: the 15s probe is now redundant with the backend's push
+	// events — `state_changed` is emitted on every client connect and
+	// `bubble_level` / `mic_level` flow at 10-30 Hz during active use.
+	// We skip the probe entirely if a push event was received within
+	// the last ``HEALTH_CHECK_EVENT_GRACE_MS`` (60s) — the push
+	// already proved liveness. Only when pushes have stopped for a
+	// full minute do we fall back to the active ``get_status`` probe.
+	// This reduces steady-state IPC load to ~0 during active use
+	// while preserving the dead-backend detection guarantee (a dead
+	// backend stops pushing, and 60s later the probe kicks in to
+	// confirm + flip to disconnected).
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 
@@ -228,10 +270,29 @@ export function useConnection({
 		// outage to the user.
 		const HEALTH_CHECK_MAX_RETRIES = 2;
 		const HEALTH_CHECK_RETRY_DELAY_MS = 500;
+		// ER-61: skip the active probe if a push event was received
+		// within this grace window. 60s matches the BG-92 "user
+		// perceives hung" threshold — a backend that hasn't pushed
+		// for 60s is either dead or stuck, and the active probe is
+		// the right tool to disambiguate.
+		const HEALTH_CHECK_EVENT_GRACE_MS = 60_000;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let failureCount = 0;
 
 		const probe = async (isRetry: boolean): Promise<void> => {
+			// ER-61: skip the probe if a push event was received
+			// recently — the push already proved liveness, so the
+			// active `get_status` round-trip is pure waste. Still
+			// reset failureCount so a transient flap that follows a
+			// long quiet period doesn't carry over stale failures.
+			const lastEventMs = lastEventReceivedAtRef.current;
+			if (
+				lastEventMs > 0 &&
+				Date.now() - lastEventMs < HEALTH_CHECK_EVENT_GRACE_MS
+			) {
+				failureCount = 0;
+				return;
+			}
 			try {
 				await call("get_status");
 				failureCount = 0;
@@ -356,10 +417,20 @@ export function useConnection({
 
 	// ── App-level event subscriptions ─────────────────────────────
 
+	// XZ-R16-02: sentinel substring used by the `error` event handler to
+	// detect the supervisor's "respawn exhausted" condition (synthesized
+	// by `python-namespace.ts` when `supervisor_relaunching` carries
+	// `reason: "backoff_exhausted"`). When the message contains this
+	// substring, the handler flips `connectionStatus` to `"disconnected"`
+	// in addition to setting `lastError` — otherwise the UI stays stuck
+	// on the transient `"restarting"` banner forever.
+	const RESPAWN_EXHAUSTED_SENTINEL = "respawn exhausted";
+
 	usePythonEvent(
 		"status_change",
 		useCallback(
 			(data): (() => void) | undefined => {
+				markEventReceived();
 				if (data?.status) {
 					const validated = asRecordingState(data.status);
 					if (validated) {
@@ -369,7 +440,7 @@ export function useConnection({
 				}
 				return undefined;
 			},
-			[setRecordingState, setLastError],
+			[markEventReceived, setRecordingState, setLastError],
 		),
 	);
 
@@ -377,12 +448,29 @@ export function useConnection({
 		"error",
 		useCallback(
 			(data): (() => void) | undefined => {
+				markEventReceived();
 				if (typeof data?.message === "string") {
 					setLastError(data.message);
+					// XZ-R16-02: when the supervisor exhausts its respawn
+					// retries, `python-namespace.ts` synthesizes an `error`
+					// event with `message: "respawn exhausted"`. The UI
+					// must transition from the transient `"restarting"`
+					// state to the terminal `"disconnected"` state so the
+					// user sees the "Lost connection" screen with the
+					// cause + a Retry button, instead of an indefinite
+					// "Restarting…" banner. Without this, the renderer
+					// would stay stuck on "Restarting…" forever (the
+					// supervisor never emits a `reconnected` event after
+					// exhaustion — it calls `app.restart()` which exits
+					// the process; if the restart fails, the renderer is
+					// orphaned).
+					if (data.message.includes(RESPAWN_EXHAUSTED_SENTINEL)) {
+						setConnectionStatus("disconnected");
+					}
 				}
 				return undefined;
 			},
-			[setLastError],
+			[markEventReceived, setLastError, setConnectionStatus],
 		),
 	);
 
@@ -390,21 +478,23 @@ export function useConnection({
 	usePythonEvent(
 		"reconnecting",
 		useCallback((): (() => void) | undefined => {
+			markEventReceived();
 			// UX-22: `"restarting"` is a member of the ConnectionStatus
 			// union (see appStore.ts), so the `as ConnectionStatus` cast
 			// was redundant dead code.
 			setConnectionStatus("restarting");
 			return undefined;
-		}, [setConnectionStatus]),
+		}, [markEventReceived, setConnectionStatus]),
 	);
 	usePythonEvent(
 		"reconnected",
 		useCallback((): (() => void) | undefined => {
+			markEventReceived();
 			call("get_config")
 				.then(() => setConnectionStatus("connected"))
 				.catch(() => setConnectionStatus("disconnected"));
 			return undefined;
-		}, [call, setConnectionStatus]),
+		}, [markEventReceived, call, setConnectionStatus]),
 	);
 
 	// PVT-G5-060: the backend emits `state_changed` once on every
@@ -429,6 +519,7 @@ export function useConnection({
 		"state_changed",
 		useCallback(
 			(data): (() => void) | undefined => {
+				markEventReceived();
 				// A push from the backend means we have a live
 				// connection — surface that immediately.
 				setConnectionStatus("connected");
@@ -447,7 +538,7 @@ export function useConnection({
 				}
 				return undefined;
 			},
-			[setConnectionStatus, setLastError, setRecordingState],
+			[markEventReceived, setConnectionStatus, setLastError, setRecordingState],
 		),
 	);
 

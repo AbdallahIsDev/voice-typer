@@ -19,10 +19,9 @@
 // evaluating.
 
 import { useSyncExternalStore } from "react";
-
+import type { Locale } from "./locale";
 import { getLocale } from "./store";
 import { t, tChoice } from "./translate";
-import type { Locale } from "./locale";
 
 // ── Locale change subscription (b-review Finding 3) ──────────────
 // `t()` is a plain function with no React subscription, so switching

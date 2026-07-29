@@ -59,6 +59,14 @@ let _initAttempted = false; // True ONLY after successful construction
 let _initSucceeded = false;
 let _enabled: boolean = true; // Mirror of config.sound_feedback_enabled
 let _gestureListenerInstalled = false;
+// ER-28: store the gesture-resume handler so _resetSoundManagerForTests
+// can detach it (previously the handler was a closure-local variable
+// inside installGestureListener and the test reset only flipped the
+// boolean flag — leaving the actual DOM listeners attached across
+// tests, which leaked into subsequent test cases and produced
+// cross-test flakiness when a subsequent test's synthetic click
+// triggered the leaked handler).
+let _resumeOnceHandler: (() => void) | null = null;
 
 const STORAGE_KEY = "vt_sound_feedback_enabled";
 
@@ -93,7 +101,17 @@ export function setSoundFeedbackEnabled(enabled: boolean): void {
  * value if localStorage is unavailable.
  *
  * Used by playSoundCue to avoid an IPC round-trip on every cue.
+ *
+ * ER-28: also exported publicly so ``useSoundFeedback`` can gate
+ * ``initAudioContext()`` on the enabled flag — previously the hook
+ * unconditionally constructed the AudioContext on App mount, which
+ * left an alive AudioContext in "running" state even when the user
+ * had ``sound_feedback_enabled=false`` in config.
  */
+export function isSoundFeedbackEnabled(): boolean {
+	return isEnabled();
+}
+
 function isEnabled(): boolean {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
@@ -146,15 +164,24 @@ export function initAudioContext(): boolean {
 		// If suspended (autoplay policy), optimistically resume — the
 		// gesture listener below will retry on the first user interaction.
 		if (_sharedAudioContext.state === "suspended") {
-			_sharedAudioContext.resume().catch(() => {
+			_sharedAudioContext.resume().catch((err: unknown) => {
+				// ER-28 / XZ-R16-08: log the resume rejection at debug so the
+				// operator can see why the AudioContext stayed suspended.
 				// Will retry on first user gesture via installGestureListener.
+				console.debug(
+					"[sound-manager] initAudioContext resume() rejected:",
+					err,
+				);
 			});
 		}
 		installGestureListener();
 		return true;
-	} catch {
+	} catch (err) {
 		// Construction threw — do NOT set _initSucceeded so the next
 		// call retries. Set _initAttempted to throttle logs.
+		// XZ-R16-08: log the construction failure so silent audio
+		// failures are visible at debug level.
+		console.debug("[sound-manager] initAudioContext construction failed:", err);
 		_initAttempted = true;
 		_sharedAudioContext = null;
 		return false;
@@ -182,19 +209,24 @@ function installGestureListener(): void {
 		const ctx = _sharedAudioContext;
 		if (!ctx) return;
 		if (ctx.state === "suspended") {
-			ctx.resume().catch(() => {
+			ctx.resume().catch((err: unknown) => {
+				// ER-28 / XZ-R16-08: log the gesture-resume rejection at debug
+				// so the operator can see why the AudioContext stayed suspended.
 				// Still suspended — leave the listener installed for a
 				// subsequent gesture to retry.
+				console.debug(
+					"[sound-manager] gesture-listener resume() rejected:",
+					err,
+				);
 			});
 		}
 		if (ctx.state === "running") {
 			// Success — remove the listeners to avoid ongoing overhead.
-			window.removeEventListener("click", resumeOnce, true);
-			window.removeEventListener("keydown", resumeOnce, true);
-			window.removeEventListener("touchstart", resumeOnce, true);
-			window.removeEventListener("pointerdown", resumeOnce, true);
+			_detachGestureListeners();
 		}
 	};
+	// ER-28: store the handler so _resetSoundManagerForTests can detach it.
+	_resumeOnceHandler = resumeOnce;
 
 	// Use capture phase so we fire before any app-level handlers that
 	// might stopPropagation. passive: true so we don't block scrolling.
@@ -203,6 +235,29 @@ function installGestureListener(): void {
 	window.addEventListener("keydown", resumeOnce, opts);
 	window.addEventListener("touchstart", resumeOnce, opts);
 	window.addEventListener("pointerdown", resumeOnce, opts);
+}
+
+/**
+ * ER-28: detach the gesture-resume listeners explicitly.
+ *
+ * Called from:
+ *  - ``installGestureListener``'s ``resumeOnce`` after a successful resume
+ *    (the listener has done its job).
+ *  - ``_resetSoundManagerForTests`` so the next test starts clean.
+ *  - ``useSoundFeedback`` cleanup (via ``closeAudioContext``) when the user
+ *    disables sound feedback so the listeners don't keep pinning the
+ *    AudioContext in memory.
+ */
+function _detachGestureListeners(): void {
+	if (typeof window === "undefined") return;
+	const handler = _resumeOnceHandler;
+	if (handler === null) return;
+	window.removeEventListener("click", handler, true);
+	window.removeEventListener("keydown", handler, true);
+	window.removeEventListener("touchstart", handler, true);
+	window.removeEventListener("pointerdown", handler, true);
+	_resumeOnceHandler = null;
+	_gestureListenerInstalled = false;
 }
 
 /**
@@ -264,6 +319,14 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.13);
+			// ER-87: explicitly disconnect the per-cue nodes once the
+			// oscillator stops so the AudioContext can release them
+			// promptly (instead of relying on internal GC of connected-
+			// but-stopped nodes, which the spec does not guarantee).
+			osc.onended = () => {
+				osc.disconnect();
+				gain.disconnect();
+			};
 		} else if (kind === "error") {
 			// Short low buzz — square wave at 200Hz, 250ms, with a
 			// fast attack and a quick decay so it reads as an
@@ -276,6 +339,11 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.25);
+			// ER-87: release per-cue nodes after stop.
+			osc.onended = () => {
+				osc.disconnect();
+				gain.disconnect();
+			};
 		} else if (kind === "complete") {
 			// XA-12-16: two-note rising chime (A5 → D6, 880Hz → 1175Hz)
 			// — a major-third interval that reads as a positive
@@ -296,6 +364,11 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.22);
+			// ER-87: release per-cue nodes after stop.
+			osc.onended = () => {
+				osc.disconnect();
+				gain.disconnect();
+			};
 		} else {
 			osc.frequency.setValueAtTime(523, now);
 			osc.frequency.exponentialRampToValueAtTime(392, now + 0.1);
@@ -305,6 +378,11 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.19);
+			// ER-87: release per-cue nodes after stop.
+			osc.onended = () => {
+				osc.disconnect();
+				gain.disconnect();
+			};
 		}
 	};
 
@@ -326,11 +404,16 @@ function playViaAudioContext(
 					console.warn("[sound-manager] synthesis doPlay failed:", e);
 				}
 			})
-			.catch(() => {
-				// Resume rejected — caller's playSoundCue will fall back
-				// to HTMLAudioElement. (We can't call the fallback here
-				// because playSoundCue checks enabled first; we'd risk
-				// playing when disabled.)
+			.catch((err: unknown) => {
+				// XZ-R16-08: log the resume rejection at debug so silent
+				// audio failures are visible. Resume rejected — caller's
+				// playSoundCue will fall back to HTMLAudioElement. (We
+				// can't call the fallback here because playSoundCue checks
+				// enabled first; we'd risk playing when disabled.)
+				console.debug(
+					"[sound-manager] playViaAudioContext resume() rejected:",
+					err,
+				);
 			});
 		// Return false so playSoundCue falls back to HTMLAudioElement
 		// for an immediate cue (the AudioContext path is async and
@@ -371,7 +454,14 @@ function getFallbackAudio(): HTMLAudioElement | null {
 		try {
 			_fallbackAudio = new Audio();
 			_fallbackAudio.preload = "auto";
-		} catch {
+		} catch (err) {
+			// XZ-R16-08: log the construction failure at debug so silent
+			// audio failures are visible (e.g. SSR environments where the
+			// Audio constructor is not available).
+			console.debug(
+				"[sound-manager] getFallbackAudio new Audio() failed:",
+				err,
+			);
 			return null;
 		}
 	}
@@ -404,13 +494,22 @@ function playViaHtmlAudio(
 		// knows the cue didn't play.
 		const p = audio.play();
 		if (p && typeof p.then === "function") {
-			p.catch(() => {
-				// Autoplay blocked — the next user gesture will allow
-				// subsequent cues. Silent fallback.
+			p.catch((err: unknown) => {
+				// XZ-R16-08: log the autoplay-block rejection at debug so
+				// silent audio failures are visible. Autoplay blocked —
+				// the next user gesture will allow subsequent cues.
+				console.debug(
+					"[sound-manager] playViaHtmlAudio audio.play() rejected:",
+					err,
+				);
 			});
 		}
 		return true;
-	} catch {
+	} catch (err) {
+		// XZ-R16-08: log the catch-all failure at debug so silent audio
+		// failures are visible (e.g. invalid data URL, media element
+		// decode error).
+		console.debug("[sound-manager] playViaHtmlAudio failed:", err);
 		return false;
 	}
 }
@@ -457,8 +556,17 @@ export function playSoundCue(
 
 /**
  * Close and release the shared AudioContext, if one exists.
+ *
+ * ER-28: also detaches the gesture-resume listeners (previously
+ * ``closeAudioContext`` only closed the AudioContext but left the
+ * gesture listeners attached — they would re-resume a future context
+ * if ``initAudioContext`` was called again, which is undesired when
+ * the user explicitly disabled sound feedback).
  */
 export function closeAudioContext(): void {
+	// ER-28: detach gesture listeners BEFORE closing the context so
+	// a stray gesture during teardown doesn't race with close().
+	_detachGestureListeners();
 	if (_sharedAudioContext) {
 		_sharedAudioContext.close();
 		_sharedAudioContext = null;
@@ -469,8 +577,13 @@ export function closeAudioContext(): void {
 
 /**
  * Reset all state — used by tests to ensure isolation between cases.
+ *
+ * ER-28: now also detaches gesture listeners explicitly (previously
+ * only the boolean flag was reset, leaving the actual DOM listeners
+ * attached across tests).
  */
 export function _resetSoundManagerForTests(): void {
+	_detachGestureListeners();
 	_sharedAudioContext = null;
 	_initAttempted = false;
 	_initSucceeded = false;
