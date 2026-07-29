@@ -79,11 +79,10 @@ env_logger = "0.11"
 #   for terminal-initiated shutdowns.
 libc = "0.2"
 
-# ADR-0020 §6.3: Win32 focus-restore dance (`AttachThreadInput` +
-# `SetForegroundWindow` + `GetForegroundWindow` + `GetWindowThreadProcessId`)
-# used by `commands::sidecar_cmds::paste_text` on Windows. Target-gated so
-# the `windows` crate is NOT pulled into Linux/macOS builds (keeps the
-# dependency graph clean for the non-Windows MIG-1.6 / MIG-1.7 spikes).
+# ADR-0020 §6.3 + §10: Win32 APIs used by the Tauri host on Windows.
+# Target-gated so the `windows` crate is NOT pulled into Linux/macOS
+# builds (keeps the dependency graph clean for the non-Windows MIG-1.6
+# / MIG-1.7 spikes).
 # Features: `Win32_UI_WindowsAndMessaging` (foreground/window APIs),
 # `Win32_Foundation` (`HWND` — wraps `*mut c_void`, NOT isize),
 # `Win32_System_Threading` (`AttachThreadInput`, `GetCurrentThreadId`).

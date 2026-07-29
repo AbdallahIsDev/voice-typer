@@ -245,7 +245,7 @@ pub async fn open_host_logs(
 
 /// GT-35: sink for renderer-side error logs. The React UI's
 /// `__tauriLog.error(...)` invokes this command so uncaught UI errors
-/// land in the host-side rotating log file (`<config_dir>/logs/voice-typer.log`
+/// land in the host-side rotating log file (`<config_dir>/logs/voice-typer-rust.log`
 /// via the existing `log::error!` global logger) for operator triage
 /// without requiring DevTools to be open.
 ///
@@ -255,9 +255,36 @@ pub async fn open_host_logs(
 /// prefix. Returns `Ok(())` unconditionally — the renderer's promise
 /// resolves so its `__tauriLog.error` call doesn't itself become an
 /// unhandled rejection.
+///
+/// FR-97: the doc path above was updated from `voice-typer.log` to
+/// `voice-typer-rust.log` to match the FR-97 rename in
+/// `platform::logging`.
+///
+/// FR-44: payload size is capped at 8 KiB after serialization. The
+/// React UI's `__tauriLog.error(...)` is called with arbitrary
+/// `Value` payloads — a runaway renderer could pass a multi-MB
+/// object (e.g. an entire Redux state dump, a circular-ref retry,
+/// or a stack trace from a deeply-recursive crash) that would bloat
+/// the rotating file log + block the `eprintln!` path on every
+/// `log::error!` call. The 8 KiB cap matches the typical size of a
+/// rich error report (message + stack + componentStack + location)
+/// while preventing the log from being dominated by a single
+/// pathological payload. Truncation is marked with `...[truncated]`
+/// so operators can see the cap was hit.
 #[tauri::command]
 pub async fn renderer_log_error(payload: Value, _app: tauri::AppHandle) -> Result<(), String> {
-    let serialized = serde_json::to_string(&payload).unwrap_or_else(|_| "<unserializable>".to_string());
+    let mut serialized =
+        serde_json::to_string(&payload).unwrap_or_else(|_| "<unserializable>".to_string());
+    // FR-44: cap serialized payload at 8 KiB so a runaway renderer
+    // can't bloat the rotating file log with a multi-MB error report.
+    // The cap matches the typical rich-error-report size (message +
+    // stack + componentStack + location); larger payloads are
+    // truncated with a visible marker so operators know the cap fired.
+    const MAX_RENDERER_ERROR_PAYLOAD_BYTES: usize = 8 * 1024;
+    if serialized.len() > MAX_RENDERER_ERROR_PAYLOAD_BYTES {
+        serialized.truncate(MAX_RENDERER_ERROR_PAYLOAD_BYTES);
+        serialized.push_str("...[truncated]");
+    }
     log::error!("[RENDERER_ERROR] {}", serialized);
     Ok(())
 }

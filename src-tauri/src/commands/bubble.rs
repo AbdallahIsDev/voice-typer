@@ -317,6 +317,407 @@ fn clamp_f64_to_i32(f: f64) -> i32 {
     clamped as i32
 }
 
+
+/// Toggle the bubble window's draggable state (ADR-0020 §9 + MIG-1.2).
+///
+/// Tauri v2 does NOT expose a direct `set_draggable` on `WebviewWindow`.
+/// Instead, we emit a `bubble:draggable` event to the bubble window
+/// with the bool payload; the bubble renderer listens for this event
+/// and calls `start_dragging()` on mouse-down (or unbinds the
+/// listener when `false`). This keeps the drag logic in the renderer
+/// where it can be throttled to the animation frame.
+///
+/// **Window-origin policy (DE-71):** this command is intentionally NOT
+/// gated by [`require_main_window`] — the bubble renderer is permitted
+/// to self-manipulate its own draggability. The main renderer's
+/// `usePython.ts` toggles this on hotkey-down/up, but the bubble
+/// renderer may also self-toggle in response to its own UI state
+/// (e.g. disabling drag while the user is interacting with the mic
+/// button so an accidental drag doesn't fire). The command's effect
+/// is confined to the bubble window's drag listener.
+#[tauri::command]
+pub async fn bubble_set_draggable(
+    draggable: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    app.emit_to("bubble", "bubble:draggable", draggable)
+        .map_err(|e| e.to_string())
+}
+
+/// Move the bubble window by `(dx, dy)` physical pixels relative to
+/// its current `outer_position` (ADR-0020 §9 + MIG-1.2). Returns the
+/// new `{x, y}` so the TS bridge can cache it without a round-trip.
+///
+/// **Window-origin policy (DE-71):** this command is intentionally NOT
+/// gated by [`require_main_window`] — the bubble renderer is permitted
+/// to self-manipulate its own window geometry. The drag handler in
+/// `Bubble.tsx` invokes `bubble_move_by` on each mousemove while the
+/// user drags the pill, so requiring the call to originate from the
+/// main window would break drag entirely. The command's effect is
+/// confined to the bubble window itself, so a compromised bubble can
+/// at worst mess with its own position (an annoyance, not a security
+/// boundary — the bubble is sandboxed per SEC-026 / CR-5).
+///
+/// **DE-16 (overflow safety):** the prior `pos.x + dx` / `pos.y + dy`
+/// arithmetic was plain `i32 + i32`, which silently wraps on overflow
+/// (Rust's default release-mode behavior). A renderer that sends a
+/// huge `dx` (e.g. `i32::MAX`) on top of a `pos.x` near `i32::MAX`
+/// would wrap to a negative coordinate, jerking the bubble off-screen
+/// with no diagnostic. The fix uses [`compute_move_by_new_pos`],
+/// which `checked_add`s each axis and returns a descriptive error
+/// naming the offending operands so the renderer can surface it.
+#[tauri::command]
+pub async fn bubble_move_by(
+    dx: i32,
+    dy: i32,
+    app: tauri::AppHandle,
+) -> Result<Value, String> {
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("bubble window not found")?;
+    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    // DE-16: use checked arithmetic so a renderer-supplied dx/dy that
+    // would overflow i32::MAX surfaces a descriptive error instead of
+    // silently wrapping the bubble to a wrapped-negative pixel.
+    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx, pos.y, dy)?;
+    window
+        .set_position(PhysicalPosition::new(new_x, new_y))
+        .map_err(|e| e.to_string())?;
+    Ok(json!({"x": new_x, "y": new_y}))
+}
+
+/// DE-16: pure helper that computes the new `(x, y)` position for
+/// [`bubble_move_by`] using `i32::checked_add` on each axis.
+///
+/// Extracted from the command body so the overflow safety can be unit-
+/// tested without spinning up a Tauri `AppHandle` + webview window
+/// (which the in-process `#[cfg(test)]` harness can't do).
+///
+/// # Errors
+///
+/// Returns `Err("move_by overflow: <pos> + <delta>")` if either axis
+/// would overflow `i32`. The error message includes both operands so
+/// the renderer (or a developer reading the log) can see exactly which
+/// axis overflowed and by how much.
+fn compute_move_by_new_pos(
+    pos_x: i32,
+    dx: i32,
+    pos_y: i32,
+    dy: i32,
+) -> Result<(i32, i32), String> {
+    let new_x = pos_x
+        .checked_add(dx)
+        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_x, dx))?;
+    let new_y = pos_y
+        .checked_add(dy)
+        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_y, dy))?;
+    Ok((new_x, new_y))
+}
+
+// A Tauri command that emitted bubble-state events (previously declared
+// here with a full docstring) was REMOVED as dead code. It was never
+// registered in `main.rs::tauri::generate_handler![...]` (the
+// registration was removed earlier with the comment that the command
+// was "dead in production"), so the function was unreachable from the
+// renderer — the `#[tauri::command]` macro generated a handler that
+// no `invoke(...)` call from the renderer could ever reach. Keeping
+// the dead fn + docstring was misleading (the docstring claimed "the
+// legitimate caller is the MAIN renderer's `usePython.ts::
+// onStatusChange` handler", but no such caller exists in the
+// renderer code) and created a maintenance hazard (a future
+// contributor might re-register it without understanding why the
+// earlier removal happened).
+//
+// The `bubble:set-state` Tauri event itself is still emitted by the
+// WS reader task in `sidecar::ws` (which forwards sidecar
+// `status_change` events directly to the bubble window) — that path
+// does NOT go through a Tauri command, so deleting this command
+// doesn't affect the bubble's state-update UX. The deleted command
+// would have been a SECOND path (renderer → invoke → the deleted
+// command → emit_to) that was never wired up.
+
+/// Hide the bubble window and emit `bubble:hide` so the renderer can
+/// run cleanup (e.g., stop the level animation) BEFORE the window becomes
+/// invisible (ADR-0020 §9 + MIG-1.2).
+///
+/// GT-50: previously this command (a) emitted `bubble:hide_complete` —
+/// a name the renderer never listens for — and (b) hid the window FIRST,
+/// so the renderer's cleanup ran AFTER the window was already torn down,
+/// leaking the requestAnimationFrame loop for ~1 frame. The fix renames
+/// the event to `bubble:hide` AND reorders the emit to fire BEFORE `.hide()`.
+///
+/// **ZR-22 (SEC-016):** this command IS now gated by the inverse check
+/// — `require_bubble_window(&window)?` — so only the bubble window's
+/// webview can invoke it. A compromised main renderer (or any other
+/// non-bubble window) that sends `bubble:hidden` via the unrestricted
+/// Tauri `invoke` channel would otherwise prematurely hide the bubble
+/// overlay during its show/hide animation. The check mirrors the
+/// renderer-side `assertFromBubble(event)` gate that
+/// `bubble-window.ts:679` applies on the `bubble:hidden` IPC channel
+/// (defense-in-depth — both gates must hold for the hide to take
+/// effect). The `check_dispatch_window_label` helper does NOT apply
+/// here (this command doesn't go through the `dispatch` path — it's a
+/// dedicated `#[tauri::command]`), so a local `require_bubble_window`
+/// helper is inlined below rather than reusing `commands::mod`.
+#[tauri::command]
+pub async fn bubble_hide_complete(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<(), String> {
+    // ZR-22: only the bubble window may finalize its own hide. A
+    // compromised main renderer invoking `bubble_hide_complete` would
+    // otherwise skip the show/hide animation cycle and force the
+    // overlay invisible mid-animation.
+    crate::commands::require_bubble_window(&window)?;
+    // GT-50: emit FIRST so the renderer's cleanup runs while the
+    // window is still visible.
+    app.emit_to("bubble", "bubble:hide", ())
+        .map_err(|e| e.to_string())?;
+    let bubble = app
+        .get_webview_window("bubble")
+        .ok_or("bubble window not found")?;
+    bubble.hide().map_err(|e| e.to_string())
+}
+
+// ─── Tauri commands: bubble window extensions (CR-33) ────────────────
+//
+// CR-33: the Tauri bridge was missing 3 bubble-window methods that the
+// Electron bubble preload (`voice_typer/client/src/preload/bubble.ts`)
+// exposes — `resizeTo`, `onSetState`, `toggleDictation`. Without these,
+// the bubble renderer's mic button (toggleDictation) is dead, the
+// state label (onSetState) never updates, and the pill content has a
+// transparent dead zone around it (resizeTo is never called to fit the
+// window to the pill). These commands restore parity with the Electron
+// preload surface so the same `Bubble.tsx` component works on both
+// runtimes.
+
+/// Resize the bubble window to exactly `(width, height)` physical
+/// pixels (CR-33 / ADR-0020 §9). The TS bridge's `resizeTo(w, h)`
+/// invokes this with the pill content's measured bounds so there is no
+/// invisible dead zone around the bubble that would block clicks to the
+/// windows underneath (the BrowserWindow is 240×80 initially; the pill
+/// content is typically smaller).
+///
+/// Mirrors the Electron `bubble:resize` IPC handler in
+/// `voice_typer/client/src/main/index.ts` which calls
+/// `BrowserWindow.setSize(width, height)`.
+///
+/// **Window-origin policy (DE-71):** this command is intentionally NOT
+/// gated by [`require_main_window`] — the bubble renderer is permitted
+/// to self-manipulate its own window size. The bubble's content
+/// measurement observer (`Bubble.tsx`'s `ResizeObserver`) invokes this
+/// when the pill content changes (e.g. state label grows from
+/// "listening" to "transcribing…"), so requiring the call to originate
+/// from the main window would break the auto-fit behavior. The
+/// command's effect is confined to the bubble window itself.
+///
+/// **DE-70 (size ceiling):** the prior code passed `width` / `height`
+/// straight to `set_size` with no upper bound. A renderer bug (or a
+/// compromised sandboxed bubble) that sent `width = u32::MAX` would
+/// ask the window manager for a 4-gigapixel-wide window, which on
+/// Linux triggers a Wayland `xdg_surface` protocol error (killing the
+/// bubble) and on Windows silently clips to the monitor but burns CPU
+/// compositing a huge surface. The fix caps both dimensions to
+/// [`BUBBLE_RESIZE_MAX_DIM`] (7680 = 8K UHD) before calling
+/// `set_size` — well above any legitimate pill content measurement but
+/// well below the OS-brokenness threshold.
+#[tauri::command]
+pub async fn bubble_resize(
+    width: u32,
+    height: u32,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("bubble window not found")?;
+    // DE-70: cap both dimensions to 8K (7680) before calling set_size
+    // to avoid handing the OS window manager a multi-gigapixel surface
+    // (see `cap_resize_dim` doc for the rationale).
+    let capped_w = cap_resize_dim(width);
+    let capped_h = cap_resize_dim(height);
+    use tauri::PhysicalSize;
+    window
+        .set_size(PhysicalSize::new(capped_w, capped_h))
+        .map_err(|e| e.to_string())
+}
+
+/// DE-70: hard ceiling on each `bubble_resize` dimension. 7680 = 8K
+/// UHD width (the highest-resolution consumer display standard as of
+/// 2024). A pill content measurement of 7680+px indicates a renderer
+/// bug (the pill is typically 80–240px wide), so capping here is a
+/// safety net, not a UX constraint.
+///
+/// Extracted into a named constant + pure helper so the cap can be
+/// unit-tested without a Tauri window.
+const BUBBLE_RESIZE_MAX_DIM: u32 = 7680;
+
+/// DE-70: cap a single resize dimension to [`BUBBLE_RESIZE_MAX_DIM`].
+/// Saturating — `u32::min` returns the smaller of the input and the
+/// cap, so any input ≤ 7680 passes through unchanged and any input
+/// above is clamped to 7680.
+fn cap_resize_dim(d: u32) -> u32 {
+    d.min(BUBBLE_RESIZE_MAX_DIM)
+}
+
+/// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
+/// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)
+/// with NO `dispatch` access — the `window.label() != "main"` guard at
+/// the top of `commands::sidecar_cmds::dispatch` (CR-5) rejects any
+/// `dispatch` call from a non-main window, returning the
+/// `disallowed_window` error envelope. So instead of calling
+/// `dispatch` from JS, the bubble renderer invokes this dedicated
+/// command which forwards the `toggle_dictation` envelope to the
+/// sidecar via the WS bridge (mirroring how `dispatch` does it but
+/// with a fixed command name and fire-and-forget semantics — the
+/// bubble doesn't need the response because the sidecar's
+/// `status_change` event will reach it via the WS-reader-translated
+/// `bubble:set-state` route; see the section comment
+/// at the top of this file for the full route description).
+///
+/// The Python sidecar's `toggle_dictation` handler responds with
+/// `{type:"result", data:{recording: bool}}` — we ignore the response
+/// here (no `pending` entry is registered) because the bubble renderer
+/// doesn't need it (it learns the new state via the `bubble:set-state`
+/// event emitted by the WS reader task — see `sidecar/ws.rs`
+/// `translate_event_name`). The main renderer's `usePython.ts`
+/// subscription to `status_change` is the source of truth for the
+/// toggle's effect on the rest of the UI.
+///
+/// Mirrors the Electron `bubble:toggle-dictation` IPC handler in
+/// `voice_typer/client/src/main/index.ts` which calls
+/// `python.call({type: 'toggle_dictation'})`.
+///
+/// G4-L-03 (sanctioned-bypass doc + rate limiter):
+///
+/// This command is the **ONLY sanctioned bypass** of the
+/// `dispatch`-allowlist (CR-5 / SEC-026). Every other cross-window
+/// IPC MUST go through `dispatch` (which enforces the
+/// `window.label() == "main"` guard). `bubble_toggle_dictation` is
+/// allowed to bypass because:
+///   1. It targets a SINGLE fixed, safe command (`toggle_dictation`)
+///      — the user-visible effect is "start/stop recording", which is
+///      already exposed via the tray icon + global hotkey. There is
+///      NO privilege escalation (the bubble can't invoke arbitrary
+///      sidecar commands).
+///   2. The bubble renderer is sandboxed (no Node integration, no
+///      filesystem, no shell access) — even if compromised, the worst
+///      it can do is toggle dictation on/off (a denial-of-mic attack,
+///      not a data-exfil attack).
+///   3. The bypass is TYPE-FIXED at the Rust layer: the JSON envelope
+///      is constructed HERE (not in the renderer), so a compromised
+///      bubble can't send arbitrary `{type: "..."}` payloads.
+///
+/// To prevent abuse (e.g. a buggy renderer that spams toggle in a
+/// tight loop, or a malicious compromise that tries to DoS the
+/// sidecar's recording state machine), this command is rate-limited
+/// to **1 toggle per 500ms** via a process-wide `AtomicU64` tracking
+/// the last-toggle timestamp. Toggles that arrive within the 500ms
+/// window are silently dropped (returning Ok(()) — the renderer
+/// doesn't need to know it was rate-limited because the sidecar's
+/// `status_change` event is translated by the WS reader task
+/// (`sidecar/ws.rs::translate_event_name`) into the
+/// `bubble:set-state` Tauri event, and the bubble UI reflects the
+/// ACTUAL state, not the requested state).
+#[tauri::command]
+pub async fn bubble_toggle_dictation(
+    state: tauri::State<'_, Arc<SidecarState>>,
+) -> Result<(), String> {
+    // G4-L-03 rate limiter: max 1 toggle per 500ms. See the doc comment
+    // above for the rationale (DoS protection against a buggy or
+    // compromised bubble renderer spamming toggle_dictation).
+    if !toggle_rate_limiter_allows() {
+        log::warn!(
+            "[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago) — dropping"
+        );
+        return Ok(());
+    }
+    // Fire-and-forget: send the toggle_dictation envelope with a
+    // synthetic id of 0 (the sidecar's response is dropped — see the
+    // doc comment above). We do NOT register a pending entry, so the
+    // WS reader task's response will be a no-op log warning about an
+    // unknown id (acceptable: the sidecar already logs every dispatch
+    // round-trip; one extra unmatched response per toggle is noise).
+    //
+    // EC-FIX-5 (EC-18 / PVT-25): the inline `json!` + `lock` +
+    // `try_send` block that used to live here was the PVT-25 TODO. It
+    // duplicated the send path in `dispatch_frame`. Replaced by a call
+    // to `crate::commands::sidecar_cmds::dispatch_fire_and_forget`,
+    // which constructs the id=0 frame, locks `ws_tx` via the poison-
+    // safe `mutex_lock` helper, and `try_send`s the frame. The error
+    // strings ("sidecar not connected" / "WS send failed: <e>")
+    // mirror `dispatch_frame`'s shape so the renderer's reject path
+    // handles them identically.
+    crate::commands::sidecar_cmds::dispatch_fire_and_forget(
+        state.inner(),
+        "toggle_dictation",
+        None,
+    )
+}
+
+// ─── G4-L-03: bubble_toggle_dictation rate limiter ────────────────────
+//
+// Process-wide last-toggle timestamp (nanoseconds since UNIX epoch).
+// `AtomicU64` because:
+//   - The Tauri command handler can be invoked concurrently from
+//     multiple webview windows (e.g. if a future code path opens a
+//     second bubble), so we need atomic access.
+//   - `Instant` doesn't have a stable u64 representation (it's an
+//     opaque monotonic clock with no public conversion to integer
+//     types), so we use `SystemTime::now().duration_since(UNIX_EPOCH)`
+//     and store the nanoseconds. This is monotonic enough for rate
+//     limiting (NTP adjustments could shift it but not by enough to
+//     matter for a 500ms window).
+// 0 = "never toggled" (epoch start) — the first toggle always passes.
+static LAST_TOGGLE_NANOS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// G4-L-03: minimum interval between consecutive toggle_dictation
+/// invocations (500ms = 500_000_000 ns). Matches the bubble renderer's
+/// UI animation frame budget (~16ms) — a 500ms window allows ~30
+/// clicks/sec before throttling, which is well above any legitimate
+/// user click rate (~5 clicks/sec max) but well below the rate that
+/// would DoS the sidecar's recording state machine.
+const TOGGLE_RATE_LIMIT_NS: u64 = 500_000_000;
+
+/// G4-L-03: rate-limiter predicate. Returns `true` if the toggle is
+/// allowed (>= 500ms since the last toggle), `false` if rate-limited.
+/// Updates `LAST_TOGGLE_NANOS` atomically on success.
+///
+/// Uses `compare_exchange` in a loop to handle the rare race where two
+/// concurrent calls both read the same `last`. The loop terminates
+/// quickly: on `compare_exchange` failure (another caller updated the
+/// timestamp), we re-read the new timestamp and re-check the rate
+/// limit (almost always returns `false` on the second iteration
+/// because the winning caller just updated it <500ms ago).
+fn toggle_rate_limiter_allows() -> bool {
+    use std::sync::atomic::Ordering;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    loop {
+        let last = LAST_TOGGLE_NANOS.load(Ordering::SeqCst);
+        // If `now < last` (NTP skew or clock went backwards), allow
+        // the toggle (don't penalize the user for a clock glitch).
+        // If the elapsed time is < TOGGLE_RATE_LIMIT_NS, deny.
+        if now >= last && now.saturating_sub(last) < TOGGLE_RATE_LIMIT_NS {
+            return false;
+        }
+        // Try to claim this toggle by updating LAST_TOGGLE_NANOS. If
+        // another caller beat us, retry the loop with the new value.
+        match LAST_TOGGLE_NANOS.compare_exchange(
+            last,
+            now,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => return true,
+            Err(_) => continue,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -909,405 +1310,5 @@ mod tests {
             !predicate("settings"),
             "unknown window labels must be rejected by the bubble-only gate"
         );
-    }
-}
-
-/// Toggle the bubble window's draggable state (ADR-0020 §9 + MIG-1.2).
-///
-/// Tauri v2 does NOT expose a direct `set_draggable` on `WebviewWindow`.
-/// Instead, we emit a `bubble:draggable` event to the bubble window
-/// with the bool payload; the bubble renderer listens for this event
-/// and calls `start_dragging()` on mouse-down (or unbinds the
-/// listener when `false`). This keeps the drag logic in the renderer
-/// where it can be throttled to the animation frame.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own draggability. The main renderer's
-/// `usePython.ts` toggles this on hotkey-down/up, but the bubble
-/// renderer may also self-toggle in response to its own UI state
-/// (e.g. disabling drag while the user is interacting with the mic
-/// button so an accidental drag doesn't fire). The command's effect
-/// is confined to the bubble window's drag listener.
-#[tauri::command]
-pub async fn bubble_set_draggable(
-    draggable: bool,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    app.emit_to("bubble", "bubble:draggable", draggable)
-        .map_err(|e| e.to_string())
-}
-
-/// Move the bubble window by `(dx, dy)` physical pixels relative to
-/// its current `outer_position` (ADR-0020 §9 + MIG-1.2). Returns the
-/// new `{x, y}` so the TS bridge can cache it without a round-trip.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own window geometry. The drag handler in
-/// `Bubble.tsx` invokes `bubble_move_by` on each mousemove while the
-/// user drags the pill, so requiring the call to originate from the
-/// main window would break drag entirely. The command's effect is
-/// confined to the bubble window itself, so a compromised bubble can
-/// at worst mess with its own position (an annoyance, not a security
-/// boundary — the bubble is sandboxed per SEC-026 / CR-5).
-///
-/// **DE-16 (overflow safety):** the prior `pos.x + dx` / `pos.y + dy`
-/// arithmetic was plain `i32 + i32`, which silently wraps on overflow
-/// (Rust's default release-mode behavior). A renderer that sends a
-/// huge `dx` (e.g. `i32::MAX`) on top of a `pos.x` near `i32::MAX`
-/// would wrap to a negative coordinate, jerking the bubble off-screen
-/// with no diagnostic. The fix uses [`compute_move_by_new_pos`],
-/// which `checked_add`s each axis and returns a descriptive error
-/// naming the offending operands so the renderer can surface it.
-#[tauri::command]
-pub async fn bubble_move_by(
-    dx: i32,
-    dy: i32,
-    app: tauri::AppHandle,
-) -> Result<Value, String> {
-    let window = app
-        .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
-    let pos = window.outer_position().map_err(|e| e.to_string())?;
-    // DE-16: use checked arithmetic so a renderer-supplied dx/dy that
-    // would overflow i32::MAX surfaces a descriptive error instead of
-    // silently wrapping the bubble to a wrapped-negative pixel.
-    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx, pos.y, dy)?;
-    window
-        .set_position(PhysicalPosition::new(new_x, new_y))
-        .map_err(|e| e.to_string())?;
-    Ok(json!({"x": new_x, "y": new_y}))
-}
-
-/// DE-16: pure helper that computes the new `(x, y)` position for
-/// [`bubble_move_by`] using `i32::checked_add` on each axis.
-///
-/// Extracted from the command body so the overflow safety can be unit-
-/// tested without spinning up a Tauri `AppHandle` + webview window
-/// (which the in-process `#[cfg(test)]` harness can't do).
-///
-/// # Errors
-///
-/// Returns `Err("move_by overflow: <pos> + <delta>")` if either axis
-/// would overflow `i32`. The error message includes both operands so
-/// the renderer (or a developer reading the log) can see exactly which
-/// axis overflowed and by how much.
-fn compute_move_by_new_pos(
-    pos_x: i32,
-    dx: i32,
-    pos_y: i32,
-    dy: i32,
-) -> Result<(i32, i32), String> {
-    let new_x = pos_x
-        .checked_add(dx)
-        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_x, dx))?;
-    let new_y = pos_y
-        .checked_add(dy)
-        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_y, dy))?;
-    Ok((new_x, new_y))
-}
-
-// A Tauri command that emitted bubble-state events (previously declared
-// here with a full docstring) was REMOVED as dead code. It was never
-// registered in `main.rs::tauri::generate_handler![...]` (the
-// registration was removed earlier with the comment that the command
-// was "dead in production"), so the function was unreachable from the
-// renderer — the `#[tauri::command]` macro generated a handler that
-// no `invoke(...)` call from the renderer could ever reach. Keeping
-// the dead fn + docstring was misleading (the docstring claimed "the
-// legitimate caller is the MAIN renderer's `usePython.ts::
-// onStatusChange` handler", but no such caller exists in the
-// renderer code) and created a maintenance hazard (a future
-// contributor might re-register it without understanding why the
-// earlier removal happened).
-//
-// The `bubble:set-state` Tauri event itself is still emitted by the
-// WS reader task in `sidecar::ws` (which forwards sidecar
-// `status_change` events directly to the bubble window) — that path
-// does NOT go through a Tauri command, so deleting this command
-// doesn't affect the bubble's state-update UX. The deleted command
-// would have been a SECOND path (renderer → invoke → the deleted
-// command → emit_to) that was never wired up.
-
-/// Hide the bubble window and emit `bubble:hide` so the renderer can
-/// run cleanup (e.g., stop the level animation) BEFORE the window becomes
-/// invisible (ADR-0020 §9 + MIG-1.2).
-///
-/// GT-50: previously this command (a) emitted `bubble:hide_complete` —
-/// a name the renderer never listens for — and (b) hid the window FIRST,
-/// so the renderer's cleanup ran AFTER the window was already torn down,
-/// leaking the requestAnimationFrame loop for ~1 frame. The fix renames
-/// the event to `bubble:hide` AND reorders the emit to fire BEFORE `.hide()`.
-///
-/// **ZR-22 (SEC-016):** this command IS now gated by the inverse check
-/// — `require_bubble_window(&window)?` — so only the bubble window's
-/// webview can invoke it. A compromised main renderer (or any other
-/// non-bubble window) that sends `bubble:hidden` via the unrestricted
-/// Tauri `invoke` channel would otherwise prematurely hide the bubble
-/// overlay during its show/hide animation. The check mirrors the
-/// renderer-side `assertFromBubble(event)` gate that
-/// `bubble-window.ts:679` applies on the `bubble:hidden` IPC channel
-/// (defense-in-depth — both gates must hold for the hide to take
-/// effect). The `check_dispatch_window_label` helper does NOT apply
-/// here (this command doesn't go through the `dispatch` path — it's a
-/// dedicated `#[tauri::command]`), so a local `require_bubble_window`
-/// helper is inlined below rather than reusing `commands::mod`.
-#[tauri::command]
-pub async fn bubble_hide_complete(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
-    // ZR-22: only the bubble window may finalize its own hide. A
-    // compromised main renderer invoking `bubble_hide_complete` would
-    // otherwise skip the show/hide animation cycle and force the
-    // overlay invisible mid-animation.
-    crate::commands::require_bubble_window(&window)?;
-    // GT-50: emit FIRST so the renderer's cleanup runs while the
-    // window is still visible.
-    app.emit_to("bubble", "bubble:hide", ())
-        .map_err(|e| e.to_string())?;
-    let bubble = app
-        .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
-    bubble.hide().map_err(|e| e.to_string())
-}
-
-// ─── Tauri commands: bubble window extensions (CR-33) ────────────────
-//
-// CR-33: the Tauri bridge was missing 3 bubble-window methods that the
-// Electron bubble preload (`voice_typer/client/src/preload/bubble.ts`)
-// exposes — `resizeTo`, `onSetState`, `toggleDictation`. Without these,
-// the bubble renderer's mic button (toggleDictation) is dead, the
-// state label (onSetState) never updates, and the pill content has a
-// transparent dead zone around it (resizeTo is never called to fit the
-// window to the pill). These commands restore parity with the Electron
-// preload surface so the same `Bubble.tsx` component works on both
-// runtimes.
-
-/// Resize the bubble window to exactly `(width, height)` physical
-/// pixels (CR-33 / ADR-0020 §9). The TS bridge's `resizeTo(w, h)`
-/// invokes this with the pill content's measured bounds so there is no
-/// invisible dead zone around the bubble that would block clicks to the
-/// windows underneath (the BrowserWindow is 240×80 initially; the pill
-/// content is typically smaller).
-///
-/// Mirrors the Electron `bubble:resize` IPC handler in
-/// `voice_typer/client/src/main/index.ts` which calls
-/// `BrowserWindow.setSize(width, height)`.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own window size. The bubble's content
-/// measurement observer (`Bubble.tsx`'s `ResizeObserver`) invokes this
-/// when the pill content changes (e.g. state label grows from
-/// "listening" to "transcribing…"), so requiring the call to originate
-/// from the main window would break the auto-fit behavior. The
-/// command's effect is confined to the bubble window itself.
-///
-/// **DE-70 (size ceiling):** the prior code passed `width` / `height`
-/// straight to `set_size` with no upper bound. A renderer bug (or a
-/// compromised sandboxed bubble) that sent `width = u32::MAX` would
-/// ask the window manager for a 4-gigapixel-wide window, which on
-/// Linux triggers a Wayland `xdg_surface` protocol error (killing the
-/// bubble) and on Windows silently clips to the monitor but burns CPU
-/// compositing a huge surface. The fix caps both dimensions to
-/// [`BUBBLE_RESIZE_MAX_DIM`] (7680 = 8K UHD) before calling
-/// `set_size` — well above any legitimate pill content measurement but
-/// well below the OS-brokenness threshold.
-#[tauri::command]
-pub async fn bubble_resize(
-    width: u32,
-    height: u32,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let window = app
-        .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
-    // DE-70: cap both dimensions to 8K (7680) before calling set_size
-    // to avoid handing the OS window manager a multi-gigapixel surface
-    // (see `cap_resize_dim` doc for the rationale).
-    let capped_w = cap_resize_dim(width);
-    let capped_h = cap_resize_dim(height);
-    use tauri::PhysicalSize;
-    window
-        .set_size(PhysicalSize::new(capped_w, capped_h))
-        .map_err(|e| e.to_string())
-}
-
-/// DE-70: hard ceiling on each `bubble_resize` dimension. 7680 = 8K
-/// UHD width (the highest-resolution consumer display standard as of
-/// 2024). A pill content measurement of 7680+px indicates a renderer
-/// bug (the pill is typically 80–240px wide), so capping here is a
-/// safety net, not a UX constraint.
-///
-/// Extracted into a named constant + pure helper so the cap can be
-/// unit-tested without a Tauri window.
-const BUBBLE_RESIZE_MAX_DIM: u32 = 7680;
-
-/// DE-70: cap a single resize dimension to [`BUBBLE_RESIZE_MAX_DIM`].
-/// Saturating — `u32::min` returns the smaller of the input and the
-/// cap, so any input ≤ 7680 passes through unchanged and any input
-/// above is clamped to 7680.
-fn cap_resize_dim(d: u32) -> u32 {
-    d.min(BUBBLE_RESIZE_MAX_DIM)
-}
-
-/// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
-/// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)
-/// with NO `dispatch` access — the `window.label() != "main"` guard at
-/// the top of `commands::sidecar_cmds::dispatch` (CR-5) rejects any
-/// `dispatch` call from a non-main window, returning the
-/// `disallowed_window` error envelope. So instead of calling
-/// `dispatch` from JS, the bubble renderer invokes this dedicated
-/// command which forwards the `toggle_dictation` envelope to the
-/// sidecar via the WS bridge (mirroring how `dispatch` does it but
-/// with a fixed command name and fire-and-forget semantics — the
-/// bubble doesn't need the response because the sidecar's
-/// `status_change` event will reach it via the WS-reader-translated
-/// `bubble:set-state` route; see the section comment
-/// at the top of this file for the full route description).
-///
-/// The Python sidecar's `toggle_dictation` handler responds with
-/// `{type:"result", data:{recording: bool}}` — we ignore the response
-/// here (no `pending` entry is registered) because the bubble renderer
-/// doesn't need it (it learns the new state via the `bubble:set-state`
-/// event emitted by the WS reader task — see `sidecar/ws.rs`
-/// `translate_event_name`). The main renderer's `usePython.ts`
-/// subscription to `status_change` is the source of truth for the
-/// toggle's effect on the rest of the UI.
-///
-/// Mirrors the Electron `bubble:toggle-dictation` IPC handler in
-/// `voice_typer/client/src/main/index.ts` which calls
-/// `python.call({type: 'toggle_dictation'})`.
-///
-/// G4-L-03 (sanctioned-bypass doc + rate limiter):
-///
-/// This command is the **ONLY sanctioned bypass** of the
-/// `dispatch`-allowlist (CR-5 / SEC-026). Every other cross-window
-/// IPC MUST go through `dispatch` (which enforces the
-/// `window.label() == "main"` guard). `bubble_toggle_dictation` is
-/// allowed to bypass because:
-///   1. It targets a SINGLE fixed, safe command (`toggle_dictation`)
-///      — the user-visible effect is "start/stop recording", which is
-///      already exposed via the tray icon + global hotkey. There is
-///      NO privilege escalation (the bubble can't invoke arbitrary
-///      sidecar commands).
-///   2. The bubble renderer is sandboxed (no Node integration, no
-///      filesystem, no shell access) — even if compromised, the worst
-///      it can do is toggle dictation on/off (a denial-of-mic attack,
-///      not a data-exfil attack).
-///   3. The bypass is TYPE-FIXED at the Rust layer: the JSON envelope
-///      is constructed HERE (not in the renderer), so a compromised
-///      bubble can't send arbitrary `{type: "..."}` payloads.
-///
-/// To prevent abuse (e.g. a buggy renderer that spams toggle in a
-/// tight loop, or a malicious compromise that tries to DoS the
-/// sidecar's recording state machine), this command is rate-limited
-/// to **1 toggle per 500ms** via a process-wide `AtomicU64` tracking
-/// the last-toggle timestamp. Toggles that arrive within the 500ms
-/// window are silently dropped (returning Ok(()) — the renderer
-/// doesn't need to know it was rate-limited because the sidecar's
-/// `status_change` event is translated by the WS reader task
-/// (`sidecar/ws.rs::translate_event_name`) into the
-/// `bubble:set-state` Tauri event, and the bubble UI reflects the
-/// ACTUAL state, not the requested state).
-#[tauri::command]
-pub async fn bubble_toggle_dictation(
-    state: tauri::State<'_, Arc<SidecarState>>,
-) -> Result<(), String> {
-    // G4-L-03 rate limiter: max 1 toggle per 500ms. See the doc comment
-    // above for the rationale (DoS protection against a buggy or
-    // compromised bubble renderer spamming toggle_dictation).
-    if !toggle_rate_limiter_allows() {
-        log::warn!(
-            "[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago) — dropping"
-        );
-        return Ok(());
-    }
-    // Fire-and-forget: send the toggle_dictation envelope with a
-    // synthetic id of 0 (the sidecar's response is dropped — see the
-    // doc comment above). We do NOT register a pending entry, so the
-    // WS reader task's response will be a no-op log warning about an
-    // unknown id (acceptable: the sidecar already logs every dispatch
-    // round-trip; one extra unmatched response per toggle is noise).
-    //
-    // EC-FIX-5 (EC-18 / PVT-25): the inline `json!` + `lock` +
-    // `try_send` block that used to live here was the PVT-25 TODO. It
-    // duplicated the send path in `dispatch_frame`. Replaced by a call
-    // to `crate::commands::sidecar_cmds::dispatch_fire_and_forget`,
-    // which constructs the id=0 frame, locks `ws_tx` via the poison-
-    // safe `mutex_lock` helper, and `try_send`s the frame. The error
-    // strings ("sidecar not connected" / "WS send failed: <e>")
-    // mirror `dispatch_frame`'s shape so the renderer's reject path
-    // handles them identically.
-    crate::commands::sidecar_cmds::dispatch_fire_and_forget(
-        state.inner(),
-        "toggle_dictation",
-        None,
-    )
-}
-
-// ─── G4-L-03: bubble_toggle_dictation rate limiter ────────────────────
-//
-// Process-wide last-toggle timestamp (nanoseconds since UNIX epoch).
-// `AtomicU64` because:
-//   - The Tauri command handler can be invoked concurrently from
-//     multiple webview windows (e.g. if a future code path opens a
-//     second bubble), so we need atomic access.
-//   - `Instant` doesn't have a stable u64 representation (it's an
-//     opaque monotonic clock with no public conversion to integer
-//     types), so we use `SystemTime::now().duration_since(UNIX_EPOCH)`
-//     and store the nanoseconds. This is monotonic enough for rate
-//     limiting (NTP adjustments could shift it but not by enough to
-//     matter for a 500ms window).
-// 0 = "never toggled" (epoch start) — the first toggle always passes.
-static LAST_TOGGLE_NANOS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
-/// G4-L-03: minimum interval between consecutive toggle_dictation
-/// invocations (500ms = 500_000_000 ns). Matches the bubble renderer's
-/// UI animation frame budget (~16ms) — a 500ms window allows ~30
-/// clicks/sec before throttling, which is well above any legitimate
-/// user click rate (~5 clicks/sec max) but well below the rate that
-/// would DoS the sidecar's recording state machine.
-const TOGGLE_RATE_LIMIT_NS: u64 = 500_000_000;
-
-/// G4-L-03: rate-limiter predicate. Returns `true` if the toggle is
-/// allowed (>= 500ms since the last toggle), `false` if rate-limited.
-/// Updates `LAST_TOGGLE_NANOS` atomically on success.
-///
-/// Uses `compare_exchange` in a loop to handle the rare race where two
-/// concurrent calls both read the same `last`. The loop terminates
-/// quickly: on `compare_exchange` failure (another caller updated the
-/// timestamp), we re-read the new timestamp and re-check the rate
-/// limit (almost always returns `false` on the second iteration
-/// because the winning caller just updated it <500ms ago).
-fn toggle_rate_limiter_allows() -> bool {
-    use std::sync::atomic::Ordering;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    loop {
-        let last = LAST_TOGGLE_NANOS.load(Ordering::SeqCst);
-        // If `now < last` (NTP skew or clock went backwards), allow
-        // the toggle (don't penalize the user for a clock glitch).
-        // If the elapsed time is < TOGGLE_RATE_LIMIT_NS, deny.
-        if now >= last && now.saturating_sub(last) < TOGGLE_RATE_LIMIT_NS {
-            return false;
-        }
-        // Try to claim this toggle by updating LAST_TOGGLE_NANOS. If
-        // another caller beat us, retry the loop with the new value.
-        match LAST_TOGGLE_NANOS.compare_exchange(
-            last,
-            now,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
-            Ok(_) => return true,
-            Err(_) => continue,
-        }
     }
 }

@@ -71,20 +71,6 @@ pub(crate) const PRE_RESTART_DELAY_MS: u64 = 500;
 /// `SHUTDOWN_ACK_TIMEOUT_MS` elapses, then force-kill the child.
 pub(crate) const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
 
-/// ADR-0020 §6.2: paste-text short/long threshold (characters). Short
-/// text is injected via `enigo.text()` (IME-safe); long text is copied
-/// to the clipboard then Ctrl/Cmd+V is pressed.
-///
-/// GT-E3-9: this is a HOST-INTERNAL heuristic with NO Python
-/// counterpart — `voice_typer/server/` has zero references to
-/// `paste_short_threshold`, `PASTE_SHORT_THRESHOLD`, or `300` in a
-/// paste context (verified via `rg`). The constant is consumed only
-/// by `src-tauri/src/commands/paste.rs` (GT-FIX-20's domain) to
-/// decide the short-vs-long injection strategy on the HOST side; the
-/// Python sidecar never sees this value. So there's no parity
-/// requirement — leave as-is.
-pub(crate) const PASTE_SHORT_THRESHOLD: usize = 300;
-
 /// ADR-0020 §11: max bytes per log file before rotation.
 pub(crate) const ROTATE_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 
@@ -131,26 +117,6 @@ pub(crate) const HEARTBEAT_MAX_MISSES: u32 = 3;
 /// constant would be dead code and trigger the Rust `dead_code` lint.
 #[cfg(unix)]
 pub(crate) const KILL_TREE_SIGTERM_GRACE_MS: u64 = 200;
-
-/// `commands/paste.rs::paste_via_clipboard_and_ctrl_v`: delay between
-/// sending Ctrl+V and restoring the user's pre-paste clipboard
-/// contents. 250ms is the empirically-tuned value that lets the
-/// foreground app's paste handler read the clipboard before we
-/// overwrite it with the original contents. Too short → the paste
-/// inserts the user's original clipboard instead of the transcribed
-/// text; too long → the user's clipboard stays clobbered longer
-/// (risking they copy something else first and wonder where their
-/// transcription went).
-pub(crate) const PASTE_CLIPBOARD_RESTORE_DELAY_MS: u64 = 250;
-
-/// `commands/paste.rs::restore_focus_or_fallback`: when `AttachThreadInput`
-/// fails (UIPI blocks the attach — the foreground window is elevated),
-/// we write the text to the clipboard + post a toast telling the user
-/// to press Ctrl+V manually. We then delay restoring the original
-/// clipboard by 30s — generous enough for the user to read the toast
-/// + press Ctrl+V, short enough that the original clipboard isn't
-/// held "hostage" for too long.
-pub(crate) const PASTE_UIPI_FALLBACK_RESTORE_SECS: u64 = 30;
 
 /// `sidecar/spawn.rs::spawn_sidecar_and_get_port` (and the dev-mode
 /// `spawn_dev_sidecar` sibling): polling interval for the
@@ -203,13 +169,22 @@ pub(crate) mod hex {
 
 // ─── now_timestamp (ADR-0020 §11) ─────────────────────────────────────
 
-/// Format the current time as `YYYY-MM-DD HH:MM:SS.mmm` (UTC).
+/// Format the current time as `YYYY-MM-DDTHH:MM:SS.mmmZ` (ISO-8601 UTC).
 ///
 /// Uses Howard Hinnant's `civil_from_days` algorithm to convert days-
 /// since-Unix-epoch to a (y, m, d) triple without pulling in `chrono`
 /// or `time` (keeping the dep tree minimal per ADR-0020 §11's "prefer
 /// minimal deps" guidance). UTC is fine for log timestamps — the
 /// Python side also logs in UTC (`log.py` uses `gmtime()`).
+///
+/// FR-34: format changed from `YYYY-MM-DD HH:MM:SS.mmm` (space sep,
+/// no tz indicator) to `YYYY-MM-DDTHH:MM:SS.mmmZ` (T sep + Z suffix)
+/// to match Python JSON + TS `new Date().toISOString()` (both produce
+/// ISO-8601 with T separator + Z suffix). Pre-fix the space-separated
+/// Rust format caused log aggregators (Loki, Datadog, ELK) with
+/// ISO-8601 timestamp parsers to fail/misparse Rust log lines, and
+/// cross-layer correlation by timestamp required layer-specific
+/// parsing logic.
 pub(crate) fn now_timestamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
@@ -243,8 +218,11 @@ pub(crate) fn now_timestamp() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
+    // FR-34: ISO-8601 format with T separator + Z suffix (UTC). The
+    // prior `" "` separator + missing tz indicator was non-ISO-8601-
+    // compliant and broke log-aggregator timestamp parsers.
     format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         y, m, d, hour, min, sec, millis
     )
 }
@@ -277,8 +255,25 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     // The temp filename is dotted so it doesn't show up in normal
     // directory listings and is prefixed with the target's filename
     // so a human inspecting the dir can tell what it's for.
+    //
+    // FR-49: include a unique suffix (PID + 4 random bytes hex) so
+    // concurrent invocations on the same target path don't race on
+    // the same temp filename. Pre-fix the deterministic name
+    // `.NAME.tmp.migrate` meant two concurrent `atomic_write_bytes`
+    // calls to the same `path` would: (1) both open the SAME temp
+    // file with `File::create` (which truncates), (2) interleave
+    // writes, (3) race the rename — corrupted content + lost writes.
+    // The PID disambiguates across processes; the 4-byte random
+    // suffix disambiguates within a process (multiple threads, or
+    // rapid sequential calls). `rand::rng()` is the thread-local RNG
+    // (rand 0.9 API) — same as `generate_token` uses.
     let tmp_name = match path.file_name().and_then(|n| n.to_str()) {
-        Some(n) => format!(".{}.tmp.migrate", n),
+        Some(n) => {
+            let mut rng_bytes = [0u8; 4];
+            rand::rng().fill_bytes(&mut rng_bytes);
+            let suffix = u32::from_le_bytes(rng_bytes);
+            format!(".{}.tmp.{}.{:08x}", n, std::process::id(), suffix)
+        }
         None => return Err(format!("path has no file_name: {}", path.display())),
     };
     let tmp = dir.join(&tmp_name);
@@ -378,14 +373,19 @@ mod tests {
     #[test]
     fn test_now_timestamp_format() {
         let ts = now_timestamp();
-        // Expected: "YYYY-MM-DD HH:MM:SS.mmm" → 23 chars.
-        assert_eq!(ts.len(), 23, "unexpected timestamp length: \"{}\"", ts);
+        // FR-34: ISO-8601 format `YYYY-MM-DDTHH:MM:SS.mmmZ` → 24 chars.
+        // (Pre-FR-34 was 23 chars: `YYYY-MM-DD HH:MM:SS.mmm` — space
+        // separator, no tz indicator.)
+        assert_eq!(ts.len(), 24, "unexpected timestamp length: \"{}\"", ts);
         assert_eq!(ts.chars().nth(4), Some('-'), "year-month sep: {}", ts);
         assert_eq!(ts.chars().nth(7), Some('-'), "month-day sep: {}", ts);
-        assert_eq!(ts.chars().nth(10), Some(' '), "date-time sep: {}", ts);
+        // FR-34: 'T' separator (was ' ' pre-FR-34).
+        assert_eq!(ts.chars().nth(10), Some('T'), "date-time sep (FR-34 ISO-8601 T): {}", ts);
         assert_eq!(ts.chars().nth(13), Some(':'), "hour-min sep: {}", ts);
         assert_eq!(ts.chars().nth(16), Some(':'), "min-sec sep: {}", ts);
         assert_eq!(ts.chars().nth(19), Some('.'), "sec-ms sep: {}", ts);
+        // FR-34: 'Z' suffix (UTC indicator, was absent pre-FR-34).
+        assert_eq!(ts.chars().nth(23), Some('Z'), "tz suffix (FR-34 ISO-8601 Z): {}", ts);
     }
 
     #[test]
@@ -480,11 +480,25 @@ mod tests {
             "sanity: contents must match"
         );
         // The temp file must NOT exist after the rename (cleanup).
-        let tmp_path = tmp.join(".config.json.tmp.migrate");
+        // FR-49: the temp name is now randomized (`.NAME.tmp.PID.HEX`)
+        // so we scan the parent dir for any leftover temp file matching
+        // the `.config.json.tmp.*` prefix instead of hardcoding the
+        // pre-FR-49 deterministic name.
+        let mut leaked: Vec<String> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&tmp) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with(".config.json.tmp.") {
+                        leaked.push(name.to_string());
+                    }
+                }
+            }
+        }
         assert!(
-            !tmp_path.exists(),
-            "temp file leaked after rename: {}",
-            tmp_path.display()
+            leaked.is_empty(),
+            "temp file leaked after rename: {:?} (in dir {})",
+            leaked,
+            tmp.display()
         );
         std::fs::remove_dir_all(&tmp).ok();
     }

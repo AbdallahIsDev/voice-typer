@@ -152,11 +152,35 @@ const HOST_SHUTDOWN_GRACE_MS: u64 = 5000;
 // handles that. The state struct + atomics are needed for the `.manage()`
 // call below.
 fn main() {
+    // FR-16: install the EarlyLogger as the VERY FIRST line of main(),
+    // before any other code that might call `log::*!`. The EarlyLogger
+    // is a minimal stderr-only `log::Log` impl that catches pre-init
+    // records (config-dir resolution, env-var validation, panic-hook
+    // install) that the `log` crate's default no-op sink would
+    // otherwise silently drop. Mirrors Python's `logging.lastResort`.
+    //
+    // `init_file_logger` (called further down) UPGRADES the
+    // EarlyLogger to the combined file+stderr sink via a swap pattern
+    // (`OnceLock::set`) — it does NOT call `log::set_logger` again
+    // (which would fail — `set_logger` is process-global one-shot).
+    // See `platform::logging::EarlyLogger` for the design rationale.
+    //
+    // MUST be the first line so even `install_panic_hook` (next call)
+    // can rely on `log::error!` landing on stderr if it panics
+    // internally (extremely unlikely, but defensive).
+    crate::platform::logging::install_early_logger();
+
     // FA8-retry / PVT-G5-007 / PVT-G5-083: install the panic hook BEFORE
     // the file logger so panics during logger init are still captured
     // (the hook falls back to eprintln if the global logger isn't set
     // yet). The hook is exported by `platform::logging` (added by
     // FA8-retry).
+    //
+    // FR-16: with `install_early_logger` above, the global `log` sink
+    // is already the EarlyLogger (stderr-only fallback) — so
+    // `log::error!` from the panic hook will land on stderr even
+    // before `init_file_logger` upgrades the EarlyLogger to the
+    // combined file+stderr sink.
     crate::platform::logging::install_panic_hook();
 
     // ADR-0020 §11: init the rotating file logger BEFORE the Tauri

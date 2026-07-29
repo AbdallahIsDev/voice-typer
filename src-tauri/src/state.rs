@@ -378,9 +378,27 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
 ///
 /// Assigns the next monotonic id, builds a ``{"type":<frame_type>,
 /// "data":{}, "id":<id>}`` frame, and enqueues it on the WS writer
-/// channel via ``try_send`` (non-blocking). Returns the assigned id
-/// (so the caller can log it) or ``None`` if there's no ``ws_tx``
-/// (WS already torn down — caller logs).
+/// channel via ``try_send`` (non-blocking).
+///
+/// # Return value semantics (FR-83)
+///
+/// The returned `Option<u64>` is for **tracing only** — it does NOT
+/// indicate whether the frame was successfully delivered to the WS
+/// writer task. Specifically:
+///
+/// - `None`: there is no `ws_tx` (the WS was already torn down — the
+///   caller should treat this as "no sidecar connected").
+/// - `Some(id)`: an id was assigned for the frame. **The frame may or
+///   may not have been enqueued.** If `try_send` failed (e.g. WS
+///   channel full or closed), the failure is logged at `warn` level
+///   and `Some(id)` is still returned — the id is purely a tracing
+///   artifact and the peer will time out waiting for a response.
+///
+/// Callers that need to know whether the frame was actually sent
+/// should use the full `dispatch_frame` path (which returns a
+/// `Result`). This helper exists for fire-and-forget frames where the
+/// caller cannot react to a send failure anyway (e.g. `relaunch_app`
+/// — the process is about to exit regardless).
 pub(crate) fn send_fire_and_forget_frame(
     state: &Arc<SidecarState>,
     frame_type: &str,

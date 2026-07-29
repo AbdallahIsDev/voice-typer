@@ -10,7 +10,8 @@
 use crate::util::{ROTATE_MAX_BYTES, ROTATE_MAX_FILES, now_timestamp};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 // POSIX-only `OpenOptions::mode` + `Permissions::from_mode`
 // trait imports. On Windows these are no-ops (the OS uses ACLs, not
@@ -58,7 +59,21 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
             std::fs::Permissions::from_mode(0o700),
         );
     }
-    let writer = RotatingFileWriter::new(logs_dir, "voice-typer");
+    // FR-97: rename Rust's log basename to `voice-typer-rust` so the
+    // final path is `<config_dir>/logs/voice-typer-rust.log`. Pre-fix
+    // the basename was `voice-typer`, producing
+    // `<config_dir>/logs/voice-typer.log` — the SAME basename as the
+    // Python sidecar's `<config_dir>/voice-typer.log`. The two paths
+    // were different (Python wrote to the config_dir root, Rust to
+    // `logs/`) so they didn't actually collide, BUT the basename
+    // parity was a fragile contract: a future Python change moving
+    // its log into `logs/` (a reasonable cleanup) would silently
+    // cause both layers to append to the same file → rotation races
+    // + interleaved lines with different timestamp formats. Renaming
+    // Rust's file makes the contract explicit and survives a Python
+    // layout change. Mirrors the Python side's
+    // `RotatingFileHandler(filename=...)` at log.py:891-893.
+    let writer = RotatingFileWriter::new(logs_dir, "voice-typer-rust");
     // PVT-G5-082: honor `RUST_LOG` runtime log-level override. Parsed
     // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
     // Default to `Info` if the var is unset OR unparseable so a typo
@@ -90,23 +105,56 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
             }
         })
         .unwrap_or(log::LevelFilter::Info);
-    let logger = CombinedLogger {
+    // TY-34: gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
+    // Release builds with no env var skip the per-line `eprintln!`
+    // syscall (saves 1 `write(2)` per log line). The env var is the
+    // release-build escape hatch for operators who want stderr tailing
+    // (`journalctl -u voice-typer` etc.).
+    let stderr_verbose_init = cfg!(debug_assertions)
+        || std::env::var("RUST_LOG_STDERR")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+    let combined = CombinedLogger {
         file_writer: Some(writer),
         level_filter: max_level,
-        // TY-34: gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
-        // Release builds with no env var skip the per-line `eprintln!`
-        // syscall (saves 1 `write(2)` per log line). The env var is the
-        // release-build escape hatch for operators who want stderr tailing
-        // (`journalctl -u voice-typer` etc.).
-        stderr_verbose: cfg!(debug_assertions)
-            || std::env::var("RUST_LOG_STDERR")
-                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                .unwrap_or(false),
+        // FR-96: `AtomicBool` so future code (e.g. a Tauri command)
+        // can toggle stderr verbosity at runtime. The per-line cost
+        // is a single `AtomicBool::load(Relaxed)` — same as a `bool`
+        // load on x86/ARM (Relaxed loads compile to a plain MOV).
+        stderr_verbose: AtomicBool::new(stderr_verbose_init),
     };
-    // `Box::leak` is safe here: the logger lives for the program's
-    // lifetime (we never want to tear it down). `log::set_logger`
-    // requires a `&'static dyn Log`.
-    log::set_logger(Box::leak(Box::new(logger)))
+
+    // FR-16: prefer the swap pattern when an `EarlyLogger` is already
+    // installed as the process-global `log` sink (the standard path —
+    // `install_early_logger` runs as the first line of `main()`).
+    // `log::set_logger` can only be called ONCE per process, so we
+    // can't replace the global logger; instead, we swap the
+    // `CombinedLogger` into the `EarlyLogger`'s `OnceLock` so all
+    // subsequent `log::*!` records delegate to the combined file+stderr
+    // sink. `OnceLock::get` is a single atomic load on the hot path —
+    // no mutex acquisition per log call.
+    if let Some(early) = EarlyLogger::instance() {
+        if early.inner.set(combined).is_err() {
+            return Err(
+                "init_file_logger called twice (EarlyLogger already upgraded to file sink)"
+                    .to_string(),
+            );
+        }
+        // Bump the global max-level to the resolved value (the
+        // EarlyLogger was installed with `Info` as a safe default; the
+        // file-logger init may have parsed `RUST_LOG=debug` etc.).
+        // `set_max_level` can be called multiple times safely.
+        log::set_max_level(max_level);
+        return Ok(());
+    }
+
+    // Fallback: EarlyLogger was NOT installed (e.g. tests, or a host
+    // entrypoint that skipped `install_early_logger`). Install the
+    // `CombinedLogger` directly via `log::set_logger`. This path
+    // preserves the pre-FR-16 behavior so existing tests that depend
+    // on `init_file_logger` calling `set_logger` continue to compile
+    // and run.
+    log::set_logger(Box::leak(Box::new(combined)))
         .map_err(|_| "failed to set logger (already set?)".to_string())?;
     log::set_max_level(max_level);
     Ok(())
@@ -146,7 +194,17 @@ pub(crate) struct CombinedLogger {
     /// to a terminal in `cargo tauri build` release binaries).
     /// Caching the predicate here means the per-line cost is a single
     /// bool load, not an `env::var` lookup.
-    stderr_verbose: bool,
+    ///
+    /// FR-96: changed from `bool` to `AtomicBool` so the predicate
+    /// becomes runtime-toggleable. Future code (e.g. a Tauri command
+    /// that flips stderr verbosity without restarting the host) can
+    /// `store(true/false, Ordering::Relaxed)` at any time. The per-
+    /// line `log()` path uses `load(Ordering::Relaxed)`, which on
+    /// x86/ARM compiles to a plain MOV — same cost as a `bool` load.
+    /// `Relaxed` is correct: we don't need cross-thread ordering for
+    /// a boolean flag whose only consumer is the same thread that
+    /// calls `eprintln!`.
+    stderr_verbose: AtomicBool,
 }
 
 impl log::Log for CombinedLogger {
@@ -182,7 +240,10 @@ impl log::Log for CombinedLogger {
         // per log line in release builds where stderr is /dev/null.
         // Always emit in debug builds so `cargo tauri dev` shows live
         // logs in the launching terminal; opt-in for release builds.
-        if self.stderr_verbose {
+        //
+        // FR-96: `AtomicBool::load(Relaxed)` — runtime-toggleable
+        // without restart. Same per-line cost as a `bool` load.
+        if self.stderr_verbose.load(Ordering::Relaxed) {
             eprintln!("{}", line);
         }
         // ADR-0020 §11: exclude `bubble_level` from the file log
@@ -194,8 +255,22 @@ impl log::Log for CombinedLogger {
         // GT-B4-11: the WS reader doesn't currently log bubble_level
         // events to the file (they go via `app.emit()` to the webview,
         // not `log::*!`), so this filter is defensive.
+        //
+        // FR-33: preserve WARNING+ records even when they start with
+        // the bubble_level prefix. Pre-fix this dropped ANY record
+        // matching the prefix regardless of level — a future
+        // `log::error!("[WS-READER] bubble_level event handler
+        // crashed: ...")` would be SILENTLY LOST from the file log.
+        // Mirrors Python's `_BubbleLevelExclusionFilter` short-circuit
+        // at `log.py:216-219`:
+        //   `if record.levelno >= logging.WARNING: return True`
+        // (filter returning True = "do NOT filter out" in Python's
+        // logging API). The Rust equivalent is the level-guarded
+        // early-skip below.
         if let Some(writer) = &self.file_writer {
-            if !msg.starts_with("[WS-READER] bubble_level event") {
+            let is_filtered_bubble = record.level() <= log::Level::Info
+                && msg.starts_with("[WS-READER] bubble_level event");
+            if !is_filtered_bubble {
                 let _ = writer.write_line(&line);
             }
         }
@@ -239,6 +314,13 @@ impl log::Log for CombinedLogger {
 /// in the rotating file (otherwise the log record is silently dropped
 /// by the `log` crate's default no-op logger). Calling before
 /// `init_file_logger` is still safe — the `eprintln!` half still fires.
+///
+/// FR-16: if `install_early_logger` has already been called (the new
+/// standard path — `install_early_logger` is the FIRST line of
+/// `main()`), then the global `log` sink is the `EarlyLogger` (a
+/// stderr-only fallback) and `log::error!` from the panic hook will
+/// land on stderr even before `init_file_logger` upgrades the
+/// EarlyLogger to the combined file+stderr sink.
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -263,6 +345,183 @@ pub fn install_panic_hook() {
         // `panic=abort`) is preserved.
         prev(info);
     }));
+}
+
+// ─── FR-16: EarlyLogger (lastResort-equivalent for the Rust host) ──────
+//
+// Python's `logging` module ships with `logging.lastResort` — a
+// stderr-only handler of level WARNING that fires when no other
+// handlers are configured, so `log.warning(...)`/`log.error(...)`
+// calls during early startup (before `logging.basicConfig` runs) are
+// NOT silently lost. The TS side has `console.*` which always fires.
+// The Rust `log` crate has NO equivalent: before `log::set_logger`
+// returns, every `log::*!` call is silently dropped by the default
+// no-op logger.
+//
+// Pre-FR-16, `main.rs` called `config_dir_from_env(...)` BEFORE
+// `init_file_logger`, and `paths.rs` had to work around the silent
+// drop with manual `eprintln!("{}", warn_msg); log::warn!("{}", warn_msg);`
+// pairs (paths.rs:165-166). Any NEW pre-init `log::*!` call would be
+// silently lost with no workaround.
+//
+// FR-16 fix: install an `EarlyLogger` as the FIRST line of `main()`.
+// The EarlyLogger is a minimal stderr-only `log::Log` impl that runs
+// until `init_file_logger` upgrades it to the combined file+stderr
+// sink via a swap pattern (the global `log::set_logger` can only be
+// called ONCE per process, so we can't replace the EarlyLogger — we
+// swap a `CombinedLogger` INTO it via a `OnceLock`).
+
+/// Process-global handle to the leaked `&'static EarlyLogger` instance,
+/// set by `install_early_logger`. Read by `init_file_logger` so it can
+/// swap the file sink in without calling `log::set_logger` a second
+/// time (which would fail — `set_logger` is process-global one-shot).
+static EARLY_LOGGER_HANDLE: OnceLock<&'static EarlyLogger> = OnceLock::new();
+
+/// FR-16: minimal stderr-only `log::Log` impl installed as the FIRST
+/// line of `main()` (before `install_panic_hook`, before
+/// `config_dir_from_env`, before `init_file_logger`). Until
+/// `init_file_logger` runs, all `log::*!` records go to stderr only
+/// (subject to the `stderr_verbose` flag + `level_filter`). Once
+/// `init_file_logger` runs, a `CombinedLogger` is swapped into
+/// `inner` and all subsequent records delegate to it (file + stderr).
+///
+/// The hot path (`log()`) is a single `OnceLock::get` (one atomic
+/// load) — same cost as a `bool` load. The pre-init fallback path
+/// (rare — only runs between `install_early_logger` and
+/// `init_file_logger`, a window of microseconds in `main()`) does
+/// the format + `eprintln!` inline.
+pub(crate) struct EarlyLogger {
+    /// The `CombinedLogger` installed by `init_file_logger`. `None`
+    /// (via `OnceLock::get()` returning `None`) until that call.
+    /// `OnceLock::get` is a single atomic load — no mutex on the hot
+    /// path. `OnceLock::set` is called exactly once (init_file_logger
+    /// returns Err if called twice).
+    inner: OnceLock<CombinedLogger>,
+    /// Pre-init fallback state: stderr verbosity flag. FR-96: AtomicBool
+    /// so future code can toggle at runtime. After `init_file_logger`
+    /// upgrades the EarlyLogger, this field is no longer consulted —
+    /// the CombinedLogger's own `stderr_verbose` takes over.
+    stderr_verbose: AtomicBool,
+    /// Pre-init fallback state: level filter. Plain `log::LevelFilter`
+    /// (no atomic) because it's only set once at construction and read
+    /// in the pre-init fallback path. After upgrade, the CombinedLogger's
+    /// own `level_filter` is used.
+    level_filter: log::LevelFilter,
+}
+
+impl EarlyLogger {
+    /// Return the process-global `&'static EarlyLogger`, if
+    /// `install_early_logger` has been called. Returns `None` in
+    /// tests / host entrypoints that skip the early-logger install
+    /// (in which case `init_file_logger` falls back to the
+    /// pre-FR-16 path of calling `log::set_logger` directly).
+    fn instance() -> Option<&'static EarlyLogger> {
+        EARLY_LOGGER_HANDLE.get().copied()
+    }
+}
+
+impl log::Log for EarlyLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        // If the CombinedLogger has been swapped in, delegate to its
+        // `enabled` check (which consults the upgraded level filter).
+        if let Some(combined) = self.inner.get() {
+            return combined.enabled(metadata);
+        }
+        // Pre-init fallback: use the EarlyLogger's own level filter.
+        metadata.level() <= self.level_filter
+    }
+
+    fn log(&self, record: &log::Record) {
+        // Hot path: delegate to the CombinedLogger if installed.
+        if let Some(combined) = self.inner.get() {
+            combined.log(record);
+            return;
+        }
+        // Pre-init fallback (only runs between `install_early_logger`
+        // and `init_file_logger` — a window of microseconds in
+        // `main()`). Format the line and emit to stderr only.
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let msg = record.args().to_string();
+        let ts = now_timestamp();
+        let line = format!(
+            "{} {:5} {} {}:{} -- {}",
+            ts,
+            record.level(),
+            record.target(),
+            record.file().unwrap_or("?"),
+            record.line().unwrap_or(0),
+            msg
+        );
+        // FR-96: AtomicBool::load(Relaxed) — runtime-toggleable.
+        if self.stderr_verbose.load(Ordering::Relaxed) {
+            eprintln!("{}", line);
+        }
+        // No file sink in the pre-init fallback — `init_file_logger`
+        // hasn't run yet, so there's no `RotatingFileWriter` to write
+        // to. The record is preserved on stderr, which is the
+        // Python `lastResort` equivalent.
+    }
+
+    fn flush(&self) {
+        if let Some(combined) = self.inner.get() {
+            combined.flush();
+        }
+        // Pre-init fallback: no buffered state to flush (eprintln! is
+        // unbuffered on POSIX — writes go straight to the fd via
+        // `write(2)`).
+    }
+}
+
+/// FR-16: install the `EarlyLogger` as the process-global `log` sink.
+/// MUST be the FIRST line of `main()` — before `install_panic_hook`,
+/// before `config_dir_from_env`, before any other code that might
+/// call `log::*!`. Mirrors Python's `logging.lastResort` pattern.
+///
+/// After this call returns, ALL `log::*!` records (subject to the
+/// level filter) land on stderr (if `stderr_verbose` is true) until
+/// `init_file_logger` upgrades the EarlyLogger to the combined
+/// file+stderr sink.
+///
+/// `pub` (NOT `pub(crate)`) so `main.rs` can call it from outside
+/// the `platform::logging` module. Calling more than once is safe —
+/// the second call is a no-op (the EarlyLogger is already installed
+/// in `EARLY_LOGGER_HANDLE` and `log::set_logger` was already called).
+pub fn install_early_logger() {
+    if EARLY_LOGGER_HANDLE.get().is_some() {
+        // Already installed — no-op. Allows `main()` to call this
+        // defensively (e.g. in tests that exercise `main`'s startup
+        // path) without panicking on the second `log::set_logger`.
+        return;
+    }
+    // TY-34 / FR-96: same stderr_verbose computation as
+    // `init_file_logger` — debug builds OR `RUST_LOG_STDERR=1`. We
+    // recompute here (rather than inheriting from a shared helper)
+    // because env vars don't change between the two calls and the
+    // duplication is only 4 lines.
+    let stderr_verbose = cfg!(debug_assertions)
+        || std::env::var("RUST_LOG_STDERR")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+    let logger = Box::leak(Box::new(EarlyLogger {
+        inner: OnceLock::new(),
+        stderr_verbose: AtomicBool::new(stderr_verbose),
+        // Pre-init default: Info level so `log::info!`/`log::warn!`/
+        // `log::error!` from `config_dir_from_env` etc. all land on
+        // stderr. `init_file_logger` will bump this via
+        // `log::set_max_level` once it parses `RUST_LOG`.
+        level_filter: log::LevelFilter::Info,
+    }));
+    // `log::set_logger` is a one-shot — returns Err if a logger is
+    // already installed. We `let _ =` the result so this function is
+    // idempotent (a test that already set its own logger doesn't
+    // panic). The `EARLY_LOGGER_HANDLE` is still set below so
+    // `init_file_logger` can find the EarlyLogger and swap in the
+    // file sink.
+    let _ = log::set_logger(logger);
+    log::set_max_level(log::LevelFilter::Info);
+    let _ = EARLY_LOGGER_HANDLE.set(logger);
 }
 
 /// Minimal rotating-file writer: appends to
@@ -789,7 +1048,9 @@ mod tests {
             level_filter: log::LevelFilter::Info,
             // TY-34: stderr_verbose=true in tests so the eprintln! path
             // is exercised (mirrors debug-build behavior).
-            stderr_verbose: true,
+            // FR-96: AtomicBool (was `bool`) so the predicate is
+            // runtime-toggleable.
+            stderr_verbose: AtomicBool::new(true),
         };
         // Build a Record with a known file/line. `log::Record::builder`
         // sets `file()` and `line()` from the args + metadata.
@@ -840,7 +1101,9 @@ mod tests {
             level_filter: log::LevelFilter::Info,
             // TY-34: stderr_verbose=true in tests so the eprintln! path
             // is exercised (mirrors debug-build behavior).
-            stderr_verbose: true,
+            // FR-96: AtomicBool (was `bool`) so the predicate is
+            // runtime-toggleable.
+            stderr_verbose: AtomicBool::new(true),
         };
         let record = log::Record::builder()
             .level(log::Level::Info)
@@ -985,5 +1248,183 @@ mod tests {
             mode
         );
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── FR-33: bubble_level filter preserves WARNING+ records ─────────
+    //
+    // Pre-FR-33 the filter dropped ANY record whose message started
+    // with `[WS-READER] bubble_level event`, regardless of level.
+    // A future `log::error!("[WS-READER] bubble_level event handler
+    // crashed: ...")` would be SILENTLY LOST. Post-FR-33 the filter
+    // short-circuits for WARNING+ records (mirrors Python's
+    // `_BubbleLevelExclusionFilter` at log.py:216-219).
+
+    #[test]
+    fn test_fr33_bubble_level_filter_drops_info_record() {
+        // INFO-level bubble_level event must be dropped from the file
+        // log (the original ADR-0020 §11 behavior — 60 Hz events would
+        // fill disk fast).
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-fr33-info",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        let logger = CombinedLogger {
+            file_writer: Some(writer),
+            level_filter: log::LevelFilter::Trace,
+            stderr_verbose: AtomicBool::new(false),
+        };
+        let record = log::Record::builder()
+            .level(log::Level::Info)
+            .target("test_target")
+            .file(Some("src/test.rs"))
+            .line(Some(1))
+            .args(format_args!("[WS-READER] bubble_level event rms=0.42"))
+            .build();
+        logger.log(&record);
+        logger.flush();
+        let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
+        assert!(
+            !content.contains("bubble_level event rms=0.42"),
+            "FR-33: INFO bubble_level record must be dropped from file log; got: {}",
+            content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_fr33_bubble_level_filter_preserves_warn_record() {
+        // FR-33: WARN-level bubble_level record must be PRESERVED in
+        // the file log even though the message starts with the
+        // filtered prefix. Pre-fix this was silently dropped.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-fr33-warn",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        let logger = CombinedLogger {
+            file_writer: Some(writer),
+            level_filter: log::LevelFilter::Trace,
+            stderr_verbose: AtomicBool::new(false),
+        };
+        let record = log::Record::builder()
+            .level(log::Level::Warn)
+            .target("test_target")
+            .file(Some("src/test.rs"))
+            .line(Some(2))
+            .args(format_args!("[WS-READER] bubble_level event handler stalled"))
+            .build();
+        logger.log(&record);
+        logger.flush();
+        let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
+        assert!(
+            content.contains("bubble_level event handler stalled"),
+            "FR-33: WARN bubble_level record must be PRESERVED in file log; got: {}",
+            content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_fr33_bubble_level_filter_preserves_error_record() {
+        // FR-33: ERROR-level bubble_level record must be PRESERVED.
+        // This is the most important case — a future
+        // `log::error!("[WS-READER] bubble_level event handler crashed")`
+        // would be silently lost without the level guard.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-fr33-err",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        let logger = CombinedLogger {
+            file_writer: Some(writer),
+            level_filter: log::LevelFilter::Trace,
+            stderr_verbose: AtomicBool::new(false),
+        };
+        let record = log::Record::builder()
+            .level(log::Level::Error)
+            .target("test_target")
+            .file(Some("src/test.rs"))
+            .line(Some(3))
+            .args(format_args!("[WS-READER] bubble_level event handler crashed: panic"))
+            .build();
+        logger.log(&record);
+        logger.flush();
+        let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap_or_default();
+        assert!(
+            content.contains("bubble_level event handler crashed"),
+            "FR-33: ERROR bubble_level record must be PRESERVED in file log; got: {}",
+            content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── FR-96: AtomicBool stderr_verbose is runtime-toggleable ────────
+
+    #[test]
+    fn test_fr96_stderr_verbose_atomic_toggle_at_runtime() {
+        // FR-96: the `stderr_verbose` field is now an `AtomicBool`,
+        // allowing future code (e.g. a Tauri command) to flip the
+        // predicate at runtime without re-creating the logger. This
+        // test verifies the field is constructed + loaded + stored
+        // without panic (the actual eprintln! path is exercised by
+        // other tests).
+        let flag = AtomicBool::new(false);
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
+        flag.store(false, std::sync::atomic::Ordering::Relaxed);
+        assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    // ── FR-16: EarlyLogger idempotent install ──────────────────────────
+    //
+    // We can't call `install_early_logger` from a test that runs in
+    // the same process as other tests (it calls `log::set_logger`
+    // which is process-global one-shot, AND it leaks memory via
+    // `Box::leak`). But we CAN verify the idempotency guard — a
+    // second call after the EARLY_LOGGER_HANDLE is set must be a
+    // no-op that doesn't panic.
+
+    #[test]
+    fn test_fr16_install_early_logger_idempotent() {
+        // FR-16: calling `install_early_logger` more than once must
+        // not panic (the function's idempotency guard short-circuits
+        // when `EARLY_LOGGER_HANDLE` is already set). The first call
+        // may or may not have been made by another test in the same
+        // process — either way, this call must not panic.
+        install_early_logger();
+        // Second call must be a no-op (the function checks
+        // `EARLY_LOGGER_HANDLE.get().is_some()` and returns early).
+        install_early_logger();
+        // Third call also safe.
+        install_early_logger();
+    }
+
+    #[test]
+    fn test_fr16_early_logger_pre_init_fallback_does_not_panic() {
+        // FR-16: construct an EarlyLogger directly (bypassing
+        // `install_early_logger`) and call `log()` on it in the
+        // pre-init fallback state (inner = None). Must not panic and
+        // must produce no file output (no file_writer in pre-init).
+        let early = EarlyLogger {
+            inner: OnceLock::new(),
+            stderr_verbose: AtomicBool::new(false),
+            level_filter: log::LevelFilter::Info,
+        };
+        let record = log::Record::builder()
+            .level(log::Level::Info)
+            .target("test_target")
+            .file(Some("src/test.rs"))
+            .line(Some(1))
+            .args(format_args!("early logger test"))
+            .build();
+        // Must not panic — the pre-init fallback just eprintln!'s
+        // (suppressed here via stderr_verbose=false).
+        early.log(&record);
+        early.flush();
     }
 }

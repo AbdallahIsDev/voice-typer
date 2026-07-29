@@ -228,9 +228,75 @@ fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
     // GT-C4-4: send on the long-lived supervisor channel instead of
     // spawning a new OS thread per call. The supervisor thread is
     // lazily spawned on first use via `respawn_supervisor_sender()`.
-    if let Err(e) = respawn_supervisor_sender().send((app, state)) {
+    //
+    // FR-11 + FR-12: two failure modes are handled explicitly here so
+    // the resilience layer is never permanently dead:
+    //   1. `respawn_supervisor_sender()` returns `None` — the long-lived
+    //      supervisor thread could not be spawned (low memory, RLIMIT_NPROC,
+    //      sandbox restrictions, etc.). Fall back to a one-shot
+    //      `std::thread::spawn` per trigger (FR-11).
+    //   2. `tx.send(...)` returns `SendError` — the supervisor thread has
+    //      panicked (its receiver was dropped). Fall back to a one-shot
+    //      `std::thread::spawn` per trigger (FR-12). Subsequent calls will
+    //      also fall back here — the `OnceLock` holds a dead-but-not-cleared
+    //      sender, so we keep using the per-trigger fallback. Best-effort.
+    match respawn_supervisor_sender() {
+        Some(tx) => match tx.send((app, state)) {
+            Ok(()) => {}
+            Err(e) => {
+                log::error!(
+                    "[SUPERVISOR] failed to enqueue respawn request to supervisor \
+                     thread (it may have panicked): {} — falling back to one-shot \
+                     std::thread::spawn (FR-12)",
+                    e
+                );
+                // Recover ownership of the (app, state) tuple from the
+                // `SendError` payload — `SendError` exposes the value via
+                // `.0`.
+                let (app, state) = e.0;
+                spawn_oneshot_respawn_thread(app, state);
+            }
+        },
+        None => {
+            // FR-11: long-lived supervisor thread is unavailable. Fall
+            // back to a per-trigger one-shot spawn.
+            log::warn!(
+                "[SUPERVISOR] long-lived supervisor thread unavailable — using \
+                 one-shot std::thread::spawn fallback (FR-11)"
+            );
+            spawn_oneshot_respawn_thread(app, state);
+        }
+    }
+}
+
+/// FR-11 / FR-12 fallback: spawn a fresh OS thread that drives a
+/// `block_on(respawn)` future to completion. This is the pre-GT-C4-4
+/// pattern, retained as a fallback for the rare case where the
+/// long-lived supervisor thread is either uninitializable (FR-11) or
+/// has died (FR-12).
+///
+/// The thread + `block_on` bridge is required because `respawn` awaits
+/// `reconnect_ws`, whose future is `!Send` (tokio-tungstenite holds a
+/// `!Send` across an await). `tokio::spawn` requires `Send` futures,
+/// so we drive the `!Send` future on a dedicated std thread with its
+/// own `block_on` runtime. Each fallback call creates a new OS thread
+/// (~50µs) — acceptable given how rare the fallback is expected to be.
+///
+/// If even this fallback spawn fails (extreme resource exhaustion),
+/// log loudly and give up; the resilience layer is degraded until the
+/// user manually relaunches the app.
+fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
+    if let Err(e) = std::thread::Builder::new()
+        .name("respawn-oneshot".into())
+        .spawn(move || {
+            let _ = tauri::async_runtime::block_on(async move {
+                let _ = respawn(&app, &state).await;
+            });
+        })
+    {
         log::error!(
-            "[SUPERVISOR] failed to enqueue respawn request to supervisor thread (it may have panicked): {}",
+            "[SUPERVISOR] fallback std::thread::spawn failed: {} — respawn \
+             request dropped; resilience layer is degraded until manual relaunch",
             e
         );
     }
@@ -250,23 +316,51 @@ fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
 // lifetime (parked on `rx.recv()` when idle, ~8KB stack, zero CPU).
 type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 
-static RESPAWN_SUPERVISOR_TX: OnceLock<std::sync::mpsc::Sender<RespawnRequest>> = OnceLock::new();
+// FR-11: the `OnceLock` now holds an `Option<Sender>` instead of a bare
+// `Sender`. `Some(tx)` means the long-lived supervisor thread spawned
+// successfully; `None` means it failed (low memory, RLIMIT_NPROC, sandbox
+// restrictions, etc.) and callers should fall back to a per-trigger
+// `std::thread::spawn`. Critically, the failure is stored ONCE inside
+// `get_or_init` — the `OnceLock` is NOT poisoned by a thread-spawn
+// failure (which would happen with the old `.expect()` form). All
+// subsequent callers read the cached `None` and use the fallback path
+// without re-attempting the spawn (and without re-panicking).
+static RESPAWN_SUPERVISOR_TX: OnceLock<Option<std::sync::mpsc::Sender<RespawnRequest>>> =
+    OnceLock::new();
 
-fn respawn_supervisor_sender() -> &'static std::sync::mpsc::Sender<RespawnRequest> {
-    RESPAWN_SUPERVISOR_TX.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<RespawnRequest>();
-        std::thread::Builder::new()
-            .name("respawn-supervisor".into())
-            .spawn(move || {
-                for (app, state) in rx {
-                    let _ = tauri::async_runtime::block_on(async move {
-                        let _ = respawn(&app, &state).await;
-                    });
+fn respawn_supervisor_sender() -> Option<&'static std::sync::mpsc::Sender<RespawnRequest>> {
+    // FR-11: do NOT use `.expect()` on the thread spawn — a panic inside
+    // `get_or_init` poisons the `OnceLock`, making EVERY subsequent call
+    // re-panic in `get_or_init` and permanently bricking the resilience
+    // layer. Instead, store `Some(tx)` on success or `None` on failure
+    // inside the `get_or_init` closure (channel creation is infallible;
+    // only the thread spawn can fail). The spawn is attempted at most
+    // once per process — the cached result is reused on every call.
+    let tx_opt: &'static Option<std::sync::mpsc::Sender<RespawnRequest>> =
+        RESPAWN_SUPERVISOR_TX.get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<RespawnRequest>();
+            match std::thread::Builder::new()
+                .name("respawn-supervisor".into())
+                .spawn(move || {
+                    for (app, state) in rx {
+                        let _ = tauri::async_runtime::block_on(async move {
+                            let _ = respawn(&app, &state).await;
+                        });
+                    }
+                }) {
+                Ok(_) => Some(tx),
+                Err(e) => {
+                    log::error!(
+                        "[SUPERVISOR] failed to spawn long-lived respawn-supervisor \
+                         thread: {} — will use per-trigger std::thread::spawn fallback \
+                         for the rest of this process (FR-11)",
+                        e
+                    );
+                    None
                 }
-            })
-            .expect("GT-C4-4: failed to spawn respawn-supervisor thread");
-        tx
-    })
+            }
+        });
+    tx_opt.as_ref()
 }
 
 // ─── XZ-11: phase helpers extracted from `reconnect_ws` ──────────────────
@@ -524,9 +618,16 @@ async fn wait_for_auth_ok(
                 cleanup_and_trigger_respawn(app, state);
                 return Err("WS auth rejected by server".to_string());
             }
-            // Accept either `auth_ok` (future contract) or `ready`
-            // (current Python sidecar contract — see sidecar_ws.py:503)
-            // as the auth-success signal.
+            // FR-42: tighten the auth-success contract. Accept ONLY
+            // `auth_ok` (future contract) or `ready` (current Python
+            // sidecar contract — see sidecar_ws.py:503) as the
+            // auth-success signal. Any other frame type at auth time is
+            // a protocol violation — reject it, clean up, and trigger
+            // supervisor respawn. The previous "proceed anyway (best-
+            // effort)" else branch accepted ANY non-`auth_failed` frame
+            // as proof of auth, which let a buggy or compromised sidecar
+            // skip the auth handshake by sending e.g. `{"type":
+            // "bubble_level"}` first.
             if t == "auth_ok" {
                 log::info!("[WS-AUTH] auth_ok received — proceeding to reader task");
             } else if t == "ready" {
@@ -542,23 +643,32 @@ async fn wait_for_auth_ok(
                      re-emitting as Tauri event"
                 );
                 let payload = v.get("data").cloned().unwrap_or(json!({}));
-                let _ = app.emit("ready", payload.clone());
-                let _ = app.emit(
+                // FR-82: surface emit failures instead of silently
+                // dropping them. A failed `app.emit` here means the
+                // renderer won't see the `ready` event — log it so the
+                // miss is observable in diagnostics.
+                if let Err(e) = app.emit("ready", payload.clone()) {
+                    log::warn!("[WS-AUTH] failed to re-emit ready event: {}", e);
+                }
+                if let Err(e) = app.emit(
                     "python-event",
                     json!({"type": "ready", "data": payload}),
-                );
+                ) {
+                    log::warn!(
+                        "[WS-AUTH] failed to re-emit ready (python-event) event: {}",
+                        e
+                    );
+                }
             } else {
+                // FR-42: protocol violation — reject, clean up, and
+                // trigger supervisor respawn. Do NOT proceed.
                 log::warn!(
                     "[WS-AUTH] expected auth_ok or ready, got: {} — \
-                     proceeding anyway (best-effort, frame consumed)",
+                     treating as protocol violation, cleaning up and triggering respawn",
                     t
                 );
-                // The frame is consumed and lost. This is acceptable
-                // because:
-                // 1. The current sidecar sends `ready` first, which
-                //    matches the accept condition above.
-                // 2. Any other frame type at auth time is a protocol
-                //    violation worth logging but not blocking.
+                cleanup_and_trigger_respawn(app, state);
+                return Err(format!("WS auth unexpected frame type: {}", t));
             }
             Ok(read)
         }
@@ -720,6 +830,15 @@ fn spawn_reader_task(
                     }
                 }
             }
+            // FR-81: log the silent stream-end explicitly. `read.next()`
+            // returning `None` (vs an `Err`) means the WS stream ended
+            // cleanly with no error frame — without this log line the
+            // transition from "reader active" to "reader cleanup running"
+            // was invisible in diagnostics. This line also fires on the
+            // `break` paths above (Close frame, Err), but those arms log
+            // their own specific reason first, so this serves as a
+            // confirming "loop has exited" marker in all cases.
+            log::info!("[WS-READER] stream ended (read.next() returned None)");
         })
         .catch_unwind()
         .await;

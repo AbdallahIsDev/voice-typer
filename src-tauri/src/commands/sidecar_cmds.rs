@@ -89,13 +89,6 @@ fn dispatch_timeout_for(cmd: &str) -> u64 {
 // escapes the renderer sandbox cannot bypass it by talking to Rust
 // directly).
 //
-// PVT-G5-025: `delete_all_personal_data` and `export_gdpr_bundle` are
-// now renderer-callable (the Settings → Privacy page exposes both —
-// the renderer invokes `dispatch({cmd:'delete_all_personal_data'})`
-// and `dispatch({cmd:'export_gdpr_bundle'})`). They are present in
-// BOTH the TS allowlist (`allowed-commands.ts`) and this Rust literal
-// so the defense-in-depth gate does not reject them.
-//
 // PVT-G5-075: `tray_click` is intentionally ABSENT from this literal
 // (and from the TS allowlist) — it is a Rust-only command invoked by
 // the tray menu handler in `tray.rs::on_menu_event` via
@@ -551,6 +544,25 @@ pub async fn dispatch(
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<Value, String> {
+    // FR-43: bound the command-name length so a buggy or compromised
+    // renderer can't DoS the WS writer (or the allowlist lookup, or the
+    // JSON serializer) with a multi-MB `cmd` string. The longest
+    // legitimate command name in `ALLOWED_COMMANDS` is well under 32
+    // chars; 64 leaves generous headroom for future additions while
+    // still rejecting anything obviously pathological. Enforced BEFORE
+    // the window-label guard and allowlist check so the cap applies
+    // uniformly regardless of caller.
+    if args.cmd.len() > 64 {
+        // Log only the length (not the cmd itself) — logging the cmd
+        // would itself be a DoS vector if it's multi-MB, and slicing
+        // it for a preview could panic on a UTF-8 char boundary.
+        log::warn!(
+            "[FR-43] rejected dispatch command with length {} (>64 char cap)",
+            args.cmd.len()
+        );
+        return Err("command name too long".into());
+    }
+
     // CR-5: window-label guard. The bubble renderer is a sandboxed
     // window with NO `dispatch` access (ADR-0020 §7 + §9 + SEC-026).
     // The capability file `bubble-runtime.json` deliberately omits
@@ -850,20 +862,16 @@ mod tests {
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
         //
-        // PVT-G5-008 / PVT-G5-025 / PVT-G5-075: count is 76 (70 prior
-        // + `onboarding_check_permissions` + `onboarding_get_model_catalog`
-        // + `delete_all_personal_data` + `export_gdpr_bundle`
-        // + `onboarding_request_keyboard_permission` + `onboarding_reset`
-        // (added session 1K); `tray_click`
-        // is intentionally absent — see the doc comment on
-        // `dispatch_inner` and the `ALLOWED_COMMANDS` literal).
+        // PVT-G5-008 / PVT-G5-025: count is 59 — must match the cmds
+        // literal below (single source of truth). `onboarding_check_permissions`
+        // (PVT-G5-008) and `onboarding_reset` (session 1K / PVT-G5-025) were
+        // the last entries actually added to the literal. `tray_click` is
+        // intentionally absent — see the doc comment on `dispatch_inner` and
+        // the `ALLOWED_COMMANDS` literal.
         assert_eq!(
             allowed_commands().len(),
-            74,
-            "ALLOWED_COMMANDS must contain exactly 76 entries (parity with TS allowlist). \
-             Got {} — update both src-tauri/src/commands/sidecar_cmds.rs and \
-             voice_typer/client/src/main/allowed-commands.ts together.",
-            allowed_commands().len()
+            59,
+            "must match TS allowlist minus heartbeat/relaunch_ack"
         );
     }
 
@@ -872,8 +880,8 @@ mod tests {
         let set = allowed_commands();
         assert_eq!(
             set.len(),
-            76,
-            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (76). \
+            59,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (59). \
              Check the constructor log for the duplicate name.",
             set.len()
         );

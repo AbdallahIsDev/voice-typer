@@ -274,6 +274,11 @@ pub(crate) async fn respawn_inner(
         // bottom of this function.
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[SUPERVISOR] shutting down — skipping respawn");
+            // FR-87: clear the flag so a future respawn (e.g. after the
+            // user reopens the app from the tray without a full process
+            // restart) can proceed. Without this clear, the flag stays
+            // set forever and the resilience layer is permanently dead.
+            state.respawn_in_progress.store(false, Ordering::SeqCst);
             return Ok(());
         }
         log::warn!("[SUPERVISOR] respawn attempt {} after {}ms", attempt + 1, delay_ms);
@@ -289,6 +294,8 @@ pub(crate) async fn respawn_inner(
         // overwriting the killed child with a live one.
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[SUPERVISOR] shutting down (pre-spawn re-check) — skipping respawn");
+            // FR-87: same flag-clear rationale as the top-of-loop check.
+            state.respawn_in_progress.store(false, Ordering::SeqCst);
             return Ok(());
         }
 
@@ -400,6 +407,12 @@ pub(crate) async fn respawn_inner(
                                 if let Some(old) = old {
                                     *child_guard = Some(old);
                                 }
+                                // FR-87: clear the flag so the next
+                                // `respawn` invocation can actually retry.
+                                // Without this clear, the "bail out and
+                                // retry" comment above is a lie — the
+                                // retry would no-op on the still-set flag.
+                                state.respawn_in_progress.store(false, Ordering::SeqCst);
                                 return Ok(());
                             }
                         }
@@ -414,6 +427,12 @@ pub(crate) async fn respawn_inner(
                             e
                         );
                     }
+                    // FR-87: clear the flag on this shutting_down early-
+                    // return path too, matching the success path at the
+                    // bottom of `respawn_inner`. Without this clear, the
+                    // flag stays set forever and the resilience layer is
+                    // permanently dead.
+                    state.respawn_in_progress.store(false, Ordering::SeqCst);
                     return Ok(());
                 }
                 if let Some(old) = old_handle {
