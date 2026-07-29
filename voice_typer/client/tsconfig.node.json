@@ -1,25 +1,25 @@
 {
-        "extends": "./tsconfig.base.json",
-        "compilerOptions": {
-                "composite": true,
-                "module": "ESNext",
-                "moduleResolution": "bundler",
-                "allowSyntheticDefaultImports": true,
-                "esModuleInterop": true,
-                "outDir": "./out",
-                "strict": true,
-                "target": "ESNext",
-                "skipLibCheck": true
-        },
-        "include": [
-                "electron.vite.config.ts",
-                "electron.vite.renderer.ts",
-                "electron.vite.main.ts",
-                "vitest.config.ts",
-                "vite.config.ts",
-                "csp-plugin.ts",
-                "aliases.ts",
-                "src/main/**/*",
-                "src/preload/**/*"
-        ]
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"allowSyntheticDefaultImports": true,
+		"esModuleInterop": true,
+		"outDir": "./out",
+		"strict": true,
+		"target": "ESNext",
+		"skipLibCheck": true
+	},
+	"include": [
+		"electron.vite.config.ts",
+		"electron.vite.renderer.ts",
+		"electron.vite.main.ts",
+		"vitest.config.ts",
+		"vite.config.ts",
+		"csp-plugin.ts",
+		"aliases.ts",
+		"src/main/**/*",
+		"src/preload/**/*"
+	]
 }

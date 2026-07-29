@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const aliases = {
-  "@": path.resolve(__dirname, "src/renderer/src"),
-  "#ui": path.resolve(__dirname, "src/renderer/src/components/ui"),
-  "#utils": path.resolve(__dirname, "src/renderer/src/lib/utils.ts"),
+	"@": path.resolve(__dirname, "src/renderer/src"),
+	"#ui": path.resolve(__dirname, "src/renderer/src/components/ui"),
+	"#utils": path.resolve(__dirname, "src/renderer/src/lib/utils.ts"),
 } as const;

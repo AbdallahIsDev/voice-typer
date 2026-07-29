@@ -49,9 +49,9 @@ import type { Plugin } from "vite";
  * no update-check surface (CR-11 / R6-F5).
  */
 function buildConnectSrc(opts: { allowGitHub: boolean }): string {
-        const parts = ["'self'"];
-        if (opts.allowGitHub) parts.push("https://api.github.com");
-        return `connect-src ${parts.join(" ")}`;
+	const parts = ["'self'"];
+	if (opts.allowGitHub) parts.push("https://api.github.com");
+	return `connect-src ${parts.join(" ")}`;
 }
 
 /**
@@ -70,17 +70,17 @@ function buildConnectSrc(opts: { allowGitHub: boolean }): string {
  * to load a Flash/Java/PDF plugin as an exfiltration channel.
  */
 export const CSP_PROD_MAIN = [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data:",
-        "font-src 'self' data:",
-        "media-src 'self' data:",
-        buildConnectSrc({ allowGitHub: true }),
-        "object-src 'none'",
-        "frame-ancestors 'none'",
-        "form-action 'none'",
-        "base-uri 'self'",
+	"default-src 'self'",
+	"script-src 'self'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data:",
+	"font-src 'self' data:",
+	"media-src 'self' data:",
+	buildConnectSrc({ allowGitHub: true }),
+	"object-src 'none'",
+	"frame-ancestors 'none'",
+	"form-action 'none'",
+	"base-uri 'self'",
 ].join("; ");
 
 /**
@@ -94,17 +94,17 @@ export const CSP_PROD_MAIN = [
  * no legitimate use for <object>/<embed>/<applet> elements either.
  */
 export const CSP_PROD_BUBBLE = [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data:",
-        "font-src 'self' data:",
-        "media-src 'self' data:",
-        buildConnectSrc({ allowGitHub: false }),
-        "object-src 'none'",
-        "frame-ancestors 'none'",
-        "form-action 'none'",
-        "base-uri 'self'",
+	"default-src 'self'",
+	"script-src 'self'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data:",
+	"font-src 'self' data:",
+	"media-src 'self' data:",
+	buildConnectSrc({ allowGitHub: false }),
+	"object-src 'none'",
+	"frame-ancestors 'none'",
+	"form-action 'none'",
+	"base-uri 'self'",
 ].join("; ");
 
 /**
@@ -123,23 +123,23 @@ export const CSP_PROD = CSP_PROD_MAIN;
  * Updates" button works against the live API during development.
  */
 export const CSP_DEV = [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data:",
-        "font-src 'self' data:",
-        "media-src 'self' data:",
-        "connect-src 'self' https://api.github.com ws://localhost:* http://localhost:*",
-        "frame-ancestors 'none'",
-        "form-action 'none'",
-        "base-uri 'self'",
+	"default-src 'self'",
+	"script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data:",
+	"font-src 'self' data:",
+	"media-src 'self' data:",
+	"connect-src 'self' https://api.github.com ws://localhost:* http://localhost:*",
+	"frame-ancestors 'none'",
+	"form-action 'none'",
+	"base-uri 'self'",
 ].join("; ");
 
 /**
  * Build the CSP meta tag HTML for a given policy string.
  */
 export function cspMetaTag(csp: string): string {
-        return `<meta http-equiv="Content-Security-Policy" content="${csp}" />`;
+	return `<meta http-equiv="Content-Security-Policy" content="${csp}" />`;
 }
 
 /**
@@ -150,12 +150,12 @@ export function cspMetaTag(csp: string): string {
  * maps to `CSP_PROD_MAIN` (with `api.github.com`).
  */
 export function pickProdCsp(filePath: string): string {
-        // Match on the basename so this works regardless of the absolute
-        // path the Vite dev server / build pipeline hands us. The bubble
-        // preload + renderer always load `bubble.html`; the main window
-        // loads `index.html`.
-        const base = filePath.split(/[\\/]/).pop() ?? "";
-        return base === "bubble.html" ? CSP_PROD_BUBBLE : CSP_PROD_MAIN;
+	// Match on the basename so this works regardless of the absolute
+	// path the Vite dev server / build pipeline hands us. The bubble
+	// preload + renderer always load `bubble.html`; the main window
+	// loads `index.html`.
+	const base = filePath.split(/[\\/]/).pop() ?? "";
+	return base === "bubble.html" ? CSP_PROD_BUBBLE : CSP_PROD_MAIN;
 }
 
 /**
@@ -164,41 +164,41 @@ export function pickProdCsp(filePath: string): string {
  * transformed (CR-11 / R6-F5 per-window split).
  */
 export function cspEmissionPlugin(): Plugin {
-        let isProduction = false;
-        return {
-                name: "voice-typer:csp-emission",
-                // Run in both serve and build so dev gets the permissive CSP and prod
-                // gets the strict CSP.
-                apply: () => true,
-                configResolved(config) {
-                        // electron-vite runs the renderer build with command='build' and
-                        // mode='production' for `electron-vite build`, and command='serve'
-                        // and mode='development' for `electron-vite dev`.
-                        isProduction = config.command === "build" && config.mode === "production";
-                },
-                transformIndexHtml: {
-                        // Run before Vite injects its HMR client + React Refresh preamble
-                        // so we replace the CSP meta tag before any inline scripts are
-                        // added (those need 'unsafe-inline' to execute, which the dev CSP
-                        // provides).
-                        order: "pre",
-                        handler(html: string, ctx?: { path?: string; filename?: string }) {
-                                // CR-11 / R6-F5: pick the per-window prod policy. In dev we
-                                // always use CSP_DEV (the dev server needs the HMR websocket
-                                // regardless of which window is loading).
-                                const filePath = ctx?.path ?? ctx?.filename ?? "";
-                                const csp = isProduction ? pickProdCsp(filePath) : CSP_DEV;
-                                const metaTag = cspMetaTag(csp);
-                                // Replace any existing CSP meta tag (single- or double-quote
-                                // attribute form, with or without self-closing slash). If no
-                                // CSP meta tag is present, inject one before </head>.
-                                const cspRegex =
-                                        /<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*?\/?>/i;
-                                if (cspRegex.test(html)) {
-                                        return html.replace(cspRegex, metaTag);
-                                }
-                                return html.replace("</head>", `  ${metaTag}\n</head>`);
-                        },
-                },
-        };
+	let isProduction = false;
+	return {
+		name: "voice-typer:csp-emission",
+		// Run in both serve and build so dev gets the permissive CSP and prod
+		// gets the strict CSP.
+		apply: () => true,
+		configResolved(config) {
+			// electron-vite runs the renderer build with command='build' and
+			// mode='production' for `electron-vite build`, and command='serve'
+			// and mode='development' for `electron-vite dev`.
+			isProduction = config.command === "build" && config.mode === "production";
+		},
+		transformIndexHtml: {
+			// Run before Vite injects its HMR client + React Refresh preamble
+			// so we replace the CSP meta tag before any inline scripts are
+			// added (those need 'unsafe-inline' to execute, which the dev CSP
+			// provides).
+			order: "pre",
+			handler(html: string, ctx?: { path?: string; filename?: string }) {
+				// CR-11 / R6-F5: pick the per-window prod policy. In dev we
+				// always use CSP_DEV (the dev server needs the HMR websocket
+				// regardless of which window is loading).
+				const filePath = ctx?.path ?? ctx?.filename ?? "";
+				const csp = isProduction ? pickProdCsp(filePath) : CSP_DEV;
+				const metaTag = cspMetaTag(csp);
+				// Replace any existing CSP meta tag (single- or double-quote
+				// attribute form, with or without self-closing slash). If no
+				// CSP meta tag is present, inject one before </head>.
+				const cspRegex =
+					/<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*?\/?>/i;
+				if (cspRegex.test(html)) {
+					return html.replace(cspRegex, metaTag);
+				}
+				return html.replace("</head>", `  ${metaTag}\n</head>`);
+			},
+		},
+	};
 }
