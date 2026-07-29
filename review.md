@@ -10696,25 +10696,6 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-61 — FilterChain.process holds lock during heavy RNNoise inference — UI status queries block 50ms
-**Status:** ✅ Fixed
-**Severity:** 🟡 Medium
-
-**Description:** `audio_filters/base.py:126-142` (FilterChain.process holds lock) + `noise_suppressor.py:419` (RNNoise inference inside lock). `FilterChain.process` acquires `self._lock` at line 126 and holds it for the ENTIRE filter chain execution — including `NoiseSuppressor.process` which calls `self._backend.denoise_frame(frame_i16[np.newaxis, :])` per 480-sample frame. RNNoise inference takes 5-50ms. During this time, any concurrent access to `FilterChain` blocks on `self._lock`: `filter_names`, `is_degraded`, `degraded_reasons`, `total_latency_ms`, `reset`, `swap`. The UI thread polls `is_degraded` / `degraded_reasons` to display the degraded warning, and `swap` is called by `rebuild_from_config` / `set_sample_rate` on config changes.
-
-**User Impact:** UI status queries (`is_degraded`, `filter_names`) block for up to 50ms during recording, causing UI jank. Config-triggered chain rebuilds (`swap`) block for up to 50ms, which delays the effect of settings changes. The lock is uncontended in the steady state (only the worker calls `process`), but the contention surfaces whenever the UI or config thread touches the chain during recording.
-
-**Root Cause:** Verified — coarse-grained lock covers the entire chain including the heavy RNNoise inference.
-
-**Progress:** FilterChain.process snapshots filter list under lock, releases lock, runs filters lock-free. Introspection properties take read lock. swap uses atomic reference swap. (audio_filters/base.py)
-
-**Related Files:**
-- `voice_typer/server/audio_filters/base.py`
-
-**Fix:** (1) Use a read-write lock: `process` takes the write lock; introspection properties (`filter_names`, `is_degraded`) take a read lock or snapshot the filter list under a brief lock and inspect outside. (2) Alternatively, snapshot the filter list in `process` under the lock, release the lock, then run the filters lock-free (filters are stateful but single-writer — the audio worker is the only `process` caller). (3) Move `swap` to use atomic reference swap (replace `self._filters` under the lock, then run `reset` on the old list outside the lock).
-
----
-
 ## DJ-62 — stop() is fully synchronous — up to 9s hotkey-to-result latency
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
@@ -10894,30 +10875,6 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 
 ---
 
-## DJ-71 — audio_filters import scipy.signal.lfilter inside per-chunk process() — 96 imports/sec
-**Status:** ✅ Fixed
-**Severity:** 🟡 Medium
-
-**Description:** `audio_filters/limiter.py:60`, `compressor.py:82`, `equalizer.py:82`, `highpass.py:74`, `notch.py:75`, `noise_suppressor.py:87` — every filter's `process()` method runs `from scipy.signal import lfilter` INSIDE the per-chunk call. The default audio preset (PRESET_AUTO) enables 6 filters (highpass, noise-suppressor, gate, eq, compressor, limiter) → 6 imports/chunk × 16 Hz = 96 import-system lookups/sec on the audio worker thread. Python caches sys.modules, but the IMPORT_NAME/IMPORT_FROM bytecodes still execute (dict lookup + getattr per call).
-
-**User Impact:** ~5-15 µs/chunk of pure import-system overhead on the audio worker (rough estimate based on CPython IMPORT_NAME cost). Not real-time threatening (32 ms budget) but pure waste.
-
-**Root Cause:** Verified — filters lazy-import scipy inside process() so a missing scipy on a test double doesn't fail at filter construction time.
-
-**Progress:** Hoisted `from scipy.signal import lfilter` to module-top (under try/except ImportError) in 6 audio filters: limiter, compressor, equalizer, highpass, notch, noise_suppressor.
-
-**Related Files:**
-- `voice_typer/server/audio_filters/limiter.py`
-- `voice_typer/server/audio_filters/compressor.py`
-- `voice_typer/server/audio_filters/equalizer.py`
-- `voice_typer/server/audio_filters/highpass.py`
-- `voice_typer/server/audio_filters/notch.py`
-- `voice_typer/server/audio_filters/noise_suppressor.py`
-
-**Fix:** Hoist `from scipy.signal import lfilter` to module top-level (under `try/except ImportError` so the module still loads when scipy is missing). The same pattern is already used for `butter` in highpass.py:36 — just move it above the class instead of inside `_init_filter`. Alternatively, import once into a module-level `_LFILTER` singleton guarded by `None`.
-
----
-
 ## DJ-72 — Limiter/Compressor allocate fresh b/a lists + zi arrays per chunk
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
@@ -11069,27 +11026,6 @@ Alternatively, update `ipc_server.py:1935` to import `_setup_logging` from `voic
 - `voice_typer/server/vad.py`
 
 **Fix:** Add an explicit device probe + a documenting comment at load time: `device = 'cuda' if torch.cuda.is_available() else 'cpu'; # Silero VAD is a small LSTM (~2MB). For 512-sample chunks at 16 Hz, CPU inference (~0.5 ms) is faster than the GPU transfer overhead (~1-2 ms roundtrip). Keep on CPU even when CUDA is available.`
-
----
-
-## DJ-80 — TCP_NODELAY never set — Nagle's algorithm adds 1-40ms latency to bubble_level events
-**Status:** ✅ Fixed
-**Severity:** 🔴 Critical
-
-**Description:** `ipc/transport.py:80-97` (server _TCPLineIO); `ipc/transport_tcp.py:135-139` (server listen socket); `client/src/main/python/tcp-connect.ts:78, 97` (Electron client). No call to `setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)` anywhere in the codebase. Nagle's algorithm therefore defaults to ENABLED on both ends of the loopback TCP connection. Each `bubble_level` event is a ~40-byte JSON line. At the documented 60-125 Hz push rate, Nagle's algorithm holds each tiny write for up to 40 ms waiting for either (a) the previous ACK to arrive, or (b) enough data to fill an MSS (~1460 B).
-
-**User Impact:** The waveform visualizer appears choppy or 'behind' the user's voice even though the audio pipeline is fine. The same applies to `transcription_partial` and `level_monitor` events, where 40 ms of extra latency is user-perceptible as lag.
-
-**Root Cause:** Verified — grep for `TCP_NODELAY|setNoDelay|nodelay` returns zero matches.
-
-**Progress:** Set TCP_NODELAY on server-side accepted socket (transport_tcp.py:_handle_tcp_connection) AND client-side (tcp-connect.ts:tryConnect — client.setNoDelay(true) after new net.Socket()). Eliminates 1-40ms Nagle coalescing delay on bubble_level hot path.
-
-**Related Files:**
-- `voice_typer/server/ipc/transport_tcp.py`
-- `voice_typer/server/ipc/transport.py`
-- `voice_typer/client/src/main/python/tcp-connect.ts`
-
-**Fix:** Set `TCP_NODELAY` on the server-side accepted socket inside `_handle_tcp_connection` (transport_tcp.py:~400, right after the auth timeout is set): `conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)`. On the Electron side, call `client.setNoDelay(true)` immediately after `new net.Socket()` at tcp-connect.ts:78. Both ends must set it — Nagle is per-direction.
 
 ---
 
