@@ -480,6 +480,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         """When torch import succeeds but ``cuda.is_available`` raises
         (or any other GPU-check exception fires), a DEBUG line is
         emitted (not silent ``pass``)."""
+
         # Make ``torch.cuda.is_available`` raise — the production
         # GPU-check try/except catches this and (post-XZ-EH-008) logs
         # a DEBUG line.
@@ -493,9 +494,7 @@ class TestCheckResourcesXZEH008SilentExcept:
             pipeline._check_resources()
 
         gpu_debug_lines = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "GPU check failed" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "GPU check failed" in r.getMessage()
         ]
         assert gpu_debug_lines, (
             "XZ-EH-008 regression: the GPU-check except block must emit "
@@ -530,7 +529,9 @@ class TestCheckResourcesXZEH008SilentExcept:
                     break
             elif stripped.startswith("except Exception:") and stripped.endswith("pass"):
                 # Inline form: ``except Exception: pass``
-                raise AssertionError(f"XZ-EH-008 regression: inline `except Exception: pass` " f"at _check_resources source line ~{i + 1}.")
+                raise AssertionError(
+                    f"XZ-EH-008 regression: inline `except Exception: pass` at _check_resources source line ~{i + 1}."
+                )
 
     def test_check_resources_docstring_promises_debug_logging(self):
         """XZ-EH-022: the docstring must still promise "DEBUG level"

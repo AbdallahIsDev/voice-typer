@@ -1743,10 +1743,13 @@ class Config:
         doesn't grow unbounded across many version bumps.
         """
         if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
-            pre_bak = (
-                config_file.parent
-                / f"config.json.pre-migration-v{loaded_version}-{int(time.time())}-{os.getpid()}-{time.time_ns() % 1_000_000}.bak"
-            )
+            # Filename includes schema version + epoch seconds + PID + sub-second
+            # nanoseconds to guarantee uniqueness even across parallel app
+            # instances launched against the same user account during a downgrade.
+            ts_sec = int(time.time())
+            pid = os.getpid()
+            ts_ns = time.time_ns() % 1_000_000
+            pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
             try:
                 raw_text = _secure_read_text(config_file)
                 _secure_atomic_write(pre_bak, raw_text)

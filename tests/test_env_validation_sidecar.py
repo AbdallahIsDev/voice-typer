@@ -79,7 +79,13 @@ def _clean_env(monkeypatch):
     yield
 
 
-def _set_valid_sidecar_env(monkeypatch, *, native_dir: str | None = None, prewarm_exe: str | None = None, ipc_token: str = "tok_123ABC") -> None:
+def _set_valid_sidecar_env(
+    monkeypatch,
+    *,
+    native_dir: str | None = None,
+    prewarm_exe: str | None = None,
+    ipc_token: str = "tok_123ABC",
+) -> None:
     """Set every sidecar env var to a valid value under ``Path.home()``."""
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", ipc_token)
@@ -262,7 +268,9 @@ class TestUnsetVarsLogged:
         # VOICE_TYPER_IPC_TOKEN intentionally not set
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
-        matching = [r for r in caplog.records if "VOICE_TYPER_IPC_TOKEN" in r.getMessage() and "unset" in r.getMessage()]
+        matching = [
+            r for r in caplog.records if "VOICE_TYPER_IPC_TOKEN" in r.getMessage() and "unset" in r.getMessage()
+        ]
         assert matching, (
             f"expected a WARNING about unset VOICE_TYPER_IPC_TOKEN; got {[r.getMessage() for r in caplog.records]!r}"
         )
@@ -273,7 +281,9 @@ class TestUnsetVarsLogged:
         monkeypatch.setenv("VOICE_TYPER_PREWARM_EXE", str(Path.home() / "prewarm"))
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
-        matching = [r for r in caplog.records if "VOICE_TYPER_NATIVE_DIR" in r.getMessage() and "unset" in r.getMessage()]
+        matching = [
+            r for r in caplog.records if "VOICE_TYPER_NATIVE_DIR" in r.getMessage() and "unset" in r.getMessage()
+        ]
         assert matching, (
             f"expected a WARNING about unset VOICE_TYPER_NATIVE_DIR; got {[r.getMessage() for r in caplog.records]!r}"
         )
