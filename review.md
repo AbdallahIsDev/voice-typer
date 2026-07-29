@@ -2957,12 +2957,6 @@ afterEach(() => {
 - `voice_typer/server/server_platform/__init__.py`**Fix:** Tracked separately as CR-67/TECH-DEBT. Update TODOs with current date + tracking issue link. OR if migration actively worked, annotate "IN PROGRESS by <owner>, ETA <date>".
 **Severity:** 🟢 Low
 
-### XZ-CC-14 — `package.json` `//devDependencies` "DO NOT DOWNGRADE" comment (Low)
-**Status:** ❌ Not Fixed
-**Description:** `package.json:53` comment exists because prior agent downgraded TS to 5.6.3, breaking `npm ci`. Project on bleeding edge (TS 7.0.2, electron-vite 6.0.0-beta.1 pre-release).
-**Related Files:** `voice_typer/client/package.json`**Fix:** Pin TypeScript to exact version (`"typescript": "7.0.2"` not `^7.0.2`). Migrate `electron-vite` off beta when 6.0.0 ships. Move warning to CONTRIBUTING.md.
-**Severity:** 🟢 Low
-
 ### XZ-CC-15 — `pyrefly-baseline.json` `errors: []` while CI reports 116 errors (High)
 **Status:** ❌ Not Fixed
 **Description:** Baseline file's own `_current_state_2026_07_22` comment admits: "Until those land, the pyrefly check step in CI will continue to exit 1 (because pyrefly reports 116 unsuppressed errors and the baseline is empty)". 34 non-platform-specific real type bugs hidden from CI.
@@ -3042,29 +3036,6 @@ afterEach(() => {
 **Description:** `asr_setup.py:162-163, 319-324, 412-420` `_MAX_DOWNLOAD_RETRIES = 4`. Docstring says "max 4 retries" (5 total attempts). Inline comment lists "1s, 2s, 4s, 8s" (4 delays = 4 attempts).
 **Related Files:** `voice_typer/server/asr_setup.py`**Fix:** Update docstring to "max 4 attempts (1 initial + 3 retries with exponential backoff 1s, 2s, 4s, 8s)". OR rename constant to `_MAX_DOWNLOAD_ATTEMPTS`.
 **Severity:** 🟢 Low
-
----
-
-End of XZ-session findings.
-```
-
-### Findings from Session 6
-```
-# Comprehensive Review — Session XS (Group 6: Testing & CI)
-
-**Session:** XS (Full-Review mode, GROUP 6 — Testing & CI)
-**Total findings:** 105
-
-**Severity breakdown:** 8 Critical, 30 High, 50 Medium, 17 Low
-
-All findings scoped to Group 6 (Testing & CI) categories ONLY:
-- Testing infrastructure
-- Test coverage gaps & flaky tests
-- Existing failing tests
-- Existing warnings and errors
-- CI/CD
-- Build pipeline
-- Dependency & supply-chain health
 
 ---
 
@@ -6468,6 +6439,7 @@ class _RecordingModule(sys.modules[__name__].__class__):
                 raise AttributeError(...) from None
         # ... similar for _MUTABLE_BUFFER
 
+
 sys.modules[__name__].__class__ = _RecordingModule
 ```
 This ~125-line custom module subclass exists purely so test code like `monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)` propagates to the `resampling` submodule's globals. The docstring admits: "All three packages together account for ~500 LOC of `__init__.py` boilerplate that exists purely for test-patch compatibility."
@@ -7246,6 +7218,7 @@ def _timed_stage(timings: dict[str, float], name: str):
     t0 = time.perf_counter()
     yield
     timings[name] = (time.perf_counter() - t0) * 1000
+
 
 timings: dict[str, float] = {}
 with _timed_stage(timings, "transcribe"):
