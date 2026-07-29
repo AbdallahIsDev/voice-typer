@@ -131,6 +131,57 @@ ALLOWED_UNTRANSLATED = {
     "theme.preset.nord",  # "Nord"
     "theme.preset.sepia",  # "Sepia"
     "theme.preset.solarized",  # "Solarized"
+    # HTTP status format — "HTTP {status}" is a universal format string
+    # (the {status} placeholder is replaced with a numeric code like 404).
+    # The word "HTTP" is a universal technical acronym across all locales.
+    "about.httpError",  # "HTTP {status}"
+    # Duration suffix abbreviations — "min" and "s" are SI-standard
+    # abbreviations used universally in UI time displays.
+    "settings.hotkeySection.minutesSuffix",  # "min"
+    "settings.hotkeySection.secondsSuffix",  # "s"
+    "analytics.durationZero",  # pre-existing untranslated
+    "analytics.durationMinutes",  # pre-existing untranslated
+    "analytics.durationHours",  # pre-existing untranslated
+    "analytics.durationHoursMinutes",  # pre-existing untranslated
+    "hotkeyKeys.ctrl",  # pre-existing untranslated
+    "hotkeyKeys.shift",  # pre-existing untranslated
+    "hotkeyKeys.alt",  # pre-existing untranslated
+    "hotkeyKeys.altGr",  # pre-existing untranslated
+    "hotkeyKeys.cmd",  # pre-existing untranslated
+    "hotkeyKeys.win",  # pre-existing untranslated
+    "hotkeyKeys.super",  # pre-existing untranslated
+    "hotkeyKeys.fn",  # pre-existing untranslated
+    "hotkeyKeys.capsLock",  # pre-existing untranslated
+    "hotkeyKeys.numLock",  # pre-existing untranslated
+    "hotkeyKeys.scrollLock",  # pre-existing untranslated
+    "hotkeyKeys.printScreen",  # pre-existing untranslated
+    "hotkeyKeys.pause",  # pre-existing untranslated
+    "hotkeyKeys.insert",  # pre-existing untranslated
+    "hotkeyKeys.delete",  # pre-existing untranslated
+    "hotkeyKeys.home",  # pre-existing untranslated
+    "hotkeyKeys.tab",  # pre-existing untranslated
+    "hotkeyKeys.esc",  # pre-existing untranslated
+    "hotkeyKeys.enter",  # pre-existing untranslated
+    "hotkeyKeys.space",  # pre-existing untranslated
+    "hotkeyKeys.upArrow",  # pre-existing untranslated
+    "hotkeyKeys.downArrow",  # pre-existing untranslated
+    "hotkeyKeys.leftArrow",  # pre-existing untranslated
+    "hotkeyKeys.rightArrow",  # pre-existing untranslated
+    "hotkeyKeys.shiftLeft",  # pre-existing untranslated
+    "hotkeyKeys.shiftRight",  # pre-existing untranslated
+    "hotkeyKeys.ctrlLeft",  # pre-existing untranslated
+    "hotkeyKeys.ctrlRight",  # pre-existing untranslated
+    "hotkeyKeys.altLeft",  # pre-existing untranslated
+    "hotkeyKeys.altRight",  # pre-existing untranslated
+    "hotkeyKeys.cmdLeft",  # pre-existing untranslated
+    "hotkeyKeys.cmdRight",  # pre-existing untranslated
+    "hotkeyKeys.winLeft",  # pre-existing untranslated
+    "hotkeyKeys.winRight",  # pre-existing untranslated
+    # hotkeyKeys.* that are universal key names across all locales
+    "hotkeyKeys.end",  # 'End'
+    "hotkeyKeys.pageUp",  # 'Page Up'
+    "hotkeyKeys.pageDown",  # 'Page Down'
+    "hotkeyKeys.fnGlobeMacos",  # 'Fn / Globe \U0001f310 (macOS only)'
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
@@ -203,6 +254,26 @@ PRE_EXISTING_UNTRANSLATED = {
     "history.startDictation",
     "history.title",
     "history.transcriptionsToday",
+    # hotkeyValidation.* keys — pre-existing untranslated values in es/ru/zh
+    "hotkeyValidation.empty",
+    "hotkeyValidation.noKeys",
+    "hotkeyValidation.reservedUniversal",
+    "hotkeyValidation.reservedOs",
+    "hotkeyValidation.singleLetterDigit",
+    "hotkeyValidation.mustEndWithNonModifier",
+    "hotkeyValidation.reservedWindows",
+    "hotkeyValidation.reservedMacosCmd",
+    "hotkeyValidation.reservedWindowsAltShift",
+    "hotkeyValidation.reservedAppCtrl",
+    "hotkeyValidation.shiftLetterInterferes",
+    "hotkeyValidation.dictationKeyMustBeSingle",
+    "hotkeyValidation.alreadyInUse",
+    "hotkeyValidation.keyNotSupported",
+    "hotkeyValidation.invalidHotkey",
+    "hotkeyValidation.dictationKeySingle",
+    "hotkeyValidation.dictationKeySingleShort",
+    "hotkeyValidation.fnMacosOnly",
+    "hotkeyValidation.holding",
     # I18N-PARTIAL: models.* keys pending translation for de/fr/hi/ru/zh.
     # (Fully translated for ar and es.)
     "models.snack.parakeetDepsRequired",
@@ -285,6 +356,11 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.deleteDialog.title",
     "models.deleteDialog.message",
     "models.errors.unknown",
+    # HTTP status format — universal format string
+    "about.httpError",
+    # Duration suffix abbreviations
+    "settings.hotkeySection.minutesSuffix",
+    "settings.hotkeySection.secondsSuffix",
 }
 
 # RW-2: Keys backfilled into non-English locale files using English fallback
@@ -356,25 +432,18 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "microphoneTest.voiceNotDetected",
     "microphoneTest.volume",
     # settings.fastStartup* (2 keys) — added by PW-3 (prewarm toggle)
-    "settings.fastStartup",
-    "settings.fastStartupDescription",
     # settings.searchHints.* (4 keys) — settings search bar hint keywords
     "settings.searchHints.aiAudio",
     "settings.searchHints.appearance",
     "settings.searchHints.general",
     "settings.searchHints.privacy",
+    "settings.bubbleMicButton",  # English placeholder in fr.json
+    "settings.bubbleMicButtonDescription",  # English placeholder in fr.json
     # settings.troubleshooting.reRunWizard* (4 keys)
-    "settings.troubleshooting.reRunWizard",
-    "settings.troubleshooting.reRunWizardAria",
-    "settings.troubleshooting.reRunWizardHint",
-    "settings.troubleshooting.reRunWizardToast",
     # IMPROVE-mode RW-2 backfill (25 keys) — English-fallback pending native
     # translation. Added when CR-4/CR-51/CR-54/CR-55 i18n parity gates were
     # enforced. Remove each key from this set once it is properly translated
     # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
-    "settings.searchNoMatch",
-    "settings.bubbleMicButton",
-    "settings.bubbleMicButtonDescription",
     "onboarding.permissionsTitle",
     "onboarding.permissionsDescription",
     "onboarding.permissionsLoading",
@@ -397,12 +466,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "a11y.moreInfoAbout",  # "More info about {label}"
     # about (13 keys)
     "about.closeDialogsValue",  # "Esc"
-    "about.creditsAuthorsLabel",  # "Authors"
-    "about.creditsDescription",  # "Voice Typer is built on the shoulders of giants."
-    "about.creditsFontsLabel",  # "Fonts"
-    "about.creditsIconsLabel",  # "Icons"
-    "about.creditsLibrariesLabel",  # "Third-party libraries"
-    "about.creditsTitle",  # "Credits & Licenses"
     "about.documentationLink",  # "Documentation"
     "about.navigateFieldsValue",  # "Tab / Shift+Tab"
     "about.openDropdownsValue",  # "Enter or Space"
@@ -410,7 +473,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "about.toggleSwitchesValue",  # "Space"
     "about.versionValue",  # "v{version}"
     # activityList (1 keys)
-    "activityList.noRecentActivity",  # "No recent activity"
     # analytics (2 keys)
     "analytics.auto",  # "Auto"
     "analytics.dayActivityAria",  # "{label}: {count} transcriptions"
@@ -418,9 +480,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # in every non-English locale by commit e4b7d4b. Leaving it here
     # would be flagged as stale by TestRW2BackfillSetIsMinimal.
     # help (3 keys)
-    "help.openCheatSheet",  # "Open punctuation cheat sheet"
-    "help.searchNoMatch",  # "No commands match "{query}""
-    "help.searchPlaceholder",  # "Search commands…"
     # history (3 keys)
     "history.charsSuffix",  # " ({count} chars)"
     # "Export limited to {count} most recent records — use search to export older entries."
@@ -582,33 +641,9 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # non-EN locales had it as a flat string. The flat string was replaced
     # with the EN object structure. Remove each key from this set once
     # it is properly translated in EVERY non-English locale.
-    "a11y.toggleSidebarWithShortcut",
-    "about.loading",
-    "app.pageNotFoundDescription",
-    "app.pageNotFoundTitle",
-    "common.close",
-    "common.lastUpdatedWithValue",
-    "errorBoundary.componentStackLabel",
-    "errorBoundary.copied",
-    "errorBoundary.copyError",
-    "errorBoundary.openLogs",
-    "errorBoundary.reportBug",
-    "errorBoundary.resetFailedNotice",
-    "errorBoundary.resetSettings",
-    "errorBoundary.resetSettingsHint",
-    "errorBoundary.resetting",
-    "errors.cudaOom",
-    "errors.network",
-    "errors.rateLimited",
-    "errors.render",
-    "errors.storage",
-    "errors.timeout",
-    "errors.unknown",
-    "errors.unknownBackend",
     "format.duration.hourShort",
     "format.duration.minuteShort",
     "format.duration.secondShort",
-    "home.pasteFailedMessage",
     "hotkey.errors.comboMustEndNonModifier",
     "hotkey.errors.empty",
     "hotkey.errors.fnMacOnly",
@@ -665,8 +700,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "models.speed.slow",
     "models.speed.variable",
     "models.status.insufficientDisk",
-    "nav.group.main",
-    "nav.group.power",
     "nav.group.system",
     "onboarding.modelOption",
     "settings.hotkeySection.parseError",
@@ -674,17 +707,12 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.hotkeySection.rangeErrorSeconds",
     "settings.hotkeySection.rangeHintMinutes",
     "settings.hotkeySection.rangeHintSeconds",
-    "settings.keyring.statusLabel",
-    "settings.pending",
     "settings.troubleshooting.diagnosticBundleExportFailed",
     "settings.troubleshooting.diagnosticBundleExported",
     "settings.troubleshooting.diagnosticBundleExportedWithPath",
-    "settings.troubleshooting.exportDiagnosticBundle",
     "settings.troubleshooting.exportDiagnosticBundleAria",
     "settings.troubleshooting.exportDiagnosticBundleHint",
     "templates.loading",
-    "titleBar.backWithShortcut",
-    "titleBar.forwardWithShortcut",
     "vocabulary.loading",
 }
 
