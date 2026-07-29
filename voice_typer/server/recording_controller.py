@@ -215,7 +215,49 @@ class RecordingController:
             return
 
         if active is None:
-            app.tray.set_state(AppState.LOADING, i18n.t("state.recording_controller.starting_up"))
+            # FR-15: the previous background model load FAILED (or never
+            # started). ``_model_load_thread`` is None because the loader's
+            # ``finally`` block nulls it on exit, and ``active_transcriber()``
+            # returns None because no engine was successfully constructed.
+            #
+            # Pre-fix, this branch only set the tray to "starting up" and
+            # returned — so pressing F2 after a model-load failure (the
+            # exact recovery the model_manager's tray message instructed
+            # the user to perform) did nothing. The user was forced to
+            # restart the app to recover the ASR engine.
+            #
+            # Now: re-trigger ``start_background_load()`` (idempotent — it
+            # returns immediately if a load is already running). Set
+            # ``_pending_dictation=True`` so the loader's ``finally`` block
+            # auto-starts the dictation if the retry succeeds. The tray
+            # shows "Retrying model load..." so the user sees the retry
+            # is actually happening (instead of the misleading "starting
+            # up -- please wait..." which implied passive waiting).
+            log.info(
+                "[HOTKEY FIRED] No active transcriber and no live loader -- "
+                "re-triggering background model load (cycle=%s)",
+                app._cycle_id,
+            )
+            try:
+                app.models._pending_dictation = True
+                app.models.start_background_load()
+                app.tray.set_state(
+                    AppState.LOADING,
+                    "Retrying model load...",
+                )
+            except Exception:
+                log.exception(
+                    "[HOTKEY FIRED] start_background_load re-trigger failed (cycle=%s)",
+                    app._cycle_id,
+                )
+                # Fall back to the original "starting up" message so the
+                # user still sees a loading indicator if the re-trigger
+                # itself raised (extremely unlikely — start_background_load
+                # only constructs a Thread).
+                app.tray.set_state(
+                    AppState.LOADING,
+                    i18n.t("state.recording_controller.starting_up"),
+                )
             return
 
         if app.recorder.recording:
@@ -340,6 +382,16 @@ class RecordingController:
             app.recorder.on_silence_warning = self.on_silence_warning
             app.recorder.on_silence_auto_stop = self.on_silence_auto_stop
             app.recorder.on_max_duration_auto_stop = self.on_max_duration_auto_stop
+            # FR-17: wire the microphone-permission-revoked callback so
+            # the device_health_checker_loop can surface a distinct
+            # "Microphone permission revoked" notification (and IPC
+            # event) when the OS revokes mic access mid-recording,
+            # instead of falling through to the misleading
+            # "silence detected" auto-stop after 30-60 s of zero-filled
+            # buffers. ``getattr``-guarded so older Recorder test
+            # doubles that don't accept the attribute still work.
+            with contextlib.suppress(Exception):
+                app.recorder.on_microphone_permission_revoked = self.on_microphone_permission_revoked
 
             # Waveform bubble: feed RMS levels from the audio callback
             app.recorder.on_rms_level = self.on_recorder_rms
@@ -827,6 +879,55 @@ class RecordingController:
                 "Recording stopped: maximum recording duration reached.",
             )
         # Same reason as on_silence_auto_stop: avoid deadlock on Recorder._lock.
+        self._app._schedule_timer(0, self._app._stop_dictation)
+
+    def on_microphone_permission_revoked(self) -> None:
+        """FR-17 — handle mid-recording OS-level microphone-permission
+        revocation.
+
+        Distinct from ``on_silence_auto_stop`` so the user sees a
+        "Microphone permission revoked" notification (and the renderer
+        receives a dedicated ``microphone_permission_revoked`` IPC event)
+        instead of the misleading "silence detected" message that
+        ``on_silence_auto_stop`` produces.
+
+        Spawned by ``DeviceManager._check_microphone_permission_revoked``
+        on a fresh daemon thread (via ``recorder._spawn_device_thread``),
+        so we DON'T hold ``Recorder._lock`` here — but we still schedule
+        the actual stop off this thread for parity with the silence /
+        max-duration auto-stop callbacks (their comment explains the
+        deadlock-avoidance rationale; we mirror it for consistency).
+        """
+        log.warning(
+            "[DICTATION] Microphone permission revoked mid-recording -- stopping stream and surfacing IPC event"
+        )
+        with contextlib.suppress(Exception):
+            self._app.tray.notify_safety(
+                APP_NAME,
+                "Microphone permission was revoked. Recording stopped. "
+                "Re-grant microphone access in your OS privacy settings to resume.",
+            )
+        # Emit the dedicated ``microphone_permission_revoked`` IPC event
+        # so the renderer can show a banner (distinct from the generic
+        # ``recording_stopped`` / silence-auto-stop toast). Best-effort:
+        # the event_bus module is a leaf dependency, but if the import
+        # or publish raises (e.g. during shutdown teardown) we still
+        # need the stop to fire.
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish({"type": "microphone_permission_revoked"})
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to publish microphone_permission_revoked event",
+                exc_info=True,
+            )
+        # Stop the recording off this thread (mirror the
+        # on_silence_auto_stop pattern). ``_stop_dictation`` re-acquires
+        # ``Recorder._lock``; the original caller (the device-health
+        # checker's spawned handler) does NOT hold that lock, so the
+        # schedule is for consistency with the silence/max-duration
+        # callbacks rather than strict deadlock avoidance.
         self._app._schedule_timer(0, self._app._stop_dictation)
 
     def on_xrun_threshold(self, count: int) -> None:

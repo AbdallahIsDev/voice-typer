@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from voice_typer.server import recording as _recording_pkg
+from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
 from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadState
 
@@ -439,7 +440,7 @@ class AudioPipeline:
                         resample_poly = _recording_pkg._get_resample_poly()
                         _up, _down = _up_down
                         vad_audio = resample_poly(filtered.ravel(), _up, _down).astype(np.float32)
-                        vad_sr = 16000
+                        vad_sr = WHISPER_SAMPLE_RATE
                     except Exception:
                         # scipy unavailable or resample failed — fall
                         # back to RMS rather than crashing the worker.
@@ -449,7 +450,7 @@ class AudioPipeline:
                     # ``_buffer_sr`` is already 8000 or 16000 — no
                     # resample needed, feed ``filtered`` directly.
                     vad_audio = filtered
-                    vad_sr = _vad_sr if _vad_sr in (8000, 16000) else 16000
+                    vad_sr = _vad_sr if _vad_sr in SILERO_VAD_SAMPLE_RATES else WHISPER_SAMPLE_RATE
                 vad_prob = compute_vad_prob(vad_audio, vad_sr)
             except Exception:
                 vad_prob = None  # fall back to RMS
@@ -520,3 +521,188 @@ class AudioPipeline:
                 chunk_count,
                 buffer_len,
             )
+
+    def process_audio_chunk(
+        self,
+        indata: np.ndarray,
+        frames: int,
+        time_info: Any,
+        status: Any,
+        perf_ts: float,
+    ) -> None:
+        """Body of :meth:`Recorder._process_audio_chunk` — runs on the worker thread.
+
+        S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        docstring of :mod:`.recorder` for the full Patch-path compatibility
+        rationale (the call sites to ``_detect_device_disconnect`` /
+        ``_handle_xrun_status`` / etc. route through ``self._recorder.X``
+        so test patches of the form
+        ``monkeypatch.setattr(Recorder, "_detect_device_disconnect", fake)``
+        continue to take effect).
+
+        This method contains the heavy processing pipeline that was
+        previously in the PortAudio callback (``_callback_impl``). It
+        is called by ``_audio_worker_loop`` for each chunk popped from
+        the ring buffer.
+
+        Operations (in order):
+        - HOTKEY-CRASH: device disconnect detection (zero-fill + periodic)
+        - AUDIO-002: XRUN status flag handling + on_xrun_threshold callback
+        - AUDIO-CH: mono conversion
+        - AUDIO-PROC: filter chain application
+        - Buffer append + chunk count + backpressure detection
+        - RMS / peak computation
+        - AUDIO-CLIP: clipping detection + IPC event push
+        - AUDIO-014: VAD auto-calibration
+        - AUDIO-013: Silero VAD probability (with resample to 16kHz)
+        - AUDIO-013: VAD state machine + silence timer
+        - H12: silence warning / auto-stop / max-duration callbacks
+        - T021: on_rms_level callback (filtered chunk forwarded)
+        - Telemetry logs
+
+        All of this previously ran on the real-time audio thread,
+        violating the ~32ms deadline (scipy resample + Silero VAD can
+        take 5-50ms combined). Moving it to the worker thread restores
+        real-time safety.
+        """
+        recorder = self._recorder
+        # HOTKEY-CRASH: device disconnect detection (early return path).
+        if recorder._detect_device_disconnect(indata):
+            return
+
+        # AUDIO-2: the per-N-chunks blocking ``sd.query_devices()``
+        # probe on the audio worker thread was removed — it is fully
+        # redundant with ``_device_health_checker_loop`` (a dedicated
+        # daemon thread that wakes every ``_device_check_interval_s``
+        # and runs the same ``sd.query_devices(current_device)`` probe
+        # with the same disconnect-handling logic). Running the probe
+        # here cost a blocking RPC on the audio hot path every ~500
+        # chunks; the health-checker thread covers the case off the
+        # hot path. See ``_device_health_checker_loop`` and
+        # ``_start_device_health_checker``.
+
+        # NOTE: Dead-air timeout was REMOVED in RW-0.
+        # Redundant with stop_on_silence_seconds (auto-stop already resets on
+        # speech). The _update_dead_air_simple() method was also removed along
+        # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
+        # Do NOT re-add — it added no unique behavior.
+
+        # AUDIO-002: XRUN status flag handling (early return path on overflow).
+        if recorder._handle_xrun_status(status):
+            return
+
+        # RT-SAFE-001: the old PERF-011 frame-skip logic
+        # (_previous_chunk_pending) is replaced by ring buffer overflow
+        # detection in the callback. If the ring buffer was full, the
+        # callback already logged a warning and dropped the chunk. By
+        # the time we reach here, the chunk is in the ring buffer and
+        # we must process it.
+
+        # AUDIO-CH + AUDIO-PROC: mono conversion + real-time noise filtering.
+        filtered = recorder._apply_filter_chain(indata)
+
+        # Buffer append + chunk count + backpressure detection.
+        chunk_count, buffer_len = recorder._append_to_buffer_locked(filtered)
+
+        # Read callback refs outside the lock — these are set once
+        # at start() and cleared at stop(), so a torn read just
+        # means we miss one callback or fire one extra, which is
+        # acceptable. The alternative (holding the lock while
+        # calling user code) risks deadlocks.
+        rms_callback = recorder.on_rms_level
+        silence_warning_cb = recorder.on_silence_warning
+        silence_auto_stop_cb = recorder.on_silence_auto_stop
+        max_duration_cb = recorder.on_max_duration_auto_stop
+        # PVT-27: the dead ``recent_rms = recent_rms_snapshot`` alias
+        # was removed (its only writer, the snapshot inside the lock
+        # above, was also dead — see the RACE-003 note above).
+        recording_start = recorder._recording_start_time
+
+        # ── Everything below runs OUTSIDE the lock ──
+
+        # RMS / peak / chunk-duration computation (operates on FILTERED
+        # audio so the waveform bubble and silence detection see what
+        # the transcriber will see, not raw mic input).
+        chunk_rms, chunk_peak, chunk_duration = recorder._compute_rms_and_peak(filtered)
+
+        # ADR 0007 §3.5: the old per-chunk AGC (_agc_update, C1)
+        # has been removed. It duplicated the Compressor filter in
+        # the new audio filter chain. The Compressor now handles
+        # dynamic range compression with proper attack/release.
+        # _last_rms stores the post-filter RMS for UI/IPC.
+
+        with recorder._lock:
+            recorder._last_rms = chunk_rms
+
+        # AUDIO-CLIP: Track clipping + push IPC event (delegated to a
+        # dedicated helper so the clipping-detection logic is testable
+        # in isolation and the heavy ``_process_audio_chunk`` body
+        # stays readable).
+        recorder._detect_and_emit_clipping(chunk_peak)
+
+        # AUDIO-3 / PERF-11: append to the live deque (atomic under
+        # GIL — ``deque.append`` is a single C-level op with no torn
+        # state). The live rolling-RMS consumer is this
+        # ``self._recent_rms_values.append(chunk_rms)`` call, which
+        # future code (e.g. waveform bubble, VAD auto-calibration) can
+        # read via ``self._recent_rms_values`` under the same lock.
+        recorder._recent_rms_values.append(chunk_rms)
+
+        # AUDIO-014 + AUDIO-013 + H12: VAD auto-calibration + Silero
+        # VAD probability + VAD state machine + silence/max-duration
+        # auto-stop callbacks + telemetry logs.
+        recorder._run_vad_state_machine(
+            filtered,
+            chunk_rms,
+            chunk_duration,
+            perf_ts,
+            chunk_count,
+            buffer_len,
+            recording_start,
+            silence_warning_cb,
+            silence_auto_stop_cb,
+            max_duration_cb,
+        )
+
+        # Fire RMS callback OUTSIDE the lock.
+        # G4-L-04: the ``audio_chunk`` parameter was REMOVED from the
+        # ``on_rms_level`` callback contract.  The previous 3-arg form
+        # ``rms_callback(chunk_rms, chunk_peak, filtered)`` forwarded
+        # the filtered audio chunk so downstream consumers
+        # (WaveformBubble via ``RecordingController.on_recorder_rms``)
+        # COULD run Silero VAD on it — but BUBBLE-FIX-4.1 removed the
+        # VAD gate entirely (the device's native sample-rate audio was
+        # being fed to a model that assumes 16 kHz, biasing
+        # probabilities low and collapsing the bars).  No current
+        # consumer uses the chunk, so it was dead weight on the audio
+        # hot path (a numpy reference count inc/dec per chunk at 16 Hz)
+        # and a privacy surface (the raw audio chunk was held by every
+        # listener even though none of them read it).  Callers MUST now
+        # use the 2-arg signature ``rms_callback(chunk_rms, chunk_peak)``.
+        if rms_callback is not None:
+            try:
+                rms_callback(chunk_rms, chunk_peak)
+            except Exception:
+                # NEW-CONC-004: previously this called
+                # ``log.debug(..., exc_info=True)`` on EVERY
+                # callback raise.  The audio callback fires at
+                # ~16 Hz; a buggy downstream consumer (e.g. a VAD
+                # that throws on every chunk) would trigger full
+                # traceback formatting 16 times per second, which
+                # is a significant CPU cost on the audio thread
+                # and can cause XRUNs.  We now only format the
+                # traceback on the FIRST raise and every 100th
+                # subsequent raise; the rest are logged without
+                # exc_info so the formatting cost is avoided.
+                recorder._rms_callback_error_count = recorder._rms_callback_error_count + 1
+                if recorder._rms_callback_error_count == 1 or recorder._rms_callback_error_count % 100 == 0:
+                    log.debug(
+                        "[RECORDING] on_rms_level callback raised (occurrence #%d)",
+                        recorder._rms_callback_error_count,
+                        exc_info=True,
+                    )
+                else:
+                    log.debug(
+                        "[RECORDING] on_rms_level callback raised (occurrence #%d, traceback suppressed)",
+                        recorder._rms_callback_error_count,
+                    )

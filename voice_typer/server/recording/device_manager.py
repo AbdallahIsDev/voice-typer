@@ -110,6 +110,21 @@ class DeviceManager:
         self._device_health_checker_thread: threading.Thread | None = None
         self._device_health_stop_event: threading.Event = threading.Event()
         self._device_check_interval_s: float = 30.0  # seconds between probes
+        # FR-17: counter for periodic OS-level microphone-permission
+        # re-probe. The health-checker loop wakes every
+        # ``_device_check_interval_s`` (30 s default); every
+        # ``_permission_check_interval``-th iteration (~60 s) we call
+        # ``permissions.check_microphone_permission()`` to detect a
+        # mid-recording OS-level revocation (macOS System Settings,
+        # Windows Privacy toggle, Flatpak portal). Pre-fix, the
+        # permission was only probed once at ``Recorder.start()`` so a
+        # mid-session revocation silently delivered zero-filled buffers
+        # for 30-60 s until silence-auto-stop fired with a misleading
+        # "silence detected" notification.
+        self._permission_check_counter: int = 0
+        # With the default 30 s interval, every 2nd iteration = ~60 s.
+        # Tests can override to 1 to probe on every loop wake.
+        self._permission_check_interval: int = 2
 
         # AUDIO-MIC: device list cache with timestamp
         self._device_list_cache: list[dict] | None = None
@@ -286,6 +301,16 @@ class DeviceManager:
         (device disconnected), sets ``_device_disconnected`` and spawns
         ``_handle_device_disconnect`` on a fresh daemon thread.
 
+        FR-17: every ``_permission_check_interval``-th iteration (~60s)
+        also calls ``permissions.check_microphone_permission()`` to detect
+        a mid-recording OS-level microphone-permission revocation. On
+        DENIED, sets ``_device_disconnected=True`` and spawns a handler
+        that calls ``recorder.on_microphone_permission_revoked`` (a
+        distinct callback from ``on_silence_auto_stop``) so the
+        recording_controller can stop the stream and surface a clear
+        "Microphone permission revoked" notification instead of the
+        misleading "silence detected" message.
+
         Exits immediately when ``_device_health_stop_event`` is set.
         """
         while not self._device_health_stop_event.wait(timeout=self._device_check_interval_s):
@@ -293,6 +318,22 @@ class DeviceManager:
             # and scheduled a handler.
             if self._device_disconnected:
                 continue
+            # FR-17: periodic OS-level microphone-permission re-probe.
+            # ``check_microphone_permission`` is best-effort — on
+            # Windows/Linux it historically returns GRANTED (the FR-39
+            # fix tightens this), but on macOS it does a real
+            # AVCaptureDevice probe. Gate the call behind the counter so
+            # we don't pay the cost on every 30 s wake.
+            self._permission_check_counter += 1
+            if self._permission_check_counter >= self._permission_check_interval:
+                self._permission_check_counter = 0
+                if self._check_microphone_permission_revoked():
+                    # Permission was revoked mid-recording. The
+                    # ``_check_microphone_permission_revoked`` helper
+                    # already set ``_device_disconnected=True`` and
+                    # spawned the handler — continue the loop so we
+                    # don't also try the device query below.
+                    continue
             try:
                 current_device = self._resolve_device()
                 if current_device is not None:
@@ -326,6 +367,102 @@ class DeviceManager:
                             )
             except Exception:
                 log.debug("[RECORDING] Device health checker error", exc_info=True)
+
+    def _check_microphone_permission_revoked(self) -> bool:
+        """FR-17 — probe the OS-level microphone permission state.
+
+        Returns True if the permission was detected as DENIED, in which
+        case the caller has already set ``self._device_disconnected=True``
+        and spawned a handler that invokes
+        ``recorder.on_microphone_permission_revoked`` (a callback the
+        ``RecordingController`` wires up to stop the stream and emit a
+        dedicated ``microphone_permission_revoked`` IPC event).
+
+        Returns False on GRANTED / PROMPT / UNKNOWN, or if the probe
+        itself raised (we never want a permission-check failure to take
+        down the health-checker thread).
+        """
+        # Lazy import to avoid paying the import cost on every loop wake
+        # (the module is imported once and then cached in ``sys.modules``).
+        try:
+            from voice_typer.server import permissions as _permissions_mod
+
+            state = _permissions_mod.check_microphone_permission()
+        except Exception:
+            log.debug(
+                "[RECORDING] Microphone permission probe raised — ignoring",
+                exc_info=True,
+            )
+            return False
+
+        # ``MicrophonePermissionState.DENIED`` is the only state we act
+        # on. ``PROMPT`` means the OS will re-prompt on next access
+        # (not a revocation). ``UNKNOWN`` means we can't tell (probe
+        # failure, unsupported platform) — defer to the runtime
+        # PortAudio-open re-classification path in the recorder.
+        try:
+            denied = state == _permissions_mod.MicrophonePermissionState.DENIED
+        except Exception:
+            denied = str(state).lower() == "denied"
+
+        if not denied:
+            return False
+
+        # HOTKEY-CRASH: double-check recording is still active before
+        # scheduling the handler — if the user already stopped the
+        # recording, there's nothing to revoke.
+        try:
+            if not self.recorder._recording_event.is_set():
+                return False
+        except Exception:
+            # If we can't read the recording event, proceed — the
+            # handler will no-op if recording has stopped.
+            pass
+
+        log.warning(
+            "[RECORDING] Microphone permission revoked mid-recording -- "
+            "stopping stream and surfacing on_microphone_permission_revoked"
+        )
+        self._device_disconnected = True
+        _captured_gen = getattr(self.recorder, "_stop_generation", 0)
+
+        def _permission_revoked_handler(_captured_generation: int = _captured_gen) -> None:
+            """Spawned on a fresh daemon thread so we don't block the
+            health-checker loop. Calls the recorder's
+            ``on_microphone_permission_revoked`` callback if wired (the
+            ``RecordingController`` installs it in ``_start_impl``)."""
+            try:
+                cb = getattr(self.recorder, "on_microphone_permission_revoked", None)
+                if callable(cb):
+                    cb()
+                else:
+                    # Fallback: if the callback isn't wired (older
+                    # recording_controller, or tests that bypass
+                    # _start_impl), fall back to ``on_device_lost`` then
+                    # ``on_silence_auto_stop`` so the recording at least
+                    # stops — mirrors the recorder's
+                    # ``_handle_device_disconnect`` fallback chain.
+                    device_lost_cb = getattr(self.recorder, "on_device_lost", None)
+                    if callable(device_lost_cb):
+                        with contextlib.suppress(Exception):
+                            device_lost_cb()
+                    elif self.recorder.on_silence_auto_stop is not None:
+                        with contextlib.suppress(Exception):
+                            self.recorder.on_silence_auto_stop()
+            except Exception:
+                log.debug(
+                    "[RECORDING] on_microphone_permission_revoked handler raised",
+                    exc_info=True,
+                )
+
+        with contextlib.suppress(Exception):
+            self.recorder._spawn_device_thread(
+                name="mic-permission-revoked",
+                target=_permission_revoked_handler,
+                kwargs={"_captured_generation": _captured_gen},
+                single_flight=True,
+            )
+        return True
 
     # ── AUDIO-MIC: device resolution + sample-rate negotiation ──────────
 

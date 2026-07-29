@@ -54,6 +54,7 @@ import numpy as np
 # _test_filters is rebound by start_test_recording, etc.). Importing
 # individual names would create stale snapshots at import time.
 import voice_typer.server.level_monitor as _lm
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 
 log = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ def stop_test_recording() -> dict:
             "audio_base64": "",
             "raw_audio_base64": "",
             "duration_ms": 0,
-            "sample_rate": 16000,
+            "sample_rate": WHISPER_SAMPLE_RATE,
             "message": "No test running",
             "quality": {},
         }

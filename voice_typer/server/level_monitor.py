@@ -43,6 +43,8 @@ from typing import Any
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+
 # XZ-PRIV-03: lazy import to avoid a circular dependency at module load
 # (recording.buffer imports nothing from level_monitor, but pulling it
 # eagerly here would tie the two subsystems together at import time).
@@ -117,7 +119,7 @@ _monitor_stream: Any | None = None  # sounddevice.InputStream
 _monitor_active: bool = False
 _monitor_level: float = 0.0  # smoothed RMS (0-1)
 _monitor_peak: float = 0.0  # smoothed peak (0-1)
-_monitor_sample_rate: int = 16000
+_monitor_sample_rate: int = WHISPER_SAMPLE_RATE
 _monitor_mic_id: str | None = None  # device this stream is on
 
 # ── Audio processor for filtering the live level bar ───────────────
@@ -553,14 +555,17 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 device = int(mic_id)
 
         try:
-            dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
+            dev_kw = {} if device is None else {"device": device}
+            dev_info_raw = sd.query_devices(kind="input", **dev_kw)
             # TASK-14: ``query_devices`` is overloaded to return either a
             # ``dict`` (single device) or a ``DeviceList`` (tuple).  The
             # ``default_samplerate`` key only exists on the dict form, so
             # narrow before indexing.
-            native_rate = int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else 16000
+            native_rate = (
+                int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else WHISPER_SAMPLE_RATE
+            )
         except Exception:
-            native_rate = 16000
+            native_rate = WHISPER_SAMPLE_RATE
 
         _monitor_sample_rate = native_rate
         _monitor_level = 0.0
@@ -947,7 +952,7 @@ def stop_test_recording() -> dict:
             "audio_base64": "",
             "raw_audio_base64": "",
             "duration_ms": 0,
-            "sample_rate": 16000,
+            "sample_rate": WHISPER_SAMPLE_RATE,
             "message": "No test running",
             "quality": {},
         }

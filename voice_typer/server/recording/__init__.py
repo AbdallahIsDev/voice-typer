@@ -182,6 +182,11 @@ from .buffer import (  # noqa: E402
     _stop_buffer_clear_worker,
     set_thread_registry,
 )
+
+# S3-CR-17 / Phase 4.5 split — three new collaborator modules.
+from .capture import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+    AudioCallbackDispatcher,
+)
 from .device_manager import (  # noqa: E402 — PVT-22 / Phase 4.5 split
     DeviceManager,
 )
@@ -215,6 +220,12 @@ from .resampling import (  # noqa: E402
     _start_scipy_preloader,
     resample_audio,
 )
+from .session_state import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+    SessionState,
+)
+from .stream_lifecycle import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+    StreamLifecycle,
+)
 
 # NOTE: the mutable globals ``_resample_poly``, ``_resample_poly_error``,
 # ``_resample_poly_error_time``, ``_scipy_preloader_thread`` (owned by
@@ -245,6 +256,12 @@ __all__ = [
     "_XRUN_WINDOW_MAXLEN",
     # device_manager (PVT-22 / Phase 4.5 split)
     "DeviceManager",
+    # capture (S3-CR-17 / Phase 4.5 split)
+    "AudioCallbackDispatcher",
+    # stream_lifecycle (S3-CR-17 / Phase 4.5 split)
+    "StreamLifecycle",
+    # session_state (S3-CR-17 / Phase 4.5 split)
+    "SessionState",
     # exceptions
     "ResampleError",
     "ResampleUnavailable",

@@ -1065,3 +1065,113 @@ class TestMicrophoneWatcherActiveMicLost:
         # The watcher thread must have exited cleanly via stop()
         # (not crashed mid-loop).
         assert watcher._thread is None
+
+
+# ── DJ-48: default poll_interval bumped to 5.0 ────────────────────────
+
+
+class TestDefaultPollIntervalBumped:
+    """DJ-48: the default ``poll_interval`` was bumped from 1.0 to 5.0 to
+    reduce idle CPU/battery drain (the watcher runs for the entire app
+    lifetime)."""
+
+    def test_default_poll_interval_is_5_seconds(self):
+        """When ``poll_interval`` is not passed, the default is 5.0 (not 1.0)."""
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
+        assert watcher._poll_interval == 5.0, (
+            "DJ-48: default poll_interval must be 5.0 (was 1.0 pre-fix). "
+            "A 1 Hz idle wakeup on a lifetime daemon thread is wasteful."
+        )
+
+    def test_explicit_poll_interval_is_respected(self):
+        """Callers can still override the default (tests pass 0.05)."""
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        assert watcher._poll_interval == 0.05
+
+
+# ── DJ-66: default-device change detection ────────────────────────────
+
+
+class TestDefaultDeviceChangeDetection:
+    """DJ-66: when the OS default input device changes, the watcher fires
+    ``_on_default_device_changed`` so the caller can trigger a stream
+    restart (when ``config.microphone is None`` — PortAudio resolves the
+    default ONCE at stream-open time and never re-resolves)."""
+
+    def test_default_change_callback_fires_on_index_change(self):
+        """When the default input index changes between two checks, the
+        registered ``on_default_device_changed`` callback fires."""
+        fired_event = threading.Event()
+
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+        watcher.set_on_default_device_changed(fired_event.set)
+
+        # Direct invocation (the watcher thread would call this from
+        # ``_run_linux`` on every poll cycle; calling it directly here
+        # makes the test deterministic without spawning a thread that
+        # might race with the patch context manager).
+        with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=0)):
+            watcher._check_default_device_changed()
+        assert watcher._last_default_input_index == 0
+        assert not fired_event.is_set(), "first capture must NOT fire the callback"
+        # Change the default index — the next check should fire.
+        with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=3)):
+            watcher._check_default_device_changed()
+        assert fired_event.is_set(), "DJ-66: on_default_device_changed must fire on index change"
+        assert watcher._last_default_input_index == 3
+
+    def test_default_change_callback_does_not_fire_on_first_capture(self):
+        """The first check captures the baseline without firing the callback
+        (so registering mid-session does not spuriously restart the recorder)."""
+        fired_event = threading.Event()
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+        watcher.set_on_default_device_changed(fired_event.set)
+
+        with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=5)):
+            watcher._check_default_device_changed()
+
+        assert watcher._last_default_input_index == 5
+        assert not fired_event.is_set(), "DJ-66: first capture must NOT fire on_default_device_changed"
+
+    def test_default_change_callback_noop_when_not_registered(self):
+        """When no callback is registered, ``_check_default_device_changed``
+        is a silent no-op (preserves backward compatibility)."""
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+        # No set_on_default_device_changed call.
+        assert watcher._on_default_device_changed is None
+        # Direct invocation must not raise and must not change state.
+        with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=0)):
+            watcher._check_default_device_changed()
+        assert watcher._last_default_input_index is None  # never captured
+
+    def test_default_change_callback_swallows_exceptions(self, caplog):
+        """If the callback raises, the watcher logs a warning and continues."""
+        fired = {"count": 0}
+
+        def raising_callback() -> None:
+            fired["count"] += 1
+            raise RuntimeError("boom from on_default_device_changed")
+
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+        watcher.set_on_default_device_changed(raising_callback)
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="voice_typer.server.microphone_watcher",
+        ):
+            # Capture baseline.
+            with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=0)):
+                watcher._check_default_device_changed()
+            # Trigger a change.
+            with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=2)):
+                watcher._check_default_device_changed()
+
+        assert fired["count"] >= 1, "callback must have been invoked"
+        warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("on_default_device_changed callback raised" in m for m in warning_messages), (
+            f"Expected warning about callback raising, got: {warning_messages}"
+        )

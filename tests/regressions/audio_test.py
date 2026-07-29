@@ -543,6 +543,11 @@ class TestAudioAgcLastRmsPostAgc:
         """ADR 0007: AGC recompute block is gone. _last_rms is still set.
 
         RT-SAFE-001: the callback body moved to _process_audio_chunk.
+        S3-CR-17 / Phase 4.5: the body of _process_audio_chunk moved to
+        AudioPipeline.process_audio_chunk (collaborator pattern). The
+        regression check now inspects AudioPipeline.process_audio_chunk
+        source (the new home of the body) instead of the
+        Recorder._process_audio_chunk 1-line delegate.
 
         RW-8: KEEP — pins ADR 0007 §3.5 (per-chunk AGC removed,
         replaced by Compressor filter). The negative assertion
@@ -550,14 +555,16 @@ class TestAudioAgcLastRmsPostAgc:
         of the dead AGC path; the positive assertion (`_last_rms =
         chunk_rms`) catches removal of the UI/IPC RMS feed.
         """
-        from voice_typer.server import recording as rec_mod
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # RT-SAFE-001: inspect _process_audio_chunk (the new home of
-        # the callback body, running on the audio worker thread).
-        src = inspect.getsource(rec_mod.Recorder._process_audio_chunk)
+        # S3-CR-17 / Phase 4.5: inspect AudioPipeline.process_audio_chunk
+        # (the new home of the body, running on the audio worker thread).
+        src = inspect.getsource(AudioPipeline.process_audio_chunk)
         # The old AGC recompute block should NOT exist anymore
         agc_recompute_idx = src.find("if abs(self._agc_gain - 1.0) > 0.01")
-        last_rms_idx = src.find("self._last_rms = chunk_rms")
+        # The _last_rms assignment now uses `self._recorder._last_rms`
+        # (the collaborator back-reference pattern) instead of `self._last_rms`.
+        last_rms_idx = src.find("_last_rms = chunk_rms")
         assert agc_recompute_idx == -1, (
             "ADR 0007: AGC recompute block should be deleted — "
             "the Compressor filter in the audio chain handles this now."
@@ -568,16 +575,21 @@ class TestAudioAgcLastRmsPostAgc:
         """ADR 0007: _agc_update call is gone. _last_rms is still set.
 
         RT-SAFE-001: the callback body moved to _process_audio_chunk.
+        S3-CR-17 / Phase 4.5: the body of _process_audio_chunk moved to
+        AudioPipeline.process_audio_chunk (collaborator pattern). The
+        regression check now inspects AudioPipeline.process_audio_chunk
+        source (the new home of the body) instead of the
+        Recorder._process_audio_chunk 1-line delegate.
 
         RW-8: KEEP — pins ADR 0007 §3.5 (per-chunk AGC call removed).
         Same rationale as test_last_rms_assignment_after_agc_recompute.
         """
-        from voice_typer.server import recording as rec_mod
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        src = inspect.getsource(rec_mod.Recorder._process_audio_chunk)
+        src = inspect.getsource(AudioPipeline.process_audio_chunk)
         # The old _agc_update call should NOT exist anymore
-        agc_update_idx = src.find("self._agc_update(chunk_rms, filtered)")
-        last_rms_idx = src.find("self._last_rms = chunk_rms")
+        agc_update_idx = src.find("_agc_update(chunk_rms, filtered)")
+        last_rms_idx = src.find("_last_rms = chunk_rms")
         assert agc_update_idx == -1, (
             "ADR 0007: _agc_update call should be deleted — "
             "the Compressor filter in the audio chain handles gain control now."
