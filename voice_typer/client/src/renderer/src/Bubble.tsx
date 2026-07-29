@@ -19,6 +19,8 @@
  * has been removed — see the comment below for why and how to
  * re-implement keyboard-move correctly.
  */
+import { Mic02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	useCallback,
 	useEffect,
@@ -36,8 +38,6 @@ import {
 	BubbleStopButton,
 	BubbleVisualizer,
 	FADEOUT_DURATION_MS,
-	HugeiconsIcon,
-	Mic02Icon,
 	TRANSCRIBING_DOT_COUNT,
 	tf,
 	useBubbleLifecycle,
