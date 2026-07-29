@@ -154,6 +154,42 @@ def apply_retention(
                             "[HISTORY_DB] VACUUM after retention failed: %s",
                             e,
                         )
+                # FR-27: rebuild FTS5 segments after a bulk retention
+                # delete. The DELETE trigger
+                # ``transcriptions_ad_fts`` only marks rowids as
+                # deleted in the FTS5 delete-bitmap; the segment data
+                # in ``transcriptions_fts_data`` survives both the
+                # trigger delete and ``VACUUM`` (VACUUM rebuilds the
+                # main DB file but does NOT rebuild FTS5 shadow
+                # tables). After a large retention sweep, dictated
+                # text remained recoverable from
+                # ``transcriptions_fts_data`` via forensic tools —
+                # defeating G4-M-05 / GDPR Art. 17. The
+                # ``'rebuild'`` command drops all segments and
+                # rebuilds them from the (now-reduced) content
+                # table, so deleted dictated text is no longer
+                # recoverable. Wrapped in a tolerant try/except so
+                # an older DB (pre-V3 migration, no FTS table yet)
+                # doesn't crash the retention path. Only runs when
+                # we actually deleted rows (a no-op retention sweep
+                # has nothing to rebuild and would just churn the
+                # FTS index).
+                try:
+                    cursor.execute(
+                        "INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')"
+                    )
+                    conn.commit()
+                    log.info(
+                        "[HISTORY_DB] FTS5 segments rebuilt after retention "
+                        "(deleted %d rows)",
+                        deleted,
+                    )
+                except sqlite3.Error as e:
+                    log.warning(
+                        "[HISTORY_DB] FTS5 'rebuild' after retention failed: %s "
+                        "(FTS5 shadow-table segment data may persist — manual re-index advised)",
+                        e,
+                    )
 
             if deleted:
                 log.info(

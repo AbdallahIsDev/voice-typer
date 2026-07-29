@@ -14,10 +14,12 @@ import io
 import logging
 import socket
 
+from voice_typer.server._paths import IPC_PORT
+
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, socket.socket]:
+def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[int, socket.socket]:
     """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
 
     P1-1.2: used by standalone mode to auto-pick a port for the backend's

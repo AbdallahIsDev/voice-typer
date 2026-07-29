@@ -279,6 +279,20 @@ class TCPTransportMixin:
         with contextlib.suppress(OSError, AttributeError):
             conn.settimeout(_tcp_auth_timeout_seconds)  # socket may be a mock in tests
 
+        # DJ-80: enable TCP_NODELAY on the accepted server-side socket so
+        # small push events (bubble_level at 15-50 Hz, heartbeat_ack) are
+        # not delayed by Nagle's algorithm coalescing them into larger
+        # segments. Nagle defaults to up to 40ms of coalescing delay on
+        # loopback, which directly inflates waveform-bubble end-to-end
+        # latency. The matching client-side setNoDelay(true) lives in
+        # tcp-connect.ts (set immediately after ``new net.Socket()``).
+        # ``IPPROTO_TCP`` may be unavailable on non-TCP mock sockets in
+        # tests, so the setsockopt is wrapped in suppress(OSError,
+        # AttributeError) — same defensive pattern as the settimeout
+        # above.
+        with contextlib.suppress(OSError, AttributeError):
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         # SEC-2: mirror the WS path — if the token is unset, refuse the
         # connection immediately. We log ERROR once at bind time (above)
         # and once per connection so a misconfigured launch surfaces in

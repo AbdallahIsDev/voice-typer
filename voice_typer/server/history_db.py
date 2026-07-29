@@ -618,67 +618,67 @@ class HistoryDB:
                     self._queue.put_nowait(item)
                 break
 
-        cursor = conn.cursor()
         try:
-            if len(batch) >= _BATCH_INSERT_MIN:
-                # ER-78: multi-row INSERT inside one transaction.
-                placeholders = ",".join(["(?, ?, ?, ?, ?, ?, ?)"] * len(batch))
-                params: list[Any] = []
-                for it in batch:
-                    params.extend(
-                        (
-                            it.text,
-                            it.duration,
-                            it.model,
-                            it.device,
-                            it.word_count,
-                            it.char_count,
-                            it.language,
+            with contextlib.closing(conn.cursor()) as cursor:
+                if len(batch) >= _BATCH_INSERT_MIN:
+                    # ER-78: multi-row INSERT inside one transaction.
+                    placeholders = ",".join(["(?, ?, ?, ?, ?, ?, ?)"] * len(batch))
+                    params: list[Any] = []
+                    for it in batch:
+                        params.extend(
+                            (
+                                it.text,
+                                it.duration,
+                                it.model,
+                                it.device,
+                                it.word_count,
+                                it.char_count,
+                                it.language,
+                            )
                         )
-                    )
-                cursor.execute(
-                    f"INSERT INTO transcriptions "
-                    f"(text, duration, model, device, word_count, char_count, language) "
-                    f"VALUES {placeholders}",
-                    params,
-                )
-                conn.commit()
-                last_row_id = cursor.lastrowid
-                for it in batch:
-                    if it.future is not None:
-                        with contextlib.suppress(concurrent.futures.InvalidStateError):
-                            it.future.set_result(last_row_id if last_row_id is not None else -1)
-                log.debug(
-                    "[HISTORY_DB] batched %d transcription INSERTs into one transaction",
-                    len(batch),
-                )
-            else:
-                # Below the batching threshold — insert each row
-                # individually (original behavior). Still one COMMIT
-                # per row, but the per-row overhead is negligible for
-                # 1-2 rows.
-                for it in batch:
                     cursor.execute(
-                        "INSERT INTO transcriptions "
-                        "(text, duration, model, device, word_count, char_count, language) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            it.text,
-                            it.duration,
-                            it.model,
-                            it.device,
-                            it.word_count,
-                            it.char_count,
-                            it.language,
-                        ),
+                        f"INSERT INTO transcriptions "
+                        f"(text, duration, model, device, word_count, char_count, language) "
+                        f"VALUES {placeholders}",
+                        params,
                     )
                     conn.commit()
-                    row_id = cursor.lastrowid
-                    if it.future is not None:
-                        with contextlib.suppress(concurrent.futures.InvalidStateError):
-                            it.future.set_result(row_id if row_id is not None else -1)
-                    if row_id is not None:
-                        log.debug("Added transcription %d: %d chars", row_id, it.char_count)
+                    last_row_id = cursor.lastrowid
+                    for it in batch:
+                        if it.future is not None:
+                            with contextlib.suppress(concurrent.futures.InvalidStateError):
+                                it.future.set_result(last_row_id if last_row_id is not None else -1)
+                    log.debug(
+                        "[HISTORY_DB] batched %d transcription INSERTs into one transaction",
+                        len(batch),
+                    )
+                else:
+                    # Below the batching threshold — insert each row
+                    # individually (original behavior). Still one COMMIT
+                    # per row, but the per-row overhead is negligible for
+                    # 1-2 rows.
+                    for it in batch:
+                        cursor.execute(
+                            "INSERT INTO transcriptions "
+                            "(text, duration, model, device, word_count, char_count, language) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                it.text,
+                                it.duration,
+                                it.model,
+                                it.device,
+                                it.word_count,
+                                it.char_count,
+                                it.language,
+                            ),
+                        )
+                        conn.commit()
+                        row_id = cursor.lastrowid
+                        if it.future is not None:
+                            with contextlib.suppress(concurrent.futures.InvalidStateError):
+                                it.future.set_result(row_id if row_id is not None else -1)
+                        if row_id is not None:
+                            log.debug("Added transcription %d: %d chars", row_id, it.char_count)
         except BaseException as e:  # noqa: BLE001 — propagate to futures
             # Resolve all futures with the exception so wait=True
             # callers (if any — add_transcription is fire-and-forget)
@@ -1419,6 +1419,15 @@ class HistoryDB:
         verify the write persisted should call ``flush()`` before
         asserting.
         """
+        # FR-10: early-return guard — if the writer thread never
+        # started (init error) or died, return -1 immediately instead
+        # of silently enqueuing to a dead writer's queue.
+        if self._init_error is not None or not self._writer_thread.is_alive():
+            log.error(
+                "[HISTORY_DB] add_transcription refused — writer is unavailable: %s",
+                self.health_check()["error"],
+            )
+            return -1
         try:
             word_count = len(text.split())
             char_count = len(text)
@@ -1465,10 +1474,10 @@ class HistoryDB:
         try:
 
             def _do_delete(conn: sqlite3.Connection) -> bool:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
-                conn.commit()
-                return cursor.rowcount > 0
+                with contextlib.closing(conn.cursor()) as cursor:
+                    cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
+                    conn.commit()
+                    return cursor.rowcount > 0
 
             result = self._submit_write(_do_delete, wait=True)
             if result is None:
@@ -1514,10 +1523,10 @@ class HistoryDB:
             favorite = 1 if record.get("favorite") else 0
 
             def _do_restore(conn: sqlite3.Connection) -> int:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO transcriptions
+                with contextlib.closing(conn.cursor()) as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO transcriptions
                     (text, duration, model, device, word_count, char_count, language, favorite)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -1574,16 +1583,16 @@ class HistoryDB:
         try:
 
             def _do_clear_all(conn: sqlite3.Connection) -> bool:
-                cursor = conn.cursor()
-                while True:
-                    cursor.execute(
-                        "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
-                        (_CLEAR_ALL_BATCH_SIZE,),
-                    )
-                    batch_deleted = cursor.rowcount
-                    if batch_deleted == 0:
-                        break
-                    conn.commit()  # release write lock between batches
+                with contextlib.closing(conn.cursor()) as cursor:
+                    while True:
+                        cursor.execute(
+                            "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
+                            (_CLEAR_ALL_BATCH_SIZE,),
+                        )
+                        batch_deleted = cursor.rowcount
+                        if batch_deleted == 0:
+                            break
+                        conn.commit()  # release write lock between batches
                 # Final commit to close any open transaction started
                 # by the last DELETE (which matched 0 rows but still
                 # auto-opened a transaction in Python's sqlite3 module).
@@ -1635,13 +1644,13 @@ class HistoryDB:
         try:
 
             def _do_toggle(conn: sqlite3.Connection) -> bool:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
-                    (transcription_id,),
-                )
-                conn.commit()
-                return cursor.rowcount > 0
+                with contextlib.closing(conn.cursor()) as cursor:
+                    cursor.execute(
+                        "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
+                        (transcription_id,),
+                    )
+                    conn.commit()
+                    return cursor.rowcount > 0
 
             result = self._submit_write(_do_toggle, wait=True)
             if result is None:
@@ -1753,28 +1762,28 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
-                FROM transcriptions
-                ORDER BY timestamp DESC
-                LIMIT ? OFFSET ?
-            """,
-                (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-            )
-            rows = cursor.fetchall()
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    ORDER BY timestamp DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                )
+                rows = cursor.fetchall()
             return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
@@ -1803,9 +1812,9 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cur = conn.cursor()
-            cur.execute("SELECT text FROM transcriptions ORDER BY id DESC LIMIT 1")
-            row = cur.fetchone()
+            with contextlib.closing(conn.cursor()) as cur:
+                cur.execute("SELECT text FROM transcriptions ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
             return row[0] if row else ""
         except Exception as e:
             log.error("[HISTORY] Failed to get latest transcription: %s", e)
@@ -1837,57 +1846,57 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            capped = query[:_MAX_SEARCH_QUERY_CHARS]
-            if capped and _is_fts_compatible_query(capped):
-                fts_query = _sanitize_fts_query(capped)
-                cursor.execute(
-                    """
-                    SELECT
-                        t.id,
-                        SUBSTR(t.text, 1, ?) AS text,
-                        LENGTH(t.text) AS text_full_length,
-                        t.timestamp,
-                        t.duration,
-                        t.model,
-                        t.device,
-                        t.word_count,
-                        t.char_count,
-                        t.favorite,
-                        t.language
-                    FROM transcriptions t
-                    JOIN transcriptions_fts AS f ON f.rowid = t.id
-                    WHERE transcriptions_fts MATCH ?
-                    ORDER BY t.timestamp DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
-                )
-            else:
-                # LIKE fallback.
-                pattern = _prepare_like_search_pattern(query)
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    WHERE text LIKE ? ESCAPE '\\'
-                    ORDER BY timestamp DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
-                )
-            rows = cursor.fetchall()
+            with contextlib.closing(conn.cursor()) as cursor:
+                capped = query[:_MAX_SEARCH_QUERY_CHARS]
+                if capped and _is_fts_compatible_query(capped):
+                    fts_query = _sanitize_fts_query(capped)
+                    cursor.execute(
+                        """
+                        SELECT
+                            t.id,
+                            SUBSTR(t.text, 1, ?) AS text,
+                            LENGTH(t.text) AS text_full_length,
+                            t.timestamp,
+                            t.duration,
+                            t.model,
+                            t.device,
+                            t.word_count,
+                            t.char_count,
+                            t.favorite,
+                            t.language
+                        FROM transcriptions t
+                        JOIN transcriptions_fts AS f ON f.rowid = t.id
+                        WHERE transcriptions_fts MATCH ?
+                        ORDER BY t.timestamp DESC
+                        LIMIT ? OFFSET ?
+                    """,
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
+                    )
+                else:
+                    # LIKE fallback.
+                    pattern = _prepare_like_search_pattern(query)
+                    cursor.execute(
+                        """
+                        SELECT
+                            id,
+                            SUBSTR(text, 1, ?) AS text,
+                            LENGTH(text) AS text_full_length,
+                            timestamp,
+                            duration,
+                            model,
+                            device,
+                            word_count,
+                            char_count,
+                            favorite,
+                            language
+                        FROM transcriptions
+                        WHERE text LIKE ? ESCAPE '\\'
+                        ORDER BY timestamp DESC
+                        LIMIT ? OFFSET ?
+                    """,
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
+                    )
+                rows = cursor.fetchall()
             return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to search transcriptions: %s", e)
@@ -1908,29 +1917,29 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT
-                    id,
-                    SUBSTR(text, 1, ?) AS text,
-                    LENGTH(text) AS text_full_length,
-                    timestamp,
-                    duration,
-                    model,
-                    device,
-                    word_count,
-                    char_count,
-                    favorite,
-                    language
-                FROM transcriptions
-                WHERE favorite = 1
-                ORDER BY timestamp DESC
-                LIMIT ? OFFSET ?
-            """,
-                (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-            )
-            rows = cursor.fetchall()
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    WHERE favorite = 1
+                    ORDER BY timestamp DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                )
+                rows = cursor.fetchall()
             return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get favorites: %s", e)
@@ -1945,28 +1954,28 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
-            # a function to every row's ``timestamp`` column, so SQLite
-            # cannot use ``idx_timestamp`` and falls back to a full table
-            # scan. The range form ``timestamp >= DATE('now') AND
-            # timestamp < DATE('now', '+1 day')`` lets the query planner
-            # use the index. ``timestamp`` is stored as an ISO-8601 string
-            # (``datetime.now().isoformat()``), so lexicographic comparison
-            # against the date-only ``DATE('now')`` boundary is correct:
-            # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
-            # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as count,
-                    SUM(char_count) as chars,
-                    SUM(word_count) as word_count,
-                    SUM(duration) as duration
-                FROM transcriptions
-                WHERE timestamp >= DATE('now')
-                  AND timestamp < DATE('now', '+1 day')
-            """)
-            row = cursor.fetchone()
+            with contextlib.closing(conn.cursor()) as cursor:
+                # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
+                # a function to every row's ``timestamp`` column, so SQLite
+                # cannot use ``idx_timestamp`` and falls back to a full table
+                # scan. The range form ``timestamp >= DATE('now') AND
+                # timestamp < DATE('now', '+1 day')`` lets the query planner
+                # use the index. ``timestamp`` is stored as an ISO-8601 string
+                # (``datetime.now().isoformat()``), so lexicographic comparison
+                # against the date-only ``DATE('now')`` boundary is correct:
+                # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
+                # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as count,
+                        SUM(char_count) as chars,
+                        SUM(word_count) as word_count,
+                        SUM(duration) as duration
+                    FROM transcriptions
+                    WHERE timestamp >= DATE('now')
+                      AND timestamp < DATE('now', '+1 day')
+                """)
+                row = cursor.fetchone()
             return {
                 "count": row[0] or 0,
                 "chars": row[1] or 0,
@@ -1997,12 +2006,12 @@ class HistoryDB:
         """
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT text FROM transcriptions WHERE id = ?",
-                (transcription_id,),
-            )
-            row = cursor.fetchone()
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute(
+                    "SELECT text FROM transcriptions WHERE id = ?",
+                    (transcription_id,),
+                )
+                row = cursor.fetchone()
             if row is None:
                 return {"id": transcription_id, "text": ""}
             return {"id": transcription_id, "text": row[0] or ""}
@@ -2037,9 +2046,9 @@ class HistoryDB:
                 return self._history_count_cache
         try:
             conn = self._get_read_conn()
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM transcriptions")
-            row = cursor.fetchone()
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute("SELECT COUNT(*) FROM transcriptions")
+                row = cursor.fetchone()
             count = int(row[0]) if row is not None else 0
             with self._history_count_cache_lock:
                 self._history_count_cache = count

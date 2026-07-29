@@ -202,8 +202,14 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # fires after the first heartbeat, so slow Electron cold starts (which
 # never send a heartbeat before the timeout would fire) are still
 # safe.
-_HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 45.0  # 9 missed heartbeats — was 120s (24 misses), reduced to align with Rust-side ~30-45s
+# DJ-43: bumped from 5.0s to 15.0s to reduce idle CPU wakeups on laptops
+# on battery. The 45s timeout (3 missed heartbeats) preserves the same
+# detection window as the prior 5s+45s (9 missed) config — a crashed
+# peer is still detected within 45s. The immediate first-heartbeat on
+# connect (tcp-connect.ts:151-156) handles cold-start arming, so the
+# periodic interval can be looser without losing fast first-heartbeat.
+_HEARTBEAT_INTERVAL_SECONDS = 15.0
+_HEARTBEAT_TIMEOUT_SECONDS = 45.0  # 3 missed heartbeats @ 15s — same detection window as prior 9@5s
 # CR-9: grace period (seconds) the heartbeat watchdog's force-exit
 # daemon thread waits before calling ``os._exit(1)``. 10s is longer
 # than the slowest legitimate ``app.quit()`` path (PortAudio stream
@@ -403,7 +409,7 @@ class _RateLimiter:
 _RATE_LIMITER_INIT_LOCK = threading.Lock()
 
 
-def _get_rate_limiter(server: "object") -> _RateLimiter:
+def _get_rate_limiter(server: "object", _cls: "type[_RateLimiter] | None" = None) -> _RateLimiter:
     """Return the per-process ``_RateLimiter`` for ``server`` (CR-11).
 
     Lazily creates and stores the limiter on the server instance so
@@ -421,7 +427,16 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     the only race that matters); different servers can init in
     parallel without contention. The lock is held for microseconds
     at most (no I/O, no ``allow()`` call), so contention is negligible.
+
+    DR-45: ``_cls`` is an optional override for the ``_RateLimiter``
+    class. ``ipc_server._get_rate_limiter`` delegates here with
+    ``_cls=ipc_server._RateLimiter`` so tests that monkey-patch
+    ``ipc_server._RateLimiter`` to widen the race window (CR-11 /
+    R4-F18) still observe the patched class — the canonical
+    implementation is now single-sourced in this leaf module.
     """
+    if _cls is None:
+        _cls = _RateLimiter
     # Fast path: limiter already exists on the server instance — return
     # it WITHOUT acquiring the init lock. This is the common case after
     # the first dispatch on each server; the lock is only needed for
@@ -431,7 +446,7 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     # atomic) and the ``_RateLimiter`` instance itself is fully
     # thread-safe (its own ``self._lock`` guards deque mutation).
     limiter = getattr(server, "_rate_limiter_instance", None)
-    if isinstance(limiter, _RateLimiter):
+    if isinstance(limiter, _cls):
         return limiter
 
     # Slow path: limiter is None or a non-_RateLimiter (e.g. an
@@ -441,8 +456,8 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     # double-checked locking pattern).
     with _RATE_LIMITER_INIT_LOCK:
         limiter = getattr(server, "_rate_limiter_instance", None)
-        if not isinstance(limiter, _RateLimiter):
-            limiter = _RateLimiter()
+        if not isinstance(limiter, _cls):
+            limiter = _cls()
             # ``setattr`` on a MagicMock overrides the auto-vivified child
             # attribute; on a real IPCServer it just sets the attribute.
             server._rate_limiter_instance = limiter  # type: ignore[attr-defined]

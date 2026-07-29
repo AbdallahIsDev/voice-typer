@@ -27,6 +27,7 @@ from types import FrameType
 from typing import TYPE_CHECKING
 
 from voice_typer.server import event_bus
+from voice_typer.server._paths import IPC_PORT
 from voice_typer.server.asr_errors import ConsentRequiredError
 
 if TYPE_CHECKING:
@@ -105,9 +106,10 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 )
 
 # NOTE: ``_get_rate_limiter`` is intentionally NOT imported here — it is
-# defined locally below (see the CR-11 / R4-F18 comment block) so tests
-# that monkey-patch ``ipc_server._RateLimiter`` are observed by the
-# get-or-create's module-global class lookup.
+# defined locally below as a thin re-export (see the CR-11 / R4-F18 /
+# DR-45 comment block) so tests that monkey-patch
+# ``ipc_server._RateLimiter`` are still observed (the re-export passes
+# the patched class to the canonical leaf implementation via ``_cls=``).
 from voice_typer.server.ipc.transport import (  # noqa: F401
     _pick_available_port,
     _TCPLineIO,
@@ -153,70 +155,27 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
 
 # ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
 #
-# ``_get_rate_limiter(server)`` is the canonical lazy get-or-create for the
-# per-process ``_RateLimiter``.  It is defined LOCALLY here (rather than
-# only re-exported from ``voice_typer.server.ipc.rate_limiter``) because
-# tests in ``tests/test_r4_f18_rate_limiter_concurrent_init.py`` and
+# DR-45: this is a THIN RE-EXPORT — the canonical implementation lives in
+# ``voice_typer.server.ipc.rate_limiter._get_rate_limiter``. Tests in
+# ``tests/test_r4_f18_rate_limiter_concurrent_init.py`` and
 # ``tests/test_cr_fixes.py`` monkey-patch ``ipc_server._RateLimiter`` with
-# a counting stand-in to widen the race window — the patched class is
-# only observed if ``_get_rate_limiter`` looks up ``_RateLimiter`` from
-# THIS module's globals at call time.  A function imported from the leaf
-# module would resolve ``_RateLimiter`` against the LEAF module's globals
-# and silently ignore the monkey-patch.
-#
-# The class object (``_RateLimiter``) and the init lock
-# (``_RATE_LIMITER_INIT_LOCK``) are still the canonical leaf-module
-# objects, imported above — they're single-source-of-truth.  Only the
-# get-or-create function is duplicated, with the leaf copy at
-# ``voice_typer/server/ipc/rate_limiter.py`` kept in sync.  See the test
-# ``test_leaf_copy_also_has_init_lock`` for the pinned invariant.
+# a counting stand-in to widen the race window (CR-11 / R4-F18). The
+# re-export delegates to the canonical implementation with the patched
+# ``_RateLimiter`` class injected via ``_cls=``, so the patched class is
+# still observed (preserving the test contract) while the get-or-create
+# logic is single-sourced in the leaf module.
 def _get_rate_limiter(server: "object") -> _RateLimiter:
-    """Return the per-process ``_RateLimiter`` for ``server`` (CR-11).
+    """Thin re-export — canonical implementation in
+    ``voice_typer.server.ipc.rate_limiter``.
 
-    Lazily creates and stores the limiter on the server instance so
-    reconnects within the same process share the same sliding-window
-    budget. A local attacker can no longer reset the budget by
-    disconnecting and reconnecting.
-
-    R4-F18: the get-or-create sequence is atomic across threads thanks
-    to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level (shared
-    across all server instances) — that's correct because the critical
-    section is "check this specific ``server._rate_limiter_instance``
-    and, if missing, create+store". Different server instances have
-    different ``_rate_limiter_instance`` attributes, so the lock
-    serializes only the get-or-create on the SAME server (which is the
-    only race that matters); different servers can init in parallel
-    without contention. The lock is held for microseconds at most (no
-    I/O, no ``allow()`` call), so contention is negligible.
+    Tests monkey-patch ``ipc_server._RateLimiter`` to widen the race
+    window (CR-11 / R4-F18). We delegate to the canonical implementation
+    with the patched class injected via ``_cls=`` so the patched class
+    is still observed.
     """
-    # Fast path: limiter already exists on the server instance — return
-    # it WITHOUT acquiring the init lock. This is the common case after
-    # the first dispatch on each server; the lock is only needed for
-    # the brief first-call race. The fast path is safe because
-    # ``server._rate_limiter_instance`` is set atomically by the
-    # ``setattr`` below (CPython's GIL makes single-attribute writes
-    # atomic) and the ``_RateLimiter`` instance itself is fully
-    # thread-safe (its own ``self._lock`` guards deque mutation).
-    limiter = getattr(server, "_rate_limiter_instance", None)
-    if isinstance(limiter, _RateLimiter):
-        return limiter
+    from voice_typer.server.ipc import rate_limiter as _rate_limiter_mod
 
-    # Slow path: limiter is None or a non-_RateLimiter (e.g. an
-    # auto-vivified MagicMock child). Acquire the init lock and
-    # RE-CHECK — another thread may have created+stored the limiter
-    # between our fast-path check and the lock acquisition (classic
-    # double-checked locking pattern).
-    with _RATE_LIMITER_INIT_LOCK:
-        limiter = getattr(server, "_rate_limiter_instance", None)
-        if not isinstance(limiter, _RateLimiter):
-            limiter = _RateLimiter()
-            # GT-30: ``IPCServer.__init__`` now declares
-            # ``_rate_limiter_instance: _RateLimiter | None = None``, so the
-            # assignment type-checks cleanly without ``# type: ignore``.
-            # ``setattr`` on a MagicMock overrides the auto-vivified child
-            # attribute; on a real IPCServer it just sets the attribute.
-            server._rate_limiter_instance = limiter
-        return limiter
+    return _rate_limiter_mod._get_rate_limiter(server, _cls=_RateLimiter)
 
 
 # Module-level push hook.  Set by the active IPCServer instance when it
@@ -2038,7 +1997,7 @@ def main() -> None:
         # spawning its own Python backend.
         from voice_typer.server import electron_launcher
 
-        standalone_port, standalone_sock = _pick_available_port(9876)
+        standalone_port, standalone_sock = _pick_available_port(IPC_PORT)
 
         # Generate the session token and set it as an env var BEFORE
         # starting the TCP listener.  The _accept_tcp daemon thread reads

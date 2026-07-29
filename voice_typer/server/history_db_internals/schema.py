@@ -182,6 +182,15 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
     WAL is not active. It does NOT crash — the app should still
     work (just slower) — but the warning must be visible so users
     can diagnose the misconfiguration.
+
+    FR-26 (privacy): after the PRAGMA runs (which may lazily create
+    the ``-wal`` and ``-shm`` sidecar files), we re-run the chmod
+    loop on the DB file and its sidecars so they get ``0o600`` on
+    POSIX. Previously the chmod loop in ``open_write_conn`` ran
+    BEFORE ``PRAGMA journal_mode=WAL`` actually created the sidecar
+    files, so they inherited the process umask (typically ``0o644``
+    = world-readable on multi-user Linux). The re-chmod here closes
+    the race for the writer's connection.
     """
     try:
         cur = conn.execute("PRAGMA journal_mode=WAL")
@@ -202,6 +211,26 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
             mode,
             db_path,
         )
+    # FR-26: WAL mode was just set (or attempted). If it succeeded,
+    # SQLite has now created the ``-wal`` and ``-shm`` sidecar files
+    # on disk (they were NOT present when ``open_write_conn`` ran its
+    # chmod loop because that runs BEFORE the PRAGMA). Re-run the
+    # chmod loop here so the sidecars get 0o600 too — without this,
+    # they inherit the process umask (typically 0o644 on Linux =
+    # world-readable, exposing dictated text in the WAL to any local
+    # user). Best-effort — chmod failures are logged at debug level.
+    if not is_windows():
+        for suffix in ("", "-wal", "-shm"):
+            p = db_path.with_suffix(db_path.suffix + suffix) if suffix else db_path
+            try:
+                if p.exists():
+                    os.chmod(p, 0o600)
+            except OSError as chmod_exc:
+                log.debug(
+                    "[HISTORY_DB] chmod 0o600 on %s failed after WAL switch (best-effort): %s",
+                    p,
+                    chmod_exc,
+                )
 
 
 def init_schema(
