@@ -7,6 +7,7 @@ import logging
 import logging.handlers
 import sys
 import threading
+import time  # noqa: F401 (stdlib re-export for test monkeypatch)
 from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
