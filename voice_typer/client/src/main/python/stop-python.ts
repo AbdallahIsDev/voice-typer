@@ -41,6 +41,10 @@
  */
 import { state } from "../state";
 import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
+// ER-29: clear the TCP startup timeout so the 60s timer doesn't fire
+// during teardown (after Python is already dead) and trip the
+// premature "Python backend failed to start" dialog + `app.quit()`.
+import { clearTcpStartupTimeout } from "./tcp-connect";
 
 // XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
 // is in flight (between the top-of-function guard and either the
@@ -117,6 +121,24 @@ export function stopPython() {
 		isStopped = true;
 		return;
 	}
+	// ER-29: clear the TCP startup timeout timer so the 60s deadline
+	// doesn't fire AFTER Python is already gone (or never came up).
+	// Placed AFTER the `!state.pythonProcess` early-return so the
+	// "no proc" path stays a true no-op (the startup timer was
+	// never armed in that case — `tcpConnect()` only arms it when
+	// a connect attempt is in flight, which requires a proc to
+	// have been spawned). Without this clear, the timer set in
+	// `tcpConnect()` continues counting; if it fires while
+	// `state.pythonProcess` is non-null but the proc is exiting
+	// via the `quit_app` we just sent, the safety check inside
+	// the callback short-circuits — BUT the timer still pins the
+	// event loop alive for up to 60s after the app should have
+	// exited. (The ER-29 plan also called for `.unref()`-ing the
+	// timer in tcp-connect.ts, but that part is intentionally
+	// skipped — see tcp-connect.ts:33-61 for the full rationale
+	// and the xv-fa19-fixes.test.ts guard. The explicit clear
+	// here is the belt-and-suspenders guarantee.)
+	clearTcpStartupTimeout();
 	// XV-157 (XZ-14): the top-of-function `isStopping` guard above
 	// is what guarantees `quit_app` is sent at most once per stop
 	// cycle — a second call never reaches this line. The
@@ -140,9 +162,6 @@ export function stopPython() {
 			state.pythonProcess = null;
 		}
 		armedKillTimer = null;
-		// XV-157 (XZ-14): shutdown complete — flip the flags so
-		// any subsequent stopPython() call (e.g. will-quit
-		// firing after the killTimer) is a no-op.
 		isStopping = false;
 		isStopped = true;
 	}, 3000);

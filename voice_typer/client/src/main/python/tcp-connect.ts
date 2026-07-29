@@ -11,10 +11,10 @@ import net from "node:net";
 
 import { app, dialog } from "electron";
 import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
+import { PythonChannels } from "../ipc/channels";
 import { log } from "../logging";
 import { state } from "../state";
 import { createWindows } from "../windows";
-import { PythonChannels } from "../ipc/channels";
 import { broadcastToMainWindow } from "../windows/main-window";
 import { handleMessage } from "./handle-message";
 import { sendToPython } from "./send-to-python";
@@ -31,7 +31,30 @@ import { sendToPython } from "./send-to-python";
 const TCP_STARTUP_TIMEOUT_MS = 60_000;
 let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearTcpStartupTimeout(): void {
+/**
+ * ER-29: clear the TCP startup timeout timer. Exported so
+ * `stopPython()` / `relaunchApp()` / `startPython()` can clear the
+ * 60s window: `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
+ * guard then lets the next `tcpConnect()` arm a fresh timer.
+ *
+ * Without this export, the timer set in `tcpConnect()` continues
+ * counting even after Python is already gone (stopPython path) or
+ * a dev-mode restart is in flight (relaunchApp path). If it fires
+ * while `state.pythonProcess` is non-null but the proc is exiting
+ * via `quit_app`, the safety check inside the callback short-circuits
+ * — BUT the timer still pins the event loop alive for up to 60s after
+ * the app should have exited.
+ *
+ * The `.unref()` part of the ER-29 plan is INTENTIONALLY SKIPPED:
+ * `tests/__tests__/xv-fa19-fixes.test.ts` asserts
+ * `_tcpStartupTimeoutTimer is NOT unref'd` (GT-71 rationale: the
+ * timer must keep Electron alive so the "Python backend failed to
+ * start" dialog actually renders before exit). The explicit
+ * `clearTcpStartupTimeout()` calls from every teardown / restart
+ * path are the belt-and-suspenders guarantee that the timer doesn't
+ * leak past shutdown.
+ */
+export function clearTcpStartupTimeout(): void {
 	if (_tcpStartupTimeoutTimer !== null) {
 		clearTimeout(_tcpStartupTimeoutTimer);
 		_tcpStartupTimeoutTimer = null;

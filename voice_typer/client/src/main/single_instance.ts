@@ -147,6 +147,36 @@ export function acquireSingleInstanceLock(): void {
 					"clearing stale PID file and retrying",
 			);
 			clearElectronPidFile();
+			// AC-120: ``app.releaseSingleInstanceLock()`` releases the lock
+			// held by THIS process. We never held the lock (the first
+			// ``requestSingleInstanceLock()`` returned false), so this call
+			// is a no-op on most platforms. On Linux, Electron's single-
+			// instance lock is a ``SingletonLock`` symlink in the userData
+			// directory; ``releaseSingleInstanceLock`` deletes it. If the
+			// dead process's lock file is still on disk, we manually
+			// delete it as a defense-in-depth measure so the retry has a
+			// clean slate. On Windows, the named mutex is auto-released
+			// when the owning process exits (no manual cleanup needed).
+			// On macOS, the file lock is released by the OS on process
+			// exit (no manual cleanup needed).
+			if (process.platform === "linux") {
+				try {
+					const userDataPath = app.getPath("userData");
+					const singletonLock = path.join(userDataPath, "SingletonLock");
+					if (fs.existsSync(singletonLock)) {
+						fs.unlinkSync(singletonLock);
+						console.warn(
+							`[single_instance] deleted stale Linux SingletonLock symlink at ${singletonLock}`,
+						);
+					}
+				} catch (e) {
+					/* best-effort — the retry below will fail if the lock is still held */
+					console.warn(
+						"[single_instance] Linux SingletonLock cleanup failed:",
+						e,
+					);
+				}
+			}
 			try {
 				app.releaseSingleInstanceLock();
 			} catch (e) {
@@ -154,6 +184,16 @@ export function acquireSingleInstanceLock(): void {
 				console.warn("[single_instance] releaseSingleInstanceLock failed:", e);
 			}
 			gotTheLock = app.requestSingleInstanceLock();
+			// AC-120: log the result of the retry so operators can see
+			// whether the stale-lock recovery succeeded. Previously the
+			// result was silently assigned to ``gotTheLock`` and the only
+			// observable signal was whether the process exited (duplicate)
+			// or continued (primary). A retry that failed but didn't exit
+			// (e.g. because VT_FOCUS_ONLY was not set) would silently run
+			// as a "ghost" instance with no lock.
+			console.warn(
+				`[single_instance] retry requestSingleInstanceLock() returned ${gotTheLock}`,
+			);
 		}
 	}
 	if (!gotTheLock || process.env.VT_FOCUS_ONLY === "1") {

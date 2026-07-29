@@ -85,7 +85,21 @@ export {
 	log,
 } from "./printfLogger";
 // File-rotation primitive + low-level log-line helpers.
-export { appendLogLine, cleanConsoleMsg, rotateIfNeeded, ts } from "./rotation";
+// XZ-LOG-03: `redactPii` is re-exported here so external callers
+// (notably `windows/main-window.ts`'s `appendRendererError` call site,
+// which writes via direct `appendLogLine` and bypasses
+// `formatArgsForFile`) can apply the same PII / API-key / URL
+// redaction that the format helpers apply internally. Internal callers
+// (`printfLogger.ts`, `structuredLogger.ts`) import directly from
+// `./rotation` to avoid the barrel re-export overhead on the hot log
+// path.
+export {
+	appendLogLine,
+	cleanConsoleMsg,
+	redactPii,
+	rotateIfNeeded,
+	ts,
+} from "./rotation";
 // Message-first structured logger + path resolvers + opt-in lifecycle
 // persistence. YJ-60: `mainLogPath` / `lifecycleLogPath` /
 // `appendLifecycleLine` are NOT re-exported — they have zero external

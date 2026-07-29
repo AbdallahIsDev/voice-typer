@@ -12,6 +12,8 @@
  *     SEC-017 filtering so transcription/history never leak to the bubble).
  */
 import { app } from "electron";
+import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";
+import { BubbleChannels, PythonChannels } from "../ipc/channels";
 // DE-87 / S2-CR-75: route Python push-event lifecycle messages
 // through the structured `log` logger so they persist to
 // `electron-main.log` (with 5 MiB rotation) and
@@ -24,10 +26,77 @@ import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
 // GT-A3-8: broadcastToMainWindow imported directly from main-window
 // (windows/index.ts is owned by another sub-agent and doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
-import { BubbleChannels, PythonChannels } from "../ipc/channels";
-import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
+
+// AC-110: dispatch table for the 8 push-event types. Replaces the prior
+// 79-line if-else chain so a 9th event type is a one-line addition to
+// `PUSH_HANDLERS` instead of a new `else if` branch with all of the
+// behavioural copy/pasted. Each handler receives the already-narrowed
+// `msg` (a `Record<string, unknown>`); handlers are responsible for
+// their own `msg.data` validation (matching the prior per-branch
+// behaviour).
+//
+// XZ-R18-12: handlers are keyed on the exact `msg.type` string. Unknown
+// string-typed event types fall through past the dispatch to the
+// broadcast below — preserving back-compat with renderer code that
+// listens on `python-event` for types not explicitly handled here (e.g.
+// future event types added on the Python side before a corresponding
+// handler is wired up here). Non-string `msg.type` values are dropped
+// with a warning before dispatch (see `handleMessage`).
+type PushHandler = (msg: Record<string, unknown>) => void;
+
+const PUSH_HANDLERS: Record<string, PushHandler> = {
+	bubble_show: () => {
+		log.info(
+			`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_show from Python${RESET}`,
+		);
+		showBubbleWindow();
+	},
+	bubble_hide: () => {
+		log.info(
+			`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`,
+		);
+		hideBubbleWindow();
+	},
+	bubble_set_state: (msg) => {
+		const rawData =
+			typeof msg.data === "object" && msg.data !== null
+				? (msg.data as Record<string, unknown>)
+				: undefined;
+		const rawState = rawData?.state;
+		const state_ = typeof rawState === "string" ? rawState : String(rawState);
+		log.info(
+			`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
+		);
+		state.bubbleWindow?.webContents.send(BubbleChannels.setState, state_);
+	},
+	bubble_level: (msg) => {
+		state.bubbleWindow?.webContents.send(BubbleChannels.level, msg.data);
+	},
+	bubble_config: (msg) => {
+		state.bubbleWindow?.webContents.send(
+			BubbleChannels.config,
+			typeof msg.data === "object" && msg.data !== null
+				? (msg.data as Record<string, unknown>)
+				: {},
+		);
+	},
+	show_window: () => {
+		showMainWindow();
+	},
+	quit_app: () => {
+		app.quit();
+	},
+	relaunch_app: () => {
+		const _relaunchDbg = state._relaunching
+			? "already relaunching"
+			: "triggering relaunch";
+		log.info(`[RESTART] received relaunch_app from Python (${_relaunchDbg})`);
+		sendToPython({ type: "relaunch_ack" }).catch(() => {});
+		relaunchApp();
+	},
+};
 
 // T2-005: explicit `void` return type — `handleMessage` always returns
 // synchronously and callers (tcp-connect.ts, sidecar ws reader) ignore
@@ -87,86 +156,45 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			}
 		}
 	} else {
+		// ── Push events (no `msg.id`) ───────────────────────────────────
 		// Route Python push events.  Bubble events go ONLY to the bubble
 		// window (not the main app) so the floating overlay updates without
 		// re-rendering the sidebar.
-		if (msg.type === "bubble_show") {
-			log.info(
-				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_show from Python${RESET}`,
+
+		// XZ-R18-12: type guard. If `msg.type` is not a string (e.g. a
+		// malformed message with `type: null` or `type: 42`), drop it with
+		// a warning instead of letting it fall through to the renderer
+		// broadcast — a non-string type can never match a handler and the
+		// renderer's `python-event` listeners key on `msg.type` as a string.
+		if (typeof msg.type !== "string") {
+			log.warn(
+				`${ts()}  [TCP] push event missing type string, dropping: ${JSON.stringify(msg.type)}`,
 			);
-			showBubbleWindow();
-		} else if (msg.type === "bubble_hide") {
-			log.info(
-				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_hide from Python${RESET}`,
-			);
-			hideBubbleWindow();
-		} else if (msg.type === "bubble_set_state") {
-			// GT-D2-6: avoid the chained `as Record<string, unknown> as string`
-			// cast chain. Coerce via `String(...)` after narrowing so the
-			// renderer always gets a string on its `bubble:set-state` channel.
-			const rawData =
-				typeof msg.data === "object" && msg.data !== null
-					? (msg.data as Record<string, unknown>)
-					: undefined;
-			const rawState = rawData?.state;
-			const state_ = typeof rawState === "string" ? rawState : String(rawState);
-			log.info(
-				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
-			);
-			state.bubbleWindow?.webContents.send(BubbleChannels.setState, state_);
-		} else if (msg.type === "bubble_level") {
-			state.bubbleWindow?.webContents.send(BubbleChannels.level, msg.data);
-		} else if (msg.type === "bubble_config") {
-			// UX-10: bubble-relevant config (bubble_behavior /
-			// bubble_click_to_toggle / bubble_mic_button) pushed from the
-			// Python backend so the sandboxed bubble renderer (which has
-			// no get_config) knows whether to show its mic button.
-			state.bubbleWindow?.webContents.send(
-				BubbleChannels.config,
-				typeof msg.data === "object" && msg.data !== null
-					? (msg.data as Record<string, unknown>)
-					: {},
-			);
-		} else if (msg.type === "show_window") {
-			// Tray "Open app": Python asks us to show + focus the dashboard.
-			// Single hop over the always-up TCP channel; falls back to the
-			// Win32 EnumWindows path in tray.open_electron_window() if this
-			// never arrives (TCP momentarily down).
-			showMainWindow();
-		} else if (msg.type === "quit_app") {
-			// Tray "Quit": Python is about to force-exit.  Close Electron too
-			// so the user isn't left with a window that has no backend.
-			app.quit();
-		} else if (msg.type === "relaunch_app") {
-			// Tray "Restart": Python's restart_app() pushes this event
-			// BEFORE calling sys.exit(0).  It signals that a full
-			// application restart is in flight.  We respond by
-			// relaunching the entire Electron process (which in
-			// turn spawns a fresh Python backend).
-			//
-			// RESTART-DEBUG: log the exact state when this event arrives
-			// so we can trace the full restart flow in the terminal.
-			const _relaunchDbg = state._relaunching
-				? "already relaunching"
-				: "triggering relaunch";
-			log.info(`[RESTART] received relaunch_app from Python (${_relaunchDbg})`);
-			// PERF-005: ack receipt BEFORE relaunchApp() tears down the
-			// renderer/socket, so restart_app() can drop its fixed 300ms
-			// sleep in favour of an event-driven wait.  Best-effort: if the
-			// socket is already down or sendToPython rejects, the server
-			// simply falls back to its 2s timeout — no behaviour change.
-			sendToPython({ type: "relaunch_ack" }).catch(() => {});
-			relaunchApp();
-		}
-		// ER-22: bubble-only events (bubble_show, bubble_hide,
-		// bubble_set_state, bubble_level, bubble_config) were handled
-		// above and sent to the bubble window exclusively.  They must
-		// NOT be broadcast to the main window — the main renderer has
-		// no handlers for them, and bubble_level (15-50 Hz) would waste
-		// IPC throughput.
-		if (typeof msg.type === "string" && BUBBLE_ONLY_TYPES.has(msg.type)) {
 			return;
 		}
+
+		// AC-110: dispatch via the lookup table. Unknown (but string-typed)
+		// event types intentionally fall through to the broadcast below —
+		// preserves back-compat with renderer code that listens on
+		// `python-event` for types not explicitly handled here.
+		const handler = PUSH_HANDLERS[msg.type];
+		if (handler !== undefined) {
+			handler(msg);
+		}
+
+		// ER-22: bubble-only events (bubble_show / bubble_hide /
+		// bubble_set_state / bubble_level / bubble_config) are consumed
+		// entirely by the bubble window (the dispatch handler above already
+		// routed them). They MUST NOT be broadcast to the main window
+		// renderer — doing so causes 30-60 Hz IPC churn (one `bubble_level`
+		// per audio frame while recording) and contradicts the SEC-017
+		// comment at the top of this block. The filter set is sourced from
+		// `bubble-handlers.ts` so the bubble-IPC module remains the single
+		// source of truth for "which event types belong to the bubble".
+		if (BUBBLE_ONLY_TYPES.has(msg.type)) {
+			return;
+		}
+
 		// SEC-029: tag each python-event with a per-session nonce so the
 		// renderer can detect replayed frames from an unauthenticated TCP
 		// attacker (SEC-018). The nonce is generated once per Electron
@@ -175,6 +203,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		if (!msg._session_nonce && state.sessionNonce) {
 			msg._session_nonce = state.sessionNonce;
 		}
+
 		// SEC-017: previously this broadcast every Python event to every
 		// window.  Transcription text and history records were thus sent
 		// to the bubble window too — a data leak (the bubble only needs

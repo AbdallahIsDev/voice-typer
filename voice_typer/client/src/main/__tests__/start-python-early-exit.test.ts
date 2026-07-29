@@ -87,7 +87,10 @@ const mockRelaunchApp = vi.fn();
 vi.mock("../python/relaunch-app", () => ({ relaunchApp: mockRelaunchApp }));
 
 const mockTcpConnect = vi.fn();
-vi.mock("../python/tcp-connect", () => ({ tcpConnect: mockTcpConnect }));
+vi.mock("../python/tcp-connect", () => ({
+	tcpConnect: mockTcpConnect,
+	clearTcpStartupTimeout: vi.fn(),
+}));
 
 // Mock node:child_process spawn so startPython doesn't actually fork.
 class MockChildProcess extends EventEmitter {

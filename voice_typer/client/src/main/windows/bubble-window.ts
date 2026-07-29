@@ -30,6 +30,18 @@
  * persistence to the Python config is a follow-up (config.py is out
  * of scope for this fix).
  */
+
+export {
+	clearCurrentHideAnimationCallback,
+	consumeHideAnimationCallback,
+	currentHideAnimationSlot,
+	HideAnimationSlot,
+	onHideAnimationComplete,
+} from "./bubble/hide-animation";
+export {
+	createBubbleWindow,
+	notifyBubbleLocaleChanged,
+} from "./bubble/lifecycle";
 export {
 	centerOnActiveDisplay,
 	centerOnPrimaryDisplay,
@@ -41,15 +53,4 @@ export {
 	savedBubblePos,
 	setSavedBubblePosition,
 } from "./bubble/positioning";
-export {
-	HideAnimationSlot,
-	clearCurrentHideAnimationCallback,
-	consumeHideAnimationCallback,
-	currentHideAnimationSlot,
-	onHideAnimationComplete,
-} from "./bubble/hide-animation";
-export {
-	createBubbleWindow,
-	notifyBubbleLocaleChanged,
-} from "./bubble/lifecycle";
 export { hideBubbleWindow, showBubbleWindow } from "./bubble/show-hide";

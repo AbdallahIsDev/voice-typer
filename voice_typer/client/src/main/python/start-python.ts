@@ -18,19 +18,20 @@
  */
 import { spawn } from "node:child_process";
 import { app, dialog } from "electron";
-import { IPC_PORT, IPC_TOKEN } from "../constants";
-import { mainT } from "../i18n";
 // DE-87 / S2-CR-75: route lifecycle messages through the structured
 // `log` logger so they persist to `electron-main.log` (with 5 MiB
 // rotation) and `electron-lifecycle.log` (opt-in INFO persistence)
 // instead of being lost in packaged builds where `console.warn` has
 // no terminal attached.
+import { APP_NAME } from "../branding";
+import { IPC_PORT, IPC_TOKEN } from "../constants";
+import { mainT } from "../i18n";
 import { log } from "../logging";
 import { state } from "../state";
 import { pythonArgs } from "./python-args";
 import { relaunchApp } from "./relaunch-app";
 import { _resetStopPythonFlagsForRestart } from "./stop-python";
-import { tcpConnect } from "./tcp-connect";
+import { clearTcpStartupTimeout, tcpConnect } from "./tcp-connect";
 
 /**
  * RELIABILITY-002: the old `killStalePython()` function used `wmic`
@@ -72,9 +73,18 @@ export function startPython() {
 	// leave `isStopping`/`isStopped` latched, making all future
 	// `stopPython()` calls permanent no-ops — the backend could
 	// not be stopped again after a relaunch. Also clears any
-	// armed `killTimer` left over from the prior stop cycle and
-	// clears the TCP startup timeout (ER-29 fresh 60s window).
+	// armed `killTimer` left over from the prior stop cycle.
 	_resetStopPythonFlagsForRestart();
+	// ER-29: clear the TCP startup timeout so the next
+	// `tcpConnect()` arms a fresh 60s window. Without this clear,
+	// `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
+	// guard sees the timer from the PREVIOUS connect attempt
+	// (which may have been ~50s into its 60s window) and skips
+	// arming a fresh one — so a dev-mode restart that takes >10s
+	// to spawn + import torch would trip the stale timer's
+	// "Python backend failed to start" dialog + `app.quit()`
+	// prematurely. This is the exact race ER-29 documents.
+	clearTcpStartupTimeout();
 
 	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
 	// (standalone mode — user ran `VoiceTyper` from a terminal).
@@ -122,7 +132,14 @@ export function startPython() {
 	tcpConnect(IPC_PORT);
 
 	proc.on("exit", (code) => {
-		log.info("Python process exited:", code);
+		// XZ-R18-04: log the exit code prominently so support staff
+		// can diagnose early exits without fishing through stdout.
+		// `code` is `null` when the process was killed by a signal
+		// (Node surfaces this as `null` rather than the negative
+		// signal number); log it as `"signal"` in that case so the
+		// log line is unambiguous.
+		const codeStr = code === null ? "signal" : String(code);
+		log.info(`Python process exited (code=${codeStr})`);
 		// AC-11: short-circuit when the spawn-failure `error`
 		// handler has already fired. Node emits `error` then
 		// `exit` (with a negative code) on spawn failure
@@ -159,10 +176,24 @@ export function startPython() {
 				state.mainWindow.destroy();
 				state.mainWindow = null;
 			}
-			dialog.showErrorBox(
-				mainT("dialog.singleInstance.title"),
-				mainT("dialog.singleInstance.message"),
-			);
+			// XZ-R18-04: include the actual exit code in the
+			// dialog body so the user (and support staff)
+			// can distinguish single-instance collisions from
+			// missing-model / port-collision / token-mismatch /
+			// syntax-error / OOM crashes. The prior dialog
+			// showed the same "Only one instance can run"
+			// message for ALL early exits — misleading for
+			// every non-single-instance failure mode. The
+			// localized single-instance message stays as the
+			// first line (preserving the existing translation
+			// surface), with the exit code appended as a
+			// trailing diagnostic line. Exit code is also
+			// surfaced in the log line above so post-mortem
+			// diagnosis doesn't depend on the user transcribing
+			// the dialog.
+			const baseMsg = mainT("dialog.singleInstance.message");
+			const earlyExitMsg = `${baseMsg}\n\nPython backend exited early (code=${codeStr}). Check logs.`;
+			dialog.showErrorBox(mainT("dialog.singleInstance.title"), earlyExitMsg);
 			app.quit();
 		} else if (code !== 0) {
 			// Non-zero exit code = crash. Shut down Electron so the user
@@ -183,8 +214,8 @@ export function startPython() {
 			const crashTitle = "Python backend crashed";
 			const crashBody =
 				code === null
-					? "Voice Typer's Python backend was terminated by a signal (likely SIGSEGV or SIGABRT) and will now exit.\n\nPlease check the logs and try again."
-					: `Voice Typer's Python backend exited unexpectedly with code ${code} and will now exit.\n\nPlease check the logs and try again.`;
+					? `${APP_NAME}'s Python backend was terminated by a signal (likely SIGSEGV or SIGABRT) and will now exit.\n\nPlease check the logs and try again.`
+					: `${APP_NAME}'s Python backend exited unexpectedly with code ${code} and will now exit.\n\nPlease check the logs and try again.`;
 			try {
 				dialog.showErrorBox(crashTitle, crashBody);
 			} catch {
@@ -259,7 +290,7 @@ export function startPython() {
 		try {
 			dialog.showErrorBox(
 				"Python backend not found",
-				`Voice Typer could not start its backend:\n${err.message}`,
+				`${APP_NAME} could not start its backend:\n${err.message}`,
 			);
 		} catch {
 			// dialog may not be available in headless mode

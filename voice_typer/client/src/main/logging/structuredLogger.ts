@@ -50,6 +50,50 @@ import { appendLogLine } from "./rotation";
 export const PERSIST_INFO = process.env.VOICE_TYPER_ELECTRON_INFO_LOG === "1";
 
 /**
+ * XZ-LOG-08: resolve the per-process session ID for the Electron log
+ * line prefix.
+ *
+ * The ID is sourced from ``process.env.VOICE_TYPER_SESSION_ID`` (set
+ * by ``bootstrap.ts::generateSessionNonce`` at app startup, OR by a
+ * parent process like a test harness). When unset (e.g. a fresh test
+ * that hasn't called ``bootstrapRuntime``), the bracket renders as
+ * ``[--------]`` (8 dashes) — mirroring the Python side's
+ * ``_SessionFilter`` fallback (``log.py:474 / 567`` uses the same
+ * 8-dash placeholder). This keeps the bracket shape stable so log
+ * parsers can rely on a consistent ``[xxxxxxxx]`` token even when the
+ * ID isn't yet known.
+ *
+ * Memoized at module init: the env var is read ONCE, then the cached
+ * value is reused on every ``formatLine`` call. ``VOICE_TYPER_SESSION_ID``
+ * is set by ``bootstrap.ts`` BEFORE any ``logger.*`` call lands (the
+ * bootstrap is the first thing ``app.whenReady()`` runs), so the
+ * memoization is safe. If the env var is set LATER (e.g. by a test
+ * that sets it after import), the memoized value would be stale — but
+ * no production code path does this, and the test seam
+ * ``_getSessionIdForTest`` (below) lets tests override the memo.
+ */
+const SESSION_ID_PLACEHOLDER = "--------";
+let _sessionId: string | undefined;
+
+function getSessionId(): string {
+	if (_sessionId === undefined) {
+		_sessionId =
+			process.env.VOICE_TYPER_SESSION_ID?.trim() || SESSION_ID_PLACEHOLDER;
+	}
+	return _sessionId;
+}
+
+/**
+ * Test seam: override the memoized session ID. Pass ``undefined`` to
+ * force re-reading ``process.env.VOICE_TYPER_SESSION_ID`` on the next
+ * ``formatLine`` call. Exported (not in the public barrel) so tests
+ * can pin a stable bracket without depending on env-var mutation.
+ */
+export function _setSessionIdForTest(id: string | undefined): void {
+	_sessionId = id;
+}
+
+/**
  * Resolve the path to `electron-lifecycle.log` under the Electron
  * userData dir. Kept separate from `mainLogPath` so the opt-in
  * INFO stream never competes with the WARN/ERROR stream for the 5 MiB
@@ -121,9 +165,16 @@ type Level = "debug" | "info" | "warn" | "error";
 /**
  * Format a log line for the file. Always ends with `\n` so `tail -f`
  * shows lines as they're written.
+ *
+ * XZ-LOG-08: prepends the ``[session_id]`` bracket after the timestamp
+ * so operators can grep across Rust / Python / Electron logs for the
+ * same bracket to reconstruct a cross-process timeline. Mirrors the
+ * Python side's ``_FileFormatter`` / ``_ConsoleFormatter`` (which
+ * inject the same bracket via ``_SessionFilter``).
  */
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = new Date().toISOString();
+	const sessionId = getSessionId();
 	const formatted =
 		args.length > 0
 			? `${msg} ${args
@@ -136,7 +187,7 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
 					})
 					.join(" ")}`
 			: msg;
-	return `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
+	return `${tsStr} [${sessionId}] [${level.toUpperCase()}] ${formatted}\n`;
 }
 
 /**

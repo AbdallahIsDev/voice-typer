@@ -42,7 +42,7 @@ import { app } from "electron";
 
 import { ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
 import { RUNTIME_LOG_MAX_BYTES } from "./constants";
-import { appendLogLine, ts } from "./rotation";
+import { appendLogLine, redactPii, ts } from "./rotation";
 import { appendLifecycleLine, PERSIST_INFO } from "./structuredLogger";
 
 /**
@@ -156,18 +156,27 @@ export function _resetRuntimeLogPathForTest(): void {
  * are stringified with their stack (when available) so the file log
  * preserves the same detail as stdout. Non-stringifiable values fall
  * back to `String(value)` to never throw.
+ *
+ * XZ-LOG-03: every arg is run through `redactPii` (PII / API-key / URL
+ * credential redaction) before joining so the file log never leaks
+ * user-spoken text or secrets. The stdout tee (in `writeStdout`) also
+ * routes through this helper so stdout + file get the same redaction
+ * (no asymmetric leak where stdout has the raw text but the file
+ * doesn't, or vice versa). Idempotent on already-redacted text so
+ * callers that pre-redact (e.g. `cleanConsoleMsg` chains) don't
+ * double-redact.
  */
 function formatArgsForFile(args: unknown[]): string {
 	return args
 		.map((a) => {
 			if (a instanceof Error) {
-				return a.stack ?? `${a.name}: ${a.message}`;
+				return redactPii(a.stack ?? `${a.name}: ${a.message}`);
 			}
-			if (typeof a === "string") return a;
+			if (typeof a === "string") return redactPii(a);
 			try {
-				return JSON.stringify(a);
+				return redactPii(JSON.stringify(a));
 			} catch {
-				return String(a);
+				return redactPii(String(a));
 			}
 		})
 		.join(" ");

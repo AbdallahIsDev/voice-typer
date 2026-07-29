@@ -113,6 +113,44 @@ app.whenReady().then(() => {
 	// SEC-029 nonce, NEW-PRIV-010 userData, SEC-012 CSP, SEC-021 error handlers.
 	bootstrapRuntime();
 
+	// ER-1: pre-create the dashboard BrowserWindow IMMEDIATELY after
+	// bootstrapRuntime, BEFORE startPython(). Previously the window
+	// was created lazily by `tcp-connect.ts:158`'s `createWindows()`
+	// call — which fires only after the Python backend has spawned,
+	// bound its TCP port, accepted our socket, AND completed the
+	// SEC-018 auth handshake. Cold-start first paint was therefore
+	// gated end-to-end by Python spawn + torch import + TCP accept
+	// + auth round-trip — typically 2–5s on warm cache, 8–10s+ on
+	// cold cache / AV scan. During that entire window the user saw
+	// NO UI at all (no window, no tray icon yet because the tray is
+	// created by the Python backend, no taskbar entry), with up to
+	// 60s of "Python backend failed to start" risk if torch import
+	// hung.
+	//
+	// Pre-creating the window here lets the React bundle start
+	// loading immediately so the renderer's "connecting" spinner
+	// (App.tsx) actually has a chance to render — turning a
+	// multi-second "is this thing even running?" silence into a
+	// visible "connecting to backend…" state.
+	//
+	// `createMainWindow`'s `if (state.mainWindow) return` early
+	// return (main-window.ts:206) makes the subsequent
+	// `createWindows()` call from tcp-connect.ts:158 a no-op, so the
+	// connect callback no longer recreates the window. The
+	// early-exit branch in start-python.ts:161-177 already handles
+	// `state.mainWindow` being non-null (calls `.destroy()`), so the
+	// early-exit dialog path stays correct when Python fails to
+	// start.
+	//
+	// `createWindows()` defaults `forceShow` to `false`, which
+	// preserves the START_HIDDEN behavior — an autostarted
+	// background instance (`VT_START_HIDDEN=1`) still creates the
+	// BrowserWindow off-screen (so opening it later is instant via
+	// second-instance / tray "Open app") but leaves no taskbar
+	// entry. A normal launch (`START_HIDDEN=false`) shows the
+	// window immediately.
+	createWindows();
+
 	if (process.env.VT_BUBBLE_TEST === "1") {
 		log.warn(
 			`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`,

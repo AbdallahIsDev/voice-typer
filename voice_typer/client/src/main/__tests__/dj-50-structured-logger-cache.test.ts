@@ -65,6 +65,7 @@ vi.mock("../logging/rotation", () => ({
 	appendLogLine: (...args: unknown[]) => appendLogLineMock(...args),
 	rotateIfNeeded: vi.fn(),
 	cleanConsoleMsg: vi.fn(),
+	redactPii: (s: string) => s,
 	ts: vi.fn(() => "12:00:00"),
 }));
 
@@ -113,37 +114,34 @@ describe("DJ-50: appendLifecycleLine routes through appendLogLine (not inline st
 		vi.resetModules();
 	});
 
-	it("logger.info calls appendLogLine exactly once (not inline stat+rename+append)", async () => {
+	it("logger.info calls appendLogLine twice (main + lifecycle) with lifecycle path on second call", async () => {
 		const { logger } = await importLoggingFresh();
 		logger.info("DJ-50 test lifecycle event");
 
-		expect(appendLogLineMock).toHaveBeenCalledTimes(1);
-		// The first arg must be the lifecycle log path (NOT the main
-		// log path).
-		const callArgs = appendLogLineMock.mock.calls[0] as unknown[];
-		expect(callArgs[0]).toBe(LIFECYCLE_LOG_PATH);
+		// Two calls: main-log write (call 0) + lifecycle-log write (call 1).
+		expect(appendLogLineMock).toHaveBeenCalledTimes(2);
+		const lifecycleCall = appendLogLineMock.mock.calls[1] as unknown[];
+		expect(lifecycleCall[0]).toBe(LIFECYCLE_LOG_PATH);
 	});
 
-	it("the line passed to appendLogLine contains [INFO] and the message text", async () => {
+	it("the line passed to appendLogLine (lifecycle call) contains [INFO] and the message text", async () => {
 		const { logger } = await importLoggingFresh();
 		logger.info("DJ-50 message body");
 
-		const callArgs = appendLogLineMock.mock.calls[0] as unknown[];
-		const line = String(callArgs[1]);
+		const lifecycleCall = appendLogLineMock.mock.calls[1] as unknown[];
+		const line = String(lifecycleCall[1]);
 		expect(line).toContain("[INFO]");
 		expect(line).toContain("DJ-50 message body");
 		// Must end with newline so tail -f shows it cleanly.
 		expect(line.endsWith("\n")).toBe(true);
 	});
 
-	it("the 1 MiB cap is passed as the third arg to appendLogLine", async () => {
+	it("the 1 MiB cap is passed as the third arg to appendLogLine (lifecycle call)", async () => {
 		const { logger } = await importLoggingFresh();
 		logger.info("DJ-50 cap check");
 
-		const callArgs = appendLogLineMock.mock.calls[0] as unknown[];
-		// DJ-50 spec: "the 1 MiB cap is preserved" — passed as the
-		// maxBytes third arg.
-		expect(callArgs[2]).toBe(1 * 1024 * 1024);
+		const lifecycleCall = appendLogLineMock.mock.calls[1] as unknown[];
+		expect(lifecycleCall[2]).toBe(1 * 1024 * 1024);
 	});
 
 	it("does NOT call fs.statSync on the lifecycle log path (inline block removed)", async () => {

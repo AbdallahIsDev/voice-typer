@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { makeBubbleApi } from "./_bubble-channels";
 import {
 	ExportChannels,
 	I18nChannels,
@@ -8,6 +7,7 @@ import {
 	RendererChannels,
 	WindowChannels,
 } from "../main/ipc/channels";
+import { makeBubbleApi } from "./_bubble-channels";
 
 // SEC-026: single preload for both main and bubble windows.
 // The preload reads `location.href` to determine which window we are

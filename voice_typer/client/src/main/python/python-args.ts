@@ -14,6 +14,84 @@ import { app } from "electron";
 import { IPC_PORT } from "../constants";
 import { computeConfigDir } from "../single_instance";
 
+/**
+ * AC-118: resolve the bundled PyInstaller backend path for the current
+ * platform, with a 2-path fallback (onefile + onedir variants) wrapped
+ * in try/catch (so a broken symlink / permission error falls through to
+ * the dev venv instead of crashing the spawn).
+ *
+ * Previously the Windows branch had this robust 2-path + try/catch
+ * pattern (RW-4 / Wave 3) but macOS and Linux had single-path lookups
+ * with no try/catch — if a future macOS/Linux PyInstaller spec changed
+ * the output layout (e.g. added COLLECT() to switch from onefile to
+ * onedir), the packaged build would silently fall through to the dev
+ * venv path on those platforms. This helper applies the Windows
+ * pattern uniformly.
+ *
+ * Returns the absolute path to the backend executable, or ``null`` if
+ * no candidate exists (caller falls through to the dev venv).
+ */
+function resolveBundledBackend(platform: NodeJS.Platform): string | null {
+	// Each candidate is a [dir, ...pathParts] tuple — we join them
+	// against ``process.resourcesPath`` so the helper stays pure.
+	const candidates: string[] = [];
+	const resourcesPath = process.resourcesPath;
+	if (platform === "darwin") {
+		// macOS: PyInstaller .app bundle (current spec — onedir-style).
+		candidates.push(
+			path.join(
+				resourcesPath,
+				"voice-typer-backend.app",
+				"Contents",
+				"MacOS",
+				"voice-typer",
+			),
+		);
+		// Future-proof: if spec switches to a bare Mach-O executable
+		// without the .app wrapper (PyInstaller onefile macOS output).
+		candidates.push(
+			path.join(resourcesPath, "voice-typer-backend", "voice-typer"),
+		);
+	} else if (platform === "linux") {
+		// Linux: PyInstaller onedir (current spec).
+		candidates.push(
+			path.join(resourcesPath, "voice-typer-backend", "voice-typer"),
+		);
+		// Future-proof: PyInstaller onefile (single executable, no
+		// sibling libs).
+		candidates.push(
+			path.join(resourcesPath, "voice-typer-backend", "VoiceTyper"),
+		);
+	} else if (platform === "win32") {
+		// Windows: PyInstaller onefile (current spec).
+		candidates.push(
+			path.join(resourcesPath, "voice-typer-backend", "VoiceTyper.exe"),
+		);
+		// Future-proof: PyInstaller onedir (executable inside a
+		// VoiceTyper/ subdirectory alongside sibling DLLs).
+		candidates.push(
+			path.join(
+				resourcesPath,
+				"voice-typer-backend",
+				"VoiceTyper",
+				"VoiceTyper.exe",
+			),
+		);
+	}
+	for (const candidate of candidates) {
+		try {
+			if (fs.existsSync(candidate)) {
+				return candidate;
+			}
+		} catch {
+			// fs.existsSync can throw on broken symlinks / permission
+			// errors — try the next candidate before falling through
+			// to the dev venv.
+		}
+	}
+	return null;
+}
+
 export function pythonArgs(): [string, string[]] {
 	// Each platform has its own `case` branch in the switch below —
 	// they are independent so we don't accidentally clobber the others.
@@ -21,88 +99,12 @@ export function pythonArgs(): [string, string[]] {
 	// fallback for any platform that doesn't match (or whose bundled
 	// backend is missing on disk).
 	if (app.isPackaged) {
-		switch (process.platform) {
-			case "darwin": {
-				// macOS: PyInstaller .app bundle. The executable lives at
-				// Contents/MacOS/voice-typer inside the .app. electron-builder's
-				// mac.extraResources copies the bundle to
-				// ${resourcesPath}/voice-typer-backend.app at packaging time.
-				const macBackend = path.join(
-					process.resourcesPath,
-					"voice-typer-backend.app",
-					"Contents",
-					"MacOS",
-					"voice-typer",
-				);
-				if (fs.existsSync(macBackend)) {
-					return [macBackend, ["--port", String(IPC_PORT)]];
-				}
-				break;
-			}
-			case "linux": {
-				// Linux: PyInstaller onedir. The executable lives at
-				// voice-typer inside the bundle directory. electron-builder's
-				// linux.extraResources copies the directory to
-				// ${resourcesPath}/voice-typer-backend at packaging time.
-				const linuxBackend = path.join(
-					process.resourcesPath,
-					"voice-typer-backend",
-					"voice-typer",
-				);
-				if (fs.existsSync(linuxBackend)) {
-					return [linuxBackend, ["--port", String(IPC_PORT)]];
-				}
-				break;
-			}
-			case "win32": {
-				// RW-4 / Wave 3: Windows packaged backend lookup. CI's
-				// build-windows job runs `pyinstaller
-				// scripts/build/voice-typer.spec --distpath
-				// voice_typer/dist` from the repo root, producing
-				// voice_typer/dist/VoiceTyper.exe (onefile — current
-				// spec has no COLLECT() call).
-				// electron-builder's `win.extraResources` (see
-				// electron-builder.yml) copies ../dist/ to
-				// ${resourcesPath}/voice-typer-backend/ at packaging
-				// time.
-				//
-				// Lookup order:
-				//   1. ${resourcesPath}/voice-typer-backend/VoiceTyper.exe
-				//      (PyInstaller onefile — current voice-typer.spec output)
-				//   2. ${resourcesPath}/voice-typer-backend/VoiceTyper/VoiceTyper.exe
-				//      (PyInstaller onedir — future-proof if spec adds COLLECT())
-				//   3. Fall through to the dev-mode venv path below.
-				//
-				// The frozen exe is the IPC server entry point (spec entry
-				// is voice_typer/server/ipc_server.py, whose main() uses
-				// parse_known_args to accept --port) — we spawn it directly
-				// with `--port <N>` (no `-m` flag, since the bundled exe
-				// already imports voice_typer.server.ipc_server via its
-				// entry script).
-				const winBackendDir = path.join(
-					process.resourcesPath,
-					"voice-typer-backend",
-				);
-				const winOnefileExe = path.join(winBackendDir, "VoiceTyper.exe");
-				const winOnedirExe = path.join(
-					winBackendDir,
-					"VoiceTyper",
-					"VoiceTyper.exe",
-				);
-				try {
-					if (fs.existsSync(winOnefileExe)) {
-						return [winOnefileExe, ["--port", String(IPC_PORT)]];
-					}
-					if (fs.existsSync(winOnedirExe)) {
-						return [winOnedirExe, ["--port", String(IPC_PORT)]];
-					}
-				} catch {
-					// fs.existsSync can throw on broken symlinks /
-					// permission errors — fall through to the dev venv.
-				}
-				break;
-			}
-			// (no default — fall through to the dev-mode venv path below)
+		// AC-118: route all platforms through resolveBundledBackend so
+		// macOS / Linux get the same 2-path + try/catch fallback that
+		// Windows had (RW-4 / Wave 3).
+		const bundled = resolveBundledBackend(process.platform);
+		if (bundled !== null) {
+			return [bundled, ["--port", String(IPC_PORT)]];
 		}
 	}
 

@@ -96,7 +96,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		pythonProcess: null,
 		tcpSocket: {
 			write: mocks.socketWrite,
-			// biome-ignore lint/suspicious/noExplicitAny: mock socket
 		} as unknown as MainState["tcpSocket"],
 		mainWindow: null,
 		bubbleWindow: null,

@@ -54,7 +54,6 @@
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},
-	"//devDependencies_note": "DO NOT DOWNGRADE typescript below 7.x. typescript@7.0.2 is the LATEST STABLE RELEASE (verify: `npm view typescript version`). A prior agent wrongly assumed 7.x was unstable and pinned the lockfile to 5.6.3, which broke `npm ci`. Keep typescript at ^7.0.2 and keep package-lock.json in sync (run `npm install --package-lock-only` after any change).",
 	"//electron_vite_note": "electron-vite is pinned to 6.0.0-beta.1 because the stable latest (5.0.0) peer-requires vite ^5.0.0 || ^6.0.0 || ^7.0.0, which is incompatible with this project's vite ^8.1.4 (npm install --package-lock-only fails with ERESOLVE). electron-vite@6.0.0-beta.1 peer-requires vite ^6.0.0 || ^7.0.0 || ^8.0.0 and is the only version that supports vite 8. Attempted downgrade to ^5.0.0 reverted. Re-evaluate when electron-vite 6.x stable is released (track https://github.com/alex8088/electron-vite/releases).",
 	"//overrides": "See //overrides_note above for full rationale. These overrides force-upgrade transitive deps to eliminate deprecated packages (glob@7, inflight, boolean) and security vulnerabilities (@hono/node-server path traversal).",
 	"overrides": {
@@ -87,7 +86,7 @@
 		"sharp": "^0.35.3",
 		"storybook": "^10.4.6",
 		"tailwindcss": "^4.3.2",
-		"typescript": "^7.0.2",
+		"typescript": "7.0.2",
 		"vite": "^8.1.4",
 		"vitest": "^4.1.10"
 	},

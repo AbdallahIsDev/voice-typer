@@ -29,13 +29,13 @@
  * `console.warn` has no terminal.
  */
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
+import { BubbleChannels } from "../../ipc/channels";
 // DT-13: converted from defensive `require("../../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { BUBBLE_CLR, log, RESET } from "../../logging";
 import { state } from "../../state";
-import { BubbleChannels } from "../../ipc/channels";
 import {
 	clearCurrentHideAnimationCallback,
 	onHideAnimationComplete,

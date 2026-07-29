@@ -503,6 +503,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 		}));
 		vi.doMock("../python/tcp-connect", () => ({
 			tcpConnect: vi.fn(),
+			clearTcpStartupTimeout: vi.fn(),
 		}));
 		vi.doMock("../constants", () => ({
 			IPC_PORT: 12345,

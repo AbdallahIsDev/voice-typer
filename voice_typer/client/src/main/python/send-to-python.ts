@@ -133,18 +133,43 @@ function _isLongRunningCommand(cmd: string): boolean {
 	return _LONG_RUNNING_COMMANDS.has(cmd);
 }
 
+/**
+ * AC-113: per-command timeout overrides for commands that should
+ * time out FASTER than the default 15s short timeout. These are
+ * lifecycle / heartbeat commands whose handlers are documented to
+ * return in well under 1s — a 15s wait for a ``heartbeat`` reply
+ * means the backend has been unresponsive for ~15s before the
+ * renderer learns about it, which is far too long for the
+ * connection-health signal that heartbeat provides.
+ *
+ * Values are in milliseconds. The default short timeout (15s) and
+ * long timeout (120s) are unchanged; this map only SHORTENS the
+ * timeout for the specific commands listed.
+ *
+ * ``relaunch_ack`` is included because it's a fire-and-forget ack
+ * whose reply (if any) is expected within milliseconds — the
+ * backend sends the ack BEFORE calling ``sys.exit(0)``, so a 5s
+ * timeout is generous (PERF-005).
+ */
+const _SHORT_TIMEOUT_COMMANDS: ReadonlyMap<string, number> = new Map([
+	["heartbeat", 10_000], // 10s — backend heartbeat handler is <1s
+	["quit_app", 5_000], // 5s — backend quit handler is <1s
+	["relaunch_ack", 5_000], // 5s — fire-and-forget ack
+]);
+
+function _commandTimeoutMs(cmd: string): number {
+	const override = _SHORT_TIMEOUT_COMMANDS.get(cmd);
+	if (override !== undefined) {
+		return override;
+	}
+	return _isLongRunningCommand(cmd) ? 120_000 : 15_000;
+}
+
 export function sendToPython(
 	msg: Record<string, unknown>,
 	senderId: number | null = null,
 ): Promise<unknown> {
 	return new Promise((resolve, reject) => {
-		// If a full app relaunch is in flight, reject immediately so
-		// pending IPC calls don't sit in pendingRequests until the
-		// 5s timeout — the process is about to exit anyway.
-		if (state._relaunching) {
-			reject(new Error("Application is restarting"));
-			return;
-		}
 		if (!state.tcpSocket) {
 			reject(new Error("Python backend is not connected"));
 			return;
@@ -153,6 +178,8 @@ export function sendToPython(
 		// forwarding to the Python backend. Combined with SEC-018
 		// (unauth TCP), this prevents a compromised renderer from
 		// calling arbitrary IPC commands like set_config / quit_app.
+		// SEC-010: allowlist check MUST precede _relaunching check so a
+		// _relaunching flag cannot be used to bypass the allowlist.
 		//
 		// ERR-IPC-002 (fix): previously missing `quit_app` and `restart_app`,
 		// which broke tray Quit/Restart (stopPython sends `quit_app`).
@@ -172,6 +199,13 @@ export function sendToPython(
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
 			reject(new Error(`Disallowed IPC command: ${cmd}`));
+			return;
+		}
+		// If a full app relaunch is in flight, reject immediately so
+		// pending IPC calls don't sit in pendingRequests until the
+		// 5s timeout — the process is about to exit anyway.
+		if (state._relaunching) {
+			reject(new Error("Application is restarting"));
 			return;
 		}
 		// Per-renderer rate limit. Rejects a flood from
@@ -206,7 +240,10 @@ export function sendToPython(
 		// blocking. The Python-side heartbeat watchdog is at 120s
 		// (ipc_server.py) for the same reason — both timeouts must
 		// stay in sync for long-running commands.
-		const timeoutMs = _isLongRunningCommand(cmd) ? 120000 : 15000;
+		// AC-113: use the per-command timeout map so heartbeat /
+		// quit_app / relaunch_ack time out faster than the default
+		// 15s short timeout.
+		const timeoutMs = _commandTimeoutMs(cmd);
 		//
 		// CR-17: capture the timer handle and clearTimeout in BOTH the
 		// success and reject paths so the timer doesn't leak after

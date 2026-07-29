@@ -15,15 +15,16 @@
 import path from "node:path";
 import { app, BrowserWindow, dialog, Menu, nativeTheme } from "electron";
 import { START_HIDDEN } from "../constants";
+import { WindowChannels } from "../ipc/channels";
 import {
 	appendLogLine,
 	cleanConsoleMsg,
 	log,
 	RENDERER_CLR,
 	RESET,
+	redactPii,
 	rendererErrorsLogPath,
 } from "../logging";
-import { WindowChannels } from "../ipc/channels";
 import { state } from "../state";
 
 /**
@@ -393,8 +394,23 @@ export function createMainWindow(forceShow = false): void {
 			// to its own log file so support staff can grep
 			// renderer crashes without fishing through
 			// DevTools or the noisy `electron-main.log`.
-			const line = `${new Date().toISOString()} [renderer-error] ${cleanConsoleMsg(
-				e.message,
+			//
+			// XZ-LOG-03: apply `redactPii` to the persisted line
+			// so user-spoken text fragments / API keys / URL
+			// credentials in renderer error messages don't
+			// land unredacted in `electron-renderer-errors.log`.
+			// The stdout path above (via `log.error(msg)`)
+			// already goes through `formatArgsForFile`'s
+			// redaction, but `appendRendererError` writes via
+			// direct `appendLogLine` and bypasses that — so the
+			// redaction must be applied explicitly here.
+			// `cleanConsoleMsg` runs first (strips printf
+			// specifiers), then `redactPii` runs on the
+			// cleaned text (idempotent on already-redacted
+			// text so the double-chain is safe).
+			const cleaned = cleanConsoleMsg(e.message);
+			const line = `${new Date().toISOString()} [renderer-error] ${redactPii(
+				cleaned,
 			)} (${e.sourceId}:${e.lineNumber})\n`;
 			appendRendererError(line);
 		}

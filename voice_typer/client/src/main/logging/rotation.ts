@@ -34,6 +34,92 @@ import {
 	_setCachedFileSize,
 } from "./fileSizeCache";
 
+// ─── XZ-LOG-03: PII redaction (TS port of Python's redact_pii) ────────
+//
+// The Python side (`voice_typer/server/security.py:redact_pii`) already
+// had `redact_pii` / `redact_secret` / `redact_url` (in
+// `voice_typer/server/_secrets.py`). The Electron main-process loggers
+// (printfLogger.ts `formatArgsForFile`, main-window.ts
+// `appendRendererError`, bootstrap.ts crash-log writers) wrote raw to
+// disk — XZ-LOG-03 flagged this as a Medium PII leak.
+//
+// This helper mirrors the Python patterns so the same PII / API-key /
+// URL-credential redaction applies on both sides. Idempotent on
+// already-redacted text (the `[EMAIL]` / `[PHONE]` etc. tokens don't
+// match the secret patterns) so callers that pre-redact (e.g.
+// `cleanConsoleMsg` chains) don't double-redact.
+
+// Minimum length below which we don't bother redacting secrets — too
+// likely to be an ordinary word. Mirrors _secrets.py:_MIN_REDACT_LEN.
+const _MIN_REDACT_LEN = 20;
+
+// PII patterns (order: IBAN before phone so the digit portion of
+// an IBAN isn't mis-matched as a phone number — mirrors Python's
+// PIIRedactionFilter._PATTERNS ordering).
+const _PII_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	// Email addresses
+	[/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, "[EMAIL]"],
+	// IBAN: 2-letter country code, 2 check digits, 10-30 BBAN chars
+	[/\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g, "[IBAN]"],
+	// US-style phone: 555-123-4567, 5551234567, 555.123.4567
+	[/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, "[PHONE]"],
+	// International phone (E.164-ish): +1 (415) 555-2671
+	[/\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b/g, "[PHONE]"],
+	// SSN-like
+	[/\b\d{3}-\d{2}-\d{4}\b/g, "[SSN]"],
+	// Credit-card-like
+	[/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, "[CC]"],
+];
+
+// API-key / bearer-token patterns (mirrors _secrets.py:_KEY_PATTERNS).
+// Only applied when the input is >= _MIN_REDACT_LEN chars (mirrors the
+// early-exit guard in _secrets.py:redact_secret).
+const _SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+	// Bearer tokens: "Bearer eyJ..." → "Bearer ***"
+	[/\bBearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer ***"],
+	// Token-prefix: "Token abc123..." → "Token ***"
+	[/\bToken\s+[A-Za-z0-9._~+/=-]+/g, "Token ***"],
+	// Common API key prefixes: "sk-...", "pk_...", "key-..."
+	[/\b(?:sk|pk|key)-[A-Za-z0-9]{10,}\b/g, "***"],
+];
+
+// URL userinfo pattern: "https://user:pass@host" → "https://host".
+// Only applied when "@" is present (mirrors redact_url's gate).
+const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
+
+/**
+ * XZ-LOG-03: redact potential PII and API secrets from a log line.
+ *
+ * Mirrors `voice_typer/server/security.py:redact_pii` — applies the
+ * six PII patterns (email / IBAN / phone US / phone intl / SSN / CC),
+ * then `redact_secret`'s API-key / bearer-token patterns, then
+ * `redact_url`'s URL-userinfo strip. Idempotent on already-redacted
+ * text (the `[EMAIL]` / `[PHONE]` etc. tokens don't match the secret
+ * patterns) so callers that pre-redact don't double-redact.
+ *
+ * @param text  Input string that may contain PII or secrets.
+ * @returns     String with PII/secrets replaced by redaction tokens
+ *              (`[EMAIL]`, `[PHONE]`, `[SSN]`, `[CC]`, `[IBAN]`,
+ *              `Bearer ***`, `***`, or the URL scheme with userinfo
+ *              stripped).
+ */
+export function redactPii(text: string): string {
+	if (typeof text !== "string" || text.length === 0) return text;
+	let out = text;
+	for (const [pat, repl] of _PII_PATTERNS) {
+		out = out.replace(pat, repl);
+	}
+	if (out.length >= _MIN_REDACT_LEN) {
+		for (const [pat, repl] of _SECRET_PATTERNS) {
+			out = out.replace(pat, repl);
+		}
+	}
+	if (out.includes("@")) {
+		out = out.replace(_URL_USERINFO, "$1");
+	}
+	return out;
+}
+
 /**
  * CR-9: rotate a log file before appending to it, so the file cannot grow
  * unbounded across crash-loop scenarios.
