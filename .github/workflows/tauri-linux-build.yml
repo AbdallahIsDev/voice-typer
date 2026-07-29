@@ -136,17 +136,70 @@ jobs:
             librsvg2-dev \
             pkg-config libssl-dev
 
-      # S2-CR-1 / S4-CR-20: tauri_build::build() validates externalBin paths
-      # exist at compile time. The sidecar binary is NOT built in the smoke
-      # job (that requires Nuitka + python-build-standalone). Create a dummy
-      # placeholder so cargo check can resolve the build script validation.
-      - name: Create dummy sidecar binary (placeholder for cargo check)
+      # S2-CR-1 / S4-CR-20: tauri_build::build() validates externalBin AND
+      # resources paths exist at compile time. Neither the sidecar binary
+      # (needs Nuitka + python-build-standalone) nor the per-OS native
+      # key-listeners / prewarm binaries (need MSVC / clang / the host OS)
+      # are built in the smoke job. We create dummy placeholder files for
+      # EVERY path declared in tauri.conf.json's `bundle.externalBin` +
+      # `bundle.resources` so cargo check can resolve the build script
+      # validation regardless of which OS the smoke job runs on.
+      #
+      # NOTE: `cargo check` reads `tauri.conf.json` directly (NOT the
+      # per-platform override like `tauri.linux-x86_64.conf.json` — that
+      # merge only happens at `tauri build` time via the Tauri CLI). So
+      # the placeholders below MUST cover Windows + macOS + Linux
+      # resources, not just Linux ones. Without this, the build script
+      # fails with: `resource path 'resources/native/windows-key-listener.exe'
+      # doesn't exist`.
+      - name: Create dummy sidecar + resource placeholders (for cargo check)
         working-directory: src-tauri
         run: |
+          set -euo pipefail
           TRIPLE="${{ env.RUST_TARGET }}"
-          mkdir -p bin
+          mkdir -p bin resources/native resources/linux-scripts
+          # 1. Sidecar binary (externalBin entry).
           echo '#!/bin/sh' > "bin/python-sidecar-${TRIPLE}"
           chmod +x "bin/python-sidecar-${TRIPLE}"
+          # Also stub the other 6 triples — tauri.conf.json's externalBin
+          # entry is `bin/python-sidecar` and Tauri appends the host triple
+          # at bundle time, but cargo check only validates the host triple.
+          # Stub them anyway for safety (cost is zero).
+          for t in \
+            x86_64-pc-windows-msvc \
+            aarch64-pc-windows-msvc \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin \
+            x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-gnu; do
+            echo '#!/bin/sh' > "bin/python-sidecar-${t}"
+            chmod +x "bin/python-sidecar-${t}"
+          done
+          # 2. Native key-listener binaries (one per OS).
+          echo 'placeholder' > resources/native/windows-key-listener.exe
+          echo 'placeholder' > resources/native/macos-key-listener
+          echo 'placeholder' > resources/native/linux-key-listener
+          # 3. Prewarm binaries (one per target triple).
+          for p in \
+            prewarm-x86_64-pc-windows-msvc.exe \
+            prewarm-aarch64-pc-windows-msvc.exe \
+            prewarm-x86_64-apple-darwin \
+            prewarm-aarch64-apple-darwin \
+            prewarm-x86_64-unknown-linux-gnu \
+            prewarm-aarch64-unknown-linux-gnu; do
+            echo 'placeholder' > "resources/${p}"
+          done
+          # 4. Linux install scripts (real files, checked in — but stub
+          # here in case the checkout is shallow and they're missing).
+          for f in \
+            install_permissions.py \
+            uninstall_permissions.py \
+            99-voice-typer.rules \
+            00-voice-typer-capslock.conf \
+            voice-typer.polkit; do
+            [ -f "resources/linux-scripts/${f}" ] || echo 'placeholder' > "resources/linux-scripts/${f}"
+          done
+          echo "[smoke] Placeholder stubs created for sidecar + native listeners + prewarm + linux-scripts"
 
       - name: cargo check (Tauri Rust host)
         working-directory: src-tauri

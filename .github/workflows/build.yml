@@ -1487,7 +1487,29 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit hygiene hooks
-        run: pre-commit run --all-files trailing-whitespace end-of-file-fixer check-yaml check-json check-merge-conflict check-added-large-files mixed-line-ending
+        # `pre-commit run` accepts at most ONE hook ID as a positional
+        # argument — passing 7 IDs (the previous invocation) fails with
+        # `unrecognized arguments: end-of-file-fixer check-yaml ...`.
+        # Loop over the hygiene hooks instead so a failure in any one
+        # hook fails the step (the `|| exit 1` after each invocation).
+        # We intentionally do NOT use `pre-commit run --all-files` (no
+        # hook ID) because that would also run heavier hooks defined in
+        # .pre-commit-config.yaml (ruff, pyrefly, etc.) — this job is a
+        # fast hygiene-only gate; the heavy hooks have their own jobs.
+        run: |
+          set -euo pipefail
+          for hook in \
+            trailing-whitespace \
+            end-of-file-fixer \
+            check-yaml \
+            check-json \
+            check-merge-conflict \
+            check-added-large-files \
+            mixed-line-ending; do
+            echo "::group::pre-commit run $hook --all-files"
+            pre-commit run "$hook" --all-files
+            echo "::endgroup::"
+          done
   notify:
     name: Notify on failure
     # `always()` so the job runs even when one of `needs` failed. Skipped
