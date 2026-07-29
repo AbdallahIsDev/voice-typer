@@ -64,7 +64,6 @@ import {
 } from "../single_instance";
 
 const _origEnv = { ...process.env };
-const _origPlatform = process.platform;
 
 describe("XS-78: single_instance.ts", () => {
 	let tmpDir: string;
