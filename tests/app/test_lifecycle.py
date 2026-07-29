@@ -411,6 +411,21 @@ class TestAppStateTransitions:
         app.recorder = MagicMock()
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        # XZ-R18 dictation-pipeline refactor: ``RecordingController.stop``
+        # now drives a real ``DictationPipeline`` that calls
+        # ``transcriber.transcribe_with_fallback`` and pipes the result
+        # through ``clean_transcribed_text`` / vocabulary / auto-punct.
+        # The conftest ``app`` fixture leaves ``transcriber`` as a bare
+        # ``MagicMock()`` whose ``transcribe_with_fallback`` returns a
+        # child MagicMock — the cleanup chain then raises
+        # ``TypeError: expected string or bytes-like object, got
+        # 'MagicMock'`` inside the transcription thread. Stub the
+        # transcriber to return a real string so the pipeline completes
+        # cleanly and the ``recording_stopped`` event can be observed.
+        app.models.transcriber = MagicMock()
+        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="hello world")
+        app.models.transcriber.is_loaded = True
+        app.models.transcriber.device_info = "cpu (int8)"
 
         # Stub the pipeline so the transcription thread completes quickly.
         captured = {"events": []}

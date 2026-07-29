@@ -89,10 +89,7 @@ class TestConfigDirChmod:
             # The config dir now exists.
             assert isolated_config_dir.exists()
             mode = isolated_config_dir.stat().st_mode & 0o777
-            assert mode == 0o700, (
-                f"FR-37: config dir mode must be 0o700 (owner-only); "
-                f"got 0o{mode:o}"
-            )
+            assert mode == 0o700, f"FR-37: config dir mode must be 0o700 (owner-only); got 0o{mode:o}"
         finally:
             _cleanup_lock_fd(fd)
 
@@ -110,9 +107,7 @@ class TestConfigDirChmod:
         # most systems since umask is typically 0o022 → 0o755 & ~0o022
         # = 0o755).
         pre_mode = isolated_config_dir.stat().st_mode & 0o777
-        assert pre_mode == 0o755, (
-            f"pre-condition: config dir should be 0o755; got 0o{pre_mode:o}"
-        )
+        assert pre_mode == 0o755, f"pre-condition: config dir should be 0o755; got 0o{pre_mode:o}"
 
         fd = None
         try:
@@ -120,8 +115,7 @@ class TestConfigDirChmod:
             # The defensive chmod should have tightened the perms.
             post_mode = isolated_config_dir.stat().st_mode & 0o777
             assert post_mode == 0o700, (
-                f"FR-37: defensive os.chmod should tighten existing config "
-                f"dir from 0o755 to 0o700; got 0o{post_mode:o}"
+                f"FR-37: defensive os.chmod should tighten existing config dir from 0o755 to 0o700; got 0o{post_mode:o}"
             )
         finally:
             _cleanup_lock_fd(fd)
@@ -192,8 +186,7 @@ class TestNoFollowSymlink:
                 )
                 # The symlink target must NOT have been clobbered.
                 assert symlink_target.read_text() == "original content — should NOT be clobbered", (
-                    "FR-37: O_NOFOLLOW must prevent the symlink target from being "
-                    "created/truncated via O_CREAT|O_EXCL"
+                    "FR-37: O_NOFOLLOW must prevent the symlink target from being created/truncated via O_CREAT|O_EXCL"
                 )
                 behavioral_passed = True
             except BaseException:
@@ -242,9 +235,7 @@ class TestNoFollowSymlink:
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
-            assert fd is not None, (
-                "FR-37: normal lockfile creation (no symlink) should succeed"
-            )
+            assert fd is not None, "FR-37: normal lockfile creation (no symlink) should succeed"
             lock_path = isolated_config_dir / "backend.lock"
             assert lock_path.exists()
         finally:

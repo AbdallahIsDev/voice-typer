@@ -107,9 +107,7 @@ class TestLaunchctlLoadSuccess:
         monkeypatch.setattr(
             subprocess,
             "run",
-            lambda *args, **kwargs: _make_completed(
-                returncode=0, stderr=b"some informational message"
-            ),
+            lambda *args, **kwargs: _make_completed(returncode=0, stderr=b"some informational message"),
         )
         assert mod._enable_autostart_macos() is True
 
@@ -127,9 +125,7 @@ class TestLaunchctlLoadFailure:
         monkeypatch.setattr(
             subprocess,
             "run",
-            lambda *args, **kwargs: _make_completed(
-                returncode=1, stderr=b"some launchctl error"
-            ),
+            lambda *args, **kwargs: _make_completed(returncode=1, stderr=b"some launchctl error"),
         )
         assert mod._enable_autostart_macos() is False
 
@@ -237,14 +233,8 @@ class TestSourceLevelInvariants:
         from voice_typer.server.server_platform import autostart_macos
 
         src = inspect.getsource(autostart_macos._enable_autostart_macos)
-        assert "returncode" in src, (
-            "FR-38: _enable_autostart_macos must inspect "
-            "CompletedProcess.returncode"
-        )
-        assert "loader.error" in src.lower(), (
-            "FR-38: _enable_autostart_macos must check for 'Loader.Error' "
-            "in stderr"
-        )
+        assert "returncode" in src, "FR-38: _enable_autostart_macos must inspect CompletedProcess.returncode"
+        assert "loader.error" in src.lower(), "FR-38: _enable_autostart_macos must check for 'Loader.Error' in stderr"
 
     def test_source_does_not_unconditionally_return_true(self):
         """FR-38: the function must NOT have a bare ``return True``
@@ -268,15 +258,12 @@ class TestSourceLevelInvariants:
         # the start of each line.
         return_true_match = re.search(r"^    return True\s*$", src, re.MULTILINE)
         assert return_true_match is not None, (
-            "FR-38: must have an actual `return True` statement at the "
-            "function-body indent level"
+            "FR-38: must have an actual `return True` statement at the function-body indent level"
         )
         # Find the first ``completed.returncode`` reference (the
         # returncode inspection that gates the ``return True``).
         returncode_check_idx = src.find("completed.returncode")
-        assert returncode_check_idx != -1, (
-            "FR-38: must reference completed.returncode"
-        )
+        assert returncode_check_idx != -1, "FR-38: must reference completed.returncode"
         assert returncode_check_idx < return_true_match.start(), (
             "FR-38: the actual `return True` statement must come AFTER "
             "the returncode check (pre-fix bug was a bare `return True` "

@@ -25,10 +25,10 @@ import pytest
 
 scipy = pytest.importorskip("scipy.signal")  # skips the whole module if missing
 
+from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE  # noqa: E402
 from voice_typer.server.audio_filters.noise_suppressor import (  # noqa: E402
     _INT16_SCALE,
     _RNNOISE_FRAME_SIZE,
-    _RNNOISE_SAMPLE_RATE,
     NoiseSuppressor,
     _StreamingResampler,
 )
@@ -176,7 +176,7 @@ class TestNoiseSuppressorClipBeforeInt16:
     """XV-38: clip float32 input to ±1.0 before scaling to int16."""
 
     def _make_stub_ns(self):
-        ns = NoiseSuppressor(method="none", sample_rate=_RNNOISE_SAMPLE_RATE)
+        ns = NoiseSuppressor(method="none", sample_rate=RNNOISE_SAMPLE_RATE)
         received_frames: list[np.ndarray] = []
 
         class _StubBackend:
@@ -188,13 +188,13 @@ class TestNoiseSuppressorClipBeforeInt16:
 
         ns._backend = _StubBackend()
         ns._method = "rnnoise"
-        ns._source_sample_rate = _RNNOISE_SAMPLE_RATE
+        ns._source_sample_rate = RNNOISE_SAMPLE_RATE
         return ns, received_frames
 
     def test_clip_applied_before_int16_cast(self):
         ns, received_frames = self._make_stub_ns()
         frame = np.full(_RNNOISE_FRAME_SIZE, 1.5, dtype=np.float32)
-        result = ns.process(frame, _RNNOISE_SAMPLE_RATE)
+        result = ns.process(frame, RNNOISE_SAMPLE_RATE)
         assert len(received_frames) == 1
         i16 = received_frames[0]
         assert np.all(i16 == _INT16_SCALE), f"clip not applied: max={i16.max()}, min={i16.min()}"
@@ -204,7 +204,7 @@ class TestNoiseSuppressorClipBeforeInt16:
     def test_negative_peak_clipped(self):
         ns, received_frames = self._make_stub_ns()
         frame = np.full(_RNNOISE_FRAME_SIZE, -1.5, dtype=np.float32)
-        ns.process(frame, _RNNOISE_SAMPLE_RATE)
+        ns.process(frame, RNNOISE_SAMPLE_RATE)
         i16 = received_frames[0]
         assert np.all(i16 == -_INT16_SCALE), f"negative clip not applied: max={i16.max()}, min={i16.min()}"
 
@@ -212,7 +212,7 @@ class TestNoiseSuppressorClipBeforeInt16:
         ns, received_frames = self._make_stub_ns()
         t = np.linspace(0, 1.0, _RNNOISE_FRAME_SIZE, endpoint=False, dtype=np.float32)
         frame = (0.9 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
-        ns.process(frame, _RNNOISE_SAMPLE_RATE)
+        ns.process(frame, RNNOISE_SAMPLE_RATE)
         i16 = received_frames[0]
         expected = (frame * _INT16_SCALE).astype(np.int16)
         np.testing.assert_array_equal(i16, expected)

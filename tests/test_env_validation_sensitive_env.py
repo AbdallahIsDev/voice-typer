@@ -221,8 +221,7 @@ class TestSensitiveEnvWarningLogged:
         )
         # The var NAME should appear (so the operator can diagnose).
         assert any(var in m for m in rendered), (
-            f"FR-18 regression: expected a WARNING mentioning {var}; "
-            f"got {rendered!r}"
+            f"FR-18 regression: expected a WARNING mentioning {var}; got {rendered!r}"
         )
 
     def test_warning_level_is_warning_not_error(self, monkeypatch, caplog):
@@ -235,8 +234,7 @@ class TestSensitiveEnvWarningLogged:
         matching = [r for r in caplog.records if "HF_TOKEN" in r.getMessage()]
         assert matching, "expected at least one record mentioning HF_TOKEN"
         assert all(r.levelno == logging.WARNING for r in matching), (
-            f"expected all HF_TOKEN records at WARNING level; got levels "
-            f"{[r.levelno for r in matching]!r}"
+            f"expected all HF_TOKEN records at WARNING level; got levels {[r.levelno for r in matching]!r}"
         )
 
 
@@ -296,8 +294,7 @@ class TestSensitiveEnvNamesDriftDetection:
         }
         missing = required - _SENSITIVE_ENV_NAMES
         assert not missing, (
-            f"FR-18 regression: required sensitive env names missing "
-            f"from _SENSITIVE_ENV_NAMES: {sorted(missing)!r}"
+            f"FR-18 regression: required sensitive env names missing from _SENSITIVE_ENV_NAMES: {sorted(missing)!r}"
         )
 
     def test_sensitive_names_is_frozenset(self):

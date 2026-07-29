@@ -101,8 +101,7 @@ class TestSecretFieldsRedacted:
         """
         config_field_names = set(Config.__dataclass_fields__.keys())
         assert SECRET_CONFIG_FIELDS.issubset(config_field_names), (
-            f"SECRET_CONFIG_FIELDS has entries not on Config dataclass: "
-            f"{SECRET_CONFIG_FIELDS - config_field_names}"
+            f"SECRET_CONFIG_FIELDS has entries not on Config dataclass: {SECRET_CONFIG_FIELDS - config_field_names}"
         )
 
     def test_falsy_secret_value_preserved_not_redacted(self):
@@ -250,12 +249,8 @@ class TestNoTransientAttributesLeaked:
         expected_keys = {
             name
             for name, f in Config.__dataclass_fields__.items()
-            if typing.get_type_hints(Config).get(name, f.type)
-            is not typing.ClassVar
-            and not (
-                isinstance(f.type, str)
-                and "ClassVar" in f.type
-            )
+            if typing.get_type_hints(Config).get(name, f.type) is not typing.ClassVar
+            and not (isinstance(f.type, str) and "ClassVar" in f.type)
         }
         # Belt-and-suspenders: also exclude the known ClassVar
         # ``_mutation_lock`` by name (the only ClassVar on Config).
@@ -340,10 +335,7 @@ class TestFR22SetConfigErrorEnvelope:
         # FR-22: errors list has BOTH errors.
         errors = resp["data"]["errors"]
         assert isinstance(errors, list)
-        assert len(errors) >= 2, (
-            f"FR-22: expected >=2 errors in envelope, got {len(errors)}: "
-            f"{errors}"
-        )
+        assert len(errors) >= 2, f"FR-22: expected >=2 errors in envelope, got {len(errors)}: {errors}"
         # Both invalid field names appear in the error strings.
         errors_text = " ".join(errors)
         assert "model_size" in errors_text
@@ -385,8 +377,7 @@ class TestFR28HistoryEnabledField:
         from voice_typer.server.config_validators import IPC_CONFIG_ALLOWLIST
 
         assert "history_enabled" in IPC_CONFIG_ALLOWLIST, (
-            "FR-28: 'history_enabled' must be in IPC_CONFIG_ALLOWLIST "
-            "so the renderer can toggle it via set_config."
+            "FR-28: 'history_enabled' must be in IPC_CONFIG_ALLOWLIST so the renderer can toggle it via set_config."
         )
         expected_type, validator = IPC_CONFIG_ALLOWLIST["history_enabled"]
         assert expected_type is bool
@@ -394,9 +385,7 @@ class TestFR28HistoryEnabledField:
         assert validator(True) is None
         assert validator(False) is None
 
-    def test_history_enabled_round_trips_through_save_load(
-        self, tmp_path, monkeypatch
-    ):
+    def test_history_enabled_round_trips_through_save_load(self, tmp_path, monkeypatch):
         """Save a Config with history_enabled=False, reload it, verify
         the field is preserved. This is the contract P4-A4's
         dictation_pipeline gate will rely on."""
@@ -420,10 +409,7 @@ class TestFR28HistoryEnabledField:
 
         ipc_server, _, fake_service = make_ipc_server_with_fakes()
         resp = ipc_server._handle_set_config({"history_enabled": False}, {})
-        assert resp["type"] == "ack", (
-            f"FR-28: set_config(history_enabled=False) should succeed; "
-            f"got resp={resp}"
-        )
+        assert resp["type"] == "ack", f"FR-28: set_config(history_enabled=False) should succeed; got resp={resp}"
         # Verify apply_config received the validated update.
         fake_service.apply_config.assert_called_once()
         applied = fake_service.apply_config.call_args[0][0]
@@ -501,9 +487,7 @@ class TestFR21DeadBranchesRemoved:
         # The disjunct appeared in this exact form pre-fix. After the
         # fix, the condition is just
         # ``if "recording_mode" in updates or "hotkey" in updates:``.
-        assert (
-            'or "push_to_talk_hotkey" in updates' not in source
-        ), (
+        assert 'or "push_to_talk_hotkey" in updates' not in source, (
             "FR-21 regression: the dead "
             "``or 'push_to_talk_hotkey' in updates`` disjunct is still "
             "present in config_applier."

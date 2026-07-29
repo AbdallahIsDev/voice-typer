@@ -57,8 +57,7 @@ class TestElapsedTimerSingleThread:
             while len(ticks) < 3 and time.time() < deadline:
                 time.sleep(0.05)
             assert len(ticks) >= 3, (
-                f"Expected at least 3 ticks in 5s, got {len(ticks)} — "
-                "worker thread may not be ticking"
+                f"Expected at least 3 ticks in 5s, got {len(ticks)} — worker thread may not be ticking"
             )
 
             # During the session, set_timer_ref is called exactly ONCE
@@ -72,18 +71,14 @@ class TestElapsedTimerSingleThread:
             worker = non_none_refs[0]
             assert isinstance(worker, threading.Thread)
             assert worker.name == "tray-elapsed-timer", (
-                f"Worker should be named 'tray-elapsed-timer' for "
-                f"debuggability, got {worker.name!r}"
+                f"Worker should be named 'tray-elapsed-timer' for debuggability, got {worker.name!r}"
             )
         finally:
             timer.cancel()
 
         # After cancel, set_timer_ref is called with None (so the
         # owner's _elapsed_timer attribute is cleared).
-        assert refs[-1] is None, (
-            f"Expected final set_timer_ref(None) call after cancel, "
-            f"got {refs[-1]!r}"
-        )
+        assert refs[-1] is None, f"Expected final set_timer_ref(None) call after cancel, got {refs[-1]!r}"
 
     def test_cancel_joins_worker(self):
         """``cancel()`` joins the worker thread so it's no longer alive
@@ -102,12 +97,8 @@ class TestElapsedTimerSingleThread:
 
         timer.cancel()
 
-        assert not worker.is_alive(), (
-            "Worker should be joined (not alive) after cancel()"
-        )
-        assert timer._worker is None, (
-            "Internal _worker reference should be cleared after cancel()"
-        )
+        assert not worker.is_alive(), "Worker should be joined (not alive) after cancel()"
+        assert timer._worker is None, "Internal _worker reference should be cleared after cancel()"
 
     def test_restart_cancels_prior_worker(self):
         """``start()`` called twice cancels the prior worker — no leak
@@ -126,13 +117,9 @@ class TestElapsedTimerSingleThread:
         timer.start()  # should cancel the first worker internally
         second_worker = timer._worker
         assert second_worker is not None
-        assert second_worker is not first_worker, (
-            "Restart should create a NEW worker thread, not reuse the prior one"
-        )
+        assert second_worker is not first_worker, "Restart should create a NEW worker thread, not reuse the prior one"
         # The first worker should be dead (cancel()-joined by start()).
-        assert not first_worker.is_alive(), (
-            "Prior worker should be joined (dead) after restart — no leak"
-        )
+        assert not first_worker.is_alive(), "Prior worker should be joined (dead) after restart — no leak"
 
         timer.cancel()
         assert not second_worker.is_alive()
@@ -195,8 +182,6 @@ class TestElapsedTimerSingleThread:
         deadline = time.time() + 2.0
         while worker.is_alive() and time.time() < deadline:
             time.sleep(0.02)
-        assert not worker.is_alive(), (
-            "Worker should exit on its own when is_active() returns False"
-        )
+        assert not worker.is_alive(), "Worker should exit on its own when is_active() returns False"
         # cancel() is still idempotent + safe.
         timer.cancel()

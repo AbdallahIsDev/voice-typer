@@ -123,9 +123,7 @@ class TestCacheProbeStatCount:
             files = list(cache_probe._iter_warmable_files(tmp_path))
 
         # No warmable files should be discovered.
-        assert files == [], (
-            f"expected zero warmable files (only .py files in tree), got {len(files)}"
-        )
+        assert files == [], f"expected zero warmable files (only .py files in tree), got {len(files)}"
         # DJ-46: the suffix filter should run BEFORE is_file(), so no
         # stat() calls at all for non-warmable entries.
         assert stat_calls["n"] <= 1, (

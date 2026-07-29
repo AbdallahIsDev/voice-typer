@@ -122,9 +122,7 @@ class TestPublishTrayStateDiff:
         tray._message = ""
         tray._publish_tray_state()
 
-        assert len(publish_calls) == 1, (
-            f"First call should emit, got {len(publish_calls)} calls"
-        )
+        assert len(publish_calls) == 1, f"First call should emit, got {len(publish_calls)} calls"
         assert publish_calls[0]["icon"] == "idle"
 
     def test_redundant_call_suppressed(self, monkeypatch):
@@ -139,9 +137,7 @@ class TestPublishTrayStateDiff:
         assert len(publish_calls) == 1
 
         tray._publish_tray_state()
-        assert len(publish_calls) == 1, (
-            f"Redundant call should be suppressed, got {len(publish_calls)}"
-        )
+        assert len(publish_calls) == 1, f"Redundant call should be suppressed, got {len(publish_calls)}"
 
         # A third redundant call — still suppressed.
         tray._publish_tray_state()
@@ -160,9 +156,7 @@ class TestPublishTrayStateDiff:
 
         tray._message = "new message"
         tray._publish_tray_state()
-        assert len(publish_calls) == 2, (
-            f"Tooltip change should emit, got {len(publish_calls)}"
-        )
+        assert len(publish_calls) == 2, f"Tooltip change should emit, got {len(publish_calls)}"
         assert "new message" in publish_calls[1]["tooltip"]
 
         # Same again — suppressed.
@@ -208,9 +202,7 @@ class TestPublishTrayStateDiff:
         # but no message) the tooltip would append " — loading". So
         # tooltip DOES change here. Verify the cache key is the tuple.
         # If tooltip changed, publish fires (which is correct).
-        assert len(publish_calls) == 2, (
-            "State change with different tooltip should emit"
-        )
+        assert len(publish_calls) == 2, "State change with different tooltip should emit"
 
     def test_stop_clears_cache_so_next_publish_emits(self, monkeypatch):
         """``stop()`` resets ``_last_published`` so a restarted tray
@@ -232,9 +224,7 @@ class TestPublishTrayStateDiff:
         # After stop(), the cache is cleared — the next publish emits
         # even though the state + message are unchanged.
         tray._publish_tray_state()
-        assert len(publish_calls) == 2, (
-            "After stop() the cache is cleared so the next publish must emit"
-        )
+        assert len(publish_calls) == 2, "After stop() the cache is cleared so the next publish must emit"
 
     def test_publish_failure_does_not_cache(self, monkeypatch):
         """A transient ``publish_tray_state`` failure (raises) bypasses
@@ -281,6 +271,5 @@ class TestPublishTrayStateDiff:
 
         tray._publish_tray_state()
         assert len(publish_calls) == 3, (
-            "After a failed publish the cache should NOT be set — "
-            "the next call must retry, not suppress"
+            "After a failed publish the cache should NOT be set — the next call must retry, not suppress"
         )

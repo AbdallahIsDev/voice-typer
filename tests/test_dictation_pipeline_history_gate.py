@@ -135,7 +135,5 @@ class TestHistoryEnabledGateWithCrashRecovery:
         # History DB NOT called.
         app.history_db.add_transcription.assert_not_called()
         # Crash recovery IS called.
-        app._crash_recovery.add.assert_called_once_with(
-            "incognito + crash recovery", pasted=False
-        )
+        app._crash_recovery.add.assert_called_once_with("incognito + crash recovery", pasted=False)
         app._crash_recovery.flush.assert_called_once()

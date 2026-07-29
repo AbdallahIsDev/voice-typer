@@ -66,8 +66,7 @@ def test_seen_timestamps_hard_cap_prevents_unbounded_growth():
     # The set must contain the most recent entry (the reset happened
     # at the start of the call, then the new timestamp was added).
     assert len(assembler._seen_timestamps) >= 1, (
-        "DJ-21: post-reset, the new timestamp must have been added to "
-        "the fresh set."
+        "DJ-21: post-reset, the new timestamp must have been added to the fresh set."
     )
 
 
@@ -87,8 +86,7 @@ def test_seen_timestamps_below_cap_not_reset():
     assembler.add_words([word], commit_horizon_seconds=math.inf)
 
     assert len(assembler._seen_timestamps) == 101, (
-        "DJ-21: below the cap, _seen_timestamps must grow normally "
-        "(no spurious reset)."
+        "DJ-21: below the cap, _seen_timestamps must grow normally (no spurious reset)."
     )
     assert cap > 101, "DJ-21: test setup invariant — cap must be > 101"
 
@@ -148,11 +146,5 @@ def test_seen_timestamps_cap_does_not_break_committed_text():
     assembler.add_words([word_after], commit_horizon_seconds=math.inf)
 
     text = assembler.committed_text
-    assert "before_reset" in text, (
-        "DJ-21: words committed before the cap reset must remain in "
-        "committed_text."
-    )
-    assert "after_reset" in text, (
-        "DJ-21: words committed after the cap reset must be in "
-        "committed_text."
-    )
+    assert "before_reset" in text, "DJ-21: words committed before the cap reset must remain in committed_text."
+    assert "after_reset" in text, "DJ-21: words committed after the cap reset must be in committed_text."

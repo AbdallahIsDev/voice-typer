@@ -161,9 +161,7 @@ class TestApplyStateIconDiff:
 
         # Same state, different message — _make_icon NOT called.
         tray._apply_state(AppState.IDLE, "second")
-        assert len(calls) == 1, (
-            f"Expected _make_icon to be skipped for same state, got {calls}"
-        )
+        assert len(calls) == 1, f"Expected _make_icon to be skipped for same state, got {calls}"
 
         # Same state, yet another message — still skipped.
         tray._apply_state(AppState.IDLE, "third")
@@ -207,9 +205,7 @@ class TestApplyStateIconDiff:
         tray._apply_state(AppState.IDLE, "second message")
         assert len(calls) == 1, "Icon should NOT be redrawn for same state"
         second_title = tray._icon.title
-        assert "second message" in second_title, (
-            f"Tooltip should be updated to 'second message', got {second_title!r}"
-        )
+        assert "second message" in second_title, f"Tooltip should be updated to 'second message', got {second_title!r}"
         assert second_title != first_title, "Tooltip should differ across calls"
 
     def test_stop_clears_cache_so_next_apply_redraws(self, monkeypatch):
@@ -232,6 +228,4 @@ class TestApplyStateIconDiff:
         calls.clear()
 
         tray._apply_state(AppState.IDLE, "msg")
-        assert len(calls) == 1, (
-            "After stop(), the cache is cleared so the first apply must redraw"
-        )
+        assert len(calls) == 1, "After stop(), the cache is cleared so the first apply must redraw"

@@ -82,8 +82,7 @@ class TestFR3ValidatorAcceptsNone:
                 f"{bad_value!r} — only dict and None should be accepted."
             )
             assert "must be a dict" in result, (
-                f"FR-3: error message for {bad_value!r} should mention "
-                f"'must be a dict', got {result!r}"
+                f"FR-3: error message for {bad_value!r} should mention 'must be a dict', got {result!r}"
             )
 
     def test_validator_still_accepts_valid_dict(self) -> None:
@@ -91,10 +90,7 @@ class TestFR3ValidatorAcceptsNone:
         the accepted set, it doesn't loosen the dict-shape rules."""
         validator = _make_custom_theme_validator()
         result = validator(VALID_CUSTOM_THEME)
-        assert result is None, (
-            f"FR-3: validator rejected a valid custom_theme dict with "
-            f"{result!r}"
-        )
+        assert result is None, f"FR-3: validator rejected a valid custom_theme dict with {result!r}"
 
     def test_validator_still_rejects_invalid_dict(self) -> None:
         """A dict missing required keys must still be rejected."""
@@ -120,13 +116,8 @@ class TestFR3AllowlistAcceptsNone:
             f"(dict, type(None)) so None passes the type check; got "
             f"{type(expected_type).__name__}"
         )
-        assert dict in expected_type, (
-            f"FR-3: expected_type tuple must include dict; got {expected_type}"
-        )
-        assert type(None) in expected_type, (
-            f"FR-3: expected_type tuple must include type(None); got "
-            f"{expected_type}"
-        )
+        assert dict in expected_type, f"FR-3: expected_type tuple must include dict; got {expected_type}"
+        assert type(None) in expected_type, f"FR-3: expected_type tuple must include type(None); got {expected_type}"
 
 
 class TestFR3ValidateConfigUpdateAcceptsNone:
@@ -144,9 +135,7 @@ class TestFR3ValidateConfigUpdateAcceptsNone:
         assert validated["custom_theme"] is None
 
     def test_validate_config_update_still_accepts_valid_dict(self) -> None:
-        validated, errors = validate_config_update(
-            {"custom_theme": VALID_CUSTOM_THEME}
-        )
+        validated, errors = validate_config_update({"custom_theme": VALID_CUSTOM_THEME})
         assert errors == []
         assert validated["custom_theme"] == VALID_CUSTOM_THEME
 
@@ -204,9 +193,7 @@ class TestFR3ConfigRoundTripWithNone:
         reset warning)."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"custom_theme": None, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"custom_theme": None, "hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
         assert cfg.custom_theme is None
@@ -214,6 +201,5 @@ class TestFR3ConfigRoundTripWithNone:
         # validator would have rejected None and added a warning).
         warnings = cfg.last_load_warnings or []
         assert not any("custom_theme" in w for w in warnings), (
-            f"FR-3: Config.load() emitted unexpected custom_theme "
-            f"warnings for None value: {warnings}"
+            f"FR-3: Config.load() emitted unexpected custom_theme warnings for None value: {warnings}"
         )

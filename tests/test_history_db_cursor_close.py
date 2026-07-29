@@ -147,8 +147,7 @@ def test_read_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
 
     assert tracked.cursors_created >= 1, f"{method} did not create a cursor"
     assert tracked.all_cursors_closed(), (
-        f"{method} leaked cursors: created={tracked.cursors_created}, "
-        f"closed={tracked.cursors_closed}"
+        f"{method} leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
 
 
@@ -194,13 +193,13 @@ def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
             mp.setattr(db, "_shutdown", type(db._shutdown)())
         # Close our temporary tracked underlying connection.
         import contextlib
+
         with contextlib.suppress(sqlite3.Error):
             real_conn.close()
 
     assert tracked.cursors_created >= 1, f"{method} did not create a cursor"
     assert tracked.all_cursors_closed(), (
-        f"{method} leaked cursors: created={tracked.cursors_created}, "
-        f"closed={tracked.cursors_closed}"
+        f"{method} leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
 
 
@@ -236,8 +235,7 @@ def test_drain_batchable_inserts_closes_cursor(db):
 
     assert tracked.cursors_created >= 1
     assert tracked.all_cursors_closed(), (
-        f"_drain_batchable_inserts leaked cursors: created={tracked.cursors_created}, "
-        f"closed={tracked.cursors_closed}"
+        f"_drain_batchable_inserts leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
 
 
@@ -326,8 +324,7 @@ def test_apply_retention_closes_cursor(db):
 
     assert tracked.cursors_created >= 1
     assert tracked.all_cursors_closed(), (
-        f"apply_retention leaked cursors: created={tracked.cursors_created}, "
-        f"closed={tracked.cursors_closed}"
+        f"apply_retention leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
 
 
@@ -355,8 +352,7 @@ def test_init_schema_closes_cursor(tmp_path):
 
     assert tracked.cursors_created >= 1
     assert tracked.all_cursors_closed(), (
-        f"init_schema leaked cursors: created={tracked.cursors_created}, "
-        f"closed={tracked.cursors_closed}"
+        f"init_schema leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
 
 

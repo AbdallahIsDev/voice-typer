@@ -73,15 +73,11 @@ class TestProcessIsPrewarmMemoize:
 
         # Patch the uncached inner directly on the module — the wrapper
         # looks it up by name at call time, so the patch takes effect.
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         # First call: cache miss → invokes uncached.
         assert process_tracker._process_is_prewarm(os.getpid()) is True
-        assert call_count["n"] == 1, (
-            "DJ-47: first call should be a cache miss and invoke the uncached check"
-        )
+        assert call_count["n"] == 1, "DJ-47: first call should be a cache miss and invoke the uncached check"
 
         # Second call within TTL: cache hit → does NOT invoke uncached.
         assert process_tracker._process_is_prewarm(os.getpid()) is True
@@ -107,9 +103,7 @@ class TestProcessIsPrewarmMemoize:
             call_count["n"] += 1
             return True
 
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         # First call populates cache.
         process_tracker._process_is_prewarm(os.getpid())
@@ -147,9 +141,7 @@ class TestProcessIsPrewarmMemoize:
             call_count["n"] += 1
             return True
 
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         assert process_tracker._process_is_prewarm(0) is False
         assert process_tracker._process_is_prewarm(-1) is False
@@ -168,9 +160,7 @@ class TestProcessIsPrewarmMemoize:
             f"typical ~1 Hz UI poll."
         )
 
-    def test_invalidate_prewarm_pid_check_cache_clears_cache(
-        self, monkeypatch, pid_file
-    ):
+    def test_invalidate_prewarm_pid_check_cache_clears_cache(self, monkeypatch, pid_file):
         """``_invalidate_prewarm_pid_check_cache`` must force a re-check
         on the next call.
         """
@@ -182,9 +172,7 @@ class TestProcessIsPrewarmMemoize:
             call_count["n"] += 1
             return True
 
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         # First call: cache miss.
         process_tracker._process_is_prewarm(os.getpid())
@@ -220,9 +208,7 @@ class TestProcessIsPrewarmMemoize:
             call_count["n"] += 1
             return False  # not prewarm (no PID file → not running)
 
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         # First call: PID file missing → cache key = (pid, None).
         assert process_tracker._process_is_prewarm(os.getpid()) is False
@@ -241,7 +227,7 @@ class TestProcessIsPrewarmMemoize:
         monkeypatch.setattr(
             process_tracker,
             "_process_is_prewarm_uncached",
-            lambda pid: (call_count.__setitem__("n", call_count["n"] + 1) or True),
+            lambda pid: call_count.__setitem__("n", call_count["n"] + 1) or True,
         )
         assert process_tracker._process_is_prewarm(os.getpid()) is True
         assert call_count["n"] == 2, (
@@ -262,9 +248,7 @@ class TestProcessIsPrewarmMemoize:
             call_count["n"] += 1
             return results.get(pid, False)
 
-        monkeypatch.setattr(
-            process_tracker, "_process_is_prewarm_uncached", counting_uncached
-        )
+        monkeypatch.setattr(process_tracker, "_process_is_prewarm_uncached", counting_uncached)
 
         # Check PID 1000 → True.
         assert process_tracker._process_is_prewarm(1000) is True

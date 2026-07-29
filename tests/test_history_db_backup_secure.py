@@ -184,6 +184,6 @@ class TestBackupBeforeMigrationSecure:
             # Must NOT raise.
             db._backup_before_migration(current_version=2)
 
-        assert any(
-            "Pre-migration backup FAILED" in r.getMessage() for r in caplog.records
-        ), "expected a WARNING log about the failed backup"
+        assert any("Pre-migration backup FAILED" in r.getMessage() for r in caplog.records), (
+            "expected a WARNING log about the failed backup"
+        )

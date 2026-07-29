@@ -52,9 +52,7 @@ def _patched_atomic_write(monkeypatch):
     return mock
 
 
-def test_save_default_passes_durability_true(
-    tmp_path: Path, _patched_atomic_write: MagicMock
-) -> None:
+def test_save_default_passes_durability_true(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """Default ``save(data)`` forwards ``durability=True``.
 
     Preserves the historical behaviour — callers that do not opt in
@@ -73,9 +71,7 @@ def test_save_default_passes_durability_true(
     )
 
 
-def test_save_durability_false_is_forwarded(
-    tmp_path: Path, _patched_atomic_write: MagicMock
-) -> None:
+def test_save_durability_false_is_forwarded(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """``save(data, durability=False)`` forwards ``durability=False``.
 
     This is the DJ-52 fix — vocabulary/templates callers pass
@@ -92,9 +88,7 @@ def test_save_durability_false_is_forwarded(
     )
 
 
-def test_save_durability_true_is_forwarded(
-    tmp_path: Path, _patched_atomic_write: MagicMock
-) -> None:
+def test_save_durability_true_is_forwarded(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """Explicit ``save(data, durability=True)`` is equivalent to the default.
 
     Defensive — callers that want to be explicit about the durability
@@ -109,9 +103,7 @@ def test_save_durability_true_is_forwarded(
     assert kwargs.get("durability", None) is True
 
 
-def test_save_durability_false_still_writes_atomically(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_save_durability_false_still_writes_atomically(tmp_path: Path, monkeypatch) -> None:
     """``durability=False`` does NOT skip the atomic write itself.
 
     The atomicity guarantee (``os.replace`` of a fully-written tmp
@@ -131,9 +123,7 @@ def test_save_durability_false_still_writes_atomically(
     assert on_disk == {"hello": "world"}
 
 
-def test_save_durability_false_skips_fsync(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_save_durability_false_skips_fsync(tmp_path: Path, monkeypatch) -> None:
     """``durability=False`` does NOT call ``os.fsync``.
 
     This is the core perf claim of DJ-52: skipping the two fsync
@@ -163,9 +153,7 @@ def test_save_durability_false_skips_fsync(
     )
 
 
-def test_save_durability_true_calls_fsync(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_save_durability_true_calls_fsync(tmp_path: Path, monkeypatch) -> None:
     """``durability=True`` (default) DOES call ``os.fsync``.
 
     Regression guard for the inverse direction — the durability flag

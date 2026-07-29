@@ -149,9 +149,7 @@ class TestClearPlaintextConfigCacheHelper:
 class TestDeleteSecretClearsCache:
     """``delete_secret()`` must invalidate ``_plaintext_config_cache``."""
 
-    def test_delete_secret_clears_cache_after_plaintext_fallback_write(
-        self, mock_keyring_unavailable, tmp_path
-    ):
+    def test_delete_secret_clears_cache_after_plaintext_fallback_write(self, mock_keyring_unavailable, tmp_path):
         """DJ-24: after ``delete_secret(provider)`` writes ``""`` to
         config.json via the plaintext fallback, the parsed-config cache
         must be invalidated so the stale plaintext value doesn't
@@ -165,9 +163,7 @@ class TestDeleteSecretClearsCache:
         # Force a read so the cache is populated with the plaintext.
         loaded = credential_store.load_secret("openai")
         assert loaded == "sk-secret-to-delete"
-        assert credential_store._plaintext_config_cache, (
-            "precondition: cache should be populated after load_secret"
-        )
+        assert credential_store._plaintext_config_cache, "precondition: cache should be populated after load_secret"
         # Sanity: the cached parsed dict still contains the plaintext.
         cached_entry = next(iter(credential_store._plaintext_config_cache.values()))
         assert cached_entry[1].get("openai_api_key") == "sk-secret-to-delete"
@@ -185,9 +181,7 @@ class TestDeleteSecretClearsCache:
             "doesn't expose the stale plaintext API key"
         )
 
-    def test_delete_secret_for_one_provider_invalidates_cache_for_all(
-        self, mock_keyring_unavailable, tmp_path
-    ):
+    def test_delete_secret_for_one_provider_invalidates_cache_for_all(self, mock_keyring_unavailable, tmp_path):
         """DJ-24: the cache is keyed by file path, not by provider —
         deleting one provider's secret invalidates the whole parsed
         dict (which contains every provider's value). Verify a
@@ -218,9 +212,7 @@ class TestDeleteSecretClearsCache:
 class TestClearInMemorySecretsClearsCache:
     """``clear_in_memory_secrets()`` must invalidate the cache too."""
 
-    def test_clear_in_memory_secrets_empties_cache(
-        self, mock_keyring_unavailable, tmp_path
-    ):
+    def test_clear_in_memory_secrets_empties_cache(self, mock_keyring_unavailable, tmp_path):
         """DJ-24: ``clear_in_memory_secrets()`` (called by the GDPR
         delete flow as belt-and-suspenders) must also invalidate the
         parsed-config cache. Without this, the cache survives even if
@@ -241,9 +233,7 @@ class TestClearInMemorySecretsClearsCache:
             "DJ-24: clear_in_memory_secrets() must invalidate _plaintext_config_cache"
         )
 
-    def test_clear_in_memory_secrets_clears_cache_even_if_setattr_fails(
-        self, mock_keyring_unavailable, tmp_path
-    ):
+    def test_clear_in_memory_secrets_clears_cache_even_if_setattr_fails(self, mock_keyring_unavailable, tmp_path):
         """DJ-24: the cache-clear must run even if the ``setattr``
         loop raises for every field (e.g. frozen dataclass). The
         cache-clear is independent of the field-clear — defense in

@@ -92,8 +92,7 @@ class TestFR13GuardPageExcluded:
             }
         )
         assert remaining_extended <= crash_handler._CRASH_CODES, (
-            "FR-13: the 8 fatal YJ-42 codes MUST remain in _CRASH_CODES. "
-            "Only STATUS_GUARD_PAGE_VIOLATION was removed."
+            "FR-13: the 8 fatal YJ-42 codes MUST remain in _CRASH_CODES. Only STATUS_GUARD_PAGE_VIOLATION was removed."
         )
 
     def test_original_four_codes_still_in_crash_codes(self):

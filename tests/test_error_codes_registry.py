@@ -60,6 +60,18 @@ from voice_typer.server.ipc.validation import ERROR_CODES, _error_response
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
 SERVER_DIR = REPO_ROOT / "voice_typer" / "server"
+CLIENT_DIR = REPO_ROOT / "voice_typer" / "client"
+
+# AC-16: the original monolithic ``types/ipc.ts`` was split into a
+# ``types/ipc/`` directory (DT-31 / DT-FIX-7). The ``ErrorCodes`` union
+# now lives in ``types/ipc/enums.ts``; the import surface
+# ``types/ipc/index.ts`` re-exports it. Both paths are checked below
+# so the test keeps working regardless of which file a future refactor
+# moves the union into.
+TS_ERROR_CODES_CANDIDATE_PATHS = (
+    CLIENT_DIR / "src" / "renderer" / "src" / "types" / "ipc" / "enums.ts",
+    CLIENT_DIR / "src" / "renderer" / "src" / "types" / "ipc.ts",
+)
 
 # ────────────────────────────────────────────────────────────────────────────
 # Required namespaced codes (per EC-FIX-4 spec)
@@ -356,3 +368,147 @@ class TestErrorResponseDefaultCode:
         result = _error_response(resp, "something went wrong")
         assert result["data"]["code"] == "server.handler_error"
         assert result["data"]["message"] == "something went wrong"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# AC-16: cross-layer parity test (Python ERROR_CODES ⊆ TS ErrorCodes)
+# ────────────────────────────────────────────────────────────────────────────
+
+# Matches a single line of the form ``| "some.code"`` (with optional
+# trailing comma, optional leading whitespace) inside a TS string-literal
+# union. Captures the literal value (without quotes). This is permissive
+# enough to handle both the canonical ``| "client.invalid_field"`` form
+# and the legacy ``| "internal_error"`` form, plus the comment-only
+# ``// ...`` lines (which the regex skips because they don't match the
+# ``| "..."`` shape).
+_TS_UNION_MEMBER_RE = re.compile(
+    r"""^\s*\|\s*["']([a-zA-Z0-9_.]+)["']\s*,?\s*(?://.*)?$""",
+    re.MULTILINE,
+)
+
+
+def _find_ts_error_codes_file() -> Path:
+    """Return the path to the TS file that declares the ``ErrorCodes`` union.
+
+    AC-16: tries the post-DT-31 split path (``types/ipc/enums.ts``) first
+    and falls back to the original monolithic ``types/ipc.ts`` so the
+    test keeps working under either layout.
+    """
+    for candidate in TS_ERROR_CODES_CANDIDATE_PATHS:
+        if candidate.is_file():
+            return candidate
+    pytest.fail(
+        "Could not find the TS ErrorCodes declaration file. Tried: "
+        + ", ".join(str(p) for p in TS_ERROR_CODES_CANDIDATE_PATHS)
+    )
+
+
+def _parse_ts_error_codes_union(text: str) -> set[str]:
+    """Extract the set of string-literal members from a TS string-literal union.
+
+    Scans the file for lines matching ``| "literal"`` and returns the
+    set of captured literals. The union is expected to be a flat
+    ``type ErrorCodes = | "a" | "b" | ...;`` declaration; we don't try
+    to scope the regex to a single ``export type ErrorCodes = ...``
+    block because the file may contain adjacent unions (e.g. the
+    ``RecordingState`` and ``Page`` unions declared above
+    ``ErrorCodes`` in ``enums.ts``). Instead we look for an explicit
+    ``type ErrorCodes`` anchor and scan only the lines after it up to
+    the next ``;`` that terminates the union.
+    """
+    anchor = re.search(r"\btype\s+ErrorCodes\b", text)
+    if anchor is None:
+        pytest.fail(
+            "Could not find `type ErrorCodes` declaration in the TS file — the union may have been renamed or moved."
+        )
+    # Slice from the anchor to the next top-level ``;`` (the
+    # terminator of the type alias). This deliberately over-matches
+    # if the union contains a ``//`` comment with a ``;`` in it
+    # (none of the current entries do).
+    tail = text[anchor.start() :]
+    terminator = tail.find(";")
+    # No terminator found — parse to end of file (defensive).
+    block = tail if terminator == -1 else tail[:terminator]
+    return {m.group(1) for m in _TS_UNION_MEMBER_RE.finditer(block)}
+
+
+class TestTsErrorCodesParity:
+    """AC-16: cross-layer parity between Python ``ERROR_CODES`` and the
+    renderer's TS ``ErrorCodes`` union.
+
+    The Python ``ERROR_CODES`` frozenset (in
+    ``voice_typer/server/ipc/validation.py``) is the canonical registry
+    of namespaced error codes the server may emit. The renderer's TS
+    ``ErrorCodes`` union (in
+    ``voice_typer/client/src/renderer/src/types/ipc/enums.ts``) MUST
+    be a superset of the Python registry — otherwise a code the server
+    emits would fail to type-check at the call site that branches on
+    it (the renderer's ``usePython.ts`` error-envelope switch).
+
+    The TS union also contains legacy aliases (``internal_error``,
+    ``shutting_down``, etc.) and two Rust-host-only codes
+    (``disallowed_window`` and ``disallowed_command``) that the Python
+    server never emits but the Rust ``#[tauri::command]`` functions do.
+    Those are permitted extras — the parity direction is one-way
+    (Python ⊆ TS), not bidirectional.
+    """
+
+    def test_ts_error_codes_file_exists(self):
+        """Sanity check: the TS file declaring ``ErrorCodes`` exists.
+
+        If this fails, either the file moved (update
+        ``TS_ERROR_CODES_CANDIDATE_PATHS``) or the DT-31 split was
+        reverted (re-add the original ``types/ipc.ts`` path to the
+        candidates tuple).
+        """
+        path = _find_ts_error_codes_file()
+        assert path.is_file(), f"TS ErrorCodes file not found at {path}"
+
+    def test_python_error_codes_are_subset_of_ts_union(self):
+        """Every Python namespaced code MUST be present in the TS union.
+
+        This is the core AC-16 parity guard. If a new code is added to
+        the Python ``ErrorCodes`` class without a matching entry in the
+        TS ``ErrorCodes`` union, the renderer's ``switch (code)`` block
+        won't have a case for it and will fall through to the generic
+        "unknown error" path — a silent UX regression.
+        """
+        path = _find_ts_error_codes_file()
+        text = path.read_text(encoding="utf-8")
+        ts_codes = _parse_ts_error_codes_union(text)
+        assert ts_codes, (
+            "Parsed zero entries from the TS ErrorCodes union — the regex may be broken or the union was reformatted."
+        )
+        missing = ERROR_CODES - ts_codes
+        assert not missing, (
+            "Python ERROR_CODES entries missing from the TS ErrorCodes "
+            f"union in {path.relative_to(REPO_ROOT)}: {sorted(missing)}. "
+            'Add each missing code as a `| "<code>"` member of the '
+            "ErrorCodes union so the renderer's error-envelope switch "
+            "can branch on it."
+        )
+
+    def test_ts_union_includes_rust_host_only_codes(self):
+        """AC-16: the TS union MUST include the two Rust-host-only codes
+        (``disallowed_window`` and ``disallowed_command``) so the
+        renderer can branch on them when a ``#[tauri::command]``
+        function rejects before dispatch reaches the Python sidecar.
+
+        These codes are NOT in the Python ``ERROR_CODES`` registry
+        (they're emitted by Rust before dispatch reaches Python), but
+        they ARE in the renderer's error-handling switch — the TS
+        union is the canonical "every code the wire may carry" set.
+        """
+        path = _find_ts_error_codes_file()
+        text = path.read_text(encoding="utf-8")
+        ts_codes = _parse_ts_error_codes_union(text)
+        for rust_code in ("disallowed_window", "disallowed_command"):
+            assert rust_code in ts_codes, (
+                f"Rust-host-only code {rust_code!r} is missing from the "
+                f"TS ErrorCodes union in {path.relative_to(REPO_ROOT)}. "
+                "The Rust `#[tauri::command]` functions emit this code "
+                "BEFORE dispatch reaches the Python sidecar (see "
+                "`src-tauri/src/commands/mod.rs::require_main_window` "
+                "and `src-tauri/src/commands/sidecar_cmds.rs`); the "
+                "renderer's error-envelope switch MUST have a case for it."
+            )

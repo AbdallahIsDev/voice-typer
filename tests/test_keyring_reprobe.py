@@ -87,9 +87,7 @@ class TestReprobePolicy:
         result = credential_store.is_keyring_available()
 
         assert result is True
-        assert len(probe_calls) == 1, (
-            f"first call must probe exactly once, got {len(probe_calls)} probes"
-        )
+        assert len(probe_calls) == 1, f"first call must probe exactly once, got {len(probe_calls)} probes"
 
     def test_second_call_within_5min_does_not_reprobe_available(self, monkeypatch):
         """DJ-27: when cache=True, no re-probe (available backends don't
@@ -102,8 +100,7 @@ class TestReprobePolicy:
         # Second call within 5 minutes — cache hit, no re-probe.
         credential_store.is_keyring_available()
         assert len(probe_calls) == 1, (
-            "DJ-27: cache=True path must NOT re-probe (available backends "
-            "don't need re-probing)"
+            "DJ-27: cache=True path must NOT re-probe (available backends don't need re-probing)"
         )
 
     def test_second_call_within_5min_does_not_reprobe_unavailable(self, monkeypatch):
@@ -116,9 +113,7 @@ class TestReprobePolicy:
 
         # Second call within 5 minutes — cache hit, no re-probe.
         credential_store.is_keyring_available()
-        assert len(probe_calls) == 1, (
-            "DJ-27: cache=False path within 5 min of last probe must NOT re-probe"
-        )
+        assert len(probe_calls) == 1, "DJ-27: cache=False path within 5 min of last probe must NOT re-probe"
 
     def test_reprobe_after_5min_when_unavailable(self, monkeypatch):
         """DJ-27: when cache=False AND last probe was >5 min ago, re-probe.
@@ -139,9 +134,7 @@ class TestReprobePolicy:
 
         # Second call: cache=False AND last probe >5 min ago → re-probe.
         credential_store.is_keyring_available()
-        assert len(probe_calls) == 2, (
-            "DJ-27: cache=False path >5 min after last probe must re-probe"
-        )
+        assert len(probe_calls) == 2, "DJ-27: cache=False path >5 min after last probe must re-probe"
 
     def test_reprobe_picks_up_backend_appearing_mid_session(self, monkeypatch):
         """DJ-27: the re-probe must OBSERVE a backend that appeared mid-

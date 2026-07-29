@@ -40,9 +40,7 @@ def test_prune_thread_started_on_init(db):
     """DJ-19: ``__init__`` starts the prune daemon thread."""
     assert db._read_conn_prune_thread is not None
     assert db._read_conn_prune_thread.is_alive()
-    assert db._read_conn_prune_thread.daemon, (
-        "prune thread must be a daemon so it dies at process exit"
-    )
+    assert db._read_conn_prune_thread.daemon, "prune thread must be a daemon so it dies at process exit"
     assert db._read_conn_prune_thread.name == "HistoryDBReadConnPrune"
 
 
@@ -76,8 +74,7 @@ def test_prune_thread_uses_event_wait_not_timer(monkeypatch):
         # (it shouldn't — it uses Event.wait instead).
         time.sleep(0.05)
         assert len(timer_instances) == 0, (
-            f"prune worker used threading.Timer (created {len(timer_instances)} "
-            f"Timer instances) — DJ-37 anti-pattern"
+            f"prune worker used threading.Timer (created {len(timer_instances)} Timer instances) — DJ-37 anti-pattern"
         )
     finally:
         db.close()
@@ -124,34 +121,22 @@ def test_prune_worker_closes_dead_thread_connections(db, monkeypatch):
 
     # The dead-thread connection is now in _all_read_connections.
     with db._connections_lock:
-        dead_conns = [
-            (ident, conn)
-            for ident, conn in db._all_read_connections
-            if ident == t.ident
-        ]
-    assert len(dead_conns) == 1, (
-        f"expected 1 dead-thread connection, got {len(dead_conns)}"
-    )
+        dead_conns = [(ident, conn) for ident, conn in db._all_read_connections if ident == t.ident]
+    assert len(dead_conns) == 1, f"expected 1 dead-thread connection, got {len(dead_conns)}"
     dead_conn = dead_conns[0][1]
 
     # Wait for the prune worker to close it (timeout 3s = 30 intervals).
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         with db._connections_lock:
-            still_alive = any(
-                ident == t.ident for ident, _ in db._all_read_connections
-            )
+            still_alive = any(ident == t.ident for ident, _ in db._all_read_connections)
         if not still_alive:
             break
         time.sleep(0.05)
 
     with db._connections_lock:
-        still_alive = any(
-            ident == t.ident for ident, _ in db._all_read_connections
-        )
-    assert not still_alive, (
-        "prune worker did not close the dead-thread connection within 3s"
-    )
+        still_alive = any(ident == t.ident for ident, _ in db._all_read_connections)
+    assert not still_alive, "prune worker did not close the dead-thread connection within 3s"
 
     # Verify the connection itself was actually closed.
     # A closed sqlite3.Connection raises sqlite3.ProgrammingError on use.
@@ -191,13 +176,9 @@ def test_prune_worker_survives_transient_error(db, monkeypatch):
     while time.monotonic() < deadline and call_count["n"] < 2:
         time.sleep(0.05)
 
-    assert call_count["n"] >= 2, (
-        f"prune worker died after first tick error; only {call_count['n']} tick(s) ran"
-    )
+    assert call_count["n"] >= 2, f"prune worker died after first tick error; only {call_count['n']} tick(s) ran"
     assert db._read_conn_prune_thread is not None
-    assert db._read_conn_prune_thread.is_alive(), (
-        "prune worker thread should still be alive after a transient error"
-    )
+    assert db._read_conn_prune_thread.is_alive(), "prune worker thread should still be alive after a transient error"
 
 
 # ──────────────────────────────────────────────────────────────────

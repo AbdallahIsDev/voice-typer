@@ -41,14 +41,16 @@ class TestElectronExposesDataExportHandlers:
     def test_main_has_templates_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts
+        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
         assert 'ipcMain.handle("templates:export"' in combined or '"templates:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: same as above — src/main/index.ts source check.
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts
+        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
         assert 'ipcMain.handle("config:export"' in combined or '"config:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/preload/index.ts source which
@@ -63,14 +65,16 @@ class TestElectronExposesDataExportHandlers:
     def test_history_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts
+        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
         assert 'ipcMain.handle("history:export"' in combined or '"history:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_vocabulary_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts
+        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
+        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
         assert 'ipcMain.handle("vocabulary:export"' in combined or '"vocabulary:export"' in combined
 
 
@@ -516,10 +520,10 @@ class TestRestartAppStopsBackends:
 
         with (
             patch.object(app_module, "_config_dir", return_value=tmp_path),
-            patch.object(app_module, "is_autostart_enabled", return_value=False),
-            patch.object(app_module, "enable_autostart"),
-            patch.object(app_module, "disable_autostart"),
-            patch.object(app_module, "list_microphones", return_value=[]),
+            patch.object(app_module, "is_autostart_enabled", return_value=False, create=True),
+            patch.object(app_module, "enable_autostart", create=True),
+            patch.object(app_module, "disable_autostart", create=True),
+            patch.object(app_module, "list_microphones", return_value=[], create=True),
         ):
             app = app_module.VoiceTyperApp()
             app.hotkeys._hotkey_backend = MagicMock()

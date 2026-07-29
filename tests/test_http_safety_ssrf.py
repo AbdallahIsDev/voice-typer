@@ -103,8 +103,7 @@ class TestIsPrivateIp:
     )
     def test_rfc1918_private_ranges_rejected(self, ip):
         assert _is_private_ip(ip) is True, (
-            f"FR-25: RFC 1918 private IP {ip!r} should be rejected by "
-            f"_is_private_ip (SSRF defense)."
+            f"FR-25: RFC 1918 private IP {ip!r} should be rejected by _is_private_ip (SSRF defense)."
         )
 
     # ── Link-local (169.254/16, including cloud metadata endpoint) ──
@@ -128,10 +127,7 @@ class TestIsPrivateIp:
     # ── Loopback (127/8) ──
     @pytest.mark.parametrize("ip", ["127.0.0.1", "127.0.0.2", "127.255.255.255"])
     def test_ipv4_loopback_rejected(self, ip):
-        assert _is_private_ip(ip) is True, (
-            f"FR-25: loopback IP {ip!r} should be rejected by "
-            f"_is_private_ip."
-        )
+        assert _is_private_ip(ip) is True, f"FR-25: loopback IP {ip!r} should be rejected by _is_private_ip."
 
     # ── Unspecified (0.0.0.0) ──
     @pytest.mark.parametrize("ip", ["0.0.0.0"])
@@ -153,8 +149,7 @@ class TestIsPrivateIp:
     )
     def test_ipv6_private_ranges_rejected(self, ip):
         assert _is_private_ip(ip) is True, (
-            f"FR-25: IPv6 private/reserved IP {ip!r} should be "
-            f"rejected by _is_private_ip."
+            f"FR-25: IPv6 private/reserved IP {ip!r} should be rejected by _is_private_ip."
         )
 
     # ── Public IPs (must NOT be rejected) ──
@@ -376,9 +371,7 @@ class TestAssertUrlAllowedDnsRebindingDefense:
         check entirely.  The IP-literal blocklist still runs for IP
         literals, but for hostnames no resolution is attempted."""
         # Patch getaddrinfo to raise if called — verify it's NOT called.
-        with patch(
-            "socket.getaddrinfo", side_effect=AssertionError("getaddrinfo should not be called")
-        ):
+        with patch("socket.getaddrinfo", side_effect=AssertionError("getaddrinfo should not be called")):
             # Must NOT raise (no resolution attempted).
             assert_url_allowed(
                 "https://api.openai.com/v1/chat",
@@ -479,9 +472,12 @@ class TestAssertUrlAllowedSsrfDefenseInDepth:
         # We mock getaddrinfo to raise AssertionError if called —
         # proving the SSRF check does NOT run when the HTTPS check
         # already fails.
-        with patch(
-            "socket.getaddrinfo", side_effect=AssertionError("getaddrinfo should not be called for HTTP rejection")
-        ), pytest.raises(ValueError, match="must use HTTPS"):
+        with (
+            patch(
+                "socket.getaddrinfo", side_effect=AssertionError("getaddrinfo should not be called for HTTP rejection")
+            ),
+            pytest.raises(ValueError, match="must use HTTPS"),
+        ):
             assert_url_allowed("http://api.openai.com/v1/chat")
 
     def test_ssrf_check_runs_for_allowlisted_https_hostname(self):

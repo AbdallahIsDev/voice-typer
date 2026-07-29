@@ -188,18 +188,14 @@ class TestThreadCrashExcepthook:
     writes a ``python_crash.<PID>.<thread_name>.txt`` marker file, and
     chains to the previously-installed ``threading.excepthook``."""
 
-    def test_logs_at_critical_with_thread_name_and_exc_type(
-        self, restore_threading_excepthook, caplog, tmp_path
-    ):
+    def test_logs_at_critical_with_thread_name_and_exc_type(self, restore_threading_excepthook, caplog, tmp_path):
         """The hook logs at CRITICAL with the thread name and exc_type.__name__."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
 
         try:
             raise RuntimeError("boom-in-thread")
         except RuntimeError as exc:
-            args = threading.ExceptHookArgs(
-                [type(exc), exc, exc.__traceback__, threading.current_thread()]
-            )
+            args = threading.ExceptHookArgs([type(exc), exc, exc.__traceback__, threading.current_thread()])
             with caplog.at_level(logging.CRITICAL, logger="voice_typer"):
                 crash_handler._thread_crash_excepthook(args)
 
@@ -216,9 +212,7 @@ class TestThreadCrashExcepthook:
         # is typically "MainThread" under pytest).
         assert threading.current_thread().name in combined
 
-    def test_writes_thread_specific_marker_file(
-        self, restore_threading_excepthook, caplog, tmp_path
-    ):
+    def test_writes_thread_specific_marker_file(self, restore_threading_excepthook, caplog, tmp_path):
         """FR-14: the hook writes a ``python_crash.<PID>.<thread_name>.txt``
         marker file (distinct from the main-hook's ``python_crash.<PID>.txt``)
         so daemon-thread crashes are surfaced by ``report_pending_crash`` on
@@ -254,17 +248,13 @@ class TestThreadCrashExcepthook:
         # The marker filename must include the PID and the thread name.
         marker_name = f"python_crash.{os.getpid()}.{thread_name}.txt"
         marker_path = tmp_path / marker_name
-        assert marker_path.exists(), (
-            f"FR-14: thread-specific marker file must exist at {marker_path}"
-        )
+        assert marker_path.exists(), f"FR-14: thread-specific marker file must exist at {marker_path}"
 
         content = marker_path.read_text(encoding="utf-8")
         # The marker must carry the standard key=value fields that
         # ``_summarize_python_crash`` parses.
         for key in ("exc_type=", "exc_value=", "thread=", "timestamp="):
-            assert key in content, (
-                f"FR-14: marker must include '{key}' line; got:\n{content}"
-            )
+            assert key in content, f"FR-14: marker must include '{key}' line; got:\n{content}"
         assert "RuntimeError" in content
         assert thread_name in content
 
@@ -279,9 +269,7 @@ class TestThreadCrashExcepthook:
         try:
             raise ValueError(ssn)
         except ValueError as exc:
-            args = threading.ExceptHookArgs(
-                [type(exc), exc, exc.__traceback__, threading.current_thread()]
-            )
+            args = threading.ExceptHookArgs([type(exc), exc, exc.__traceback__, threading.current_thread()])
             crash_handler._thread_crash_excepthook(args)
 
         marker = tmp_path / f"python_crash.{os.getpid()}.{threading.current_thread().name}.txt"
@@ -290,13 +278,10 @@ class TestThreadCrashExcepthook:
         # The SSN must NOT appear in the marker (redact_pii should have
         # scrubbed it).
         assert ssn not in content, (
-            f"FR-14: exc_value PII must be redacted before persisting to the "
-            f"thread crash marker; got:\n{content}"
+            f"FR-14: exc_value PII must be redacted before persisting to the thread crash marker; got:\n{content}"
         )
 
-    def test_chains_to_original_threading_excepthook(
-        self, restore_threading_excepthook, tmp_path
-    ):
+    def test_chains_to_original_threading_excepthook(self, restore_threading_excepthook, tmp_path):
         """FR-14: the hook chains to the previously-installed
         ``threading.excepthook`` so the default stderr path still fires
         (defense-in-depth — stderr is /dev/null under bundled sidecar,
@@ -313,14 +298,11 @@ class TestThreadCrashExcepthook:
         try:
             raise ValueError("chain-test")
         except ValueError as exc:
-            args = threading.ExceptHookArgs(
-                [type(exc), exc, exc.__traceback__, threading.current_thread()]
-            )
+            args = threading.ExceptHookArgs([type(exc), exc, exc.__traceback__, threading.current_thread()])
             threading.excepthook(args)
 
         assert original_called == [True], (
-            "FR-14: _thread_crash_excepthook must chain to the previously-installed "
-            "threading.excepthook"
+            "FR-14: _thread_crash_excepthook must chain to the previously-installed threading.excepthook"
         )
 
     def test_hook_does_not_raise_on_attr_error(self, restore_threading_excepthook, tmp_path):
@@ -333,9 +315,7 @@ class TestThreadCrashExcepthook:
         crash_handler._thread_crash_excepthook(object())  # type: ignore[arg-type]
         # No exception raised == pass.
 
-    def test_no_marker_written_when_python_crash_dir_unset(
-        self, restore_threading_excepthook, caplog
-    ):
+    def test_no_marker_written_when_python_crash_dir_unset(self, restore_threading_excepthook, caplog):
         """FR-14: if ``_python_crash_dir`` is None (hook called before
         ``set_crash_handler_config_dir``), the hook still logs at CRITICAL
         but does NOT attempt to write a marker file."""
@@ -343,9 +323,7 @@ class TestThreadCrashExcepthook:
         try:
             raise ValueError("no-dir")
         except ValueError as exc:
-            args = threading.ExceptHookArgs(
-                [type(exc), exc, exc.__traceback__, threading.current_thread()]
-            )
+            args = threading.ExceptHookArgs([type(exc), exc, exc.__traceback__, threading.current_thread()])
             with caplog.at_level(logging.CRITICAL, logger="voice_typer"):
                 crash_handler._thread_crash_excepthook(args)
 
@@ -363,9 +341,7 @@ class TestEndToEndDaemonThreadCrash:
     a ``python_crash.<PID>.<thread_name>.txt`` marker file via the
     installed ``threading.excepthook``."""
 
-    def test_daemon_thread_crash_produces_marker(
-        self, restore_threading_excepthook, tmp_path, caplog
-    ):
+    def test_daemon_thread_crash_produces_marker(self, restore_threading_excepthook, tmp_path, caplog):
         crash_handler.set_crash_handler_config_dir(tmp_path)
         crash_handler.install_threading_excepthook()
         marker_name_prefix = "DaemonCrashE2E"
@@ -388,9 +364,7 @@ class TestEndToEndDaemonThreadCrash:
         assert done.wait(timeout=5.0), "FR-14: daemon worker must invoke threading.excepthook"
 
         marker = tmp_path / f"python_crash.{os.getpid()}.{marker_name_prefix}.txt"
-        assert marker.exists(), (
-            f"FR-14: end-to-end daemon-thread crash must produce marker at {marker}"
-        )
+        assert marker.exists(), f"FR-14: end-to-end daemon-thread crash must produce marker at {marker}"
         content = marker.read_text(encoding="utf-8")
         assert "RuntimeError" in content
         assert marker_name_prefix in content

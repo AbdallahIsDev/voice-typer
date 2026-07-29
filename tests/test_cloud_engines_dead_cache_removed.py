@@ -102,9 +102,7 @@ class TestCachedEngineInfrastructureRemoved:
             "clear_cached_engine",
             "clear_all_cached_engines",
         ):
-            assert not hasattr(cloud_engines, name), (
-                f"FR-6 regression: cloud_engines.{name} was re-introduced."
-            )
+            assert not hasattr(cloud_engines, name), f"FR-6 regression: cloud_engines.{name} was re-introduced."
             # ``getattr`` on a module with a missing attribute raises
             # ``AttributeError``; the ``from X import Y`` statement
             # wraps that as ``ImportError`` at import time. We use
@@ -204,6 +202,5 @@ class TestPerTranscriptionLifecycleDocumented:
             "contributors know the cache was deleted on purpose)."
         )
         assert "FR-6" in source, (
-            "FR-6 contract: cloud_engines.py must reference the FR-6 "
-            "fix ID so the regression-guard block is greppable."
+            "FR-6 contract: cloud_engines.py must reference the FR-6 fix ID so the regression-guard block is greppable."
         )

@@ -134,17 +134,27 @@ class TestQuitAppCleanShutdown:
         # ARCH-REFAC-003: write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = None
-        app.hotkeys._hotkey_backend = MagicMock()
-        app.hotkeys._esc_backend = MagicMock()
-        app.hotkeys._repaste_backend = MagicMock()
+        # XZ-R17-02: ``shutdown_controller._teardown_hotkeys`` now NULLS
+        # out ``_hotkey_backend`` / ``_esc_backend`` / ``_repaste_backend``
+        # after calling ``stop()`` (so a late hotkey callback from a
+        # not-yet-joined listener thread finds ``None`` instead of a
+        # stopped backend). Capture the mocks in LOCALS before quit()
+        # runs so the assertions still observe the stop() call after
+        # the attrs are nulled.
+        hotkey_backend = MagicMock()
+        esc_backend = MagicMock()
+        repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = hotkey_backend
+        app.hotkeys._esc_backend = esc_backend
+        app.hotkeys._repaste_backend = repaste_backend
         app.tray = MagicMock()
 
         with contextlib.suppress(SystemExit):
             app.quit()
 
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
-        app.hotkeys._esc_backend.stop.assert_called_once()
-        app.hotkeys._repaste_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
+        esc_backend.stop.assert_called_once()
+        repaste_backend.stop.assert_called_once()
 
 
 class TestRestartAppCleanShutdown:
@@ -185,18 +195,23 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-        app.hotkeys._hotkey_backend = MagicMock()
-        app.hotkeys._esc_backend = MagicMock()
-        app.hotkeys._repaste_backend = MagicMock()
+        # XZ-R17-02: shutdown_controller now nulls the backend attrs after
+        # stop() — capture mocks in locals so assertions still work.
+        hotkey_backend = MagicMock()
+        esc_backend = MagicMock()
+        repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = hotkey_backend
+        app.hotkeys._esc_backend = esc_backend
+        app.hotkeys._repaste_backend = repaste_backend
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
-        app.hotkeys._esc_backend.stop.assert_called_once()
-        app.hotkeys._repaste_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
+        esc_backend.stop.assert_called_once()
+        repaste_backend.stop.assert_called_once()
 
     def test_restart_app_calls_tray_stop(self, app, monkeypatch):
         """restart_app must call self.tray.stop() to break the pystray
@@ -269,18 +284,23 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-        app.hotkeys._hotkey_backend = MagicMock()
-        app.hotkeys._esc_backend = MagicMock()
-        app.hotkeys._repaste_backend = MagicMock()
+        # XZ-R17-02: shutdown_controller now nulls the backend attrs after
+        # stop() — capture mocks in locals so assertions still work.
+        hotkey_backend = MagicMock()
+        esc_backend = MagicMock()
+        repaste_backend = MagicMock()
+        app.hotkeys._hotkey_backend = hotkey_backend
+        app.hotkeys._esc_backend = esc_backend
+        app.hotkeys._repaste_backend = repaste_backend
         app._cancel_pending_timers = MagicMock()
         app.tray = MagicMock()
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
-        app.hotkeys._esc_backend.stop.assert_called_once()
-        app.hotkeys._repaste_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
+        esc_backend.stop.assert_called_once()
+        repaste_backend.stop.assert_called_once()
 
     def test_restart_calls_tray_stop(self, app, monkeypatch):
         """restart_app must call tray.stop() to break the pystray loop."""

@@ -128,9 +128,7 @@ class TestDJ29LazyPreStateDict:
 
         app.config.save_strict.assert_not_called()
 
-    def test_save_strict_not_called_when_no_values_actually_changed(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_save_strict_not_called_when_no_values_actually_changed(self, tmp_config_dir, monkeypatch):
         """DJ-29: when ``updates`` is non-empty but every value already
         equals the current state, the dirty-check (``pre_values ==
         post_values``) returns True, so ``save_strict()`` MUST NOT be
@@ -147,9 +145,7 @@ class TestDJ29LazyPreStateDict:
 
         app.config.save_strict.assert_not_called()
 
-    def test_save_strict_called_when_a_value_actually_changed(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_save_strict_called_when_a_value_actually_changed(self, tmp_config_dir, monkeypatch):
         """DJ-29: when ``updates`` is non-empty AND at least one value
         actually changed, the dirty-check returns False and
         ``save_strict()`` MUST be called. This is the G4-L-20 + CR-97
@@ -193,9 +189,7 @@ class TestDJ29LazyPreStateDict:
         )
         app.config.save_strict.assert_called_once_with()
 
-    def test_rollback_restores_changed_keys_on_save_strict_failure(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_rollback_restores_changed_keys_on_save_strict_failure(self, tmp_config_dir, monkeypatch):
         """DJ-29 + G4-H-12: when ``save_strict()`` raises, the
         in-memory Config MUST be rolled back to the pre-setattr
         values for exactly the keys that were mutated. Previously
@@ -225,9 +219,7 @@ class TestDJ29LazyPreStateDict:
             "identical for the keys the caller asked to change."
         )
 
-    def test_rollback_reruns_side_effects_with_original_values(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_rollback_reruns_side_effects_with_original_values(self, tmp_config_dir, monkeypatch):
         """DJ-29 + G4-H-12: when ``save_strict()`` raises, side-effects
         MUST be re-run with the ORIGINAL values (from ``set_keys``) so
         live state (hotkey registration, etc.) matches the restored
@@ -247,9 +239,7 @@ class TestDJ29LazyPreStateDict:
             side_effect_calls.append(dict(updates))
             return {"autostart_status": None, "prewarm_status": None}
 
-        monkeypatch.setattr(
-            service._config_applier, "apply_config_side_effects", _capture_side_effect
-        )
+        monkeypatch.setattr(service._config_applier, "apply_config_side_effects", _capture_side_effect)
 
         original_hotkey = app.config.hotkey
         new_hotkey = "<f4>" if original_hotkey != "<f4>" else "<f5>"

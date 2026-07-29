@@ -91,9 +91,7 @@ class TestCorruptionNotification:
         )
         event = matching[0]
         assert "path" in event.get("data", {}), "event.data must include 'path'"
-        assert "corrupt-" in event["data"]["path"], (
-            "event.data.path must name the corrupt backup file"
-        )
+        assert "corrupt-" in event["data"]["path"], "event.data.path must name the corrupt backup file"
 
     def test_calls_tray_notify_when_app_ref_wired(self, db, monkeypatch):
         """When ``self._app.tray.notify`` is available, the recovery
@@ -160,10 +158,8 @@ class TestCorruptionNotification:
             and "corrupted" in r.getMessage().lower()
             and "backed up" in r.getMessage().lower()
         ]
-        assert matching, (
-            "FR-29 violation: expected a WARNING log with 'corrupted' and "
-            "'backed up'. Got: "
-            + repr([r.getMessage() for r in caplog.records])
+        assert matching, "FR-29 violation: expected a WARNING log with 'corrupted' and 'backed up'. Got: " + repr(
+            [r.getMessage() for r in caplog.records]
         )
 
     def test_event_bus_failure_does_not_crash_recovery(self, db, monkeypatch):

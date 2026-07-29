@@ -54,12 +54,12 @@ class TestDJ9SequentialHistoryAndCrashRecovery:
         list_start = s.find("[", else_idx)
         list_end = s.find("]\n", list_start)
         parallel_block = s[list_start:list_end]
-        assert (
-            "teardown_history_db" not in parallel_block
-        ), "DJ-9: _teardown_history_db must NOT be in the parallel batch"
-        assert (
-            "teardown_crash_recovery" not in parallel_block
-        ), "DJ-9: _teardown_crash_recovery must NOT be in the parallel batch"
+        assert "teardown_history_db" not in parallel_block, (
+            "DJ-9: _teardown_history_db must NOT be in the parallel batch"
+        )
+        assert "teardown_crash_recovery" not in parallel_block, (
+            "DJ-9: _teardown_crash_recovery must NOT be in the parallel batch"
+        )
 
     def test_history_db_and_crash_recovery_run_sequentially_before_parallel(
         self,
@@ -68,31 +68,19 @@ class TestDJ9SequentialHistoryAndCrashRecovery:
         sequential phase BEFORE the ``parallel_items`` block."""
         s = _src()
         # Find the sequential phase markers.
-        seq_crash = s.find(
-            '"teardown_crash_recovery",\n                self._teardown_crash_recovery,'
-        )
-        seq_history = s.find(
-            '"teardown_history_db",\n                self._teardown_history_db,'
-        )
-        assert seq_crash > -1, (
-            "DJ-9: _teardown_crash_recovery must be invoked sequentially "
-            "via _run_with_timeout"
-        )
-        assert seq_history > -1, (
-            "DJ-9: _teardown_history_db must be invoked sequentially "
-            "via _run_with_timeout"
-        )
+        seq_crash = s.find('"teardown_crash_recovery",\n                self._teardown_crash_recovery,')
+        seq_history = s.find('"teardown_history_db",\n                self._teardown_history_db,')
+        assert seq_crash > -1, "DJ-9: _teardown_crash_recovery must be invoked sequentially via _run_with_timeout"
+        assert seq_history > -1, "DJ-9: _teardown_history_db must be invoked sequentially via _run_with_timeout"
         # The sequential invocations must come BEFORE the parallel
         # batch (``parallel_items = [``).
         parallel_idx = s.find("parallel_items: list[tuple")
         assert parallel_idx > -1
         assert seq_crash < parallel_idx, (
-            "DJ-9: _teardown_crash_recovery sequential invocation must be "
-            "BEFORE the parallel batch"
+            "DJ-9: _teardown_crash_recovery sequential invocation must be BEFORE the parallel batch"
         )
         assert seq_history < parallel_idx, (
-            "DJ-9: _teardown_history_db sequential invocation must be "
-            "BEFORE the parallel batch"
+            "DJ-9: _teardown_history_db sequential invocation must be BEFORE the parallel batch"
         )
 
 
@@ -109,20 +97,14 @@ class TestDJ8OsExitOnStuckWsDrain:
         # by ``log.warning(...)`` + ``self._run_critical_fast_path(app)``
         # + ``os._exit(0)``.
         drain_timeout_idx = s.find("if join_thread.is_alive():")
-        assert drain_timeout_idx > -1, (
-            "DJ-8: the ws-drain timeout branch (if join_thread.is_alive():) "
-            "must exist"
-        )
+        assert drain_timeout_idx > -1, "DJ-8: the ws-drain timeout branch (if join_thread.is_alive():) must exist"
         # Slice a generous window (the block spans the log.warning +
         # _run_critical_fast_path + os._exit lines).
         block = s[drain_timeout_idx : drain_timeout_idx + 1500]
         assert "DJ-8" in block, "DJ-8: the drain-timeout block must reference DJ-8"
-        assert "os._exit(0)" in block, (
-            "DJ-8: the drain-timeout branch must call os._exit(0)"
-        )
+        assert "os._exit(0)" in block, "DJ-8: the drain-timeout branch must call os._exit(0)"
         assert "_run_critical_fast_path" in block, (
-            "DJ-8: the drain-timeout branch must run _run_critical_fast_path "
-            "BEFORE os._exit(0)"
+            "DJ-8: the drain-timeout branch must run _run_critical_fast_path BEFORE os._exit(0)"
         )
 
 
@@ -135,8 +117,7 @@ class TestDJ6CriticalOnlyMode:
         ``__init__``."""
         s = _src()
         assert "self._critical_only_mode: bool = False" in s, (
-            "DJ-6: _critical_only_mode flag must be initialized to False "
-            "in __init__"
+            "DJ-6: _critical_only_mode flag must be initialized to False in __init__"
         )
 
     def test_critical_only_branch_runs_only_fast_tier_helpers(self) -> None:
@@ -147,19 +128,12 @@ class TestDJ6CriticalOnlyMode:
         s = _src()
         # Find the ``if critical_only:`` branch's parallel_items.
         critical_idx = s.find("if critical_only:")
-        assert critical_idx > -1, (
-            "DJ-6: _do_cleanup must have an ``if critical_only:`` branch"
-        )
+        assert critical_idx > -1, "DJ-6: _do_cleanup must have an ``if critical_only:`` branch"
         # Slice to the ``else:`` branch (the non-critical parallel batch).
         else_idx = s.find("        else:\n            parallel_items", critical_idx)
-        assert else_idx > -1, (
-            "DJ-6: the non-critical ``else:`` branch must follow the "
-            "``if critical_only:`` branch"
-        )
+        assert else_idx > -1, "DJ-6: the non-critical ``else:`` branch must follow the ``if critical_only:`` branch"
         critical_block = s[critical_idx:else_idx]
-        assert "teardown_pid_file" in critical_block, (
-            "DJ-6: critical-only branch must include _teardown_pid_file"
-        )
+        assert "teardown_pid_file" in critical_block, "DJ-6: critical-only branch must include _teardown_pid_file"
         assert "teardown_mutex_handle" in critical_block, (
             "DJ-6: critical-only branch must include _teardown_mutex_handle"
         )
@@ -172,17 +146,14 @@ class TestDJ6CriticalOnlyMode:
             "teardown_asr_models",
         ]:
             assert slow_helper not in critical_block, (
-                f"DJ-6: slow-tier helper {slow_helper} must NOT be in the "
-                "critical-only branch"
+                f"DJ-6: slow-tier helper {slow_helper} must NOT be in the critical-only branch"
             )
 
     def test_run_critical_fast_path_method_exists(self) -> None:
         """``_run_critical_fast_path`` must be defined as a method on
         ``ShutdownController``."""
         s = _src()
-        assert "def _run_critical_fast_path(self, app" in s, (
-            "DJ-6: _run_critical_fast_path(app) method must be defined"
-        )
+        assert "def _run_critical_fast_path(self, app" in s, "DJ-6: _run_critical_fast_path(app) method must be defined"
 
     def test_run_critical_fast_path_invokes_fast_tier_helpers(self) -> None:
         """``_run_critical_fast_path`` must invoke (via
@@ -201,9 +172,7 @@ class TestDJ6CriticalOnlyMode:
             "self._teardown_mutex_handle",
             "app.tray.stop",
         ]:
-            assert expected in body, (
-                f"DJ-6: _run_critical_fast_path must invoke {expected}"
-            )
+            assert expected in body, f"DJ-6: _run_critical_fast_path must invoke {expected}"
 
 
 # ── Dynamic test: actually invoke _do_cleanup in critical-only mode ──

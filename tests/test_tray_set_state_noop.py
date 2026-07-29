@@ -151,12 +151,8 @@ class TestSetStateNoop:
 
         # Same state + same message — short-circuited (DJ-41).
         tray.set_state(AppState.IDLE, "msg")
-        assert len(apply_calls) == 1, (
-            f"No-op call should NOT _apply_state, got {apply_calls}"
-        )
-        assert len(publish_calls) == 1, (
-            f"No-op call should NOT _publish_tray_state, got {publish_calls}"
-        )
+        assert len(apply_calls) == 1, f"No-op call should NOT _apply_state, got {apply_calls}"
+        assert len(publish_calls) == 1, f"No-op call should NOT _publish_tray_state, got {publish_calls}"
 
         # A third identical call — still short-circuited.
         tray.set_state(AppState.IDLE, "msg")
@@ -227,20 +223,15 @@ class TestSetStateNoop:
 
         # RECORDING → RECORDING (same args): no-op, no spurious start/cancel.
         tray.set_state(AppState.RECORDING, "recording")
-        assert len(start_calls) == 1, (
-            f"No-op RECORDING call should NOT re-start the timer, got {start_calls}"
-        )
-        assert len(cancel_calls) == 0, (
-            f"No-op RECORDING call should NOT cancel the timer, got {cancel_calls}"
-        )
+        assert len(start_calls) == 1, f"No-op RECORDING call should NOT re-start the timer, got {start_calls}"
+        assert len(cancel_calls) == 0, f"No-op RECORDING call should NOT cancel the timer, got {cancel_calls}"
 
         # RECORDING → RECORDING (different message): NOT a no-op, but
         # the start/cancel logic only fires on state CHANGE (RECORDING ⇄
         # non-RECORDING), so start_calls + cancel_calls stay at 1 + 0.
         tray.set_state(AppState.RECORDING, "still recording")
         assert len(start_calls) == 1, (
-            "Same-state transition should not re-start the timer "
-            "(prev_state == state == RECORDING)"
+            "Same-state transition should not re-start the timer (prev_state == state == RECORDING)"
         )
         assert len(cancel_calls) == 0
 
@@ -250,9 +241,7 @@ class TestSetStateNoop:
 
         # IDLE → IDLE (same args): no-op, no spurious cancel.
         tray.set_state(AppState.IDLE, "done")
-        assert len(cancel_calls) == 1, (
-            f"No-op IDLE call should NOT re-cancel, got {cancel_calls}"
-        )
+        assert len(cancel_calls) == 1, f"No-op IDLE call should NOT re-cancel, got {cancel_calls}"
 
     def test_noop_returns_none_quickly(self, monkeypatch):
         """The no-op short-circuit is the FIRST statement in set_state,

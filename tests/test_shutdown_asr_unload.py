@@ -51,9 +51,7 @@ class TestDJ7TeardownAsrModelsContract:
         ``ShutdownController``."""
         s = _src()
         # Method definition with the exact name + ``self`` first arg.
-        assert (
-            "def _teardown_asr_models(self" in s
-        ), "DJ-7: _teardown_asr_models(self) method must be defined"
+        assert "def _teardown_asr_models(self" in s, "DJ-7: _teardown_asr_models(self) method must be defined"
 
     def test_teardown_asr_models_is_first_in_parallel_batch(self) -> None:
         """The helper must be the FIRST entry in the parallel batch
@@ -68,9 +66,7 @@ class TestDJ7TeardownAsrModelsContract:
         asr_idx = s.find('("teardown_asr_models",')
         assert asr_idx > -1, "DJ-7: _teardown_asr_models must be in the parallel batch"
         timers_idx = s.find('("teardown_timers_and_recording",')
-        assert timers_idx > -1, (
-            "DJ-7: _teardown_timers_and_recording must still be in the parallel batch"
-        )
+        assert timers_idx > -1, "DJ-7: _teardown_timers_and_recording must still be in the parallel batch"
         assert asr_idx < timers_idx, (
             "DJ-7: _teardown_asr_models must be the FIRST item in the parallel batch "
             "(before _teardown_timers_and_recording) so GPU memory is freed before "
@@ -88,8 +84,7 @@ class TestDJ7TeardownAsrModelsContract:
         next_def = s.find("\n    def ", helper_idx + 1)
         body = s[helper_idx:next_def]
         assert "asr_registry.unload()" in body, (
-            "DJ-7: _teardown_asr_models must call asr_registry.unload() "
-            "(no-arg form — unloads the active backend)"
+            "DJ-7: _teardown_asr_models must call asr_registry.unload() (no-arg form — unloads the active backend)"
         )
 
     def test_teardown_asr_models_guards_torch_cuda_with_hasattr_and_is_available(
@@ -108,13 +103,11 @@ class TestDJ7TeardownAsrModelsContract:
         assert helper_idx > -1
         next_def = s.find("\n    def ", helper_idx + 1)
         body = s[helper_idx:next_def]
-        assert "hasattr(torch, \"cuda\")" in body, (
-            "DJ-7: _teardown_asr_models must guard torch.cuda with "
-            "hasattr(torch, 'cuda')"
+        assert 'hasattr(torch, "cuda")' in body, (
+            "DJ-7: _teardown_asr_models must guard torch.cuda with hasattr(torch, 'cuda')"
         )
         assert "torch.cuda.is_available()" in body, (
-            "DJ-7: _teardown_asr_models must guard torch.cuda with "
-            "torch.cuda.is_available()"
+            "DJ-7: _teardown_asr_models must guard torch.cuda with torch.cuda.is_available()"
         )
 
     def test_teardown_asr_models_calls_empty_cache_and_synchronize(self) -> None:
@@ -127,12 +120,9 @@ class TestDJ7TeardownAsrModelsContract:
         assert helper_idx > -1
         next_def = s.find("\n    def ", helper_idx + 1)
         body = s[helper_idx:next_def]
-        assert "torch.cuda.empty_cache()" in body, (
-            "DJ-7: _teardown_asr_models must call torch.cuda.empty_cache()"
-        )
+        assert "torch.cuda.empty_cache()" in body, "DJ-7: _teardown_asr_models must call torch.cuda.empty_cache()"
         assert "torch.cuda.synchronize()" in body or (
-            "hasattr(torch.cuda, \"synchronize\")" in body
-            and "torch.cuda.synchronize()" in body
+            'hasattr(torch.cuda, "synchronize")' in body and "torch.cuda.synchronize()" in body
         ), (
             "DJ-7: _teardown_asr_models must call torch.cuda.synchronize() "
             "(guarded with hasattr for older torch versions)"
@@ -147,12 +137,9 @@ class TestDJ7TeardownAsrModelsContract:
         assert helper_idx > -1
         next_def = s.find("\n    def ", helper_idx + 1)
         body = s[helper_idx:next_def]
-        assert "import torch" in body, (
-            "DJ-7: _teardown_asr_models must import torch (inside try)"
-        )
+        assert "import torch" in body, "DJ-7: _teardown_asr_models must import torch (inside try)"
         assert "except ImportError" in body, (
-            "DJ-7: _teardown_asr_models must catch ImportError for the "
-            "torch import (CPU-only build path)"
+            "DJ-7: _teardown_asr_models must catch ImportError for the torch import (CPU-only build path)"
         )
 
 

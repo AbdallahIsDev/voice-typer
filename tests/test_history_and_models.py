@@ -1074,16 +1074,6 @@ class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
             service.apply_config({"hotkey": "<f4>"})
 
 
-@pytest.mark.skip(
-    reason=(
-        "SVC-2 ConfigSideEffect registry refactor was never applied to "
-        "production code (config_applier.apply_config_side_effects still "
-        "uses the original branching monolith from CR-18/CR-65 step 1). "
-        "Implementing the registry tuple + ConfigSideEffect protocol + "
-        "dispatcher migration is a substantial refactor outside the "
-        "scope of the test-fix pass — tracked separately as SVC-2."
-    )
-)
 class TestSVC2ConfigSideEffectDispatcher:
     """SVC-2: ``apply_config_side_effects`` is a thin dispatcher over
     :data:`_CONFIG_SIDE_EFFECTS`. Behavior is preserved 1:1 (per-handler

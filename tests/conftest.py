@@ -401,7 +401,9 @@ def mock_heavy_imports(monkeypatch, request):
         def _force_pynput(hotkey_str):
             return PynputHotkey(hotkey_str)
 
-        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", _force_pynput)
+        # ``create_hotkey_backend`` moved from ``app.py`` to
+        # ``voice_typer.server.hotkeys.factory`` (re-exported via
+        # ``hotkeys.__init__``).  ``app.py`` no longer has this attribute.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             _force_pynput,

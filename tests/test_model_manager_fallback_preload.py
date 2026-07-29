@@ -216,9 +216,7 @@ class TestDJ14PreloadContract:
     def test_preload_skipped_when_preload_cpu_fallback_false(self, patch_transcription_engine):
         """DJ-14: when ``preload_cpu_fallback`` is False (user opt-out),
         the preload MUST be skipped."""
-        mm, app, mock_registry = _make_mm(
-            asr_backend="parakeet", preload_cpu_fallback=False
-        )
+        mm, app, mock_registry = _make_mm(asr_backend="parakeet", preload_cpu_fallback=False)
         _fake_ctor, construct_calls = patch_transcription_engine
 
         mm._preload_cpu_fallback_backend()
@@ -233,9 +231,7 @@ class TestDJ14PreloadContract:
     def test_preload_skipped_when_shutting_down(self, patch_transcription_engine):
         """DJ-14: when ``app._shutting_down`` is True, the preload MUST
         be skipped — don't load a model during shutdown."""
-        mm, app, mock_registry = _make_mm(
-            asr_backend="parakeet", shutting_down=True
-        )
+        mm, app, mock_registry = _make_mm(asr_backend="parakeet", shutting_down=True)
         _fake_ctor, construct_calls = patch_transcription_engine
 
         mm._preload_cpu_fallback_backend()
@@ -323,9 +319,7 @@ class TestDJ14PreloadContract:
 
         # Make config.asr_backend access raise to trigger the
         # outermost try/except.
-        type(app.config).asr_backend = property(
-            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
+        type(app.config).asr_backend = property(lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
 
         # Must NOT raise.
         mm._preload_cpu_fallback_backend()
@@ -340,9 +334,7 @@ class TestDJ14SpawnFromStartBackgroundLoad:
     def test_spawn_skipped_when_preload_cpu_fallback_false(self):
         """When ``preload_cpu_fallback`` is False, ``start_background_load``
         MUST NOT spawn the CPU fallback preload thread."""
-        mm, app, mock_registry = _make_mm(
-            asr_backend="parakeet", preload_cpu_fallback=False
-        )
+        mm, app, mock_registry = _make_mm(asr_backend="parakeet", preload_cpu_fallback=False)
         # Stub load_background so the ModelLoad thread exits instantly.
         mm.load_background = MagicMock()
 

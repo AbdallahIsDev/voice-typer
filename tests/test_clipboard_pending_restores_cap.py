@@ -162,6 +162,7 @@ class TestPendingRestoresCap:
         for i in range(20):
             cm = _make_cm()
             snap = _make_snapshot()
+
             # Permanently attach a tracker to cm.restore_now so the
             # eviction call (which fires LATER, when this cm is the
             # oldest in the list) is observed — even after we've moved
@@ -172,6 +173,7 @@ class TestPendingRestoresCap:
                 def _track(snapshot_arg):
                     evicted_cms.append(this_cm)
                     evicted_snapshots.append(this_snap)
+
                 return _track
 
             cm.restore_now = _make_tracker(cm, snap)  # type: ignore[method-assign]
@@ -181,8 +183,7 @@ class TestPendingRestoresCap:
         # The list holds at most 8 entries.
         with clip_mod._pending_restores_lock:
             assert len(clip_mod._pending_restores) <= 8, (
-                f"DJ-26: _pending_restores must never exceed 8 entries, "
-                f"got {len(clip_mod._pending_restores)}"
+                f"DJ-26: _pending_restores must never exceed 8 entries, got {len(clip_mod._pending_restores)}"
             )
             # Exactly 8 entries remain (the 8 most-recent appends).
             assert len(clip_mod._pending_restores) == 8
@@ -220,9 +221,7 @@ class TestPendingRestoresCap:
         assert len(restore_calls) == 1, (
             f"DJ-26: oldest snapshot must be restored once on eviction, got {len(restore_calls)} calls"
         )
-        assert restore_calls[0] is oldest_snap, (
-            "DJ-26: the OLDEST snapshot must be evicted (not the newest)"
-        )
+        assert restore_calls[0] is oldest_snap, "DJ-26: the OLDEST snapshot must be evicted (not the newest)"
 
         # The oldest entry is gone from the deque; the newest entry is present.
         with clip_mod._pending_restores_lock:
@@ -446,15 +445,11 @@ class TestRestoreLockTimeout:
         with patch.object(snap_mod, "log") as mock_log:
             result = snap.restore()
 
-        assert result is False, (
-            "DJ-26: restore() must return False when _restore_lock acquire times out"
-        )
+        assert result is False, "DJ-26: restore() must return False when _restore_lock acquire times out"
         # A warning was logged.
         mock_log.warning.assert_called()
         warning_msg = mock_log.warning.call_args[0][0]
-        assert "timed out" in warning_msg.lower(), (
-            f"DJ-26: warning message must mention timeout, got: {warning_msg!r}"
-        )
+        assert "timed out" in warning_msg.lower(), f"DJ-26: warning message must mention timeout, got: {warning_msg!r}"
 
     def test_restore_succeeds_when_lock_acquired(self):
         """DJ-26 sanity: when the lock IS acquired (normal case), the

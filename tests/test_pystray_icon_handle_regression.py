@@ -98,11 +98,7 @@ def _load_real_pystray():
     installed (in which case the caller should ``pytest.skip``).
     """
     saved = sys.modules.get("pystray")
-    keys_to_evict = [
-        k
-        for k in list(sys.modules.keys())
-        if k == "pystray" or k.startswith("pystray.")
-    ]
+    keys_to_evict = [k for k in list(sys.modules.keys()) if k == "pystray" or k.startswith("pystray.")]
     for k in keys_to_evict:
         del sys.modules[k]
     try:
@@ -144,10 +140,7 @@ def test_pystray_icon_class_exposes_icon_handle():
         # IS installed, this test runs and asserts the attribute.
         import pytest
 
-        pytest.skip(
-            "real pystray not installed in this environment — "
-            "cannot introspect pystray.Icon._icon_handle"
-        )
+        pytest.skip("real pystray not installed in this environment — cannot introspect pystray.Icon._icon_handle")
 
     # The DestroyIcon workaround in ``tray.py:_apply_state`` writes
     # to ``self._icon._icon_handle = None`` on OSError. If pystray's
@@ -275,8 +268,7 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
     # before attempting to clear it. If this sanity check fails the
     # test fixture is wrong, not the production code.
     assert hasattr(icon, "_icon_handle") is False, (
-        "test fixture broken: _FakeIcon(has_icon_handle=False) "
-        "should make hasattr(icon, '_icon_handle') return False"
+        "test fixture broken: _FakeIcon(has_icon_handle=False) should make hasattr(icon, '_icon_handle') return False"
     )
 
     tray = _make_minimal_tray_with_icon(icon)
@@ -287,13 +279,10 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
     tray._apply_state(AppState.RECORDING, "recording")
 
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
-    assert any(
-        "_icon_handle" in r.getMessage() for r in warning_records
-    ), (
+    assert any("_icon_handle" in r.getMessage() for r in warning_records), (
         "Expected a WARNING log mentioning `_icon_handle` when the "
         "DestroyIcon workaround can't fire (attribute missing). "
-        "Got records: "
-        + repr([(r.levelname, r.getMessage()) for r in caplog.records])
+        "Got records: " + repr([(r.levelname, r.getMessage()) for r in caplog.records])
     )
 
 
@@ -312,8 +301,7 @@ def test_apply_state_clears_icon_handle_when_present(caplog):
     # Sanity check: the fake icon should report ``_icon_handle`` as
     # present so the workaround branch fires.
     assert hasattr(icon, "_icon_handle") is True, (
-        "test fixture broken: _FakeIcon(has_icon_handle=True) "
-        "should make hasattr(icon, '_icon_handle') return True"
+        "test fixture broken: _FakeIcon(has_icon_handle=True) should make hasattr(icon, '_icon_handle') return True"
     )
 
     tray = _make_minimal_tray_with_icon(icon)
@@ -322,18 +310,14 @@ def test_apply_state_clears_icon_handle_when_present(caplog):
     # The workaround must have cleared the handle.
     assert icon._icon_handle is None, (
         "Expected `_icon_handle` to be set to None after OSError "
-        "(CR-16 / GT-E1-8 workaround), but it is: "
-        + repr(icon._icon_handle)
+        "(CR-16 / GT-E1-8 workaround), but it is: " + repr(icon._icon_handle)
     )
     # And NO warning should have been logged (the workaround
     # functioned normally — the warning is reserved for the
     # missing-attribute fallback case).
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
-    assert not any(
-        "_icon_handle" in r.getMessage() for r in warning_records
-    ), (
+    assert not any("_icon_handle" in r.getMessage() for r in warning_records), (
         "Did not expect a WARNING log when the workaround fired "
         "normally (the warning is reserved for the missing-attribute "
-        "fallback). Got warnings: "
-        + repr([(r.levelname, r.getMessage()) for r in warning_records])
+        "fallback). Got warnings: " + repr([(r.levelname, r.getMessage()) for r in warning_records])
     )

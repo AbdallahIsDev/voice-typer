@@ -144,23 +144,17 @@ def test_single_row_insert_uses_batch_path(db, monkeypatch):
         # The multi-row INSERT path was used: exactly one INSERT and
         # one COMMIT for the batch.
         insert_sqls = [s for s in execute_calls if "INSERT" in s.upper()]
-        assert len(insert_sqls) == 1, (
-            f"expected 1 INSERT for N=1 batch; got {len(insert_sqls)}: {insert_sqls}"
-        )
+        assert len(insert_sqls) == 1, f"expected 1 INSERT for N=1 batch; got {len(insert_sqls)}: {insert_sqls}"
         # The multi-row INSERT SQL contains ``VALUES`` followed by a
         # single ``(?, ?, ?, ?, ?, ?, ?)`` tuple (one row's worth of
         # placeholders).
         assert "VALUES" in insert_sqls[0].upper()
         # Count placeholder tuples: should be exactly 1 for N=1.
         placeholder_tuples = insert_sqls[0].count("(?, ?, ?, ?, ?, ?, ?)")
-        assert placeholder_tuples == 1, (
-            f"expected 1 placeholder tuple for N=1 batch; got {placeholder_tuples}"
-        )
+        assert placeholder_tuples == 1, f"expected 1 placeholder tuple for N=1 batch; got {placeholder_tuples}"
 
         # Exactly one commit for the batch.
-        assert instrumented.commit_calls == 1, (
-            f"expected 1 commit for N=1 batch; got {instrumented.commit_calls}"
-        )
+        assert instrumented.commit_calls == 1, f"expected 1 commit for N=1 batch; got {instrumented.commit_calls}"
     finally:
         real_conn.close()
 
@@ -212,8 +206,7 @@ def test_two_single_inserts_each_use_batch_path(db, monkeypatch):
     batch_size = 1
     takes_multi_row_branch = batch_size >= history_db._BATCH_INSERT_MIN
     assert takes_multi_row_branch, (
-        "N=1 batch should take the multi-row INSERT branch "
-        "(_BATCH_INSERT_MIN == 1 means the threshold check passes)"
+        "N=1 batch should take the multi-row INSERT branch (_BATCH_INSERT_MIN == 1 means the threshold check passes)"
     )
 
     # Verify the actual DB insertion works for two consecutive single

@@ -67,9 +67,11 @@ import pytest
 
 # Direct import — does NOT pull in voice_typer.server.app, so heavy
 # import-time side effects don't leak into these unit tests.
-from voice_typer.server.shutdown_controller import (
+from voice_typer.server._timeout_utils import (
     _DE11_GRACE_PERIOD_SECONDS,
     _TIMEOUT,
+)
+from voice_typer.server.shutdown_controller import (
     ShutdownController,
 )
 
@@ -147,10 +149,12 @@ def fake_app(tmp_config_dir, monkeypatch):
     - ``voice_typer.server.app.is_windows`` — returns False (POSIX test env).
     - ``voice_typer.server.electron_launcher.terminate_electron`` — recorder.
     """
-    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+    import voice_typer.server.app as _app_module
+
+    monkeypatch.setattr(_app_module, "_clear_backend_pid_file", lambda: None, raising=False)
+    monkeypatch.setattr(_app_module, "_close_devnull_files", lambda: None, raising=False)
+    monkeypatch.setattr(_app_module, "_register_devnull_file", lambda f: None, raising=False)
+    monkeypatch.setattr(_app_module, "is_windows", lambda: False, raising=False)
     # Patch the real electron_launcher.terminate_electron function so
     # the production import path inside _do_cleanup hits the spy.
     monkeypatch.setattr(
@@ -455,6 +459,7 @@ class TestDE11ForceExitOnNonMainThread:
         # namespace so the watcher thread sees the mock.
         import voice_typer.server.shutdown_controller as _sc
 
+        _original_sleep = time.sleep
         monkeypatch.setattr(_sc.time, "sleep", _mock_sleep)
 
         # Run quit() on a NON-MAIN thread so the os._exit path fires.
@@ -480,7 +485,7 @@ class TestDE11ForceExitOnNonMainThread:
         # os._exit). Poll for up to 2s.
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and not os_exit_calls:
-            time.sleep(0.01)
+            _original_sleep(0.01)
 
         assert sleep_calls == [_DE11_GRACE_PERIOD_SECONDS], (
             f"DE-11: watcher thread must call time.sleep({_DE11_GRACE_PERIOD_SECONDS}); got sleep_calls={sleep_calls}"
@@ -679,11 +684,11 @@ class TestDE54SkipSdStopOnRecorderTimeout:
     while that lock is held deadlocks the cleanup thread."""
 
     def test_timeout_sentinel_is_module_level_object(self):
-        """DE-54: ``_TIMEOUT`` must be a module-level singleton (so
+        """DE-54: ``TIMEOUT`` must be a module-level singleton (so
         callers can compare with ``is``)."""
-        import voice_typer.server.shutdown_controller as _sc
+        import voice_typer.server._timeout_utils as _tu
 
-        assert _sc._TIMEOUT is _TIMEOUT, "DE-54: _TIMEOUT must be a module-level singleton"
+        assert _tu._TIMEOUT is _TIMEOUT, "DE-54: _TIMEOUT must be a module-level singleton"
         # Must NOT be None — that's the whole point (distinguish from
         # a normal None return).
         assert _TIMEOUT is not None

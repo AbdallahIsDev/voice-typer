@@ -134,8 +134,7 @@ class TestDJ2NoEagerManagerConstruction:
         # The attribute must still be accessible (preserved public API) —
         # initially None until the lazy fallback constructs it.
         assert hasattr(instance, "_template_manager"), (
-            "DJ-2: _template_manager attribute must still exist on "
-            "VoiceTyperApp (preserved public API)."
+            "DJ-2: _template_manager attribute must still exist on VoiceTyperApp (preserved public API)."
         )
         assert instance._template_manager is None, (
             "DJ-2: _template_manager should be None immediately after "
@@ -179,8 +178,7 @@ class TestDJ2NoEagerManagerConstruction:
             "first access via service/vocabulary.py / dictation_pipeline.py."
         )
         assert hasattr(instance, "_vocabulary_manager"), (
-            "DJ-2: _vocabulary_manager attribute must still exist on "
-            "VoiceTyperApp (preserved public API)."
+            "DJ-2: _vocabulary_manager attribute must still exist on VoiceTyperApp (preserved public API)."
         )
         assert instance._vocabulary_manager is None, (
             "DJ-2: _vocabulary_manager should be None immediately after "
@@ -202,9 +200,7 @@ class TestDJ2NoEagerManagerConstruction:
 
         tm = TemplateManager()
         instance._template_manager = tm
-        assert instance._template_manager is tm, (
-            "The lazy fallback should be able to populate _template_manager."
-        )
+        assert instance._template_manager is tm, "The lazy fallback should be able to populate _template_manager."
 
 
 # ─── DJ-57: vad.preload() called during startup ───────────────────────
@@ -219,9 +215,7 @@ class TestDJ57VadPreloadCalled:
     Event to detect invocation across the thread boundary.
     """
 
-    def test_vad_preload_called_during_startup_run(
-        self, app_for_startup_perf, monkeypatch
-    ):
+    def test_vad_preload_called_during_startup_run(self, app_for_startup_perf, monkeypatch):
         """``StartupSequence.run()`` must call ``vad.preload()``."""
         from voice_typer.server import startup_sequence
         from voice_typer.server import vad as vad_mod
@@ -265,9 +259,7 @@ class TestDJ57VadPreloadCalled:
             "~1s of speech is silently dropped via ring-buffer overflow)."
         )
 
-    def test_vad_preload_failure_does_not_break_startup(
-        self, app_for_startup_perf, monkeypatch
-    ):
+    def test_vad_preload_failure_does_not_break_startup(self, app_for_startup_perf, monkeypatch):
         """If ``vad.preload()`` raises (e.g. torch not installed), startup
         must NOT abort — the audio worker's RMS fallback handles the
         no-VAD case. This pins the best-effort contract documented in

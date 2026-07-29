@@ -156,8 +156,7 @@ class TestFlushDeadWriter:
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.history_db"):
             db.flush()
         assert any(
-            "flush skipped" in r.getMessage() and "writer is unavailable" in r.getMessage()
-            for r in caplog.records
+            "flush skipped" in r.getMessage() and "writer is unavailable" in r.getMessage() for r in caplog.records
         )
 
 
@@ -196,10 +195,10 @@ class TestHealthCheckWiring:
         db._init_error = RuntimeError("a very specific init error")
         db._writer_thread.is_alive = lambda: False  # type: ignore[method-assign]
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.history_db"), pytest.raises(HistoryDBError):
-                db._submit_write(lambda conn: None, wait=True)
-        assert any(
-            "a very specific init error" in r.getMessage() for r in caplog.records
-        ), "expected the health_check error message in the _submit_write log"
+            db._submit_write(lambda conn: None, wait=True)
+        assert any("a very specific init error" in r.getMessage() for r in caplog.records), (
+            "expected the health_check error message in the _submit_write log"
+        )
 
 
 # ─_dictation_pipeline_ notification wiring ──────────────────────────────

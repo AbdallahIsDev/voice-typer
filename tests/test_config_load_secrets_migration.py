@@ -280,9 +280,7 @@ class TestFR1NonDeferredMigrationStillSetsFlag:
         the on-disk flag is set to True by migrate; Config.load() must
         observe True (NOT clobber it with False)."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"openai_api_key": "sk-migrate-me"})
-        )
+        config_file.write_text(json.dumps({"openai_api_key": "sk-migrate-me"}))
 
         cfg = Config.load()
         assert cfg.secrets_migrated is True
@@ -299,9 +297,7 @@ class TestFR1NonDeferredMigrationStillSetsFlag:
         sets the on-disk flag to True (nothing to retry); Config.load()
         must observe True."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
         assert cfg.secrets_migrated is True
@@ -319,9 +315,7 @@ class TestFR1FilePermissionsPreserved:
     ) -> None:
         del mock_keyring_unavailable
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"openai_api_key": "sk-keep-me"})
-        )
+        config_file.write_text(json.dumps({"openai_api_key": "sk-keep-me"}))
         os.chmod(config_file, 0o600)
 
         cfg = Config.load()

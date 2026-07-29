@@ -308,5 +308,3 @@ class TestOpenPrewarmLog:
         assert resp["type"] == "prewarm_log"
         assert resp["data"]["opened"] is True
         assert resp["data"]["path"] == str(log_file)
-
-

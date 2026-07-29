@@ -118,8 +118,7 @@ class TestOwnedFdSentinelInSource:
             "(double-close)."
         )
         assert "owned_fd != -1" in src, (
-            "FR-50 regression: _secure_read_text except path does "
-            "not guard os.close with `if owned_fd != -1`."
+            "FR-50 regression: _secure_read_text except path does not guard os.close with `if owned_fd != -1`."
         )
 
 

@@ -67,9 +67,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
         prewarm_log = config_dir / "voice-typer-prewarm.log"
 
         assert main_log.exists(), "main log file should exist after setup_logging"
-        assert not prewarm_log.exists(), (
-            "prewarm log file should NOT exist when process_name is 'main'"
-        )
+        assert not prewarm_log.exists(), "prewarm log file should NOT exist when process_name is 'main'"
         content = main_log.read_text(encoding="utf-8")
         assert "[DJ-49] main-process test line" in content
     finally:
@@ -95,9 +93,7 @@ def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
         main_log = config_dir / "voice-typer.log"
         prewarm_log = config_dir / "voice-typer-prewarm.log"
 
-        assert prewarm_log.exists(), (
-            "prewarm log file should exist when process_name='prewarm'"
-        )
+        assert prewarm_log.exists(), "prewarm log file should exist when process_name='prewarm'"
         assert not main_log.exists(), (
             "main log file should NOT exist when process_name='prewarm' — "
             "this is the core race-elimination invariant (prewarm must not "
@@ -161,6 +157,5 @@ def test_get_log_file_path_unknown_process_name_falls_back_to_main(
     main_path = get_log_file_path(config_dir, process_name="main")
 
     assert unknown_path == main_path, (
-        "unknown process_name should fall back to the main log path, not "
-        "introduce a new filename"
+        "unknown process_name should fall back to the main log path, not introduce a new filename"
     )

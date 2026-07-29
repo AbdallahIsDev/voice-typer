@@ -94,9 +94,7 @@ def test_initial_log_file_mode_is_0o600(tmp_path, monkeypatch):
     log_file = tmp_path / "voice-typer.log"
     assert log_file.exists()
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
-    assert oct(mode) == "0o600", (
-        f"FR-2: initial log file mode must be 0o600 on POSIX; got {oct(mode)}"
-    )
+    assert oct(mode) == "0o600", f"FR-2: initial log file mode must be 0o600 on POSIX; got {oct(mode)}"
     vt_log.reset()
 
 
@@ -145,9 +143,7 @@ def test_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     backup = tmp_path / "voice-typer.log.1"
     assert backup.exists(), "FR-2: expected a rotated backup file voice-typer.log.1 after >5 MiB write"
     backup_mode = stat.S_IMODE(os.stat(backup).st_mode)
-    assert oct(backup_mode) == "0o600", (
-        f"FR-2: rotated backup file mode must be 0o600 on POSIX; got {oct(backup_mode)}"
-    )
+    assert oct(backup_mode) == "0o600", f"FR-2: rotated backup file mode must be 0o600 on POSIX; got {oct(backup_mode)}"
     vt_log.reset()
 
 
@@ -172,7 +168,13 @@ def test_secure_rotating_file_handler_chmods_after_rollover(tmp_path):
 
     # Emit enough data to exceed maxBytes, then call doRollover directly.
     record = logging.LogRecord(
-        "vt", logging.INFO, __file__, 1, "x" * 256, None, None,
+        "vt",
+        logging.INFO,
+        __file__,
+        1,
+        "x" * 256,
+        None,
+        None,
     )
     handler.emit(record)
     handler.doRollover()
@@ -180,7 +182,6 @@ def test_secure_rotating_file_handler_chmods_after_rollover(tmp_path):
     # The new active file (post-rollover) must be 0o600.
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
     assert oct(mode) == "0o600", (
-        f"FR-2: _SecureRotatingFileHandler.doRollover must chmod the active "
-        f"file to 0o600; got {oct(mode)}"
+        f"FR-2: _SecureRotatingFileHandler.doRollover must chmod the active file to 0o600; got {oct(mode)}"
     )
     handler.close()

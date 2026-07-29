@@ -115,8 +115,7 @@ def test_load_populates_cache_so_first_save_does_not_re_read(
     assert bak_path.exists()
     bak_content = bak_path.read_text(encoding="utf-8")
     assert json.loads(bak_content) == {"initial": True}, (
-        "The .bak should contain the previous on-disk content (from the "
-        "cache populated by load()), not the new content"
+        "The .bak should contain the previous on-disk content (from the cache populated by load()), not the new content"
     )
 
 
@@ -184,8 +183,7 @@ def test_cache_invalidated_on_failed_load(tmp_path: Path) -> None:
     assert loaded == {"fallback": True}
     # The cache was invalidated.
     assert store._last_written_bytes is None, (
-        "Cache should be None after a failed load (corrupt file was "
-        "quarantined — cache would be stale)"
+        "Cache should be None after a failed load (corrupt file was quarantined — cache would be stale)"
     )
 
 

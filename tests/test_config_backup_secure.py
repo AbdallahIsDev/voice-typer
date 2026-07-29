@@ -158,8 +158,7 @@ class TestFR23BackupBeforeDowngradeSecure:
         # The load_warnings list should mention the backup failure.
         warnings_text = json.dumps(data.get("_load_warnings", []))
         assert "backup" in warnings_text.lower(), (
-            f"FR-23: expected a backup-failed warning in _load_warnings, "
-            f"got {warnings_text}"
+            f"FR-23: expected a backup-failed warning in _load_warnings, got {warnings_text}"
         )
 
     def test_downgrade_backup_is_atomic(
@@ -220,9 +219,7 @@ class TestFR24SaveUnlockedBackupSecure:
         the SYMLINK itself, not the target)."""
         # Start with a legit config.json so Config.load() succeeds.
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"hotkey": "<caps_lock>", "openai_api_key": ""})
-        )
+        config_file.write_text(json.dumps({"hotkey": "<caps_lock>", "openai_api_key": ""}))
 
         # Load the config.
         cfg = Config.load()
@@ -268,9 +265,7 @@ class TestFR24SaveUnlockedBackupSecure:
         (not Path.read_bytes). We patch _secure_read_text to spy on
         the call and ensure it's invoked during the backup block."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
 
@@ -336,8 +331,7 @@ class TestFR24SaveUnlockedBackupSecure:
 
         bak_path = _isolated_config_dir / "config.json.bak"
         assert bak_path.exists(), (
-            "FR-24: Config.save() did not create config.json.bak — "
-            "the backup block should fire when content changes."
+            "FR-24: Config.save() did not create config.json.bak — the backup block should fire when content changes."
         )
         bak_text = bak_path.read_text()
         assert bak_text == pre_save_on_disk, (
@@ -368,7 +362,4 @@ class TestFR24SaveUnlockedBackupSecure:
         bak_path = _isolated_config_dir / "config.json.bak"
         assert bak_path.exists()
         mode = 0o777 & os.stat(bak_path).st_mode
-        assert mode == 0o600, (
-            f"FR-24: config.json.bak should be 0o600 on POSIX, got "
-            f"0o{mode:o}"
-        )
+        assert mode == 0o600, f"FR-24: config.json.bak should be 0o600 on POSIX, got 0o{mode:o}"

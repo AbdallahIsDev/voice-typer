@@ -241,10 +241,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         bak_path = tmp_path / "config.json.bak"
         assert bak_path.exists()
         bak_data = json.loads(bak_path.read_text(encoding="utf-8"))
-        assert bak_data == {"v": 1}, (
-            f"FR-7 regression: .bak should contain previous content "
-            f"{{'v': 1}}, got {bak_data}"
-        )
+        assert bak_data == {"v": 1}, f"FR-7 regression: .bak should contain previous content {{'v': 1}}, got {bak_data}"
         # The main file must contain the new content.
         data = json.loads(config_path.read_text(encoding="utf-8"))
         assert data == {"v": 2}

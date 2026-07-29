@@ -156,9 +156,7 @@ class TestClearAllFtsRebuild:
         db.clear_all()
 
         # Look for the rebuild command in the executed SQL.
-        rebuild_seen = any(
-            "transcriptions_fts" in sql and "rebuild" in sql.lower() for sql in executed_sql
-        )
+        rebuild_seen = any("transcriptions_fts" in sql and "rebuild" in sql.lower() for sql in executed_sql)
         assert rebuild_seen, (
             "FR-27 violation: clear_all did not issue "
             "INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild'). "
@@ -299,9 +297,7 @@ class TestApplyRetentionFtsRebuild:
         deleted = db.apply_retention(retention_days=999)
         assert deleted == 0
         # The rebuild command must NOT have run.
-        rebuild_seen = any(
-            "transcriptions_fts" in sql and "rebuild" in sql.lower() for sql in executed_sql
-        )
+        rebuild_seen = any("transcriptions_fts" in sql and "rebuild" in sql.lower() for sql in executed_sql)
         assert not rebuild_seen, (
             "FR-27: apply_retention should NOT issue the FTS5 'rebuild' command "
             "when nothing was deleted (no-op sweep has nothing to rebuild)."

@@ -48,8 +48,7 @@ class TestTcpNoDelaySourcePresence:
             "accepted socket so small push events are not delayed by Nagle."
         )
         assert "socket.IPPROTO_TCP" in src, (
-            "DJ-80: must use socket.IPPROTO_TCP (not a raw int) so the "
-            "setsockopt is portable across platforms."
+            "DJ-80: must use socket.IPPROTO_TCP (not a raw int) so the setsockopt is portable across platforms."
         )
         assert "setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)" in src, (
             "DJ-80: the setsockopt call must enable TCP_NODELAY (value 1)."
@@ -107,8 +106,7 @@ class TestTcpNoDelayBehavioral:
             try:
                 nodelay = a.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY)
                 assert nodelay == 1, (
-                    f"DJ-80: _TCPLineIO.__init__ must set TCP_NODELAY=1 on "
-                    f"the wrapped socket; got {nodelay}."
+                    f"DJ-80: _TCPLineIO.__init__ must set TCP_NODELAY=1 on the wrapped socket; got {nodelay}."
                 )
             finally:
                 io.close()
@@ -152,9 +150,7 @@ class TestTcpNoDelayBehavioral:
                 # whether the empty-token refuse path runs before or after
                 # the setsockopt. The source-code presence test confirms
                 # the ordering; this behavioral test confirms no crash.
-                assert nodelay in (0, 1), (
-                    f"DJ-80: TCP_NODELAY should be 0 or 1; got {nodelay}."
-                )
+                assert nodelay in (0, 1), f"DJ-80: TCP_NODELAY should be 0 or 1; got {nodelay}."
             except OSError:
                 # Socket was closed by the handler — expected for the
                 # empty-token refuse path.

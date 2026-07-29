@@ -74,8 +74,7 @@ def _vt_handlers(tmp_path: Path) -> list[logging.Handler]:
     return [
         h
         for h in vt_root.handlers
-        if isinstance(h, logging.handlers.RotatingFileHandler)
-        and Path(h.baseFilename).name == "voice-typer.log"
+        if isinstance(h, logging.handlers.RotatingFileHandler) and Path(h.baseFilename).name == "voice-typer.log"
     ]
 
 
@@ -88,8 +87,7 @@ def _prewarm_handlers() -> list[logging.Handler]:
     return [
         h
         for h in vt_root.handlers
-        if isinstance(h, logging.handlers.RotatingFileHandler)
-        and Path(h.baseFilename).name == "prewarm.log"
+        if isinstance(h, logging.handlers.RotatingFileHandler) and Path(h.baseFilename).name == "prewarm.log"
     ]
 
 
@@ -120,8 +118,7 @@ def _setup_prewarm_to_tmp(tmp_path: Path, monkeypatch, *, prewarm_only: bool = F
         vt = logging.getLogger("voice_typer")
         # Avoid stacking duplicates if the test calls setup multiple times.
         if not any(
-            isinstance(h, logging.handlers.RotatingFileHandler)
-            and Path(h.baseFilename).name == "voice-typer.log"
+            isinstance(h, logging.handlers.RotatingFileHandler) and Path(h.baseFilename).name == "voice-typer.log"
             for h in vt.handlers
         ):
             vt.addHandler(handler)
@@ -154,9 +151,7 @@ class TestPrewarmLoggingDedup:
         shared = _vt_handlers(tmp_path)
         assert shared, "no voice-typer.log handler found on voice_typer root"
         for h in shared:
-            assert any(
-                getattr(f, "_vt_not_prewarm", False) for f in h.filters
-            ), (
+            assert any(getattr(f, "_vt_not_prewarm", False) for f in h.filters), (
                 f"DJ-45: shared voice-typer.log handler missing _NotPrewarmFilter "
                 f"when prewarm_only=True; filters: {[type(f).__name__ for f in h.filters]}"
             )
@@ -172,9 +167,7 @@ class TestPrewarmLoggingDedup:
         shared = _vt_handlers(tmp_path)
         assert shared
         for h in shared:
-            assert not any(
-                getattr(f, "_vt_not_prewarm", False) for f in h.filters
-            ), (
+            assert not any(getattr(f, "_vt_not_prewarm", False) for f in h.filters), (
                 "DJ-45: _NotPrewarmFilter must NOT be attached when prewarm_only=False — "
                 "the main app process must keep prewarm lines in voice-typer.log."
             )
@@ -186,12 +179,9 @@ class TestPrewarmLoggingDedup:
         """
         _setup_prewarm_to_tmp(tmp_path, monkeypatch)
 
-        prewarm_count_before = sum(
-            1 for h in _prewarm_handlers() if getattr(h, "_vt_prewarm", False)
-        )
+        prewarm_count_before = sum(1 for h in _prewarm_handlers() if getattr(h, "_vt_prewarm", False))
         assert prewarm_count_before == 1, (
-            f"DJ-45: expected exactly 1 prewarm handler after first call, got "
-            f"{prewarm_count_before}"
+            f"DJ-45: expected exactly 1 prewarm handler after first call, got {prewarm_count_before}"
         )
 
         # Call again — should NOT add a second prewarm handler.
@@ -199,9 +189,7 @@ class TestPrewarmLoggingDedup:
 
         logging_setup._setup_logging()
 
-        prewarm_count_after = sum(
-            1 for h in _prewarm_handlers() if getattr(h, "_vt_prewarm", False)
-        )
+        prewarm_count_after = sum(1 for h in _prewarm_handlers() if getattr(h, "_vt_prewarm", False))
         assert prewarm_count_after == 1, (
             f"DJ-45: prewarm handler count grew from 1 to {prewarm_count_after} "
             f"after second _setup_logging call — dedup check failed. This would "
@@ -239,9 +227,7 @@ class TestPrewarmLoggingDedup:
         vt_log = tmp_path / "voice-typer.log"
         assert vt_log.exists(), "voice-typer.log was not created"
         vt_content = vt_log.read_text(encoding="utf-8", errors="replace")
-        assert "[APP] dj45 app-side test line" in vt_content, (
-            f"app line missing from voice-typer.log:\n{vt_content}"
-        )
+        assert "[APP] dj45 app-side test line" in vt_content, f"app line missing from voice-typer.log:\n{vt_content}"
         assert "[PREWARM] dj45 prewarm-only test line" not in vt_content, (
             f"DJ-45: prewarm line leaked into voice-typer.log despite "
             f"prewarm_only=True — the _NotPrewarmFilter is not working:\n{vt_content}"
@@ -287,9 +273,7 @@ class TestPrewarmLoggingDedup:
         shared = _vt_handlers(tmp_path)
         assert shared
         for h in shared:
-            not_prewarm_count = sum(
-                1 for f in h.filters if getattr(f, "_vt_not_prewarm", False)
-            )
+            not_prewarm_count = sum(1 for f in h.filters if getattr(f, "_vt_not_prewarm", False))
             assert not_prewarm_count == 1, (
                 f"DJ-45: stacked {not_prewarm_count} _NotPrewarmFilter instances "
                 f"on the shared handler — should be exactly 1 (idempotent attach)."

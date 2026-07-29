@@ -197,8 +197,7 @@ class TestPasteReturnsTrueOnFullSuccess:
             mock_key.ctrl = "ctrl_key"
             result = cm.paste()
         assert result is True, (
-            "S2-CR-46 regression: paste() must return True when SendInput "
-            f"returns 4 (full success); got {result!r}."
+            f"S2-CR-46 regression: paste() must return True when SendInput returns 4 (full success); got {result!r}."
         )
         # S2-CR-46 specifically: NO spurious "Auto-paste failed" warning
         # should fire on full success.
@@ -241,9 +240,7 @@ class TestPasteReturnsTrueOnFullSuccess:
         # SHOULD fire on partial success (this is the correct behavior
         # after the fix — not a regression).
         warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
-        expected_warning = [
-            m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m
-        ]
+        expected_warning = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
         assert expected_warning, (
             "S2-CR-46: paste() should log 'Auto-paste failed (SendInput "
             "partial success)' warning on partial success; got warnings: "
@@ -304,6 +301,4 @@ def test_paste_returns_true_on_sendinput_full_success_win32():
     assert result is True
     warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
     spurious = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
-    assert not spurious, (
-        f"S2-CR-46 regression on Windows: paste() logged spurious warning: {spurious}"
-    )
+    assert not spurious, f"S2-CR-46 regression on Windows: paste() logged spurious warning: {spurious}"
