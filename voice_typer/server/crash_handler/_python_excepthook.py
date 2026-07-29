@@ -268,6 +268,236 @@ def install_python_excepthook() -> None:
     sys.excepthook = _crash_excepthook
 
 
+def _sanitize_thread_name_for_filename(name: str) -> str:
+    """Map a thread name to a filename-safe token.
+
+    Thread names are arbitrary strings — a C extension or a test could
+    spawn a thread named ``"foo/bar"`` or ``"..\\.."`` which would
+    either escape the config_dir or collide with the ``python_crash.*``
+    glob pattern used by ``report_pending_crash``.  This helper
+    restricts the name to ``[A-Za-z0-9_-]`` and falls back to
+    ``"thread"`` when nothing usable remains.
+
+    Returned tokens are truncated to 40 chars so the marker filename
+    (``python_crash.<PID>.<thread_name>.txt``) stays filesystem-portable
+    across POSIX and Windows.
+    """
+    if not name:
+        return "thread"
+    safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in name)
+    safe = safe.strip("_") or "thread"
+    return safe[:40]
+
+
+def _thread_crash_excepthook(args) -> None:
+    """Custom ``threading.excepthook`` for unhandled thread exceptions.
+
+    FR-14: Python 3.8+ routes unhandled exceptions in non-main threads
+    through ``threading.excepthook`` (NOT ``sys.excepthook``).
+    Pre-FR-14, an unhandled exception in any daemon thread
+    (A11yPulse, ModelLoad, heartbeat_loop, crash-recovery-saver,
+    history-retention-apply, bubble-level-pusher, shutdown-watchdog,
+    prewarm completion-event listener) silently died — no
+    ``python_crash.<PID>.txt`` marker was written, so the next
+    session's ``report_pending_crash`` did not surface it.
+
+    This hook mirrors ``_crash_excepthook`` for the threading path:
+    1. Logs at CRITICAL with thread name + redacted exc_type.
+    2. Writes a ``python_crash.<PID>.<thread_name>.txt`` marker file
+       using the same ``redact_pii`` + ``redact_secret`` pipeline
+       (so dictated speech / API keys in the exception value are
+       scrubbed before persisting to the crash archive).
+    3. Chains to the previously-installed ``threading.excepthook``
+       so the default stderr path still fires (which is /dev/null
+       under bundled sidecar / pythonw.exe — no duplicate user-visible
+       output, just defense-in-depth).
+
+    Best-effort throughout — the hook must never raise (it runs during
+    interpreter teardown, where any failure masks the original error).
+
+    Mutable state (``_original_threading_excepthook``) lives on the
+    ``crash_handler`` facade module so test mutations propagate.
+    Accessed via ``_ch.<name>``.
+    """
+    from voice_typer.server import crash_handler as _ch
+
+    # Defensive: ``threading.ExceptHookArgs`` is a namedtuple, but a
+    # poorly-behaved test or monkeypatch could pass a bare tuple/dict.
+    # Extract fields defensively so a TypeError here does not mask the
+    # original thread crash.
+    try:
+        exc_type = args.exc_type
+        exc_value = args.exc_value
+        exc_tb = args.exc_traceback
+        thread = getattr(args, "thread", None)
+    except AttributeError:
+        return  # nothing we can safely do; bail out silently
+
+    # Resolve the thread name defensively — ``thread`` may be None or
+    # already finalized during interpreter shutdown.
+    thread_name = "thread"
+    with contextlib.suppress(Exception):
+        if thread is not None:
+            thread_name = thread.name or "thread"
+
+    with contextlib.suppress(Exception):
+        # Log ONLY ``exc_type.__name__`` at CRITICAL — never
+        # ``exc_value`` (exception values can embed dictated speech
+        # or other PII that PIIRedactionFilter only catches via
+        # structured patterns). The redacted ``exc_value`` is
+        # persisted ONLY to the marker file (already 0o600) — see
+        # the ``_safe_value`` block below. Mirror ``_crash_excepthook``.
+        type_name = exc_type.__name__ if exc_type is not None else "Unknown"
+        log.critical(
+            "[CRASH] Unhandled exception in thread %r: %s",
+            thread_name,
+            type_name,
+        )
+        # PII-safe redacted traceback — same pipeline as the main hook.
+        if exc_tb is not None:
+            try:
+                redacted_tb = _format_redacted_traceback(exc_tb)
+                if redacted_tb:
+                    log.critical("[CRASH] Redacted traceback (PII-safe):\n%s", redacted_tb)
+            except Exception:
+                pass  # Never let traceback formatting crash the hook
+        if os.environ.get("VOICE_TYPER_DEBUG", "") == "1":
+            log.critical(
+                "[CRASH] Full traceback (VOICE_TYPER_DEBUG=1)",
+                exc_info=(exc_type, exc_value, exc_tb),
+            )
+
+    # Write a python_crash.<PID>.<thread_name>.txt marker so the next
+    # session's report_pending_crash can surface it. Best-effort —
+    # same pattern as ``_crash_excepthook``.
+    if _ch._python_crash_dir is not None:
+        with contextlib.suppress(Exception):
+            try:
+                from voice_typer.server._secrets import redact_secret
+                from voice_typer.server.config import _secure_atomic_write
+                from voice_typer.server.security import redact_pii
+
+                _atomic_write = _secure_atomic_write
+
+                def _redact(s):
+                    return redact_secret(redact_pii(s), aggressive=True)
+
+            except Exception:
+                _atomic_write = None
+
+                def _redact(s):
+                    return s
+
+            safe_thread_name = _sanitize_thread_name_for_filename(thread_name)
+            marker_path = _ch._python_crash_dir / f"python_crash.{os.getpid()}.{safe_thread_name}.txt"
+            timestamp = datetime.now().isoformat()
+            _raw_value = str(exc_value)[:200] if exc_value is not None else "None"
+            _safe_value = _redact(_raw_value)
+            _traceback_text = _format_redacted_traceback(exc_tb)
+            try:
+                import voice_typer
+
+                _app_version = getattr(voice_typer, "__version__", "<unknown>")
+            except Exception:
+                _app_version = "<unknown>"
+            try:
+                _python_version = sys.version
+            except Exception:
+                _python_version = "<unknown>"
+            try:
+                _os_version = platform.platform()
+            except Exception:
+                _os_version = "<unknown>"
+            _asr_backend = _get_active_asr_backend()
+            content_lines = [
+                f"exc_type={exc_type.__name__ if exc_type is not None else 'Unknown'}",
+                f"exc_value={_safe_value}",
+                f"thread={thread_name}",
+                f"timestamp={timestamp}",
+                f"app_version={_app_version}",
+                f"python_version={_python_version}",
+                f"os_version={_os_version}",
+                f"asr_backend={_asr_backend}",
+            ]
+            if _traceback_text:
+                content_lines.append("")
+                content_lines.append(_traceback_text)
+            content = "\n".join(content_lines) + "\n"
+            if _atomic_write is not None:
+                _atomic_write(marker_path, content)
+            else:
+                marker_path.write_text(content, encoding="utf-8")
+
+    # Chain to the previously-installed threading.excepthook (typically
+    # the interpreter default, which prints to stderr — /dev/null under
+    # bundled sidecar). Defensive: the previous hook could be None or
+    # could raise during interpreter shutdown.
+    original = getattr(_ch, "_original_threading_excepthook", None)
+    if original is not None and original is not _thread_crash_excepthook:
+        with contextlib.suppress(Exception):
+            original(args)
+    # Flush all handlers so the CRITICAL record lands on disk before
+    # the (potentially crashing) thread exits.
+    for handler in logging.getLogger("voice_typer").handlers:
+        with contextlib.suppress(Exception):
+            handler.flush()
+
+
+def install_threading_excepthook() -> None:
+    """Install the custom ``threading.excepthook``. Idempotent.
+
+    FR-14: ``sys.excepthook`` only fires for unhandled exceptions on
+    the MAIN thread. Since Python 3.8, unhandled exceptions in non-main
+    threads go through ``threading.excepthook``. Voice Typer spawns
+    many daemon threads (A11yPulse, ModelLoad, heartbeat_loop,
+    crash-recovery-saver, history-retention-apply, bubble-level-pusher,
+    shutdown-watchdog, prewarm completion-event listener) — pre-FR-14,
+    an unhandled exception in any of them silently died with no marker
+    file written, so the next session's ``report_pending_crash`` did
+    not surface it.
+
+    This function installs ``_thread_crash_excepthook`` as
+    ``threading.excepthook`` so daemon-thread crashes produce a
+    ``python_crash.<PID>.<thread_name>.txt`` marker that the next
+    startup's ``report_pending_crash`` can surface.
+
+    ``_original_threading_excepthook`` lives on the ``crash_handler``
+    facade module so test mutations propagate.
+    """
+    import threading
+
+    from voice_typer.server import crash_handler as _ch
+
+    if threading.excepthook is _thread_crash_excepthook:
+        return
+    _ch._original_threading_excepthook = threading.excepthook
+    threading.excepthook = _thread_crash_excepthook
+
+
+def remove_threading_excepthook() -> None:
+    """Restore the original ``threading.excepthook``. Idempotent.
+
+    Symmetric with ``install_threading_excepthook`` — the remove
+    counterpart closes the install/remove pair so test cleanup is
+    possible. Calling without a prior install is a no-op (the restore
+    falls through to the interpreter's default ``threading.excepthook``,
+    which prints the exception + thread name to stderr).
+    """
+    import threading
+
+    from voice_typer.server import crash_handler as _ch
+
+    original = getattr(_ch, "_original_threading_excepthook", None)
+    if original is not None:
+        threading.excepthook = original
+        _ch._original_threading_excepthook = None  # type: ignore[assignment]
+    elif threading.excepthook is _thread_crash_excepthook:
+        # install was called via a test path that didn't track
+        # ``_original_threading_excepthook``; fall back to the
+        # interpreter's documented bootstrap default.
+        threading.excepthook = threading.__excepthook__
+
+
 def remove_python_excepthook() -> None:
     """Restore the original ``sys.excepthook``. Idempotent.
 

@@ -64,6 +64,18 @@ STATUS_INVALID_HANDLE = 0xC0000008
 STATUS_DATATYPE_MISALIGNMENT = 0xC0000002
 STATUS_GUARD_PAGE_VIOLATION = 0x80000001
 
+# FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately
+# OMITTED from ``_CRASH_CODES``. It is a warning-level status code
+# (high bit set = ``severity=warning`` per the Windows NTSTATUS
+# layout), used by the OS for stack-growth probe pages and C-extension
+# guard-page probes — it does NOT terminate the process. Pre-FR-13,
+# the VEH callback treated it as a crash, set ``_crash_written = True``
+# (which is never reset within the process lifetime), and permanently
+# silenced the VEH for the rest of the session — real crashes during
+# the same session left no diagnostic record. The constant + friendly
+# name lookup (``_NAME_GUARD_PAGE``) are kept for back-compat so the
+# VEH callback's elif branch remains a defensive no-op (the
+# ``_CRASH_CODES`` gate at callback entry already filters it out).
 _CRASH_CODES = frozenset(
     {
         STATUS_HEAP_CORRUPTION,
@@ -80,7 +92,10 @@ _CRASH_CODES = frozenset(
         STATUS_NONCONTINUABLE_EXCEPTION,
         STATUS_INVALID_HANDLE,
         STATUS_DATATYPE_MISALIGNMENT,
-        STATUS_GUARD_PAGE_VIOLATION,
+        # FR-13: STATUS_GUARD_PAGE_VIOLATION intentionally NOT listed —
+        # it is a warning-level code (stack growth / probe), not a
+        # fatal crash. Including it caused the VEH rate-limit flag to
+        # permanently silence the VEH after a single non-fatal event.
     }
 )
 

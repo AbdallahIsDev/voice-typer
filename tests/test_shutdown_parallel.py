@@ -200,9 +200,13 @@ class TestXV7ParallelTeardownBatch:
 
     def test_subsystem_teardowns_run_concurrently(self, controller, fake_app):
         """XV-7: independent teardowns must run CONCURRENTLY, not
-        sequentially. We instrument two slow teardowns (history_db.flush
-        + crash_recovery.flush) to each sleep 0.3 s. If they run
-        sequentially, total wall time is ~0.6 s; if concurrently, ~0.3 s.
+        sequentially. We instrument two slow teardowns that are STILL
+        in the parallel batch (DJ-9 moved history_db + crash_recovery
+        to a sequential post-drain phase; ``teardown_recorder`` and
+        ``teardown_hotkeys`` remain in the parallel batch). We make
+        each helper sleep 0.3 s by patching the controller's bound
+        methods directly. If they run sequentially, total wall time is
+        ~0.6 s; if concurrently, ~0.3 s.
 
         We assert the parallel speedup is at least 1.5x (a conservative
         threshold that filters out scheduling jitter while still proving
@@ -210,11 +214,16 @@ class TestXV7ParallelTeardownBatch:
         """
         import time as _time
 
-        def _slow_flush(*args, **kwargs):
+        # DJ-9: history_db + crash_recovery are now sequential. Use
+        # two helpers that remain in the parallel batch.
+        def _slow_teardown(*args, **kwargs):
             _time.sleep(0.3)
 
-        fake_app.history_db.flush.side_effect = _slow_flush
-        fake_app._crash_recovery.flush.side_effect = _slow_flush
+        # Patch the bound methods on the controller (NOT on fake_app —
+        # the parallel batch invokes ``self._teardown_recorder`` etc.
+        # directly, not via the app).
+        controller._teardown_recorder = MagicMock(side_effect=_slow_teardown)
+        controller._teardown_hotkeys = MagicMock(side_effect=_slow_teardown)
 
         start = _time.monotonic()
         controller._do_cleanup()
@@ -466,7 +475,7 @@ class TestXV10TrayStopTimeoutFallback:
         def _run_cleanup():
             try:
                 controller._do_cleanup()
-            except BaseException as exc:
+            except Exception as exc:
                 error_holder.append(exc)
             finally:
                 done.set()

@@ -134,6 +134,12 @@ _handler_handle: int | None = None
 # ``_crash_excepthook`` can chain to it after logging the crash.
 _original_excepthook = sys.excepthook
 
+# FR-14: original ``threading.excepthook`` saved by
+# ``install_threading_excepthook`` so ``_thread_crash_excepthook`` can
+# chain to it after logging the daemon-thread crash. Set on first
+# ``install_threading_excepthook`` call; ``None`` until then.
+_original_threading_excepthook = None
+
 # ``_vectored_handler`` is the WINFUNCTYPE-wrapped VEH callback
 # (Windows-only). None on Linux/macOS — ``install_crash_handler``
 # short-circuits on ``sys.platform != "win32"`` and never dereferences
@@ -217,10 +223,14 @@ from voice_typer.server.crash_handler._python_excepthook import (  # noqa: F401,
     _crash_excepthook,
     _format_redacted_traceback,
     _get_active_asr_backend,
+    _sanitize_thread_name_for_filename,
+    _thread_crash_excepthook,
     install_crash_handler,
     install_python_excepthook,
+    install_threading_excepthook,
     remove_crash_handler,
     remove_python_excepthook,
+    remove_threading_excepthook,
 )
 from voice_typer.server.crash_handler._veh_callback import (  # noqa: F401,E402
     _vectored_handler_impl,

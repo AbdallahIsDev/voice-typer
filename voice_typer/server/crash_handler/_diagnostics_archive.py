@@ -350,7 +350,13 @@ def report_pending_crash(config_dir: Path) -> str | None:
     subdir (for new VEH-written files).
 
     If any are found:
-      1. Logs the full contents at ``WARNING`` level to ``voice-typer.log``
+      1. FR-100: logs a single-line WARNING header ("Previous session
+         crashed! ...") so operators see the crash signal in the
+         WARN-filtered production log; logs the full crash content at
+         DEBUG (visible when ``VOICE_TYPER_DEBUG=1``); logs the
+         human-readable summary at INFO. Pre-FR-100 the full content
+         was logged line-by-line at WARNING (50+ records per crash),
+         drowning real warnings.
       2. Moves the file to ``<config_dir>/crash_diagnostics_archive/``
          instead of deleting it, so the diagnostic bundle can include it
          later. (Files already in the archive stay there.)
@@ -425,13 +431,15 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     crash_file.name,
                 )
                 return
-            # Log each line of the crash diagnostics to voice-typer.log
-            # at WARNING level so it appears clearly in the log file.
+            # FR-100: log the crash header at WARNING (1 line — visible
+            # in the WARN-filtered production log so operators see that
+            # a previous session crashed), then log the full crash
+            # content at DEBUG (visible only when VOICE_TYPER_DEBUG=1).
+            # Pre-FR-100 the full content was logged line-by-line at
+            # WARNING (50+ records per crash), polluting the WARN
+            # filter and drowning real warnings.
             log.warning("[CRASH] === Previous session crashed! Diagnostics follow ===")
-            for line in content.split("\r\n"):
-                line = line.strip()
-                if line:
-                    log.warning("[CRASH] %s", line)
+            log.debug("[CRASH] Full crash diagnostics content for %s:\n%s", crash_file.name, content)
             # Extract the exception code for a human-readable summary
             # Each message now includes possible causes: low memory (RAM)
             # and low disk space — the two most common triggers for
@@ -557,11 +565,17 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     py_crash_file.name,
                 )
                 return
+            # FR-100: same demotion pattern as the VEH-crash path —
+            # WARNING header (1 line) + DEBUG full content (visible only
+            # when VOICE_TYPER_DEBUG=1). Pre-FR-100 each line of the
+            # python_crash marker was logged at WARNING, polluting the
+            # WARN filter and drowning real warnings.
             log.warning("[CRASH] === Previous session crashed (Python exception)! ===")
-            for line in content.splitlines():
-                line = line.strip()
-                if line:
-                    log.warning("[CRASH] %s", line)
+            log.debug(
+                "[CRASH] Full python_crash content for %s:\n%s",
+                py_crash_file.name,
+                content,
+            )
             # Build a concise summary from the key=value lines.
             fields: dict[str, str] = {}
             for line in content.splitlines():
@@ -613,5 +627,11 @@ def report_pending_crash(config_dir: Path) -> str | None:
         return None
 
     summary = "\n".join(summary_parts)
-    log.warning("[CRASH] Crash summary for user notification:\n%s", summary)
+    # FR-100: human-readable summary at INFO (was WARNING). The summary
+    # is the user-facing "previous session crashed" notification text —
+    # it's expected operational signal, not a runtime warning. Logging
+    # at INFO keeps it visible in the default production log without
+    # polluting the WARN-filtered log that operators scan for actionable
+    # warnings.
+    log.info("[CRASH] Crash summary for user notification:\n%s", summary)
     return summary

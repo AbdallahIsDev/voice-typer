@@ -635,10 +635,16 @@ class TestCrashHandlerConstants:
         )
 
     def test_crash_codes_set_contains_yj42_extended_codes(self):
-        """YJ-42: ``_CRASH_CODES`` covers 9 additional fatal Windows
+        """YJ-42: ``_CRASH_CODES`` covers 8 additional fatal Windows
         exception codes that were silently bypassed by the VEH handler
         pre-fix. STATUS_BREAKPOINT and STATUS_SINGLE_STEP are deliberately
         omitted so an attached debugger doesn't trigger crash records.
+
+        FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) was REMOVED from
+        ``_CRASH_CODES`` because it is a warning-level code (stack growth /
+        probe), not a fatal crash. Including it caused the VEH rate-limit
+        flag to permanently silence the VEH after a single non-fatal event.
+        The 8 codes below remain in ``_CRASH_CODES``.
         """
         extended_codes = frozenset(
             {
@@ -650,11 +656,26 @@ class TestCrashHandlerConstants:
                 crash_handler.STATUS_NONCONTINUABLE_EXCEPTION,
                 crash_handler.STATUS_INVALID_HANDLE,
                 crash_handler.STATUS_DATATYPE_MISALIGNMENT,
-                crash_handler.STATUS_GUARD_PAGE_VIOLATION,
             }
         )
         assert extended_codes <= crash_handler._CRASH_CODES, (
-            "YJ-42: the 9 extended fatal codes MUST be in _CRASH_CODES."
+            "YJ-42: the 8 extended fatal codes MUST be in _CRASH_CODES."
+        )
+
+    def test_fr13_guard_page_violation_excluded_from_crash_codes(self):
+        """FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately
+        excluded from ``_CRASH_CODES``. It is a warning-level code (high
+        bit set in the NTSTATUS layout = severity=warning) used by the OS
+        for stack-growth probe pages and C-extension guard-page probes —
+        it does NOT terminate the process. Pre-FR-13, the VEH callback
+        treated it as a crash, set ``_crash_written = True`` (which is
+        never reset within the process lifetime), and permanently
+        silenced the VEH for the rest of the session — real crashes
+        during the same session left no diagnostic record.
+        """
+        assert crash_handler.STATUS_GUARD_PAGE_VIOLATION not in crash_handler._CRASH_CODES, (
+            "FR-13: STATUS_GUARD_PAGE_VIOLATION must NOT be in _CRASH_CODES — "
+            "it is a warning-level code, not a fatal crash."
         )
 
     def test_crash_codes_excludes_breakpoint_and_single_step(self):
@@ -680,11 +701,17 @@ class TestCrashHandlerConstants:
         ``_vectored_handler_impl`` — a missing ``_NAME_*`` constant
         would cause the callback to fall through to ``_NAME_UNKNOWN``,
         defeating the purpose of extending the code set.
+
+        FR-13: STATUS_GUARD_PAGE_VIOLATION is no longer in
+        ``_CRASH_CODES`` so it is omitted from this mapping (the
+        ``_NAME_GUARD_PAGE`` constant is retained for back-compat so
+        the VEH callback's elif branch remains a defensive no-op).
         """
         # Map each extended STATUS_* code to its expected _NAME_* bytes.
         # The original 4 codes (HEAP / ACCESS / STACK / FATAL) are
-        # already covered by existing tests, so we focus on the 9
-        # new codes added by YJ-42.
+        # already covered by existing tests, so we focus on the 8
+        # new codes added by YJ-42 that remain in ``_CRASH_CODES``
+        # (FR-13 removed STATUS_GUARD_PAGE_VIOLATION from the set).
         yj42_mapping = {
             crash_handler.STATUS_ILLEGAL_INSTRUCTION: crash_handler._NAME_ILLEGAL_INSTRUCTION,
             crash_handler.STATUS_INT_DIVIDE_BY_ZERO: crash_handler._NAME_INT_DIVIDE_BY_ZERO,
@@ -694,7 +721,6 @@ class TestCrashHandlerConstants:
             crash_handler.STATUS_NONCONTINUABLE_EXCEPTION: crash_handler._NAME_NONCONTINUABLE,
             crash_handler.STATUS_INVALID_HANDLE: crash_handler._NAME_INVALID_HANDLE,
             crash_handler.STATUS_DATATYPE_MISALIGNMENT: crash_handler._NAME_MISALIGNMENT,
-            crash_handler.STATUS_GUARD_PAGE_VIOLATION: crash_handler._NAME_GUARD_PAGE,
         }
         for code, name in yj42_mapping.items():
             assert isinstance(name, bytes), (

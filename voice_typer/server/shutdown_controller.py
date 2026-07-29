@@ -57,11 +57,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import signal
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -73,126 +71,25 @@ if TYPE_CHECKING:
     # the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
 
+from voice_typer.server._timeout_utils import (
+    SHUTDOWN_WATCHDOG_TIMEOUT_S,
+    TIMEOUT,
+    _run_parallel_with_timeout,
+    _run_with_timeout,
+)
 from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
 
-# GT-43 / GT-70: sentinel returned by ``_run_with_timeout`` when the worker
-# thread did not finish within the timeout. Distinct from ``None`` so callers
-# can reliably detect a timeout and apply per-resource shutdown barriers
-# (GT-70) or hard-kill fallbacks (GT-43 tray.stop → os._exit(0)).
-class _TimeoutSentinel:
-    """Singleton sentinel signaling that ``_run_with_timeout`` abandoned
-    its worker thread. Use ``is TIMEOUT`` to compare."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:  # pragma: no cover — cosmetic
-        return "<TIMEOUT>"
-
-
-TIMEOUT = _TimeoutSentinel()
-_TIMEOUT = TIMEOUT
-_DE11_GRACE_PERIOD_SECONDS: float = 2.0
-
-
-# GT-43: watchdog timeout for the non-main-thread ``quit()`` /
-# ``restart_app()`` path. After ``_do_cleanup()`` completes, we arm a
-# daemon-thread watchdog that calls ``os._exit(0)`` after this many
-# seconds if the process is still alive (i.e. the main thread hasn't
-# returned from ``tray.run()``). DE-11: the grace period is 2s (matches
-# ``_DE11_GRACE_PERIOD_SECONDS`` and the SIGKILL escalation window in the
-# legacy Electron termination path). Tests patch this to a shorter value
-# to keep the suite fast.
-SHUTDOWN_WATCHDOG_TIMEOUT_S: float = _DE11_GRACE_PERIOD_SECONDS
-
-
-def _run_with_timeout(description: str, func, timeout: float = 5.0):
-    """PVT-G5-057: run *func* in a worker thread with a hard timeout.
-
-    Returns whatever ``func()`` returned, or :data:`TIMEOUT` (a sentinel
-    distinct from ``None``) if it did not finish within *timeout* seconds.
-    Re-raises any exception raised by ``func()`` so the caller's existing
-    try/except still applies. The worker thread is daemon-marked so it
-    doesn't block interpreter exit if it really is stuck.
-
-    GT-70: callers that share a resource across multiple
-    ``_run_with_timeout`` calls (e.g. ``app.recorder`` for
-    ``recorder.stop`` → ``recorder.shutdown_mic_watcher``) MUST check the
-    return value against :data:`TIMEOUT` and skip the downstream call
-    when the upstream one timed out — otherwise the leaked worker thread
-    races the next call on the same resource (PortAudio is not safe for
-    concurrent stream operations from multiple threads).
-    """
-    result_holder: dict = {}
-
-    def _worker() -> None:
-        try:
-            result_holder["value"] = func()
-        except BaseException as exc:  # noqa: BLE001 — re-raised below
-            result_holder["error"] = exc
-
-    t = threading.Thread(
-        target=_worker,
-        daemon=True,
-        name=f"cleanup-{description}",
-    )
-    t.start()
-    t.join(timeout=timeout)
-    if t.is_alive():
-        log.warning(
-            "[SHUTDOWN] %s did not finish in %.1fs — continuing (worker thread leaked as daemon)",
-            description,
-            timeout,
-        )
-        return TIMEOUT
-    if "error" in result_holder:
-        raise result_holder["error"]
-    return result_holder.get("value")
-
-
-def _run_parallel_with_timeout(
-    items: list[tuple[str, object, float]],
-) -> list[tuple[str, object]]:
-    """XV-7: run several independent teardowns concurrently.
-
-    Each entry in *items* is ``(description, func, timeout)``. Returns a
-    list aligned with *items* of ``(description, result)`` where *result*
-    is either the function's return value, :data:`TIMEOUT`, or the
-    exception instance the function raised (caller decides whether to
-    re-raise / log / ignore). Exceptions are NEVER raised out of this
-    helper — every per-call failure is captured into the result tuple so
-    one slow teardown does not mask failures from its peers.
-
-    Used by ``_do_cleanup`` to parallelize teardowns that touch disjoint
-    resources (e.g. the three hotkey backends). The teardowns MUST be
-    genuinely independent — concurrent access to a shared resource
-    (PortAudio, SQLite connection, pystray loop) is unsafe.
-    """
-    import concurrent.futures
-
-    if not items:
-        return []
-    results: list[tuple[str, object]] = []
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(len(items), 8),
-        thread_name_prefix="cleanup-parallel",
-    ) as pool:
-        future_map: dict = {
-            pool.submit(_run_with_timeout, desc, func, timeout): (desc, func, timeout)
-            for (desc, func, timeout) in items
-        }
-        for fut in concurrent.futures.as_completed(future_map):
-            desc, _func, _timeout = future_map[fut]
-            try:
-                value = fut.result()
-            except BaseException as exc:  # noqa: BLE001 — captured per-call
-                value = exc
-            results.append((desc, value))
-    # Re-order to match input order so callers can index by position.
-    by_desc = {desc: value for (desc, value) in results}
-    return [(desc, by_desc[desc]) for (desc, _func, _timeout) in items]
+# DR-28: the general-purpose thread-join timeout utilities
+# (``_run_with_timeout``, ``_run_parallel_with_timeout``, the
+# ``TIMEOUT`` sentinel, and the watchdog constants) now live in
+# :mod:`voice_typer.server._timeout_utils`. They're re-exported here
+# (via the ``from ... import`` above) so existing callers — in
+# particular tests like ``tests/test_shutdown_controller_de.py`` that
+# do ``from voice_typer.server.shutdown_controller import _run_with_timeout,
+# _TIMEOUT, _DE11_GRACE_PERIOD_SECONDS`` — continue to work unchanged.
 
 
 class ShutdownController:
@@ -1235,254 +1132,93 @@ class ShutdownController:
         )
         t.start()
 
-    # ─── atexit safety net ─────────────────────────────────────────────
+    # ─── atexit safety net (DR-28: body → voice_typer.server.atexit_safety) ──
 
     def _atexit_log(self) -> None:
-        """Log when the process exits, even if quit() was not called."""
-        app = self._app
-        if not app._shutting_down_event.is_set():
-            log.warning(
-                "[ATEXIT] Process exiting without quit() -- "
-                "likely killed externally (console close, task manager, etc.)"
-            )
+        """Log when the process exits, even if quit() was not called.
+
+        DR-28: body lives in :func:`voice_typer.server.atexit_safety.atexit_log`.
+        This delegate preserves the instance-method API used by
+        ``atexit.register(self._atexit_log)`` in ``VoiceTyperApp.start()``.
+        """
+        from voice_typer.server.atexit_safety import atexit_log
+
+        atexit_log(self)
 
     def _atexit_cleanup(self) -> None:
         """RACE-016: atexit handler for critical cleanup paths.
 
-        Daemon threads can be killed by the interpreter without running
-        their finally blocks.  This method is a safety net that ensures
-        critical cleanup (volume restore, hotkey release, crash recovery
-        flush, history DB flush, recorder stop, PID file + mutex
-        release) happens even if the daemon thread's finally block
-        didn't run.  It is idempotent — calling it after ``quit()`` or
-        ``restart_app()`` is a no-op because both set
-        ``_shutting_down = True`` before delegating to ``_do_cleanup()``,
-        and ``_do_cleanup()`` itself guards against double-execution
-        via the ``_cleanup_done`` flag.
+        Idempotent — short-circuits on ``_shutting_down`` and never
+        raises (CR-21). See :func:`voice_typer.server.atexit_safety.atexit_cleanup`
+        for the full behavior contract (DR-28 extraction).
 
-        RW-3: previously this method ran an ad-hoc subset of cleanup
-        (volume restore + hotkey stop + crash recovery flush) that
-        DIVERGED from ``quit()``'s path.  When the process was killed
-        externally (no ``quit()`` / ``restart_app()``), the safety net
-        skipped history DB flush, recorder stop, mic watcher shutdown,
-        bubble level worker stop, PID file clear, and mutex handle
-        close — leaking the same resources that the OLD
-        ``restart_app()`` leaked.  It now delegates to
-        ``_do_cleanup()`` so the safety net runs the SAME audited
-        shutdown path as the regular flow.
+        DR-28: body lives in :mod:`voice_typer.server.atexit_safety`.
+        This delegate preserves the instance-method API used by tests
+        (``controller._atexit_cleanup()``) and the ``VoiceTyperApp``
+        wiring (``atexit.register(self._atexit_cleanup)``).
         """
-        app = self._app
-        try:
-            if app._shutting_down:
-                # quit() or restart_app() already ran (or is running)
-                # _do_cleanup(); the _cleanup_done flag inside
-                # _do_cleanup() makes a second call a no-op, but we
-                # short-circuit here too to avoid the spurious
-                # "[ATEXIT] Running emergency cleanup" log line on
-                # every intentional shutdown.
-                return
-            log.info("[ATEXIT] Running emergency cleanup")
-            # NOTE: we call ``app._do_cleanup()`` (the delegate on
-            # VoiceTyperApp) rather than ``self._do_cleanup()`` (the
-            # body on this controller) so test spies that
-            # ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still
-            # intercept the call — see
-            # tests/test_app_cleanup.py::test_atexit_cleanup_never_raises.
-            app._do_cleanup()
-        except Exception:
-            # CR-21: previously this was a bare ``except Exception: pass``
-            # which silently swallowed cleanup failures and left no trace
-            # in the log — making post-mortem debugging of crash-loop
-            # exits effectively impossible. We still never re-raise out
-            # of an atexit handler (that would mask the original exit
-            # cause and produce confusing tracebacks), but we now log
-            # the exception with traceback so operators can see what
-            # broke in the emergency cleanup path.
-            log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")
+        from voice_typer.server.atexit_safety import atexit_cleanup
 
-    # ─── Signal handlers ───────────────────────────────────────────────
+        atexit_cleanup(self)
+
+    # ─── Signal handlers (DR-28: body → voice_typer.server.signal_handlers) ──
 
     def _install_signal_handlers(self):
-        """Install SIGINT/SIGTERM handlers for graceful shutdown.
+        """Install SIGINT/SIGTERM/SIGHUP handlers for graceful shutdown.
 
-        PROD-003: On POSIX there was no signal handler, so Ctrl+C
-        would kill the process without running quit() cleanup
-        (stop hotkeys, restore volume, release mutex). This method
-        installs handlers that trigger quit() on a separate thread
-        to avoid deadlock when the main thread is inside the signal
-        handler.
-
-        MED-PPP / XCUT-4: the handler body itself is now
-        async-signal-safe — it only calls ``Event.set()`` (a thin
-        wrapper around ``PyThread_acquire_lock(NOWAIT_LOCK)`` which
-        is reentrant and never blocks). A long-lived watcher thread
-        (started lazily here) wakes on the event and performs the
-        unsafe work (logging + ``threading.Thread(target=quit)``)
-        outside the signal context. This eliminates the deadlock
-        risk if the signal fires while the main thread holds the
-        logging lock.
+        DR-28: body lives in
+        :func:`voice_typer.server.signal_handlers.install_signal_handlers`.
+        This delegate preserves the instance-method API used by tests
+        (``controller._install_signal_handlers()``) and the
+        ``VoiceTyperApp`` wiring (``app.start()`` calls
+        ``self._install_signal_handlers()``).
         """
+        from voice_typer.server.signal_handlers import install_signal_handlers
 
-        # Start the watcher daemon once. ``_signal_watcher_started`` is
-        # set BEFORE the thread is created so a signal arriving during
-        # ``Thread.__init__`` (which acquires the import lock) won't
-        # race us into starting a second watcher.
-        if not self._signal_watcher_started:
-            self._signal_watcher_started = True
-            threading.Thread(
-                target=self._signal_watcher_loop,
-                name="shutdown-signal-watcher",
-                daemon=True,
-            ).start()
-
-        def _signal_handler(signum, frame):
-            # Async-signal-safe: only record the signum and set the
-            # event. ``Event.set()`` is a thin wrapper around a
-            # non-blocking lock acquire in CPython and is safe to
-            # call from a signal handler. ``int`` assignment is
-            # atomic under the GIL. Everything else (logging,
-            # thread creation) is deferred to ``_signal_watcher_loop``
-            # which runs in a normal thread context.
-            self._shutdown_signum = signum
-            self._shutdown_signal_event.set()
-
-        # PVT-G5-014: also register SIGHUP on POSIX so terminal close
-        # / SSH disconnect triggers graceful shutdown (default action
-        # would terminate immediately without running atexit). Filtered
-        # via ``hasattr`` because Windows doesn't define SIGHUP. The
-        # ``contextlib.suppress`` already handles the case where the
-        # signal can't be installed (e.g. not in the main thread).
-        _posix_signals = [signal.SIGINT, signal.SIGTERM]
-        _sighup = getattr(signal, "SIGHUP", None)
-        if _sighup is not None:
-            _posix_signals.append(_sighup)
-        for sig in _posix_signals:
-            with contextlib.suppress(OSError, ValueError):
-                # SIGTERM not available on Windows; signal.signal can
-                # raise if not in the main thread
-                signal.signal(sig, _signal_handler)
+        install_signal_handlers(self)
 
     def _signal_watcher_loop(self) -> None:
         """Watcher thread for the POSIX signal handlers.
 
-        MED-PPP / XCUT-4: polls ``_shutdown_signal_event`` (1s
-        timeout) and, when set, performs the unsafe work that the
-        signal handler itself must not do — logging the signal name
-        and spawning the quit() worker thread. Runs as a daemon so
-        it never blocks process exit; ``quit()`` is idempotent so a
-        duplicate signal that re-triggers the watcher is harmless.
+        DR-28: body lives in
+        :func:`voice_typer.server.signal_handlers.signal_watcher_loop`.
+        This delegate is kept so the test fixture that calls
+        ``controller._signal_watcher_loop()`` directly continues to work,
+        and so legacy code that captured ``target=self._signal_watcher_loop``
+        before the DR-28 split keeps functioning. New code should call
+        ``signal_handlers.signal_watcher_loop(controller)`` directly.
         """
-        # Block indefinitely until the event is set. ``wait(timeout=1)``
-        # (rather than ``wait()`` with no timeout) keeps the thread
-        # responsive to interpreter shutdown on platforms where the
-        # underlying lock isn't released automatically — a one-second
-        # poll loop is cheap and matches the convention used by the
-        # other daemon watchers in this codebase.
-        while not self._shutdown_signal_event.wait(timeout=1.0):
-            pass
-        # Outside the signal context — safe to use logging and threading.
-        signum = self._shutdown_signum
-        try:
-            sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
-            log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
-        except Exception:
-            # Never let a logging failure here prevent shutdown —
-            # the signal was delivered and we must still call quit().
-            pass
-        # RACE-016: daemon=True is acceptable because quit() is
-        # idempotent and the atexit handler covers critical cleanup.
-        try:
-            threading.Thread(target=self.quit, daemon=True).start()
-        except Exception:
-            log.exception("[SIGNAL] failed to spawn quit() worker thread")
+        from voice_typer.server.signal_handlers import signal_watcher_loop
+
+        signal_watcher_loop(self)
 
     def _install_win32_console_handler(self):
         """On Windows, install a console control handler to survive console closure.
 
-        ARCH-046: skip when running under ``pythonw.exe`` — there's no
-        console attached, so SetConsoleCtrlHandler is a no-op that
-        spews "no console" warnings in the log.
+        DR-28: body lives in
+        :func:`voice_typer.server.signal_handlers.install_win32_console_handler`.
+        This delegate preserves the instance-method API used by tests
+        (``controller._install_win32_console_handler()``) and the
+        ``VoiceTyperApp`` wiring (``app.start()`` calls
+        ``self._install_win32_console_handler()``).
         """
-        # Look up the platform helper from the app module at call time
-        # so tests that monkeypatch voice_typer.server.app.is_windows
-        # still take effect (mirrors the SettingsController convention).
-        from voice_typer.server import app as _app_module
+        from voice_typer.server.signal_handlers import (
+            install_win32_console_handler,
+        )
 
-        if not _app_module.is_windows():
-            return
-        app = self._app
-        # ARCH-046: detect pythonw.exe (no console) and skip install.
-        exe_name = Path(sys.executable).name.lower()
-        if exe_name == "pythonw.exe":
-            log.debug("[WIN32] pythonw.exe detected — skipping console control handler")
-            return
-
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            handler_routine = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
-
-            app._console_handler = handler_routine(self._win32_console_handler)
-            app._kernel32 = ctypes.windll.kernel32
-            kernel32 = app._kernel32
-            kernel32.SetConsoleCtrlHandler.argtypes = [handler_routine, wintypes.BOOL]
-            kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
-            kernel32.FreeConsole.argtypes = []
-            kernel32.FreeConsole.restype = wintypes.BOOL
-
-            result = kernel32.SetConsoleCtrlHandler(app._console_handler, True)
-            if result:
-                log.info("[WIN32] Console control handler installed")
-            else:
-                log.warning("[WIN32] SetConsoleCtrlHandler failed")
-        except Exception:
-            log.exception("[WIN32] Failed to install console control handler")
+        install_win32_console_handler(self)
 
     def _win32_console_handler(self, ctrl_type):
-        """Callback for Windows console control events."""
-        app = self._app
-        ctrl_c_event = 0
-        ctrl_break_event = 1
-        ctrl_close_event = 2
-        ctrl_logoff_event = 5
-        ctrl_shutdown_event = 6
+        """Callback for Windows console control events.
 
-        if ctrl_type == ctrl_close_event:
-            log.info("[WIN32] Console window closing -- keeping process alive (tray app survives)")
-            try:
-                app._kernel32.FreeConsole()
-                # PERF-004: reuse the existing devnull object instead of
-                # opening a new one on every ctrl_close_event (would hit
-                # Windows' 10,000 handle cap after ~250 RDP logout cycles).
-                if getattr(app, "_devnull", None) is None or app._devnull.closed:
-                    app._devnull = open(os.devnull, "w")  # noqa: SIM115
-                    # Look up _register_devnull_file dynamically from the
-                    # app module so tests that monkeypatch
-                    # voice_typer.server.app._register_devnull_file
-                    # still take effect.
-                    from voice_typer.server import app as _app_module
+        DR-28: body lives in
+        :func:`voice_typer.server.signal_handlers.win32_console_handler`.
+        This delegate preserves the instance-method API used by tests
+        (``controller._win32_console_handler(ctrl_type)`` — see
+        ``tests/test_shutdown_controller.py::TestWin32ConsoleHandlerRouting``)
+        and the ctypes callback wiring (``handler_routine(self._win32_console_handler)``
+        inside :func:`signal_handlers.install_win32_console_handler`).
+        """
+        from voice_typer.server.signal_handlers import win32_console_handler
 
-                    _app_module._register_devnull_file(app._devnull)
-                sys.stdout = app._devnull
-                sys.stderr = app._devnull
-                log.info("[WIN32] Detached from console (FreeConsole)")
-            except Exception:
-                log.warning("[WIN32] FreeConsole() failed")
-            return True
-
-        if ctrl_type in (ctrl_logoff_event, ctrl_shutdown_event):
-            log.info("[WIN32] System event %d received, shutting down", ctrl_type)
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
-            return True
-
-        if ctrl_type in (ctrl_c_event, ctrl_break_event):
-            log.info("[WIN32] Ctrl+C received, shutting down")
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
-            return True
-
-        return False
+        return win32_console_handler(self, ctrl_type)
