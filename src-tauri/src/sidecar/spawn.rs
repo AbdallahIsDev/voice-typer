@@ -438,6 +438,42 @@ pub(crate) async fn spawn_sidecar_release(
     ))
 }
 
+/// XZ-R4-011: dev-mode counterpart of `prewarm_resource_path` (which
+/// needs an `AppHandle` and so can't be called from
+/// `spawn_sidecar_dev_mode`). Resolves the prewarm exe path relative
+/// to the source-tree root (the dev-mode cwd under `cargo tauri dev`)
+/// so the Python sidecar's prewarm scheduled-task integration sees the
+/// same env var the release path provides.
+///
+/// Returns the empty string when the path can't be constructed (only
+/// fails when `current_dir()` itself errors, which is rare). An empty
+/// string is a safe sentinel — the Python side's prewarm integration
+/// treats a missing/empty `VOICE_TYPER_PREWARM_EXE` as "prewarm
+/// disabled" (it checks `Path(exe).is_file()` before spawning), so no
+/// crash follows. A warning is logged in that case so the developer
+/// knows prewarm is disabled in this dev session.
+fn dev_prewarm_exe() -> String {
+    let triple = current_target_triple();
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let name = format!("prewarm-{}{}", triple, suffix);
+    match std::env::current_dir() {
+        Ok(cwd) => cwd
+            .join("voice_typer")
+            .join("server")
+            .join("native")
+            .join(name)
+            .to_string_lossy()
+            .to_string(),
+        Err(e) => {
+            log::warn!(
+                "[SIDECAR-DEV] could not resolve cwd for VOICE_TYPER_PREWARM_EXE (prewarm disabled): {}",
+                e
+            );
+            String::new()
+        }
+    }
+}
+
 /// ADR-0020 §14: dev-mode spawn — runs the Python sidecar as a plain
 /// `python -m voice_typer.server.ipc_server --ws` process (no Nuitka
 /// freeze, no `externalBin`). The developer must have `voice_typer`
@@ -462,14 +498,30 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
     let mut cmd = tokio::process::Command::new(python_bin);
     // Clear inherited host env BEFORE adding the
     // voice-typer-specific vars (mirrors the release path above).
-    // Dev mode also adds `VOICE_TYPER_DEBUG=1` + `RUST_LOG=debug` for
-    // verbose native-child logging during `cargo tauri dev`.
+    // Dev mode also adds `VOICE_TYPER_DEBUG=1` + (when unset)
+    // `RUST_LOG=debug` for verbose native-child logging during
+    // `cargo tauri dev`.
     cmd.args(["-m", "voice_typer.server.ipc_server", "--ws"])
         .env_clear()
         .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
+        // XZ-R4-011: mirror the release-path env-var set so dev mode
+        // doesn't silently diverge. Previously dev mode was missing
+        // `VOICE_TYPER_PREWARM_EXE` (so the prewarm scheduled-task
+        // integration couldn't be exercised under `cargo tauri dev`)
+        // and hardcoded `RUST_LOG=debug` (which overrode any user-set
+        // `RUST_LOG` value, breaking the developer's ability to
+        // silence noisy crates via `RUST_LOG=warn`). We resolve the
+        // prewarm exe via `dev_prewarm_exe()` (the dev-mode
+        // counterpart of `prewarm_resource_path`) so the dev
+        // sidecar's prewarm integration sees a real path; if the
+        // path can't be resolved (rare — only fails when `cwd()`
+        // errors), `dev_prewarm_exe()` returns an empty string and
+        // logs a warning so the developer knows prewarm is disabled
+        // in this dev session.
+        .env("VOICE_TYPER_PREWARM_EXE", dev_prewarm_exe())
         // GT-20: set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
         // verbose debug logging (its `log.py` checks this env var).
         // Previously this set only `RUST_LOG=debug`, which is
@@ -477,9 +529,20 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         // `RUST_LOG`) — it only affected native Rust binaries the
         // sidecar might spawn. Keep `RUST_LOG=debug` too so those
         // native children stay verbose in dev mode.
-        .env("VOICE_TYPER_DEBUG", "1")
-        .env("RUST_LOG", "debug")
-        .stdout(std::process::Stdio::piped())
+        //
+        // XZ-R4-011: only set `RUST_LOG=debug` when the env var is
+        // unset, so a developer who exports `RUST_LOG=warn` (or any
+        // other level) from their shell to silence a noisy crate
+        // doesn't have their preference clobbered by the dev spawn
+        // path. The release path doesn't set `RUST_LOG` at all (it's
+        // not in the explicit env list at line 241-244 above), so
+        // this dev-only default is the only place the override could
+        // previously fire.
+        .env("VOICE_TYPER_DEBUG", "1");
+    if std::env::var_os("RUST_LOG").is_none() {
+        cmd.env("RUST_LOG", "debug");
+    }
+    cmd.stdout(std::process::Stdio::piped())
         // Dev mode: inherit stderr so the developer sees Python
         // tracebacks in the `cargo tauri dev` console.
         .stderr(std::process::Stdio::inherit())

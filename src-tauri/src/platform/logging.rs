@@ -294,14 +294,27 @@ impl log::Log for CombinedLogger {
 
 // ─── XZ-LOG-02: PII redaction ───────────────────────────────────────────
 //
-// Minimal PII redactor for log output. Covers the highest-signal patterns
-// (Bearer/Token/sk- prefix tokens, user:pass@host URL credentials, basic
-// email addresses) using std-only substring scanning. Adding the `regex`
-// crate as a direct dependency would let us port the full Python pattern
-// set (SSN, CC, IBAN, international phone, …) — that's tracked as a
-// follow-up. The fast path checks for trigger characters before scanning:
-// if none of @, Bearer, Token, sk-, :// are present, returns the input
-// unchanged.
+// PII redactor for log output. Ports the Python `PIIRedactionFilter`
+// pattern set to Rust using std-only substring scanning (no `regex`
+// crate dependency). Covered patterns (same order as Python
+// `_PATTERNS` + `_KEY_PATTERNS`):
+//   - Bearer <token>      → `Bearer ***`   (Python `_KEY_PATTERNS[0]`)
+//   - Token <token>       → `Token ***`    (Python `_KEY_PATTERNS[1]`)
+//   - sk-<token>          → `sk-***`       (Python `_KEY_PATTERNS[2]`)
+//   - gsk_<token>         → `gsk_***`      (Python `_KEY_PATTERNS[3]`)
+//   - user:pass@host      → `***@host`     (Python `redact_url`)
+//   - <local>@<dom>.<tld> → `[EMAIL]`      (Python `_PATTERNS[0]`)
+//   - IBAN                → `[IBAN]`       (Python `_PATTERNS[1]`)
+//   - US phone (3-3-4)    → `[PHONE]`      (Python `_PATTERNS[2]`)
+//   - Intl phone (+cc…)   → `[PHONE]`      (Python `_PATTERNS[3]`)
+//   - SSN (3-2-4)         → `[SSN]`        (Python `_PATTERNS[4]`)
+//   - Credit card (4-4-4-4) → `[CC]`      (Python `_PATTERNS[5]`)
+//
+// The fast path mirrors Python's `_FAST_TRIGGER` (security.py:63):
+//   `[@+]|\d{3,}|Bearer|Token|sk-|key=|[A-Za-z0-9_\-]{20,}`
+// We check the substrings directly (no regex) and a 3+ consecutive
+// digit scan for the numeric patterns. A miss on ALL triggers lets us
+// return the input unchanged without the per-byte scan loop.
 
 /// Redact PII patterns from the input string. Returns the input unchanged
 /// (but as a newly-allocated `String`) if no trigger character is
@@ -309,12 +322,25 @@ impl log::Log for CombinedLogger {
 /// replaced by its redaction placeholder.
 pub(crate) fn redact_pii(input: &str) -> String {
     // Fast path: skip the whole pass if no trigger is present. Mirrors
-    // the Python side's `_FAST_TRIGGER` shortcut.
+    // the Python side's `_FAST_TRIGGER` shortcut. Each trigger is a
+    // *necessary* condition for at least one downstream pattern:
+    //   `@`      — email / URL credentials
+    //   `+`      — international phone (`+<cc>…`)
+    //   `Bearer` — bearer token
+    //   `Token`  — token keyword
+    //   `sk-`    — OpenAI-style key
+    //   `gsk_`   — Groq-style key
+    //   `://`    — URL credentials (`https://user:pass@host`)
+    //   3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (BBAN
+    //     portion always contains 3+ consecutive digits)
     if !input.contains('@')
+        && !input.contains('+')
         && !input.contains("Bearer")
         && !input.contains("Token")
         && !input.contains("sk-")
+        && !input.contains("gsk_")
         && !input.contains("://")
+        && !has_3plus_consecutive_ascii_digits(input)
     {
         return input.to_string();
     }
@@ -324,19 +350,23 @@ pub(crate) fn redact_pii(input: &str) -> String {
     while i < input.len() {
         let rest = &input[i..];
 
-        // 1. `Bearer <token>` — token runs until whitespace or end.
+        // 1. `Bearer <token>` — token runs until a char that's NOT in
+        //    the Python `_KEY_PATTERNS[0]` charset `[A-Za-z0-9_\-\.=]`.
+        //    Pre-fix the token ran until whitespace, which consumed
+        //    trailing punctuation (e.g. the comma in `Bearer abc123,`)
+        //    and broke `test_redact_pii_multiple_patterns_in_one_line`.
         if let Some(stripped) = rest.strip_prefix("Bearer ") {
             let token_len = stripped
-                .find(|c: char| c.is_whitespace())
+                .find(|c: char| !is_api_token_char(c))
                 .unwrap_or(stripped.len());
             out.push_str("Bearer ***");
             i += "Bearer ".len() + token_len;
             continue;
         }
-        // 2. `Token <token>` — same shape as Bearer.
+        // 2. `Token <token>` — same charset as Bearer.
         if let Some(stripped) = rest.strip_prefix("Token ") {
             let token_len = stripped
-                .find(|c: char| c.is_whitespace())
+                .find(|c: char| !is_api_token_char(c))
                 .unwrap_or(stripped.len());
             out.push_str("Token ***");
             i += "Token ".len() + token_len;
@@ -357,8 +387,20 @@ pub(crate) fn redact_pii(input: &str) -> String {
                 continue;
             }
         }
+        // 4. `gsk_<token>` — Groq-style API key. Same charset and
+        //    length threshold as `sk-` (8+ chars after the prefix).
+        if let Some(stripped) = rest.strip_prefix("gsk_") {
+            let token_len = stripped
+                .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+                .unwrap_or(stripped.len());
+            if token_len >= 8 {
+                out.push_str("gsk_***");
+                i += "gsk_".len() + token_len;
+                continue;
+            }
+        }
 
-        // 4. `user:pass@host` — strip everything up to and including
+        // 5. `user:pass@host` — strip everything up to and including
         //    the `@` IF the prefix contains a `:` (the URL-credential
         //    marker). The host part is preserved.
         if rest.contains('@') {
@@ -369,7 +411,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
                     i += at_pos + 1;
                     continue;
                 }
-                // 5. Basic email: `<name>@<domain>.<tld>`. We require
+                // 6. Basic email: `<name>@<domain>.<tld>`. We require
                 //    a `.` in the domain part (after the `@`) to avoid
                 //    false-positives on `user@host` (no TLD).
                 let after_at = &rest[at_pos + 1..];
@@ -391,6 +433,61 @@ pub(crate) fn redact_pii(input: &str) -> String {
             }
         }
 
+        // 7. IBAN: 2 uppercase ASCII letters + 2 digits + 10-30 BBAN
+        //    chars (uppercase letters or digits). MUST be checked
+        //    before phone/SSN/CC so the digit portion of an IBAN
+        //    (e.g. `GB82WEST12345698765432`) isn't partially matched
+        //    as a phone number. Mirrors Python `_PATTERNS[1]`:
+        //    `\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b`.
+        if let Some(iban_len) = try_match_iban(rest, input, i) {
+            out.push_str("[IBAN]");
+            i += iban_len;
+            continue;
+        }
+
+        // 8. International phone: `+` followed by country code (1-3
+        //    digits) and subscriber number. Mirrors Python
+        //    `_PATTERNS[3]`: `\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b`.
+        //    Checked before US phone so `+1 (415) 555-2671` matches
+        //    the international pattern (not the US pattern on the
+        //    `415 555 2671` tail).
+        if rest.starts_with('+') {
+            if let Some(phone_len) = try_match_intl_phone(rest, input, i) {
+                out.push_str("[PHONE]");
+                i += phone_len;
+                continue;
+            }
+        }
+
+        // 9. US phone: 3-3-4 digits with optional `-` or `.`
+        //    separators. Mirrors Python `_PATTERNS[2]`:
+        //    `\b\d{3}[-.]?\d{3}[-.]?\d{4}\b`.
+        if let Some(phone_len) = try_match_us_phone(rest, input, i) {
+            out.push_str("[PHONE]");
+            i += phone_len;
+            continue;
+        }
+
+        // 10. SSN: 3-2-4 digits with `-` separators (the canonical
+        //     `123-45-6789` form). Mirrors Python `_PATTERNS[4]`:
+        //     `\b\d{3}-\d{2}-\d{4}\b`. The dashes are REQUIRED (not
+        //     optional) so a 9-digit run like `123456789` is NOT
+        //     matched as an SSN (matches Python behaviour).
+        if let Some(ssn_len) = try_match_ssn(rest, input, i) {
+            out.push_str("[SSN]");
+            i += ssn_len;
+            continue;
+        }
+
+        // 11. Credit card: 4-4-4-4 digits with optional `-` or space
+        //     separators. Mirrors Python `_PATTERNS[5]`:
+        //     `\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`.
+        if let Some(cc_len) = try_match_credit_card(rest, input, i) {
+            out.push_str("[CC]");
+            i += cc_len;
+            continue;
+        }
+
         // No pattern matched at this position — copy the byte and
         // advance by one (UTF-8 safe: we're copying the raw byte and
         // the input was already valid UTF-8 when we received it).
@@ -399,6 +496,276 @@ pub(crate) fn redact_pii(input: &str) -> String {
         i += ch.len_utf8();
     }
     out
+}
+
+/// Return true if `input` contains 3+ consecutive ASCII digit bytes.
+/// Mirrors the `\d{3,}` alternative in Python's `_FAST_TRIGGER`. Used
+/// only as a fast-path gate — the actual numeric patterns (phone, SSN,
+/// CC, IBAN) require specific digit groupings, so a hit here does NOT
+/// mean a redaction will occur.
+fn has_3plus_consecutive_ascii_digits(input: &str) -> bool {
+    let mut run = 0u8;
+    for b in input.bytes() {
+        if b.is_ascii_digit() {
+            run += 1;
+            if run >= 3 {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
+/// Predicate matching the Python `_KEY_PATTERNS` charset
+/// `[A-Za-z0-9_\-\.=]` used by the `Bearer` / `Token` prefix patterns.
+/// Used by `redact_pii` to find the end of a bearer/token value without
+/// consuming trailing punctuation (commas, semicolons, quotes) that
+/// Python's regex would leave alone.
+fn is_api_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '='
+}
+
+/// Word-boundary check mirroring Python's `\b`. Returns true if the
+/// byte at `pos - 1` is NOT an ASCII word char (`[A-Za-z0-9_]`), or if
+/// `pos == 0`. We use byte indexing (not `chars()`) because all the
+/// patterns that call this are ASCII-only — a multi-byte UTF-8 lead
+/// byte (>= 0x80) is never an ASCII word char, so the check is sound
+/// even when `pos` lands just after a non-ASCII character.
+fn word_boundary_before(input: &str, pos: usize) -> bool {
+    if pos == 0 {
+        return true;
+    }
+    let prev = input.as_bytes()[pos - 1];
+    !prev.is_ascii_alphanumeric() && prev != b'_'
+}
+
+/// Word-boundary check after a match. Returns true if the byte at
+/// `pos` is NOT an ASCII word char, or if `pos >= input.len()`.
+fn word_boundary_after(input: &str, pos: usize) -> bool {
+    if pos >= input.len() {
+        return true;
+    }
+    let next = input.as_bytes()[pos];
+    !next.is_ascii_alphanumeric() && next != b'_'
+}
+
+/// Try to match an IBAN at the start of `rest`. Returns the match
+/// length (in bytes) if the pattern matches and word boundaries are
+/// satisfied, or `None` otherwise. The pattern is `[A-Z]{2}\d{2}[A-Z0-9]{10,30}`
+/// (2 country letters + 2 check digits + 10-30 BBAN chars).
+fn try_match_iban(rest: &str, input: &str, pos: usize) -> Option<usize> {
+    if !word_boundary_before(input, pos) {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    // Need at least 2 letters + 2 digits + 10 BBAN = 14 bytes.
+    if bytes.len() < 14 {
+        return None;
+    }
+    if !bytes[0].is_ascii_uppercase() || !bytes[1].is_ascii_uppercase() {
+        return None;
+    }
+    if !bytes[2].is_ascii_digit() || !bytes[3].is_ascii_digit() {
+        return None;
+    }
+    let mut bban_len = 0usize;
+    let max_bban = (bytes.len() - 4).min(30);
+    for i in 4..4 + max_bban {
+        if bytes[i].is_ascii_uppercase() || bytes[i].is_ascii_digit() {
+            bban_len += 1;
+        } else {
+            break;
+        }
+    }
+    if bban_len < 10 {
+        return None;
+    }
+    let total = 4 + bban_len;
+    if !word_boundary_after(input, pos + total) {
+        return None;
+    }
+    Some(total)
+}
+
+/// Try to match a US phone number at the start of `rest`: 3-3-4 digits
+/// with optional `-` or `.` separators between groups. Pattern:
+/// `\d{3}[-.]?\d{3}[-.]?\d{4}`. Word boundaries required on both ends.
+fn try_match_us_phone(rest: &str, input: &str, pos: usize) -> Option<usize> {
+    if !word_boundary_before(input, pos) {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    let mut idx = 0usize;
+    let mut groups = [0usize; 3];
+    let group_sizes = [3usize, 3, 4];
+    for (g, &expected) in group_sizes.iter().enumerate() {
+        // Optional separator before groups 1 and 2 (not group 0).
+        if g > 0 {
+            if idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b'.') {
+                idx += 1;
+            }
+        }
+        let mut digits = 0usize;
+        while idx < bytes.len() && bytes[idx].is_ascii_digit() && digits < expected {
+            idx += 1;
+            digits += 1;
+        }
+        if digits != expected {
+            return None;
+        }
+        groups[g] = digits;
+    }
+    let _ = groups;
+    if !word_boundary_after(input, pos + idx) {
+        return None;
+    }
+    Some(idx)
+}
+
+/// Try to match an international phone at the start of `rest` (which
+/// must begin with `+`). Pattern: `\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}`.
+/// Word boundary required AFTER the match (the `+` prefix already
+/// guarantees a non-word char before).
+fn try_match_intl_phone(rest: &str, input: &str, pos: usize) -> Option<usize> {
+    debug_assert!(rest.starts_with('+'));
+    // The `+` is a non-word char, so word_boundary_before is implied
+    // (the previous char, if any, can't be a word char that joins to `+`).
+    let _ = pos;
+    let bytes = rest.as_bytes();
+    let mut idx = 1usize; // skip the `+`
+
+    // Country code: 1-3 digits.
+    let cc_start = idx;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() && idx - cc_start < 3 {
+        idx += 1;
+    }
+    if idx == cc_start {
+        return None;
+    }
+
+    // Optional separator (` ` or `-`).
+    if idx < bytes.len() && (bytes[idx] == b' ' || bytes[idx] == b'-') {
+        idx += 1;
+    }
+    // Optional `(`.
+    if idx < bytes.len() && bytes[idx] == b'(' {
+        idx += 1;
+    }
+    // Subscriber group 1: 1-4 digits.
+    let g1_start = idx;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() && idx - g1_start < 4 {
+        idx += 1;
+    }
+    if idx == g1_start {
+        return None;
+    }
+    // Optional `)`.
+    if idx < bytes.len() && bytes[idx] == b')' {
+        idx += 1;
+    }
+    // Optional separator.
+    if idx < bytes.len() && (bytes[idx] == b' ' || bytes[idx] == b'-') {
+        idx += 1;
+    }
+    // Subscriber group 2: 3-4 digits.
+    let g2_start = idx;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() && idx - g2_start < 4 {
+        idx += 1;
+    }
+    if idx - g2_start < 3 {
+        return None;
+    }
+    // Optional separator.
+    if idx < bytes.len() && (bytes[idx] == b' ' || bytes[idx] == b'-') {
+        idx += 1;
+    }
+    // Subscriber group 3: 3-4 digits.
+    let g3_start = idx;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() && idx - g3_start < 4 {
+        idx += 1;
+    }
+    if idx - g3_start < 3 {
+        return None;
+    }
+    if !word_boundary_after(input, pos + idx) {
+        return None;
+    }
+    Some(idx)
+}
+
+/// Try to match an SSN at the start of `rest`: 3-2-4 digits with
+/// REQUIRED `-` separators (the canonical `123-45-6789` form). Pattern:
+/// `\d{3}-\d{2}-\d{4}`. Word boundaries required on both ends.
+fn try_match_ssn(rest: &str, input: &str, pos: usize) -> Option<usize> {
+    if !word_boundary_before(input, pos) {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    if bytes.len() < 11 {
+        return None;
+    }
+    // 3 digits
+    if !(bytes[0].is_ascii_digit() && bytes[1].is_ascii_digit() && bytes[2].is_ascii_digit()) {
+        return None;
+    }
+    if bytes[3] != b'-' {
+        return None;
+    }
+    // 2 digits
+    if !(bytes[4].is_ascii_digit() && bytes[5].is_ascii_digit()) {
+        return None;
+    }
+    if bytes[6] != b'-' {
+        return None;
+    }
+    // 4 digits
+    if !(bytes[7].is_ascii_digit()
+        && bytes[8].is_ascii_digit()
+        && bytes[9].is_ascii_digit()
+        && bytes[10].is_ascii_digit())
+    {
+        return None;
+    }
+    if !word_boundary_after(input, pos + 11) {
+        return None;
+    }
+    Some(11)
+}
+
+/// Try to match a credit-card number at the start of `rest`: 4-4-4-4
+/// digits with optional `-` or space separators. Pattern:
+/// `\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}`. Word boundaries required
+/// on both ends.
+fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
+    if !word_boundary_before(input, pos) {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    let mut idx = 0usize;
+    for group in 0..4usize {
+        // Optional separator before groups 1, 2, 3.
+        if group > 0 {
+            if idx < bytes.len() && (bytes[idx] == b'-' || bytes[idx] == b' ') {
+                idx += 1;
+            }
+        }
+        // 4 digits.
+        if idx + 4 > bytes.len() {
+            return None;
+        }
+        for k in 0..4 {
+            if !bytes[idx + k].is_ascii_digit() {
+                return None;
+            }
+        }
+        idx += 4;
+    }
+    if !word_boundary_after(input, pos + idx) {
+        return None;
+    }
+    Some(idx)
 }
 
 // ─── PVT-G5-083: panic hook ─────────────────────────────────────────────
@@ -1643,5 +2010,152 @@ mod tests {
             out,
             "auth=Bearer ***, email=[EMAIL], key=sk-***"
         );
+    }
+
+    // ── XZ-LOG-02 extended coverage: gsk_, IBAN, phone, SSN, CC ───────
+
+    #[test]
+    fn test_redact_pii_gsk_prefix_api_key() {
+        let input = "groq key gsk_1234567890abcdef for the cloud engine";
+        let out = redact_pii(input);
+        assert_eq!(out, "groq key gsk_*** for the cloud engine");
+    }
+
+    #[test]
+    fn test_redact_pii_gsk_prefix_too_short_not_redacted() {
+        let input = "short gsk_abc value";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_us_phone_with_dashes() {
+        let input = "call me at 555-123-4567 today";
+        let out = redact_pii(input);
+        assert_eq!(out, "call me at [PHONE] today");
+    }
+
+    #[test]
+    fn test_redact_pii_us_phone_with_dots() {
+        let input = "call me at 555.123.4567 today";
+        let out = redact_pii(input);
+        assert_eq!(out, "call me at [PHONE] today");
+    }
+
+    #[test]
+    fn test_redact_pii_us_phone_no_separators() {
+        let input = "call me at 5551234567 today";
+        let out = redact_pii(input);
+        assert_eq!(out, "call me at [PHONE] today");
+    }
+
+    #[test]
+    fn test_redact_pii_intl_phone_with_parens() {
+        let input = "call +1 (415) 555-2671 now";
+        let out = redact_pii(input);
+        assert_eq!(out, "call [PHONE] now");
+    }
+
+    #[test]
+    fn test_redact_pii_intl_phone_uk_format() {
+        let input = "dial +44 20 7946 0958 please";
+        let out = redact_pii(input);
+        assert_eq!(out, "dial [PHONE] please");
+    }
+
+    #[test]
+    fn test_redact_pii_ssn_with_dashes() {
+        let input = "ssn is 123-45-6789 on file";
+        let out = redact_pii(input);
+        assert_eq!(out, "ssn is [SSN] on file");
+    }
+
+    #[test]
+    fn test_redact_pii_ssn_no_dashes_not_redacted() {
+        // 9-digit run without dashes is NOT an SSN (matches Python
+        // behaviour — the `-` separators are required).
+        let input = "order id 123456789 processed";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_credit_card_with_dashes() {
+        let input = "card 4111-1111-1111-1111 charged";
+        let out = redact_pii(input);
+        assert_eq!(out, "card [CC] charged");
+    }
+
+    #[test]
+    fn test_redact_pii_credit_card_with_spaces() {
+        let input = "card 4111 1111 1111 1111 charged";
+        let out = redact_pii(input);
+        assert_eq!(out, "card [CC] charged");
+    }
+
+    #[test]
+    fn test_redact_pii_credit_card_no_separators() {
+        let input = "card 4111111111111111 charged";
+        let out = redact_pii(input);
+        assert_eq!(out, "card [CC] charged");
+    }
+
+    #[test]
+    fn test_redact_pii_iban_uk() {
+        let input = "iban GB82WEST12345698765432 on file";
+        let out = redact_pii(input);
+        assert_eq!(out, "iban [IBAN] on file");
+    }
+
+    #[test]
+    fn test_redact_pii_iban_germany() {
+        let input = "iban DE89370400440532013000 on file";
+        let out = redact_pii(input);
+        assert_eq!(out, "iban [IBAN] on file");
+    }
+
+    #[test]
+    fn test_redact_pii_iban_too_short_not_redacted() {
+        // 2 letters + 2 digits + only 5 BBAN chars (< 10) → not an IBAN.
+        let input = "code AB12ABCDE end";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_iban_lowercase_not_redacted() {
+        // IBAN requires UPPERCASE country code (matches Python regex
+        // `[A-Z]{2}`). A lowercase form is left alone.
+        let input = "code gb82west12345698765432 end";
+        let out = redact_pii(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_redact_pii_no_false_positive_on_short_digit_runs() {
+        // 1-2 digit runs should NOT trigger any numeric pattern.
+        let inputs = [
+            "port 80 and 443 are common",
+            "version 1.2.3 released",
+            "timeout 30s",
+        ];
+        for input in inputs {
+            let out = redact_pii(input);
+            assert_eq!(
+                out, input,
+                "false positive: input {input:?} was changed to {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_redact_pii_bearer_token_trailing_comma_preserved() {
+        // Regression: pre-fix the Bearer parser consumed trailing
+        // punctuation (ran until whitespace). Now it stops at the
+        // first non-token char (comma), matching Python's
+        // `[A-Za-z0-9_\-\.=]+` charset.
+        let input = "auth=Bearer abc123, next field";
+        let out = redact_pii(input);
+        assert_eq!(out, "auth=Bearer ***, next field");
     }
 }

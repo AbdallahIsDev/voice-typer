@@ -535,11 +535,25 @@ async fn wait_for_auth_ok(
     state: &Arc<SidecarState>,
     mut read: SplitStream<WsStream>,
 ) -> Result<SplitStream<WsStream>, String> {
-    let auth_result = tokio::time::timeout(
-        Duration::from_secs(WS_AUTH_OK_TIMEOUT_SECS),
-        read.next(),
-    )
-    .await;
+    // XZ-R4-012: wrap the auth-read path (timeout + JSON parse + emit)
+    // in `AssertUnwindSafe(...).catch_unwind()` so a panic inside any
+    // of those steps doesn't propagate up to the supervisor's
+    // `block_on` driver and permanently kill the long-lived
+    // supervisor thread (which would degrade resilience to per-trigger
+    // one-shot fallbacks — FR-11 path). The reader/writer/heartbeat
+    // task bodies are already wrapped (G4-H-26 / AC-98); this closes
+    // the asymmetry. On caught panic: log, call
+    // `cleanup_and_trigger_respawn`, return a descriptive error.
+    let app_for_body = app.clone();
+    let state_for_body = state.clone();
+    let result = AssertUnwindSafe(async move {
+        let app = &app_for_body;
+        let state = &state_for_body;
+        let auth_result = tokio::time::timeout(
+            Duration::from_secs(WS_AUTH_OK_TIMEOUT_SECS),
+            read.next(),
+        )
+        .await;
     match auth_result {
         Err(_) => {
             log::error!(
@@ -548,20 +562,20 @@ async fn wait_for_auth_ok(
                 WS_AUTH_OK_TIMEOUT_SECS
             );
             cleanup_and_trigger_respawn(app, state);
-            Err(format!(
+            return Err(format!(
                 "WS auth timed out after {}s",
                 WS_AUTH_OK_TIMEOUT_SECS
-            ))
+            ));
         }
         Ok(None) => {
             log::error!("[WS-AUTH] stream closed before auth_ok/ready");
             cleanup_and_trigger_respawn(app, state);
-            Err("WS stream closed during auth".to_string())
+            return Err("WS stream closed during auth".to_string());
         }
         Ok(Some(Err(e))) => {
             log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
             cleanup_and_trigger_respawn(app, state);
-            Err(format!("WS auth read error: {}", e))
+            return Err(format!("WS auth read error: {}", e))
         }
         Ok(Some(Ok(msg))) => {
             let text = match msg {
@@ -673,6 +687,20 @@ async fn wait_for_auth_ok(
             Ok(read)
         }
     }
+    })
+    .catch_unwind()
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(_panic_payload) => {
+            log::error!(
+                "[WS-AUTH] auth-read path panicked — running cleanup and \
+                 triggering supervisor respawn (XZ-R4-012)"
+            );
+            cleanup_and_trigger_respawn(app, state);
+            Err("WS auth path panicked (cleanup triggered)".to_string())
+        }
+    }
 }
 
 /// XZ-11 (was inline in `reconnect_ws`): spawn the WS reader task.
@@ -709,13 +737,30 @@ fn spawn_reader_task(
             let mut last_bubble_level: Option<Instant> = None;
             #[allow(unused_assignments)]
             let mut last_bubble_payload: Option<Value> = None;
+            // XZ-LOG-09: per-task counters for the flood-prone warning
+            // sites (invalid JSON + dropped unknown events + non-numeric
+            // id fields). A misbehaving sidecar (or an attacker who has
+            // compromised it) could otherwise log-spam at the ~60 Hz
+            // frame rate. Log the first occurrence and every 100th
+            // thereafter; the counter is also emitted so operators can
+            // see the true flood volume.
+            let mut invalid_json_count: u32 = 0;
+            let mut unknown_event_count: u32 = 0;
+            let mut non_numeric_id_count: u32 = 0;
             while let Some(msg) = read.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
                         let v: Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
                             Err(_) => {
-                                log::warn!("[WS-READER] invalid JSON frame: {}", text);
+                                invalid_json_count = invalid_json_count.saturating_add(1);
+                                if invalid_json_count == 1 || invalid_json_count % 100 == 0 {
+                                    log::warn!(
+                                        "[WS-READER] invalid JSON frame (count={}): {}",
+                                        invalid_json_count,
+                                        text
+                                    );
+                                }
                                 continue;
                             }
                         };
@@ -738,10 +783,14 @@ fn spawn_reader_task(
                         // neither fulfill a dispatch that never matched a
                         // pending id nor emit garbage to the UI.
                         else if v.get("id").is_some() {
-                            log::warn!(
-                                "[WS-READER] frame has non-numeric id field, ignoring: {}",
-                                text
-                            );
+                            non_numeric_id_count = non_numeric_id_count.saturating_add(1);
+                            if non_numeric_id_count == 1 || non_numeric_id_count % 100 == 0 {
+                                log::warn!(
+                                    "[WS-READER] frame has non-numeric id field, ignoring (count={}): {}",
+                                    non_numeric_id_count,
+                                    text
+                                );
+                            }
                             continue;
                         }
                         // Otherwise it's a server-initiated event
@@ -759,10 +808,14 @@ fn spawn_reader_task(
                         // of this file and covers all event types the
                         // Python sidecar is known to publish today.
                         if !is_allowed_event_type(event_type) {
-                            log::warn!(
-                                "[WS-READER] dropping unknown event type: {}",
-                                event_type
-                            );
+                            unknown_event_count = unknown_event_count.saturating_add(1);
+                            if unknown_event_count == 1 || unknown_event_count % 100 == 0 {
+                                log::warn!(
+                                    "[WS-READER] dropping unknown event type (count={}): {}",
+                                    unknown_event_count,
+                                    event_type
+                                );
+                            }
                             continue;
                         }
 

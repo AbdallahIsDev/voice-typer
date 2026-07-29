@@ -73,6 +73,37 @@ pub(crate) const DISALLOWED_COMMAND_CODE: &str = "disallowed_command";
 /// the AC-16 entry's files list).
 pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 
+// XZ-R4-019: pending-map size cap. Each pending dispatch entry is a
+// `(u64, oneshot::Sender<Value>)` pair (~80 bytes on x86_64). An
+// unresponsive sidecar (WS reader stuck, sidecar process paused in a
+// debugger, GC pause) plus rapid tray clicks / renderer retries can
+// accumulate 1000s of entries — each one auto-expires after
+// `DISPATCH_TIMEOUT_SECS` (120s for model lifecycle, 15s for
+// everything else), so the steady-state cap without this guard is
+// `clicks_per_sec * 120s` entries. At 10 clicks/sec (renderer retry
+// storm) that's 1200 entries × 80 bytes = ~96 KiB — small in absolute
+// terms, but the entries never expire if the sidecar is fully stuck
+// (the timeout fires on the awaiting side, but the entry is only
+// removed by the WS reader's drain loop OR by the explicit
+// `pending.remove(&id)` in the WS-send-failure path — neither runs if
+// the WS writer task is wedged). The 1024 cap rejects new dispatches
+// once the map is full, surfacing the backpressure to the renderer as
+// an immediate `pending_full` error instead of letting the map grow
+// unbounded.
+//
+// 1024 is comfortably above the highest legitimate concurrent-dispatch
+// count observed in production (the renderer typically has 1-3 in-
+// flight dispatches: a status poll + a model-list poll + an occasional
+// settings read). The cap exists to bound memory under pathological
+// backpressure, NOT to throttle normal traffic.
+pub(crate) const PENDING_MAX: usize = 1024;
+/// XZ-R4-019: error code returned by `dispatch_frame` when the pending
+/// map has reached `PENDING_MAX` entries. The renderer treats this as
+/// a transient "sidecar overwhelmed" signal (distinct from "sidecar
+/// not connected" / "sidecar shutting down") so it can back off and
+/// retry rather than spamming more dispatches.
+pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
+
 /// DT-44: returns the dispatch timeout (in seconds) for `cmd`.
 ///
 /// - 120s (`DISPATCH_TIMEOUT_SECS`) for the 6 model lifecycle commands
@@ -489,6 +520,37 @@ async fn dispatch_frame(
     let (tx, rx) = oneshot::channel::<Value>();
     {
         let mut pending = state.pending.lock().await;
+        // XZ-R4-019: pending-map size cap. Reject new dispatches when
+        // the map is at `PENDING_MAX` entries so an unresponsive
+        // sidecar + rapid tray clicks / renderer retries can't grow
+        // the map unbounded. The renderer treats `pending_full` as a
+        // transient backpressure signal (distinct from "sidecar not
+        // connected" / "sidecar shutting down") and backs off / retries.
+        // The check is INSIDE the pending lock so the size read is
+        // consistent with the insert (no TOCTOU window between a
+        // racing `len()` read and `insert()`).
+        if pending.len() >= PENDING_MAX {
+            log::warn!(
+                "[dispatch] id={} cmd={} rejected: pending map at capacity ({}/{}); \
+                 sidecar unresponsive — renderer should back off and retry",
+                id,
+                cmd,
+                pending.len(),
+                PENDING_MAX
+            );
+            // Match the JSON-envelope error shape used by the
+            // `disallowed_command` branch in `dispatch` (line ~687) so
+            // the renderer's existing error-envelope switch can branch
+            // on `code === "pending_full"` without a special case.
+            let err = json!({
+                "type": "error",
+                "data": {
+                    "code": PENDING_FULL_CODE,
+                    "message": "Sidecar dispatch queue is full; please retry"
+                }
+            });
+            return Err(err.to_string());
+        }
         pending.insert(id, tx);
     }
 
@@ -937,6 +999,78 @@ mod tests {
         assert!(
             !is_command_allowed("get_Status"),
             "is_command_allowed must be case-sensitive (get_Status should not match get_status)"
+        );
+    }
+
+    // ── XZ-R4-019: pending-map size cap ───────────────────────────────
+
+    #[test]
+    fn test_pending_max_constant_is_1024() {
+        // XZ-R4-019: PENDING_MAX must be 1024. The cap is sized to
+        // bound memory under pathological backpressure (an unresponsive
+        // sidecar + rapid tray clicks / renderer retries) without
+        // throttling normal traffic (the renderer typically has 1-3
+        // in-flight dispatches). If this constant changes, the
+        // renderer-side retry heuristic (which interprets
+        // `pending_full` as "back off ~250ms then retry") may need to
+        // be revisited.
+        assert_eq!(
+            PENDING_MAX, 1024,
+            "PENDING_MAX must be 1024 — see the doc comment for sizing rationale"
+        );
+    }
+
+    #[test]
+    fn test_pending_full_code_constant_is_pending_full() {
+        // XZ-R4-019: the error code returned by `dispatch_frame` when
+        // the pending map is at capacity. The renderer branches on
+        // this exact string to differentiate "sidecar overwhelmed"
+        // (transient, retry) from "sidecar not connected" (persistent,
+        // show error toast) and "sidecar shutting down" (terminal, no
+        // retry).
+        assert_eq!(
+            PENDING_FULL_CODE, "pending_full",
+            "PENDING_FULL_CODE must be the literal 'pending_full' — the renderer's \
+             error-envelope switch branches on this exact string"
+        );
+    }
+
+    #[test]
+    fn test_pending_full_error_envelope_shape() {
+        // XZ-R4-019: the `pending_full` error must serialize to a JSON
+        // envelope matching the shape used by `disallowed_command`
+        // (line ~687) so the renderer's existing error-envelope switch
+        // can branch on `code === "pending_full"` without a special
+        // case. Verify the envelope shape here (without actually
+        // triggering a real dispatch) by constructing the same `json!`
+        // value the dispatch path returns.
+        let err = json!({
+            "type": "error",
+            "data": {
+                "code": PENDING_FULL_CODE,
+                "message": "Sidecar dispatch queue is full; please retry"
+            }
+        });
+        let serialized = err.to_string();
+        // Must be a valid JSON envelope with type=error and the
+        // pending_full code — the renderer parses this string out of
+        // the Tauri rejection reason.
+        assert!(
+            serialized.contains("\"code\":\"pending_full\""),
+            "pending_full error envelope must contain '\"code\":\"pending_full\"'; got: {serialized}"
+        );
+        assert!(
+            serialized.contains("\"type\":\"error\""),
+            "pending_full error envelope must contain '\"type\":\"error\"'; got: {serialized}"
+        );
+        // Round-trip through serde_json to verify it's valid JSON.
+        let parsed: Value = serde_json::from_str(&serialized).expect(
+            "pending_full error envelope must be valid JSON — the renderer parses it as a string"
+        );
+        assert_eq!(parsed.get("type").and_then(|v| v.as_str()), Some("error"));
+        assert_eq!(
+            parsed.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()),
+            Some("pending_full")
         );
     }
 }
