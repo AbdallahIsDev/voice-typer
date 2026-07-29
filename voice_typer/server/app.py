@@ -53,6 +53,18 @@ from voice_typer.server.history_db import HistoryDB
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
+# XR-63: autostart + microphone helpers are re-exported from server_platform so
+# voice_typer.server.settings_controller and voice_typer.server.startup_tasks
+# can import them dynamically via ``voice_typer.server.app``, and so tests
+# that monkeypatch ``voice_typer.server.app.{is_autostart_enabled,...}``
+# (tests/app/conftest.py, tests/test_*.py, etc.) can find them here.
+from voice_typer.server.server_platform import (  # noqa: F401
+    disable_autostart,
+    enable_autostart,
+    is_autostart_enabled,
+    list_microphones,
+)
+
 # create_launcher_shortcut + list_microphones are re-exported here (and consumed
 # from voice_typer.server.startup_tasks) so tests that monkeypatch
 # voice_typer.server.app.list_microphones / create_launcher_shortcut keep working.  # ruff: noqa: F401

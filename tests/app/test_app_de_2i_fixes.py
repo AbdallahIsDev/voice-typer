@@ -47,12 +47,17 @@ def _stub_restart_environment(app, monkeypatch):
         "voice_typer.server.event_bus.publish",
         lambda msg: None,
     )
-    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    # Patch global stdlib modules instead of ``voice_typer.server.app.*``
+    # because monkeypatch.setattr with a dotted string resolves via
+    # importlib.import_module(), which cannot import stdlib modules
+    # (time, sys, os) as submodules of voice_typer.server.app when
+    # those modules are not imported at app.py's module level.
+    monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(
-        "voice_typer.server.app.sys.exit",
+        "sys.exit",
         lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
     )
-    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+    monkeypatch.setattr("os._exit", lambda code: None)
     app.hotkeys._hotkey_backend = MagicMock()
     app.hotkeys._esc_backend = MagicMock()
     app.hotkeys._repaste_backend = MagicMock()
@@ -488,7 +493,7 @@ class TestDE49ReentryGuardUsesEventIsSet:
             "voice_typer.server.event_bus.publish",
             lambda msg: pushed.append(msg),
         )
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
 
@@ -514,7 +519,7 @@ class TestDE49ReentryGuardUsesEventIsSet:
         )
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         # Sanity: event must be clear by default.
         assert not app._shutting_down_event.is_set()
@@ -581,7 +586,7 @@ class TestDE49ReentryGuardUsesEventIsSet:
         )
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
-        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        monkeypatch.setattr("os._exit", lambda code: None)
 
         # Set ONLY the boolean — NOT the Event.  Pre-DE-49 this would
         # have short-circuited the guard; post-DE-49 it must NOT.
