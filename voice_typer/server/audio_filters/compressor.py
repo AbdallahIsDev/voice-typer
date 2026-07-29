@@ -16,6 +16,16 @@ import logging
 
 import numpy as np
 
+# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
+# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
+# the audio worker thread). Module-top import under try/except so the
+# module still loads when scipy is missing (tests with mock filters).
+try:
+    from scipy.signal import lfilter
+except ImportError:  # pragma: no cover — scipy is a hard dep in prod
+    lfilter = None  # type: ignore[assignment]
+
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters.base import (
     AudioFilter,
     db_to_mul,
@@ -47,7 +57,7 @@ class Compressor(AudioFilter):
         attack_ms: float = 6.0,
         release_ms: float = 60.0,
         output_gain_db: float = 0.0,
-        sample_rate: int = 16000,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         self.name = f"Compressor({ratio:.0f}:1,{threshold_db:.0f}dB)"
         self._threshold_db = float(threshold_db)
@@ -79,7 +89,6 @@ class Compressor(AudioFilter):
         #   - attack_env responds fast (small coeff) -> tracks rising signals
         #   - release_env decays slow (large coeff) -> holds falling signals
         # max(attack_env, release_env) reproduces the asymmetric behavior.
-        from scipy.signal import lfilter
 
         attack_env, _ = lfilter(
             [1.0 - self._attack_coeff],

@@ -19,6 +19,16 @@ import math
 
 import numpy as np
 
+# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
+# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
+# the audio worker thread). Module-top import under try/except so the
+# module still loads when scipy is missing (tests with mock filters).
+try:
+    from scipy.signal import lfilter
+except ImportError:  # pragma: no cover — scipy is a hard dep in prod
+    lfilter = None  # type: ignore[assignment]
+
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter, db_to_mul
 
 log = logging.getLogger(__name__)
@@ -43,7 +53,7 @@ class Equalizer(AudioFilter):
         low_db: float = -3.0,
         mid_db: float = 3.0,
         high_db: float = 2.0,
-        sample_rate: int = 16000,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         self.name = f"EQ({low_db:+.0f}/{mid_db:+.0f}/{high_db:+.0f}dB)"
         self._low_gain = db_to_mul(low_db)
@@ -79,7 +89,6 @@ class Equalizer(AudioFilter):
         # Low band: one-pole lowpass: low_s[i] = low_s[i-1] + lf * (x[i] - low_s[i-1])
         # Equivalent IIR form: low_s[i] = (1-lf) * low_s[i-1] + lf * x[i]
         # lfilter(b=[lf], a=[1, -(1-lf)]) computes exactly this.
-        from scipy.signal import lfilter
 
         low_s, _ = lfilter(
             [lf],

@@ -20,6 +20,7 @@ import threading
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.config import DEFAULT_HOTKEY
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
@@ -119,7 +120,7 @@ class HotkeyDispatcher:
                 hotkey_str,
                 validation_error,
             )
-            hotkey_str = "<caps_lock>"  # platform default (see config._default_hotkey_for_platform)
+            hotkey_str = DEFAULT_HOTKEY  # platform default (see config._default_hotkey_for_platform)
             app.config.hotkey = hotkey_str
 
         log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)

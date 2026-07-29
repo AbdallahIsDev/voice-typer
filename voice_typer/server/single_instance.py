@@ -561,7 +561,24 @@ def _ensure_single_instance_posix(silent: bool = False):
 
     cdir = _app_module._config_dir()
     try:
-        cdir.mkdir(parents=True, exist_ok=True)
+        # FR-37: pass ``mode=0o700`` so the config dir is created with
+        # owner-only access (no group/other traversal). Previously
+        # ``mkdir(parents=True, exist_ok=True)`` defaulted to 0o777
+        # masked by umask → 0o755 on most Linux distros, which let other
+        # non-root users stat ``backend.lock`` (mode 0o600, content is
+        # the PID — minor info leak) and pre-create the dir with looser
+        # perms to plant a symlink at ``backend.lock`` (the
+        # ``os.open(O_CREAT|O_EXCL)`` call below follows symlinks on
+        # Linux because ``O_NOFOLLOW`` was not set).
+        #
+        # The defensive ``os.chmod`` after creation handles the case
+        # where the dir ALREADY existed (``exist_ok=True``) with looser
+        # perms from a prior run — ``mkdir`` is a no-op in that case so
+        # the ``mode`` argument has no effect, but ``chmod`` tightens
+        # the existing perms.
+        cdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with contextlib.suppress(OSError):
+            os.chmod(cdir, 0o700)
     except OSError:
         if not silent and sys.stderr is not None:
             print("Voice Typer: cannot create config dir.", file=sys.stderr)
@@ -571,15 +588,30 @@ def _ensure_single_instance_posix(silent: bool = False):
 
     def _try_acquire(path):
         try:
+            # FR-37: add ``O_NOFOLLOW`` so ``os.open`` fails with ELOOP
+            # if ``path`` is a symlink. Pre-fix, an attacker who could
+            # pre-create the config dir with looser perms could plant a
+            # symlink at ``backend.lock`` pointing elsewhere —
+            # ``O_CREAT|O_EXCL`` would follow the symlink and create
+            # the target file (or truncate it via the O_RDWR path).
+            # ``O_NOFOLLOW`` is a Linux/macOS/BSD extension that breaks
+            # the symlink chain at the LAST component (the file itself
+            # — we still want to follow the dir components of the path).
             fd = os.open(
                 str(path),
-                os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_CLOEXEC,
+                os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW,
                 0o600,
             )
             return fd
         except FileExistsError:
             return None
         except OSError as exc:
+            # ``O_NOFOLLOW`` raises ``ELOOP`` (errno 40) on Linux when
+            # the trailing component is a symlink — surface the same
+            # error message as the existing OSError handler so the
+            # user sees a clear "cannot create lock file" diagnostic
+            # (instead of a confusing "Too many levels of symbolic
+            # links" libc message).
             if not silent and sys.stderr is not None:
                 print(f"Voice Typer: cannot create lock file: {exc}", file=sys.stderr)
             sys.exit(1)

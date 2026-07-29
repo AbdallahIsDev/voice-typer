@@ -10,6 +10,7 @@ that monkeypatch ``voice_typer.server.tray.set_tray_locale`` /
 """
 
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.i18n import DEFAULT_LOCALE
 
 _TRAY_LABELS_EN: dict[str, str] = {
     "app_name": APP_NAME,
@@ -196,7 +197,7 @@ _TRAY_LABELS_ZH: dict[str, str] = {
 }
 
 _TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
-    "en": _TRAY_LABELS_EN,
+    DEFAULT_LOCALE: _TRAY_LABELS_EN,
     "es": _TRAY_LABELS_ES,
     "ar": _TRAY_LABELS_AR,
     "de": _TRAY_LABELS_DE,
@@ -206,7 +207,7 @@ _TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
     "zh": _TRAY_LABELS_ZH,
 }
 
-_tray_locale: str = "en"
+_tray_locale: str = DEFAULT_LOCALE
 
 
 def set_tray_locale(locale: str) -> None:
@@ -217,7 +218,7 @@ def set_tray_locale(locale: str) -> None:
     labels to take effect.
     """
     global _tray_locale
-    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else "en"
+    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else DEFAULT_LOCALE
 
 
 def get_tray_locale() -> str:

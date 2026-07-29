@@ -452,13 +452,37 @@ class TrayIcon:
             return
         try:
             self._icon.icon = _make_icon(state)
-        except OSError:
+        except OSError as exc:
             # CR-16 / GT-E1-8: pystray Windows DestroyIcon stale-handle
             # bug (WinError 1402) during rapid icon updates — clear the
             # private _icon_handle so pystray re-creates it next call
             # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
+            #
+            # S2-CR-71: if a future pystray release (0.20+) removes or
+            # renames the private ``_icon_handle`` attribute, the
+            # workaround becomes a silent no-op — the OSError is
+            # still raised on every icon update but the workaround
+            # can't fire, so WinError 1402 resurfaces for users with
+            # no diagnostic surface. Log a WARNING in that case so
+            # the silent workaround failure shows up in diagnostics
+            # (the regression test
+            # ``tests/test_pystray_icon_handle_regression.py`` guards
+            # this exact attribute via ``hasattr(pystray.Icon,
+            # "_icon_handle")``).
             if hasattr(self._icon, "_icon_handle"):
                 self._icon._icon_handle = None
+            else:
+                log.warning(
+                    "[TRAY] pystray.Icon no longer exposes the private "
+                    "`_icon_handle` attribute — DestroyIcon workaround "
+                    "disabled (OSError: %r). The tray will keep running "
+                    "but rapid icon updates on Windows may hit WinError "
+                    "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
+                    "private attribute access with a public "
+                    "`reset_icon_handle()` API when upstream exposes "
+                    "it, and bump pystray to the release that ships it.",
+                    exc,
+                )
         self._icon.title = self._compute_tooltip(state, message)
 
     def _drain_pending(self) -> None:

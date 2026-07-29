@@ -912,7 +912,7 @@ def setup_logging(
         # character.  Without this, valuable diagnostic symbols like
         # arrows, em-dashes, and smart quotes become unreadable trash
         # in the log file.
-        handler = logging.handlers.RotatingFileHandler(
+        handler = _SecureRotatingFileHandler(
             log_file,
             # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
             maxBytes=5 * 1024 * 1024,
@@ -925,6 +925,10 @@ def setup_logging(
         # tracebacks, and hotkey registrations).  Best-effort on POSIX;
         # silently no-op on Windows where the umask already enforced
         # 0o600 at creation time via the ``os.umask(0o077)`` above.
+        # FR-2: post-rotation re-chmod is handled by
+        # ``_SecureRotatingFileHandler.doRollover`` so the privacy
+        # guarantee survives log rotation (which happens AFTER
+        # setup_logging returns and the umask is restored).
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(log_file, 0o600)
@@ -1133,6 +1137,46 @@ class _FlushingStreamHandler(logging.StreamHandler):
             # the real exception via handleError; we only get here if
             # flush itself fails.)
             self.flush()
+
+
+class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """``RotatingFileHandler`` that re-locks file perms after each rollover.
+
+    FR-2: Python's stock ``RotatingFileHandler.doRollover`` opens the
+    new active log file with ``open(path, 'a')`` — the resulting file
+    mode is ``0o666 & ~umask``.  ``setup_logging`` only tightens the
+    umask *inside its own try/finally* scope, so by the time a rotation
+    fires (potentially hours/days later, after ``setup_logging`` has
+    returned and restored the parent's umask — typically 0o022 on
+    POSIX), the new active log is created with mode 0o644
+    (world-readable).  Dictated-text previews, exception tracebacks,
+    hotkey registrations, and config-path values all land in a
+    world-readable file on multi-user POSIX systems.
+
+    This subclass overrides ``doRollover`` to call
+    ``super().doRollover()`` first (which renames the active file to
+    ``.1``, shifts ``.1 -> .2``, etc., and opens a new active file),
+    then ``os.chmod(self.baseFilename, 0o600)`` on POSIX to restore the
+    0o600 mode on the freshly-created active log.  The rotated backup
+    files (``.1``, ``.2``, ...) inherit their mode from the original
+    active file via rename -- since the active file was 0o600 before
+    rotation, the backups are also 0o600.
+
+    Best-effort on Windows: ``os.chmod`` on POSIX-mode bits is a no-op
+    on Windows ACLs, but the file was already created with the
+    process's default DACL -- no harm in attempting the call.
+    """
+
+    def doRollover(self) -> None:  # noqa: D401, N802
+        super().doRollover()
+        # FR-2: re-lock the freshly-created active log file to 0o600 on
+        # POSIX.  ``super().doRollover()`` created it with mode 0o666 &
+        # ~umask (typically 0o644 in production), so the chmod below is
+        # what actually restores the privacy guarantee.  Best-effort --
+        # a perm-set failure must not mask the rotation.
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(self.baseFilename, 0o600)
 
 
 def close_devnull_files() -> None:

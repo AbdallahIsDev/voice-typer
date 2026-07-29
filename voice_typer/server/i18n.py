@@ -30,9 +30,20 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+# DR-38: single source of truth for the server-side default locale.
+# Previously the literal ``"en"`` was duplicated as the fallback locale
+# in i18n.py (4 sites), tray_i18n.py (3 sites), and as the default
+# ``language`` argument to every ASR engine constructor
+# (transcription.py, parakeet_engine.py, cloud_engines.py).
+# Centralising the literal here means the parity test
+# ``tests/test_default_locale_sync.py`` can assert the TS renderer
+# side uses the same value by extracting it from
+# ``client/src/renderer/src/i18n/i18n.ts`` via regex.
+DEFAULT_LOCALE: str = "en"
+
 _LOCK = threading.Lock()
-_CURRENT_LOCALE: str = "en"
-_REGISTRY: dict[str, dict[str, str]] = {"en": {}}
+_CURRENT_LOCALE: str = DEFAULT_LOCALE
+_REGISTRY: dict[str, dict[str, str]] = {DEFAULT_LOCALE: {}}
 
 
 # ─── English fallback ───────────────────────────────────────────────────────
@@ -207,7 +218,7 @@ def set_locale(locale: str) -> None:
     """Switch the active locale. Falls back to English if not registered."""
     global _CURRENT_LOCALE
     with _LOCK:
-        _CURRENT_LOCALE = locale if locale in _REGISTRY else "en"
+        _CURRENT_LOCALE = locale if locale in _REGISTRY else DEFAULT_LOCALE
 
 
 def get_locale() -> str:
@@ -230,7 +241,7 @@ def t(key: str, **fmt: Any) -> str:
         registry = _REGISTRY
         text = registry.get(locale, {}).get(key)
         if text is None:
-            text = registry.get("en", {}).get(key, key)
+            text = registry.get(DEFAULT_LOCALE, {}).get(key, key)
     if fmt:
         try:
             return text.format(**fmt)
@@ -249,4 +260,4 @@ _ = t
 
 # NF-R16-1: register the English fallback at import time so the first
 # notification emits real text instead of the raw key.
-register_locale("en", _INITIAL_LABELS)
+register_locale(DEFAULT_LOCALE, _INITIAL_LABELS)

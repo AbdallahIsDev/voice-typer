@@ -160,7 +160,15 @@ def _enable_autostart_macos() -> bool:
         # or in a stuck boot) would block this thread forever.  The
         # 5-second timeout matches what the Apple docs say is the
         # upper bound for a healthy launchctl load.
-        subprocess.run(
+        #
+        # FR-38: inspect the CompletedProcess returncode AND stderr.
+        # Pre-fix, this function unconditionally ``return True`` after
+        # the subprocess.run call — so a launchctl load failure (e.g.
+        # "Loader.Error" or "exited with" in stderr, or a non-zero
+        # return code) was swallowed and the renderer showed "Autostart
+        # enabled" even though the LaunchAgent was NOT loaded. The user
+        # rebooted and Voice Typer didn't start, with no diagnostic.
+        completed = subprocess.run(
             ["launchctl", "load", str(plist_path)],
             check=False,
             capture_output=True,
@@ -168,8 +176,45 @@ def _enable_autostart_macos() -> bool:
         )
     except subprocess.TimeoutExpired:
         log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
+        # FR-38: surface the timeout to the caller so the renderer can
+        # show "Autostart failed: launchctl load timed out" instead of
+        # the misleading success toast.
+        log.error("[CONFIG] Autostart enable FAILED: launchctl load timed out")
+        return False
     except Exception as e:
         log.warning("[CONFIG] launchctl load failed: %s", e)
+        log.error("[CONFIG] Autostart enable FAILED: %s", e)
+        return False
+
+    # FR-38: inspect returncode + stderr. ``launchctl load`` exits 0 on
+    # success and non-zero on failure. The stderr text contains hints
+    # like "Loader.Error: ... exited with" for plist-syntax / path /
+    # permission errors. We treat BOTH a non-zero returncode AND the
+    # known error-substring patterns as failure (defensive — some
+    # launchctl bugs return 0 but still write to stderr).
+    stderr_text = ""
+    try:
+        if completed.stderr is not None:
+            stderr_text = (
+                completed.stderr.decode("utf-8", errors="replace")
+                if isinstance(completed.stderr, (bytes, bytearray))
+                else str(completed.stderr)
+            )
+    except Exception:
+        stderr_text = ""
+    stderr_lower = stderr_text.lower()
+
+    if completed.returncode != 0:
+        err_msg = f"launchctl load exit {completed.returncode}: {stderr_text.strip() or '(no stderr)'}"
+        log.warning("[CONFIG] Autostart enable FAILED: %s", err_msg)
+        return False
+    # Defensive substring check — handles the launchctl bug where
+    # returncode is 0 but stderr still reports a Loader.Error.
+    if "loader.error" in stderr_lower or "exited with" in stderr_lower:
+        err_msg = f"launchctl load reported error (rc=0): {stderr_text.strip()}"
+        log.warning("[CONFIG] Autostart enable FAILED: %s", err_msg)
+        return False
+
     log.info("[CONFIG] Autostart enabled (macOS): %s", plist_path)
     return True
 

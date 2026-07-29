@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters import (
     Compressor,
     Equalizer,
@@ -20,7 +21,7 @@ from voice_typer.server.audio_filters.base import AudioFilter
 log = logging.getLogger(__name__)
 
 
-def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
+def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterChain:
     """Build a FilterChain from the current config.
 
     Chain order (ADR 0007 §2.1):
@@ -126,7 +127,7 @@ def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
     return chain
 
 
-def build_chain_from_dict(config_dict: dict, sample_rate: int = 16000) -> FilterChain:
+def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterChain:
     """Build a FilterChain from a config dict (for testing).
 
     Like :func:`build_chain` but accepts a plain dict instead of a

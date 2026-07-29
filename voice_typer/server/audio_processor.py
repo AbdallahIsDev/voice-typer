@@ -31,6 +31,7 @@ from collections.abc import Callable
 # strings (PEP 563); otherwise the module-level def of ``process_chunk``
 # would resolve ``np.ndarray`` via the proxy and trigger the eager import
 # we are trying to avoid.
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.audio_chain_builder import build_chain
 from voice_typer.server.audio_filters import FilterChain
@@ -136,7 +137,7 @@ class AudioProcessor:
     :class:`~voice_typer.server.audio_quality.AudioQualityAnalyzer`).
     """
 
-    def __init__(self, config: object, sample_rate: int = 16000) -> None:
+    def __init__(self, config: object, sample_rate: int = WHISPER_SAMPLE_RATE) -> None:
         self._config = config
         self._sample_rate = int(sample_rate)
         self._chain: FilterChain = build_chain(config, sample_rate)

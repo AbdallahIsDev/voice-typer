@@ -14,6 +14,7 @@ import logging
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters.base import (
     AudioFilter,
     db_to_mul,
@@ -38,7 +39,7 @@ class NoiseGate(AudioFilter):
         attack_ms: float = 25.0,
         hold_ms: float = 200.0,
         release_ms: float = 150.0,
-        sample_rate: int = 16000,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         self.name = "NoiseGate"
         self._open_threshold = db_to_mul(open_threshold_db)

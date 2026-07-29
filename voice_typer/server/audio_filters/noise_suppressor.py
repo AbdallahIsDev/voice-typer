@@ -7,12 +7,21 @@ import math
 
 import numpy as np
 
+# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
+# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
+# the audio worker thread). Module-top import under try/except so the
+# module still loads when scipy is missing (tests with mock filters).
+try:
+    from scipy.signal import lfilter
+except ImportError:  # pragma: no cover — scipy is a hard dep in prod
+    lfilter = None  # type: ignore[assignment]
+
+from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE, WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters.base import AudioFilter
 
 log = logging.getLogger(__name__)
 
 # RNNoise requires 48kHz, 480-sample frames (10ms at 48kHz).
-_RNNOISE_SAMPLE_RATE: int = 48000
 _RNNOISE_FRAME_SIZE: int = 480
 
 # XV-38: float32 -> int16 conversion constants. ``_FLOAT_TO_INT16_MAX`` is the
@@ -84,7 +93,6 @@ class _StreamingResampler:
         """Resample ``x`` (float32/float64) by ``up / down``."""
         if x.size == 0:
             return np.zeros(0, dtype=np.float32)
-        from scipy.signal import lfilter
 
         x64 = np.asarray(x, dtype=np.float64)
         n_in = x64.size
@@ -144,7 +152,7 @@ class NoiseSuppressor(AudioFilter):
     def __init__(
         self,
         method: str = "rnnoise",
-        sample_rate: int = 16000,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         self.name = f"NoiseSuppressor({method})"
         self._method = method
@@ -185,7 +193,7 @@ class NoiseSuppressor(AudioFilter):
         try:
             from pyrnnoise import RNNoise  # type: ignore[import-not-found]
 
-            self._backend = RNNoise(sample_rate=_RNNOISE_SAMPLE_RATE)
+            self._backend = RNNoise(sample_rate=RNNOISE_SAMPLE_RATE)
             log.info("[NOISE-SUPPRESS] RNNoise backend ready")
         except ImportError:
             log.warning(
@@ -350,7 +358,7 @@ class NoiseSuppressor(AudioFilter):
         (no resampling needed). When the source rate changes, both resamplers
         are recreated so the up/down ratio matches the new rate.
         """
-        if sample_rate == _RNNOISE_SAMPLE_RATE:
+        if sample_rate == RNNOISE_SAMPLE_RATE:
             if self._resampler_rate != sample_rate:
                 self._upsampler = None
                 self._downsampler = None
@@ -358,8 +366,8 @@ class NoiseSuppressor(AudioFilter):
             return
         if self._resampler_rate == sample_rate and self._upsampler is not None:
             return  # already configured for this rate
-        gcd = math.gcd(_RNNOISE_SAMPLE_RATE, int(sample_rate))
-        up = _RNNOISE_SAMPLE_RATE // gcd
+        gcd = math.gcd(RNNOISE_SAMPLE_RATE, int(sample_rate))
+        up = RNNOISE_SAMPLE_RATE // gcd
         down = int(sample_rate) // gcd
         self._upsampler = _StreamingResampler(up, down)
         self._downsampler = _StreamingResampler(down, up)

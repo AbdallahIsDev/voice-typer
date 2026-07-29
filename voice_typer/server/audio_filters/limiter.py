@@ -13,6 +13,16 @@ import logging
 
 import numpy as np
 
+# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
+# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
+# the audio worker thread). Module-top import under try/except so the
+# module still loads when scipy is missing (tests with mock filters).
+try:
+    from scipy.signal import lfilter
+except ImportError:  # pragma: no cover — scipy is a hard dep in prod
+    lfilter = None  # type: ignore[assignment]
+
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.audio_filters.base import (
     AudioFilter,
     one_pole_coeff,
@@ -35,7 +45,7 @@ class Limiter(AudioFilter):
         self,
         ceiling_db: float = -6.0,
         release_ms: float = 60.0,
-        sample_rate: int = 16000,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         self.name = f"Limiter({ceiling_db:.0f}dB)"
         self._threshold_db = float(ceiling_db)
@@ -57,7 +67,6 @@ class Limiter(AudioFilter):
 
         abs_x = np.abs(samples).astype(np.float64)
 
-        from scipy.signal import lfilter
 
         attack_env, _ = lfilter(
             [1.0 - self._attack_coeff],

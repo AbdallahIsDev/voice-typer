@@ -726,29 +726,245 @@ def check_microphone_permission() -> MicrophonePermissionState:
       to return one of ``GRANTED`` / ``DENIED`` / ``PROMPT`` (the
       ``AVAuthorizationStatusNotDetermined`` case). Returns ``UNKNOWN``
       if pyobjc isn't installed.
-    - **Windows**: returns ``GRANTED`` (Windows doesn't gate microphone
-      access at the per-app level the same way macOS does — the
-      ``MediaFoundation`` device-open will fail at runtime if access is
-      blocked, but there's no clean ahead-of-time probe without
-      triggering the consent dialog). Future work: use the WinRT
-      ``MediaCapture`` API to probe, but that requires the WinRT
-      Python bindings which aren't a hard dependency.
-    - **Linux**: returns ``GRANTED`` (no standard per-app mic permission
-      system — PipeWire/PulseAudio access is controlled by the session
-      manager but typically granted by default).
+    - **Windows**: FR-39 — attempts a 1-frame ``sounddevice.InputStream``
+      open in probe mode. If PortAudio raises an ``OSError`` whose
+      message contains "access denied" (the Windows mic-privacy-blocked
+      signature), returns ``DENIED``. Otherwise returns ``GRANTED``
+      (the probe succeeded) or ``UNKNOWN`` (the probe itself raised an
+      unrelated error — we never want a probe failure to take down the
+      caller). Pre-fix, this branch unconditionally returned ``GRANTED``,
+      so a globally-disabled Windows mic privacy setting was reported
+      as GRANTED and the user got a generic OSError toast instead of a
+      clean "Open Windows Settings → Microphone" prompt.
+    - **Linux**: FR-39 — checks for Flatpak (``/.flatpak-info``) and
+      reads the flatpak per-app microphone permission table. Returns
+      ``DENIED`` if the per-app portal permission is revoked. Returns
+      ``GRANTED`` otherwise (no standard per-app mic permission system
+      on non-Flatpak Linux — PipeWire/PulseAudio access is controlled
+      by the session manager but typically granted by default).
     - **Unsupported platform**: returns ``UNKNOWN``.
+
+    FR-39 note: the Windows/Linux probes are best-effort. If the probe
+    itself raises (e.g. sounddevice not importable on a headless CI
+    box, or the flatpak permission file moved between versions), we
+    fall back to ``GRANTED`` and log a warning so the operator knows
+    the pre-check is limited — the runtime PortAudio-open path in
+    :mod:`voice_typer.server.recording.recorder` will re-classify the
+    actual OSError at device-open time.
     """
     try:
         if is_macos():
             return _check_macos_microphone()
         if is_windows():
-            return MicrophonePermissionState.GRANTED
+            return _check_windows_microphone()
         if is_linux():
-            return MicrophonePermissionState.GRANTED
+            return _check_linux_microphone()
         return MicrophonePermissionState.UNKNOWN
     except Exception:
         log.exception("[PERMISSION] check_microphone_permission probe raised")
         return MicrophonePermissionState.UNKNOWN
+
+
+def _check_windows_microphone() -> MicrophonePermissionState:
+    """FR-39 — probe Windows microphone permission via a 1-frame
+    ``sounddevice.InputStream`` open.
+
+    Windows doesn't expose a clean ahead-of-time probe for the per-app
+    mic privacy toggle (Settings → Privacy → Microphone → "Allow apps
+    to access your microphone"). The WinRT ``MediaCapture`` API can
+    probe, but the Python WinRT bindings aren't a hard dependency.
+
+    The probe here opens an ``sd.InputStream`` for a single frame. If
+    Windows has blocked mic access for the app, PortAudio raises an
+    ``OSError`` whose message contains "access denied" (the Windows
+    MediaFoundation signature). On any OTHER OSError (no default device,
+    driver issue, etc.) we return ``GRANTED`` and let the runtime
+    PortAudio-open path in the recorder re-classify — this matches the
+    pre-fix behavior for those cases and avoids false-positive DENIED
+    reports that would block the user from starting a recording.
+
+    The probe is gated behind try/except so a probe failure (e.g.
+    sounddevice not importable, or the test suite's ``mock_heavy_imports``
+    autouse fixture replaces ``sd.InputStream`` with a Mock) NEVER takes
+    down the caller — we fall back to ``GRANTED`` with a warning log.
+    """
+    try:
+        # Lazy import — sounddevice loads the PortAudio C library at
+        # import time, which we don't want to pay on the pre-flight
+        # check path. The lazy_module proxy in ``recording.device_manager``
+        # re-resolves ``sys.modules`` on every attribute access so test
+        # patches of the form ``monkeypatch.setattr(sd, "InputStream", ...)``
+        # propagate here. We import directly here so the probe is
+        # self-contained (the device_manager import would create a
+        # circular dependency: device_manager imports recorder imports
+        # permissions).
+        import sounddevice as _sd
+    except Exception:
+        log.warning(
+            "[PERMISSION] Windows mic permission probe: sounddevice not "
+            "importable — pre-check is limited; runtime PortAudio failure "
+            "will be re-classified by the recorder"
+        )
+        return MicrophonePermissionState.GRANTED
+
+    try:
+        # Open a 1-frame InputStream. ``framesize=1`` + immediate
+        # ``stop()``/``close()`` minimizes the audio pipeline cost. We
+        # do NOT call ``start()`` — just constructing the InputStream
+        # triggers the PortAudio device-open which is where Windows
+        # MediaFoundation checks the mic privacy setting.
+        stream = _sd.InputStream(
+            samplerate=16000,
+            channels=1,
+            dtype="int16",
+            blocksize=1,
+        )
+        # ``start()`` triggers the actual device-open. ``stop()`` then
+        # ``close()`` tear it down immediately.
+        stream.start()
+        stream.stop()
+        stream.close()
+        return MicrophonePermissionState.GRANTED
+    except OSError as exc:
+        msg = str(exc).lower()
+        # Windows MediaFoundation "access denied" signature when the
+        # per-app mic privacy toggle is OFF. The exact text varies by
+        # Windows version (e.g. "Access denied", "access is denied"),
+        # so we substring-match case-insensitively.
+        if "access denied" in msg or "access is denied" in msg:
+            log.warning(
+                "[PERMISSION] Windows mic permission DENIED (PortAudio "
+                "InputStream open raised 'access denied'): %s",
+                exc,
+            )
+            return MicrophonePermissionState.DENIED
+        # Any other OSError (no default device, driver issue, etc.) —
+        # fall back to GRANTED and let the recorder re-classify at
+        # runtime. This avoids false-positive DENIED reports for
+        # unrelated device issues.
+        log.debug(
+            "[PERMISSION] Windows mic probe raised unrelated OSError "
+            "(falling back to GRANTED, recorder will re-classify): %s",
+            exc,
+        )
+        return MicrophonePermissionState.GRANTED
+    except Exception as exc:
+        # Probe failure (e.g. test Mock raised something unexpected, or
+        # PortAudio is broken on this system). Fall back to GRANTED
+        # with a warning so the operator knows the pre-check is limited.
+        log.warning(
+            "[PERMISSION] Windows mic permission probe itself raised "
+            "(falling back to GRANTED; runtime PortAudio failure will "
+            "be re-classified by the recorder): %s",
+            exc,
+        )
+        return MicrophonePermissionState.GRANTED
+
+
+def _check_linux_microphone() -> MicrophonePermissionState:
+    """FR-39 — probe Linux microphone permission.
+
+    On Flatpak, the per-app portal permission can revoke mic access
+    while the app is running. We check ``/.flatpak-info`` (the canonical
+    Flatpak marker file) and, if present, attempt to read the flatpak
+    permission table for the current app.
+
+    The flatpak permission store lives at
+    ``~/.local/share/flatpak/permissions/permissions.json`` (or under
+    ``$XDG_DATA_HOME/flatpak/permissions/``) and contains a per-app
+    table. The ``microphone`` permission is in the ``portals`` section
+    under the app's app-id. If the file is missing or the schema
+    changed between flatpak versions, we fall back to ``GRANTED`` with
+    a warning log — we never want a probe failure to take down the
+    caller.
+
+    On non-Flatpak Linux (PulseAudio/PipeWire), there's no standard
+    per-app mic permission system — the session manager grants access
+    by default. We return ``GRANTED`` and log a one-time warning that
+    the pre-check is limited on Linux.
+    """
+    from pathlib import Path
+
+    # Flatpak detection: ``/.flatpak-info`` is the canonical marker
+    # file that flatpak creates at the root of the sandbox filesystem.
+    try:
+        is_flatpak = Path("/.flatpak-info").exists()
+    except Exception:
+        is_flatpak = False
+
+    if not is_flatpak:
+        # Non-Flatpak Linux: no standard per-app mic permission system.
+        # Log a one-time warning (well, every call — but the call is
+        # gated by the device_health_checker ~60s interval so it's
+        # not spammy) so the operator knows the pre-check is limited.
+        log.debug(
+            "[PERMISSION] Linux mic permission pre-check is limited on "
+            "non-Flatpak Linux — runtime PortAudio failure will be "
+            "re-classified by the recorder"
+        )
+        return MicrophonePermissionState.GRANTED
+
+    # Flatpak: read the per-app permission table. The file is JSON;
+    # schema varies between flatpak versions, so we defensively parse
+    # and look for the ``microphone`` key under the app's app-id.
+    try:
+        # ``$FLATPAK_ID`` is the canonical env var for the app-id.
+        app_id = os.environ.get("FLATPAK_ID", "")
+        xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        perm_path = Path(xdg_data) / "flatpak" / "permissions" / "permissions.json"
+        if not perm_path.exists():
+            # No permission file — fall back to GRANTED (flatpak may
+            # not have written it yet, or the app may not have any
+            # portal permissions configured).
+            log.debug(
+                "[PERMISSION] Flatpak mic permission file not found at "
+                "%s — falling back to GRANTED",
+                perm_path,
+            )
+            return MicrophonePermissionState.GRANTED
+
+        import json
+
+        with perm_path.open("r", encoding="utf-8") as fh:
+            perms = json.load(fh)
+
+        # Schema (flatpak 1.x):
+        # {
+        #   "portals": {
+        #     "<app-id>": {
+        #       "microphone": "yes" | "no" | "unset",
+        #       "camera": "yes" | "no" | "unset",
+        #       ...
+        #     }
+        #   }
+        # }
+        # Defensive: traverse with .get() and isinstance checks so a
+        # schema change doesn't raise.
+        portals = perms.get("portals", {}) if isinstance(perms, dict) else {}
+        app_perms = portals.get(app_id, {}) if isinstance(portals, dict) else {}
+        mic_perm = app_perms.get("microphone", "unset") if isinstance(app_perms, dict) else "unset"
+
+        if str(mic_perm).lower() == "no":
+            log.warning(
+                "[PERMISSION] Flatpak mic permission DENIED for app %s "
+                "(permissions.json reports microphone='no')",
+                app_id or "(unknown)",
+            )
+            return MicrophonePermissionState.DENIED
+        # "yes" or "unset" → GRANTED (the portal will prompt on first
+        # access for "unset", which we treat as PROMPT... but the
+        # caller of check_microphone_permission treats PROMPT as "let
+        # the OS prompt", so PROMPT is also acceptable here. We return
+        # GRANTED to avoid double-prompting.)
+        return MicrophonePermissionState.GRANTED
+    except Exception as exc:
+        log.warning(
+            "[PERMISSION] Flatpak mic permission probe itself raised "
+            "(falling back to GRANTED; runtime PortAudio failure will "
+            "be re-classified by the recorder): %s",
+            exc,
+        )
+        return MicrophonePermissionState.GRANTED
 
 
 def verify_microphone_accessible() -> None:

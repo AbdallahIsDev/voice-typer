@@ -44,6 +44,7 @@ from typing import Any
 # module; we look it up at call time rather than binding at import time
 # so the patch takes effect.
 from voice_typer.server import server_platform as _pkg
+from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES
 
 from .remote_session import _is_non_mic_device
 
@@ -116,7 +117,7 @@ def list_microphones() -> list[dict]:
             dev_name_lower = dev["name"].lower()
             is_bluetooth = any(kw in dev_name_lower for kw in ("bluetooth", "hfp", "hands-free")) or dev.get(
                 "default_samplerate", 0
-            ) in (8000, 16000)
+            ) in SILERO_VAD_SAMPLE_RATES
             devices.append(
                 {
                     "id": str(i),

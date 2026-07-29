@@ -103,7 +103,11 @@ def _generate_icon_ico() -> Path | None:
         log.info("[STARTUP] Shortcut icon saved: %s", ico_path)
         return ico_path
     except OSError as e:
-        log.warning("[STARTUP] Failed to save icon: %s", e)
+        # CR-76: include the destination .ico path so operators can tell
+        # which file the icon save attempted to write when it failed
+        # (APPDATA path, custom install path, etc.) without having to
+        # cross-reference the earlier "Shortcut icon saved" info line.
+        log.warning("[STARTUP] Failed to save icon (ico_path=%s): %s", ico_path, e)
         return None
 
 
@@ -231,7 +235,16 @@ def _create_lnk_shortcut(
     except ImportError:
         log.debug("[STARTUP] win32com unavailable — trying PowerShell fallback")
     except OSError as e:
-        log.warning("[STARTUP] Failed to create .lnk (%s): %s", lnk_path, e)
+        # CR-76: include both the destination .lnk path AND the target
+        # executable so operators can tell which shortcut + which
+        # underlying executable the win32com COM call failed on without
+        # having to grep adjacent log lines for the lnk path / target.
+        log.warning(
+            "[STARTUP] Failed to create .lnk (lnk=%s, target=%s): %s",
+            lnk_path,
+            target,
+            e,
+        )
         return False
 
     # 2) PowerShell fallback — write a temp .ps1 to avoid escaping issues.
@@ -268,7 +281,15 @@ def _create_lnk_shortcut(
         log.info("[STARTUP] .lnk created via PowerShell fallback: %s", lnk_path)
         return True
     except Exception as e:
-        log.warning("[STARTUP] PowerShell .lnk creation failed: %s", e)
+        # CR-76: include the lnk path + target so operators can tell
+        # which shortcut + which underlying executable the PowerShell
+        # fallback failed on without having to grep adjacent log lines.
+        log.warning(
+            "[STARTUP] PowerShell .lnk creation failed (lnk=%s, target=%s): %s",
+            lnk_path,
+            target,
+            e,
+        )
         return False
     finally:
         if tmp is not None:
