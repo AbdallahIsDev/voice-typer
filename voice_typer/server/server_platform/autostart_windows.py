@@ -540,3 +540,143 @@ def _is_app_autostart_runkey_registered() -> bool:
         return False
     except OSError:
         return False
+
+
+# ── Uninstaller helper (S2-CR-69 Windows part) ────────────────────────
+
+
+def _unregister_all_voicetyper_runkeys() -> list[str]:
+    """S2-CR-69: remove ALL ``VoiceTyper_*`` HKCU Run-key entries.
+
+    Unlike :func:`_unregister_app_autostart_runkey` (which removes ONLY
+    the current install's hash-suffixed entry), this function enumerates
+    every value under ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``
+    whose name starts with ``VoiceTyper`` and deletes it. It is intended
+    for the **uninstaller** path (NSIS ``customUnInstall`` macro /
+    Tauri ``preRemoveScript`` / manual ``uninstall_permissions.py``
+    invocation) where the goal is to leave the registry CLEAN of any
+    Voice Typer autostart entry — including stale entries from previous
+    installs at different paths (different hashes — see PLAT-RUN).
+
+    Returns the list of value names that were deleted (empty list if
+    nothing matched / not Windows / registry inaccessible). The caller
+    can log the list for the uninstall summary.
+
+    Non-fatal: any per-value error (e.g. a value vanishes between
+    EnumValue and DeleteValue) is logged and skipped so a single bad
+    value doesn't abort the whole sweep.
+
+    Tested on Linux via the ``fake_winreg`` fixture pattern (see
+    ``tests/test_uninstall_windows.py``) — the ``winreg`` import is
+    deferred to call time so the module imports cleanly on non-Windows
+    hosts.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return []  # not Windows — caller (uninstall script) logs + exits 0
+    deleted: list[str] = []
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_ALL_ACCESS,
+        )
+    except OSError as exc:
+        log.warning("[UNINSTALL] Could not open HKCU Run key for cleanup: %s", exc)
+        return deleted
+    try:
+        i = 0
+        while True:
+            try:
+                name, _value, _vtype = winreg.EnumValue(key, i)
+            except OSError:
+                # End of enumeration (Windows signals "no more values"
+                # via OSError, not StopIteration).
+                break
+            if isinstance(name, str) and name.startswith("VoiceTyper"):
+                try:
+                    winreg.DeleteValue(key, name)
+                    deleted.append(name)
+                    log.info("[UNINSTALL] Removed HKCU Run key: %s", name)
+                    # Don't increment i — the next value shifts into the
+                    # current slot after DeleteValue (same pattern as the
+                    # stale-entry cleanup loop in _register_app_autostart_runkey).
+                    continue
+                except OSError as exc:
+                    log.warning("[UNINSTALL] Failed to delete HKCU Run key %r: %s", name, exc)
+            i += 1
+    finally:
+        with contextlib.suppress(OSError):
+            winreg.CloseKey(key)
+    return deleted
+
+
+def _unregister_all_voicetyper_tasks() -> list[str]:
+    """S2-CR-69: remove ALL ``VoiceTyperAutostart*`` Task Scheduler tasks.
+
+    Companion to :func:`_unregister_all_voicetyper_runkeys`. The Task
+    Scheduler ``schtasks`` CLI does NOT accept wildcards in ``/TN``,
+    so we shell out to PowerShell's ``Get-ScheduledTask`` (which DOES
+    support ``-TaskName VoiceTyperAutostart*``) to enumerate matching
+    tasks, then ``schtasks /Delete`` each one.
+
+    Returns the list of task names deleted (best-effort — empty list on
+    any failure including non-Windows or Task Scheduler not running).
+    The caller can log the list for the uninstall summary.
+
+    Non-fatal: a single task delete failure (e.g. locked task created
+    by an admin install) is logged and skipped.
+    """
+    try:
+        from voice_typer.server import task_scheduler
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("[UNINSTALL] task_scheduler import failed: %s", exc)
+        return []
+    if not task_scheduler.is_supported():
+        return []
+    import subprocess
+
+    deleted: list[str] = []
+    try:
+        # PowerShell pipeline: Get-ScheduledTask returns matching tasks,
+        # ForEach-Object runs schtasks /Delete for each. We capture stdout
+        # and parse the task names from the Get-ScheduledTask output as a
+        # best-effort log (the actual delete happens via the pipeline).
+        ps_cmd = (
+            "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' "
+            "-ErrorAction SilentlyContinue | "
+            "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
+            "Write-Output $_.TaskName }"
+        )
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps_cmd,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode == 0:
+            for line in (result.stdout or "").splitlines():
+                line = line.strip()
+                if line.startswith("VoiceTyperAutostart"):
+                    deleted.append(line)
+                    log.info("[UNINSTALL] Removed Task Scheduler task: %s", line)
+        else:
+            log.warning(
+                "[UNINSTALL] PowerShell task sweep failed (rc=%s): %s",
+                result.returncode,
+                (result.stderr or "").strip(),
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("[UNINSTALL] Task Scheduler sweep raised: %s", exc)
+    return deleted

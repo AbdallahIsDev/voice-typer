@@ -100,8 +100,12 @@
       }
     },
     "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "preRemoveScript": "../scripts/windows/uninstall.bat"
       }
     },
     "macOS": {
