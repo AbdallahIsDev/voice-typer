@@ -356,8 +356,9 @@ voice-typer/
 │   ├── conftest.py                   # mock_heavy_imports autouse fixture
 │   ├── fixtures/                     # WAV files for audio tests
 │   ├── manual/                       # scripts you run by hand (cublas, etc.)
-│   ├── mutmut_config.py              # mutation testing config
 │   └── test_*.py                     # one test module per feature/round
+│       # S2-CR-62: tests/mutmut_config.py was removed; mutmut now reads
+│       # its config from the [tool.mutmut] table in pyproject.toml.
 │
 ├── docs/
 │   ├── ARCHITECTURE.md               # the big picture (READ THIS)
@@ -449,15 +450,50 @@ python bench/bench_startup.py        # cold-start time of the tray icon
 python bench/bench_transcription.py  # transcribe a fixed WAV and report WPS
 ```
 
-### 4.5 Mutation testing (expensive — do not run in CI)
+### 4.5 Mutation testing (local-only — do not run in CI)
+
+**S2-CR-62:** `mutmut>=2.4` is declared in the `[dev]` extra in
+`pyproject.toml` and configured via the `[tool.mutmut]` table there,
+but it is **intentionally not wired into CI**. Mutmut runs the test
+suite once per generated mutant; with ~4 target modules and the full
+pytest suite, a complete `mutmut run` takes 30+ minutes on a fast
+laptop and can take hours on slower hardware or under coverage
+instrumentation. Running that on every PR would burn the repo's CI
+minute budget without blocking real regressions (the mutation score
+is informational, not a gate). The retired `.github/workflows/
+mutation.yml` keeps the workflow name alive as a `workflow_dispatch`
+no-op so old bookmarks land somewhere with a clear pointer back here.
+
+**When to run it locally:** before a major refactor or rewrite of any
+of the four target modules (`text_cleanup.py`, `config.py`, `tray.py`,
+`tray_menu.py`), and again before merging the result. A dropping
+mutation score means a test that was previously catching a class of
+bug has been weakened or deleted.
+
+**Exact commands** (run from the repo root, with `.[dev]` installed):
 
 ```bash
-mutmut run --paths-to-mutate=voice_typer/server/text_cleanup.py,voice_typer/server/config.py
+# 1. Generate and evaluate all mutants (long — see above).
+#    paths_to_mutate and test_command come from [tool.mutmut] in
+#    pyproject.toml, so no flags are needed.
+mutmut run
+
+# 2. List surviving mutants (the ones your tests did NOT kill).
 mutmut results
+
+# 3. Inspect a specific surviving mutant to decide whether to add a
+#    test or mark the mutant as equivalent.
 mutmut show <mutant-id>
+
+# 4. (Optional) re-run only the survivors after adding tests:
+mutmut run --use-coverage     # restricts to lines covered by tests
 ```
 
-See `tests/mutmut_config.py` and `[tool.mutmut]` in `pyproject.toml`.
+**Configuration source of truth:** the `[tool.mutmut]` table in
+`pyproject.toml` (search for `TEST-010`). Modern mutmut (≥2.x) reads
+its config from `pyproject.toml`, not from a Python shim — the
+legacy `tests/mutmut_config.py` file was deleted as part of the
+S2-CR-62 config-drift cleanup and should NOT be recreated.
 
 ---
 
@@ -766,7 +802,8 @@ Adding a new **ASR engine** has its own touchpoint set: see
 - **Mutation testing:** `mutmut` is configured (see `[tool.mutmut]`
   in `pyproject.toml`) for `text_cleanup.py`, `config.py`, `tray.py`,
   and `tray_menu.py`. Run it locally before merging changes to those
-  modules — `mutmut run` then `mutmut results`.
+  modules — `mutmut run` then `mutmut results`. **Local-only — see
+  §4.5** for why it's not in CI and the exact commands.
 - **WAV fixtures:** `tests/fixtures/` ships `silence.wav`,
   `tone.wav`, `noise.wav`, and `test_440hz_1s_16k.wav` with a
   `metadata.json`. Regenerate via `tests/fixtures/generate_fixture.py`

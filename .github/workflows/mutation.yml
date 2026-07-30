@@ -59,6 +59,10 @@ jobs:
     steps:
       - name: Print retirement notice
         run: |
-          echo "::notice::Mutation testing has been retired. See review.md XS-87."
-          echo "Mutation testing has been retired. See review.md XS-87."
+          echo "::notice::Mutation testing is local-only. See CONTRIBUTING.md §4.5 (Mutation testing) and review.md XS-87."
+          echo "Mutation testing is local-only (runtime cost is too high for CI)."
+          echo "  - Config: [tool.mutmut] table in pyproject.toml"
+          echo "  - Run locally: mutmut run  (then: mutmut results)"
+          echo "  - Docs: CONTRIBUTING.md §4.5 'Mutation testing (local-only)'"
+          echo "  - History: review.md XS-87"
           exit 0

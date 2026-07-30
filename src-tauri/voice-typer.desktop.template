@@ -1,3 +1,22 @@
+# CR-145: This template is the BUNDLED MENU ENTRY shipped inside the .deb
+# (referenced from src-tauri/tauri.conf.json -> bundle -> linux ->
+# desktopTemplate). It is NOT the runtime autostart .desktop file written
+# by voice_typer/server/server_platform/autostart_linux.py
+# (_enable_autostart_linux) to ~/.config/autostart/voice-typer.desktop.
+#
+# The two .desktop files intentionally differ in their Exec= field:
+#   - This template (menu entry)    Exec=voice-typer-tauri
+#     Interactive Tauri host binary on $PATH (installed by the .deb).
+#     Used when the user clicks the app icon in the launcher / menu.
+#   - Runtime autostart entry       Exec=<python> <launcher.py> --hidden --delay 15
+#     Python launcher that starts the backend hidden at login. Aligning
+#     the autostart Exec to `voice-typer-tauri` would break the
+#     hidden-at-login behavior (no --hidden / --delay flags, no Python
+#     backend supervision).
+# Both files share `Icon=voice-typer` so the same icon shows up in the
+# menu and the autostart/login sequence. See the CR-145 comment block in
+# autostart_linux.py for the reverse-direction cross-reference; keep
+# both comments in sync if this changes.
 [Desktop Entry]
 Type=Application
 Name=Voice Typer

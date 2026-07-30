@@ -60,6 +60,8 @@ def _enable_autostart_linux() -> bool:
     # --delay 15` (hidden at login) whereas the template's Exec points at
     # the interactive `voice-typer-tauri` app binary — aligning Exec
     # would break the hidden-autostart behavior, so only Icon is aligned.
+    # The template carries a matching `#` comment block explaining the
+    # reverse direction; keep both comments in sync if this changes.
     desktop_content = f"""[Desktop Entry]
 Type=Application
 Name={APP_NAME}
