@@ -293,7 +293,12 @@ class TemplateManager:
         try:
             # PersistedJSON.save handles atomic write + .bak
             # + 0o600 perms + parent-dir creation in one call.
-            self._store.save({"templates": self._templates})
+            # DJ-52: durability=False — the atomic os.replace still
+            # guarantees consistency (no half-written files); only the
+            # per-save fsync is dropped. Template edits are frequent
+            # (CRUD ops from the settings UI) and a power-loss window
+            # of a few seconds is acceptable.
+            self._store.save({"templates": self._templates}, durability=False)
         except Exception:
             # M-62: log then re-raise so callers can roll back.
             # G4-H-38: use log.exception so the traceback is captured

@@ -1254,10 +1254,24 @@ class ClipboardManager:
             # DE-63: the ``pending_entry`` removal has moved to BEFORE
             # ``snapshot.restore()`` (above). The ``finally`` block
             # now only clears ``_last_copied_text``.
+            #
+            # DJ-22: defensively re-attempt the ``pending_entry`` removal
+            # here (under the lock, suppressing ValueError if atexit or
+            # the pre-restore path already claimed it). This closes two
+            # leak windows left by the DE-63 move: (1) ``sleep(delay)``
+            # raises before the pre-restore removal runs; (2) the
+            # catastrophic-lock-failure broad ``except`` at the
+            # pre-restore path leaves the entry in the list while
+            # proceeding with restore. Without this defensive remove,
+            # each such orphan pins the ClipboardSnapshot (up to 16MB x
+            # N formats) for the process lifetime.
             try:
                 self._last_copied_text = ""
             except Exception:  # pragma: no cover — attribute access broken
                 _cb.log.debug("[CLIPBOARD] Failed to clear _last_copied_text", exc_info=True)
+            if pending_entry is not None:
+                with _pending_restores_lock, contextlib.suppress(ValueError):
+                    _pending_restores.remove(pending_entry)
 
     def restore_now(self, snapshot: ClipboardSnapshot | None) -> None:
         """Restore a snapshot immediately (no paste keystroke, no delay).

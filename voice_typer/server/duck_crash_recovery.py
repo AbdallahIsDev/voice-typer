@@ -169,7 +169,14 @@ class DuckCrashRecovery:
         for attempt in range(_SAVE_MAX_RETRIES):
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-                _secure_atomic_write(self._path, payload)
+                # DJ-55: durability=False — the volume-duck state file
+                # is best-effort crash-recovery data; the atomic
+                # os.replace still guarantees consistency (no
+                # half-written files), only the per-save fsync is
+                # dropped. Volume state is recreated on every duck
+                # operation, so a power-loss window of a few seconds
+                # is acceptable.
+                _secure_atomic_write(self._path, payload, durability=False)
                 return True
             except Exception as exc:
                 last_exc = exc
@@ -327,7 +334,8 @@ class DuckCrashRecovery:
         last_exc: Exception | None = None
         for attempt in range(_SAVE_MAX_RETRIES):
             try:
-                _secure_atomic_write(self._path, payload)
+                # DJ-55: durability=False — see save() for rationale.
+                _secure_atomic_write(self._path, payload, durability=False)
                 self._cache_dirty = True
                 # XE-16-3: write succeeded — clear the failure flag
                 # (it may have been set by a previous failed attempt

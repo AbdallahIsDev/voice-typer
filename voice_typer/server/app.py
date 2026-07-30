@@ -213,6 +213,19 @@ class VoiceTyperApp:
         self.recording: RecordingController = RecordingController(self)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self.recording.on_xrun_threshold
+        # DJ-57: eagerly preload + warm the Silero VAD model on a
+        # background thread so the first recording's first audio chunk
+        # does not stall on torch.jit.load (~150-600ms cold load). The
+        # model load previously happened lazily inside compute_vad_prob
+        # on the audio worker thread; while the worker was stalled, the
+        # SPSC ring buffer filled (94 chunks/sec at 48kHz/512) and
+        # silently evicted the OLDEST chunks (the first syllables). The
+        # preload moves the cost off the recording critical path. Safe
+        # to call before the recorder's first start(); vad.preload() is
+        # idempotent (cached on subsequent calls) and never raises — a
+        # load failure falls through to lazy load on the first chunk
+        # (preserving the pre-fix behavior as a fallback).
+        self._preload_vad_model()
         # #2 ASR backend lifecycle extracted to ModelManager.
         # Previously VoiceTyperApp owned the AsrBackendRegistry + three
         # engine fields + ~500 LOC of load/fallback/change logic. Now
@@ -666,6 +679,34 @@ class VoiceTyperApp:
         self.waveform_wiring._wire_waveform_bubble()
 
     # ─── Startup ───────────────────────────────────────────────────────
+
+    def _preload_vad_model(self) -> None:
+        """DJ-57: spawn a background thread to eagerly load + warm the
+        Silero VAD model so the first recording's first audio chunk
+        does not stall on ``torch.jit.load`` (~150-600ms cold load).
+
+        The thread is registered with ``self._thread_registry`` so
+        ``shutdown_all()`` joins it cleanly. Best-effort: any failure
+        (torch missing, model file missing, OOM) is logged at DEBUG
+        and the lazy-load fallback in ``compute_vad_prob`` is preserved.
+        """
+        try:
+            from voice_typer.server import vad
+
+            def _vad_preload_worker() -> None:
+                try:
+                    vad.preload()
+                except Exception:
+                    log.debug("[INIT] vad.preload() failed", exc_info=True)
+
+            self._thread_registry.spawn_and_register(
+                "vad-preload",
+                _vad_preload_worker,
+                daemon=True,
+                join_timeout=2.0,
+            )
+        except Exception:
+            log.debug("[INIT] could not spawn vad-preload thread", exc_info=True)
 
     def start(self):
         """Initialize and run the application."""

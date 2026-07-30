@@ -77,7 +77,11 @@ def _write_pid_file() -> None:
 
         pid_file = _pkg._pid_file_path()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
-        _secure_atomic_write(pid_file, str(os.getpid()))
+        # DJ-55: durability=False — the prewarm PID file is a transient
+        # marker removed in a finally block; a power-loss window of a
+        # few seconds is acceptable. The atomic os.replace still
+        # guarantees consistency (no half-written files).
+        _secure_atomic_write(pid_file, str(os.getpid()), durability=False)
     except OSError as exc:
         log.debug("[PREWARM] could not write PID file: %s", exc)
 

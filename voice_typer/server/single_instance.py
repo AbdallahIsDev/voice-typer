@@ -199,7 +199,11 @@ def _write_backend_pid_file() -> None:
 
         pid_file = _backend_pid_file()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
-        _secure_atomic_write(pid_file, f"{os.getpid()}\n")
+        # DJ-55: durability=False — the PID file is recreated on every
+        # launch, so a power-loss window of a few seconds is acceptable.
+        # The atomic os.replace still guarantees consistency (no
+        # half-written files); only the per-save fsync is dropped.
+        _secure_atomic_write(pid_file, f"{os.getpid()}\n", durability=False)
     except OSError as exc:
         log.warning("[STARTUP] could not write backend PID file: %s", exc)
     except Exception:

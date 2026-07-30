@@ -890,6 +890,26 @@ class TranscriptionEngine:
         last_segment_end = None
         avg_logprobs = []
         no_speech_probs = []
+        # DJ-16: hoist the per-segment ``log_transcriptions`` flag and
+        # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
+        # ``getattr(self.config, 'log_transcriptions', False)`` ran once
+        # per segment and the ``from voice_typer.server.security import
+        # redact_pii`` ran an ``importlib`` cache lookup per segment
+        # (whenever the flag was True). For a 100+ segment long-form
+        # dictation with ``log_transcriptions=True``, the redundant
+        # attribute access + import lookups added ~1ms of pure overhead
+        # before any actual regex work. Hoisting computes the flag once
+        # and reuses the imported function for every segment.
+        _log_transcriptions_flag = (
+            self.config is not None
+            and getattr(self.config, "log_transcriptions", False)
+        )
+        _redact_pii = None
+        if _log_transcriptions_flag:
+            try:
+                from voice_typer.server.security import redact_pii as _redact_pii
+            except Exception:
+                _redact_pii = None
         for seg in segments:
             segment_count += 1
             start = seg.start or 0.0
@@ -921,12 +941,9 @@ class TranscriptionEngine:
                 # documented PII patterns (email/phone/SSN/CC) are
                 # masked before the segment text hits the log file.
                 _seg_text = seg.text.strip()
-                _log_transcriptions_flag = self.config is not None and getattr(self.config, "log_transcriptions", False)
-                if _log_transcriptions_flag:
+                if _log_transcriptions_flag and _redact_pii is not None:
                     try:
-                        from voice_typer.server.security import redact_pii
-
-                        _safe_seg_text = redact_pii(_seg_text)
+                        _safe_seg_text = _redact_pii(_seg_text)
                     except Exception:
                         # PVT-G5-091: fall back to truncation only if the
                         # redaction engine itself errors (defensive — the

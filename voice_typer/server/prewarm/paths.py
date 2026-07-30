@@ -173,7 +173,11 @@ def _mark_warmed(elapsed_s: float) -> None:
         from voice_typer.server.config import _secure_atomic_write
 
         now_iso = _dt.datetime.now().isoformat(timespec="seconds")
-        _secure_atomic_write(sentinel, f"{bt}\n{elapsed_s:.1f}\n{now_iso}")
+        # DJ-55: durability=False — prewarm sentinels are advisory
+        # "last run" timestamps, recreated on every prewarm completion.
+        # A power-loss window of a few seconds is acceptable; the
+        # atomic os.replace still guarantees consistency.
+        _secure_atomic_write(sentinel, f"{bt}\n{elapsed_s:.1f}\n{now_iso}", durability=False)
     except Exception:
         # Review fix H5: log the failure (was silently swallowed).
         # A failed sentinel write means the next prewarm trigger will

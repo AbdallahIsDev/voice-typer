@@ -32,6 +32,7 @@ import contextlib
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -699,25 +700,45 @@ class StartupSequence:
         )
 
         def _startup_parallel_work() -> None:
-            # AB-31: build the parallel-work item list for
-            # ``_run_parallel_with_timeout``. Each entry is
-            # ``(description, func, timeout)``. The 10s per-task
-            # budget preserves RACE-020 (down from the original 30s)
-            # and matches the previous shared 10s deadline enforced
-            # via ``concurrent.futures.wait(timeout=10)``.
+            # DJ-4: split the parallel pool. Pre-fix, both ``sync_prewarm_task``
+            # and ``load_microphones`` ran in parallel with a 10s per-task
+            # timeout, and hotkey registration (line 777) ran AFTER both
+            # completed. So if ``sync_prewarm_task`` hung (Windows Task
+            # Scheduler can be slow on a cold boot), the user couldn't
+            # press F2 to start dictation for up to 10s after the tray
+            # icon appeared — a regression on the primary interaction path.
+            # Only ``load_microphones`` actually needs to complete before
+            # hotkey registration (the tray menu needs the mic list);
+            # ``sync_prewarm_task`` is pure housekeeping (re-syncing the
+            # Windows Task Scheduler entry / Run-key fallback / launchd
+            # plist / systemd unit) and can complete any time later.
             #
-            # Each task is wrapped in a closure that captures the
-            # shutdown event so the underlying startup_tasks functions
-            # can abort early on shutdown.
+            # Fix: spawn ``sync_prewarm_task`` on a fire-and-forget daemon
+            # thread (no wait, no timeout); run only ``load_microphones``
+            # in the bounded parallel pool with a shorter 5s timeout.
+            # ``sync_prewarm_task`` is idempotent and best-effort, so a
+            # hung/slow run has no correctness impact (the next launch
+            # will re-sync).
             def _prewarm_task() -> None:
                 startup_tasks.sync_prewarm_task(app, _shutdown_event)
+
+            prewarm_thread = threading.Thread(
+                target=_prewarm_task,
+                name="startup-prewarm-sync",
+                daemon=True,
+            )
+            prewarm_thread.start()
+            log.debug(
+                "[STARTUP] DJ-4: prewarm sync dispatched to fire-and-forget "
+                "daemon thread (no wait, no timeout) — hotkey registration "
+                "proceeds without waiting on it"
+            )
 
             def _mic_task() -> None:
                 startup_tasks.load_microphones(app, _shutdown_event)
 
             items = [
-                ("prewarm", _prewarm_task, 10.0),
-                ("mic", _mic_task, 10.0),
+                ("mic", _mic_task, 5.0),
             ]
             results = _run_parallel_with_timeout(items)
             for label, value in results:
@@ -729,7 +750,7 @@ class StartupSequence:
                 # process exit by virtue of being a daemon).
                 if value is _TIMEOUT_SENTINEL:
                     log.warning(
-                        "[STARTUP] %s task did not complete within 10s budget "
+                        "[STARTUP] %s task did not complete within 5s budget "
                         "(daemon worker leaked; will not block process exit)",
                         label,
                     )

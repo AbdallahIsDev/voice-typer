@@ -252,7 +252,12 @@ class VocabularyManager:
             try:
                 # PersistedJSON.save handles atomic write + .bak
                 # + 0o600 perms + parent-dir creation in one call.
-                self._user_store.save(self._data)
+                # DJ-52: durability=False — the atomic os.replace still
+                # guarantees consistency (no half-written files); only
+                # the per-save fsync is dropped. User-vocabulary edits
+                # are frequent (typing in the settings panel) and a
+                # power-loss window of a few seconds is acceptable.
+                self._user_store.save(self._data, durability=False)
                 log.debug("[VOCAB] Saved user vocabulary")
                 return
             except PermissionError as exc:

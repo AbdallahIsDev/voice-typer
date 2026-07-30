@@ -368,6 +368,22 @@ class StreamingTextAssembler:
             prune_threshold = commit_horizon_seconds - 5.0
             if prune_threshold > 0:
                 self._prune_old_entries(prune_threshold)
+        else:
+            # DJ-21: when ``commit_horizon_seconds == math.inf`` (the
+            # ``finalize()`` path), ``_prune_old_entries`` short-circuits
+            # because its threshold would be ``math.inf - 5.0``. Without
+            # this cap, a finalize() that processes an unusually large
+            # tail-merge (e.g. a misbehaving upstream that re-emits the
+            # entire audio as new word timings) would grow
+            # ``_seen_timestamps`` without bound — the ``_words`` deque
+            # has ``maxlen=10000`` but ``_seen_timestamps`` is a plain
+            # ``set``. Hard-cap at 50k entries (well above the typical
+            # 5-50 unique timestamps per finalize) so the worst case is a
+            # one-time ~few-MB allocation, not unbounded growth. The set
+            # is released on session end (``set_streaming_session(None)``)
+            # so this is a defensive bound, not a per-dictation leak.
+            if len(self._seen_timestamps) > 50_000:
+                self._seen_timestamps = set()
         return " ".join(committed)
 
     def _prune_old_entries(self, threshold: float) -> None:

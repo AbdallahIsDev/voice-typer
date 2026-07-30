@@ -336,3 +336,23 @@ class WaveformBubbleWiring:
                     self._bubble_level_worker.join(timeout=1.0)
         except Exception as e:
             log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
+        # DJ-28: break the closure reference cycle
+        # ``app -> app._waveform_bubble (WaveformBubble) -> .on_* (closure)
+        # -> closure.__closure__[0] (self=WaveformBubbleWiring)
+        # -> self._app (back to app)`` by nulling the 5 callbacks after
+        # the worker thread is stopped. Without this, any future codepath
+        # that recreates WaveformBubble or WaveformBubbleWiring (e.g. a
+        # 'restart bubble' debug feature, or tests doing stop/start
+        # cycles) would leak the old WaveformBubbleWiring instance via
+        # the closure -> self cycle. Cheap, idempotent, breaks the cycle
+        # deterministically rather than relying on the cyclic GC.
+        try:
+            bubble = getattr(self._app, "_waveform_bubble", None)
+            if bubble is not None:
+                bubble.on_show = None
+                bubble.on_hide = None
+                bubble.on_level = None
+                bubble.on_set_state = None
+                bubble.on_config = None
+        except Exception as e:
+            log.debug("[SHUTDOWN] waveform bubble callback clear failed: %s", e)

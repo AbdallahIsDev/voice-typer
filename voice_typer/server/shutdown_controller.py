@@ -360,6 +360,7 @@ class ShutdownController:
         # the hotkey / level_monitor / event_bus teardown" guarantee
         # without sacrificing concurrency.
         parallel_items: list[tuple[str, object, float]] = [
+            ("teardown_asr_models", self._teardown_asr_models, 10.0),
             ("teardown_crash_recovery", self._teardown_crash_recovery, 10.0),
             ("teardown_history_db", self._teardown_history_db, 10.0),
             ("teardown_timers_and_recording", self._teardown_timers_and_recording, 10.0),
@@ -1026,6 +1027,48 @@ class ShutdownController:
             _app_module._close_devnull_files()
         except Exception:
             log.debug("[CLEANUP] close devnull files failed", exc_info=True)
+
+    def _teardown_asr_models(self) -> None:
+        """DJ-7: unload active ASR backend + release CUDA caching allocator
+        blocks so torch's VRAM is returned to the OS before process exit.
+
+        Pre-fix, ``shutdown_controller._do_cleanup`` ran 14 parallel
+        teardown helpers — NONE of them touched ``app.models`` /
+        ``app.models.registry``. ``asr_registry.unload()`` was only
+        invoked on (a) backend load failure and (b) ``app._change_model()``.
+        On a normal quit / restart_app / atexit, the active Parakeet /
+        Whisper backend's ``unload()`` was never called. Combined with
+        DJ-6 (host force-kills after 2-6s), the Python process was
+        SIGKILLed before Python's GC could drop the model references —
+        meaning torch's ``empty_cache()`` / ``cuda.synchronize()`` /
+        context destructor never ran. On GPU systems this leaked CUDA
+        memory across rapid restart cycles; on CPU-only Whisper ~1-3GB
+        RSS stayed resident longer than necessary.
+
+        This helper is placed FIRST in the parallel batch so the
+        (potentially slow) CUDA context teardown starts as early as
+        possible. ``registry.unload()`` is idempotent and already wraps
+        every per-backend ``backend.unload()`` in try/except, so a
+        single failing backend doesn't abort the others.
+        ``release_gpu_memory()`` guards on ``torch.cuda.is_available()``
+        and wraps both ``synchronize()`` and ``empty_cache()`` in
+        try/except, so it is a no-op on CPU-only hosts.
+        """
+        try:
+            registry = getattr(self._app.models, "registry", None)
+            if registry is not None and hasattr(registry, "unload"):
+                registry.unload()
+        except Exception:
+            log.debug("[CLEANUP] asr_registry.unload() failed", exc_info=True)
+        try:
+            from voice_typer.server.asr_utils import release_gpu_memory
+
+            release_gpu_memory()
+        except Exception:
+            log.debug(
+                "[CLEANUP] release_gpu_memory() failed (non-fatal)",
+                exc_info=True,
+            )
 
     def _teardown_event_bus(self) -> None:
         """XV-7: shut down the event_bus deferred-publish executor.

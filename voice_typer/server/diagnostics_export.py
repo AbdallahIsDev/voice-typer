@@ -315,11 +315,33 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # basenames only so we can see what tool directories
                 # are on PATH without leaking the user's home
                 # directory path.
-                from voice_typer.server._secrets import redact_secret as _redact_secret_for_env
+                from voice_typer.server._secrets import (
+                    _redact_home_path as _redact_home_path_for_env,
+                )
+                from voice_typer.server._secrets import (
+                    redact_secret as _redact_secret_for_env,
+                )
 
                 for key in sorted(os.environ):
                     if key.startswith("VOICE_TYPER_"):
                         value = os.environ[key]
+                        # XE-7-3: redact home-directory prefix from
+                        # path-bearing env vars (e.g.
+                        # ``VOICE_TYPER_CONFIG_DIR=/home/alice/.voice-typer``,
+                        # ``VOICE_TYPER_NATIVE_DIR``,
+                        # ``VOICE_TYPER_NATIVE_BINARY``,
+                        # ``VOICE_TYPER_PREWARM_EXE``). Pre-fix, the
+                        # ``redact_secret`` call below only redacted
+                        # secret-shaped values, so a path-bearing value
+                        # shipped verbatim and leaked the OS username
+                        # via the path prefix. ``_redact_home_path``
+                        # replaces the home-directory prefix with ``~``
+                        # (mirrors the prewarm.json path-redaction at
+                        # lines 442-443) — applied BEFORE secret
+                        # redaction so a value that is BOTH a path AND
+                        # contains a secret token gets both treatments.
+                        if value and (os.sep in value or "/" in value):
+                            value = _redact_home_path_for_env(value)
                         # Redact any secret-bearing value before
                         # truncation. Order matters: redact first,
                         # then truncate, so a truncated secret is
