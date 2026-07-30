@@ -93,7 +93,7 @@ use tauri::{Listener, Manager, RunEvent, WindowEvent};
 // gate in `tests/tauri/mig19/test_final_glue.py`).
 
 use commands::bubble::{
-    bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
+    bubble_dismiss, bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
     bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,
 };
 use commands::export::{export_history, export_vocabulary};
@@ -257,6 +257,12 @@ fn main() {
             bubble_set_draggable,
             bubble_move_by,
             bubble_hide_complete,
+            // UE-14: dismiss command (mirror of `bubble_hide_complete` —
+            // emits `bubble:hide` then hides the bubble window
+            // unconditionally; gated by `require_bubble_window` per
+            // SEC-016). Wired in the renderer's `bubble-namespace.ts`
+            // `dismiss()` method via `invoke("bubble_dismiss")`.
+            bubble_dismiss,
             // CR-33: bubble window extensions (resize / toggle).
             // GT-82: `bubble_emit_state` removed — dead in production.
             bubble_resize,

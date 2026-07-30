@@ -105,7 +105,7 @@
       },
       "nsis": {
         "installMode": "currentUser",
-        "preRemoveScript": "../scripts/windows/uninstall.bat"
+        "installerHooks": "../scripts/windows/uninstall.bat"
       }
     },
     "macOS": {

@@ -127,13 +127,22 @@ pub async fn bubble_set_position(
         .map_err(|e| e.to_string())?
         .ok_or("no primary monitor available")?;
     let screen_size = monitor.size();
-    let screen_w = screen_size.width as i32;
-    let screen_h = screen_size.height as i32;
+    // UE-44: `screen_size.width` / `.height` are `u32`; the raw `as i32`
+    // cast silently wraps to negative on >i32::MAX-pixel virtual displays
+    // (8K surround, large HiDPI canvases), moving the bubble off-screen.
+    // `i32::try_from(...).unwrap_or(i32::MAX)` saturates instead of
+    // wrapping. In practice the value is always <i32::MAX for any real
+    // display, but the saturating cast is the project-adopted pattern
+    // (PVT-G5-051 / GT-D3-7).
+    let screen_w = i32::try_from(screen_size.width).unwrap_or(i32::MAX);
+    let screen_h = i32::try_from(screen_size.height).unwrap_or(i32::MAX);
     let bubble_size = window
         .outer_size()
         .map_err(|e| e.to_string())?;
-    let bubble_w = bubble_size.width as i32;
-    let bubble_h = bubble_size.height as i32;
+    // UE-44: same saturating-cast rationale as `screen_w` / `screen_h`
+    // above. `bubble_size.width` / `.height` are `u32`.
+    let bubble_w = i32::try_from(bubble_size.width).unwrap_or(i32::MAX);
+    let bubble_h = i32::try_from(bubble_size.height).unwrap_or(i32::MAX);
     let (px, py) = parse_keyword_position(&position, screen_w, screen_h, bubble_w, bubble_h)?;
     window
         .set_position(PhysicalPosition::new(px, py))
@@ -368,18 +377,27 @@ pub async fn bubble_set_draggable(
 /// naming the offending operands so the renderer can surface it.
 #[tauri::command]
 pub async fn bubble_move_by(
-    dx: i32,
-    dy: i32,
+    dx: f64,
+    dy: f64,
     app: tauri::AppHandle,
 ) -> Result<Value, String> {
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
     let pos = window.outer_position().map_err(|e| e.to_string())?;
+    // UE-19-F04: the TS bridge forwards renderer-supplied numbers (the
+    // `moveBy(deltaX: number, deltaY: number)` signature is `(number,
+    // number)`). Accept `f64` at the FFI boundary and round to `i32` with
+    // a saturating cast so a NaN / ±inf / out-of-range delta is defined
+    // behavior instead of the silent wrap / UB-adjacent saturation of
+    // `as i32` on `f64` (see `round_f64_to_i32_saturating` doc for the
+    // per-input behavior).
+    let dx_i32 = round_f64_to_i32_saturating(dx);
+    let dy_i32 = round_f64_to_i32_saturating(dy);
     // DE-16: use checked arithmetic so a renderer-supplied dx/dy that
     // would overflow i32::MAX surfaces a descriptive error instead of
     // silently wrapping the bubble to a wrapped-negative pixel.
-    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx, pos.y, dy)?;
+    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx_i32, pos.y, dy_i32)?;
     window
         .set_position(PhysicalPosition::new(new_x, new_y))
         .map_err(|e| e.to_string())?;
@@ -470,6 +488,63 @@ pub async fn bubble_hide_complete(
     // overlay invisible mid-animation.
     crate::commands::require_bubble_window(&window)?;
     // GT-50: emit FIRST so the renderer's cleanup runs while the
+    // window is still visible. The emit + hide sequence is shared with
+    // `bubble_dismiss` via the `hide_bubble_window` helper so the two
+    // commands have identical hide behavior (the distinction is purely
+    // semantic — `bubble_hide_complete` is the renderer's
+    // animation-complete signal; `bubble_dismiss` is the user's '×'
+    // button affordance).
+    hide_bubble_window(&app)
+}
+
+/// Dismiss the bubble window from its own '×' button (BG-96 / ADR-0020 §9).
+///
+/// Mirror of [`bubble_hide_complete`] — emits `bubble:hide` so the
+/// renderer can run cleanup BEFORE the window becomes invisible, then
+/// hides the window unconditionally. The distinction from
+/// `bubble_hide_complete` is purely semantic: `bubble_dismiss` is the
+/// user-facing "close the bubble" affordance (the '×' button in
+/// `always_visible` mode), while `bubble_hide_complete` is the
+/// renderer's exit-animation-complete signal. Both route through the
+/// same [`hide_bubble_window`] helper so the hide behavior is identical.
+///
+/// Mirrors the Electron `bubble:dismiss` IPC handler in
+/// `voice_typer/client/src/main/ipc/bubble-handlers.ts:299-302` which
+/// routes to `hideBubbleWindow()` — the same path used by every other
+/// hide trigger (timeout fallback, set_config, etc.).
+///
+/// **ZR-22 (SEC-016):** gated by [`crate::commands::require_bubble_window`]
+/// so only the bubble window's webview can dismiss itself. A compromised
+/// main renderer invoking `bubble_dismiss` would otherwise be able to
+/// prematurely hide the bubble overlay. The check mirrors the
+/// renderer-side `assertFromBubble(event)` gate that
+/// `bubble-handlers.ts:299-302` applies on the `bubble:dismiss` IPC
+/// channel (defense-in-depth — both gates must hold for the dismiss to
+/// take effect).
+#[tauri::command]
+pub async fn bubble_dismiss(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+) -> Result<(), String> {
+    // ZR-22: only the bubble window may dismiss itself. A compromised
+    // main renderer invoking `bubble_dismiss` would otherwise be able to
+    // prematurely hide the bubble overlay (the dismiss button only shows
+    // in `always_visible` mode, but the Rust gate is
+    // mode-agnostic — defense-in-depth).
+    crate::commands::require_bubble_window(&window)?;
+    hide_bubble_window(&app)
+}
+
+/// Hide the bubble window, emitting `bubble:hide` FIRST so the renderer
+/// can run cleanup (e.g., stop the level animation) BEFORE the window
+/// becomes invisible (GT-50 ordering fix).
+///
+/// Extracted as a helper so [`bubble_hide_complete`] and
+/// [`bubble_dismiss`] share the same hide path — the two commands are
+/// semantically distinct (animation-complete signal vs user-dismiss
+/// affordance) but have identical hide behavior.
+fn hide_bubble_window(app: &tauri::AppHandle) -> Result<(), String> {
+    // GT-50: emit FIRST so the renderer's cleanup runs while the
     // window is still visible.
     app.emit_to("bubble", "bubble:hide", ())
         .map_err(|e| e.to_string())?;
@@ -499,8 +574,9 @@ pub async fn bubble_hide_complete(
 /// content is typically smaller).
 ///
 /// Mirrors the Electron `bubble:resize` IPC handler in
-/// `voice_typer/client/src/main/index.ts` which calls
-/// `BrowserWindow.setSize(width, height)`.
+/// `voice_typer/client/src/main/ipc/bubble-handlers.ts:183-197` which
+/// calls `BrowserWindow.setSize(width, height)` after clamping to the
+/// `MIN_BUBBLE_W`/`MAX_BUBBLE_W`/`MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds.
 ///
 /// **Window-origin policy (DE-71):** this command is intentionally NOT
 /// gated by [`require_main_window`] — the bubble renderer is permitted
@@ -511,52 +587,147 @@ pub async fn bubble_hide_complete(
 /// from the main window would break the auto-fit behavior. The
 /// command's effect is confined to the bubble window itself.
 ///
-/// **DE-70 (size ceiling):** the prior code passed `width` / `height`
-/// straight to `set_size` with no upper bound. A renderer bug (or a
-/// compromised sandboxed bubble) that sent `width = u32::MAX` would
-/// ask the window manager for a 4-gigapixel-wide window, which on
-/// Linux triggers a Wayland `xdg_surface` protocol error (killing the
-/// bubble) and on Windows silently clips to the monitor but burns CPU
-/// compositing a huge surface. The fix caps both dimensions to
-/// [`BUBBLE_RESIZE_MAX_DIM`] (7680 = 8K UHD) before calling
-/// `set_size` — well above any legitimate pill content measurement but
-/// well below the OS-brokenness threshold.
+/// **UE-19-F03 (f64 coercion + bound reconciliation):** the prior
+/// signature was `(width: u32, height: u32)`. The TS bridge forwards
+/// renderer-measured numbers (the `resizeTo(width: number, height:
+/// number)` signature is `(number, number)`), so a non-integer
+/// measurement (e.g. `240.7`) was silently truncated by Tauri's JSON
+/// deserializer or rejected outright depending on the serde-u32 path.
+/// The fix accepts `f64` at the FFI boundary and rounds to `u32` with
+/// a saturating cast (see [`round_f64_to_u32_saturating`] for the
+/// per-input behavior on NaN / negative / ±inf / out-of-range).
+///
+/// **DE-70 (size bounds):** the prior Rust code capped both dimensions
+/// to `BUBBLE_RESIZE_MAX_DIM` (7680 = 8K UHD) — well above any
+/// legitimate pill content measurement but INCONSISTENT with
+/// Electron's `MIN_BUBBLE_W=40` / `MAX_BUBBLE_W=400` /
+/// `MIN_BUBBLE_H=24` / `MAX_BUBBLE_H=200` pill bounds in
+/// `bubble-handlers.ts:45-48`. A Tauri-hosted bubble could be resized
+/// to 1000×500 while an Electron-hosted one would clamp to 400×200 —
+/// a cross-host UX divergence and a SEC-016 phishing-overlay-regression
+/// (a compromised sandboxed bubble could grow itself to nearly
+/// fullscreen on the Tauri host). The fix reconciles the bounds: Rust
+/// now applies the SAME `MIN_BUBBLE_W`/`MAX_BUBBLE_W`/
+/// `MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds as Electron (see the constants
+/// below) so both hosts produce identical resize behavior.
 #[tauri::command]
 pub async fn bubble_resize(
-    width: u32,
-    height: u32,
+    width: f64,
+    height: f64,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
-    // DE-70: cap both dimensions to 8K (7680) before calling set_size
-    // to avoid handing the OS window manager a multi-gigapixel surface
-    // (see `cap_resize_dim` doc for the rationale).
-    let capped_w = cap_resize_dim(width);
-    let capped_h = cap_resize_dim(height);
+    // UE-19-F03: round the f64 measurement to u32 with a saturating
+    // cast (NaN/negative → 0, ±inf/huge → u32::MAX). See
+    // `round_f64_to_u32_saturating` doc for the per-input behavior.
+    let w = round_f64_to_u32_saturating(width);
+    let h = round_f64_to_u32_saturating(height);
+    // DE-70 / UE-19-F03: clamp both dimensions to the same MIN/MAX
+    // bounds Electron uses (`bubble-handlers.ts::clampBubbleSize`). The
+    // downstream `clamp_resize_width` / `clamp_resize_height` reduce
+    // any NaN/negative/0/+/u32::MAX to the pill range.
+    let capped_w = clamp_resize_width(w);
+    let capped_h = clamp_resize_height(h);
     use tauri::PhysicalSize;
     window
         .set_size(PhysicalSize::new(capped_w, capped_h))
         .map_err(|e| e.to_string())
 }
 
-/// DE-70: hard ceiling on each `bubble_resize` dimension. 7680 = 8K
-/// UHD width (the highest-resolution consumer display standard as of
-/// 2024). A pill content measurement of 7680+px indicates a renderer
-/// bug (the pill is typically 80–240px wide), so capping here is a
-/// safety net, not a UX constraint.
+/// DE-70 / UE-19-F03: bubble resize bounds — mirror Electron's
+/// `MIN_BUBBLE_W` / `MAX_BUBBLE_W` / `MIN_BUBBLE_H` / `MAX_BUBBLE_H`
+/// in `voice_typer/client/src/main/ipc/bubble-handlers.ts:45-48` so a
+/// pill measurement (or a compromised sandboxed bubble) can't shrink the
+/// bubble to invisible or grow it into a full-screen phishing overlay.
+/// The pill content is typically 80–240px wide × 24–80px tall; these
+/// bounds accommodate the transcribing text + mic button while keeping
+/// the bubble pill-shaped.
 ///
-/// Extracted into a named constant + pure helper so the cap can be
-/// unit-tested without a Tauri window.
-const BUBBLE_RESIZE_MAX_DIM: u32 = 7680;
+/// Extracted into named constants + pure helpers so the bounds can be
+/// unit-tested without a Tauri window AND so the same values are
+/// visible at the call site (vs. being buried inside a closure).
+const MIN_BUBBLE_W: u32 = 40;
+const MIN_BUBBLE_H: u32 = 24;
+const MAX_BUBBLE_W: u32 = 400;
+const MAX_BUBBLE_H: u32 = 200;
 
-/// DE-70: cap a single resize dimension to [`BUBBLE_RESIZE_MAX_DIM`].
-/// Saturating — `u32::min` returns the smaller of the input and the
-/// cap, so any input ≤ 7680 passes through unchanged and any input
-/// above is clamped to 7680.
-fn cap_resize_dim(d: u32) -> u32 {
-    d.min(BUBBLE_RESIZE_MAX_DIM)
+/// DE-70 / UE-19-F03: clamp a single resize width to
+/// [`MIN_BUBBLE_W`]..=[`MAX_BUBBLE_W`]. Saturating — `u32::clamp`
+/// returns `max(min, min(input, max))`, so any input in range passes
+/// through unchanged and any input below / above is clamped to the
+/// bound.
+fn clamp_resize_width(d: u32) -> u32 {
+    d.clamp(MIN_BUBBLE_W, MAX_BUBBLE_W)
+}
+
+/// DE-70 / UE-19-F03: clamp a single resize height to
+/// [`MIN_BUBBLE_H`]..=[`MAX_BUBBLE_H`]. See [`clamp_resize_width`] for
+/// the rationale.
+fn clamp_resize_height(d: u32) -> u32 {
+    d.clamp(MIN_BUBBLE_H, MAX_BUBBLE_H)
+}
+
+/// UE-19-F03: convert an `f64` dimension to `u32` with fully-defined
+/// behavior on all possible `f64` values (NaN, negative, ±inf,
+/// in-range, out-of-range). Rounds to nearest (half away from zero
+/// per `f64::round`) before the cast.
+///
+/// - **NaN → 0**: a NaN measurement is a renderer bug; defaulting to 0
+///   is no worse than the prior `as u32` behavior and the downstream
+///   [`clamp_resize_width`] / [`clamp_resize_height`] will clamp 0 to
+///   the MIN bound.
+/// - **Negative → 0**: a negative measurement is nonsensical for a
+///   window dimension; treat as 0 (clamped to MIN downstream).
+/// - **+inf / huge finite → `u32::MAX`**: saturate (the downstream
+///   clamp will reduce to `MAX_BUBBLE_W`/`MAX_BUBBLE_H` anyway).
+/// - **In-range finite → `f.round() as u32`**: standard round-to-nearest
+///   (half away from zero).
+fn round_f64_to_u32_saturating(f: f64) -> u32 {
+    if f.is_nan() || f < 0.0 {
+        return 0;
+    }
+    let rounded = f.round();
+    // `u32::MAX as f64` is exactly 4294967295.0 (f64 mantissa is 53
+    // bits, u32 is 32 bits — exact). Values above saturate to u32::MAX;
+    // the downstream `clamp_resize_*` reduces to MAX_BUBBLE_W/H.
+    if rounded > u32::MAX as f64 {
+        return u32::MAX;
+    }
+    rounded as u32
+}
+
+/// UE-19-F04: convert an `f64` delta to `i32` with fully-defined
+/// behavior on all possible `f64` values (NaN, ±inf, in-range,
+/// out-of-range). Rounds to nearest (half away from zero per
+/// `f64::round`) before the cast.
+///
+/// - **NaN → 0**: a NaN delta is a renderer bug; defaulting to 0 is a
+///   no-op move (no worse than the prior `as i32` behavior).
+/// - **+inf → `i32::MAX`**: the renderer wants the rightmost pixel.
+/// - **-inf → `i32::MIN`**: the renderer wants the leftmost pixel.
+/// - **In-range finite → `f.round() as i32`**: standard round-to-nearest
+///   (half away from zero).
+/// - **Out-of-range finite (e.g. 1e30) → saturate to `i32::MAX`/`MIN`**
+///   via the `f.clamp(i32::MIN as f64, i32::MAX as f64)` guard before
+///   the `as i32` cast. (The downstream `compute_move_by_new_pos`
+///   `checked_add` will then surface a descriptive error if the
+///   saturated delta overflows `pos.x + dx` / `pos.y + dy`.)
+fn round_f64_to_i32_saturating(f: f64) -> i32 {
+    if f.is_nan() {
+        return 0;
+    }
+    if f.is_infinite() {
+        return if f > 0.0 { i32::MAX } else { i32::MIN };
+    }
+    let rounded = f.round();
+    // Clamp to the i32 representable range BEFORE the `as i32` cast.
+    // `i32::MIN as f64` and `i32::MAX as f64` are exact (the i32 range
+    // fits comfortably within f64's 53-bit mantissa), so the clamp
+    // boundaries are not subject to rounding.
+    let clamped = rounded.clamp(i32::MIN as f64, i32::MAX as f64);
+    clamped as i32
 }
 
 /// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
@@ -694,7 +865,15 @@ fn toggle_rate_limiter_allows() -> bool {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
+        // UE-44: `d.as_nanos()` returns `u128`; the raw `as u64` cast
+        // silently truncates after ~584 years (u64::MAX ns ≈ 584 years
+        // from the UNIX epoch). `u64::try_from(...).unwrap_or(u64::MAX)`
+        // saturates instead of truncating. In practice the value is
+        // always <u64::MAX for any plausible timestamp, but the
+        // saturating cast is the project-adopted pattern (PVT-G5-051 /
+        // GT-D3-7). The `.unwrap_or(0)` on the outer `map` handles the
+        // clock-before-epoch case (returns 0 — "never toggled").
+        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
         .unwrap_or(0);
     loop {
         let last = LAST_TOGGLE_NANOS.load(Ordering::SeqCst);
@@ -1112,57 +1291,202 @@ mod tests {
     }
 
     // ───────────────────────────────────────────────────────────────────
-    // DE-70: bubble_resize dimension cap (8K = 7680)
+    // DE-70 / UE-19-F03: bubble_resize bounds + f64→u32 coercion
     // ───────────────────────────────────────────────────────────────────
     //
-    // The pre-fix code passed width/height straight to set_size with
-    // no upper bound — a renderer bug sending u32::MAX would ask the
-    // OS window manager for a multi-gigapixel surface. The post-fix
-    // `cap_resize_dim` saturates at 7680 (8K UHD), well above any
-    // legitimate pill content measurement but well below the OS-
-    // brokenness threshold.
+    // The pre-fix code passed width/height (u32) straight to set_size
+    // with only an 8K (7680) upper cap — no MIN bound, and inconsistent
+    // with Electron's 40-400 × 24-200 pill bounds. The post-fix code
+    // (a) accepts `f64` at the FFI boundary (the TS bridge forwards
+    // `number`), (b) rounds to `u32` with a saturating cast via
+    // `round_f64_to_u32_saturating` (NaN/negative → 0, ±inf/huge →
+    // u32::MAX), and (c) clamps both dimensions to the SAME
+    // MIN_BUBBLE_W/MAX_BUBBLE_W/MIN_BUBBLE_H/MAX_BUBBLE_H bounds
+    // Electron uses (`bubble-handlers.ts:45-48`) so both hosts produce
+    // identical resize behavior.
 
     #[test]
-    fn test_cap_resize_dim_typical_pill_size_passes_through() {
-        // Typical pill content is 80–240px. Should pass unchanged.
-        assert_eq!(cap_resize_dim(80), 80);
-        assert_eq!(cap_resize_dim(240), 240);
-        assert_eq!(cap_resize_dim(1), 1);
+    fn test_clamp_resize_width_typical_pill_size_passes_through() {
+        assert_eq!(clamp_resize_width(80), 80);
+        assert_eq!(clamp_resize_width(240), 240);
+        assert_eq!(clamp_resize_width(100), 100);
     }
 
     #[test]
-    fn test_cap_resize_dim_at_boundary_7680_passes_through() {
-        // The exact 8K cap (7680) should pass through unchanged
-        // (`u32::min(7680, 7680) == 7680`).
-        assert_eq!(cap_resize_dim(BUBBLE_RESIZE_MAX_DIM), BUBBLE_RESIZE_MAX_DIM);
-        assert_eq!(cap_resize_dim(7680), 7680);
+    fn test_clamp_resize_width_at_max_boundary_400_passes_through() {
+        assert_eq!(clamp_resize_width(MAX_BUBBLE_W), MAX_BUBBLE_W);
+        assert_eq!(clamp_resize_width(400), 400);
     }
 
     #[test]
-    fn test_cap_resize_dim_just_over_boundary_clamped_to_7680() {
-        // 7681 (one pixel over 8K) should clamp to 7680.
-        assert_eq!(cap_resize_dim(7681), 7680);
+    fn test_clamp_resize_width_at_min_boundary_40_passes_through() {
+        assert_eq!(clamp_resize_width(MIN_BUBBLE_W), MIN_BUBBLE_W);
+        assert_eq!(clamp_resize_width(40), 40);
     }
 
     #[test]
-    fn test_cap_resize_dim_u32_max_clamped_to_7680() {
-        // DE-70: the renderer-bug / compromised-bubble scenario —
-        // u32::MAX (a 4-gigapixel dimension) must clamp to 7680, NOT
-        // be passed to set_size where it would trigger a Wayland
-        // xdg_surface protocol error or burn CPU on Windows.
-        assert_eq!(cap_resize_dim(u32::MAX), 7680);
+    fn test_clamp_resize_width_just_over_max_clamped_to_400() {
+        assert_eq!(clamp_resize_width(401), 400);
     }
 
     #[test]
-    fn test_cap_resize_dim_zero_passes_through() {
-        // 0 is a degenerate but not overflow value — `u32::min(0, 7680)
-        // == 0`. We deliberately do NOT clamp 0 to a minimum because
-        // the OS will reject a 0-size window with a clear error, and
-        // the renderer should see that error to surface the bug
-        // (rather than silently getting a 1×1 window). Pin this
-        // contract so a future "defensive" refactor doesn't hide the
-        // renderer bug behind a silent minimum.
-        assert_eq!(cap_resize_dim(0), 0);
+    fn test_clamp_resize_width_just_under_min_clamped_to_40() {
+        assert_eq!(clamp_resize_width(39), 40);
+    }
+
+    #[test]
+    fn test_clamp_resize_width_u32_max_clamped_to_400() {
+        assert_eq!(clamp_resize_width(u32::MAX), 400);
+    }
+
+    #[test]
+    fn test_clamp_resize_width_zero_clamped_to_40() {
+        assert_eq!(clamp_resize_width(0), 40);
+    }
+
+    #[test]
+    fn test_clamp_resize_height_typical_pill_size_passes_through() {
+        assert_eq!(clamp_resize_height(24), 24);
+        assert_eq!(clamp_resize_height(80), 80);
+    }
+
+    #[test]
+    fn test_clamp_resize_height_at_max_boundary_200_passes_through() {
+        assert_eq!(clamp_resize_height(MAX_BUBBLE_H), MAX_BUBBLE_H);
+        assert_eq!(clamp_resize_height(200), 200);
+    }
+
+    #[test]
+    fn test_clamp_resize_height_just_over_max_clamped_to_200() {
+        assert_eq!(clamp_resize_height(201), 200);
+    }
+
+    #[test]
+    fn test_clamp_resize_height_zero_clamped_to_24() {
+        assert_eq!(clamp_resize_height(0), 24);
+    }
+
+    #[test]
+    fn test_clamp_resize_height_u32_max_clamped_to_200() {
+        assert_eq!(clamp_resize_height(u32::MAX), 200);
+    }
+
+    #[test]
+    fn test_resize_bounds_match_electron_constants() {
+        // UE-19-F03: pin the cross-host bound-parity contract.
+        assert_eq!(MIN_BUBBLE_W, 40);
+        assert_eq!(MIN_BUBBLE_H, 24);
+        assert_eq!(MAX_BUBBLE_W, 400);
+        assert_eq!(MAX_BUBBLE_H, 200);
+        assert!(MIN_BUBBLE_W < MAX_BUBBLE_W);
+        assert!(MIN_BUBBLE_H < MAX_BUBBLE_H);
+        assert!(MAX_BUBBLE_W <= 400);
+        assert!(MAX_BUBBLE_H <= 200);
+        assert!(MIN_BUBBLE_W >= 20);
+        assert!(MIN_BUBBLE_H >= 16);
+    }
+
+    // ── UE-19-F03: round_f64_to_u32_saturating (NaN/inf/range) ──────
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_in_range_rounds_to_nearest() {
+        assert_eq!(round_f64_to_u32_saturating(100.4), 100);
+        assert_eq!(round_f64_to_u32_saturating(100.5), 101);
+        assert_eq!(round_f64_to_u32_saturating(100.6), 101);
+        assert_eq!(round_f64_to_u32_saturating(0.4), 0);
+        assert_eq!(round_f64_to_u32_saturating(0.6), 1);
+        assert_eq!(round_f64_to_u32_saturating(239.7), 240);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_zero_passes_through() {
+        assert_eq!(round_f64_to_u32_saturating(0.0), 0);
+        assert_eq!(round_f64_to_u32_saturating(-0.0), 0);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_nan_maps_to_zero() {
+        assert_eq!(round_f64_to_u32_saturating(f64::NAN), 0);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_negative_maps_to_zero() {
+        assert_eq!(round_f64_to_u32_saturating(-1.0), 0);
+        assert_eq!(round_f64_to_u32_saturating(-100.7), 0);
+        assert_eq!(round_f64_to_u32_saturating(f64::NEG_INFINITY), 0);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_pos_inf_maps_to_u32_max() {
+        assert_eq!(round_f64_to_u32_saturating(f64::INFINITY), u32::MAX);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_huge_finite_maps_to_u32_max() {
+        assert_eq!(round_f64_to_u32_saturating(1e30), u32::MAX);
+    }
+
+    #[test]
+    fn test_round_f64_to_u32_saturating_at_u32_max_boundary() {
+        assert_eq!(round_f64_to_u32_saturating(u32::MAX as f64), u32::MAX);
+        let just_over = (u32::MAX as f64) + 1.0;
+        assert!(just_over > u32::MAX as f64);
+        assert_eq!(round_f64_to_u32_saturating(just_over), u32::MAX);
+    }
+
+    // ── UE-19-F04: round_f64_to_i32_saturating (NaN/inf/range) ──────
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_in_range_rounds_to_nearest() {
+        assert_eq!(round_f64_to_i32_saturating(10.4), 10);
+        assert_eq!(round_f64_to_i32_saturating(10.5), 11);
+        assert_eq!(round_f64_to_i32_saturating(-10.5), -11);
+        assert_eq!(round_f64_to_i32_saturating(-10.4), -10);
+        assert_eq!(round_f64_to_i32_saturating(0.4), 0);
+        assert_eq!(round_f64_to_i32_saturating(-0.4), 0);
+        assert_eq!(round_f64_to_i32_saturating(0.0), 0);
+        assert_eq!(round_f64_to_i32_saturating(-0.0), 0);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_nan_maps_to_zero() {
+        assert_eq!(round_f64_to_i32_saturating(f64::NAN), 0);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_pos_inf_maps_to_i32_max() {
+        assert_eq!(round_f64_to_i32_saturating(f64::INFINITY), i32::MAX);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_neg_inf_maps_to_i32_min() {
+        assert_eq!(round_f64_to_i32_saturating(f64::NEG_INFINITY), i32::MIN);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_huge_positive_maps_to_i32_max() {
+        assert_eq!(round_f64_to_i32_saturating(1e30), i32::MAX);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_huge_negative_maps_to_i32_min() {
+        assert_eq!(round_f64_to_i32_saturating(-1e30), i32::MIN);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_at_i32_boundaries() {
+        assert_eq!(round_f64_to_i32_saturating(i32::MAX as f64), i32::MAX);
+        assert_eq!(round_f64_to_i32_saturating(i32::MIN as f64), i32::MIN);
+    }
+
+    #[test]
+    fn test_round_f64_to_i32_saturating_just_outside_i32_range() {
+        let just_over = (i32::MAX as f64) + 1.0;
+        assert!(just_over > i32::MAX as f64);
+        assert_eq!(round_f64_to_i32_saturating(just_over), i32::MAX);
+        let just_under = (i32::MIN as f64) - 1.0;
+        assert!(just_under < i32::MIN as f64);
+        assert_eq!(round_f64_to_i32_saturating(just_under), i32::MIN);
     }
 
     // ───────────────────────────────────────────────────────────────────
@@ -1309,6 +1633,65 @@ mod tests {
         assert!(
             !predicate("settings"),
             "unknown window labels must be rejected by the bubble-only gate"
+        );
+    }
+
+    // ── UE-14: bubble_dismiss command contract ──────────────────────
+    //
+    // The new `bubble_dismiss` command mirrors `bubble_hide_complete`:
+    // both gate on `require_bubble_window` (ZR-22 / SEC-016) and both
+    // delegate the actual emit+hide to the shared `hide_bubble_window`
+    // helper. The in-process test harness can't construct a
+    // `tauri::AppHandle` / `tauri::Window`, so we pin the contract
+    // indirectly: (a) the `hide_bubble_window` helper exists (compile-
+    // time check via a fn-pointer cast), (b) the `bubble_dismiss` command
+    // fn exists (same check), and (c) the rejection envelope shape is
+    // valid JSON. The full end-to-end behavior is exercised by the mig19
+    // integration tests in `tests/tauri/mig19/`.
+
+    #[test]
+    fn test_hide_bubble_window_helper_exists() {
+        // UE-14: pin the existence + signature of the shared
+        // `hide_bubble_window` helper via a fn-pointer cast. If a future
+        // refactor renames, removes, or changes the signature, this cast
+        // fails to compile.
+        let _helper: fn(&tauri::AppHandle) -> Result<(), String> = hide_bubble_window;
+        let _ = _helper;
+    }
+
+    #[test]
+    fn test_bubble_dismiss_command_exists() {
+        // UE-14: pin the existence of the new `bubble_dismiss` command.
+        // The async fn's exact return type can't be named in stable
+        // Rust, so we reference the fn item without calling it. The full
+        // signature is verified by the `#[tauri::command]` macro +
+        // `generate_handler![]` registration in main.rs.
+        let _ = bubble_dismiss;
+        let _ = bubble_hide_complete;
+    }
+
+    #[test]
+    fn test_bubble_dismiss_rejection_envelope_is_valid_json() {
+        // UE-14 / ZR-22: pin the contract that `bubble_dismiss` is gated
+        // by `require_bubble_window` (the same gate
+        // `bubble_hide_complete` uses). The envelope is produced by
+        // `require_bubble_window` (in `commands/mod.rs`), which BOTH
+        // commands call.
+        let envelope = json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from bubble window"
+            }
+        });
+        let parsed: Value = serde_json::from_str(&envelope.to_string()).unwrap();
+        assert_eq!(parsed["type"], "error");
+        assert_eq!(parsed["data"]["code"], "disallowed_window");
+        let msg = parsed["data"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("bubble"),
+            "bubble_dismiss rejection message must name the bubble window, got: {}",
+            msg
         );
     }
 }

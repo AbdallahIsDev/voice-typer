@@ -302,8 +302,20 @@ pub(crate) async fn spawn_sidecar_release(
                     CommandEvent::Stderr(bytes) => {
                         // Log stderr but don't parse it as server_started.
                         // ER-66: same `.into_owned()` rationale as above.
+                        // UE-3-F9: demoted from `info!` to `debug!`. The
+                        // sidecar's stderr can be extremely chatty (Python
+                        // warning frames, native hotkey binary debug
+                        // prints, ctranslate2 device-info dumps). Logging
+                        // every line at INFO swamped the host log and
+                        // drowned genuinely actionable diagnostics.
+                        // The Python side's own `log.py` already routes
+                        // warnings/errors to its separate log file — the
+                        // host-side INFO echo was redundant with that.
+                        // `debug!` keeps the lines available under
+                        // `RUST_LOG=debug` without polluting the default
+                        // INFO stream.
                         let s = String::from_utf8_lossy(&bytes).into_owned();
-                        log::info!("[SIDECAR] stderr: {}", s.trim());
+                        log::debug!("[SIDECAR] stderr: {}", s.trim());
                         continue;
                     }
                     CommandEvent::Terminated(payload) => {
@@ -432,6 +444,20 @@ pub(crate) async fn spawn_sidecar_release(
     if let Err(e) = child.kill() {
         log::warn!("[SIDECAR] failed to kill child after deadline: {}", e);
     }
+    // UE-3-F4: reap the zombie. `child.kill()` sends the kill signal but
+    // does NOT itself waitpid — the Tauri shell-plugin's internal exit
+    // watcher delivers a `CommandEvent::Terminated` to `rx` once the OS
+    // reports the process has died. Without draining `rx` here, the
+    // `Terminated` event sits unread in the channel buffer until `rx`
+    // is dropped on function return; depending on the shell-plugin
+    // version's exit-watcher scheduling, the host-side waitpid may be
+    // deferred until that drain happens — leaving a brief zombie window.
+    // The 500ms timeout bounds the spawn path against a misbehaving
+    // process that ignores the kill signal (rare, but possible for
+    // uninterruptible kernel waits). Best-effort: errors and timeouts
+    // are silently discarded (the kill has already been attempted; we
+    // cannot do anything more useful with a drain failure).
+    let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
     Err(format!(
         "sidecar did not emit server_started within {}ms. stdout so far: {}",
         SERVER_STARTED_TIMEOUT_MS, stdout_buf
@@ -604,6 +630,18 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
     if let Err(e) = child.kill().await {
         log::warn!("[SIDECAR-DEV] failed to kill child after deadline: {}", e);
     }
+    // UE-3-F4: reap the zombie. `tokio::process::Child::kill(&mut self)`
+    // sends SIGKILL but does NOT call waitpid — the killed child remains
+    // a zombie in the OS process table until `wait()` (or `try_wait()`)
+    // is invoked. `kill_on_drop(true)` ensures Drop will eventually reap,
+    // but Drop fires on function return; if the function panics or the
+    // async runtime is shut down before return, the zombie leaks. Call
+    // `wait()` explicitly with a 500ms timeout to bound the spawn path
+    // against a misbehaving process that ignores SIGKILL (rare, but
+    // possible for uninterruptible kernel waits). Best-effort: errors
+    // and timeouts are silently discarded (the kill has already been
+    // attempted).
+    let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
     Err(format!(
         "dev sidecar did not emit server_started within {}ms. stdout so far: {}",
         SERVER_STARTED_TIMEOUT_MS, stdout_buf
@@ -627,6 +665,18 @@ pub(crate) fn parse_server_started(line: &str) -> Option<u16> {
             .and_then(|p| p.as_u64())
             // GT-D3-2: try_from instead of truncating `as u16`.
             .and_then(|p| u16::try_from(p).ok())
+            // UE-3-F7: reject port 0. A sidecar that has successfully
+            // bound a real port never reports 0 in its `server_started`
+            // handshake (the value comes from `socket.getsockname()[1]`
+            // AFTER bind succeeds). A `port: 0` is therefore always a
+            // bug (uninitialized field, JSON-schema drift, or a
+            // hostile/malformed input). Returning `None` here forces the
+            // spawn loop to time out and surface a clear error rather
+            // than handing a `0` back to `reconnect_ws` which would
+            // then attempt to dial `127.0.0.1:0` and get an OS-assigned
+            // unrelated connection (or an EADDRNOTAVAIL on platforms
+            // that reject port 0 for connect).
+            .filter(|p| *p != 0)
     } else {
         None
     }
@@ -691,10 +741,20 @@ mod tests {
 
     #[test]
     fn test_parse_server_started_port_zero() {
-        // Port 0 is technically valid (sidecar shouldn't emit it, but
-        // the parser shouldn't reject it either — port-as-u64 → 0u16).
+        // UE-3-F7: port 0 must be rejected (return None). A sidecar that
+        // has successfully bound a real port never reports 0 in the
+        // `server_started` handshake (the value comes from
+        // `socket.getsockname()[1]` AFTER bind succeeds). A `port: 0` is
+        // always a bug — returning None forces the spawn loop to time out
+        // and surface a clear error rather than handing 0 back to
+        // `reconnect_ws` which would dial `127.0.0.1:0` and get an
+        // unrelated OS-assigned connection.
         let line = r#"{"event":"server_started","port":0}"#;
-        assert_eq!(parse_server_started(line), Some(0));
+        assert_eq!(
+            parse_server_started(line),
+            None,
+            "UE-3-F7: port=0 must be rejected (a real sidecar never reports 0 in the handshake)"
+        );
     }
 
     // ── GT-D3-2: u16::try_from instead of truncating `as u16` ────────

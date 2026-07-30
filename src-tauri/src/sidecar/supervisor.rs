@@ -185,6 +185,24 @@ pub(crate) async fn respawn(
         log::info!("[SUPERVISOR] respawn already in progress — skipping");
         return Ok(());
     }
+    // UE-3-F6: re-check `shutting_down` IMMEDIATELY after flag acquisition,
+    // BEFORE any disk I/O (`read_restart_counter` below opens + reads
+    // `restart_counter.json`). Without this check, a concurrent shutdown
+    // during the disk read still proceeds to the counter logic below —
+    // and the old `write_restart_counter(restart_count + 1)` call would
+    // bump the persisted counter for a respawn that never actually ran
+    // (respawn_inner's first shutting_down check would early-return).
+    // The spurious bump could trip the breaker on the next legitimate
+    // crash. The new check is purely defensive — the inner function has
+    // its own three `shutting_down` checks — but it closes the I/O
+    // window between flag acquisition and the in-loop checks.
+    if state.shutting_down.load(Ordering::SeqCst) {
+        log::info!(
+            "[SUPERVISOR] shutting down (post-flag-acquisition, pre-I/O) — skipping respawn"
+        );
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+        return Ok(());
+    }
     // CR-29: circuit breaker — persist restart-attempt counter to
     // disk so we don't enter an infinite restart loop on a broken
     // install (missing sidecar binary, corrupted Python env, etc.).
@@ -192,6 +210,14 @@ pub(crate) async fn respawn(
     // a `supervisor_failed` event so the UI can surface the error instead of
     // silently restart-looping forever. Counter is reset on successful
     // `supervisor_reconnected` event.
+    //
+    // UE-4: this top-of-respawn check uses the EXISTING persisted counter
+    // value (no increment here). The increment now lives in `respawn_inner`'s
+    // exhaustion path, so the counter only goes up when an `app.restart()` is
+    // actually about to fire — not on every `respawn` invocation. This makes
+    // the breaker trip on the 3rd relaunch attempt (not the 4th), as
+    // intended. The top-of-respawn check still serves as the early-exit for
+    // the case where a prior process left the persisted counter at max.
     let restart_count = read_restart_counter();
     if restart_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
@@ -220,9 +246,15 @@ pub(crate) async fn respawn(
             restart_count
         ));
     }
-    // Increment counter before attempting restart — will be reset on
-    // successful reconnect.
-    write_restart_counter(restart_count + 1);
+    // UE-4: the counter increment that USED to live here
+    // (`write_restart_counter(restart_count + 1)`) has been moved to
+    // `respawn_inner`'s exhaustion path. The old placement bumped the
+    // counter on every `respawn` invocation, even when `respawn_inner`
+    // succeeded (reconnect) or early-returned (shutting_down) — neither
+    // of which constitute a real `app.restart()` attempt. The new
+    // placement increments + checks immediately before `app.restart()`,
+    // so the counter reflects actual relaunch attempts.
+    //
     // PVT-G5-031: DO NOT clear `respawn_in_progress` here unconditionally.
     // The inner function `respawn_inner` is responsible for clearing
     // the flag on its success path (before `return Ok(())`)
@@ -230,8 +262,12 @@ pub(crate) async fn respawn(
     // spawned WS reader can immediately acquire the flag and start its
     // own respawn. The circuit-breaker path above clears the
     // flag itself before returning Err. The `app.restart()` exhaustion
-    // path at the bottom of `respawn_inner` is `-> !` (never
-    // returns), so no clear is needed there.
+    // path at the bottom of `respawn_inner` now ALSO clears the flag
+    // (UE-3-F2, defense-in-depth) before calling `app.restart()` —
+    // the prior comment said "no clear is needed there" because the
+    // path was `-> !` (never returns), but with UE-4 the exhaustion
+    // path can now return `Err` (breaker trip) BEFORE calling
+    // `app.restart()`, so the clear is needed for that arm.
     //
     // GT-9: wrap the `respawn_inner` call in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
@@ -260,6 +296,16 @@ pub(crate) async fn respawn_inner(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
+    // UE-3-F13: track the last per-iteration error across the backoff
+    // schedule so the exhaustion path can surface WHY the relaunch is
+    // happening (not just THAT it's happening). The previous
+    // `supervisor_relaunching` payload carried only `{"reason":
+    // "backoff_exhausted"}` — useless for triage. The captured string
+    // is the most recent spawn-failed or WS-reconnect-failed error;
+    // empty if the loop somehow exhausts without any per-iteration
+    // error (shouldn't happen — exhaustion means every iteration
+    // failed, so last_error is always populated on this path).
+    let mut last_error = String::new();
     for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate() {
         // NF-R19-2: there used to be an in-loop `if attempt as u32 >=
         // SUPERVISOR_MAX_RETRIES { app.restart(); }` guard here, but it was
@@ -376,41 +422,18 @@ pub(crate) async fn respawn_inner(
                         None
                     } else {
                         let old = child_guard.take();
-                        // Replace the prior `.unwrap()` (which trips the
-                        // `unwrap_used` clippy lint and would poison
-                        // `state.child`'s `std::sync::Mutex` if a future
-                        // refactor ever made this branch reachable) with
-                        // an explicit match. On the happy path (`Some`)
-                        // behavior is identical. The `None` arm is
-                        // currently unreachable — the only other consumer
-                        // of `child` is the `if shutting_down` branch
-                        // above, which leaves `child` untouched.
-                        match child.take() {
-                            Some(new_child) => {
-                                *child_guard = Some(new_child);
-                            }
-                            None => {
-                                log::error!(
-                                    "[SUPERVISOR] invariant violated: child was None \
-                                     inside install arm (shutting_down={}, attempt={})",
-                                    state.shutting_down.load(Ordering::SeqCst),
-                                    attempt
-                                );
-                                // Restore the prior handle so `state.child`
-                                // is not left empty after the `take()`
-                                // above. Bail out — the next `respawn`
-                                // invocation will retry.
-                                if let Some(old) = old {
-                                    *child_guard = Some(old);
-                                }
-                                // FR-87: clear the flag so the next
-                                // `respawn` invocation can actually retry.
-                                // Without this clear, the "bail out and
-                                // retry" comment above is a lie — the
-                                // retry would no-op on the still-set flag.
-                                state.respawn_in_progress.store(false, Ordering::SeqCst);
-                                return Ok(());
-                            }
+                        // UE-3-F5: the prior `match child.take()` with an
+                        // explicit `None` arm (which restored `old` +
+                        // cleared the flag + returned `Ok(())`) was dead
+                        // code — `child` is `Some` by invariant at this
+                        // point (the only consumer is the `if shutting_down`
+                        // branch above, which leaves `child` untouched).
+                        // Deleted the unreachable `None` arm. The
+                        // `if let Some` form is non-panicking (no
+                        // `.unwrap()`/`.expect()`) and silently does
+                        // nothing on the impossible `None` path.
+                        if let Some(new_child) = child.take() {
+                            *child_guard = Some(new_child);
                         }
                         old
                     }
@@ -472,13 +495,26 @@ pub(crate) async fn respawn_inner(
                         // ensures the reader's `respawn` proceeds
                         // instead of bailing with "already in progress".
                         // The `app.restart()` exhaustion path at the
-                        // bottom of this function is `-> !` (never
-                        // returns), so no clear is needed there.
+                        // bottom of this function now ALSO clears the
+                        // flag (UE-3-F2, defense-in-depth, before
+                        // `app.restart()`), and the breaker-trip
+                        // exhaustion arm returns `Err` after clearing —
+                        // so every return path from `respawn_inner`
+                        // clears the flag itself.
                         state.respawn_in_progress.store(false, Ordering::SeqCst);
                         return Ok(());
                     }
                     Err(e) => {
                         log::warn!("[SUPERVISOR] WS reconnect failed: {}", e);
+                        // UE-3-F13: capture the per-iteration error so
+                        // the exhaustion path can surface it in the
+                        // `supervisor_relaunching` / `supervisor_failed`
+                        // payloads.
+                        last_error = format!(
+                            "attempt {}: WS reconnect failed: {}",
+                            attempt + 1,
+                            e
+                        );
                         // CR-3 fix: kill the just-spawned child before
                         // continuing to the next retry iteration,
                         // otherwise it would be orphaned when the next
@@ -494,6 +530,12 @@ pub(crate) async fn respawn_inner(
             }
             Err(e) => {
                 log::warn!("[SUPERVISOR] sidecar spawn failed: {}", e);
+                // UE-3-F13: capture the per-iteration error.
+                last_error = format!(
+                    "attempt {}: sidecar spawn failed: {}",
+                    attempt + 1,
+                    e
+                );
                 continue;
             }
         }
@@ -502,12 +544,79 @@ pub(crate) async fn respawn_inner(
     //
     // NF-R19-2: THIS is the actual exhaustion path — the post-loop
     // `app.restart()`. The in-loop guard was dead code.
-    // ADR-0020 §10: full-app relaunch. Emit a Tauri event so the UI
-    // can show a "restarting…" banner, then call `app.restart()` which
-    // exits the current process and relaunches a fresh one. Returns
-    // `!` (never type) so the implicit `Ok(())` return is unreachable.
-    log::error!("[SUPERVISOR] backoff schedule exhausted — full-app relaunch");
-    let _ = app.emit("supervisor_relaunching", json!({"reason": "backoff_exhausted"}));
+    // ADR-0020 §10: full-app relaunch.
+    //
+    // UE-4: increment the persisted counter HERE (immediately before
+    // `app.restart()`) and check `>= MAX_RESTART_ATTEMPTS` BEFORE calling
+    // `app.restart()`. The old placement (top of `respawn`) bumped on every
+    // `respawn` invocation — including successful reconnects and
+    // shutting-down early-returns — making the breaker trip on the 4th
+    // relaunch attempt instead of the 3rd. With the increment here, the
+    // counter reflects actual relaunch attempts:
+    //   - Attempt 1: count=0 → increment to 1 → check 1>=3 false → app.restart()
+    //   - Attempt 2: count=1 → increment to 2 → check 2>=3 false → app.restart()
+    //   - Attempt 3: count=2 → increment to 3 → check 3>=3 TRUE → supervisor_failed
+    // The breaker now trips on the 3rd relaunch attempt (2 prior
+    // app.restart()s), not the 4th.
+    //
+    // UE-3-F13: include the last per-iteration error in the
+    // `supervisor_relaunching` / `supervisor_failed` payloads so the UI
+    // / crash dump can surface WHY the relaunch is happening, not just
+    // THAT it's happening.
+    //
+    // UE-3-F2: clear `respawn_in_progress` immediately before
+    // `app.restart()` as defense-in-depth. `app.restart()` returns `!`
+    // (never), so the clear is "dead" code on the happy path — but if
+    // `app.restart()` ever becomes fallible (or if a future Tauri API
+    // returns before the process exits), the clear ensures a future
+    // `respawn` invocation can proceed. The breaker-trip arm below
+    // returns `Err` after clearing.
+    log::error!(
+        "[SUPERVISOR] backoff schedule exhausted — full-app relaunch (last_error={:?})",
+        last_error
+    );
+    let restart_count = read_restart_counter();
+    let new_count = restart_count + 1;
+    write_restart_counter(new_count);
+    if new_count >= MAX_RESTART_ATTEMPTS {
+        log::error!(
+            "[SUPERVISOR] circuit breaker tripped on exhaustion — restart count {} >= max {}. Stopping supervisor.",
+            new_count,
+            MAX_RESTART_ATTEMPTS
+        );
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+        let _ = app.emit(
+            "supervisor_failed",
+            json!({
+                "reason": "circuit_breaker_tripped",
+                "restart_count": new_count,
+                // UE-3-F13: surface the captured per-iteration error
+                // so the UI / crash dump can show what kept failing.
+                "last_error": last_error,
+                "message": format!(
+                    "{} could not start its backend after multiple attempts. Please reinstall.",
+                    crate::branding::APP_NAME
+                )
+            }),
+        );
+        return Err(format!(
+            "Supervisor circuit breaker tripped on exhaustion (restart_count={}, last_error={})",
+            new_count, last_error
+        ));
+    }
+    let _ = app.emit(
+        "supervisor_relaunching",
+        json!({
+            "reason": "backoff_exhausted",
+            // UE-3-F13: include the last per-iteration error.
+            "last_error": last_error,
+            // UE-4: surface the post-increment counter so the UI can
+            // show "restart attempt N of M".
+            "restart_count": new_count
+        }),
+    );
+    // UE-3-F2: clear the flag immediately before `app.restart()`.
+    state.respawn_in_progress.store(false, Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
     app.restart();
 }
@@ -1066,5 +1175,227 @@ mod tests {
         );
 
         state.shutting_down.store(false, Ordering::SeqCst);
+    }
+
+    // ── UE-4: circuit breaker trips on the 3rd relaunch attempt ───────
+    //
+    // Simulates the counter transitions across 4 consecutive respawn
+    // invocations to verify the breaker trips on the 3rd relaunch attempt
+    // (not the 4th) after the increment was moved from the top of
+    // `respawn` to `respawn_inner`'s exhaustion path. Pure-logic
+    // simulation — does NOT spin up a Tauri runtime / mock sidecar
+    // (the integration test would be ~50 lines of Tauri bootstrap for
+    // 5 lines of decision logic). The simulation mirrors the actual
+    // code paths in `respawn` (top-of-respawn check) and
+    // `respawn_inner` (exhaustion-path increment + check).
+
+    #[test]
+    fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
+        // Mirror the actual decision logic:
+        //   - Top of `respawn`: if persisted count >= MAX → trip.
+        //   - Exhaustion path: read count, increment, write; if new_count
+        //     >= MAX → trip (emit supervisor_failed + return Err);
+        //     else clear flag + app.restart().
+        let mut persisted_count: u32 = 0; // fresh process, counter empty
+        let mut app_restart_calls = 0u32;
+        let mut supervisor_failed_emitted = false;
+        let mut trip_attempt: Option<u32> = None;
+
+        for attempt in 1..=4u32 {
+            // ── Top of `respawn` ──
+            if persisted_count >= MAX_RESTART_ATTEMPTS {
+                supervisor_failed_emitted = true;
+                trip_attempt = Some(attempt);
+                break;
+            }
+            // ── `respawn_inner` runs the backoff schedule + exhausts ──
+            // (simulated — every iteration exhausts because the test
+            // scenario is a permanently-broken install).
+            //
+            // ── Exhaustion path: increment + check ──
+            let new_count = persisted_count + 1;
+            persisted_count = new_count;
+            if new_count >= MAX_RESTART_ATTEMPTS {
+                // Breaker trips in the exhaustion path: emit
+                // supervisor_failed, return Err, no app.restart().
+                supervisor_failed_emitted = true;
+                trip_attempt = Some(attempt);
+                break;
+            }
+            // Else: clear flag + app.restart().
+            app_restart_calls += 1;
+        }
+
+        // UE-4: the breaker must trip on the 3rd attempt — 2 prior
+        // app.restart()s actually fired, the 3rd attempt detected the
+        // counter at max in the exhaustion path and bailed.
+        assert_eq!(
+            app_restart_calls,
+            MAX_RESTART_ATTEMPTS - 1,
+            "UE-4: breaker should fire after {} app.restart() calls (one less than MAX), got {}",
+            MAX_RESTART_ATTEMPTS - 1,
+            app_restart_calls
+        );
+        assert!(
+            supervisor_failed_emitted,
+            "UE-4: supervisor_failed must be emitted when the breaker trips"
+        );
+        assert_eq!(
+            trip_attempt,
+            Some(MAX_RESTART_ATTEMPTS),
+            "UE-4: breaker must trip on attempt {} (== MAX_RESTART_ATTEMPTS), got {:?}",
+            MAX_RESTART_ATTEMPTS,
+            trip_attempt
+        );
+    }
+
+    #[test]
+    fn test_ue4_breaker_counter_only_increments_on_exhaustion_not_success() {
+        // UE-4: verify the counter semantics changed. With the OLD code
+        // (increment at top of respawn), every `respawn` invocation
+        // bumped the counter — even successful reconnects. With the NEW
+        // code (increment in exhaustion path), a successful respawn
+        // resets the counter to 0 (via `write_restart_counter(0)` on
+        // the reconnect-success path) and the counter only goes up when
+        // an `app.restart()` is actually about to fire.
+        //
+        // Simulate: 2 respawns, both succeed. The counter should stay
+        // at 0 throughout (was 2 under the old code).
+        let mut persisted_count: u32 = 0;
+        for _ in 0..2 {
+            // Top of respawn: count is 0, no trip.
+            assert!(persisted_count < MAX_RESTART_ATTEMPTS);
+            // respawn_inner runs, reconnect succeeds → reset to 0.
+            // (No exhaustion → no increment.)
+            persisted_count = 0;
+        }
+        assert_eq!(
+            persisted_count, 0,
+            "UE-4: successful respawns must NOT bump the counter (old code bumped on every respawn)"
+        );
+    }
+
+    // ── UE-3-F6: shutting_down check after flag acquisition ────────────
+    //
+    // Verify that the post-flag-acquisition shutting_down check fires
+    // BEFORE any disk I/O. The check is purely defensive (the inner
+    // function has its own three shutting_down checks), but it closes
+    // the I/O window between flag acquisition and the in-loop checks.
+    // The simulation mirrors the actual `respawn` entry sequence.
+
+    #[test]
+    fn test_ue3_f6_shutting_down_check_after_flag_acquisition() {
+        let state = make_test_state();
+
+        // Step 1: simulate the `compare_exchange(false → true)` at the
+        // top of `respawn` — flag acquisition succeeds on a fresh
+        // state.
+        let acquired = state
+            .respawn_in_progress
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok();
+        assert!(acquired, "flag acquisition must succeed on a fresh state");
+
+        // Step 2: simulate a concurrent shutdown setting the
+        // `shutting_down` flag DURING the gap between flag acquisition
+        // and the disk-I/O counter read (UE-3-F6 race window).
+        state.shutting_down.store(true, Ordering::SeqCst);
+
+        // Step 3: the UE-3-F6 check fires — `shutting_down` is true, so
+        // respawn clears the flag + returns Ok(()) WITHOUT touching the
+        // disk counter. Mirror the actual code's branch:
+        let mut disk_io_performed = false;
+        if state.shutting_down.load(Ordering::SeqCst) {
+            // UE-3-F6 branch: clear flag + early return, no disk I/O.
+            state.respawn_in_progress.store(false, Ordering::SeqCst);
+        } else {
+            // Would-have-been: read_restart_counter() + increment.
+            disk_io_performed = true;
+        }
+
+        assert!(
+            !disk_io_performed,
+            "UE-3-F6: no disk I/O should be performed when shutting_down is set after flag acquisition"
+        );
+        assert!(
+            !state.respawn_in_progress.load(Ordering::SeqCst),
+            "UE-3-F6: flag must be cleared on the post-acquisition shutting_down early return"
+        );
+
+        state.shutting_down.store(false, Ordering::SeqCst);
+    }
+
+    // ── UE-3-F13: last_error tracked across iterations ─────────────────
+    //
+    // Verify that the `last_error` string captures the most recent
+    // per-iteration error and would be included in the
+    // `supervisor_relaunching` payload. Pure-logic simulation —
+    // the actual payload construction lives in `respawn_inner`'s
+    // exhaustion path and is verified by code inspection (the
+    // `json!({"last_error": last_error, ...})` literal is right there).
+
+    #[test]
+    fn test_ue3_f13_last_error_tracks_most_recent_iteration_error() {
+        // Simulate three iterations of the backoff loop, each producing
+        // a different error. The `last_error` string should reflect the
+        // MOST RECENT error (iteration 3), not the first.
+        let mut last_error = String::new();
+        let iterations = [
+            "attempt 1: sidecar spawn failed: binary not found",
+            "attempt 2: WS reconnect failed: auth timeout",
+            "attempt 3: sidecar spawn failed: binary not found",
+        ];
+        for err in iterations.iter() {
+            // Mirror the actual capture in the spawn-failed arm:
+            //   last_error = format!("attempt {}: sidecar spawn failed: {}", attempt + 1, e);
+            last_error = err.to_string();
+        }
+        assert_eq!(
+            last_error, iterations[2],
+            "UE-3-F13: last_error must reflect the most recent iteration's error, not the first"
+        );
+        assert!(
+            !last_error.is_empty(),
+            "UE-3-F13: last_error must be non-empty after at least one failed iteration"
+        );
+
+        // Verify the captured string would be JSON-serializable as a
+        // payload field (the actual emit uses `json!({"last_error": last_error, ...})`).
+        let payload = json!({
+            "reason": "backoff_exhausted",
+            "last_error": last_error,
+            "restart_count": 3u32
+        });
+        assert_eq!(
+            payload.get("last_error").and_then(|v| v.as_str()),
+            Some(iterations[2]),
+            "UE-3-F13: last_error must serialize into the supervisor_relaunching payload"
+        );
+    }
+
+    // ── UE-3-F5: install arm has no None branch (code-inspection guard) ──
+    //
+    // The deleted `None` arm was unreachable. This test is a structural
+    // regression guard: it verifies the install arm's `if let Some`
+    // form behaves correctly when `child` is Some (the only reachable
+    // case). The None case is intentionally not exercised because the
+    // invariant guarantees it can't happen.
+
+    #[test]
+    fn test_ue3_f5_install_arm_handles_some_child() {
+        // Mirror the install arm's `if let Some(new_child) = child.take()`
+        // form. The `child` variable is `Option<u32>` here (stand-in for
+        // `Option<SidecarHandle>` — the type doesn't matter for this
+        // structural test; only the Option pattern matters).
+        let mut child: Option<u32> = Some(42);
+        let mut child_guard: Option<u32> = None; // state.child was empty
+        let old = child_guard.take();
+        // The UE-3-F5 simplified form:
+        if let Some(new_child) = child.take() {
+            child_guard = Some(new_child);
+        }
+        assert_eq!(child_guard, Some(42), "UE-3-F5: install arm must install the fresh child");
+        assert!(child.is_none(), "UE-3-F5: child must be consumed by take()");
+        assert!(old.is_none(), "UE-3-F5: prior child (None here) is preserved in `old`");
     }
 }

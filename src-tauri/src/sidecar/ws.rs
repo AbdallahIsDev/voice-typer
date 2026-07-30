@@ -1,4 +1,10 @@
 //! WebSocket reconnect + reader/writer tasks (ADR-0020 §1 + §9 + §10).
+//!
+//! UE-30 (DEFERRED — future session): this file is a 1454-line monolith
+//! co-locating 8+ concerns. Proposed split into sidecar/ws/ subdirectory
+//! tracked for a future session (NOT done here due to high regression
+//! risk on a hot reliability path). The UE-7/UE-8/UE-8-F9/UE-8-F10/
+//! UE-8-F11 correctness fixes below are applied in-place this session.
 
 // PVT-1 (session 1): Tauri-side heartbeat dispatches a `heartbeat`
 // command every 10s; on 3 consecutive misses it triggers supervisor respawn
@@ -41,7 +47,7 @@ use futures_util::{
 };
 use serde_json::{json, Value};
 use tauri::Emitter;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{
     connect_async_with_config, tungstenite::Message, MaybeTlsStream, WebSocketStream,
 };
@@ -175,14 +181,34 @@ const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 
 // G4-L-02: helper for the auth-failed / auth-timeout path. Clears
 // `state.ws_tx` (so the writer task exits when its channel drains and
-// new dispatch calls fail fast with "sidecar not connected") and
-// spawns supervisor respawn on a separate thread (same pattern as the
-// reader task's cleanup at the bottom of `reconnect_ws`).
+// new dispatch calls fail fast with "sidecar not connected"), drains
+// `state.pending` so in-flight dispatches don't wait the full 120s
+// timeout, and spawns supervisor respawn on a separate thread (same
+// pattern as the reader task's cleanup at the bottom of `reconnect_ws`).
 //
-// Mirrors the reader task's cleanup shape but WITHOUT draining
-// `pending` — at auth time no dispatch requests have been queued
-// yet (auth is the very first frame), so there's nothing to drain.
-fn cleanup_and_trigger_respawn(
+// UE-8: the prior comment claimed "at auth time no dispatch requests
+// have been queued yet" — this assumption is FALSE. `queue_auth_and_
+// store_ws_tx` stores `ws_tx` BEFORE `wait_for_auth_ok` runs. Any
+// `dispatch` Tauri command invoked in that window (up to 3s auth
+// timeout) will clone `ws_tx` (Some), insert into `pending`,
+// `try_send` (succeeds — writer task is running), and await a
+// response that will never come (server hasn't authed, frame is
+// dropped server-side). Drain pending here, mirroring the reader
+// task's cleanup block, so each orphaned oneshot gets a
+// `sidecar_disconnected` error response instead of timing out at
+// 120s.
+//
+// UE-8-F9: the drain uses the shared `drain_pending_with_disconnect_
+// error` helper (defined below) which collects all entries out of
+// the lock first, then sends outside the lock — the AsyncMutex is
+// not held across the oneshot sends.
+//
+// UE-8 (made `async fn`): all 10 call sites are inside `wait_for_
+// auth_ok`'s async block / outer async fn, so the `.await` promotion
+// is local to this file. The drain requires the AsyncMutex on
+// `state.pending` (no sync lock available), so the function must be
+// async to await the lock.
+async fn cleanup_and_trigger_respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) {
@@ -194,11 +220,92 @@ fn cleanup_and_trigger_respawn(
         let mut ws_tx_guard = mutex_lock(&state.ws_tx);
         *ws_tx_guard = None;
     }
+    // UE-8: drain pending dispatch requests with a sidecar_disconnected
+    // error so callers don't wait the full 120s dispatch timeout.
+    let drained = drain_pending_with_disconnect_error(state).await;
+    if drained > 0 {
+        log::warn!(
+            "[WS-AUTH] drained {} pending dispatch requests on auth failure/timeout (UE-8)",
+            drained
+        );
+    }
     let _ = app.emit(
         "supervisor_relaunching",
         json!({"reason": "auth_failed_or_timeout"}),
     );
     trigger_respawn_off_thread(app.clone(), state.clone());
+}
+
+/// UE-8 / UE-8-F9: drain all pending dispatch requests with a
+/// `sidecar_disconnected` error response so in-flight dispatches don't
+/// wait the full 120s timeout for a response that will never come.
+///
+/// Used by:
+///   - `cleanup_and_trigger_respawn` (auth-failure / auth-timeout path)
+///   - the WS reader's cleanup block (normal disconnect / panic path)
+///
+/// UE-8-F9: collect all entries out of the lock FIRST, then send outside
+/// the lock. `oneshot::Sender::send` is non-blocking (it returns Err
+/// immediately if the receiver was already dropped), but holding the
+/// AsyncMutex across N sends is still an anti-pattern — a concurrent
+/// dispatch path's `pending.insert(...)` would be stalled behind the
+/// drain loop. The collect-then-send pattern bounds the lock hold time
+/// to O(N) HashMap iteration (no I/O, no allocations beyond the Vec).
+///
+/// Returns the number of entries drained (for logging at the call site).
+async fn drain_pending_with_disconnect_error(state: &Arc<SidecarState>) -> usize {
+    let entries: Vec<(u64, oneshot::Sender<Value>)> = {
+        let mut pending = state.pending.lock().await;
+        pending.drain().collect()
+    };
+    let count = entries.len();
+    for (_id, tx) in entries {
+        let _ = tx.send(json!({
+            "type": "error",
+            "data": {
+                "code": "sidecar_disconnected",
+                "message": "sidecar WS disconnected (supervisor respawn in progress)"
+            }
+        }));
+    }
+    count
+}
+
+/// UE-8-F10: shared heartbeat-abort helper. Idempotent — a no-op if
+/// `heartbeat_handle` is already `None`.
+///
+/// Used by BOTH shutdown paths so the in-flight heartbeat task is
+/// aborted whether the app exits via `RunEvent::Exit`
+/// (`shutdown_sidecar_for_exit` in `state.rs`) OR via the renderer-
+/// invocable `shutdown_sidecar` Tauri command
+/// (`commands/sidecar_cmds.rs`). Previously only
+/// `shutdown_sidecar_for_exit` aborted; the Tauri-command path leaked
+/// a heartbeat task that kept dispatching `heartbeat` frames into the
+/// dead WS for up to `HEARTBEAT_MAX_MISSES` (30s) before self-terminating.
+///
+/// Extracted as a `pub(crate)` helper in this file (ws.rs owns the
+/// heartbeat spawn logic) so both call sites share one implementation.
+///
+/// **Coordination note (file-disjoint rule):** the call sites in
+/// `state.rs` (`shutdown_sidecar_for_exit`, lines ~292-300) and
+/// `commands/sidecar_cmds.rs` (`shutdown_sidecar`, currently MISSING
+/// the abort) are owned by OTHER sub-agents. They should:
+///   - state.rs: replace the inline `hb_guard.take()` + `handle.abort()`
+///     block with `crate::sidecar::ws::abort_heartbeat(&state).await;`
+///   - sidecar_cmds.rs: add `crate::sidecar::ws::abort_heartbeat(state
+///     .inner()).await;` after the `shutting_down` swap in
+///     `shutdown_sidecar` (before sending the shutdown frame).
+pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
+    let prev = {
+        let mut hb_guard = state.heartbeat_handle.lock().await;
+        hb_guard.take()
+    };
+    if let Some(handle) = prev {
+        handle.abort();
+        log::info!(
+            "[HEARTBEAT] aborted in-flight heartbeat task via abort_heartbeat helper (UE-8-F10)"
+        );
+    }
 }
 
 // EC-FIX-5 (EC-18): extracted helper for the respawn trigger
@@ -241,19 +348,32 @@ fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
     //      also fall back here — the `OnceLock` holds a dead-but-not-cleared
     //      sender, so we keep using the per-trigger fallback. Best-effort.
     match respawn_supervisor_sender() {
-        Some(tx) => match tx.send((app, state)) {
+        Some(tx) => match tx.try_send((app, state)) {
             Ok(()) => {}
-            Err(e) => {
+            Err(std::sync::mpsc::TrySendError::Full((_app, _state))) => {
+                // UE-8-F11: supervisor queue is full (capacity=8) — the
+                // long-lived supervisor thread is already processing a
+                // respawn (or has stalled mid-respawn). DROP the request:
+                // the in-flight respawn will observe the same sidecar-down
+                // condition when it completes its reconnect cycle, so
+                // re-queuing is redundant. The dropped `(app, state)`
+                // tuple is logged at warn (not error) because this is the
+                // expected behavior under a flapping sidecar — the
+                // supervisor's `respawn_in_progress` compare_exchange
+                // already serializes concurrent respawns, so the dropped
+                // request would have no-op'd anyway when the supervisor
+                // got to it.
+                log::warn!(
+                    "[SUPERVISOR] respawn request queue full (capacity=8) — \
+                     dropping request (supervisor already processing; UE-8-F11)"
+                );
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected((app, state))) => {
                 log::error!(
                     "[SUPERVISOR] failed to enqueue respawn request to supervisor \
-                     thread (it may have panicked): {} — falling back to one-shot \
-                     std::thread::spawn (FR-12)",
-                    e
+                     thread (it may have panicked): disconnected — falling back to \
+                     one-shot std::thread::spawn (FR-12)"
                 );
-                // Recover ownership of the (app, state) tuple from the
-                // `SendError` payload — `SendError` exposes the value via
-                // `.0`.
-                let (app, state) = e.0;
                 spawn_oneshot_respawn_thread(app, state);
             }
         },
@@ -316,19 +436,36 @@ fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>)
 // lifetime (parked on `rx.recv()` when idle, ~8KB stack, zero CPU).
 type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 
-// FR-11: the `OnceLock` now holds an `Option<Sender>` instead of a bare
-// `Sender`. `Some(tx)` means the long-lived supervisor thread spawned
-// successfully; `None` means it failed (low memory, RLIMIT_NPROC, sandbox
-// restrictions, etc.) and callers should fall back to a per-trigger
-// `std::thread::spawn`. Critically, the failure is stored ONCE inside
-// `get_or_init` — the `OnceLock` is NOT poisoned by a thread-spawn
-// failure (which would happen with the old `.expect()` form). All
-// subsequent callers read the cached `None` and use the fallback path
-// without re-attempting the spawn (and without re-panicking).
-static RESPAWN_SUPERVISOR_TX: OnceLock<Option<std::sync::mpsc::Sender<RespawnRequest>>> =
+// UE-8-F11: the supervisor queue is now a bounded `sync_channel(8)`
+// instead of an unbounded `channel()`. An unbounded channel has no
+// backpressure — a stalled supervisor (stuck in a long `respawn`
+// backoff) combined with a flapping sidecar (reader exits every 1-2s
+// triggering another respawn request) could enqueue an unbounded
+// number of `(AppHandle, Arc<SidecarState>)` tuples, each holding
+// strong references to the AppHandle and the full SidecarState (child
+// handle, ws_tx, pending map). Bounded to 8 — generous enough for
+// normal operation (a healthy supervisor drains the queue in
+// milliseconds) but small enough to fail-fast on a stuck supervisor.
+// On full, the request is DROPPED (logged): the in-flight respawn
+// already observes the sidecar-down condition when it completes its
+// reconnect cycle, so re-queuing is redundant; the supervisor's
+// `respawn_in_progress` compare_exchange would no-op the duplicate
+// anyway.
+//
+// FR-11: the `OnceLock` now holds an `Option<SyncSender>` instead of
+// a bare `SyncSender`. `Some(tx)` means the long-lived supervisor
+// thread spawned successfully; `None` means it failed (low memory,
+// RLIMIT_NPROC, sandbox restrictions, etc.) and callers should fall
+// back to a per-trigger `std::thread::spawn`. Critically, the failure
+// is stored ONCE inside `get_or_init` — the `OnceLock` is NOT
+// poisoned by a thread-spawn failure (which would happen with the old
+// `.expect()` form). All subsequent callers read the cached `None` and
+// use the fallback path without re-attempting the spawn (and without
+// re-panicking).
+static RESPAWN_SUPERVISOR_TX: OnceLock<Option<std::sync::mpsc::SyncSender<RespawnRequest>>> =
     OnceLock::new();
 
-fn respawn_supervisor_sender() -> Option<&'static std::sync::mpsc::Sender<RespawnRequest>> {
+fn respawn_supervisor_sender() -> Option<&'static std::sync::mpsc::SyncSender<RespawnRequest>> {
     // FR-11: do NOT use `.expect()` on the thread spawn — a panic inside
     // `get_or_init` poisons the `OnceLock`, making EVERY subsequent call
     // re-panic in `get_or_init` and permanently bricking the resilience
@@ -336,9 +473,11 @@ fn respawn_supervisor_sender() -> Option<&'static std::sync::mpsc::Sender<Respaw
     // inside the `get_or_init` closure (channel creation is infallible;
     // only the thread spawn can fail). The spawn is attempted at most
     // once per process — the cached result is reused on every call.
-    let tx_opt: &'static Option<std::sync::mpsc::Sender<RespawnRequest>> =
+    let tx_opt: &'static Option<std::sync::mpsc::SyncSender<RespawnRequest>> =
         RESPAWN_SUPERVISOR_TX.get_or_init(|| {
-            let (tx, rx) = std::sync::mpsc::channel::<RespawnRequest>();
+            // UE-8-F11: bounded `sync_channel(8)` — see the static's
+            // doc comment for the backpressure rationale.
+            let (tx, rx) = std::sync::mpsc::sync_channel::<RespawnRequest>(8);
             match std::thread::Builder::new()
                 .name("respawn-supervisor".into())
                 .spawn(move || {
@@ -561,7 +700,7 @@ async fn wait_for_auth_ok(
                  triggering supervisor",
                 WS_AUTH_OK_TIMEOUT_SECS
             );
-            cleanup_and_trigger_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state).await;
             return Err(format!(
                 "WS auth timed out after {}s",
                 WS_AUTH_OK_TIMEOUT_SECS
@@ -569,12 +708,12 @@ async fn wait_for_auth_ok(
         }
         Ok(None) => {
             log::error!("[WS-AUTH] stream closed before auth_ok/ready");
-            cleanup_and_trigger_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state).await;
             return Err("WS stream closed during auth".to_string());
         }
         Ok(Some(Err(e))) => {
             log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
-            cleanup_and_trigger_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state).await;
             return Err(format!("WS auth read error: {}", e))
         }
         Ok(Some(Ok(msg))) => {
@@ -595,7 +734,7 @@ async fn wait_for_auth_ok(
                             log::warn!(
                                 "[WS-AUTH] unexpected binary frame during auth"
                             );
-                            cleanup_and_trigger_respawn(app, state);
+                            cleanup_and_trigger_respawn(app, state).await;
                             return Err(
                                 "WS auth received non-UTF8 binary".to_string()
                             );
@@ -604,14 +743,14 @@ async fn wait_for_auth_ok(
                 }
                 Message::Close(_) => {
                     log::warn!("[WS-AUTH] server closed during auth");
-                    cleanup_and_trigger_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state).await;
                     return Err("WS closed during auth".to_string());
                 }
                 _ => {
                     log::warn!(
                         "[WS-AUTH] unexpected frame type (ping/pong) during auth"
                     );
-                    cleanup_and_trigger_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state).await;
                     return Err("WS auth unexpected frame type".to_string());
                 }
             };
@@ -622,14 +761,14 @@ async fn wait_for_auth_ok(
                         "[WS-AUTH] invalid JSON in auth response: {}",
                         text
                     );
-                    cleanup_and_trigger_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state).await;
                     return Err(format!("WS auth invalid JSON: {}", text));
                 }
             };
             let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
             if t == "auth_failed" {
                 log::error!("[WS-AUTH] auth_failed received from server");
-                cleanup_and_trigger_respawn(app, state);
+                cleanup_and_trigger_respawn(app, state).await;
                 return Err("WS auth rejected by server".to_string());
             }
             // FR-42: tighten the auth-success contract. Accept ONLY
@@ -681,7 +820,7 @@ async fn wait_for_auth_ok(
                      treating as protocol violation, cleaning up and triggering respawn",
                     t
                 );
-                cleanup_and_trigger_respawn(app, state);
+                cleanup_and_trigger_respawn(app, state).await;
                 return Err(format!("WS auth unexpected frame type: {}", t));
             }
             Ok(read)
@@ -697,7 +836,7 @@ async fn wait_for_auth_ok(
                 "[WS-AUTH] auth-read path panicked — running cleanup and \
                  triggering supervisor respawn (XZ-R4-012)"
             );
-            cleanup_and_trigger_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state).await;
             Err("WS auth path panicked (cleanup triggered)".to_string())
         }
     }
@@ -766,9 +905,23 @@ fn spawn_reader_task(
                         };
                         // If the frame has an `id`, it's a dispatch
                         // response — fulfill the pending oneshot.
+                        //
+                        // UE-8-F9: take the sender out of the map under the
+                        // lock, then send OUTSIDE the lock. `oneshot::send`
+                        // is non-blocking (returns Err immediately if the
+                        // receiver was already dropped), but holding the
+                        // AsyncMutex across the send is an anti-pattern —
+                        // a concurrent dispatch path's `pending.insert(...)`
+                        // (or a concurrent reader-exit drain) would be
+                        // stalled behind the send. Bounding the lock hold
+                        // time to the HashMap lookup keeps the dispatch
+                        // path's `lock().await` contention minimal.
                         if let Some(id) = v.get("id").and_then(|i| i.as_u64()) {
-                            let mut pending = state_for_reader.pending.lock().await;
-                            if let Some(tx) = pending.remove(&id) {
+                            let tx_opt = {
+                                let mut pending = state_for_reader.pending.lock().await;
+                                pending.remove(&id)
+                            };
+                            if let Some(tx) = tx_opt {
                                 let _ = tx.send(v);
                             }
                             continue;
@@ -921,19 +1074,12 @@ fn spawn_reader_task(
             *ws_tx_guard = None;
         }
         {
-            // Drain pending requests — reject each with an error so
-            // callers don't wait the full 120s timeout.
-            let mut pending = state_for_cleanup.pending.lock().await;
-            let count = pending.len();
-            for (_id, tx) in pending.drain() {
-                let _ = tx.send(json!({
-                    "type": "error",
-                    "data": {
-                        "code": "sidecar_disconnected",
-                        "message": "sidecar WS disconnected (supervisor respawn in progress)"
-                    }
-                }));
-            }
+            // UE-8-F9: drain pending requests via the shared
+            // `drain_pending_with_disconnect_error` helper (collect out
+            // of the lock first, then send outside the lock). Reject
+            // each with a `sidecar_disconnected` error so callers don't
+            // wait the full 120s timeout.
+            let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
             if count > 0 {
                 log::warn!("[WS-READER] drained {} pending dispatch requests", count);
             }
@@ -1024,22 +1170,40 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     // the pending entry is removed immediately when the dispatch
     // future is dropped (which happens when the 15s outer timeout
     // cancels `dispatch_inner`).
-    let prev_handle_opt = {
-        let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
-        hb_guard.take()
-    };
-    if let Some(prev) = prev_handle_opt {
-        prev.abort();
-        log::info!("[HEARTBEAT] aborted previous heartbeat task before spawning new one (GT-8)");
-    }
-    // Clone the Arc BEFORE moving it into the async closure. The
-    // closure below (async move { ... }) takes ownership of
-    // `heartbeat_state_for_task`; the original `heartbeat_state` is
-    // still referenced after the spawn to store the new JoinHandle
-    // (line `*hb_guard = Some(handle)` below).
+    // Clone the Arc BEFORE moving it into the async closure. The closure
+    // below (async move { ... }) takes ownership of `heartbeat_state_for_
+    // task`; the original `heartbeat_state` is still referenced inside the
+    // lock scope below to acquire `heartbeat_state.heartbeat_handle`.
     let heartbeat_state_for_task = heartbeat_state.clone();
-    let handle: tauri::async_runtime::JoinHandle<()> =
-        tauri::async_runtime::spawn(async move {
+    // UE-7: hold the `heartbeat_handle` lock across the take + spawn +
+    // store sequence. The prior code released the lock between `take()`
+    // and `*hb_guard = Some(handle)` — the window spanned the entire
+    // `tauri::async_runtime::spawn(...)` call. `reconnect_ws` is called
+    // from TWO unsynchronized paths: `main.rs` cold-start (NOT under
+    // `respawn_in_progress`) and `supervisor.rs` respawn (under the
+    // flag). A reader-exit during cold-start auth can trigger
+    // `trigger_respawn_off_thread`, and the two reconnects can interleave
+    // their take/store:
+    //   cold-start: takes None → (releases lock)
+    //   respawn:    takes None → (releases lock)
+    //   cold-start: stores H1
+    //   respawn:    stores H2 (overwrites H1 — H1 is NEVER aborted, leaks)
+    // After N reconnects up to N leaked heartbeat tasks run indefinitely,
+    // each dispatching `heartbeat` frames every 10s to a dead WS.
+    //
+    // The fix: hold the lock across `take()` + `spawn(...)` + `store`.
+    // `tauri::async_runtime::spawn` is synchronous (submits the future
+    // to the runtime, returns a `JoinHandle` immediately — does NOT
+    // await), so the lock is held only for a brief synchronous section.
+    // The previous handle is aborted AFTER releasing the lock so a
+    // (potentially slow) `abort()` doesn't block other callers from
+    // acquiring the lock — `abort()` just posts a cancellation signal
+    // to the task's waker; it does not synchronously join the task.
+    let prev_handle_opt: Option<tauri::async_runtime::JoinHandle<()>> = {
+        let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
+        let prev = hb_guard.take();
+        let handle: tauri::async_runtime::JoinHandle<()> =
+            tauri::async_runtime::spawn(async move {
             let mut missed: u32 = 0;
             let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
             loop {
@@ -1147,11 +1311,21 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                 }
             }
         });
-    // GT-8 / GT-C4-3: store the new handle so the next reconnect (or
-    // `shutdown_sidecar_for_exit`) can abort it.
-    {
-        let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
+        // GT-8 / GT-C4-3 / UE-7: store the new handle INSIDE the lock
+        // so the take+spawn+store sequence is atomic with respect to
+        // other callers. The next reconnect (or `abort_heartbeat` /
+        // `shutdown_sidecar_for_exit`) can abort it.
         *hb_guard = Some(handle);
+        prev
+    };
+    // UE-7: abort the previous handle AFTER releasing the lock. `abort()`
+    // posts a cancellation signal to the task's waker; it does not
+    // synchronously join the task, so this is fast and lock-free.
+    if let Some(prev) = prev_handle_opt {
+        prev.abort();
+        log::info!(
+            "[HEARTBEAT] aborted previous heartbeat task before spawning new one (GT-8 / UE-7)"
+        );
     }
 }
 
@@ -1449,6 +1623,156 @@ mod tests {
         assert!(
             state.heartbeat_handle.lock().await.is_none(),
             "GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle"
+        );
+    }
+
+    // ── UE-8 / UE-8-F9: drain_pending_with_disconnect_error ─────────
+
+    /// UE-8: the drain helper must send a `sidecar_disconnected` error
+    /// response to EVERY orphaned oneshot, and clear the pending map.
+    /// This pins the contract used by both `cleanup_and_trigger_respawn`
+    /// (auth-failure path) and the WS reader's cleanup block (normal
+    /// disconnect / panic path) — without the drain, in-flight dispatches
+    /// wait the full 120s timeout for a response that will never come.
+    #[tokio::test]
+    async fn test_ue8_drain_pending_sends_disconnect_error_to_all() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        // Insert 3 pending entries with oneshot senders.
+        let mut rx_list = Vec::new();
+        for id in 1u64..=3u64 {
+            let (tx, rx) = oneshot::channel::<Value>();
+            state.pending.lock().await.insert(id, tx);
+            rx_list.push(rx);
+        }
+        assert_eq!(state.pending.lock().await.len(), 3);
+
+        // Call the drain helper.
+        let drained = drain_pending_with_disconnect_error(&state).await;
+        assert_eq!(drained, 3, "drain helper must report 3 drained entries");
+        assert_eq!(
+            state.pending.lock().await.len(),
+            0,
+            "pending map must be empty after drain"
+        );
+
+        // Each receiver must get a sidecar_disconnected error.
+        for rx in rx_list {
+            let received = tokio::time::timeout(Duration::from_secs(1), rx)
+                .await
+                .expect("oneshot did not resolve within 1s — drain helper did not send")
+                .expect("oneshot sender was dropped without sending");
+            assert_eq!(received["type"], "error", "drained response type must be \"error\"");
+            assert_eq!(
+                received["data"]["code"], "sidecar_disconnected",
+                "drained response code must be \"sidecar_disconnected\""
+            );
+            assert!(
+                received["data"]["message"].as_str().is_some(),
+                "sidecar_disconnected error must have a message string"
+            );
+        }
+    }
+
+    /// UE-8-F9: the drain helper must be a no-op on an empty pending map
+    /// (returns 0, map stays empty). Both cleanup paths call the helper
+    /// unconditionally, so the empty case must not panic or log.
+    #[tokio::test]
+    async fn test_ue8_drain_pending_empty_map_returns_zero() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        assert_eq!(state.pending.lock().await.len(), 0);
+        let drained = drain_pending_with_disconnect_error(&state).await;
+        assert_eq!(drained, 0, "drain helper on empty map must return 0");
+        assert_eq!(state.pending.lock().await.len(), 0);
+    }
+
+    /// UE-8-F9: the drain helper must handle a receiver that was already
+    /// dropped (the dispatch caller timed out / was cancelled). `oneshot::
+    /// Sender::send` returns Err in that case — the helper must swallow
+    /// the error (it already uses `let _ =`) and continue draining the
+    /// rest. This pins the "swallow send-error" contract.
+    #[tokio::test]
+    async fn test_ue8_drain_pending_swallows_send_error_for_dropped_receiver() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        // Insert 2 entries. Drop the FIRST receiver immediately (simulates
+        // a dispatch caller that already timed out and dropped its
+        // oneshot receiver). Keep the second receiver alive.
+        let (tx1, rx1) = oneshot::channel::<Value>();
+        drop(rx1); // simulate dropped receiver
+        state.pending.lock().await.insert(1u64, tx1);
+        let (tx2, rx2) = oneshot::channel::<Value>();
+        state.pending.lock().await.insert(2u64, tx2);
+        assert_eq!(state.pending.lock().await.len(), 2);
+
+        // Drain — must not panic on the dropped receiver.
+        let drained = drain_pending_with_disconnect_error(&state).await;
+        assert_eq!(drained, 2, "drain helper must report 2 drained entries (both attempted)");
+
+        // The second receiver must still get its error response.
+        let received = tokio::time::timeout(Duration::from_secs(1), rx2)
+            .await
+            .expect("oneshot #2 did not resolve within 1s")
+            .expect("oneshot #2 sender was dropped without sending");
+        assert_eq!(received["data"]["code"], "sidecar_disconnected");
+        assert_eq!(state.pending.lock().await.len(), 0);
+    }
+
+    // ── UE-8-F10: abort_heartbeat helper ────────────────────────────
+
+    /// UE-8-F10: `abort_heartbeat` must clear the `heartbeat_handle`
+    /// slot and abort the in-flight task. Verifies the helper is
+    /// callable and idempotent — the two shutdown paths
+    /// (`shutdown_sidecar_for_exit` in state.rs, `shutdown_sidecar` in
+    /// sidecar_cmds.rs) both need to call it safely even if the other
+    /// path already ran.
+    #[tokio::test]
+    async fn test_ue8_f10_abort_heartbeat_clears_handle_and_aborts_task() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        // Spawn a long-running task (sleep 60s — well beyond the test
+        // timeout). The heartbeat task in production runs an infinite
+        // loop; a 60s sleep simulates "in-flight" for the test window.
+        let h = tauri::async_runtime::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        *state.heartbeat_handle.lock().await = Some(h);
+        assert!(
+            state.heartbeat_handle.lock().await.is_some(),
+            "precondition: heartbeat_handle must be Some before abort_heartbeat"
+        );
+
+        // Call the abort_heartbeat helper.
+        abort_heartbeat(&state).await;
+
+        // The handle must be cleared.
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "UE-8-F10: abort_heartbeat must clear the heartbeat handle"
+        );
+
+        // Calling abort_heartbeat again must be a no-op (idempotent) —
+        // a second shutdown path arriving after the first must not panic.
+        abort_heartbeat(&state).await;
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "UE-8-F10: abort_heartbeat must be idempotent on a None handle"
+        );
+    }
+
+    /// UE-8-F10: `abort_heartbeat` on a fresh state (handle is None)
+    /// must be a no-op without panicking. Pins the "idempotent on empty"
+    /// contract for the cold-start path where no heartbeat has been
+    /// spawned yet but a shutdown is initiated.
+    #[tokio::test]
+    async fn test_ue8_f10_abort_heartbeat_on_fresh_state_is_noop() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "precondition: fresh state must have heartbeat_handle = None"
+        );
+        // Calling on a fresh state must not panic.
+        abort_heartbeat(&state).await;
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "UE-8-F10: abort_heartbeat on fresh state must leave handle as None"
         );
     }
 }
