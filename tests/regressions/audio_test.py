@@ -921,7 +921,6 @@ class TestAudioDeviceDisconnectHandling:
         zero indata and observe the flag, which requires a running
         recorder (heavy). Source-string check is the lighter-weight guard.
         """
-        from voice_typer.server import recording
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
@@ -940,10 +939,11 @@ class TestAudioDeviceDisconnectHandling:
         rec.on_silence_auto_stop = lambda: None
         rec.on_max_duration_auto_stop = lambda: None
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        # The zero-fill disconnect check runs there now (on the worker
-        # thread instead of the real-time audio thread).
-        src = inspect.getsource(recording.Recorder._process_audio_chunk)
+        # S3-CR-17 / Phase 4.5: the processing body moved from
+        # Recorder._process_audio_chunk to AudioPipeline.process_audio_chunk.
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
+
+        src = inspect.getsource(AudioPipeline.process_audio_chunk)
         assert "_device_disconnected" in src
         # AUDIO-008 / RT-SAFE-001: the zero-filled disconnect check.
         # The implementation uses ``np.count_nonzero(indata) == 0``
