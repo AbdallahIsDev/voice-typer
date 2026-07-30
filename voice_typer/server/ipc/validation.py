@@ -437,11 +437,7 @@ def _validate_dict_payload(
         # restrictive) declared cap. Previously the helper broke after
         # the first field that declared the rule, silently ignoring
         # any subsequent field's value.
-        field_maxes = [
-            r.get("max_payload_bytes")
-            for r in schema.values()
-            if r.get("max_payload_bytes") is not None
-        ]
+        field_maxes = [r.get("max_payload_bytes") for r in schema.values() if r.get("max_payload_bytes") is not None]
         if field_maxes:
             effective_max_bytes = min(field_maxes)
     if effective_max_bytes is not None:
@@ -476,11 +472,7 @@ def _validate_dict_payload(
             # ``none_to_default=False`` for the rare case where
             # ``None`` is a meaningful value (e.g. nullable foreign
             # keys).
-            if (
-                value is None
-                and rules.get("none_to_default", True)
-                and "default" in rules
-            ):
+            if value is None and rules.get("none_to_default", True) and "default" in rules:
                 validated[field_name] = rules["default"]
                 continue
             expected_type = rules.get("type")

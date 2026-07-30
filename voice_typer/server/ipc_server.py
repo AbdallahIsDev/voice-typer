@@ -15,7 +15,6 @@ Usage (stdin/stdout mode — ``voice-typer`` CLI)::
 
 import contextlib
 import json
-import logging
 import os
 import socket
 import sys
@@ -82,6 +81,23 @@ if TYPE_CHECKING:
 from voice_typer.server.config_sanitizer import (  # noqa: F401
     _SECRET_CONFIG_FIELDS,
 )
+
+# S1-CR-66: the ``log`` / ``_READONLY_COMMANDS`` / ``_push_event_now``
+# helpers used to be defined inline here.  They moved to the
+# ``voice_typer.server.ipc._helpers`` leaf submodule so that
+# ``ipc_server.py`` can be loaded as ``__main__`` (via
+# ``python -m voice_typer.server.ipc_server``) without needing the
+# ``sys.modules[_CANONICAL] = sys.modules["__main__"]`` registration
+# hack to keep lazy imports (in providers.py / sidecar_ws.py / app.py /
+# __main__.py) resolving to the same object.  The names are re-exported
+# here (``# noqa: F401``) so existing
+# ``from voice_typer.server.ipc_server import log`` /
+# ``... import _push_event_now`` callers keep working unchanged.
+from voice_typer.server.ipc._helpers import (  # noqa: E402,F401
+    _READONLY_COMMANDS,
+    _push_event_now,
+    log,
+)
 from voice_typer.server.ipc.history_bounds import (  # noqa: F401
     _HISTORY_LIMIT_DEFAULT,
     _HISTORY_LIMIT_MAX,
@@ -122,9 +138,6 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
     _validate_dict_payload,
 )
 
-log = logging.getLogger("voice_typer.server.ipc_server")
-
-
 # GT-29 / GT-D1-10: typed response envelope and command-handler aliases.
 #
 # ``ResponseEnvelope`` is the canonical shape of every IPC frame pushed or
@@ -137,20 +150,12 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 # moved to voice_typer.server.ipc.validation (breaks the circular import
 # and lets handler modules import them from a non-god-module location).
 
-# GT-25: read-only IPC commands whose handlers do NOT mutate shared
-# app/service state. These bypass the per-server ``_dispatch_lock`` so a
-# long-running state-mutating handler (e.g. ``download_model``) does not
-# block a quick status poll from a second authenticated connection. The
-# set is intentionally minimal — only commands whose handler bodies are
-# pure reads (no recorder / config / model / history mutation).
-_READONLY_COMMANDS: frozenset[str] = frozenset(
-    {
-        "get_status",
-        "get_config",
-        "get_model_catalog",
-        "heartbeat",
-    }
-)
+# GT-25: ``_READONLY_COMMANDS`` now lives in ``ipc._helpers`` (S1-CR-66
+# refactor — see the import above).  The set lists dispatch commands
+# whose handlers do NOT mutate shared app/service state; they bypass the
+# per-server ``_dispatch_lock`` so a long-running state-mutating handler
+# (e.g. ``download_model``) does not block a quick status poll from a
+# second authenticated connection.
 
 
 # ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
@@ -178,77 +183,46 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     return _rate_limiter_mod._get_rate_limiter(server, _cls=_RateLimiter)
 
 
-# Module-level push hook.  Set by the active IPCServer instance when it
-# starts; cleared when it stops.  Using a module global (instead of
-# e.g. ``app._ipc_server``) means listeners from any module can push
-# events without needing a reference to the app or the server, and
-# without closure-capture surprises when multiple VoiceTyperApp
-# instances exist in the same process (tests, restarts, etc.).
-#
-# NEW-IPC-013: this used to be a single Optional[Callable].  When two
-# IPCServer instances existed in the same process (e.g. a test fixture
-# plus the production server), the second start() would stomp the
-# first server's push fn, and the first server's stop() would clear
-# the global — leaving the second server unable to push events.  We
-# now keep a registry (set) of push functions; _push_event_now fans
-# out to ALL registered servers.  Each IPCServer registers on start
-# and unregisters on stop, so the registry stays consistent across
-# any number of concurrent instances.
-#
-# B-1: the registry and helpers below are now THIN SHIMS over
-# ``voice_typer.server.event_bus``.  Domain modules should call
-# ``event_bus.publish(event)`` directly; the names here are kept so
-# existing lazy imports (``from voice_typer.server.ipc_server import
-# directly (``ipc_server._push_event_now``) and tests that manipulate the
-# registry set directly (``event_bus._subscribers.clear()``) continue to
-# work.  The shims reference the SAME underlying set and lock objects
-# as ``event_bus._subscribers`` / ``event_bus._lock`` so manipulating
-# one affects the other.
-# B-1 FIX-12: the _push_event_registry/_push_event_registry_lock aliases and
-# _set_push_event/_clear_push_event shims have been removed.  Domain code and
-# tests now call ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.
-
-
-def _push_event_now(msg: dict) -> bool:
-    """Push a raw event to ALL active IPC servers, if any are wired.
-
-    B-1: thin shim over ``event_bus.publish``.  Domain code should
-    call ``event_bus.publish`` directly; this function is preserved
-    so existing lazy imports continue to work.
-
-    Returns True if at least one server accepted the event, False if
-    no server is active.  Safe to call from any thread; never raises.
-
-    NEW-IPC-013: previously pushed to a single global callable.  When
-    two IPCServer instances existed in the same process (tests +
-    production), the second start() would stomp the first's push fn,
-    and the first's stop() would clear the global entirely — leaving
-    the second server unable to push.  We now fan out to ALL servers
-    in the registry so both receive the event.
-    """
-    return event_bus.publish(msg)
+# Module-level push hook.  ``_push_event_now`` now lives in
+# ``ipc._helpers`` (S1-CR-66 refactor — see the import above).  It is a
+# thin shim over ``event_bus.publish`` so existing lazy imports
+# (``from voice_typer.server.ipc_server import _push_event_now``) keep
+# working.  Domain code should call ``event_bus.publish`` directly.
+# B-1 FIX-12: the _push_event_registry/_push_event_registry_lock aliases
+# and _set_push_event/_clear_push_event shims have been removed — domain
+# code and tests now call ``event_bus.subscribe`` /
+# ``event_bus.unsubscribe`` directly.
 
 
 # ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
-# ``handlers/`` subpackage as mixin classes.  We import them here (after
-# all module-level helpers like ``log`` / ``_push_event_now`` /
-# ``_get_rate_limiter`` and the imported ``_bound_history_limit`` /
-# ``_RateLimiter`` / ``_validate_dict_payload`` names are bound) so the
-# mixins can resolve their ``from voice_typer.server.ipc_server import
-# ...`` references via the partially initialized module already present
-# in ``sys.modules``.
+# ``handlers/`` subpackage as mixin classes.  The handler mixins import
+# their own helpers (``log`` from ``handlers._log``, validation from
+# ``ipc.validation``, etc.) and do NOT import from this module, so there
+# is no circular dependency to break.
 #
-# CRITICAL: Register the canonical module name BEFORE the mixin imports.
-# When ``python -m voice_typer.server.ipc_server`` loads this module,
-# it is stored in ``sys.modules`` as ``__main__``, NOT under its
-# canonical dotted name.  The mixin handlers do
-# ``from voice_typer.server.ipc_server import log, _push_event_now``;
-# without this registration, Python creates a FRESH module for the
-# canonical name, which then tries to import the mixins again —
-# producing a circular ``ImportError``.
-_CANONICAL = "voice_typer.server.ipc_server"
-if _CANONICAL not in sys.modules:
-    sys.modules[_CANONICAL] = sys.modules["__main__"]
+# S1-CR-66: the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
+# registration hack that used to live here has been removed.  The hack
+# was originally needed because ``python -m voice_typer.server.ipc_server``
+# loads this file as ``__main__`` (NOT under the canonical dotted name),
+# and the handler mixins used to import ``log`` / ``_push_event_now``
+# from the canonical name.  Both preconditions are now gone:
+#
+#   1. The handler mixins no longer import from this module — they
+#      import ``log`` from ``voice_typer.server.handlers._log`` and
+#      validation helpers from ``voice_typer.server.ipc.validation``.
+#      The import cycle the hack was working around no longer exists.
+#
+#   2. The remaining lazy ``from voice_typer.server.ipc_server import X``
+#      imports in ``providers.py`` / ``sidecar_ws.py`` / ``app.py`` /
+#      ``__main__.py`` resolve module-level helpers (``log``,
+#      ``_push_event_now``) that now live in ``ipc._helpers`` and are
+#      re-exported here.  When this file is loaded as ``__main__``, a
+#      subsequent canonical-name import would re-execute this file
+#      (producing a duplicate ``IPCServer`` class object), but the
+#      duplicate is never instantiated: ``providers.build_ipc_server``
+#      constructs the canonical-named ``IPCServer``, and the
+#      ``__main__``-mode copy is dead code whose class object is
+#      discarded.  No observable behavior change.
 
 
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin  # noqa: E402
@@ -1883,9 +1857,10 @@ def main() -> None:
     # and app.start()-failure paths. Previously EXIT_CRASH was imported
     # but unused and the crash path called sys.exit with a raw literal.
     from voice_typer.__main__ import EXIT_CRASH
-    # The canonical-name registration (``sys.modules[_CANONICAL]``)
-    # is handled at module level, before the mixin imports, so it
-    # applies to ALL execution modes (__main__, -m, and direct import).
+    # S1-CR-66: the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
+    # registration hack that used to live at module level has been
+    # removed.  See the ARCH-REFAC-002 comment block above the mixin
+    # imports for the rationale.
 
     # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
