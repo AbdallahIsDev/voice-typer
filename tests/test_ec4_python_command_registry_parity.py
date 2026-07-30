@@ -47,6 +47,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 
+# DT-41 / DT-50: commands present in the TS allowlist (and therefore in
+# the Python registry) but intentionally ABSENT from the Rust allowlist
+# because the Rust host dispatches them directly via ``dispatch_inner``
+# (they don't flow through the renderer's ``invoke('dispatch')`` path).
+# Without this documented exception, the
+# ``test_every_python_command_is_in_rust_except_documented_exceptions``
+# parity check below false-positives on these two commands. The
+# authoritative definition lives in
+# ``tests/test_security_doc_command_count.py::_TS_ONLY_EXCEPTIONS``;
+# this local copy is a thin mirror so this file stays self-contained.
+# If the exception set changes, update BOTH locations in the same PR.
+_TS_ONLY_EXCEPTIONS = frozenset({"heartbeat", "relaunch_ack"})
+
 
 def _python_command_registry_keys() -> set[str]:
     """Return the set of command names in ``IPCServer._COMMAND_REGISTRY``.
@@ -199,28 +212,46 @@ def test_every_rust_command_is_in_python_registry() -> None:
 
 def test_every_python_command_is_in_rust_except_documented_exceptions() -> None:
     """EC-4: every Python-registered command MUST be in Rust, UNLESS it is
-    explicitly listed in ``IPCServer._PYTHON_ONLY_COMMANDS``.
+    explicitly listed in ``IPCServer._PYTHON_ONLY_COMMANDS`` OR in the
+    ``_TS_ONLY_EXCEPTIONS`` set (commands the Rust host dispatches
+    directly via ``dispatch_inner`` — see DT-50).
 
     Symmetric to the TS-side check. The Rust gate is the
     defense-in-depth backstop for the renderer; a Python-only command
     invoked by the Tauri host's Rust bridge (e.g. ``tray_click``) must
     NOT appear in the renderer-protecting Rust allowlist (otherwise a
     compromised renderer could invoke it).
+
+    DT-50: ``heartbeat`` and ``relaunch_ack`` ARE in the renderer
+    allowlist (the renderer's watchdog/relaunch-ack paths need them)
+    but intentionally NOT in the Rust gate (the Rust host dispatches
+    them directly via ``dispatch_inner`` from the WS-reader task and
+    the ``relaunch_app`` event handler — they don't flow through the
+    renderer's ``invoke('dispatch')`` path, so the Rust gate is a
+    no-op for them; keeping them OUT of the Rust allowlist closes the
+    attack surface where a compromised renderer could spoof them).
     """
     py = _python_command_registry_keys()
     py_only = _python_only_commands()
     rust = _rust_allowed_commands()
 
-    expected_in_rust = py - py_only
+    # DT-50: ``_TS_ONLY_EXCEPTIONS`` are commands in the Python registry
+    # AND the TS allowlist but intentionally NOT in the Rust gate. They
+    # are exempt from the "every Python command must be in Rust" check.
+    rust_exempt = py_only | _TS_ONLY_EXCEPTIONS
+    expected_in_rust = py - rust_exempt
     missing_from_rust = expected_in_rust - rust
     assert not missing_from_rust, (
         f"EC-4 drift: Python _COMMAND_REGISTRY contains command(s) that "
         f"are NOT in Rust ALLOWED_COMMANDS and NOT in "
-        f"IPCServer._PYTHON_ONLY_COMMANDS: {sorted(missing_from_rust)}. "
-        f"Either add the command to "
+        f"IPCServer._PYTHON_ONLY_COMMANDS or _TS_ONLY_EXCEPTIONS: "
+        f"{sorted(missing_from_rust)}. Either add the command to "
         f"src-tauri/src/commands/sidecar_cmds.rs (if the renderer "
         f"invokes it) OR add it to IPCServer._PYTHON_ONLY_COMMANDS "
-        f"with a comment documenting the non-renderer caller."
+        f"with a comment documenting the non-renderer caller OR (if "
+        f"the Rust host dispatches it directly via dispatch_inner) "
+        f"add it to _TS_ONLY_EXCEPTIONS in both this file and "
+        f"tests/test_security_doc_command_count.py."
     )
 
 

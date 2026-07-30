@@ -339,6 +339,35 @@ async def _authenticate(websocket) -> bool:
         log.warning("[SIDECAR-WS] auth token mismatch — rejecting")
         return False
 
+    # S1-CR-78: detect host/sidecar protocol-version skew at handshake
+    # time. The Rust host (src-tauri/src/sidecar/ws.rs) now includes a
+    # `protocol_version` integer in its auth frame. The field is
+    # additive — older hosts that don't yet send it continue to function
+    # (we just skip the check). When present and mismatched, log a
+    # prominent WARNING so the mismatch is observable in diagnostics
+    # before confusing partial-failure symptoms appear. We do NOT reject
+    # the connection on mismatch because a misconfigured host should
+    # still be able to authenticate (the version negotiation is
+    # defense-in-depth, not a security gate). The TCP transport's
+    # parallel check lives in ipc/transport_tcp.py (DR-21).
+    host_protocol = first.get("protocol_version")
+    if host_protocol is not None:
+        try:
+            host_protocol_int = int(host_protocol)
+        except (TypeError, ValueError):
+            log.warning(
+                "[SIDECAR-WS] auth frame protocol_version is not an int: %r",
+                host_protocol,
+            )
+        else:
+            if host_protocol_int != PROTOCOL_VERSION:
+                log.warning(
+                    "[SIDECAR-WS] protocol version skew: host=%d sidecar=%d "
+                    "(continuing — field is advisory; see S1-CR-78)",
+                    host_protocol_int,
+                    PROTOCOL_VERSION,
+                )
+
     log.info("[SIDECAR-WS] auth accepted")
     return True
 

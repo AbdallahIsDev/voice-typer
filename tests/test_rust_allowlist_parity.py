@@ -48,6 +48,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 
+# DT-41 / DT-50: commands present in the TS allowlist but intentionally
+# ABSENT from the Rust allowlist because the Rust host dispatches them
+# directly (they don't flow through the renderer's ``invoke('dispatch')``
+# path). The authoritative definition lives in
+# ``tests/test_security_doc_command_count.py::_TS_ONLY_EXCEPTIONS``; this
+# local copy is a thin mirror so this file stays self-contained (no
+# cross-file import of a private constant). If the exception set changes,
+# update BOTH locations in the same PR.
+_TS_ONLY_EXCEPTIONS = frozenset({"heartbeat", "relaunch_ack"})
+
 
 def _rust_allowed_commands() -> set[str]:
     """Parse the Rust ``allowed_commands()`` body for quoted command names.
@@ -102,17 +112,26 @@ def _ts_allowed_commands() -> set[str]:
 
 
 def test_rust_allowlist_count_matches_ts() -> None:
-    """YJ-10: Rust allowlist count MUST equal TS allowlist count.
+    """YJ-10: Rust allowlist count MUST equal TS allowlist count (modulo
+    the documented ``_TS_ONLY_EXCEPTIONS`` set).
 
     A count mismatch means a command was added to one file but not
     the other — the entry-level test below pinpoints which one.
+
+    DT-50: ``heartbeat`` and ``relaunch_ack`` are intentionally TS-only
+    (the Rust host dispatches them directly via ``dispatch_inner``, not
+    via the renderer's ``invoke('dispatch')`` path); they're subtracted
+    from the TS count before comparison.
     """
     rust = _rust_allowed_commands()
     ts = _ts_allowed_commands()
-    assert len(rust) == len(ts), (
+    ts_excluded = ts & _TS_ONLY_EXCEPTIONS
+    ts_effective = ts - _TS_ONLY_EXCEPTIONS
+    assert len(rust) == len(ts_effective), (
         f"YJ-10 parity broken: Rust ALLOWED_COMMANDS has {len(rust)} "
-        f"entries but TS has {len(ts)}. Update both files in the same "
-        f"PR. Files:\n"
+        f"entries but TS has {len(ts_effective)} (after excluding "
+        f"{len(ts_excluded)} _TS_ONLY_EXCEPTIONS: {sorted(ts_excluded)}). "
+        f"Update both files in the same PR. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
         f"(allowed_commands fn)\n"
         f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "
@@ -121,23 +140,35 @@ def test_rust_allowlist_count_matches_ts() -> None:
 
 
 def test_rust_allowlist_entries_match_ts() -> None:
-    """YJ-10: Rust allowlist entries MUST equal TS allowlist entries.
+    """YJ-10: Rust allowlist entries MUST equal TS allowlist entries
+    (modulo the documented ``_TS_ONLY_EXCEPTIONS`` set).
 
     Catches the case where the counts match but the entries differ
     (e.g. a typo renamed ``quit_app`` to ``quit`` in one file but not
     the other). Reports the symmetric difference so the contributor
     sees exactly which commands are in only one of the two files.
+
+    DT-50: ``heartbeat`` and ``relaunch_ack`` are intentionally TS-only
+    (the Rust host dispatches them directly via ``dispatch_inner``, not
+    via the renderer's ``invoke('dispatch')`` path); they're subtracted
+    from the TS set before comparison so the intentional exclusion
+    doesn't false-positive.
     """
     rust = _rust_allowed_commands()
     ts = _ts_allowed_commands()
-    only_rust = rust - ts
-    only_ts = ts - rust
+    ts_excluded = ts & _TS_ONLY_EXCEPTIONS
+    ts_effective = ts - _TS_ONLY_EXCEPTIONS
+    only_rust = rust - ts_effective
+    only_ts = ts_effective - rust
     assert not only_rust and not only_ts, (
         f"YJ-10 entry-level drift detected:\n"
         f"  In Rust but NOT in TS: {sorted(only_rust) or '(none)'}\n"
-        f"  In TS but NOT in Rust: {sorted(only_ts) or '(none)'}\n"
-        f"Both files MUST list the same commands. Update them in the "
-        f"same PR. Files:\n"
+        f"  In TS but NOT in Rust (excluding _TS_ONLY_EXCEPTIONS): "
+        f"{sorted(only_ts) or '(none)'}\n"
+        f"  Intentionally TS-only (per _TS_ONLY_EXCEPTIONS): "
+        f"{sorted(ts_excluded) or '(none)'}\n"
+        f"Both files MUST list the same commands (modulo "
+        f"_TS_ONLY_EXCEPTIONS). Update them in the same PR. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
         f"(allowed_commands fn)\n"
         f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "

@@ -359,6 +359,11 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         """
         server = _make_server()
         server.app._shutting_down = True  # type: ignore[assignment]
+        # DJ-32: _dispatch reads the cached snapshot (refreshed in
+        # start()/stop()) instead of getattr(self.app, "_shutting_down").
+        # Mirror the production contract by setting the cached snapshot
+        # so the gate at the top of _dispatch observes the shutdown.
+        server._cached_shutting_down = True  # type: ignore[assignment]
 
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result is not None

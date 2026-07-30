@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from voice_typer.server import event_bus
 from voice_typer.server._paths import IPC_PORT
 from voice_typer.server.asr_errors import ConsentRequiredError
+from voice_typer.server.log import reset_correlation_id, set_correlation_id
 
 if TYPE_CHECKING:
     # Typed ``app`` parameter on ``IPCServer.__init__``. The
@@ -98,7 +99,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # block below).  The ``ipc._helpers`` duplicate is a legacy leftover
 # (outside the UE-32 disjoint set) and is no longer the authoritative
 # source.
-from voice_typer.server.ipc._helpers import (  # noqa: E402,F401
+from voice_typer.server.ipc._helpers import (  # noqa: E402, F401
     _push_event_now,
     log,
 )
@@ -147,7 +148,7 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # ``tests/test_ipc_command_registry_sync.py``,
 # ``tests/tauri/mig19/test_phase4_validation.py``,
 # ``tests/tauri/test_tauri_sidecar_gate.py`` — keeps working unchanged.
-from voice_typer.server.ipc.registry import (  # noqa: E402,F401
+from voice_typer.server.ipc.registry import (  # noqa: E402, F401
     _COMMAND_REGISTRY,
     _PYTHON_ONLY_COMMANDS,
     _READONLY_COMMANDS,
@@ -298,7 +299,7 @@ from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMi
 # are re-exported here so existing ``from voice_typer.server.ipc_server import
 # _SHUTDOWN_ALLOWLIST`` callers (tests/test_ipc_send_shutdown_allowlist.py,
 # tests/test_zr43_zr70_constants.py) keep working unchanged.
-from voice_typer.server.ipc.sender import (  # noqa: E402,F401
+from voice_typer.server.ipc.sender import (  # noqa: E402, F401
     _SHUTDOWN_ALLOWLIST,
     _TCP_PENDING_BUFFER_CAP,
     _TCP_PENDING_DRAIN_CAP,
@@ -413,6 +414,29 @@ class IPCServer(
             from voice_typer.server.service import VoiceTyperService
 
             self.service = VoiceTyperService(app)
+            # DJ-68: wire the service-layer mic cache invalidator so
+            # the OS device-change watcher (which already invalidates
+            # DeviceManager._device_list_cache via _invalidate_device_cache)
+            # ALSO invalidates the service-layer 5s-TTL cache
+            # (_microphones_cache_ts in MicrophoneTestMixin). Without
+            # this, after a USB/BT hot-plug event the Electron UI
+            # continues to show the stale microphone dropdown (including
+            # the unplugged device, missing the newly-plugged one) for
+            # up to 5s. Best-effort: guarded so a recorder-without-
+            # DeviceManager (tests) doesn't fail.
+            try:
+                recorder_devices = getattr(app.recorder, "_devices", None)
+                if recorder_devices is not None and hasattr(
+                    recorder_devices, "set_service_cache_invalidator"
+                ):
+                    recorder_devices.set_service_cache_invalidator(
+                        lambda: self.service.refresh_microphones(force=True)
+                    )
+            except Exception:
+                log.debug(
+                    "[IPC] failed to wire DJ-68 service-layer cache invalidator",
+                    exc_info=True,
+                )
         self._running = False
         # NEW-CQ-018: use RLock instead of Lock so _hook_tray_set_state
         # (which calls self.push() → self._send() → acquires _lock) can
@@ -981,7 +1005,9 @@ class IPCServer(
                     "force-exiting via os._exit(1) (tray.stop() likely hung)",
                     int(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS),
                 )
-                os._exit(1)
+                import os as _os
+
+                _os._exit(1)
 
             _threading.Thread(
                 target=_force_exit_after_grace,
@@ -1260,7 +1286,15 @@ class IPCServer(
         # ``_shutting_down`` as a child mock that is truthy but not
         # ``is True`` — keep exercising the dispatch path instead of
         # short-circuiting here.
-        if getattr(self.app, "_shutting_down", False) is True:
+        #
+        # DJ-31/DJ-32: read the cached snapshot (refreshed in start()/stop())
+        # via a defensive ``getattr(self, ...)`` so test fixtures that bypass
+        # ``__init__`` (mirroring the sender.py:224 pattern) keep working
+        # without explicitly setting the field. ``getattr`` traversal of
+        # ``self`` is cheaper than ``getattr(self.app, '_shutting_down',
+        # False)`` because ``self`` is a direct local whereas ``self.app``
+        # is an attribute chain that always invokes ``__getattribute__``.
+        if getattr(self, "_cached_shutting_down", False) is True:
             return self._shutting_down_error(msg)
 
         cmd = msg.get("type")
@@ -1281,8 +1315,6 @@ class IPCServer(
         _corr_token = None
         _req_id = msg.get("id") if isinstance(msg, dict) else None
         if _req_id is not None:
-            from voice_typer.server.log import set_correlation_id
-
             _corr_token = set_correlation_id(str(_req_id))
         # RW-6 (pyrefly): ``_COMMAND_REGISTRY`` is typed ``dict[str, str]``
         # and ``dict.get`` requires a ``str`` key. ``msg.get("type")``
@@ -1345,7 +1377,7 @@ class IPCServer(
                 # can't block a quick status poll.
                 # GT-45: best-effort unlocked re-check (the initial
                 # PVT-G5-004 gate already covered the common case).
-                if getattr(self.app, "_shutting_down", False) is True:
+                if getattr(self, "_cached_shutting_down", False) is True:
                     result = self._shutting_down_error(msg)
                 else:
                     result = handler(data, resp)
@@ -1358,7 +1390,7 @@ class IPCServer(
                 # the unlocked gate at the top of ``_dispatch`` and the
                 # handler call.
                 with self._dispatch_lock:
-                    if getattr(self.app, "_shutting_down", False) is True:
+                    if getattr(self, "_cached_shutting_down", False) is True:
                         result = self._shutting_down_error(msg)
                     else:
                         result = handler(data, resp)
@@ -1385,8 +1417,6 @@ class IPCServer(
             result = resp
         finally:
             if _corr_token is not None:
-                from voice_typer.server.log import reset_correlation_id
-
                 reset_correlation_id(_corr_token)
 
         # NEW-IPC-006: ensure every response has a `data` field so the
@@ -1820,6 +1850,25 @@ def main() -> None:
     during the heavy torch import.  Push events reach the frontend
     via TCP, and the terminal sees normal log output.
     """
+    # FR-26 (privacy): tighten the process umask to ``0o077`` (owner-only)
+    # at process startup so ALL files created by the sidecar — including
+    # the history DB ``-wal`` / ``-shm`` sidecar files that SQLite creates
+    # lazily on the first WAL-mode write — are owner-only by default.
+    # Previously the chmod loop in ``history_db_internals/schema.py``
+    # ran BEFORE the sidecar files existed, so they inherited the parent
+    # shell's umask (typically ``0o022`` → files created ``0o644`` =
+    # world-readable on multi-user POSIX). ``check_wal_mode`` re-runs
+    # the chmod loop after PRAGMA WAL mode is set (closing the
+    # creation-time race for the writer's first connection), but a
+    # defense-in-depth umask at process startup covers ALL future
+    # sidecar recreations (e.g. after a ``wal_checkpoint(TRUNCATE)``
+    # drops the sidecars and they get recreated on the next write).
+    # Done BEFORE any other subsystem init so every file the sidecar
+    # creates benefits. Best-effort — ``os.umask`` always succeeds on
+    # POSIX and is a no-op on Windows (which uses ACLs instead).
+    if os.name == "posix":
+        os.umask(0o077)
+
     # BRAND-METADATA: set process metadata early, before any subsystem
     # init, so the OS sees the correct identity from the start.
     _set_process_metadata()

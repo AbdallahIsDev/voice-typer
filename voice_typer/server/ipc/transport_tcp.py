@@ -26,6 +26,28 @@ from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 from voice_typer.server.ipc.transport import _TCPLineIO
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
+# ─── DR-21 (S1-CR-78): IPC wire protocol versioning ──────────────────
+#
+# Single source of truth for the IPC wire protocol version. Bump on any
+# wire-incompatible change to the auth frame shape or any command's
+# request/response schema. The auth handshake validates this BEFORE the
+# token check so a stale client gets a structured
+# ``server.protocol_version_mismatch`` error instead of an opaque
+# ``auth_failed``. See ADR-0004 (IPC protocol ADR) for the versioning
+# contract.
+#
+# Validate-if-present semantics: a missing ``protocol_version`` field is
+# accepted (legacy senders continue to the token check), only an
+# explicit mismatch is rejected. This makes the change fully backward
+# compatible — new senders opt in by sending ``"protocol_version": 1``
+# and get a structured rejection on mismatch.
+IPC_PROTOCOL_VERSION: int = 1
+# DR-21: error code emitted on the version-mismatch path. Lives here
+# (not in ipc/validation.py::ErrorCodes) to keep the change confined to
+# one file in this slice; a future cross-language parity test should
+# register it in the central ErrorCodes registry.
+PROTOCOL_VERSION_MISMATCH_CODE = "server.protocol_version_mismatch"
+
 
 class TCPTransportMixin:
     """TCP transport methods for :class:`IPCServer`.
@@ -321,6 +343,51 @@ class TCPTransportMixin:
                     auth_client.close()
                     return
                 auth_msg = json.loads(auth_line.strip())
+                # DR-21 (S1-CR-78): validate-if-present the IPC wire
+                # protocol version BEFORE the token check. A stale client
+                # that explicitly sends ``protocol_version`` with a value
+                # that doesn't equal :data:`IPC_PROTOCOL_VERSION` gets a
+                # structured ``server.protocol_version_mismatch`` error
+                # envelope instead of an opaque ``auth_failed``. Clients
+                # that omit the field (legacy senders) continue to the
+                # token check unchanged — backward compatible.
+                if (
+                    isinstance(auth_msg, dict)
+                    and "protocol_version" in auth_msg
+                    and auth_msg.get("protocol_version") != IPC_PROTOCOL_VERSION
+                ):
+                    log.warning(
+                        "[TCP] auth rejected — protocol_version mismatch "
+                        "(client sent %r, server expects %r)",
+                        auth_msg.get("protocol_version"),
+                        IPC_PROTOCOL_VERSION,
+                    )
+                    try:
+                        auth_client.write(
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "data": {
+                                        "code": PROTOCOL_VERSION_MISMATCH_CODE,
+                                        "message": (
+                                            f"protocol version mismatch: client sent "
+                                            f"{auth_msg.get('protocol_version')!r}, "
+                                            f"server requires {IPC_PROTOCOL_VERSION}"
+                                        ),
+                                        "client_protocol_version": auth_msg.get(
+                                            "protocol_version"
+                                        ),
+                                        "server_protocol_version": IPC_PROTOCOL_VERSION,
+                                    },
+                                }
+                            )
+                            + "\n"
+                        )
+                        auth_client.flush()
+                    except Exception:
+                        pass
+                    auth_client.close()
+                    return
                 # PR-3-FIX-1: use hmac.compare_digest for constant-time
                 # token comparison so a timing side-channel cannot
                 # recover the token byte-by-byte.

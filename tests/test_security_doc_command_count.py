@@ -63,6 +63,15 @@ SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.r
 # ``allowed-commands.ts`` + ``_HOST_ONLY_COMMANDS`` (in either direction),
 # the test below fails with the drifted file's name.
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
+# S4-CR-18 / DT-41: the ``_COMMAND_REGISTRY`` literal was extracted
+# from ``ipc_server.py`` into the dedicated ``ipc/registry.py`` module
+# (the class-body ``_COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY``
+# line in ``ipc_server.py`` is now just a re-binding of the imported
+# module-level constant). Update the parser to read from the new
+# location; fall back to the old location for backward compatibility
+# with branches that haven't yet picked up the registry-extraction
+# refactor.
+IPC_REGISTRY_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "registry.py"
 
 # S4-CR-18: commands present in ``_COMMAND_REGISTRY`` but intentionally
 # absent from the renderer ``ALLOWED_COMMANDS`` because the Rust host
@@ -386,16 +395,33 @@ def test_rust_allowlist_contains_key_commands() -> None:
 def _command_registry_entries() -> set[str]:
     """Return the set of command names in the Python ``_COMMAND_REGISTRY``.
 
-    Parses ``voice_typer/server/ipc_server.py`` and extracts every
+    Parses ``voice_typer/server/ipc/registry.py`` (the post-extraction
+    home of the ``_COMMAND_REGISTRY`` literal) and extracts every
     ``"<cmd_name>": "_handle_..."`` key from the
-    ``_COMMAND_REGISTRY: dict[str, str] = {...}`` literal.
+    ``_COMMAND_REGISTRY: dict[str, str] = {...}`` literal. Falls back to
+    ``voice_typer/server/ipc_server.py`` for branches that haven't yet
+    picked up the registry-extraction refactor.
     """
-    src = IPC_SERVER_PY.read_text(encoding="utf-8")
+    # DT-41: try the extracted registry module first, then fall back to
+    # the legacy ipc_server.py location. The literal shape is the same
+    # in both files (``_COMMAND_REGISTRY: dict[str, str] = { ... }``).
+    sources = [IPC_REGISTRY_PY, IPC_SERVER_PY]
+    src = None
+    for candidate in sources:
+        if candidate.is_file():
+            text = candidate.read_text(encoding="utf-8")
+            if "_COMMAND_REGISTRY" in text:
+                src = text
+                break
+    assert src is not None, (
+        "Could not find _COMMAND_REGISTRY in either "
+        f"{IPC_REGISTRY_PY} or {IPC_SERVER_PY}. Did the registry "
+        "move again? Update this parser to match."
+    )
     m_start = re.search(r"_COMMAND_REGISTRY\s*:\s*dict\[str,\s*str\]\s*=\s*\{", src)
     assert m_start is not None, (
-        "voice_typer/server/ipc_server.py no longer declares the "
-        "`_COMMAND_REGISTRY: dict[str, str] = {` literal. Did the "
-        "registry shape change? Update this parser to match."
+        "_COMMAND_REGISTRY literal not found in the registry module. "
+        "Did the registry shape change? Update this parser to match."
     )
     depth = 1
     i = m_start.end()
