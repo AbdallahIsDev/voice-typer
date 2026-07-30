@@ -427,14 +427,17 @@ class TestVadAutoCalibrationBehavior:
         state). The sibling test_vad_auto_calibrate_sets_thresholds_from_ambient_noise
         tests the calibration behavior, but doesn't verify start()
         resets it; the source-string check catches removal of the reset.
-        """
-        from voice_typer.server import recording as rec_mod
 
-        src = inspect.getsource(rec_mod.Recorder.start)
-        # The start() method must reset _vad_calibration_rms_values
-        # and _vad_calibrated.
+        S3-CR-17 / Phase 4.5: the per-session state reset moved from
+        Recorder.start to SessionState.reset_session_state (called via
+        start_recording -> recorder._reset_session_state()).
+        """
+        from voice_typer.server.recording.session_state import SessionState
+
+        src = inspect.getsource(SessionState.reset_session_state)
         assert "_vad_calibration_rms_values" in src or "_vad_calibrated" in src, (
-            "Recorder.start() must reset VAD calibration state so each session re-calibrates from ambient noise."
+            "SessionState.reset_session_state must reset VAD calibration "
+            "state so each session re-calibrates from ambient noise."
         )
 
 
