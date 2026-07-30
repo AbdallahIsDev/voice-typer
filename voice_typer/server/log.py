@@ -543,9 +543,9 @@ class _ColorFormatter(logging.Formatter):
         logging.CRITICAL: "38;5;196;1",  # red bold
     }
     _LVL_SYM = {
-        logging.WARNING: "WARN",
-        logging.ERROR: "ERR",
-        logging.CRITICAL: "FATAL",
+        logging.WARNING: "WARNING",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "CRITICAL",
     }
 
     def format(self, record: logging.LogRecord) -> str:
@@ -641,10 +641,10 @@ class _FileFormatter(logging.Formatter):
 
     _LVL_LABEL = {
         logging.DEBUG: "DEBUG",
-        logging.INFO: "INFO ",
-        logging.WARNING: "WARN ",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARNING",
         logging.ERROR: "ERROR",
-        logging.CRITICAL: "FATAL",
+        logging.CRITICAL: "CRITICAL",
     }
 
     def format(self, record: logging.LogRecord) -> str:
@@ -1097,6 +1097,27 @@ def setup_logging(
         # helper) is NOT mistaken for the secure handler — the secure
         # handler is always re-installed in that case so the perms and
         # inter-process lock guarantees are preserved.
+        #
+        # XE-19-2: pre-fix, the dedup check SILENTLY DROPPED the new
+        # handler when one was already installed. A second
+        # ``setup_logging(config_dir, debug=False)`` call (after an
+        # initial ``debug=True``) constructed a new handler with the
+        # new WARNING level but then threw it away — the existing
+        # DEBUG-level handler stayed attached, so the operator's
+        # toggle had NO effect (despite the function returning a new
+        # ``session_id`` suggesting re-init succeeded). Post-fix, the
+        # existing handler's level + formatter are UPDATED IN PLACE
+        # to match the new configuration before the dedup check
+        # decides whether to add the new handler. Filters (PII /
+        # session / bubble) are not re-attached — they're already on
+        # the existing handler from the first call.
+        _new_file_level = handler.level
+        _new_file_formatter = handler.formatter
+        for _existing in root.handlers:
+            if isinstance(_existing, _SecureRotatingFileHandler):
+                _existing.setLevel(_new_file_level)
+                if _new_file_formatter is not None:
+                    _existing.setFormatter(_new_file_formatter)
         if not any(isinstance(h, _SecureRotatingFileHandler) for h in root.handlers):
             root.addHandler(handler)
         # XV-130: PII + session filters are attached to each HANDLER
@@ -1185,6 +1206,19 @@ def setup_logging(
             # Avoid duplicate StreamHandlers if setup is called multiple times.
             # Use _FlushingStreamHandler as the dedup key so legacy tests that
             # check for "any StreamHandler" (isinstance check below) still pass.
+            #
+            # XE-19-2: mirror the file-handler in-place update — if a
+            # ``_FlushingStreamHandler`` is already attached, update its
+            # level + formatter to match the new ``debug``/``quiet``/
+            # ``json_mode`` configuration instead of silently dropping
+            # the new handler (which left the old level in effect).
+            _new_stream_level = stream.level
+            _new_stream_formatter = stream.formatter
+            for _existing in root.handlers:
+                if isinstance(_existing, _FlushingStreamHandler):
+                    _existing.setLevel(_new_stream_level)
+                    if _new_stream_formatter is not None:
+                        _existing.setFormatter(_new_stream_formatter)
             if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
                 root.addHandler(stream)
             # Silence noisy third-party loggers (LOG-006).
