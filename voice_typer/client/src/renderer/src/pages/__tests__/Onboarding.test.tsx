@@ -942,3 +942,244 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		expect(screen.getByText("Multilingual")).toBeTruthy();
 	});
 });
+
+// ── S5-CR-105: "Default: <selection>" hints + Continue validation ─────
+
+describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue validation", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockShowSnack.mockReset();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	/**
+	 * Helper: jump the wizard straight to a given step index, with
+	 * full control over the get_config payload (so we can simulate
+	 * "user has no prior config" → defaults apply → hints should show)
+	 * and the microphone list (so we can simulate "OS default mic
+	 * available" → mic hint should show).
+	 *
+	 * S5-CR-105: the wizard pre-selects HOTKEY_DEFAULT ("<caps_lock>")
+	 * and MODEL_DEFAULT ("small.en") when get_config returns no
+	 * hotkey/model_size. It also auto-selects the OS default mic
+	 * (the one with `default: true`). When any of these defaults
+	 * are active, a "Default: <value>" hint should appear next to
+	 * the Continue button so the user knows they're accepting a
+	 * default rather than an explicit choice.
+	 */
+	function mockStartAtStepWithDefaults(
+		stepIndex: number,
+		opts: {
+			cfg?: Record<string, unknown>;
+			microphones?: Array<Record<string, unknown>>;
+			models?: Array<Record<string, unknown>>;
+		} = {},
+	) {
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					return Promise.resolve({
+						step: stepIndex,
+						total_steps: 6,
+						step_name: STEP_NAMES[stepIndex],
+					});
+				case "onboarding_next_step":
+				case "onboarding_prev_step":
+					return Promise.resolve({
+						step: stepIndex,
+						total_steps: 6,
+						step_name: STEP_NAMES[stepIndex],
+					});
+				case "get_config":
+					// Default: empty config → wizard falls back to
+					// HOTKEY_DEFAULT + MODEL_DEFAULT + auto-selected mic.
+					return Promise.resolve(opts.cfg ?? {});
+				case "onboarding_get_microphones":
+					return Promise.resolve({
+						microphones: opts.microphones ?? [
+							{ id: "mic-1", name: "Built-in Mic" },
+						],
+					});
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({
+						presets: ["<caps_lock>", "<f2>", "<f4>"],
+					});
+				case "onboarding_get_model_options":
+					return Promise.resolve({
+						models: opts.models ?? [
+							{
+								name: "small.en",
+								size: "~466MB",
+								speed: "Fast",
+								description: "Small",
+							},
+						],
+					});
+				case "onboarding_check_permissions":
+					return Promise.resolve({
+						platform: "linux",
+						state: "granted",
+						needed: false,
+						instructions: null,
+					});
+				case "onboarding_set_microphone":
+				case "onboarding_set_hotkey":
+				case "onboarding_set_model":
+				case "onboarding_apply":
+				case "onboarding_skip":
+					return Promise.resolve({});
+				default:
+					return Promise.resolve({});
+			}
+		});
+	}
+
+	// S5-CR-105 (a): Hotkey step hint.
+	it("Hotkey step: shows 'Default: CAPS_LOCK' hint when selectedHotkey is the default", async () => {
+		mockStartAtStepWithDefaults(3);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// Wait for the Hotkey step to mount.
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// The hint should be visible (selectedHotkey === HOTKEY_DEFAULT
+		// === "<caps_lock>" because get_config returned no hotkey).
+		const hint = await screen.findByTestId("onboarding-default-hotkey-hint");
+		expect(hint?.textContent).toContain("CAPS_LOCK");
+		expect(hint?.textContent).toContain("Default");
+	});
+
+	it("Hotkey step: hint is suppressed when the user picks a non-default hotkey", async () => {
+		// Simulate a user with a previously-saved non-default hotkey.
+		mockStartAtStepWithDefaults(3, { cfg: { hotkey: "<f4>" } });
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// selectedHotkey === "<f4>" (not HOTKEY_DEFAULT) → no hint.
+		expect(screen.queryByTestId("onboarding-default-hotkey-hint")).toBeNull();
+	});
+
+	// S5-CR-105 (a): Model step hint.
+	it("Model step: shows 'Default: small.en' hint when selectedModel is the default", async () => {
+		mockStartAtStepWithDefaults(4);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		const hint = await screen.findByTestId("onboarding-default-model-hint");
+		expect(hint?.textContent).toContain("small.en");
+		expect(hint?.textContent).toContain("Default");
+	});
+
+	it("Model step: hint is suppressed when the user picks a non-default model", async () => {
+		// Simulate a user with a previously-saved non-default model.
+		mockStartAtStepWithDefaults(4, { cfg: { model_size: "tiny.en" } });
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		expect(screen.queryByTestId("onboarding-default-model-hint")).toBeNull();
+	});
+
+	// S5-CR-105 (a): Microphone step hint.
+	it("Microphone step: shows 'Default: <mic name>' hint when the OS default mic is auto-selected", async () => {
+		mockStartAtStepWithDefaults(1, {
+			microphones: [
+				{ id: "mic-1", name: "Built-in Mic", default: true },
+				{ id: "mic-2", name: "USB Mic" },
+			],
+		});
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(
+				screen.getAllByText("Choose Your Microphone").length,
+			).toBeGreaterThan(0);
+		});
+
+		const hint = await screen.findByTestId("onboarding-default-mic-hint");
+		expect(hint?.textContent).toContain("Built-in Mic");
+		expect(hint?.textContent).toContain("Default");
+	});
+
+	it("Microphone step: hint is suppressed when no default-flagged mic exists", async () => {
+		mockStartAtStepWithDefaults(1, {
+			microphones: [{ id: "mic-1", name: "USB Mic" }],
+		});
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(
+				screen.getAllByText("Choose Your Microphone").length,
+			).toBeGreaterThan(0);
+		});
+
+		// No mic has default: true → wizard auto-selects mic-1 (first
+		// in enumeration order), but no hint is shown because the
+		// pre-selection didn't come from the OS default flag.
+		expect(screen.queryByTestId("onboarding-default-mic-hint")).toBeNull();
+	});
+
+	// S5-CR-105 (b): Continue button validation.
+	it("Model step: Continue is enabled when a model is selected (default or explicit)", async () => {
+		mockStartAtStepWithDefaults(4);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// selectedModel === "small.en" → Continue should be enabled.
+		const continueBtn = await screen.findByRole("button", { name: "Continue" });
+		expect(continueBtn.hasAttribute("disabled")).toBe(false);
+	});
+
+	it("Microphone step: Continue is DISABLED when no microphones are detected", async () => {
+		// Reuse the S2-CR-39 regression: no mics → isMicStepBlocked.
+		// This is the "Continue disabled when no selection" guard
+		// for S5-CR-105 (b): when the user has no mic to select,
+		// Continue is blocked so they can't silently bypass the
+		// step with an empty selection.
+		mockStartAtStepWithDefaults(1, { microphones: [] });
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(
+				screen.getAllByText("Choose Your Microphone").length,
+			).toBeGreaterThan(0);
+		});
+
+		const continueBtn = await screen.findByRole("button", { name: "Continue" });
+		expect(continueBtn.hasAttribute("disabled")).toBe(true);
+	});
+});

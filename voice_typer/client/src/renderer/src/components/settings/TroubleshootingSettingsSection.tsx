@@ -208,6 +208,9 @@ export const TroubleshootingSettingsSection = memo(
 						/>
 						{reRunWizardLabel}
 					</Button>
+					<p className="mt-1 text-xs text-muted-foreground">
+						{t("settings.troubleshooting.reRunWizardHint")}
+					</p>
 					{/* XA-4-9: visually separate the destructive Reset to Defaults
                                                 button from the 5 non-destructive buttons above with a
                                                 top border + padding so users don't click it by accident. */}
@@ -233,6 +236,9 @@ export const TroubleshootingSettingsSection = memo(
 							/>
 							{resetToDefaultsLabel}
 						</Button>
+						<p className="mt-1 text-xs text-muted-foreground">
+							{t("settings.troubleshooting.resetToDefaultsHint")}
+						</p>
 					</div>
 				</div>
 			</SettingsSection>

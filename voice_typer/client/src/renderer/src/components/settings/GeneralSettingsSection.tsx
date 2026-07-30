@@ -231,10 +231,9 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
                                                 S2-CR-32: the "Run Prewarm Now" button lives in
                                                 Settings → Privacy → Troubleshooting → Cache Status
                                                 (PrewarmAndUpdates.tsx), NOT on the About page. The
-                                                `fastStartupDescription` i18n string still references
-                                                the About page — that text needs to be updated in the
-                                                locale JSON files (Agent 12's scope) to match this
-                                                comment. */}
+                                                `fastStartupDescription` i18n string now points users at
+                                                "Settings → Troubleshooting → Cache Status" across all
+                                                8 locale files (en/ar/de/es/fr/hi/ru/zh). */}
 					{isVisible(
 						FAST_STARTUP_LABEL,
 						FAST_STARTUP_INFO,

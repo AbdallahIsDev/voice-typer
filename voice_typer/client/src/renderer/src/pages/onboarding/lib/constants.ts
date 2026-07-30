@@ -16,6 +16,15 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 // (`<caps_lock>`) — previously `<f2>`, which silently overrode the backend.
 export const HOTKEY_DEFAULT = "<caps_lock>";
 
+// S5-CR-105: renderer default model must match
+// `OnboardingController.selected_model` ("small.en") so the wizard can
+// detect "user is accepting the default" and show a "Default: small.en"
+// hint next to the Continue button — mirroring the HOTKEY_DEFAULT hint
+// pattern. If the backend changes its default, this must be updated in
+// lock-step (the Python test `test_onboarding.py::TestOnboardingSelections`
+// asserts the backend default is "small.en").
+export const MODEL_DEFAULT = "small.en";
+
 // Fix 10: 5s → 10s — too short for users still reading the instructions.
 export const TEST_HOTKEY_TIMEOUT_MS = 10_000;
 

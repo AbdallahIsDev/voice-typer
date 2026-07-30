@@ -73,6 +73,14 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Cancel01Icon: make("Cancel01Icon"),
 		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
 		Delete01Icon: make("Delete01Icon"),
+		// S5-CR-103: TroubleshootingSettingsSection renders the destructive
+		// "Reset to Defaults" button with `Delete02Icon` (a distinct trash
+		// glyph) instead of the previous RefreshIcon that was visually
+		// indistinguishable from "Re-run Wizard"'s ArrowTurnBackwardIcon.
+		// The mock MUST export Delete02Icon or the S5-CR-103 regression
+		// test (and the existing Re-run wizard test) crash with
+		// "No 'Delete02Icon' export is defined on the mock".
+		Delete02Icon: make("Delete02Icon"),
 		File02Icon: make("File02Icon"),
 		InformationCircleIcon: make("InformationCircleIcon"),
 		KeyboardIcon: make("KeyboardIcon"),
@@ -511,5 +519,71 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		const payload = lastSetConfigPayload();
 		expect(payload).not.toBeNull();
 		expect(payload).toHaveProperty("onboarding_completed", false);
+	});
+
+	// S5-CR-103 regression test: the destructive "Reset to Defaults" button
+	// MUST render with a distinct trash/delete icon (Delete02Icon), NOT the
+	// same icon as the non-destructive "Re-run setup wizard" button
+	// (ArrowTurnBackwardIcon). The original bug was that both buttons shared
+	// a RefreshIcon — visually identical despite semantically opposite
+	// actions — so users could not tell at a glance which button was
+	// destructive.
+	//
+	// The fix lives in TroubleshootingSettingsSection.tsx (extracted from
+	// the old 1125-line Settings.tsx monolith — see PVT-028). It is verified
+	// here end-to-end via the Settings page render graph (the Privacy tab
+	// mounts TroubleshootingSettingsSection) so a future refactor that
+	// accidentally re-unifies the icons would fail this test.
+	//
+	// The HugeiconsIcon mock (top of file) renders each icon as
+	// `<span data-testid="hugeicon" data-name={icon?.name}>`, so we assert
+	// on `data-name` to pin the exact icon glyph.
+	it("S5-CR-103: Reset to Defaults uses Delete02Icon, distinct from Re-run Wizard's ArrowTurnBackwardIcon", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		render(<SettingsPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Appearance")).toBeTruthy();
+		});
+
+		// The Troubleshooting section lives on the Privacy tab.
+		fireEvent.click(screen.getByText("Privacy"));
+
+		// Wait for both buttons to mount.
+		const resetButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Reset to Defaults" }),
+		);
+		const wizardButton = await waitFor(() =>
+			screen.getByRole("button", { name: "Re-run setup wizard" }),
+		);
+
+		// Each button renders exactly one HugeiconsIcon span (the mock
+		// surfaces the icon name via `data-name`). Query within each
+		// button's subtree so multiple icons in the section don't
+		// contaminate the assertion.
+		const resetIcon = resetButton.querySelector(
+			'[data-testid="hugeicon"]',
+		) as HTMLElement | null;
+		const wizardIcon = wizardButton.querySelector(
+			'[data-testid="hugeicon"]',
+		) as HTMLElement | null;
+
+		expect(resetIcon).toBeTruthy();
+		expect(wizardIcon).toBeTruthy();
+
+		// S5-CR-103: Reset to Defaults MUST use the trash glyph.
+		expect(resetIcon?.getAttribute("data-name")).toBe("Delete02Icon");
+		// Re-run Wizard MUST use the back-arrow glyph (NOT Delete02Icon).
+		expect(wizardIcon?.getAttribute("data-name")).toBe("ArrowTurnBackwardIcon");
+		// Belt-and-braces: the two icons must not be the same glyph.
+		expect(resetIcon?.getAttribute("data-name")).not.toBe(
+			wizardIcon?.getAttribute("data-name"),
+		);
 	});
 });

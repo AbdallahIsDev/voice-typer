@@ -36,6 +36,7 @@ import { usePermissionsProbe } from "./onboarding/hooks/usePermissionsProbe";
 import {
 	DONE_STEP_NAME,
 	HOTKEY_DEFAULT,
+	MODEL_DEFAULT,
 	STEP_TITLE_KEY,
 } from "./onboarding/lib/constants";
 
@@ -165,9 +166,9 @@ export default function OnboardingPage({
 		return (
 			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
 				{/* : use the --destructive design token
-                                        instead of raw red-400/red-50/red-950 so the error card
-                                        follows theme overrides (Dracula, Catppuccin, etc.).
-                                        Matches EmptyState variant="error" styling. */}
+					instead of raw red-400/red-50/red-950 so the error card
+					follows theme overrides (Dracula, Catppuccin, etc.).
+					Matches EmptyState variant="error" styling. */}
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
@@ -234,6 +235,33 @@ export default function OnboardingPage({
 	const hotkeyIsDefault = selectedHotkey === HOTKEY_DEFAULT;
 	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
 	const defaultHotkeyLabel = HOTKEY_DEFAULT.replace(/[<>]/g, "").toUpperCase();
+	// S5-CR-105: mirror the hotkey hint pattern for the Model step.
+	// The wizard pre-selects "small.en" (MODEL_DEFAULT) so the user
+	// can click Continue without touching the Select — but without
+	// a hint, it's not obvious they're accepting a default rather
+	// than an explicit choice. The hint is suppressed once the user
+	// picks a different model.
+	const showDefaultModelHint =
+		step.step_name === "Model" && selectedModel === MODEL_DEFAULT;
+	// S5-CR-105: mirror the hint pattern for the Microphone step.
+	// The wizard auto-selects the OS default input device (mic with
+	// `default: true` from list_microphones). Show a "Default: <name>"
+	// hint so the user knows the pre-selection came from the OS, not
+	// from an explicit choice they made. Suppressed when the user
+	// picks a different mic or when no default-flagged mic exists.
+	const selectedDefaultMic = microphones.find(
+		(m) => m.id === selectedMic && m.default === true,
+	);
+	const showDefaultMicHint =
+		step.step_name === "Microphone" && !!selectedDefaultMic;
+	const defaultMicLabel = selectedDefaultMic?.name ?? "";
+	// S5-CR-105: defensive — disable Continue on the Model step if
+	// no model is selected. In practice `selectedModel` is always
+	// initialized to MODEL_DEFAULT (or pre-loaded from get_config),
+	// so this only fires if the backend returns an empty
+	// `cfg.model_size`. The check ensures the wizard can never
+	// advance to Done with an empty model selection.
+	const isModelStepBlocked = step.step_name === "Model" && !selectedModel;
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center px-6 pt-28 pb-6">
@@ -247,7 +275,7 @@ export default function OnboardingPage({
 						})}
 					</span>
 					{/* BG-12: localize the visible step-name label
-                                            (was raw backend enum string like "Permissions"). */}
+					    (was raw backend enum string like "Permissions"). */}
 					<span>
 						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
 					</span>
@@ -271,10 +299,10 @@ export default function OnboardingPage({
 			</div>
 
 			{/* Fix 14: sr-only page heading. Uses the localized step title
-                                        (was raw `step.step_name` like "Permissions"). The step-
-                                        progress prefix keeps this text distinct from the visible
-                                        per-step heading so `getByText` in tests resolves to a
-                                        single element, and gives screen readers the step context. */}
+					(was raw `step.step_name` like "Permissions"). The step-
+					progress prefix keeps this text distinct from the visible
+					per-step heading so `getByText` in tests resolves to a
+					single element, and gives screen readers the step context. */}
 			<h1 className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -283,10 +311,10 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</h1>
 			{/* : aria-live polite region announces step
-                                transitions to screen-reader users. Without this, the focused
-                                visible heading only contains the step title ("Choose Your
-                                Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
-                                Status Changes (Level AA). */}
+				transitions to screen-reader users. Without this, the focused
+				visible heading only contains the step title ("Choose Your
+				Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
+				Status Changes (Level AA). */}
 			<div aria-live="polite" className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -347,15 +375,15 @@ export default function OnboardingPage({
 				)}
 
 				{/* S2-CR-8: voice_biometric_consent gate on the
-                                        Done step. ADR 0016 §PRIV-009 specifies the consent
-                                        UI location as "First-run onboarding". The wizard
-                                        previously had no consent prompt, so every first-run
-                                        user who pressed their hotkey was refused by
-                                        recording_controller (NEW-PRIV-009) with only a tray
-                                        notification — leading to massive first-run drop-off.
-                                        The checkbox persists voice_biometric_consent AND
-                                        huggingface_consent (the latter is required because
-                                        the first hotkey press triggers a model download). */}
+					Done step. ADR 0016 §PRIV-009 specifies the consent
+					UI location as "First-run onboarding". The wizard
+					previously had no consent prompt, so every first-run
+					user who pressed their hotkey was refused by
+					recording_controller (NEW-PRIV-009) with only a tray
+					notification — leading to massive first-run drop-off.
+					The checkbox persists voice_biometric_consent AND
+					huggingface_consent (the latter is required because
+					the first hotkey press triggers a model download). */}
 				{isDoneStep && (
 					<div
 						className="mt-6 rounded-lg border border-border bg-(--bg-subtle) p-4"
@@ -379,10 +407,10 @@ export default function OnboardingPage({
 									{t("settings.voiceBiometricProcessingInfo")}
 								</span>
 								{/* HuggingFace consent is auto-granted
-                                                                        alongside voice biometric consent. Surfaced
-                                                                        here so the user knows both flags are being
-                                                                        set; revoke individually in Settings →
-                                                                        Privacy. */}
+									alongside voice biometric consent. Surfaced
+									here so the user knows both flags are being
+									set; revoke individually in Settings →
+									Privacy. */}
 								<span className="mt-1 block text-xs text-(--text-muted)">
 									{t("settings.huggingFaceDownloads")}
 								</span>
@@ -392,21 +420,21 @@ export default function OnboardingPage({
 				)}
 
 				{/* S2-CR-40: download progress feedback. The
-                                        wizard's "Get Started" click triggers
-                                        onboarding_apply → model load (which may
-                                        download 466 MB–1.5 GB on first run).
-                                        Previously the user saw only a tray
-                                        status string and a "Setup complete!"
-                                        snack — no in-wizard progress. While we
-                                        cannot show a byte-level progress bar
-                                        without backend event_bus changes
-                                        (service.download_model path), we can at
-                                        least render an inline "loading model…"
-                                        status so the user knows the app is
-                                        alive and what to expect. Reuses the
-                                        existing `onboarding.setupCompleteSnack`
-                                        i18n key ("Setup complete! Loading your
-                                        model..."). */}
+					wizard's "Get Started" click triggers
+					onboarding_apply → model load (which may
+					download 466 MB–1.5 GB on first run).
+					Previously the user saw only a tray
+					status string and a "Setup complete!"
+					snack — no in-wizard progress. While we
+					cannot show a byte-level progress bar
+					without backend event_bus changes
+					(service.download_model path), we can at
+					least render an inline "loading model…"
+					status so the user knows the app is
+					alive and what to expect. Reuses the
+					existing `onboarding.setupCompleteSnack`
+					i18n key ("Setup complete! Loading your
+					model..."). */}
 				{isDoneStep && submitting && (
 					<output
 						className="mt-4 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm text-(--text-secondary)"
@@ -433,21 +461,53 @@ export default function OnboardingPage({
 					</div>
 					<div className="flex flex-col items-end gap-1">
 						{/* S5-CR-105: subtle "Default: <hotkey>"
-                                                        hint shown on the Hotkey step when the user
-                                                        hasn't changed the Select. Makes it clear
-                                                        they're accepting a default rather than
-                                                        explicitly choosing — addresses the
-                                                        "Continue button always enabled with no
-                                                        validation" concern without blocking
-                                                        advancement (the default is a valid
-                                                        choice). Reuses the existing
-                                                        `theme.preset.default` key ("Default"). */}
+							hint shown on the Hotkey step when the user
+							hasn't changed the Select. Makes it clear
+							they're accepting a default rather than
+							explicitly choosing — addresses the
+							"Continue button always enabled with no
+							validation" concern without blocking
+							advancement (the default is a valid
+							choice). Reuses the existing
+							`theme.preset.default` key ("Default"). */}
 						{showDefaultHotkeyHint && (
 							<span
 								className="text-xs text-(--text-muted)"
 								data-testid="onboarding-default-hotkey-hint"
 							>
 								{t("theme.preset.default")}: {defaultHotkeyLabel}
+							</span>
+						)}
+						{/* S5-CR-105: mirror the hotkey hint for the
+							Model step. The wizard pre-selects
+							"small.en" (MODEL_DEFAULT); this hint makes
+							that pre-selection visible so the user
+							knows they're accepting the recommended
+							default rather than explicitly choosing. */}
+						{showDefaultModelHint && (
+							<span
+								className="text-xs text-(--text-muted)"
+								data-testid="onboarding-default-model-hint"
+							>
+								{t("theme.preset.default")}: {MODEL_DEFAULT}
+							</span>
+						)}
+						{/* S5-CR-105: mirror the hint for the
+							Microphone step. The wizard auto-selects
+							the OS default input device (mic with
+							`default: true`); this hint surfaces that
+							the pre-selection came from the OS rather
+							than an explicit user choice. Reuses the
+							existing `onboarding.defaultMic` key
+							("Default") for consistency with the
+							per-option "Default" badge in
+							MicrophoneStep.tsx. */}
+						{showDefaultMicHint && (
+							<span
+								className="text-xs text-(--text-muted)"
+								data-testid="onboarding-default-mic-hint"
+							>
+								{t("onboarding.defaultMic")}: {defaultMicLabel}
 							</span>
 						)}
 						<div className="flex items-center gap-2">
@@ -470,7 +530,8 @@ export default function OnboardingPage({
 									submitting ||
 									isPermissionsBlocked ||
 									isConsentBlocked ||
-									isMicStepBlocked
+									isMicStepBlocked ||
+									isModelStepBlocked
 								}
 								aria-label={
 									isDoneStep
