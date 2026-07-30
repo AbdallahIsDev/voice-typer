@@ -7,6 +7,7 @@ the apply-settings flow that mirrors ``set_config``.
 
 import logging
 
+from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -237,7 +238,16 @@ class OnboardingMixin(ServiceMixinBase):
 
             return {"ok": True}
         except Exception as exc:
-            return {"error": str(exc)}
+            # XZ-EH-002: redact exc string before returning to IPC layer.
+            # Sister service methods (delete_model, test_llm_connection,
+            # export_diagnostics, export_gdpr_bundle, force_cancel_transcription,
+            # get_volume_backend_status) all wrap str(exc) with
+            # redact_secret(redact_url(...)) to avoid leaking secrets / URLs /
+            # file paths via the renderer. The handler
+            # (onboarding_handlers.py) passes the dict straight to the renderer.
+            redacted = redact_secret(redact_url(str(exc)))
+            log.error("[SERVICE] onboarding_apply failed: %s", redacted)
+            return {"error": redacted}
 
     def onboarding_get_microphones(self) -> dict:
         """Get available microphones for the onboarding wizard."""

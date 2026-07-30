@@ -674,3 +674,80 @@ def test_delete_all_personal_data_erases_all_xz_sec_03_artifacts(tmp_path) -> No
             assert not path.exists(), f"{name} survived GDPR delete — XZ-SEC-03 regression."
     finally:
         mp.undo()
+
+
+def test_delete_all_personal_data_erases_config_backup_classes_xe_10_4(tmp_path) -> None:
+    """XE-10-4: four config-backup file classes must be erased by
+    GDPR Art. 17 delete.
+
+    Pre-XE-10-4, ``_GDPR_PERSONAL_GLOBS`` listed only
+    ``config.json.bak`` (single-slot) and missed the four
+    timestamped/versioned config-backup file classes:
+
+      * ``config.json.v<N>-<ts>-<pid>-<ns>.bak`` (downgrade backup)
+      * ``config.json.v<N>.bak`` (legacy single-slot downgrade backup)
+      * ``config.json.pre-migration-v<N>-<ts>-<pid>-<ns>.bak``
+        (pre-migration backup)
+      * ``config.json.bak.failed-migration-<ts>-to-v<N>`` (failed-migration)
+      * ``config.json.corrupt-<ts>-<pid>-<ns>`` (corrupt-quarantine)
+
+    All contain full on-disk config.json including plaintext API keys
+    (when keyring is unavailable). Surviving GDPR delete is a direct
+    Art. 17 violation.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        secret_payload = json.dumps({"openai_api_key": "sk-xe-10-4-secret"})
+        backup_paths = [
+            tmp_path / "config.json.v5-1785432251-20197-511458.bak",
+            tmp_path / "config.json.v5.bak",
+            tmp_path / "config.json.pre-migration-v4-1785432251-20197-511458.bak",
+            tmp_path / "config.json.bak.failed-migration-1785432251-to-v5",
+            tmp_path / "config.json.corrupt-1785432251-20197-511458",
+        ]
+        for p in backup_paths:
+            p.write_text(secret_payload)
+            assert p.exists(), f"setup failed: {p}"
+
+        svc.delete_all_personal_data()
+
+        for p in backup_paths:
+            assert not p.exists(), (
+                f"XE-10-4 regression: {p.name} survived GDPR delete — "
+                f"plaintext API keys remain on disk (GDPR Art. 17 "
+                f"violation)."
+            )
+    finally:
+        mp.undo()
+
+
+def test_delete_all_personal_data_erases_history_pre_migration_bak_xe_6_3(tmp_path) -> None:
+    """XE-6-3: ``history.db.pre-migration-v*`` must be erased by GDPR
+    Art. 17 delete.
+
+    Pre-XE-6-3, ``_GDPR_PERSONAL_GLOBS`` listed ``history.db.corrupt-*``
+    (XZ-SEC-03) but missed ``history.db.pre-migration-v*.bak`` — a
+    byte-for-byte copy of the full history DB made by
+    ``HistoryDB._backup_before_migration`` before schema migration,
+    containing all dictated text in plaintext. Surviving GDPR delete is
+    a direct Art. 17 violation.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "delete_all_personal_data"):
+            pytest.skip("Fix-D not yet landed")
+        backup_path = tmp_path / "history.db.pre-migration-v2-1785432251-20197-511458.bak"
+        backup_path.write_bytes(b"sqlite plaintext dictated text from v2 migration")
+        assert backup_path.exists()
+
+        svc.delete_all_personal_data()
+
+        assert not backup_path.exists(), (
+            f"XE-6-3 regression: {backup_path.name} survived GDPR delete — "
+            f"plaintext dictated text remains on disk (GDPR Art. 17 "
+            f"violation)."
+        )
+    finally:
+        mp.undo()

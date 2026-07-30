@@ -491,6 +491,24 @@ def _reset_keyring_cache() -> None:
     _keyring_reason_cache = None
 
 
+def _clear_plaintext_config_cache() -> None:
+    """Drop the cached parsed ``config.json`` dict.
+
+    DJ-24 (G4-CR-05): the module-level :data:`_plaintext_config_cache`
+    holds the parsed config dict (which may contain plaintext API keys
+    when keyring is unavailable). GDPR Art. 17 ``delete_all_personal_data``
+    zeroes the on-disk + in-memory Config attributes via
+    :func:`delete_secret` / :func:`clear_in_memory_secrets`, but without
+    this helper the stale parsed dict would persist in process memory
+    until the next restart — a memory dump taken between the delete and
+    the next restart would still contain the plaintext secrets. Called
+    from :func:`delete_secret` (after the on-disk write) and from
+    :func:`clear_in_memory_secrets` (after the in-memory attribute
+    zeroing) so every GDPR-delete path invalidates the cache.
+    """
+    _plaintext_config_cache.clear()
+
+
 def get_keyring_status() -> dict[str, Any]:
     """Return a status dict describing the current keyring backend.
 
@@ -788,6 +806,10 @@ def delete_secret(provider: str, config: Any = None) -> None:
     # Also clear from config.json (plaintext fallback or stale reference)
     try:
         _write_plaintext_fallback(provider, "")
+        # DJ-24 (G4-CR-05): invalidate the parsed-config cache so the
+        # stale dict (which may still contain the plaintext key) is not
+        # retained in process memory after the GDPR delete.
+        _clear_plaintext_config_cache()
     except Exception as e:
         # PVT-G5-046 (session-5): a failure here means the plaintext
         # credential is STILL on disk — the opposite of what the user
@@ -857,6 +879,27 @@ def clear_in_memory_secrets(config: Any) -> int:
                 provider,
                 _redact_sensitive(str(e)),
             )
+    # DJ-24 (G4-CR-05): invalidate the parsed-config cache so the
+    # stale dict (which may still contain plaintext API keys) is not
+    # retained in process memory after the GDPR delete.
+    _clear_plaintext_config_cache()
+    # DJ-25 (G4-CR-05): ``Config._last_saved_bytes`` is the serialized
+    # JSON byte cache populated by ``Config.save()``. It includes the
+    # plaintext API key fields whenever keyring is unavailable (the
+    # keyring replacement of value -> 'keyring://<provider>' only
+    # happens when ``is_keyring_available()`` is True). The setattr
+    # loop above does NOT touch this cache, so the plaintext bytes
+    # would survive the GDPR delete until the next successful save()
+    # (which may be never if the user does not change settings again).
+    # ``object.__setattr__`` is used because ``Config`` is a frozen-ish
+    # dataclass whose ``__setattr__`` raises on private-name writes.
+    try:
+        object.__setattr__(config, "_last_saved_bytes", None)
+    except Exception as e:
+        log.debug(
+            "[CREDENTIAL_STORE] clear_in_memory_secrets: failed to clear _last_saved_bytes: %s",
+            _redact_sensitive(str(e)),
+        )
     return cleared
 
 

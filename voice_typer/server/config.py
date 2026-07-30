@@ -286,6 +286,14 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
     # patterns: ``config.json.bak``, ``config.json.v<N>.bak``,
     # ``config.json.pre-migration-v<N>.bak``,
     # ``config.json.corrupt-<ts>``.
+    #
+    # XE-6-3 (Medium): also sweep ``history.db.pre-migration-v*`` —
+    # ``HistoryDB._backup_before_migration`` creates a byte-for-byte
+    # copy of the full history DB before schema migration, containing
+    # all dictated text in plaintext. Pre-XE-6-3 this file survived
+    # ``purge_user_data`` (the loop only matched ``history.db.corrupt-*``)
+    # — a GDPR Art. 17 gap mirroring the ``history.db.corrupt-*`` issue
+    # fixed by XZ-SEC-03.
     if base.exists():
         for entry in base.iterdir():
             name = entry.name
@@ -294,6 +302,7 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
             if not (
                 name.startswith("config.json.")
                 or name.startswith("history.db.corrupt-")
+                or name.startswith("history.db.pre-migration-v")
                 or name.startswith("crash_recovery.json.corrupt-")
             ):
                 continue
@@ -1934,11 +1943,24 @@ class Config:
 
         This method copies the on-disk ``config.json`` (NOT the in-memory
         ``data`` — the on-disk bytes still have all the higher-version
-        fields) to ``config.json.v{loaded_version}.bak`` (single-slot —
-        a second downgrade from the same version overwrites the first
-        backup, which is acceptable because the on-disk file at that
-        point is already the older build's view and contains no new
-        information to preserve).
+        fields) to a timestamped ``config.json.v{loaded_version}-{ts}-{pid}-{ns}.bak``
+        so two backup events never collide.
+
+        XE-10-1 (High): previously the filename was single-slot
+        ``config.json.v{loaded_version}.bak`` (no timestamp/PID) and
+        ``_backup_before_downgrade`` was called UNCONDITIONALLY on every
+        load meeting the version condition. After the first downgrade
+        load (backup captures original high-version config), any
+        ``Config.save()`` writes the degraded config (schema_version=N
+        but MISSING all v{N} fields) to ``config.json``. On next
+        restart, ``load()`` sees ``loaded_version=N > current``, calls
+        ``_backup_before_downgrade`` AGAIN, reads the DEGRADED on-disk
+        file, and overwrites ``config.json.v{N}.bak`` with degraded
+        content — destroying the original v{N} fields. The fix mirrors
+        ``_backup_before_migration``: embed timestamp + PID +
+        sub-second nanoseconds in the filename and prune to keep=3 so
+        the original high-version backup survives subsequent degraded
+        loads.
 
         Also appends a non-blocking warning to ``data["_load_warnings"]``
         so the renderer can surface it via ``last_load_warnings`` — the
@@ -1952,7 +1974,19 @@ class Config:
         """
         if not isinstance(loaded_version, int):
             return
-        versioned_bak = config_file.parent / f"config.json.v{loaded_version}.bak"
+        # XE-10-1: embed schema version + epoch seconds + PID +
+        # sub-second nanoseconds in the filename so two backup events
+        # never collide (even within the same second from different
+        # processes — e.g. two app instances launched in parallel
+        # against the same user account during a downgrade). Mirrors
+        # ``_backup_before_migration`` at line 1879.
+        ts_sec = int(time.time())
+        pid = os.getpid()
+        ts_ns = time.time_ns() % 1_000_000
+        versioned_bak = (
+            config_file.parent
+            / f"config.json.v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
+        )
         # FR-23: use the secure read/write helpers (O_NOFOLLOW + atomic
         # os.replace + fsync + 0o600) instead of ``shutil.copy2``.
         # ``shutil.copy2`` is (a) non-atomic (file-by-file copy — an
@@ -1997,6 +2031,26 @@ class Config:
                 f"supports ({_CURRENT_SCHEMA_VERSION}). Unknown fields were dropped. "
                 f"WARNING: backup of the original file failed ({e}) — downgrading and "
                 f"saving will irrecoverably lose the higher-version fields."
+            )
+            return
+        # XE-10-1: cap retained versioned-downgrade backups to 3
+        # (oldest pruned) so the directory doesn't grow unbounded
+        # across many version bumps + restart cycles. Mirrors the
+        # ``_backup_before_migration`` prune call. The prefix
+        # ``config.json.v`` matches BOTH the old single-slot
+        # ``config.json.v<N>.bak`` (kept for backward-compat with
+        # existing on-disk backups from pre-XE-10-1 builds) AND the new
+        # timestamped ``config.json.v<N>-<ts>-<pid>-<ns>.bak``.
+        try:
+            _prune_kept_backups(
+                config_file.parent,
+                prefix="config.json.v",
+                keep=3,
+            )
+        except OSError as prune_exc:
+            log.debug(
+                "[CONFIG] failed to prune old versioned-downgrade backups: %s",
+                prune_exc,
             )
 
     @classmethod

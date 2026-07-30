@@ -195,22 +195,32 @@ def test_first_save_with_existing_file_reads_once_to_populate_cache(
     On the very first save after instantiation (no prior load), if
     the file exists on disk, the cache must be populated by reading
     the file once. Subsequent saves use the cache.
+
+    XE-8-A (Option b): patches ``_secure_read_text`` (the actual read
+    helper used by ``PersistedJSON.save``) instead of ``Path.read_bytes``
+    (which ``_secure_read_text`` does NOT call — it uses ``os.open`` +
+    ``os.fdopen``). The previous version patched ``Path.read_bytes`` and
+    was vacuously failing because the patch was never invoked.
     """
+    from voice_typer.server import secure_file_io
+
     path = tmp_path / "existing.json"
     # Pre-write so the file exists.
     path.write_text(json.dumps({"pre": "existing"}, indent=2), encoding="utf-8")
 
     store = PersistedJSON(path, default={})  # No load() called.
 
-    real_read_bytes = Path.read_bytes
+    real_read = secure_file_io._secure_read_text
     read_calls: list[Path] = []
 
-    def counting_read_bytes(self: Path) -> bytes:
-        read_calls.append(self)
-        return real_read_bytes(self)
+    def counting_read(p, *args, **kwargs):
+        read_calls.append(Path(p))
+        return real_read(p, *args, **kwargs)
 
-    with patch.object(Path, "read_bytes", counting_read_bytes):
-        # First save: cache is cold, file exists → read once.
+    with patch.object(secure_file_io, "_secure_read_text", counting_read):
+        # First save: cache is cold, file exists → read once (via the
+        # .bak-diff path, which reads the existing file to decide whether
+        # a .bak write is needed).
         store.save({"pre": "existing"})  # Same content as on-disk.
         reads_after_first = [p for p in read_calls if p == store.path]
 

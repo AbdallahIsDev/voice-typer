@@ -164,6 +164,40 @@ class PrivacyMixin(ServiceMixinBase):
         "voice-typer-diagnostics-*.zip",
         # XZ-SEC-03: gdpr-export-*.zip contains user full personal data
         "gdpr-export-*.zip",
+        # XE-10-4 (High): four config-backup file classes ALL contain
+        # full on-disk config.json including plaintext API keys (when
+        # keyring is unavailable). Pre-XE-10-4 these survived GDPR
+        # Art. 17 delete — a direct right-to-erasure violation.
+        #
+        # ``config.json.v*.bak`` — versioned-downgrade backups from
+        # ``Config._backup_before_downgrade`` (XE-10-1 made the
+        # filename timestamped: ``config.json.v{N}-{ts}-{pid}-{ns}.bak``,
+        # but the glob ``config.json.v*.bak`` also catches the legacy
+        # single-slot ``config.json.v{N}.bak`` from pre-XE-10-1 builds).
+        #
+        # ``config.json.pre-migration-v*.bak`` — pre-migration backups
+        # from ``Config._backup_before_migration`` (timestamped:
+        # ``config.json.pre-migration-v{N}-{ts}-{pid}-{ns}.bak``).
+        #
+        # ``config.json.bak.failed-migration-*`` — failed-migration
+        # backups from ``config_internals/migrations.py:_run_migrations``
+        # (timestamped: ``config.json.bak.failed-migration-{ts}-to-v{N}``).
+        #
+        # ``config.json.corrupt-*`` — corrupt-quarantine backups from
+        # ``Config.load`` (timestamped:
+        # ``config.json.corrupt-{ts}-{pid}-{ns}``).
+        "config.json.v*.bak",
+        "config.json.pre-migration-v*.bak",
+        "config.json.bak.failed-migration-*",
+        "config.json.corrupt-*",
+        # XE-6-3 (Medium): history.db.pre-migration-v* is a
+        # byte-for-byte copy of the full history DB made by
+        # ``HistoryDB._backup_before_migration`` before schema
+        # migration. Contains all dictated text in plaintext. Pre-
+        # XE-6-3 this survived GDPR Art. 17 delete — same gap as
+        # ``history.db.corrupt-*`` (XZ-SEC-03) which was already
+        # covered.
+        "history.db.pre-migration-v*",
     )
 
     # ── Privacy / GDPR (CR-87 / CR-88) ───────────────────────────────

@@ -139,7 +139,18 @@ _BATCH_INSERT_CAP = 100
 # trigger the multi-row INSERT path. Below this threshold each row is
 # inserted individually (the per-transaction overhead saving doesn't
 # justify the multi-row SQL construction for 1-2 rows).
-_BATCH_INSERT_MIN = 3
+#
+# DJ-56: lowered from 3 to 1 so even single-row insertions use the
+# multi-row INSERT path (one INSERT + one COMMIT per batch). The
+# original threshold of 3 meant that for typical user dictation (one
+# phrase, then a pause), the queue drained to 1 item every time and
+# the batching optimization never engaged. With MIN=1, the multi-row
+# path is taken for batches of 1+; for 2-row batches this collapses
+# two separate INSERT+COMMIT cycles into one (1 COMMIT instead of 2).
+# Per-row overhead is identical for 1-row batches (both paths do 1
+# INSERT + 1 COMMIT), so the change is a pure simplification with no
+# regression for the single-row case.
+_BATCH_INSERT_MIN = 1
 
 # TY-20: TTL (seconds) for the get_history_count cache.
 _HISTORY_COUNT_CACHE_TTL_S = 60.0
@@ -264,6 +275,140 @@ class HistoryDBError(RuntimeError):
 # ``history_db_internals.schema.init_schema`` reads, so in-place
 # mutation (e.g. ``unittest.mock.patch.dict``) is observed by the
 # schema initializer.
+
+
+def _secure_copy_db_file(src: Path, dst: Path) -> None:
+    """FR-8: symlink-safe, fsync-on-write binary file copy.
+
+    Replaces ``shutil.copy2`` in ``_backup_before_migration`` (and
+    other DB-sidecar backup paths). ``shutil.copy2`` follows symlinks on
+    BOTH source and destination:
+
+    - If ``src`` is a symlink planted by an attacker, ``copy2`` reads
+      the symlink TARGET's content (info disclosure).
+    - If ``dst`` is a symlink planted by an attacker, ``copy2`` writes
+      THROUGH it to the symlink target (backup hijack / data destruction).
+
+    This helper refuses both: on POSIX it opens ``src`` with
+    ``O_RDONLY | O_NOFOLLOW`` and ``dst`` with
+    ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (mode ``0o600``);
+    on Windows it rejects reparse points via ``os.lstat`` before
+    falling back to a regular binary copy. After the copy it
+    ``fsync``s the destination fd so the backup is durable.
+    """
+    import shutil
+
+    if not is_windows():
+        # POSIX: O_NOFOLLOW on both source and destination.
+        src_fd = -1
+        dst_fd = -1
+        try:
+            src_fd = os.open(str(src), os.O_RDONLY | os.O_NOFOLLOW)
+            dst_fd = os.open(
+                str(dst),
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                0o600,
+            )
+            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(
+                dst_fd, "wb", closefd=False
+            ) as f_dst:
+                shutil.copyfileobj(f_src, f_dst)
+                f_dst.flush()
+                os.fsync(f_dst.fileno())
+        finally:
+            if src_fd != -1:
+                with contextlib.suppress(OSError):
+                    os.close(src_fd)
+            if dst_fd != -1:
+                with contextlib.suppress(OSError):
+                    os.close(dst_fd)
+    else:
+        # Windows: O_NOFOLLOW is not supported. Reject reparse points
+        # explicitly via os.lstat (mirrors ``_secure_read_text``'s
+        # Windows branch) and fall back to a regular binary copy with
+        # fsync.
+        for p in (src, dst):
+            try:
+                attrs = (
+                    getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
+                )
+            except (AttributeError, OSError):
+                attrs = 0
+            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
+                raise OSError(
+                    f"FR-8: refusing to follow reparse point during copy: {p}"
+                )
+        with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
+            shutil.copyfileobj(f_src, f_dst)
+            f_dst.flush()
+            os.fsync(f_dst.fileno())
+
+
+def _secure_copy_db_file(src: Path, dst: Path) -> None:
+    """FR-8: symlink-safe, fsync-on-write binary file copy.
+
+    Replaces ``shutil.copy2`` in ``_backup_before_migration`` (and
+    other DB-sidecar backup paths). ``shutil.copy2`` follows symlinks on
+    BOTH source and destination:
+
+    - If ``src`` is a symlink planted by an attacker, ``copy2`` reads
+      the symlink TARGET's content (info disclosure).
+    - If ``dst`` is a symlink planted by an attacker, ``copy2`` writes
+      THROUGH it to the symlink target (backup hijack / data destruction).
+
+    This helper refuses both: on POSIX it opens ``src`` with
+    ``O_RDONLY | O_NOFOLLOW`` and ``dst`` with
+    ``O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW`` (mode ``0o600``);
+    on Windows it rejects reparse points via ``os.lstat`` before
+    falling back to a regular binary copy. After the copy it
+    ``fsync``s the destination fd so the backup is durable.
+    """
+    import shutil
+
+    if not is_windows():
+        # POSIX: O_NOFOLLOW on both source and destination.
+        src_fd = -1
+        dst_fd = -1
+        try:
+            src_fd = os.open(str(src), os.O_RDONLY | os.O_NOFOLLOW)
+            dst_fd = os.open(
+                str(dst),
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                0o600,
+            )
+            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(
+                dst_fd, "wb", closefd=False
+            ) as f_dst:
+                shutil.copyfileobj(f_src, f_dst)
+                f_dst.flush()
+                os.fsync(f_dst.fileno())
+        finally:
+            if src_fd != -1:
+                with contextlib.suppress(OSError):
+                    os.close(src_fd)
+            if dst_fd != -1:
+                with contextlib.suppress(OSError):
+                    os.close(dst_fd)
+    else:
+        # Windows: O_NOFOLLOW is not supported. Reject reparse points
+        # explicitly via os.lstat (mirrors ``_secure_read_text``'s
+        # Windows branch) and fall back to a regular binary copy with
+        # fsync.
+        for p in (src, dst):
+            try:
+                attrs = (
+                    getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
+                )
+            except (AttributeError, OSError):
+                attrs = 0
+            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
+                raise OSError(
+                    f"FR-8: refusing to follow reparse point during copy: {p}"
+                )
+        with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
+            shutil.copyfileobj(f_src, f_dst)
+            f_dst.flush()
+            os.fsync(f_dst.fileno())
 
 
 def _prepare_like_search_pattern(query: str) -> str:
@@ -398,6 +543,15 @@ class HistoryDB:
         # 20 MB read connection that's never released until close().
         self._all_read_connections: list[tuple[int, sqlite3.Connection]] = []
         self._connections_lock = threading.Lock()
+        # XE-9-D: generation counter bumped on corruption-recovery
+        # read-connection invalidation. Each thread-local read
+        # connection remembers the generation it was opened at; if
+        # the counter bumps (because the corrupt DB was renamed and a
+        # fresh DB opened), the next ``_get_read_conn`` call closes
+        # the stale conn and opens a new one on the fresh file.
+        # Without this, POSIX open FDs would keep pointing at the
+        # renamed (corrupt) file and readers would return stale data.
+        self._read_conn_generation: int = 0
         # Write queue: items are (callable, future) tuples, OR
         # _BatchableInsert instances (ER-78), OR the _SHUTDOWN_SENTINEL
         # to ask the writer to exit. ``future`` is None for
@@ -452,6 +606,20 @@ class HistoryDB:
         # diagnostics and paired with an ``event_bus`` event so the
         # renderer can show a toast.
         self._fts5_rebuild_failures: int = 0
+        # DJ-19: periodic prune daemon for ``_all_read_connections``.
+        # Pre-fix, ``_prune_dead_read_connections_locked`` was REACTIVE
+        # — only fired when a NEW connection was created on a thread
+        # that didn't already have one. If N threads each created a
+        # read connection, then died, and NO new thread created a
+        # connection afterward, the N dead-thread connections (each
+        # 2 MB page cache post-AB-27; 20 MB pre-AB-27) sat in
+        # ``_all_read_connections`` until the next ``_get_read_conn``
+        # call from a fresh thread. The periodic prune walks the list
+        # every 60s and closes connections whose owning thread has
+        # exited, bounding the leak window to 60s regardless of new
+        # read-conn churn.
+        self._read_conn_prune_stop_event: threading.Event | None = None
+        self._read_conn_prune_thread: threading.Thread | None = None
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -481,6 +649,78 @@ class HistoryDB:
         # writer thread from accumulating across the full pytest run and
         # crashing the process on Windows via native thread-limit exhaustion).
         _LIVE_INSTANCES.add(self)
+        # DJ-19: start the periodic prune daemon (best-effort —
+        # failures are logged + swallowed so a healthy DB never fails
+        # to construct just because the prune thread couldn't start).
+        with contextlib.suppress(Exception):
+            self._start_periodic_read_conn_prune()
+
+    # ──────────────────────────────────────────────────────────────
+    # Periodic read-conn prune (DJ-19)
+    # ──────────────────────────────────────────────────────────────
+
+    _READ_CONN_PRUNE_INTERVAL_S: float = 60.0
+
+    def _start_periodic_read_conn_prune(self) -> None:
+        """DJ-19: start a daemon thread that periodically prunes dead
+        read connections from ``_all_read_connections``.
+
+        Pre-fix, ``_prune_dead_read_connections_locked`` only fired when
+        a NEW connection was created on a thread that didn't already
+        have one — purely reactive. If N threads each created a read
+        connection then died, and NO new thread created a connection
+        afterward, the N dead-thread connections (each 2 MB page cache
+        post-AB-27) sat in ``_all_read_connections`` until the next
+        ``_get_read_conn`` call from a fresh thread.
+
+        The periodic prune walks the list every
+        ``_READ_CONN_PRUNE_INTERVAL_S`` (60s) and closes connections
+        whose owning thread has exited. This bounds the leak window to
+        60s regardless of new-thread read-conn churn.
+
+        Idempotent — if a prune thread is already running, the call is
+        a no-op. Tests can shorten the interval by patching
+        ``_READ_CONN_PRUNE_INTERVAL_S``.
+        """
+        if self._read_conn_prune_thread is not None and self._read_conn_prune_thread.is_alive():
+            return
+        self._read_conn_prune_stop_event = threading.Event()
+        self._read_conn_prune_thread = threading.Thread(
+            target=self._periodic_read_conn_prune_loop,
+            name="HistoryDBReadConnPrune",
+            daemon=True,
+        )
+        self._read_conn_prune_thread.start()
+
+    def _stop_periodic_read_conn_prune(self) -> None:
+        """DJ-19: stop the periodic prune daemon (called by close())."""
+        evt = self._read_conn_prune_stop_event
+        thread = self._read_conn_prune_thread
+        if evt is not None:
+            evt.set()
+        if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=2.0)
+        self._read_conn_prune_thread = None
+        self._read_conn_prune_stop_event = None
+
+    def _periodic_read_conn_prune_loop(self) -> None:
+        """DJ-19: the periodic prune loop body. Runs on a daemon thread."""
+        evt = self._read_conn_prune_stop_event
+        if evt is None:
+            return
+        interval = self._READ_CONN_PRUNE_INTERVAL_S
+        while not evt.is_set():
+            # Wait for the interval or the stop signal, whichever first.
+            if evt.wait(timeout=interval):
+                return
+            try:
+                with self._connections_lock:
+                    self._prune_dead_read_connections_locked()
+            except Exception:
+                log.debug(
+                    "[HISTORY_DB] DJ-19 periodic read-conn prune failed (non-fatal)",
+                    exc_info=True,
+                )
 
     # ──────────────────────────────────────────────────────────────
     # Writer thread
@@ -964,30 +1204,33 @@ class HistoryDB:
         failure), the second backup would overwrite the first —
         acceptable because the first backup was of the same DB state.
 
-        The copy uses ``shutil.copy2`` (preserves mtime/mode) which
-        is the closest Python equivalent to the Rust
-        ``atomic_copy`` helper (``src-tauri/src/migrate.rs:476``).
-        ``copy2`` is NOT atomic (it reads + writes), but for a
-        best-effort pre-migration backup the simplicity outweighs
-        atomicity — a crash mid-copy leaves a partial .bak file,
-        which the user can detect by size and discard.
+        FR-8: the copy uses ``_secure_copy_db_file``
+        (``O_NOFOLLOW`` on both source and destination, ``0o600`` on
+        the destination, ``fsync`` after write). This replaces the
+        previous ``shutil.copy2`` call which followed symlinks on
+        BOTH source and destination (a symlink-planting attacker
+        could redirect the backup to an arbitrary file or read an
+        arbitrary file's content into the backup location) and had
+        no ``fsync``. The destination is created with mode ``0o600``
+        on POSIX so the backup is not world-readable (the main DB
+        file is also ``0o600``).
         """
-        import shutil
-
         try:
             bak_main = self.db_path.with_name(f"{self.db_path.name}.pre-migration-v{current_version}.bak")
-            # Copy the main DB file. ``copy2`` preserves mtime/mode.
+            # FR-8: copy the main DB file via the secure helper
+            # (O_NOFOLLOW on src+dst, 0o600 on dst, fsync).
             if self.db_path.exists():
-                shutil.copy2(str(self.db_path), str(bak_main))
+                _secure_copy_db_file(self.db_path, bak_main)
             # Copy the -wal and -shm sidecars if they exist (WAL mode).
             # These hold uncheckpointed pages that would otherwise be
             # lost — including them makes the backup a complete
-            # restorable snapshot.
+            # restorable snapshot. FR-8: routed through the same
+            # symlink-safe helper.
             for sidecar in ("-wal", "-shm"):
                 src = self.db_path.with_name(self.db_path.name + sidecar)
                 if src.exists():
                     dst = bak_main.with_name(bak_main.name + sidecar)
-                    shutil.copy2(str(src), str(dst))
+                    _secure_copy_db_file(src, dst)
             log.info(
                 "[HISTORY_DB] Pre-migration backup created: %s (from schema v%d)",
                 bak_main.name,
@@ -1065,6 +1308,28 @@ class HistoryDB:
             "[HISTORY_DB] Renamed corrupt DB to %s",
             corrupt_main,
         )
+        # XE-9-D: invalidate all existing read connections. On POSIX,
+        # renaming the corrupt DB file doesn't affect already-open
+        # file descriptors — readers would keep reading stale/garbage
+        # data from the renamed file. Close every tracked read conn
+        # and bump the generation counter so each reader thread's
+        # next ``_get_read_conn`` call detects the mismatch, closes
+        # its stale thread-local conn, and reconnects to the fresh
+        # DB file. We can't clear other threads' ``_read_local.conn``
+        # directly, but the generation check handles it lazily.
+        with self._connections_lock:
+            for _ident, rconn in self._all_read_connections:
+                with contextlib.suppress(sqlite3.Error):
+                    rconn.close()
+            self._all_read_connections.clear()
+            self._read_conn_generation += 1
+        # Also clear the current thread's stale read conn (if any)
+        # so any subsequent read on this thread reopens immediately.
+        if hasattr(self._read_local, "conn") and self._read_local.conn is not None:
+            with contextlib.suppress(sqlite3.Error):
+                self._read_local.conn.close()
+            self._read_local.conn = None
+            self._read_local.gen = self._read_conn_generation
         # S5-CR-61: BEFORE opening the fresh DB, attempt to recover
         # user-data INSERTs from the now-renamed corrupt file. The
         # corrupt file is at ``corrupt_main``; we open it read-only
@@ -1358,6 +1623,20 @@ class HistoryDB:
         sufficient. The writer keeps the 20 MB cache (see
         ``schema.open_write_conn``) for batch INSERTs and VACUUM.
         """
+        # XE-9-D: if the read-conn generation bumped (corruption
+        # recovery renamed the DB and invalidated all read conns),
+        # close the stale thread-local conn and reconnect. We can
+        # only close THIS thread's conn here; other threads will
+        # detect the mismatch on their next ``_get_read_conn`` call.
+        cached_gen = getattr(self._read_local, "gen", 0)
+        if (
+            hasattr(self._read_local, "conn")
+            and self._read_local.conn is not None
+            and cached_gen != self._read_conn_generation
+        ):
+            with contextlib.suppress(sqlite3.Error):
+                self._read_local.conn.close()
+            self._read_local.conn = None
         if not hasattr(self._read_local, "conn") or self._read_local.conn is None:
             if not is_windows():
                 try:
@@ -1386,6 +1665,10 @@ class HistoryDB:
             # network FS could fail.
             conn.row_factory = sqlite3.Row
             self._read_local.conn = conn
+            # XE-9-D: stamp the generation so a later corruption
+            # recovery bump is detectable (see
+            # ``_maybe_recover_from_corruption``).
+            self._read_local.gen = self._read_conn_generation
             with self._connections_lock:
                 self._all_read_connections.append((threading.get_ident(), conn))
                 # Opportunistic GC: close connections whose owning
@@ -1555,9 +1838,38 @@ class HistoryDB:
         is NOT submitted and ``None`` is returned. Callers that need
         to distinguish "fire-and-forget accepted" from "writer shut
         down" can check ``self._shutdown.is_set()`` before calling.
+
+        FR-10: also short-circuits when the writer thread is dead OR
+        ``_init_error`` is set. Previously the call would enqueue to a
+        dead writer's queue and block on
+        ``future.result(timeout=_WRITE_FUTURE_TIMEOUT)`` for 30
+        seconds before the TimeoutError handler noticed the dead
+        writer and raised ``HistoryDBError``. The early-return guard
+        delegates to ``health_check()`` so the failure is instant and
+        the centralized diagnostic message surfaces in both the log
+        and the raised exception. ``wait=True`` raises
+        ``HistoryDBError`` so blocking callers (delete/clear_all/etc.)
+        catch it via their existing except clause. ``wait=False``
+        returns ``None`` (consistent with the existing fire-and-forget
+        sentinel).
         """
         if self._shutdown.is_set():
             log.debug("[HISTORY_DB] Write submitted after shutdown — dropped.")
+            return None
+        # FR-10: early-return guard — if the writer thread never
+        # started (init error) or has died, refuse the write
+        # immediately instead of enqueuing to a dead queue and
+        # blocking 30s on a future that will never resolve.
+        if self._init_error is not None or not self._writer_thread.is_alive():
+            err = self.health_check()["error"]
+            log.error(
+                "[HISTORY_DB] _submit_write refused — writer is unavailable: %s",
+                err,
+            )
+            if wait:
+                raise HistoryDBError(
+                    f"HistoryDB writer is unavailable: {err}"
+                )
             return None
         future: concurrent.futures.Future | None = None
         if wait:
@@ -1611,8 +1923,25 @@ class HistoryDB:
         before this call will have completed by the time the no-op
         runs. Useful for tests and for callers that need to verify a
         write was persisted before reading it back.
+
+        FR-10: short-circuits when the writer thread is dead OR
+        ``_init_error`` is set. Previously this would call
+        ``_submit_write(wait=True)`` and block 30s on a future that
+        would never resolve (the dead writer never picks up the
+        no-op). The early-return guard logs + returns immediately so
+        ``dictation_pipeline._store_result`` (the only production
+        caller) does not freeze the pipeline for 30s after every
+        dictation when the writer is dead.
         """
         if self._shutdown.is_set():
+            return
+        # FR-10: short-circuit on dead writer / init error.
+        if self._init_error is not None or not self._writer_thread.is_alive():
+            err = self.health_check()["error"]
+            log.error(
+                "[HISTORY_DB] flush skipped — writer is unavailable: %s",
+                err,
+            )
             return
         with contextlib.suppress(HistoryDBError):
             self._submit_write(lambda conn: None, wait=True)
@@ -1834,6 +2163,27 @@ class HistoryDB:
         ERR-013: when ``raise_on_error=True``, failures raise
         ``HistoryDBError`` instead of returning ``False``. Without this,
         the IPC layer cannot tell "row didn't exist" from "DB error".
+
+        XE-9-A (High): after the row DELETE + commit, issue the FTS5
+        ``'rebuild'`` command so the segment data in
+        ``transcriptions_fts_data`` is rebuilt from the (now-reduced)
+        content table. Without this, the FTS5 AFTER DELETE trigger only
+        marks the rowid as deleted in the delete-bitmap — the segment
+        data (containing the dictated text) remains physically present
+        in ``transcriptions_fts_data`` and is recoverable via forensic
+        tools until FTS5's background compaction happens to merge that
+        segment (days or weeks later). For a user who dictates a
+        password / medical note / financial data and then deletes that
+        single transcription via the History UI, the text is NOT gone
+        without this rebuild — a direct GDPR Art. 17 violation.
+
+        The rebuild is wrapped in a tolerant ``try/except sqlite3.Error``
+        (matching the retention.py / clear_all pattern at lines 2099-
+        2155) so a transient FTS5 error does not break the row delete
+        (which already committed). The rebuild is best-effort privacy
+        hardening — if it fails, the row is still gone from the content
+        table (so the user's intent is honored), only the FTS5 segment
+        data lingers (the same state as before this fix).
         """
         try:
 
@@ -1841,7 +2191,47 @@ class HistoryDB:
                 with contextlib.closing(conn.cursor()) as cursor:
                     cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
                     conn.commit()
-                    return cursor.rowcount > 0
+                    deleted = cursor.rowcount > 0
+                    if not deleted:
+                        return False
+                    # XE-9-A (High): rebuild FTS5 segments from the
+                    # (now-reduced) content table so the deleted row's
+                    # dictated text is zeroed from
+                    # ``transcriptions_fts_data``. The FTS5 AFTER
+                    # DELETE trigger only marks the rowid as deleted in
+                    # the delete-bitmap — the segment data survives
+                    # until background compaction (days/weeks later).
+                    # ``'rebuild'`` is preferred over ``'merge'`` here
+                    # because ``'merge'`` only collapses existing
+                    # segments (it does NOT zero deleted-rowid data);
+                    # ``'rebuild'`` drops all segments and rebuilds
+                    # them from the content table, guaranteeing the
+                    # deleted text is gone. Tolerant: a transient FTS5
+                    # error must not break the row delete (which
+                    # already committed).
+                    try:
+                        cursor.execute(
+                            "INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')"
+                        )
+                        conn.commit()
+                    except sqlite3.Error as rebuild_exc:
+                        log.warning(
+                            "[HISTORY_DB] FTS5 'rebuild' after delete(id=%d) "
+                            "FAILED: %s — dictated text may linger in "
+                            "transcriptions_fts_data until background "
+                            "compaction.",
+                            transcription_id,
+                            rebuild_exc,
+                        )
+                        # Best-effort: increment the per-instance
+                        # failure counter so observability surfaces
+                        # chronic FTS5 rebuild failures (mirrors the
+                        # retention.py / clear_all pattern).
+                        with contextlib.suppress(Exception):
+                            self._fts5_rebuild_failures = (
+                                getattr(self, "_fts5_rebuild_failures", 0) + 1
+                            )
+                    return True
 
             result = self._submit_write(_do_delete, wait=True)
             if result is None:

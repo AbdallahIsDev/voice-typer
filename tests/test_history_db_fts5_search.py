@@ -303,6 +303,78 @@ class TestFts5SearchTriggersSync:
         assert db.search("quick") == []
         assert db.search("") == []
 
+    def test_delete_rebuilds_fts5_shadow_tables_xe_9_a(self, tmp_path):
+        """XE-9-A: ``delete(id)`` must rebuild FTS5 segments so the
+        deleted row's dictated text is zeroed from
+        ``transcriptions_fts_data`` (the FTS5 shadow segment table).
+
+        Before XE-9-A, ``delete(id)`` only ran ``DELETE FROM
+        transcriptions WHERE id = ?`` + commit. The FTS5 AFTER DELETE
+        trigger fired the ``'delete'`` command which only marks the
+        rowid as deleted in the delete-bitmap — the segment data in
+        ``transcriptions_fts_data`` (containing the dictated text) was
+        NOT zeroed and was recoverable via forensic tools until FTS5's
+        background compaction merged that segment (days/weeks later).
+        For a user who dictates a password / medical note and then
+        deletes that single transcription via the History UI, the text
+        was NOT gone — a direct GDPR Art. 17 violation.
+
+        The fix issues ``INSERT INTO transcriptions_fts(transcriptions_fts)
+        VALUES('rebuild')`` after the row DELETE, which drops all
+        segments and rebuilds them from the (now-reduced) content
+        table. This test asserts the dictated text is no longer
+        recoverable from the FTS5 shadow segment data after ``delete``.
+        """
+        from voice_typer.server.history_db import HistoryDB
+
+        db2 = HistoryDB(db_path=tmp_path / "delete_rebuild_xe_9_a.db")
+        try:
+            secret_text = "superscrete_password_12345_xe_9_a"
+            db2.add_transcription(secret_text)
+            db2.add_transcription("keepme around")
+            db2.flush()
+
+            # Find the secret row's id.
+            all_rows = db2.get_recent(limit=10)
+            secret_row = next(r for r in all_rows if r["text"] == secret_text)
+
+            # Verify the FTS5 shadow segment data contains the secret
+            # BEFORE delete (sanity check that the test setup is valid).
+            # FTS5 may segment/tokenize the text, so we dump the raw
+            # bytes of all shadow-segment blobs and confirm a known
+            # token appears at least once before delete.
+            conn = db2._get_read_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT block FROM transcriptions_fts_data")
+            blocks_before = b"\n".join(b for (b,) in cur.fetchall())
+            assert b"xe" in blocks_before or b"superscrete" in blocks_before, (
+                "Sanity check failed: secret_text token not found in any "
+                "transcriptions_fts_data block before delete — test setup "
+                "is invalid (FTS5 may have segmented differently)."
+            )
+
+            # Delete the secret row.
+            assert db2.delete(secret_row["id"]) is True
+
+            # XE-9-A: after delete, the FTS5 shadow segment data must
+            # NOT contain the secret text — the rebuild should have
+            # dropped all segments and rebuilt from the content table
+            # (which no longer contains the secret row).
+            cur.execute("SELECT block FROM transcriptions_fts_data")
+            blocks_after = b"\n".join(b for (b,) in cur.fetchall())
+            assert secret_text.encode() not in blocks_after, (
+                "XE-9-A regression: secret_text is still present in "
+                "transcriptions_fts_data after delete(id) — the FTS5 "
+                "'rebuild' command was not issued (or failed silently). "
+                "The deleted row's dictated text is recoverable via "
+                "forensic tools, a GDPR Art. 17 violation."
+            )
+
+            # And the FTS5 index itself must no longer return the row.
+            assert db2.search("superscrete") == []
+        finally:
+            db2.close()
+
 
 if __name__ == "__main__":
     # Allow running this test file directly for quick local iteration.

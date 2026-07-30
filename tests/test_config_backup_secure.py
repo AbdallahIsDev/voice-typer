@@ -57,8 +57,13 @@ class TestFR23BackupBeforeDowngradeSecure:
         _isolated_config_dir: Path,
     ) -> None:
         """A downgrade (loading a newer-version config.json) must
-        create a ``config.json.v{N}.bak`` with the EXACT on-disk bytes
-        of the original (not the in-memory filtered view)."""
+        create a ``config.json.v{N}*.bak`` with the EXACT on-disk bytes
+        of the original (not the in-memory filtered view).
+
+        XE-10-1: the filename now embeds a timestamp + PID + ns suffix
+        (``config.json.v{N}-{ts}-{pid}-{ns}.bak``) so two backup events
+        never collide — the test globs for any matching filename.
+        """
         config_file = _isolated_config_dir / "config.json"
         original_content = {
             "schema_version": _CURRENT_SCHEMA_VERSION + 5,  # newer than supported
@@ -71,13 +76,19 @@ class TestFR23BackupBeforeDowngradeSecure:
 
         cfg = Config.load()
 
-        # The backup file must exist.
-        bak_path = _isolated_config_dir / f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}.bak"
-        assert bak_path.exists(), (
-            f"FR-23: expected downgrade backup at {bak_path}, but it "
-            "doesn't exist. _backup_before_downgrade should create it "
-            "via _secure_atomic_write."
+        # XE-10-1: backup filename now has a timestamp suffix — glob
+        # for any matching filename.
+        bak_candidates = sorted(
+            _isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak")
         )
+        assert bak_candidates, (
+            f"FR-23: expected a downgrade backup matching "
+            f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak in "
+            f"{_isolated_config_dir}, but found none. "
+            "_backup_before_downgrade should create it via "
+            "_secure_atomic_write."
+        )
+        bak_path = bak_candidates[0]
 
         # The backup must contain the ORIGINAL on-disk content
         # (including the future field) — not the in-memory filtered
@@ -176,6 +187,10 @@ class TestFR23BackupBeforeDowngradeSecure:
         We verify the atomicity contract by inspecting the .bak after
         a successful backup — it must be a complete, valid JSON file
         (no truncation, no partial writes).
+
+        XE-10-1: the filename now embeds a timestamp + PID + ns suffix
+        (``config.json.v{N}-{ts}-{pid}-{ns}.bak``) — the test globs for
+        any matching filename.
         """
         config_file = _isolated_config_dir / "config.json"
         original_content = {
@@ -188,8 +203,17 @@ class TestFR23BackupBeforeDowngradeSecure:
 
         Config.load()
 
-        bak_path = _isolated_config_dir / f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}.bak"
-        assert bak_path.exists()
+        # XE-10-1: backup filename now has a timestamp suffix — glob
+        # for any matching filename.
+        bak_candidates = sorted(
+            _isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak")
+        )
+        assert bak_candidates, (
+            f"FR-23: expected a downgrade backup matching "
+            f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak in "
+            f"{_isolated_config_dir}, but found none."
+        )
+        bak_path = bak_candidates[0]
 
         # The .bak must be valid JSON (no partial write).
         bak_text = bak_path.read_text()

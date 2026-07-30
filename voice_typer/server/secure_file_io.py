@@ -35,6 +35,106 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger("voice_typer.server.config")
 
 
+def _windows_fsync_directory(path: str) -> None:
+    """DJ-54: fsync a directory on Windows via ``CreateFileW`` +
+    ``FlushFileBuffers`` with ``FILE_FLAG_BACKUP_SEMANTICS``.
+
+    This is the standard Windows durability recipe (used by SQLite,
+    PostgreSQL, etc.). Without it, ``os.replace``'s directory-entry
+    update sits in the NTFS log buffer for seconds and may not survive
+    power loss — the file DATA is durable (fsynced earlier) but the
+    rename itself is not.
+
+    Best-effort: any failure (ctypes missing, CreateFileW fails,
+    FlushFileBuffers fails) is logged at DEBUG and swallowed so the
+    caller's write still succeeds — the pre-fix behavior (rename not
+    durable across power loss) is the fallback.
+
+    Only invoked on Windows (guarded by ``is_windows()`` at the call
+    site). The ``ctypes.windll`` attribute does not exist on POSIX, so
+    this function MUST NOT be called from a non-Windows host (the
+    call-site guard handles that).
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        # kernel32 is always available on Windows.
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+        # Constants (avoid relying on pywin32 / Windows SDK headers):
+        #   GENERIC_WRITE             = 0x40000000
+        #   FILE_SHARE_READ           = 0x00000001
+        #   FILE_SHARE_WRITE          = 0x00000002
+        #   OPEN_EXISTING             = 3
+        #   FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+        # FILE_FLAG_BACKUP_SEMANTICS is required to open a directory
+        # handle on Windows (without it, CreateFileW fails with
+        # ERROR_ACCESS_DENIED on directories).
+        GENERIC_WRITE = 0x40000000  # noqa: N806
+        FILE_SHARE_READ = 0x00000001  # noqa: N806
+        FILE_SHARE_WRITE = 0x00000002  # noqa: N806
+        OPEN_EXISTING = 3  # noqa: N806
+        FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # noqa: N806
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value  # noqa: N806
+
+        # CreateFileW signature:
+        #   HANDLE CreateFileW(
+        #     LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
+        #     LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+        #     DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,
+        #     HANDLE hTemplateFile
+        #   )
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        handle = kernel32.CreateFileW(
+            path,
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+        if handle == INVALID_HANDLE_VALUE or handle is None:
+            raise ctypes.WinError()  # type: ignore[attr-defined]
+        try:
+            # FlushFileBuffers signature: BOOL FlushFileBuffers(HANDLE hFile)
+            kernel32.FlushFileBuffers.restype = wintypes.BOOL
+            kernel32.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+            if not kernel32.FlushFileBuffers(handle):
+                raise ctypes.WinError()  # type: ignore[attr-defined]
+        finally:
+            # CloseHandle signature: BOOL CloseHandle(HANDLE hObject)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            if not kernel32.CloseHandle(handle):
+                log.debug(
+                    "[CONFIG] CloseHandle failed for directory %s (best-effort)",
+                    path,
+                )
+    except OSError as e:
+        log.debug(
+            "[CONFIG] Windows directory-fsync of %s failed (best-effort): %s",
+            path,
+            e,
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort; never raise
+        log.debug(
+            "[CONFIG] Windows directory-fsync of %s failed (best-effort, non-OSError): %s",
+            path,
+            e,
+        )
+
+
 def _secure_atomic_write(
     path: os.PathLike,
     content: str,
@@ -155,20 +255,33 @@ def _secure_atomic_write(
         # POSIX-only -- Windows has no equivalent.  Best-effort.
         # ER-80: skip when durability=False (the rename still happens,
         # but its durability across power loss is not guaranteed).
-        if durability and not is_windows():
-            try:
-                dir_fd = os.open(str(parent), os.O_RDONLY)
+        # DJ-54: on Windows, the file DATA is durable (the fsync at
+        # line 132 above has no Windows guard and runs unconditionally
+        # when durability=True), but the directory-entry update (the
+        # rename) sits in the NTFS log buffer for seconds and may not
+        # survive power loss. The standard Windows durability recipe
+        # (used by SQLite, PostgreSQL, etc.) is to open the parent
+        # directory with ``CreateFileW(FILE_FLAG_BACKUP_SEMANTICS)``
+        # and call ``FlushFileBuffers(handle)`` on it. Without this,
+        # ``os.replace`` is atomic but not durable across power loss
+        # on Windows.
+        if durability:
+            if not is_windows():
                 try:
-                    os.fsync(dir_fd)
-                finally:
-                    with contextlib.suppress(OSError):
-                        os.close(dir_fd)
-            except OSError as e:
-                log.debug(
-                    "[CONFIG] fsync of parent directory %s failed (best-effort): %s",
-                    parent,
-                    e,
-                )
+                    dir_fd = os.open(str(parent), os.O_RDONLY)
+                    try:
+                        os.fsync(dir_fd)
+                    finally:
+                        with contextlib.suppress(OSError):
+                            os.close(dir_fd)
+                except OSError as e:
+                    log.debug(
+                        "[CONFIG] fsync of parent directory %s failed (best-effort): %s",
+                        parent,
+                        e,
+                    )
+            else:
+                _windows_fsync_directory(str(parent))
     except Exception:
         if owned_fd != -1:
             with contextlib.suppress(OSError):
@@ -386,12 +499,14 @@ class PersistedJSON:
         self._default = default
         self._bak_path = self._path.with_name(self._path.name + ".bak")
         # XE-8-A (High): _last_written_bytes cache for DJ-53 diff optimization.
-        # Populated on load() and updated on save(). When the new content's
-        # byte length matches AND the existing file's content matches, the
-        # write is skipped entirely (no fsync, no rename). This eliminates
+        # Populated on load() and updated on save(). Stores the actual
+        # UTF-8 bytes of the last-written (or last-loaded) content — NOT
+        # just the byte length — so that a subsequent save with identical
+        # content can skip BOTH the file read (for .bak diff) AND the
+        # write (no fsync, no rename, no .bak churn). This eliminates
         # the 2-fsync-per-save overhead for vocabulary/templates that are
         # saved frequently but rarely change.
-        self._last_written_bytes: int | None = None
+        self._last_written_bytes: bytes | None = None
 
     @property
     def path(self) -> Path:
@@ -431,8 +546,10 @@ class PersistedJSON:
             raw = _secure_read_text(self._path, encoding="utf-8")
             result = json.loads(raw)
             # XE-8-A: populate the diff cache so the next save() can skip
-            # the write if the content hasn't changed.
-            self._last_written_bytes = len(raw.encode("utf-8"))
+            # both the file read AND the write if the content hasn't
+            # changed. Cache the actual UTF-8 bytes (not just the length)
+            # so a content-equality check is sufficient on the next save.
+            self._last_written_bytes = raw.encode("utf-8")
             return result
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.warning(
@@ -459,7 +576,10 @@ class PersistedJSON:
                 "[PERSISTED_JSON] Main file corrupt/missing — restored from .bak: %s",
                 self._bak_path.name,
             )
-            self._last_written_bytes = len(raw.encode("utf-8"))
+            # XE-8-A: cache the recovered .bak bytes so the next save()
+            # can skip both the file read AND the write if the content
+            # hasn't changed (mirrors the main-file load() path).
+            self._last_written_bytes = raw.encode("utf-8")
             return result
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.debug(
@@ -591,24 +711,23 @@ class PersistedJSON:
         content = json.dumps(data, indent=2, ensure_ascii=False)
         content_bytes = content.encode("utf-8")
 
-        # XE-8-A (High) / DJ-53: diff-cache optimization. If the new
-        # content's byte length matches the last-written byte length,
-        # do a quick content comparison against the existing file. If
-        # they're identical, skip the write entirely (no fsync, no
+        # XE-8-A (High) / DJ-53: diff-cache optimization. The cache
+        # stores the actual UTF-8 bytes of the last-written (or
+        # last-loaded) content. If the new content's bytes match the
+        # cached bytes EXACTLY, skip both the file read (no need to
+        # re-check the on-disk content) AND the write (no fsync, no
         # rename, no .bak churn). This eliminates the redundant
         # read-then-write cycle for vocabulary/templates that are saved
         # frequently but rarely change.
-        if self._last_written_bytes is not None and len(content_bytes) == self._last_written_bytes:
-            try:
-                if self._path.exists() and not self._path.is_symlink():
-                    existing_text = _secure_read_text(self._path, encoding="utf-8")
-                    if existing_text.encode("utf-8") == content_bytes:
-                        # Content unchanged — skip the write.
-                        return
-            except OSError:
-                # If the read fails (file vanished, perms), fall through
-                # to the normal write path.
-                pass
+        #
+        # Correctness: the cache is populated ONLY after a successful
+        # load() or save() (both of which guarantee the on-disk bytes
+        # match the cached bytes), and is invalidated on a failed load
+        # (see ``test_cache_invalidated_on_failed_load``). So a cache
+        # hit here is proof that the on-disk content matches the new
+        # content — no need to re-read.
+        if self._last_written_bytes is not None and content_bytes == self._last_written_bytes:
+            return
 
         # FR-7: Best-effort single-slot .bak before overwrite.
         #
@@ -679,6 +798,7 @@ class PersistedJSON:
 
         _secure_atomic_write(self._path, content, durability=durability)
         # XE-8-A: update the diff cache so the next save() can skip if
-        # the content hasn't changed.
-        self._last_written_bytes = len(content_bytes)
+        # the content hasn't changed. Store the actual bytes (not just
+        # the length) so a content-equality check is sufficient.
+        self._last_written_bytes = content_bytes
         _chmod_owner_only(self._path)

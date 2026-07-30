@@ -88,6 +88,24 @@ DEFAULT_VAD_SPEECH_FRAMES = 3  # consecutive loud frames to declare SPEECH
 DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
 DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as SILENCE_FRAMES — configurable alias
 
+# FZ-56: Silero VAD probability thresholds. These must match the canonical
+# defaults declared on the ``Config`` dataclass
+# (``voice_typer.server.config.Config.vad_speech_threshold`` /
+# ``vad_silence_threshold``). Importing the class attribute here keeps the
+# getattr fallback literals in lockstep with the Config default — previously
+# a drift in one would silently change behavior for stub-config tests.
+# A lazy import (inside a try/except) avoids a hard import cycle:
+# ``config`` does not import ``vad_processor``, but importing it eagerly at
+# module top would still couple the two modules; the deferred form is safe.
+try:  # pragma: no cover - import shim, exercised at runtime
+    from voice_typer.server.config import Config as _Config
+
+    DEFAULT_VAD_SPEECH_PROB_THRESHOLD: float = _Config.vad_speech_threshold
+    DEFAULT_VAD_SILENCE_PROB_THRESHOLD: float = _Config.vad_silence_threshold
+except Exception:  # pragma: no cover - defensive fallback for partial imports
+    DEFAULT_VAD_SPEECH_PROB_THRESHOLD = 0.5
+    DEFAULT_VAD_SILENCE_PROB_THRESHOLD = 0.3
+
 
 class VadProcessor:
     """Encapsulates the VAD state machine, Silero integration, and
@@ -176,8 +194,16 @@ class VadProcessor:
         # or partial configs) silently disables VAD even though the
         # documented default is True.
         self._use_silero_vad: bool = getattr(config, "use_silero_vad", True)
-        self._speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)
-        self._silence_threshold: float = getattr(config, "vad_silence_threshold", 0.3)
+        # FZ-56: getattr fallbacks now reference the canonical Config
+        # defaults via DEFAULT_VAD_SPEECH_PROB_THRESHOLD /
+        # DEFAULT_VAD_SILENCE_PROB_THRESHOLD (imported from Config at module
+        # top) so a stub config exercises the same threshold as production.
+        self._speech_threshold: float = getattr(
+            config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD
+        )
+        self._silence_threshold: float = getattr(
+            config, "vad_silence_threshold", DEFAULT_VAD_SILENCE_PROB_THRESHOLD
+        )
         self._silero_available: bool = False
         if self._use_silero_vad:
             try:

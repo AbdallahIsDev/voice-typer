@@ -280,6 +280,26 @@ def init_schema(
     corruption was detected and the DB was recreated). Callers
     must use the returned connection, not the one they passed in.
     """
+    # XE-9-C (Medium): clear any stale ``_init_error`` from a prior
+    # failed init_schema call so the writer thread doesn't permanently
+    # bail out. Pre-fix, ``_init_error`` was set in 3 places (migration
+    # failure at line 411, writer_loop init, corruption recovery) but
+    # NEVER cleared to None. During corruption recovery,
+    # ``_apply_recovered_inserts`` calls ``init_schema(_is_recovery=True)``.
+    # If that fails (transient disk-full), ``_init_error=e`` is set and
+    # the function returns ``conn`` (doesn't raise). A recursive
+    # ``init_schema`` may SUCCEED on retry (disk-full was transient) but
+    # ``_init_error`` remains set from the first call — the writer
+    # thread checks ``if self._init_error is not None:`` and exits
+    # without entering the write loop, leaving the user with "history
+    # DB unavailable" for the rest of the session even though the
+    # schema is fully set up. Clearing at the TOP of init_schema means
+    # BOTH the initial call AND the recursive recovery call start with
+    # a clean slate — a failure during this invocation re-sets it, a
+    # success leaves it cleared.
+    with contextlib.suppress(Exception):
+        db._init_error = None
+
     cursor = conn.cursor()
 
     cursor.execute("""

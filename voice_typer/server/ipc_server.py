@@ -99,8 +99,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # block below).  The ``ipc._helpers`` duplicate is a legacy leftover
 # (outside the UE-32 disjoint set) and is no longer the authoritative
 # source.
-from voice_typer.server.ipc._helpers import (  # noqa: E402, F401
-    _push_event_now,
+from voice_typer.server.ipc._helpers import (  # noqa: E402
     log,
 )
 from voice_typer.server.ipc.history_bounds import (  # noqa: F401
@@ -148,7 +147,7 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # ``tests/test_ipc_command_registry_sync.py``,
 # ``tests/tauri/mig19/test_phase4_validation.py``,
 # ``tests/tauri/test_tauri_sidecar_gate.py`` — keeps working unchanged.
-from voice_typer.server.ipc.registry import (  # noqa: E402, F401
+from voice_typer.server.ipc.registry import (  # noqa: E402
     _COMMAND_REGISTRY,
     _PYTHON_ONLY_COMMANDS,
     _READONLY_COMMANDS,
@@ -299,10 +298,7 @@ from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMi
 # are re-exported here so existing ``from voice_typer.server.ipc_server import
 # _SHUTDOWN_ALLOWLIST`` callers (tests/test_ipc_send_shutdown_allowlist.py,
 # tests/test_zr43_zr70_constants.py) keep working unchanged.
-from voice_typer.server.ipc.sender import (  # noqa: E402, F401
-    _SHUTDOWN_ALLOWLIST,
-    _TCP_PENDING_BUFFER_CAP,
-    _TCP_PENDING_DRAIN_CAP,
+from voice_typer.server.ipc.sender import (  # noqa: E402
     OutputMixin,
 )
 from voice_typer.server.ipc.transport_tcp import TCPTransportMixin  # noqa: E402

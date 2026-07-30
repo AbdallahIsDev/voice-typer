@@ -24,11 +24,14 @@ backward compatibility.
 import contextlib
 import json as _json
 import logging
-import sys as _sys
 from collections.abc import Callable
 from pathlib import Path as _Path
 from typing import TypeGuard
 from urllib.parse import urlparse
+
+from voice_typer.server.model_registry import MODEL_REGISTRY as _MODEL_REGISTRY_FOR_ALLOWLIST
+from voice_typer.server.platform_utils import is_macos as _is_macos
+from voice_typer.server.platform_utils import is_windows as _is_windows
 
 log = logging.getLogger("voice_typer.server.config_validators")
 
@@ -45,27 +48,37 @@ MAX_RECORDING_TIME_SECONDS_DEFAULT: int = 900  # 15 minutes
 MAX_RECORDING_TIME_SECONDS_MIN: int = 300  # 5 minutes
 MAX_RECORDING_TIME_SECONDS_MAX: int = 3600  # 60 minutes
 
+# XE-11-4: shared streaming-field minimums (mirrors DR-37 pattern).
+# Pre-fix the IPC validator used ``lo=0.0`` while
+# ``Config._coerce_streaming_fields`` clamped to ``3.0`` / ``1.5`` — a
+# value the renderer persisted (``0.5``) silently changed across
+# save/load cycles (split-brain validation). Defined here (the import-safe
+# leaf module) so ``config.py`` can mirror the values without participating
+# in a circular import; both the IPC validator below and
+# ``Config._coerce_streaming_fields`` use the same bound.
+STREAMING_LEFT_OVERLAP_SECONDS_MIN: float = 3.0
+STREAMING_RIGHT_GUARD_SECONDS_MIN: float = 1.5
+
 
 # CR-38: extended to include the multilingual variants (tiny/small/medium,
 # no .en suffix) that OnboardingController.MODEL_OPTIONS offers to users.
 # Without these, non-English users who pick a multilingual model in
 # onboarding silently get English-only Whisper after the first restart
 # (Config.load() resets model_size to "small.en" because the multilingual
-# name is not in the allowlist). large-v3 is intentionally NOT included
-# because the existing test_load_normalizes_legacy_or_unsupported_model_to_small_en
-# regression test pins it to normalize to "small.en" (legacy/unsupported).
-ALLOWED_USER_MODELS: frozenset[str] = frozenset(
-    {
-        "tiny.en",
-        "small.en",
-        "medium.en",  # English-only Whisper
-        "tiny",
-        "small",
-        "medium",  # Multilingual Whisper (CR-38)
-        "qwen",
-        "parakeet",  # Non-Whisper backends
-    }
-)
+# name is not in the allowlist).
+#
+# XZ-CFG-02: ALLOWED_USER_MODELS is now DERIVED from
+# :data:`model_registry.MODEL_REGISTRY` at import time so the two cannot
+# drift (the previous hand-maintained set had 8 entries while
+# MODEL_REGISTRY had 12 — `base`, `base.en`, `large`, and `turbo` were
+# silently reset to "small.en" on every Config.load()). ``large-v3``
+# remains unsupported because it is NOT in MODEL_REGISTRY (only the
+# unversioned ``large`` is) — the existing
+# ``test_load_normalizes_legacy_or_unsupported_model_to_small_en``
+# regression test was updated to drop ``base.en`` from its parametrize
+# list (``base.en`` is now a valid model).
+
+ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.keys())
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -481,9 +494,9 @@ _HOTKEY_MODIFIERS = frozenset(_RESERVED_DATA["modifiers"])
 
 def _platform_key() -> str:
     """Return the platform key for ``_RESERVED_HOTKEYS`` lookup."""
-    if _sys.platform == "win32":
+    if _is_windows():
         return "win32"
-    if _sys.platform == "darwin":
+    if _is_macos():
         return "darwin"
     return "linux"
 
@@ -1188,8 +1201,14 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "streaming_transcription": (bool, _bool_validator),
     "streaming_chunk_seconds": (float, _make_float_validator(lo=0.1, hi=120.0)),
     "streaming_step_seconds": (float, _make_float_validator(lo=0.1, hi=60.0)),
-    "streaming_left_overlap_seconds": (float, _make_float_validator(lo=0.0, hi=60.0)),
-    "streaming_right_guard_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
+    "streaming_left_overlap_seconds": (
+        float,
+        _make_float_validator(lo=STREAMING_LEFT_OVERLAP_SECONDS_MIN, hi=60.0),
+    ),
+    "streaming_right_guard_seconds": (
+        float,
+        _make_float_validator(lo=STREAMING_RIGHT_GUARD_SECONDS_MIN, hi=30.0),
+    ),
     "streaming_min_first_chunk_seconds": (float, _make_float_validator(lo=0.1, hi=60.0)),
     "streaming_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Behavior ──────────────────────────────────────────────────────
@@ -1475,11 +1494,17 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
     for k, v in data.items():
         spec = IPC_CONFIG_ALLOWLIST.get(k)
         if spec is None:
-            # Unknown key — silently drop.  Debug-level so devs can
-            # diagnose "why isn't my setting saving" without leaking
-            # field-name existence to attackers (debug logs aren't
-            # visible to end users by default).
-            log.debug("[CONFIG] set_config dropped unknown key %r", k)
+            # Unknown key — silently drop.  XZ-CFG-12: promoted to
+            # WARNING (was DEBUG) to match ``Config._filter_unknown_keys``
+            # in ``config.py``. Previously the two paths diverged:
+            # on-disk load logged WARNING for unknown keys while the
+            # IPC ``set_config`` path logged DEBUG, so a user editing
+            # settings via the UI saw no signal when a stale client
+            # sent a field the server's allowlist didn't recognize.
+            # Field-name existence is not sensitive (the allowlist is
+            # public source), and WARNING is gated by the same logging
+            # config as the load path.
+            log.warning("[CONFIG] set_config dropped unknown key %r", k)
             continue
         expected_type, validator = spec
         # Type-check first (cheap), then run the field-specific validator
