@@ -907,6 +907,7 @@ class TestPreMigrationBackup:
         from voice_typer.server.history_db_internals.schema import (
             _CURRENT_SCHEMA_VERSION,
         )
+
         setup_conn.execute(
             "INSERT INTO schema_meta (key, value) VALUES ('version', ?)",
             (str(_CURRENT_SCHEMA_VERSION),),

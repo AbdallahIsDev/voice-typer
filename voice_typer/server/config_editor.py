@@ -25,6 +25,19 @@ out to the outer try/except and triggered a tray notification, while
 the other two branches silently swallowed subprocess errors. The
 three branches are now consistent.
 
+XZ-EH-018: the inner ``contextlib.suppress(Exception)`` wrapper was
+replaced with an explicit ``try/except`` that re-raises
+``TimeoutError`` (so a 30-minute editor-session timeout surfaces as
+a tray notification with a recovery hint) but still swallows other
+launch errors (preserving the DR-19 contract). The notepad fallback
+in ``_launch_windows_editor`` and the POSIX branches
+(``_launch_macos_editor`` / ``_launch_linux_editor``) now use a
+bounded ``wait(timeout=...)`` / ``subprocess.run(timeout=...)``
+respectively — pre-fix these were unbounded and could wedge the IPC
+thread forever if the editor hung. The primary Windows
+``ShellExecuteEx`` path was already bounded by DE-68 in
+``voice_typer.server.platform_launch._windows_wait_for_process_exit``.
+
 The platform helpers (``is_windows``/``is_macos``/``is_linux``) and the
 Windows launch helpers (``_windows_open_with_default_app`` etc.) are
 resolved from the owning app's module namespace at call time so existing
@@ -34,7 +47,6 @@ tests that ``monkeypatch.setattr("voice_typer.server.app.is_windows",
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import subprocess
@@ -45,6 +57,111 @@ from typing import Any
 from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
+
+
+# XZ-EH-018: bounded timeout for editor subprocess waits.
+#
+# Pre-fix, the notepad fallback (``_launch_windows_editor``) called
+# ``subprocess.Popen([...]).wait()`` with no timeout, and the POSIX
+# branches (``_launch_macos_editor`` / ``_launch_linux_editor``) called
+# ``subprocess.run([...], check=False)`` with no timeout. If the
+# launched editor hung — or the user walked away with the editor
+# open — the calling thread blocked forever. The caller
+# (``ConfigEditorLauncher.launch``) holds ``_config_mutation_lock``
+# AND inherits the IPC thread context, so a hung editor wedged the
+# entire server: no further IPC requests were processed, the tray
+# icon became unresponsive, and the user had to kill the process.
+#
+# 30 minutes is a generous upper bound for "the user is actively
+# editing a config file": it's long enough that no realistic edit
+# session will expire it, and short enough that a forgotten-open
+# editor doesn't wedge the server forever. When the timeout fires
+# the subprocess is killed (SIGKILL on POSIX, TerminateProcess on
+# Windows via ``Popen.kill``) and a clear ``TimeoutError`` is raised
+# so the caller can notify the user — never silently return.
+#
+# This mirrors the DE-68 fix on ``_windows_wait_for_process_exit``
+# (``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS = 30 * 60 * 1000`` in
+# ``voice_typer.server.platform_launch``), which used the same
+# 30-minute rationale for the primary Windows ``ShellExecuteEx``
+# path. The constant is duplicated here as seconds (not ms) to
+# keep the unit consistent with ``Popen.wait(timeout=...)`` /
+# ``subprocess.run(timeout=...)`` which both take seconds.
+_EDITOR_SESSION_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
+
+
+def _raise_editor_timeout(config_path: Any) -> None:
+    """Raise a clear ``TimeoutError`` for an editor session timeout.
+
+    XZ-EH-018: called by the platform launchers when the editor
+    subprocess exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``. The
+    message tells the user what happened and how to recover — never
+    silently return, because the caller holds ``_config_mutation_lock``
+    and the IPC thread, so a silent return would leave the server in
+    an ambiguous state (lock released but the editor is still
+    running and may write to the file later).
+    """
+
+    raise TimeoutError(
+        f"Editor session for {config_path} exceeded the "
+        f"{_EDITOR_SESSION_TIMEOUT_SECONDS // 60}-minute timeout "
+        "and was killed. To recover: save any unsaved edits to a "
+        "temporary file (config.json on disk was NOT modified by "
+        "the launcher), then re-open the editor via 'Edit config' "
+        "to start a fresh session."
+    )
+
+
+def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> None:
+    """Wait for *proc* to exit, bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``.
+
+    XZ-EH-018: pre-fix the notepad fallback in
+    ``_launch_windows_editor`` called ``proc.wait()`` with no
+    timeout, blocking the IPC thread forever if the editor hung.
+
+    On timeout the subprocess is killed (``Popen.kill`` sends
+    SIGKILL on POSIX and calls ``TerminateProcess`` on Windows) and
+    reaped, then a clear ``TimeoutError`` is raised via
+    :func:`_raise_editor_timeout`.
+    """
+
+    try:
+        proc.wait(timeout=_EDITOR_SESSION_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        # Kill the editor process so it doesn't keep running in the
+        # background. ``Popen.kill`` is documented to send SIGKILL on
+        # POSIX and call ``TerminateProcess`` on Windows. Best-effort
+        # — if kill itself fails (e.g. already exited, or permission
+        # denied) we still need to raise the TimeoutError so the
+        # caller can notify the user.
+        try:
+            proc.kill()
+        except Exception:
+            log.warning(
+                "[XZ-EH-018] Failed to kill timed-out editor process",
+                exc_info=True,
+            )
+        # Reap the (now killed) process to avoid a zombie. Best-effort:
+        # if the second wait also times out (process is unkillable,
+        # e.g. stuck in a syscall on a hung FUSE mount) we don't want
+        # to block forever again — the kill signal has been sent.
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            log.warning(
+                "[XZ-EH-018] Editor process did not exit 5s after "
+                "SIGKILL/TerminateProcess — it may be stuck in an "
+                "unkillable syscall. Leaving it; the launcher will "
+                "raise TimeoutError anyway."
+            )
+        except Exception:
+            # Don't mask the original TimeoutExpired with a reaper
+            # failure — the kill signal has been sent.
+            log.warning(
+                "[XZ-EH-018] Reaper wait() raised after kill()",
+                exc_info=True,
+            )
+        _raise_editor_timeout(config_path)
 
 
 def _resolve(name: str, default: Callable[..., Any]) -> Callable[..., Any]:
@@ -102,21 +219,55 @@ def _launch_windows_editor(config_path: Any) -> None:
     else:
         notepad = _systemroot_notepad_path()
         if notepad is not None:
-            subprocess.Popen([str(notepad), str(config_path)]).wait()
+            # XZ-EH-018: bounded wait — see ``_wait_for_editor_subprocess``.
+            # Pre-fix this was ``subprocess.Popen([...]).wait()`` with no
+            # timeout, blocking the IPC thread forever if Notepad hung.
+            proc = subprocess.Popen([str(notepad), str(config_path)])
+            _wait_for_editor_subprocess(proc, config_path)
         else:
             os.startfile(str(config_path))  # type: ignore[attr-defined]
 
 
 def _launch_macos_editor(config_path: Any) -> None:
-    """macOS-specific editor launch — uses ``open -W`` (blocking)."""
+    """macOS-specific editor launch — uses ``open -W`` (blocking).
 
-    subprocess.run(["open", "-W", str(config_path)], check=False)
+    XZ-EH-018: bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
+    this was ``subprocess.run(..., check=False)`` with no timeout,
+    blocking the IPC thread forever if ``open -W`` hung.
+    """
+
+    try:
+        subprocess.run(
+            ["open", "-W", str(config_path)],
+            check=False,
+            timeout=_EDITOR_SESSION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        # ``subprocess.run`` with a timeout already kills and reaps the
+        # child before re-raising, so we just need to convert to the
+        # launcher's TimeoutError contract.
+        _raise_editor_timeout(config_path)
 
 
 def _launch_linux_editor(config_path: Any) -> None:
-    """Linux-specific editor launch — uses ``xdg-open`` (blocking)."""
+    """Linux-specific editor launch — uses ``xdg-open`` (blocking).
 
-    subprocess.run(["xdg-open", str(config_path)], check=False)
+    XZ-EH-018: bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
+    this was ``subprocess.run(..., check=False)`` with no timeout,
+    blocking the IPC thread forever if ``xdg-open`` hung.
+    """
+
+    try:
+        subprocess.run(
+            ["xdg-open", str(config_path)],
+            check=False,
+            timeout=_EDITOR_SESSION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        # ``subprocess.run`` with a timeout already kills and reaps the
+        # child before re-raising, so we just need to convert to the
+        # launcher's TimeoutError contract.
+        _raise_editor_timeout(config_path)
 
 
 _PLATFORM_LAUNCHERS: dict[str, Callable[[Any], None]] = {
@@ -154,6 +305,14 @@ class ConfigEditorLauncher:
         ``contextlib.suppress(Exception)`` — the Windows branch
         previously lacked this wrapper (inconsistent with macOS / Linux
         which already had it).
+
+        XZ-EH-018: ``TimeoutError`` raised by the platform launcher
+        (when the editor exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``)
+        is NOT swallowed by the inner suppress — it propagates to the
+        outer ``except`` block so the user gets a tray notification
+        explaining what happened. Other launch exceptions (e.g. the
+        editor binary not found) are still silently swallowed to
+        preserve the DR-19 contract.
         """
 
         try:
@@ -164,12 +323,37 @@ class ConfigEditorLauncher:
                 if launcher is None:
                     log.warning("[CONFIG] No editor launcher for platform")
                     return
-                with contextlib.suppress(Exception):
+                # XZ-EH-018: ``TimeoutError`` must propagate so the outer
+                # except can notify the user. Other launch exceptions
+                # (e.g. editor binary not found) are still suppressed
+                # (DR-19 contract).
+                try:
                     launcher(config_path)
+                except TimeoutError:
+                    raise
+                except Exception:
+                    # DR-19: silently swallow non-timeout launch errors
+                    # so a transient launch failure doesn't surface as a
+                    # tray notification (the historical behavior on
+                    # macOS / Linux).
+                    pass
                 try:
                     self.app.config = type(self.app.config).load()
                 except Exception as exc:
                     log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
+        except TimeoutError as e:
+            # XZ-EH-018: editor session exceeded the bounded timeout.
+            # The platform launcher already killed the subprocess.
+            # Notify the user with a helpful recovery message.
+            log.warning("[CONFIG] Editor session timed out: %s", e)
+            self.app.tray.notify(
+                APP_NAME,
+                f"Config editor timed out after "
+                f"{_EDITOR_SESSION_TIMEOUT_SECONDS // 60} minutes and was "
+                f"killed.\nSave any unsaved edits to a temporary file, "
+                f"then re-open the editor via 'Edit config'.\n"
+                f"Config file: {config_path}",
+            )
         except Exception as e:
             log.warning("[CONFIG] Could not open editor: %s", e)
             self.app.tray.notify(APP_NAME, f"Config file:\n{config_path}")

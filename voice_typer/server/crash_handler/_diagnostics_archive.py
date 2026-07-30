@@ -57,9 +57,17 @@ def _compute_crash_header() -> bytes:
     ``--status`` manually:
       - App version (from ``voice_typer.__version__``)
       - OS / platform build (``platform.platform()`` + ``platform.version()``)
+      - Windows version (``sys.getwindowsversion()`` on Windows only —
+        includes the OS build number, service pack, and suite mask in
+        a single struct that the Windows kernel exposes directly, which
+        is more precise than ``platform.release()`` for triaging SEH
+        crashes tied to a specific Windows patch level)
       - Python version (``sys.version``)
       - Loaded-module snapshot (top-level package names from
         ``sys.modules``, capped to keep the file size reasonable)
+      - Reproduction hint pointing the user at the diagnostics-export
+        CLI so the support engineer can request a full bundle without
+        a second round-trip (S1-CR-136)
 
     All assembly is best-effort: any failure (e.g. ``voice_typer`` not
     yet importable during early bootstrap) is swallowed and the
@@ -84,6 +92,20 @@ def _compute_crash_header() -> bytes:
         lines.append(f"OS build: {platform.version()}")
     except Exception:
         lines.append("OS: <unknown>")
+    # S1-CR-136: on Windows, ``sys.getwindowsversion()`` returns a tuple
+    # namedtuple with (major, minor, build, platform, service_pack,
+    # service_pack_major, service_pack_minor, suite_mask, product_type)
+    # — this is the OS-reported build number that ``platform.release()``
+    # does not surface. We capture it in a separate try/except so a
+    # failure here (e.g. on Wine / ReactOS where the API behaves oddly)
+    # does NOT suppress the ``OS:`` / ``OS build:`` lines above.
+    _get_win_ver = getattr(sys, "getwindowsversion", None)
+    if _get_win_ver is not None:
+        try:
+            win_ver = _get_win_ver()
+            lines.append(f"Windows version: {win_ver}")
+        except Exception:
+            lines.append("Windows version: <unknown>")
     try:
         lines.append(f"Python: {sys.version}")
     except Exception:
@@ -105,6 +127,17 @@ def _compute_crash_header() -> bytes:
             lines.append(f"  {m}")
     except Exception:
         lines.append("Loaded modules: <unknown>")
+    # S1-CR-136: reproduction hint so the user / support engineer knows
+    # how to capture the full diagnostic bundle (logs, config, crash
+    # archive, OS / Python / app version snapshot) for a bug report
+    # without a second round-trip.  Inline in the header (rather than
+    # appended at crash-summary time) so the hint is present even when
+    # the file is read directly off disk by an operator (e.g. via
+    # ``cat``) without going through ``report_pending_crash``.
+    lines.append(
+        "Reproduction hint: run `python scripts/diagnostics.py export` "
+        "to collect a full diagnostic bundle for a bug report."
+    )
     lines.append("=== END HEADER ===")
     return ("\r\n".join(lines) + "\r\n").encode("utf-8", errors="replace")
 
@@ -627,6 +660,20 @@ def report_pending_crash(config_dir: Path) -> str | None:
         return None
 
     summary = "\n".join(summary_parts)
+    # S1-CR-136: append a "Next steps" hint so the tray notification
+    # (which embeds ``crash_summary`` verbatim — see
+    # ``startup_sequence._do_startup`` → ``app.tray.notify_safety(...)``)
+    # tells the user exactly how to capture a full diagnostic bundle
+    # for a bug report.  Previously the tray notification pointed at
+    # ``voice-typer.log`` only; the diagnostics-export CLI bundles the
+    # crash archive, config snapshot, OS / app version, and recent log
+    # lines into a single file the user can attach to a report.
+    # Appended to the summary (NOT the per-file ``summary_parts`` list)
+    # so the hint appears EXACTLY ONCE even when multiple crash files
+    # were surfaced in the same startup scan.
+    summary = summary + (
+        "\nNext steps: run `python scripts/diagnostics.py export` to collect a full diagnostic bundle for a bug report."
+    )
     # FR-100: human-readable summary at INFO (was WARNING). The summary
     # is the user-facing "previous session crashed" notification text —
     # it's expected operational signal, not a runtime warning. Logging

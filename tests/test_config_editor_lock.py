@@ -32,6 +32,7 @@ These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from unittest.mock import MagicMock
@@ -206,7 +207,9 @@ class TestB4ReloadAfterEditor:
                 def __init__(self, a):
                     self._a = a
 
-                def wait(self):
+                # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+                # because the notepad fallback calls ``proc.wait(timeout=1800)``.
+                def wait(self, timeout=None):
                     return _popen_wait_with_disk_write(self._a)
 
             def _popen(args, **kwargs):
@@ -327,7 +330,9 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
             def __init__(self, a):
                 self._a = a
 
-            def wait(self):
+            # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+            # because the notepad fallback calls ``proc.wait(timeout=1800)``.
+            def wait(self, timeout=None):
                 return editor.popen_wait(self._a)
 
         monkeypatch.setattr(_subprocess, "Popen", lambda a, **k: _FakeProc(a))
@@ -482,7 +487,9 @@ class TestB4WindowsRuntime:
             def __init__(self, args):
                 self._args = args
 
-            def wait(self):
+            # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+            # because the notepad fallback calls ``proc.wait(timeout=1800)``.
+            def wait(self, timeout=None):
                 return editor.popen_wait(self._args)
 
         import subprocess as _subprocess
@@ -551,6 +558,306 @@ class TestB4ReloadPicksUpDiskChanges:
         )
         assert app.config.show_notifications is False, (
             "B-4: after the editor closes, the in-memory config must reflect the user's saved edits on disk."
+        )
+
+
+# ── XZ-EH-018: bounded subprocess timeouts on all editor launch paths ────
+
+
+class TestXZEH018EditorTimeouts:
+    """XZ-EH-018: every ``subprocess.Popen().wait()`` / ``subprocess.run()``
+    in the editor-launch path must be bounded by a 30-minute timeout.
+
+    Pre-fix, the notepad fallback (``_launch_windows_editor``) called
+    ``subprocess.Popen([...]).wait()`` with no timeout, and the POSIX
+    branches called ``subprocess.run([...], check=False)`` with no
+    timeout. If the editor hung, the calling thread blocked forever
+    (holding ``_config_mutation_lock`` and the IPC thread).
+
+    These tests verify:
+    1. Each launcher passes ``timeout=1800`` (30 minutes) to the
+       subprocess wait.
+    2. When ``subprocess.TimeoutExpired`` is raised, the launcher
+       kills the process (``proc.kill()`` on the Popen path) and
+       raises a clear ``TimeoutError`` with a helpful message.
+    3. The ``TimeoutError`` is NOT silently swallowed by the
+       launcher's inner exception handler.
+    4. The launcher's outer ``except TimeoutError`` produces a tray
+       notification containing the recovery hint.
+
+    Tests call the platform launcher functions directly (not via
+    ``app._open_config_file()``) so they don't depend on the
+    ``is_windows``/``os`` attributes of ``voice_typer.server.app``
+    (which are out of scope for XZ-EH-018 and tracked separately).
+    """
+
+    def test_windows_notepad_fallback_passes_timeout_to_wait(self, monkeypatch):
+        """Notepad fallback calls ``proc.wait(timeout=1800)``."""
+        from voice_typer.server import config_editor
+
+        # Force the Windows branch by stubbing the resolved helpers.
+        monkeypatch.setattr(
+            config_editor,
+            "_resolve",
+            lambda name, default: {
+                "_windows_open_with_default_app": lambda path: None,
+                "_windows_wait_for_process_exit": lambda handle: None,
+                "_windows_close_process_handle": lambda handle: None,
+                "_systemroot_notepad_path": lambda: "/C/Windows/System32/notepad.exe",
+            }.get(name, default),
+        )
+
+        captured: dict = {}
+
+        class _FakeProc:
+            def __init__(self, args):
+                self.args = args
+
+            def wait(self, timeout=None):
+                captured["timeout"] = timeout
+                return 0
+
+            def kill(self):
+                captured["kill_called"] = True
+
+        monkeypatch.setattr(config_editor.subprocess, "Popen", lambda a: _FakeProc(a))
+
+        config_editor._launch_windows_editor("/tmp/config.json")
+
+        assert captured["timeout"] == 1800, (
+            "XZ-EH-018: notepad fallback must call proc.wait(timeout=1800) "
+            f"(30 minutes). Got timeout={captured['timeout']!r}."
+        )
+        assert "kill_called" not in captured, "XZ-EH-018: kill() must NOT be called when wait() returns normally."
+
+    def test_windows_notepad_fallback_kills_and_raises_on_timeout(self, monkeypatch):
+        """Notepad fallback kills the proc and raises TimeoutError on timeout."""
+        from voice_typer.server import config_editor
+
+        monkeypatch.setattr(
+            config_editor,
+            "_resolve",
+            lambda name, default: {
+                "_windows_open_with_default_app": lambda path: None,
+                "_windows_wait_for_process_exit": lambda handle: None,
+                "_windows_close_process_handle": lambda handle: None,
+                "_systemroot_notepad_path": lambda: "/C/Windows/System32/notepad.exe",
+            }.get(name, default),
+        )
+
+        killed: list[bool] = []
+        reaped: list[float] = []
+
+        class _FakeProc:
+            def __init__(self, args):
+                self.args = args
+
+            def wait(self, timeout=None):
+                if timeout == 1800:
+                    raise subprocess.TimeoutExpired(cmd=self.args, timeout=1800)
+                # Second wait() (the reaper after kill()) returns normally.
+                reaped.append(timeout)
+                return 0
+
+            def kill(self):
+                killed.append(True)
+
+        monkeypatch.setattr(config_editor.subprocess, "Popen", lambda a: _FakeProc(a))
+
+        with pytest.raises(TimeoutError) as exc_info:
+            config_editor._launch_windows_editor("/tmp/config.json")
+
+        assert killed == [True], (
+            "XZ-EH-018: notepad fallback must call proc.kill() when "
+            "wait() times out, so the editor process doesn't keep "
+            "running in the background."
+        )
+        assert len(reaped) == 1, (
+            "XZ-EH-018: notepad fallback must reap the killed process via a second proc.wait() call."
+        )
+        msg = str(exc_info.value)
+        assert "30-minute timeout" in msg, (
+            f"XZ-EH-018: TimeoutError message must mention '30-minute timeout'. Got: {msg!r}"
+        )
+        assert "config.json" in msg, f"XZ-EH-018: TimeoutError message must mention the config path. Got: {msg!r}"
+        assert "temporary file" in msg, (
+            f"XZ-EH-018: TimeoutError message must include the recovery "
+            f"hint about saving to a temporary file. Got: {msg!r}"
+        )
+
+    def test_macos_launch_passes_timeout_to_subprocess_run(self, monkeypatch):
+        """macOS ``open -W`` is called with ``timeout=1800``."""
+        from voice_typer.server import config_editor
+
+        captured: dict = {}
+
+        def _fake_run(args, **kwargs):
+            captured["args"] = args
+            captured["timeout"] = kwargs.get("timeout")
+            captured["check"] = kwargs.get("check")
+            return MagicMock(returncode=0)
+
+        monkeypatch.setattr(config_editor.subprocess, "run", _fake_run)
+
+        config_editor._launch_macos_editor("/tmp/config.json")
+
+        assert captured["args"][0] == "open", f"macOS path must invoke 'open'; got {captured['args'][0]!r}"
+        assert "-W" in captured["args"], f"B-4: macOS path must use 'open -W'. Args: {captured['args']!r}"
+        assert captured["timeout"] == 1800, (
+            "XZ-EH-018: macOS path must pass timeout=1800 (30 minutes) "
+            f"to subprocess.run. Got timeout={captured['timeout']!r}."
+        )
+        assert captured["check"] is False, "B-4: macOS path must keep check=False (don't raise on non-zero exit)."
+
+    def test_macos_launch_raises_timeout_error_on_timeout(self, monkeypatch):
+        """macOS path converts TimeoutExpired -> TimeoutError."""
+        from voice_typer.server import config_editor
+
+        def _fake_run(args, **kwargs):
+            assert kwargs.get("timeout") == 1800, (
+                f"XZ-EH-018: macOS path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
+            )
+            raise subprocess.TimeoutExpired(cmd=args, timeout=1800)
+
+        monkeypatch.setattr(config_editor.subprocess, "run", _fake_run)
+
+        with pytest.raises(TimeoutError) as exc_info:
+            config_editor._launch_macos_editor("/tmp/config.json")
+
+        msg = str(exc_info.value)
+        assert "30-minute timeout" in msg, (
+            f"XZ-EH-018: macOS TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
+        )
+
+    def test_linux_launch_passes_timeout_to_subprocess_run(self, monkeypatch):
+        """Linux ``xdg-open`` is called with ``timeout=1800``."""
+        from voice_typer.server import config_editor
+
+        captured: dict = {}
+
+        def _fake_run(args, **kwargs):
+            captured["args"] = args
+            captured["timeout"] = kwargs.get("timeout")
+            captured["check"] = kwargs.get("check")
+            return MagicMock(returncode=0)
+
+        monkeypatch.setattr(config_editor.subprocess, "run", _fake_run)
+
+        config_editor._launch_linux_editor("/tmp/config.json")
+
+        assert captured["args"][0] == "xdg-open", f"Linux path must invoke 'xdg-open'; got {captured['args'][0]!r}"
+        assert captured["timeout"] == 1800, (
+            "XZ-EH-018: Linux path must pass timeout=1800 (30 minutes) "
+            f"to subprocess.run. Got timeout={captured['timeout']!r}."
+        )
+        assert captured["check"] is False, "B-4: Linux path must keep check=False."
+
+    def test_linux_launch_raises_timeout_error_on_timeout(self, monkeypatch):
+        """Linux path converts TimeoutExpired -> TimeoutError."""
+        from voice_typer.server import config_editor
+
+        def _fake_run(args, **kwargs):
+            assert kwargs.get("timeout") == 1800, (
+                f"XZ-EH-018: Linux path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
+            )
+            raise subprocess.TimeoutExpired(cmd=args, timeout=1800)
+
+        monkeypatch.setattr(config_editor.subprocess, "run", _fake_run)
+
+        with pytest.raises(TimeoutError) as exc_info:
+            config_editor._launch_linux_editor("/tmp/config.json")
+
+        msg = str(exc_info.value)
+        assert "30-minute timeout" in msg, (
+            f"XZ-EH-018: Linux TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
+        )
+
+    def test_launcher_swallows_non_timeout_exceptions(self, monkeypatch):
+        """DR-19 contract preserved: non-timeout launch errors are still
+        silently swallowed (so a missing editor binary doesn't surface
+        as a tray notification)."""
+        from voice_typer.server import config_editor
+
+        def _raising_launcher(config_path):
+            raise FileNotFoundError("editor binary not found")
+
+        # Build a fake app capturing whether tray.notify was called.
+        notify_calls: list = []
+
+        class _FakeApp:
+            def __init__(self):
+                import threading
+
+                self._config_mutation_lock = threading.Lock()
+                self.config = MagicMock()
+                self.config.save.return_value = True
+                type(self.config).load = MagicMock(return_value=self.config)
+                self.tray = MagicMock()
+                self.tray.notify = lambda title, body: notify_calls.append((title, body))
+
+        monkeypatch.setattr(
+            config_editor,
+            "_PLATFORM_LAUNCHERS",
+            {"macos": _raising_launcher},
+        )
+        monkeypatch.setattr(config_editor, "_current_platform", lambda: "macos")
+
+        launcher = config_editor.ConfigEditorLauncher(_FakeApp())
+        # Must NOT raise — DR-19 contract: non-timeout errors swallowed.
+        launcher.launch("/tmp/config.json")
+
+        # Tray must NOT be notified for a non-timeout launch error
+        # (DR-19 historical behavior on macOS / Linux).
+        assert notify_calls == [], (
+            f"DR-19: non-timeout launch errors must NOT trigger a tray notification. Got: {notify_calls}"
+        )
+
+    def test_launcher_propagates_timeout_to_tray_notification(self, monkeypatch):
+        """XZ-EH-018: when a launcher raises TimeoutError, the outer
+        except catches it and pushes a tray notification with a
+        recovery hint (NOT the generic 'Config file:\\n...' message)."""
+        from voice_typer.server import config_editor
+
+        def _timing_out_launcher(config_path):
+            raise TimeoutError(f"Editor session for {config_path} exceeded the 30-minute timeout")
+
+        notify_calls: list = []
+
+        class _FakeApp:
+            def __init__(self):
+                import threading
+
+                self._config_mutation_lock = threading.Lock()
+                self.config = MagicMock()
+                self.config.save.return_value = True
+                type(self.config).load = MagicMock(return_value=self.config)
+                self.tray = MagicMock()
+                self.tray.notify = lambda title, body: notify_calls.append((title, body))
+
+        monkeypatch.setattr(
+            config_editor,
+            "_PLATFORM_LAUNCHERS",
+            {"linux": _timing_out_launcher},
+        )
+        monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
+
+        launcher = config_editor.ConfigEditorLauncher(_FakeApp())
+        # Must NOT raise — the outer except catches TimeoutError and
+        # converts it to a tray notification.
+        launcher.launch("/tmp/config.json")
+
+        assert len(notify_calls) == 1, (
+            "XZ-EH-018: a TimeoutError from the launcher must produce "
+            f"exactly one tray notification. Got: {notify_calls}"
+        )
+        title, body = notify_calls[0]
+        assert "timed out" in body.lower(), f"XZ-EH-018: tray notification body must mention 'timed out'. Got: {body!r}"
+        assert "30" in body, (
+            f"XZ-EH-018: tray notification body must mention the 30-minute timeout duration. Got: {body!r}"
+        )
+        assert "temporary file" in body.lower(), (
+            f"XZ-EH-018: tray notification body must include the recovery "
+            f"hint about saving to a temporary file. Got: {body!r}"
         )
 
 

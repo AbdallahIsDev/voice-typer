@@ -145,6 +145,30 @@ _HISTORY_COUNT_CACHE_TTL_S = 60.0
 # TY-8: maximum characters of ``text`` returned in list responses.
 _HISTORY_TEXT_PREVIEW_LENGTH = 500
 
+# S5-CR-61: regex used by ``HistoryDB._try_iterdump_recovery`` to
+# filter iterdump() output and keep only ``INSERT INTO transcriptions``
+# statements (the user-data rows). Schema rows (``schema_meta``,
+# ``sqlite_sequence``) and FTS5 shadow-table rows
+# (``transcriptions_fts`` and its ``_*_`` shadow tables) are
+# intentionally excluded — the fresh DB's schema init recreates the
+# schema, and replaying ``schema_meta`` would PRIMARY KEY-conflict
+# with the version row that ``init_schema`` writes.
+#
+# iterdump() emits statements of the form::
+#
+#     INSERT INTO "transcriptions" VALUES(1, 'text', ...);
+#     INSERT INTO "schema_meta" VALUES('version','3');
+#     INSERT INTO "transcriptions_fts" VALUES(...);
+#
+# The ``"?`` allows for the optional double-quote that iterdump
+# emits around the table name; ``\b`` ensures ``transcriptions_fts``
+# is NOT matched (``s`` and ``_`` are both word chars, so there's
+# no word boundary between them).
+_INSERT_TRANSCRIPTIONS_RE = re.compile(
+    r'^INSERT\s+INTO\s+"?transcriptions"?\b',
+    re.IGNORECASE,
+)
+
 
 class _BatchableInsert:
     """ER-78: structured payload for batchable transcription INSERTs.
@@ -958,6 +982,13 @@ class HistoryDB:
 
         The caller is responsible for re-running schema init on the
         returned connection (the fresh DB has no tables yet).
+
+        S5-CR-61: after renaming the corrupt DB, attempts to recover
+        user-data rows via ``iterdump()`` and replays them on the
+        fresh DB. Also publishes a ``history_corrupted`` event via
+        ``event_bus`` so the renderer can surface a toast to the user.
+        If ``iterdump()`` fails (severe corruption), the rename +
+        fresh-DB path still runs as a fallback (``recovered_count=0``).
         """
         try:
             rows = conn.execute("PRAGMA quick_check").fetchall()
@@ -996,14 +1027,259 @@ class HistoryDB:
             "[HISTORY_DB] Renamed corrupt DB to %s",
             corrupt_main,
         )
+        # S5-CR-61: BEFORE opening the fresh DB, attempt to recover
+        # user-data INSERTs from the now-renamed corrupt file. The
+        # corrupt file is at ``corrupt_main``; we open it read-only
+        # so we can't compound the corruption by writing to it.
+        recovered_inserts = self._try_iterdump_recovery(corrupt_main)
         # Open a fresh connection on a new (empty) DB file.
         try:
             new_conn = self._open_write_conn()
             self._check_wal_mode(new_conn)
-            return new_conn
         except sqlite3.Error as e:
             self._init_error = e
+            # Even if the fresh DB can't be opened, still emit the
+            # corruption event so the user is notified.
+            self._notify_corruption_recovered(corrupt_main, 0)
             return None
+        # S5-CR-61: replay the recovered INSERTs on the fresh DB.
+        # If no INSERTs were recovered (severe corruption or empty
+        # DB), this is a no-op and the fresh DB stays empty.
+        recovered_count = 0
+        if recovered_inserts:
+            recovered_count = self._apply_recovered_inserts(new_conn, recovered_inserts)
+        # S5-CR-61: emit the history_corrupted event + tray notify.
+        self._notify_corruption_recovered(corrupt_main, recovered_count)
+        return new_conn
+
+    def _try_iterdump_recovery(self, old_db_path: Path) -> list[str]:
+        """S5-CR-61: attempt to recover INSERT statements from a
+        corrupt DB via ``connection.iterdump()``.
+
+        Opens the corrupt DB in read-only mode (``?mode=ro`` URI) so
+        we can't compound the corruption by writing to the known-bad
+        file. Iterates the dump and returns the list of
+        ``INSERT INTO transcriptions ...`` statements.
+
+        Schema statements (CREATE TABLE / CREATE INDEX), schema-meta
+        rows, FTS5 shadow-table rows, and ``sqlite_sequence`` rows
+        are filtered out — the fresh DB's ``init_schema`` recreates
+        the schema, and replaying ``schema_meta`` would PRIMARY
+        KEY-conflict with the version row ``init_schema`` writes.
+
+        Returns an empty list if the corrupt DB file doesn't exist,
+        can't be opened read-only, or ``iterdump()`` raises (severe
+        corruption). The caller must handle the empty-list case by
+        falling back to the rename + fresh-DB path (which is what
+        ``_maybe_recover_from_corruption`` does).
+        """
+        inserts: list[str] = []
+        if not old_db_path.exists():
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: corrupt DB file does not exist: %s",
+                old_db_path,
+            )
+            return inserts
+        # Build the read-only URI. ``Path.as_uri()`` URL-encodes
+        # special chars (spaces, etc.) and produces a proper
+        # ``file:///`` URI on both POSIX and Windows.
+        try:
+            uri = old_db_path.resolve().as_uri() + "?mode=ro"
+        except (OSError, ValueError) as e:
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: could not resolve path %s: %s",
+                old_db_path,
+                e,
+            )
+            return inserts
+        try:
+            ro_conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: could not open corrupt DB read-only (%s): %s",
+                old_db_path,
+                e,
+            )
+            return inserts
+        try:
+            for stmt in ro_conn.iterdump():
+                # iterdump yields strings like:
+                #   INSERT INTO "transcriptions" VALUES(1, 'text', ...);
+                #   INSERT INTO "schema_meta" VALUES('version','3');
+                #   INSERT INTO "transcriptions_fts" VALUES(...);
+                # Keep only INSERT INTO transcriptions (user data).
+                stripped = stmt.lstrip()
+                if _INSERT_TRANSCRIPTIONS_RE.match(stripped):
+                    inserts.append(stmt)
+        except sqlite3.Error as e:
+            # Severe corruption: iterdump raised mid-iteration.
+            # Return whatever we have so far (may be partial) rather
+            # than discarding everything — partial recovery is
+            # strictly better than no recovery.
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: iterdump() raised mid-iteration "
+                "(severe corruption, returning %d partial statements): %s",
+                len(inserts),
+                e,
+            )
+            return inserts
+        finally:
+            with contextlib.suppress(sqlite3.Error):
+                ro_conn.close()
+        log.info(
+            "[HISTORY_DB] iterdump recovery: recovered %d INSERT statements from %s",
+            len(inserts),
+            old_db_path,
+        )
+        return inserts
+
+    def _apply_recovered_inserts(
+        self,
+        conn: sqlite3.Connection,
+        inserts: list[str],
+    ) -> int:
+        """S5-CR-61: replay iterdump-recovered INSERT statements on
+        the fresh DB.
+
+        The fresh DB's schema is not yet set up at this point
+        (``init_schema``'s recursive ``_is_recovery=True`` call runs
+        AFTER this method returns), so we run ``init_schema``
+        ourselves first. The later recursive call is a no-op because
+        all CREATE statements use ``IF NOT EXISTS`` and
+        ``schema_meta`` already has ``version=_CURRENT_SCHEMA_VERSION``.
+
+        The INSERTs are applied via ``executescript`` so a single bad
+        statement (e.g. a row that violates a constraint) doesn't
+        roll back all the others — partial recovery is preferable to
+        no recovery for user dictation history.
+
+        Returns the actual number of rows in the ``transcriptions``
+        table after the attempt (may be less than ``len(inserts)``
+        if some statements failed).
+        """
+        # Set up the schema on the fresh connection so the INSERTs
+        # can target the transcriptions table. Wrapped broadly
+        # because init_schema may interact with self._init_error /
+        # _backup_before_migration in ways we don't want to crash on
+        # during best-effort recovery.
+        try:
+            from voice_typer.server.history_db_internals.schema import (
+                init_schema as _init_schema,
+            )
+
+            _init_schema(self, conn, _is_recovery=True)
+        except Exception as e:  # noqa: BLE001 — best-effort recovery
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: could not initialize schema for replay (skipping %d INSERTs): %s",
+                len(inserts),
+                e,
+            )
+            return 0
+        # Apply the INSERTs. ``executescript`` issues a COMMIT first
+        # (clearing any pending transaction from init_schema), then
+        # runs each statement. The FTS5 AFTER-INSERT trigger fires
+        # for each row and populates ``transcriptions_fts``
+        # automatically, so we don't need to replay FTS rows.
+        try:
+            script = "\n".join(inserts)
+            conn.executescript(script)
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: executescript failed (partial recovery may have occurred): %s",
+                e,
+            )
+        # Count actual rows in the fresh DB. This is more accurate
+        # than ``len(inserts)`` because some INSERTs may have failed
+        # (e.g. constraint violations on duplicate ids).
+        try:
+            cursor = conn.execute("SELECT COUNT(*) FROM transcriptions")
+            row = cursor.fetchone()
+            count = int(row[0]) if row else 0
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY_DB] iterdump recovery: could not count recovered rows: %s",
+                e,
+            )
+            return 0
+        if count > 0:
+            log.info(
+                "[HISTORY_DB] iterdump recovery: %d row(s) recovered into fresh DB",
+                count,
+            )
+        else:
+            log.info(
+                "[HISTORY_DB] iterdump recovery: no rows recovered (all INSERTs failed or empty source)",
+            )
+        return count
+
+    def _notify_corruption_recovered(
+        self,
+        corrupt_main: Path,
+        recovered_count: int,
+    ) -> None:
+        """S5-CR-61: surface the corruption event to the user.
+
+        Logs a WARNING-level message naming the backup file's
+        location and the number of rows recovered, then publishes a
+        ``history_corrupted`` event via ``event_bus`` so the renderer
+        can show a toast/notification. If ``self._app.tray.notify``
+        is wired (set by the app shell), also calls it for a native
+        OS notification.
+
+        All notifications are best-effort: if ``event_bus.publish``
+        or ``tray.notify`` raises, the recovery path must still
+        succeed (the fresh DB has already been created and populated).
+        """
+        log.warning(
+            "[HISTORY_DB] History database was corrupted and has been "
+            "backed up to %s. Recovered %d row(s) via iterdump.",
+            corrupt_main,
+            recovered_count,
+        )
+        # Best-effort event_bus publication. Wrapped broadly because
+        # the event_bus import or the publish call may fail (e.g.
+        # circular import during early init, or a malformed event
+        # payload); none of those should crash the recovery path.
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "history_corrupted",
+                    "data": {
+                        "path": str(corrupt_main),
+                        "db_path": str(self.db_path),
+                        "recovered_count": recovered_count,
+                    },
+                }
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort notification
+            log.warning(
+                "[HISTORY_DB] event_bus.publish(history_corrupted) failed (best-effort, recovery continues): %s",
+                e,
+            )
+        # Best-effort tray notification. ``self._app`` is set by the
+        # app shell (not by HistoryDB.__init__) — use getattr so the
+        # attribute-missing case during early init is handled.
+        app = getattr(self, "_app", None)
+        if app is None:
+            return
+        tray = getattr(app, "tray", None)
+        if tray is None:
+            return
+        notify = getattr(tray, "notify", None)
+        if notify is None:
+            return
+        try:
+            notify(
+                "Voice Typer",
+                f"History database was corrupted and backed up. {recovered_count} row(s) recovered.",
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort notification
+            log.warning(
+                "[HISTORY_DB] tray.notify failed (best-effort, recovery continues): %s",
+                e,
+            )
 
     # ──────────────────────────────────────────────────────────────
     # Read connections

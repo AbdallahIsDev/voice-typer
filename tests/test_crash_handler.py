@@ -558,6 +558,124 @@ class TestCrashHandlerReportPending:
         assert not crash_file.exists()
 
 
+# ─── S1-CR-136: report_pending_crash summary "Next steps" hint ──────────
+
+
+class TestReportPendingCrashNextStepsHint:
+    """S1-CR-136: ``report_pending_crash`` appends a ``Next steps: run
+    ``python scripts/diagnostics.py export``` hint to the returned
+    summary so the tray notification (which embeds the summary verbatim
+    via ``app.tray.notify_safety(title, f"...{crash_summary}...")`` in
+    ``startup_sequence.py``) tells the user how to capture a full
+    diagnostic bundle for a bug report.
+    """
+
+    def test_summary_includes_next_steps_hint(self, tmp_path):
+        """The returned summary contains the ``Next steps:`` line
+        pointing at the diagnostics-export CLI."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Next steps:" in result, f"S1-CR-136: crash summary must include a 'Next steps:' hint; got:\n{result}"
+        assert "python scripts/diagnostics.py export" in result, (
+            f"S1-CR-136: 'Next steps:' hint must mention the diagnostics-export CLI command; got:\n{result}"
+        )
+
+    def test_summary_next_steps_appears_exactly_once_for_single_crash(self, tmp_path):
+        """The ``Next steps`` hint appears EXACTLY ONCE in the summary,
+        even when only one crash file is processed.  Guards against
+        accidental double-append (e.g. if a future change adds the hint
+        to the per-file ``summary_parts`` list rather than the final
+        joined ``summary``).
+        """
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        occurrences = result.count("Next steps:")
+        assert occurrences == 1, (
+            f"S1-CR-136: 'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
+        )
+
+    def test_summary_next_steps_appears_exactly_once_for_multiple_crashes(self, tmp_path):
+        """When multiple crash files are surfaced in the same scan, the
+        ``Next steps`` hint still appears EXACTLY ONCE (it's appended to
+        the final joined ``summary``, NOT per-file in ``summary_parts``).
+        """
+        (tmp_path / "crash_diagnostics.1111.txt").write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "crash_diagnostics.2222.txt").write_text(
+            "STATUS_HEAP_CORRUPTION: the process heap has been corrupted.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        # Both crash summaries must still be present.
+        assert "Access violation" in result
+        assert "Heap corruption" in result
+        # And the Next steps hint must appear exactly once.
+        occurrences = result.count("Next steps:")
+        assert occurrences == 1, (
+            "S1-CR-136: 'Next steps:' must appear exactly once even with "
+            f"multiple crash files; got {occurrences}:\n{result}"
+        )
+
+    def test_summary_next_steps_hint_includes_python_command(self, tmp_path):
+        """The hint specifically references the ``python`` interpreter
+        invocation (NOT just ``diagnostics.py export``) so the user can
+        copy-paste the command verbatim.  Regression guard against
+        accidental command-name drift.
+        """
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_HEAP_CORRUPTION: the process heap has been corrupted.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "python scripts/diagnostics.py export" in result, (
+            f"S1-CR-136: hint must use the literal 'python scripts/diagnostics.py export' command; got:\n{result}"
+        )
+
+    def test_summary_returns_none_still_omits_hint(self, tmp_path):
+        """When no crash files exist, ``report_pending_crash`` returns
+        ``None`` (the ``Next steps`` hint is NOT appended to a None
+        return — it's only appended when ``summary_parts`` is non-empty).
+        Guards against a regression where the hint is unconditionally
+        appended even when there's no crash to report.
+        """
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is None, (
+            f"S1-CR-136: report_pending_crash must return None when no crash files exist; got: {result!r}"
+        )
+
+    def test_summary_next_steps_hint_for_python_crash_marker(self, tmp_path):
+        """S1-CR-136: the ``Next steps`` hint is appended for
+        ``python_crash.<PID>.txt`` marker files too (not just VEH
+        ``crash_diagnostics`` files), so the user is told how to
+        capture a bundle regardless of which crash path fired.
+        """
+        marker = tmp_path / "python_crash.4321.txt"
+        marker.write_text(
+            "exc_type=ValueError\nexc_value=test python crash\nthread=MainThread\ntimestamp=2026-07-22T12:34:56.789\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Python crash" in result
+        assert "Next steps:" in result
+        assert "python scripts/diagnostics.py export" in result
+
+
 # ─── install_crash_handler (POSIX no-op) ────────────────────────────────
 
 
@@ -1121,6 +1239,99 @@ class TestCrashDiagnosticsHeader:
         header = crash_handler._compute_crash_header()
         assert isinstance(header, bytes), f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
         assert header.decode("utf-8", errors="replace")
+
+    # ── S1-CR-136: reproduction hint + Windows version ───────────────
+
+    def test_header_includes_reproduction_hint(self, tmp_path):
+        """S1-CR-136: the static crash-diagnostics header includes a
+        ``Reproduction hint`` line telling the user / support engineer
+        to run ``python scripts/diagnostics.py export`` to capture a
+        full diagnostic bundle for a bug report.  The hint is inline
+        in the header (rather than appended at crash-summary time) so
+        it's present even when an operator reads the file directly off
+        disk without going through ``report_pending_crash``.
+        """
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "Reproduction hint:" in header, (
+            f"S1-CR-136: header must include a 'Reproduction hint:' line; got:\n{header}"
+        )
+        assert "python scripts/diagnostics.py export" in header, (
+            f"S1-CR-136: reproduction hint must mention the diagnostics-export CLI command; got:\n{header}"
+        )
+
+    def test_header_reproduction_hint_appears_before_end_marker(self, tmp_path):
+        """S1-CR-136: the reproduction hint line appears BEFORE the
+        ``=== END HEADER ===`` marker so a reader that scans until the
+        end marker doesn't miss it.  Layout regression guard against
+        accidental reordering.
+        """
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        hint_idx = header.find("Reproduction hint:")
+        end_idx = header.find("=== END HEADER ===")
+        assert hint_idx != -1 and end_idx != -1, (
+            f"S1-CR-136: header must contain both 'Reproduction hint:' and '=== END HEADER ==='; got:\n{header}"
+        )
+        assert hint_idx < end_idx, (
+            "S1-CR-136: 'Reproduction hint:' must appear BEFORE "
+            f"'=== END HEADER ==='; got hint_idx={hint_idx}, end_idx={end_idx}"
+        )
+
+    def test_header_includes_windows_version_on_windows(self, monkeypatch, tmp_path):
+        """S1-CR-136: on Windows, the header includes a ``Windows version:``
+        line sourced from ``sys.getwindowsversion()``.  On POSIX the line
+        is omitted (the API does not exist).  This test simulates the
+        Windows code path by injecting a fake ``sys.getwindowsversion``
+        so the assertion runs on Linux too (host-validation note: the
+        real ``sys.getwindowsversion()`` call is only exercised on a
+        Windows host).
+        """
+        # Simulate the Windows-only ``sys.getwindowsversion`` attribute.
+        # The header builder uses ``getattr(sys, "getwindowsversion", None)``
+        # so monkey-patching the attribute is sufficient.
+        fake_ver = (10, 0, 22621, 2, "SP0", 0, 0, 256, 1)
+
+        def _fake_getwindowsversion():
+            return fake_ver
+
+        monkeypatch.setattr(sys, "getwindowsversion", _fake_getwindowsversion, raising=False)
+        try:
+            crash_handler.set_crash_handler_config_dir(tmp_path)
+            header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+            assert "Windows version:" in header, (
+                "S1-CR-136: header must include 'Windows version:' line when "
+                f"sys.getwindowsversion is available; got:\n{header}"
+            )
+            # The fake version tuple's build number (22621) must appear in
+            # the formatted line.
+            assert "22621" in header, (
+                "S1-CR-136: 'Windows version:' line must include the build "
+                f"number from sys.getwindowsversion(); got:\n{header}"
+            )
+        finally:
+            # ``monkeypatch`` restores ``sys.getwindowsversion`` automatically
+            # only if the attribute existed before; on Linux it never did,
+            # so manually delete the injected attribute to avoid leaking
+            # it into subsequent tests in the same process.
+            if hasattr(sys, "getwindowsversion") and not callable(getattr(sys, "getwindowsversion", None)):
+                # Defensive — should never trigger; left as a safety net.
+                delattr(sys, "getwindowsversion")
+
+    def test_header_omits_windows_version_on_posix(self, tmp_path):
+        """S1-CR-136: on POSIX (where ``sys.getwindowsversion`` does not
+        exist), the header must NOT include a ``Windows version:`` line.
+        The Windows-specific capture is gated on the API's availability
+        so the header stays platform-honest.
+        """
+        if hasattr(sys, "getwindowsversion"):
+            pytest.skip("Windows host — sys.getwindowsversion exists; this test is POSIX-only")
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "Windows version:" not in header, (
+            "S1-CR-136: header must NOT include 'Windows version:' line on "
+            f"POSIX (no sys.getwindowsversion); got:\n{header}"
+        )
 
 
 # ============================================================================
