@@ -224,14 +224,25 @@ class VoiceTyperApp:
         from voice_typer.server.model_manager import ModelManager
 
         self.models: ModelManager = ModelManager(self)
-        if self.config.asr_backend == "qwen" and self.config.qwen_model_path:
-            # Eager-init the Qwen engine if configured (mirrors the
-            # pre-Round-9 behavior in __init__).
-            self.models._ensure_engine("qwen")
+        # AB-30: the eager ``self.models._ensure_engine("qwen")`` call
+        # that used to live here was a synchronous multi-second load
+        # (qwen model weights off disk) on every cold start when the
+        # user had asr_backend='qwen' configured. The background load
+        # thread spawned by ``ModelManager.start_background_load()``
+        # (called from ``StartupSequence.run``) already calls
+        # ``_ensure_engine(config.asr_backend)`` on the daemon thread —
+        # see ``model_manager.py:load_background``. So the eager call
+        # was both expensive AND redundant. Removed here; the bg load
+        # path covers it.
 
-        self.clipboard = ClipboardManager(
-            paste_enabled=self.config.paste_on_stop,
-        )
+        # AB-30: ``ClipboardManager`` construction deferred to first
+        # access via the ``clipboard`` @property below. The eager
+        # construction was a small but non-trivial cost (import + class
+        # init) paid on every cold start even when the user never
+        # dictates. The lazy property transparently constructs on the
+        # first ``app.clipboard.*`` call.
+        self._clipboard_backing: Any = None
+
         self.tray = TrayIcon(
             controller=self,
             config=self.config,
@@ -454,17 +465,22 @@ class VoiceTyperApp:
         # __init__ (next to AudioProcessor) and wired to the processor's
         # per-chunk quality callback.  See self._audio_quality /
         # self._on_audio_quality_chunk / _finalize_audio_quality_report.
-        self._waveform_bubble = WaveformBubble()
-        # RW-9 Phase 7: waveform-bubble wiring extracted to
-        # WaveformBubbleWiring. The app keeps a thin delegate method
-        # (_wire_waveform_bubble) so existing callers and tests keep
-        # working. The worker / queue / stop_event now live on
-        # WaveformBubbleWiring; _do_cleanup calls waveform_wiring.stop()
-        # to shut the worker down.
-        from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
-
-        self.waveform_wiring: WaveformBubbleWiring = WaveformBubbleWiring(self)
-        self._wire_waveform_bubble()
+        # AB-30: ``WaveformBubble`` and ``WaveformBubbleWiring``
+        # construction deferred to first access via the
+        # ``_waveform_bubble`` / ``waveform_wiring`` @properties below.
+        # The eager construction + immediate ``_wire_waveform_bubble()``
+        # call that used to live here paid the full bubble-wiring cost
+        # (importing ``waveform_bubble_wiring`` + starting the
+        # bubble-level-pusher daemon thread + registering it with the
+        # thread registry) on every cold start, even when the user has
+        # ``bubble_behavior='hidden'`` and never sees the bubble. The
+        # wiring now happens lazily — the ``_wire_waveform_bubble()``
+        # call was moved to ``start()`` so it runs once on the main
+        # thread before the tray event loop begins, and only if the app
+        # actually reaches the production entry point (tests that
+        # construct ``VoiceTyperApp`` directly never trigger it).
+        self._waveform_bubble_backing: Any = None
+        self._waveform_wiring_backing: Any = None
         self._last_transcription: str = ""  # For repaste
         # TASK-14: declare ``_ipc_server`` upfront so VoiceTyperApp
         # satisfies the ``AppProtocol`` structural type checked by
@@ -473,40 +489,120 @@ class VoiceTyperApp:
         # initializing it to ``None`` here means pyrefly sees the
         # attribute exists on every instance, satisfying the protocol.
         self._ipc_server: Any | None = None
-        # ARCH-011: eager-init managers so config changes between
-        # startup and first dictation are reflected.  Previously these
-        # were lazy-init on first use, which meant a config change
-        # (e.g. editing corrections.json) before the first dictation
-        # was NOT picked up because the manager was created from stale
-        # config.  Eager init ensures the managers see the config as
-        # of __init__ time; reload() can be called later if needed.
-        # TASK-14: annotate as ``Optional`` so the ``= None`` fallback
-        # in the except branch below type-checks.  Without the
-        # annotation pyrefly infers ``TemplateManager`` from the
-        # try-block assignment and then rejects the ``None`` reset.
-        self._template_manager: "TemplateManager | None" = None  # noqa: UP037
-        self._vocabulary_manager: "VocabularyManager | None" = None  # noqa: UP037
-        # APP-8 (F-07): eager-init failures must be logged at WARNING
-        # (not DEBUG) with exc_info=True so they're visible in the
-        # default-INFO production log and the stack trace is captured
-        # for diagnosis. Pre-fix, these were swallowed at DEBUG, making
-        # template/vocabulary init failures effectively invisible.
-        try:
-            from voice_typer.server.templates import TemplateManager
-
-            self._template_manager = TemplateManager()
-        except Exception:
-            log.warning("[INIT] TemplateManager eager-init failed", exc_info=True)
-            self._template_manager = None
-        try:
-            from voice_typer.server.vocabulary import VocabularyManager
-
-            self._vocabulary_manager = VocabularyManager()
-        except Exception:
-            log.warning("[INIT] VocabularyManager eager-init failed", exc_info=True)
-            self._vocabulary_manager = None
+        # AB-30: ``TemplateManager`` and ``VocabularyManager``
+        # construction deferred to first access via the
+        # ``_template_manager`` / ``_vocabulary_manager`` @properties
+        # below. The eager construction that used to live here read
+        # ``templates.json`` / ``vocabulary.json`` off disk on every
+        # cold start (hundreds of ms on a slow disk), even when the
+        # user never uses templates / vocabulary. The lazy properties
+        # transparently construct on first access (e.g. via the
+        # dictation_pipeline's existing fallback path or directly).
+        # The backings start as ``None``; the property's getter handles
+        # construction (and the setter is used by tests that inject
+        # mocks via ``app._template_manager = MagicMock()``).
+        self._template_manager_backing: Any = None
+        self._vocabulary_manager_backing: Any = None
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
+
+    # ─── AB-30: Lazy @property accessors ───────────────────────────────
+    #
+    # Each of these five subsystems used to be constructed eagerly in
+    # ``__init__`` (TemplateManager / VocabularyManager read JSON off
+    # disk; ClipboardManager / WaveformBubble / WaveformBubbleWiring
+    # import their dependencies + start threads). The lazy @property
+    # accessors below defer construction to first access so the
+    # per-cold-start cost is paid only when the subsystem is actually
+    # used.
+    #
+    # Each property has both a getter (constructs on first access if
+    # the backing is None) and a setter (stores directly into the
+    # backing). The setter exists so existing tests that inject mocks
+    # via ``app.<attr> = MagicMock()`` keep working transparently —
+    # assignment bypasses the lazy construction.
+    #
+    # Construction failures (e.g. a corrupt ``templates.json``) are
+    # logged at WARNING level with ``exc_info=True`` (mirrors the
+    # pre-AB-30 eager-init failure-logging contract) and the backing
+    # is left as ``None`` so the next access retries (mirrors the
+    # dictation_pipeline.py lazy-fallback retry semantics).
+
+    @property
+    def _template_manager(self):
+        backing = self._template_manager_backing
+        if backing is None:
+            try:
+                from voice_typer.server.templates import TemplateManager
+
+                backing = TemplateManager()
+            except Exception:
+                log.warning("[INIT] TemplateManager lazy-init failed", exc_info=True)
+                return None
+            self._template_manager_backing = backing
+        return backing
+
+    @_template_manager.setter
+    def _template_manager(self, value) -> None:
+        self._template_manager_backing = value
+
+    @property
+    def _vocabulary_manager(self):
+        backing = self._vocabulary_manager_backing
+        if backing is None:
+            try:
+                from voice_typer.server.vocabulary import VocabularyManager
+
+                backing = VocabularyManager()
+            except Exception:
+                log.warning("[INIT] VocabularyManager lazy-init failed", exc_info=True)
+                return None
+            self._vocabulary_manager_backing = backing
+        return backing
+
+    @_vocabulary_manager.setter
+    def _vocabulary_manager(self, value) -> None:
+        self._vocabulary_manager_backing = value
+
+    @property
+    def clipboard(self):
+        backing = self._clipboard_backing
+        if backing is None:
+            backing = ClipboardManager(
+                paste_enabled=self.config.paste_on_stop,
+            )
+            self._clipboard_backing = backing
+        return backing
+
+    @clipboard.setter
+    def clipboard(self, value) -> None:
+        self._clipboard_backing = value
+
+    @property
+    def _waveform_bubble(self):
+        backing = self._waveform_bubble_backing
+        if backing is None:
+            backing = WaveformBubble()
+            self._waveform_bubble_backing = backing
+        return backing
+
+    @_waveform_bubble.setter
+    def _waveform_bubble(self, value) -> None:
+        self._waveform_bubble_backing = value
+
+    @property
+    def waveform_wiring(self):
+        backing = self._waveform_wiring_backing
+        if backing is None:
+            from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
+
+            backing = WaveformBubbleWiring(self)
+            self._waveform_wiring_backing = backing
+        return backing
+
+    @waveform_wiring.setter
+    def waveform_wiring(self, value) -> None:
+        self._waveform_wiring_backing = value
 
     # ─── Volume Ducking ────────────────────────────────────────────────
 
@@ -579,6 +675,18 @@ class VoiceTyperApp:
         # Queue "Loading" state before the event loop starts
         self.tray.set_state(AppState.LOADING, "Starting...")
 
+        # AB-30: wire the waveform bubble now (on the main thread, before
+        # the bg ``_do_startup`` thread runs). The wiring used to happen
+        # eagerly in ``__init__``; the lazy ``_waveform_bubble`` /
+        # ``waveform_wiring`` properties defer the actual construction
+        # to here so a VoiceTyperApp that is constructed but never
+        # ``start()``ed (e.g. in tests) pays nothing. ``_wire_waveform_bubble``
+        # is idempotent so a double-call (defensive) is safe.
+        try:
+            self._wire_waveform_bubble()
+        except Exception:
+            log.warning("[START] waveform bubble wiring failed", exc_info=True)
+
         # Create the icon and start background work (non-blocking)
         self.tray.start(bg_work=self._do_startup)
 
@@ -643,8 +751,13 @@ class VoiceTyperApp:
         """RW-9 Phase 7: delegate to AudioQualityController."""
         return self.audio_quality._rebuild_audio_processor(force_sr=force_sr)
 
-    def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
-        """RW-9 Phase 7: delegate to AudioQualityController."""
+    def _finalize_audio_quality_report(self, audio: Any) -> None:
+        """RW-9 Phase 7: delegate to AudioQualityController.
+
+        AB-29: parameter annotated as ``Any`` (not ``np.ndarray``) so the
+        annotation does NOT depend on ``from __future__ import annotations``
+        staying in place.
+        """
         return self.audio_quality._finalize_audio_quality_report(audio)
 
     def _stop_dictation(self):

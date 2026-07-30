@@ -255,6 +255,29 @@ def _run_warming_pipeline(
                     snapshot_warmed_any = False
                     for f in snapshot_dir.rglob("*"):
                         if f.is_file() and f.suffix in (".bin", ".safetensors", ".pt", ".json", ".txt"):
+                            # AB-17: skip warming when OS standby cache
+                            # already holds >= 90% of the file. Avoids
+                            # re-reading a 2.4 GB model.safetensors on every
+                            # prewarm re-fire when the OS already has it cached.
+                            try:
+                                file_size = f.stat().st_size
+                                if file_size >= _CACHE_RATIO_PROBE_MIN_BYTES:
+                                    ratio = _pkg._cache_ratio(f, samples=10)
+                                    if ratio >= _CACHE_RATIO_SKIP_WARMING_THRESHOLD:
+                                        log.debug(
+                                            "Skip warming %s (cache ratio %.2f >= %.2f)",
+                                            f,
+                                            ratio,
+                                            _CACHE_RATIO_SKIP_WARMING_THRESHOLD,
+                                        )
+                                        snapshot_warmed_any = True
+                                        continue
+                            except Exception as e:
+                                log.debug(
+                                    "Cache ratio probe failed for %s, warming anyway: %s",
+                                    f,
+                                    e,
+                                )
                             try:
                                 _pkg._warm_file(f)
                                 snapshot_warmed_any = True

@@ -88,11 +88,35 @@ def _atexit_flush_all() -> None:
     ``_enqueue_save`` (e.g. direct ``_entries.append`` in tests) must
     still persist (regression-tested by
     ``test_del_saves_unpersisted_post_shutdown_mutations``).
+
+    XE-16-6: each ``_save_sync()`` is now wrapped in a bounded-wait
+    helper using a separate thread + ``Event.wait(timeout=2.0)``. Pre-fix
+    a hung ``_save_sync`` (e.g. an NFS hang on the atomic write, an
+    antivirus lock on Windows, fsync on a dying SSD) blocked atexit
+    indefinitely — the interpreter refused to exit until the save
+    returned, which on a misbehaving disk could be never. Post-fix
+    the save runs in a short-lived worker thread; if it doesn't
+    complete within 2.0 s, the atexit handler logs a WARNING and
+    continues to the next instance (the worker thread is daemon, so
+    it's reaped when the process exits). 2.0 s is generous enough
+    for a healthy SSD save (~10 ms) and tight enough that the
+    interpreter doesn't appear to hang on a stuck disk.
     """
     for inst in list(_LIVE_INSTANCES):
         with contextlib.suppress(Exception):
             inst._stopped = True
-            inst._save_sync()
+            # XE-16-6: bounded-wait helper. Run ``_save_sync`` in a
+            # short-lived daemon thread; if it doesn't return within
+            # ``_ATEXIT_FLUSH_TIMEOUT_S`` seconds, log WARNING and
+            # move on so a hung save doesn't block interpreter exit.
+            # AB-44: pass ``durability=True`` so the final shutdown
+            # save runs both fsyncs (file data + parent dir). The
+            # per-dictation path uses ``durability=False`` (5+ saves/sec
+            # under streaming — fsync cost not worth it for non-critical
+            # data), but atexit is a one-time cost where the durability
+            # guarantee matters (a crash immediately after exit must
+            # not lose the final state).
+            _run_save_with_timeout(inst, _ATEXIT_FLUSH_TIMEOUT_S, durability=True)
             # XZ-R17-13: mark the final save as done so the subsequent
             # __del__ (fired by GC) skips the redundant write. Set
             # under no lock here — atexit is single-threaded by
@@ -106,6 +130,72 @@ def _atexit_flush_all() -> None:
             # worker is a daemon thread that has already exited by
             # the time atexit fires).
             inst._final_save_done = True
+
+
+def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability: bool = False) -> None:
+    """XE-16-6: run ``inst._save_sync()`` with a bounded wait.
+
+    Spawns a daemon thread to invoke ``_save_sync``; if the call
+    doesn't return within ``timeout`` seconds, logs WARNING and
+    returns (the daemon worker is reaped when the process exits).
+
+    Rationale: ``_save_sync`` does atomic-write + rename + (on the
+    first save) mkdir + chmod. On a healthy disk this completes in
+    <50 ms, but on a misbehaving disk (NFS hang, antivirus lock,
+    dying SSD with slow fsync) it can block for tens of seconds.
+    Pre-fix a hung save blocked atexit indefinitely; post-fix the
+    atexit handler moves on after ``timeout`` so the interpreter can
+    exit. The hung save itself is best-effort — if it eventually
+    completes (e.g. NFS recovers), the file lands on disk; if it
+    doesn't, the recovery state for that instance is lost (acceptable
+    — atexit is a safety net, not a guarantee).
+
+    AB-44: ``durability`` is forwarded to ``_save_sync``. The atexit
+    caller passes ``durability=True`` (one-time final shutdown save —
+    durability guarantee matters there); other callers use the
+    default ``False``.
+
+    The helper is module-level (not a method) so it doesn't capture
+    ``self`` and can be unit-tested in isolation.
+    """
+    done = threading.Event()
+    worker_exc: list[BaseException] = []
+
+    def _worker() -> None:
+        try:
+            inst._save_sync(durability=durability)
+        except BaseException as exc:  # noqa: BLE001 — re-raised below
+            worker_exc.append(exc)
+        finally:
+            done.set()
+
+    t = threading.Thread(
+        target=_worker,
+        name="crash-recovery-atexit-save",
+        daemon=True,
+    )
+    t.start()
+    completed = done.wait(timeout=timeout)
+    if not completed:
+        log.warning(
+            "[RECOVERY] atexit _save_sync() did not complete within %.2fs; "
+            "continuing (the daemon worker thread will be reaped on exit). "
+            "The recovery file for this instance may not be persisted.",
+            timeout,
+        )
+        return
+    # If the worker raised, re-raise so the outer ``contextlib.suppress``
+    # in ``_atexit_flush_all`` catches it (preserves the original
+    # best-effort contract — atexit must never raise).
+    if worker_exc:
+        raise worker_exc[0]
+
+
+# XE-16-6: bounded-wait timeout for ``_atexit_flush_all``. 2.0 s is
+# generous for a healthy SSD save (~10 ms) and tight enough that the
+# interpreter doesn't appear to hang on a stuck disk. Tunable for tests
+# via monkeypatch.
+_ATEXIT_FLUSH_TIMEOUT_S = 2.0
 
 
 atexit.register(_atexit_flush_all)
@@ -298,7 +388,7 @@ class CrashRecovery:
         except Exception as exc:
             log.debug("[RECOVERY] Failed to quarantine corrupt file: %s", exc)
 
-    def _save_sync(self) -> None:
+    def _save_sync(self, *, durability: bool = False) -> None:
         """Save recovery entries to disk synchronously.
 
         This is called only from the background save thread.  All
@@ -330,6 +420,18 @@ class CrashRecovery:
         subsequent saves skip it. If the chmod fails (logged at
         warning), the flag is NOT set so the next save retries.
 
+        AB-44: ``_dir_ensured`` now ALSO gates the per-save ``mkdir``
+        on ``self._path.parent`` (same idempotent-syscall rationale
+        as the chmod). The flag is set after the first successful
+        mkdir+chmod; subsequent saves skip BOTH.  ``durability``
+        controls whether ``_secure_atomic_write`` runs the two fsync
+        calls (file data + parent dir).  Default ``False`` for the
+        per-dictation path (5+ saves/sec under streaming — fsync cost
+        is not worth it for non-critical data).  ``True`` may be
+        passed by ``_atexit_flush_all`` and ``__del__`` for the final
+        shutdown save (one-time cost, durability guarantee matters
+        there).
+
         XZ-R17-13: ``_final_save_done`` deduplicates the final
         shutdown save. ``__del__`` and the atexit handler both call
         ``_save_sync()`` during interpreter shutdown; the flag
@@ -340,58 +442,95 @@ class CrashRecovery:
         final save does NOT suppress a subsequent ``__del__`` save
         for post-shutdown mutations. The flag is reset to ``False``
         by ``_enqueue_save`` when a new mutation arrives post-shutdown.
+
+        XE-16-4: the lock acquisition is now INSIDE a top-level
+        ``try/except Exception:`` so a lock-acquisition failure (e.g.
+        a ``RuntimeError`` from a re-entrant acquire attempt during
+        interpreter shutdown, or a ``BrokenPipeError``-style failure
+        on a corrupt lock object) is logged and swallowed rather than
+        propagating up and killing the worker thread. Pre-fix the
+        ``with self._save_lock:`` lived at the function's top level;
+        an exception there escaped into ``_save_loop`` (which had no
+        top-level handler either — fixed separately in ``_save_loop``).
         """
-        with self._save_lock:
-            # XZ-R17-13: short-circuit if the atexit handler already
-            # persisted the final state. The flag is set ONLY by
-            # ``_atexit_flush_all`` (NOT by ``shutdown()`` or this
-            # function) — so ``shutdown()``'s final save does NOT
-            # suppress a subsequent ``__del__`` save for post-shutdown
-            # mutations (the test
-            # ``test_del_saves_unpersisted_post_shutdown_mutations``
-            # verifies this). The flag is reset to ``False`` by
-            # ``_enqueue_save`` when a new mutation arrives
-            # post-shutdown, so post-shutdown ``add()`` calls still
-            # persist even if atexit already fired.
-            if self._final_save_done:
-                return
-            try:
-                self._path.parent.mkdir(parents=True, exist_ok=True)
-                # XZ-R17-08: skip the chmod on subsequent saves.
-                # First save does the mkdir + chmod; later saves
-                # only do the atomic write. The flag is cleared on
-                # any chmod failure so the next save retries.
-                if not self._dir_ensured and not is_windows():
-                    try:
-                        os.chmod(self._path.parent, 0o700)
-                        self._dir_ensured = True
-                    except OSError as e:
-                        log.warning("[RECOVERY] Failed to chmod dir: %s", e)
-                with self._lock:
-                    # Convert deque to list for JSON serialization
-                    # (collections.deque is not JSON-serializable).
-                    snapshot = json.dumps(
-                        {"entries": list(self._entries)},
-                        indent=2,
-                        ensure_ascii=False,
-                    )
-                _secure_atomic_write(self._path, snapshot)
-                # XZ-R17-13: NOTE — the flag is NOT set here. Only
-                # ``_atexit_flush_all`` sets the flag (after its own
-                # successful save). This ensures:
-                #   • ``shutdown()``'s final save does NOT suppress a
-                #     subsequent ``__del__`` save for post-shutdown
-                #     mutations (regression-tested by
-                #     ``test_del_saves_unpersisted_post_shutdown_mutations``).
-                #   • ``atexit`` (which fires after ``shutdown()``)
-                #     suppresses the redundant ``__del__`` save.
-                # The tradeoff: ``shutdown()`` + ``atexit`` produces 2
-                # writes (vs 3 pre-fix: shutdown + atexit + __del__).
-                # The abnormal-exit path (atexit + __del__, no
-                # shutdown) produces 1 write (atexit), since __del__
-                # observes the flag and skips.
-            except Exception:
-                log.exception("[RECOVERY] Failed to save")
+        try:
+            with self._save_lock:
+                # XZ-R17-13: short-circuit if the atexit handler already
+                # persisted the final state. The flag is set ONLY by
+                # ``_atexit_flush_all`` (NOT by ``shutdown()`` or this
+                # function) — so ``shutdown()``'s final save does NOT
+                # suppress a subsequent ``__del__`` save for post-shutdown
+                # mutations (the test
+                # ``test_del_saves_unpersisted_post_shutdown_mutations``
+                # verifies this). The flag is reset to ``False`` by
+                # ``_enqueue_save`` when a new mutation arrives
+                # post-shutdown, so post-shutdown ``add()`` calls still
+                # persist even if atexit already fired.
+                if self._final_save_done:
+                    return
+                try:
+                    # AB-44: skip the mkdir on subsequent saves. The flag
+                    # is set after the first successful mkdir+chmod; later
+                    # saves only do the atomic write. The flag is cleared
+                    # on any mkdir/chmod failure so the next save retries.
+                    if not self._dir_ensured:
+                        self._path.parent.mkdir(parents=True, exist_ok=True)
+                        # XZ-R17-08: skip the chmod on subsequent saves.
+                        # First save does the mkdir + chmod; later saves
+                        # only do the atomic write. The flag is cleared on
+                        # any chmod failure so the next save retries.
+                        if not is_windows():
+                            try:
+                                os.chmod(self._path.parent, 0o700)
+                            except OSError as e:
+                                log.warning("[RECOVERY] Failed to chmod dir: %s", e)
+                                # Don't set _dir_ensured — retry mkdir+chmod
+                                # on the next save.  Still proceed with the
+                                # save below; the chmod failure is not fatal.
+                            else:
+                                self._dir_ensured = True
+                        else:
+                            # Windows: no chmod, but mkdir succeeded — set
+                            # the flag so we skip the redundant mkdir on
+                            # subsequent saves.
+                            self._dir_ensured = True
+                    with self._lock:
+                        # Convert deque to list for JSON serialization
+                        # (collections.deque is not JSON-serializable).
+                        snapshot = json.dumps(
+                            {"entries": list(self._entries)},
+                            indent=2,
+                            ensure_ascii=False,
+                        )
+                    # AB-44: durability=False (default) for the per-dictation
+                    # path.  The atexit handler and __del__ may pass
+                    # durability=True for the final shutdown save.
+                    _secure_atomic_write(self._path, snapshot, durability=durability)
+                    # XZ-R17-13: NOTE — the flag is NOT set here. Only
+                    # ``_atexit_flush_all`` sets the flag (after its own
+                    # successful save). This ensures:
+                    #   • ``shutdown()``'s final save does NOT suppress a
+                    #     subsequent ``__del__`` save for post-shutdown
+                    #     mutations (regression-tested by
+                    #     ``test_del_saves_unpersisted_post_shutdown_mutations``).
+                    #   • ``atexit`` (which fires after ``shutdown()``)
+                    #     suppresses the redundant ``__del__`` save.
+                    # The tradeoff: ``shutdown()`` + ``atexit`` produces 2
+                    # writes (vs 3 pre-fix: shutdown + atexit + __del__).
+                    # The abnormal-exit path (atexit + __del__, no
+                    # shutdown) produces 1 write (atexit), since __del__
+                    # observes the flag and skips.
+                except Exception:
+                    log.exception("[RECOVERY] Failed to save")
+        except Exception:
+            # XE-16-4: lock-acquisition failure (or any other exception
+            # escaping the inner try/except). Log and swallow so the
+            # caller (the worker thread, ``shutdown()``, ``__del__``,
+            # ``_atexit_flush_all``) is not crashed by a save failure.
+            log.exception(
+                "[RECOVERY] _save_sync top-level failure (lock acquisition or "
+                "unexpected error); the recovery file may not be persisted"
+            )
 
     def _enqueue_save(self) -> None:
         """Enqueue a save request to the background worker.
@@ -491,39 +630,73 @@ class CrashRecovery:
         from ``shutdown()`` wakes the blocking ``get()`` immediately on
         normal shutdown — the 30s timeout is ONLY for the rare
         queue.Full failure mode.
+
+        XE-16-4: the loop body is now wrapped in a top-level
+        ``try/except Exception:`` that logs and continues. Pre-fix, an
+        unexpected exception (e.g. ``OSError`` from a transient disk
+        failure that ``_save_sync``'s inner try/except didn't catch,
+        ``MemoryError`` during snapshot serialization, or a stray
+        ``RuntimeError`` from the JSON encoder) killed the worker
+        thread silently — subsequent ``add()`` calls enqueued saves
+        that were never drained, and the final shutdown save was the
+        only path to disk. Post-fix the worker logs the exception at
+        ERROR (so the operator sees the degradation) and continues
+        processing the next queued item. ``BaseException``
+        (``KeyboardInterrupt``, ``SystemExit``) is deliberately NOT
+        caught so the worker dies cleanly when the interpreter is
+        shutting down.
         """
         while not self._stopped:
             try:
-                item = self._save_queue.get(timeout=30.0)
-            except queue.Empty:
-                continue
-            if item is None:
-                # Sentinel: stop signal
-                # Balance the ``get()`` with ``task_done()`` before
-                # breaking — maintains the ``get()``/``task_done()``
-                # pairing invariant for any future ``Queue.join()`` caller
-                # (no current caller exists, but the pairing is the
-                # documented contract). ``flush()`` does NOT rely on this
-                # — it uses an explicit ``flush_event`` sentinel +
-                # ``threading.Event.wait(timeout)``, NOT the
-                # unfinished-tasks counter.
+                try:
+                    item = self._save_queue.get(timeout=30.0)
+                except queue.Empty:
+                    continue
+                if item is None:
+                    # Sentinel: stop signal
+                    # Balance the ``get()`` with ``task_done()`` before
+                    # breaking — maintains the ``get()``/``task_done()``
+                    # pairing invariant for any future ``Queue.join()`` caller
+                    # (no current caller exists, but the pairing is the
+                    # documented contract). ``flush()`` does NOT rely on this
+                    # — it uses an explicit ``flush_event`` sentinel +
+                    # ``threading.Event.wait(timeout)``, NOT the
+                    # unfinished-tasks counter.
+                    self._save_queue.task_done()
+                    break
+                if isinstance(item, dict) and "flush_event" in item:
+                    # RW-4: flush barrier sentinel.  All saves queued
+                    # before this sentinel have now been processed, so
+                    # signal the waiting flush() caller.  Do NOT treat
+                    # this as a save — it is a barrier, not a snapshot
+                    # request.  The worker continues running and remains
+                    # ready for more items.
+                    event = item.get("flush_event")
+                    if event is not None:
+                        with contextlib.suppress(Exception):
+                            event.set()
+                    self._save_queue.task_done()
+                    continue
+                self._save_sync()
                 self._save_queue.task_done()
-                break
-            if isinstance(item, dict) and "flush_event" in item:
-                # RW-4: flush barrier sentinel.  All saves queued
-                # before this sentinel have now been processed, so
-                # signal the waiting flush() caller.  Do NOT treat
-                # this as a save — it is a barrier, not a snapshot
-                # request.  The worker continues running and remains
-                # ready for more items.
-                event = item.get("flush_event")
-                if event is not None:
-                    with contextlib.suppress(Exception):
-                        event.set()
-                self._save_queue.task_done()
-                continue
-            self._save_sync()
-            self._save_queue.task_done()
+            except BaseException:
+                # XE-16-4: ``BaseException`` (``KeyboardInterrupt``,
+                # ``SystemExit``) must propagate so the worker dies
+                # cleanly during interpreter shutdown. Re-raise.
+                raise
+            except Exception:
+                # XE-16-4: log and continue. Pre-fix the worker would
+                # die silently on an unexpected exception, leaving
+                # subsequent saves un-processed. The ``task_done()``
+                # for the current item may not have fired yet — the
+                # ``Queue.join()`` invariant is best-effort (no current
+                # caller exists), and a missed ``task_done()`` only
+                # affects ``flush()`` if the failing item happened to
+                # be a flush sentinel (handled separately above).
+                log.exception(
+                    "[RECOVERY] _save_loop worker caught unexpected exception "
+                    "(continuing; the item was logged above if it was a save)"
+                )
 
     def flush(self, timeout: float = 2.0) -> bool:
         """Wait for all pending saves to complete.
@@ -646,13 +819,26 @@ class CrashRecovery:
 
         Returns:
             True if the entry was found and marked, False otherwise.
+
+        XE-16-1: ``_enqueue_save()`` is now called OUTSIDE the
+        ``with self._lock:`` block. Pre-fix, the in-line call could
+        deadlock when invoked post-shutdown: ``_enqueue_save()`` falls
+        back to ``_save_sync()`` which acquires ``_save_lock`` and then
+        (for the snapshot) re-acquires ``self._lock`` — but the calling
+        thread was already holding ``self._lock``, so the re-acquire
+        deadlocked. Moving the enqueue out of the lock scope breaks the
+        re-entrancy. Mirrors the existing pattern in
+        ``mark_latest_pasted`` (which already enqueues outside the
+        lock) and ``add()`` / ``clear()``.
         """
+        found = False
         with self._lock:
             if 0 <= index < len(self._entries):
                 self._entries[index]["pasted"] = True
-                self._enqueue_save()
-                return True
-            return False
+                found = True
+        if found:
+            self._enqueue_save()
+        return found
 
     def mark_latest_pasted(self) -> None:
         """Mark the most recent entry as pasted.
@@ -815,8 +1001,12 @@ class CrashRecovery:
             # ``_final_save_done``, ``_save_sync``'s short-circuit
             # returns immediately — no redundant atomic-write +
             # rename on the shutdown path.
+            # AB-44: pass ``durability=True`` for this final GC save
+            # (one-time cost, durability guarantee matters there).
+            # The per-dictation path uses ``durability=False`` (5+
+            # saves/sec under streaming — fsync cost not worth it).
             if has_entries:
-                self._save_sync()
+                self._save_sync(durability=True)
         except Exception:
             pass  # __del__ must never raise
 

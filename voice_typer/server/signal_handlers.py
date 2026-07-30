@@ -120,30 +120,62 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
     and spawning the quit() worker thread. Runs as a daemon so
     it never blocks process exit; ``quit()`` is idempotent so a
     duplicate signal that re-triggers the watcher is harmless.
+
+    UE-1-F4: the watcher body is wrapped in ``while True:`` so
+    the watcher SURVIVES multiple signals. Pre-fix, the watcher
+    exited after the first signal — a second SIGTERM (e.g. user
+    double-tapping Ctrl+C because the first one was slow to take
+    effect) would fall through to Python's default handler
+    (immediate termination with no cleanup). The event is
+    cleared after each wakeup so a subsequent signal re-arms the
+    watcher for the next dispatch.
     """
-    # Block indefinitely until the event is set. ``wait(timeout=1)``
-    # (rather than ``wait()`` with no timeout) keeps the thread
-    # responsive to interpreter shutdown on platforms where the
-    # underlying lock isn't released automatically — a one-second
-    # poll loop is cheap and matches the convention used by the
-    # other daemon watchers in this codebase.
-    while not controller._shutdown_signal_event.wait(timeout=1.0):
-        pass
-    # Outside the signal context — safe to use logging and threading.
-    signum = controller._shutdown_signum
-    try:
-        sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
-        log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
-    except Exception:
-        # Never let a logging failure here prevent shutdown —
-        # the signal was delivered and we must still call quit().
-        pass
-    # RACE-016: daemon=True is acceptable because quit() is
-    # idempotent and the atexit handler covers critical cleanup.
-    try:
-        threading.Thread(target=controller.quit, daemon=True).start()
-    except Exception:
-        log.exception("[SIGNAL] failed to spawn quit() worker thread")
+    # UE-1-F4: outer ``while True:`` keeps the watcher alive across
+    # multiple signal deliveries. ``quit()`` is idempotent (guarded by
+    # ``_shutting_down``) so re-dispatching on a duplicate signal is a
+    # no-op; the loop is purely defensive against the case where the
+    # first quit() worker hasn't yet flipped ``_shutting_down`` and a
+    # second signal arrives.
+    while True:
+        # AB-32: block indefinitely — ``Event.set()`` from the signal
+        # handler wakes the watcher immediately, and on POSIX CPython's
+        # interpreter shutdown releases the underlying pthread condvar
+        # lock so the daemon thread never blocks process exit. The
+        # previous 1s poll loop caused 60 kernel wakeups/min for the
+        # entire app lifetime (preventing deep C-states on battery).
+        controller._shutdown_signal_event.wait()
+        # UE-1-F4: clear the event so a subsequent signal arrival is
+        # observable (re-arms the ``wait()`` above for the next round).
+        controller._shutdown_signal_event.clear()
+        # Outside the signal context — safe to use logging and threading.
+        signum = controller._shutdown_signum
+        try:
+            sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
+            log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
+        except Exception:
+            # UE-1-F7: async-signal-safe fallback. ``log.info`` could
+            # fail if the logging lock is held by an interrupted thread,
+            # if the configured handler raises (e.g. ``FileHandler`` on
+            # a closed log file during interpreter shutdown), or if the
+            # stderr stream has been replaced with a broken object.
+            # ``os.write(2, ...)`` is async-signal-safe per POSIX and
+            # gives the operator at least one line of evidence that the
+            # signal was delivered when nothing else works. Never let a
+            # logging failure here prevent shutdown — the signal was
+            # delivered and we must still call quit().
+            with contextlib.suppress(OSError):
+                os.write(2, b"[SIGNAL] received - logging failed, invoking quit()\n")
+        # RACE-016: daemon=True is acceptable because quit() is
+        # idempotent and the atexit handler covers critical cleanup.
+        try:
+            threading.Thread(target=controller.quit, daemon=True).start()
+        except Exception:
+            # UE-1-F7: same async-signal-safe stderr fallback as above
+            # — ``log.exception`` itself could fail under the same
+            # conditions. The ``os.write`` here is the last-resort
+            # evidence that we tried to spawn the quit() worker.
+            with contextlib.suppress(OSError):
+                os.write(2, b"[SIGNAL] failed to spawn quit() worker thread\n")
 
 
 def install_win32_console_handler(controller: ShutdownController) -> None:
@@ -223,10 +255,32 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
         return True
 
     if ctrl_type in (ctrl_logoff_event, ctrl_shutdown_event):
-        log.info("[WIN32] System event %d received, shutting down", ctrl_type)
-        # RACE-016: daemon=True is acceptable because quit() is
-        # idempotent and the atexit handler covers critical cleanup.
-        threading.Thread(target=controller.quit, daemon=True).start()
+        log.info(
+            "[WIN32] System event %d received, invoking fast cleanup (XZ-R17-06)",
+            ctrl_type,
+        )
+        # UE-1: route Windows logoff/shutdown to ``_do_fast_cleanup()``
+        # (NOT ``controller.quit``). The full ``_do_cleanup`` body has a
+        # cumulative worst-case of ~25-85s; Windows gives the process
+        # ~5s before force-kill. The fast path runs critical-only cleanup
+        # with 1s timeouts each (<3s total) and ends with ``os._exit(0)``
+        # to bypass atexit handlers (the OS is killing us anyway, so
+        # orderly atexit cleanup would race the OS force-kill and lose).
+        # ``_do_fast_cleanup`` is idempotent with ``_do_cleanup`` via the
+        # shared ``_cleanup_done`` flag, so a subsequent atexit safety
+        # net (if it somehow runs before ``os._exit``) is a no-op.
+        #
+        # Synchronous call: the Win32 console-control callback runs on a
+        # dedicated OS thread and returning True signals "handled". We
+        # must finish critical cleanup BEFORE returning so the OS doesn't
+        # force-kill us mid-flush. ``_do_fast_cleanup`` itself calls
+        # ``os._exit(0)`` at the end, so this ``return True`` only runs
+        # if the fast cleanup raised (in which case the OS force-kill is
+        # our fallback).
+        try:
+            controller._do_fast_cleanup()
+        except Exception:
+            log.exception("[WIN32] _do_fast_cleanup raised; relying on OS force-kill for cleanup")
         return True
 
     if ctrl_type in (ctrl_c_event, ctrl_break_event):

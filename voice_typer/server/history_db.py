@@ -61,6 +61,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from voice_typer.server.branding import APP_NAME
+from voice_typer.server.history_db_internals.retention import RetentionResult
 from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
@@ -141,6 +143,24 @@ _BATCH_INSERT_MIN = 3
 
 # TY-20: TTL (seconds) for the get_history_count cache.
 _HISTORY_COUNT_CACHE_TTL_S = 60.0
+
+# AB-26: TTL (seconds) for the ``get_today_stats`` cache.
+#
+# ``get_today_stats`` runs an aggregating scan
+# (``SELECT COUNT(*), SUM(char_count), SUM(word_count), SUM(duration)
+# FROM transcriptions WHERE timestamp >= DATE('now') AND timestamp <
+# DATE('now', '+1 day')``) on every call. The Dashboard refreshes on
+# every ``transcription_final`` event; at the rate_limiter's 1
+# call/sec/client cap, this was continuous background CPU on the reader
+# thread during active dictation.
+#
+# The cache mirrors the ``get_history_count`` 60s pattern but with a
+# 15s TTL and STRICTER invalidation — invalidated on EVERY mutation
+# that could change today's stats (add/delete/clear/restore/retention),
+# including fire-and-forget ``add_transcription`` (today's stats grow
+# by 1 per dictation and the user wants to see them update live, so we
+# invalidate immediately rather than serving a stale-by-1 count).
+_TODAY_STATS_CACHE_TTL_S = 15.0
 
 # TY-8: maximum characters of ``text`` returned in list responses.
 _HISTORY_TEXT_PREVIEW_LENGTH = 500
@@ -414,6 +434,24 @@ class HistoryDB:
         self._history_count_cache: int | None = None
         self._history_count_cache_ts: float = 0.0
         self._history_count_cache_lock = threading.Lock()
+        # AB-26: TTL cache for ``get_today_stats``. See
+        # ``_TODAY_STATS_CACHE_TTL_S`` for the rationale (15s TTL,
+        # strict invalidation on every mutation). The cache stores a
+        # COPY of the stats dict so callers can mutate the returned
+        # dict without corrupting the cached value (see
+        # ``test_cache_returns_independent_dict_copy``).
+        self._today_stats_cache: dict | None = None
+        self._today_stats_cache_ts: float = 0.0
+        self._today_stats_cache_lock = threading.Lock()
+        # XE-9-E: per-instance counter of FTS5 'rebuild' failures after
+        # ``apply_retention`` / ``clear_all`` bulk deletes. Incremented
+        # each time the FTS5 ``'rebuild'`` command raises a
+        # ``sqlite3.Error`` — those failures leave deleted dictated
+        # text recoverable from ``transcriptions_fts_data`` (GDPR
+        # Art. 17 / G4-M-05 violation), so the counter is surfaced in
+        # diagnostics and paired with an ``event_bus`` event so the
+        # renderer can show a toast.
+        self._fts5_rebuild_failures: int = 0
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -1272,7 +1310,7 @@ class HistoryDB:
             return
         try:
             notify(
-                "Voice Typer",
+                APP_NAME,
                 f"History database was corrupted and backed up. {recovered_count} row(s) recovered.",
             )
         except Exception as e:  # noqa: BLE001 — best-effort notification
@@ -1299,10 +1337,10 @@ class HistoryDB:
         directory to 0o600 / 0o700 so transcription history is not
         world-readable.
 
-        Memory management: each read connection carries a 20 MB SQLite
-        page cache (``PRAGMA cache_size=-20000``). When the owning
-        thread exits, its ``threading.local()`` storage is GC'd but
-        the connection itself stays alive (held by
+        Memory management: each read connection carries a 2 MB SQLite
+        page cache (``PRAGMA cache_size=-2000``, AB-27). When the
+        owning thread exits, its ``threading.local()`` storage is GC'd
+        but the connection itself stays alive (held by
         ``_all_read_connections``) until ``close()`` runs. To avoid
         unbounded memory growth across long-running app sessions with
         thread pool churn, ``_prune_dead_read_connections_locked`` is
@@ -1311,6 +1349,14 @@ class HistoryDB:
         them from the list. The pruning is O(n) but runs only on
         first-call-per-thread (not on every read), so the amortized
         cost is negligible.
+
+        AB-27: previously each reader set ``cache_size=-20000`` (20 MB).
+        With 5-8 reader threads (IPC handlers + tray + dictation
+        pipeline), peak page-cache memory was 120-180 MB for a DB
+        typically < 50 MB. Reads are indexed lookups + small
+        aggregations; the working set is tiny, so a 2 MB cache is
+        sufficient. The writer keeps the 20 MB cache (see
+        ``schema.open_write_conn``) for batch INSERTs and VACUUM.
         """
         if not hasattr(self._read_local, "conn") or self._read_local.conn is None:
             if not is_windows():
@@ -1326,7 +1372,12 @@ class HistoryDB:
             )
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=-20000")  # 20 MB
+            # AB-27: 2 MB page cache for readers (was -20000 / 20 MB).
+            # Reads are indexed lookups + small aggregations; the 2 MB
+            # working set is sufficient and bounds peak reader-thread
+            # memory (5-8 readers × 2 MB = 10-16 MB vs the previous
+            # 120-180 MB). The writer keeps -20000 for batch INSERTs.
+            conn.execute("PRAGMA cache_size=-2000")  # 2 MB
             # Enforce read-only at the SQLite layer.
             conn.execute("PRAGMA query_only=1")
             # Don't force WAL here — the writer already set it on the
@@ -1355,7 +1406,8 @@ class HistoryDB:
         (per ``threading.enumerate``). The current thread's ident is
         always treated as live (we're running on it). This bounds
         memory growth: without pruning, each dead reader thread's
-        20 MB page cache would persist until ``close()`` ran.
+        2 MB page cache (AB-27, was 20 MB) would persist until
+        ``close()`` ran.
 
         Note: threads created via C extensions (not via
         ``threading.Thread``) won't appear in ``threading.enumerate()``,
@@ -1385,7 +1437,8 @@ class HistoryDB:
                 # long-running sessions). Use debug (not info) to
                 # avoid spamming the log under normal churn.
                 log.debug(
-                    "[HISTORY_DB] Pruned dead-thread read connection (thread_ident=%s); released ~20 MB page cache.",
+                    "[HISTORY_DB] Pruned dead-thread read connection "
+                    "(thread_ident=%s); released ~2 MB page cache (AB-27).",
                     ident,
                 )
         self._all_read_connections = kept
@@ -1758,6 +1811,17 @@ class HistoryDB:
                 except queue.Full:
                     log.warning("[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped.")
                     return -1
+            # AB-26: invalidate the today-stats cache at enqueue time.
+            # Unlike ``_invalidate_history_count_cache`` (which skips
+            # fire-and-forget ``add_transcription`` because a stale-by-1
+            # TOTAL is fine), today's stats must reflect each new
+            # dictation as soon as the Dashboard refreshes. The cache is
+            # invalidated BEFORE the writer thread commits the INSERT —
+            # there is a brief race window where a concurrent reader
+            # could re-populate the cache with the pre-INSERT count, but
+            # the 15s TTL bounds the staleness and the next
+            # ``transcription_final`` refresh re-checks the cache.
+            self._invalidate_today_stats_cache()
             # Placeholder row_id — callers that check ``> 0`` see success.
             return 1
         except Exception as e:
@@ -1786,6 +1850,10 @@ class HistoryDB:
             if result:
                 # TY-20: invalidate the count cache.
                 self._invalidate_history_count_cache()
+                # AB-26: invalidate the today-stats cache (a delete
+                # changes today's count/chars/words/duration if the
+                # deleted row was from today).
+                self._invalidate_today_stats_cache()
             return bool(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1849,6 +1917,10 @@ class HistoryDB:
             if result and result > 0:
                 # TY-20: invalidate the count cache.
                 self._invalidate_history_count_cache()
+                # AB-26: invalidate the today-stats cache (a restore
+                # adds a new row whose timestamp is ``now``, which
+                # affects today's count/chars/words/duration).
+                self._invalidate_today_stats_cache()
             return int(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1877,6 +1949,24 @@ class HistoryDB:
         user's dictated text remains recoverable from the file via
         forensic tools even after a "clear all" — a privacy concern
         for the GDPR delete path.
+
+        FR-27 (the remaining half): after VACUUM, the FTS5
+        ``'rebuild'`` command is issued so the FTS5 shadow-table
+        segment data (``transcriptions_fts_data``) is also rebuilt
+        from the (now-empty) content table. ``VACUUM`` rebuilds the
+        main DB file but does NOT rebuild FTS5 shadow tables; without
+        this step, dictated text remained recoverable from
+        ``transcriptions_fts_data`` via sqlite3 CLI or forensic tools
+        — defeating G4-M-05 / GDPR Art. 17 right-to-erasure. The
+        rebuild is wrapped in a tolerant ``try/except sqlite3.Error``
+        matching the pattern in
+        :func:`voice_typer.server.history_db_internals.retention.apply_retention`
+        so an older DB (pre-V3 migration, no FTS table yet) doesn't
+        crash the clear path. XE-9-E: on failure the privacy
+        guarantee is broken, so the failure is logged at ERROR,
+        ``self._fts5_rebuild_failures`` is incremented, and an
+        ``event_bus`` event ``{"type": "history_fts5_rebuild_failed"}``
+        is published so the renderer can show a toast.
 
         ERR-013: see ``delete`` for ``raise_on_error`` semantics.
         """
@@ -1910,6 +2000,77 @@ class HistoryDB:
                     # VACUUM failure is non-fatal — the rows are
                     # already deleted; only space reclamation failed.
                     log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
+                # FR-27: rebuild FTS5 segments from the (now-empty)
+                # content table. The DELETE trigger
+                # ``transcriptions_ad_fts`` only marks rowids as
+                # deleted in the FTS5 delete-bitmap; the segment data
+                # in ``transcriptions_fts_data`` survives both the
+                # trigger delete and ``VACUUM``. Without this rebuild,
+                # dictated text remained recoverable from
+                # ``transcriptions_fts_data`` via forensic tools —
+                # defeating G4-M-05 / GDPR Art. 17. Wrapped in a
+                # tolerant try/except so an older DB (pre-V3
+                # migration, no FTS table yet) doesn't crash the
+                # clear path. The pattern matches the one in
+                # ``retention.apply_retention`` (XE-9-A mirrors this
+                # in ``delete()``).
+                try:
+                    fts_cursor = conn.cursor()
+                    try:
+                        fts_cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+                        conn.commit()
+                        log.info("[HISTORY_DB] FTS5 segments rebuilt after clear_all")
+                    finally:
+                        fts_cursor.close()
+                except sqlite3.Error as e:
+                    # XE-9-E: escalate from WARNING to ERROR — the
+                    # GDPR Art. 17 / G4-M-05 privacy guarantee is
+                    # broken (deleted dictated text remains
+                    # recoverable from ``transcriptions_fts_data``
+                    # via forensic tools), not merely "suboptimal".
+                    log.error(
+                        "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
+                        "(FTS5 shadow-table segment data may persist — deleted "
+                        "dictated text remains recoverable; manual re-index advised)",
+                        e,
+                    )
+                    # XE-9-E: observable metric — increment the
+                    # per-instance failure counter so diagnostics
+                    # handlers can surface it to the user.
+                    try:
+                        self._fts5_rebuild_failures = self._fts5_rebuild_failures + 1
+                    except Exception:  # noqa: BLE001 — best-effort metric
+                        log.debug(
+                            "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
+                            exc_info=True,
+                        )
+                    # XE-9-E: best-effort event_bus publication so
+                    # the renderer can show a toast. Wrapped broadly
+                    # because the event_bus import or the publish
+                    # call may fail (e.g. circular import during
+                    # early init); none of those should crash the
+                    # clear path which has already done the chunked
+                    # DELETEs + VACUUM.
+                    try:
+                        from voice_typer.server import event_bus
+
+                        event_bus.publish(
+                            {
+                                "type": "history_fts5_rebuild_failed",
+                                "data": {
+                                    "db_path": str(self.db_path),
+                                    "deleted": 0,  # clear_all doesn't track count
+                                    "error": str(e),
+                                    "source": "clear_all",
+                                },
+                            }
+                        )
+                    except Exception as publish_exc:  # noqa: BLE001
+                        log.warning(
+                            "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
+                            "failed (best-effort, clear_all continues): %s",
+                            publish_exc,
+                        )
                 log.info("[HISTORY] Cleared all transcriptions")
                 return True
 
@@ -1919,6 +2080,10 @@ class HistoryDB:
             if result:
                 # TY-20: invalidate the count cache.
                 self._invalidate_history_count_cache()
+                # AB-26: invalidate the today-stats cache (clear_all
+                # deletes today's rows too — today's stats must drop to
+                # 0/0/0/0 on the next read).
+                self._invalidate_today_stats_cache()
             return bool(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1967,26 +2132,48 @@ class HistoryDB:
                 raise HistoryDBError(str(e)) from e
             return False
 
-    def apply_retention(self, retention_days: int = 0, max_entries: int = 0, retention_count: int = 0) -> int:
+    def apply_retention(
+        self,
+        retention_days: int = 0,
+        max_entries: int = 0,
+        retention_count: int = 0,
+    ) -> "RetentionResult":
         """Apply retention policy: delete old entries.
 
-        Returns the number of deleted entries.
+        Returns a :class:`RetentionResult` — an ``int`` subclass whose
+        value is the number of deleted entries and whose
+        ``fts5_rebuild_ok`` attribute / ``["fts5_rebuild_ok"]`` item
+        reports whether the post-sweep FTS5 ``'rebuild'`` command
+        succeeded (XE-9-E). The ``int`` return contract is preserved
+        so existing callers (``deleted == 20``, ``if deleted > 0``)
+        work unchanged.
 
         Delegates to
         :func:`voice_typer.server.history_db_internals.retention.apply_retention`.
-        See that function for the full rationale (DEAD-012 fallback
-        wiring, IMPL-A chunked deletes on the writer thread, G4-M-05
-        conditional VACUUM, TY-20 count-cache invalidation, ERR-013
-        sentinel-on-error contract).
+        See that function for the full rationale (XE-9-B UTC cutoff
+        fix, DEAD-012 fallback wiring, IMPL-A chunked deletes on the
+        writer thread, G4-M-05 conditional VACUUM, FR-27 FTS5 rebuild,
+        TY-20 count-cache invalidation, ERR-013 sentinel-on-error
+        contract).
         """
-        from voice_typer.server.history_db_internals.retention import apply_retention
+        from voice_typer.server.history_db_internals.retention import (
+            RetentionResult,
+            apply_retention,
+        )
 
-        return apply_retention(
+        result = apply_retention(
             self,
             retention_days=retention_days,
             max_entries=max_entries,
             retention_count=retention_count,
         )
+        # ``RetentionResult`` is an ``int`` subclass; ``int`` is the
+        # documented return type for backward compat, but the actual
+        # object exposes ``.fts5_rebuild_ok`` / ``["fts5_rebuild_ok"]``
+        # so callers that care about the privacy guarantee can detect
+        # a failed FTS5 rebuild.
+        _ = RetentionResult  # re-export alias for type-checkers
+        return result
 
     # ──────────────────────────────────────────────────────────────
     # Periodic retention scheduling (ER-36)
@@ -2251,7 +2438,24 @@ class HistoryDB:
         """Get statistics for today's transcriptions.
 
         ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+
+        AB-26: a 15s TTL cache (``_TODAY_STATS_CACHE_TTL_S``) wraps the
+        aggregating scan so the Dashboard's per-``transcription_final``
+        refresh (capped at 1 call/sec/client by the rate_limiter)
+        doesn't re-scan on every refresh. The cache is invalidated by
+        EVERY mutation that could change today's stats
+        (add/delete/clear/restore/retention), so a stale-by-N result is
+        never served after a write. The returned dict is a shallow copy
+        so callers can mutate it without corrupting the cached value.
         """
+        # AB-26: check the cache first.
+        now = time.monotonic()
+        with self._today_stats_cache_lock:
+            if self._today_stats_cache is not None and (now - self._today_stats_cache_ts) < _TODAY_STATS_CACHE_TTL_S:
+                # Return a shallow copy so callers can mutate the
+                # returned dict without corrupting the cached value
+                # (see ``test_cache_returns_independent_dict_copy``).
+                return dict(self._today_stats_cache)
         try:
             conn = self._get_read_conn()
             with contextlib.closing(conn.cursor()) as cursor:
@@ -2276,17 +2480,42 @@ class HistoryDB:
                       AND timestamp < DATE('now', '+1 day')
                 """)
                 row = cursor.fetchone()
-            return {
+            result = {
                 "count": row[0] or 0,
                 "chars": row[1] or 0,
                 "word_count": row[2] or 0,
                 "duration": row[3] or 0,
             }
+            # AB-26: store the result in the cache (under the lock so a
+            # concurrent invalidator doesn't race the write). The cached
+            # value is the dict itself; callers receive a copy (above).
+            with self._today_stats_cache_lock:
+                self._today_stats_cache = result
+                self._today_stats_cache_ts = time.monotonic()
+            # Return a shallow copy on the cache-miss path too, so the
+            # caller's mutation can't reach the freshly-stored cache.
+            return dict(result)
         except Exception as e:
             log.error("[HISTORY] Failed to get today stats: %s", e)
             if raise_on_error:
                 raise HistoryDBError(str(e)) from e
             return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}
+
+    def _invalidate_today_stats_cache(self) -> None:
+        """AB-26: drop the cached today-stats dict.
+
+        Called by every mutation that could change today's stats
+        (``add_transcription``, ``delete``, ``clear_all``, ``restore``,
+        ``apply_retention``). Unlike ``_invalidate_history_count_cache``
+        (which skips invalidation on fire-and-forget
+        ``add_transcription`` because a stale-by-1 total is fine), the
+        today-stats cache is invalidated on EVERY mutation — today's
+        stats grow by 1 per dictation and the user wants to see them
+        update live.
+        """
+        with self._today_stats_cache_lock:
+            self._today_stats_cache = None
+            self._today_stats_cache_ts = 0.0
 
     # ──────────────────────────────────────────────────────────────
     # TY-8 / TY-20: on-demand full-text + total-count accessors

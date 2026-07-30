@@ -842,7 +842,7 @@ class ConfigChangeListener(Protocol):
 # ``_subscribers`` set would risk a config listener being invoked by
 # an unrelated ``bubble_level`` event if a caller fat-fingered the
 # event dict's ``type`` field.
-_config_change_listeners: set[ConfigChangeListener] = set()
+_config_change_listeners: weakref.WeakSet[ConfigChangeListener] = weakref.WeakSet()
 _config_change_lock = threading.RLock()
 
 
@@ -862,7 +862,15 @@ def subscribe_config_changes(listener: ConfigChangeListener) -> None:
     if listener is None:
         return
     with _config_change_lock:
-        _config_change_listeners.add(listener)
+        try:
+            _config_change_listeners.add(listener)
+        except TypeError:
+            log.warning(
+                "[event_bus] Cannot register listener %r: object does not "
+                "support weakref. Use a class instance or a module-level "
+                "function instead of a local closure.",
+                type(listener).__name__,
+            )
 
 
 def unsubscribe_config_changes(listener: ConfigChangeListener) -> None:
@@ -929,17 +937,33 @@ def _publish_config_change(updates: dict) -> bool:
         try:
             listener.on_config_changed(updates)
             delivered = True
-        except Exception:
+        except Exception as exc:
             # GT-3: same WARNING-on-first / DEBUG-on-repeat policy as
             # the generic ``_deliver`` path. ``listener`` is a
             # ``ConfigChangeListener`` Protocol; ``_subscriber_key``
             # falls back to ``id()`` for protocol-implementing objects
             # without a useful ``__qualname__``.
+            #
+            # AB-46: log the exception type + message as a STRING rather
+            # than passing ``exc_info=True``. Passing ``exc_info=True``
+            # would capture the traceback, whose frames reference the
+            # ``listener`` local variable — pinning the listener object
+            # alive for as long as the LogRecord is retained (which is
+            # the entire test duration under pytest's log-capture
+            # handler, and indefinitely under any production memory
+            # handler). That prevented ``weakref.WeakSet`` from
+            # evicting the entry when the caller dropped its strong
+            # reference. Logging ``%s: %s`` keeps the diagnostic value
+            # (operator can see what kind of exception the listener
+            # raised) without retaining the traceback → listener →
+            # WeakSet pin. The listener itself is responsible for
+            # logging its own traceback if it wants one preserved.
             log_rate_limited(
                 log,
                 logging.WARNING,
-                "[event_bus] config-change listener raised",
-                exc_info=True,
+                "[event_bus] config-change listener raised: %s: %s",
+                type(exc).__name__,
+                str(exc),
                 key=f"config_listener:{_subscriber_key(listener)}",
             )
     return delivered

@@ -125,6 +125,14 @@ class TrayIcon:
         self._hotkey: str = getattr(config, "hotkey", "<f2>") or "<f2>"
         self._cached_menu = None  # P4 #30: menu cache
         self._menu_cache_valid = False
+        # AB-16 / DJ-36: cache-skip — skip ``_make_icon`` redraw when
+        # ``state == _last_applied_state``. The 1s elapsed-recording tick
+        # (UX-11) calls ``_apply_state`` every second; pre-AB-16 this
+        # re-malloc'd a fresh PIL image + pystray icon handle on every
+        # tick (and tickled the WinError 1402 stale-handle bug on Windows).
+        # The tooltip (``self._icon.title``) is still updated unconditionally
+        # so the elapsed ``mm:ss`` stays live.
+        self._last_applied_state: AppState | None = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -349,6 +357,9 @@ class TrayIcon:
             self._icon = None
         self._cancel_elapsed_timer()  # UX-11
         self._run_event.set()  # PVT-G5-001
+        # AB-16 / DJ-36: clear the icon-state cache so a restarted tray
+        # redraws the icon on the first ``_apply_state`` (no stale cache).
+        self._last_applied_state = None
 
         try:
             from voice_typer.server import event_bus as _event_bus
@@ -447,42 +458,57 @@ class TrayIcon:
             )
 
     def _apply_state(self, state: AppState, message: str) -> None:
-        """Apply state to the live icon (safe from any thread)."""
+        """Apply state to the live icon (safe from any thread).
+
+        AB-16 / DJ-36: skip the ``_make_icon`` redraw when
+        ``state == self._last_applied_state`` — the icon PNG depends only
+        on ``state``, not on the ``message`` / elapsed time. The 1s
+        elapsed-recording tick (UX-11) re-enters here every second; the
+        cache-skip avoids re-malloc'ing a fresh PIL image + pystray icon
+        handle on every tick (and avoids tickling the WinError 1402
+        stale-handle bug — CR-16 / GT-E1-8). The tooltip assignment is
+        UNCONDITIONAL so the elapsed ``mm:ss`` stays live.
+        """
         if not self._icon:
             return
-        try:
-            self._icon.icon = _make_icon(state)
-        except OSError as exc:
-            # CR-16 / GT-E1-8: pystray Windows DestroyIcon stale-handle
-            # bug (WinError 1402) during rapid icon updates — clear the
-            # private _icon_handle so pystray re-creates it next call
-            # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
-            #
-            # S2-CR-71: if a future pystray release (0.20+) removes or
-            # renames the private ``_icon_handle`` attribute, the
-            # workaround becomes a silent no-op — the OSError is
-            # still raised on every icon update but the workaround
-            # can't fire, so WinError 1402 resurfaces for users with
-            # no diagnostic surface. Log a WARNING in that case so
-            # the silent workaround failure shows up in diagnostics
-            # (the regression test
-            # ``tests/test_pystray_icon_handle_regression.py`` guards
-            # this exact attribute via ``hasattr(pystray.Icon,
-            # "_icon_handle")``).
-            if hasattr(self._icon, "_icon_handle"):
-                self._icon._icon_handle = None
-            else:
-                log.warning(
-                    "[TRAY] pystray.Icon no longer exposes the private "
-                    "`_icon_handle` attribute — DestroyIcon workaround "
-                    "disabled (OSError: %r). The tray will keep running "
-                    "but rapid icon updates on Windows may hit WinError "
-                    "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
-                    "private attribute access with a public "
-                    "`reset_icon_handle()` API when upstream exposes "
-                    "it, and bump pystray to the release that ships it.",
-                    exc,
-                )
+        # AB-16 / DJ-36: only redraw the icon on a state CHANGE.
+        if state != self._last_applied_state:
+            try:
+                self._icon.icon = _make_icon(state)
+            except OSError as exc:
+                # CR-16 / GT-E1-8: pystray Windows DestroyIcon stale-handle
+                # bug (WinError 1402) during rapid icon updates — clear the
+                # private _icon_handle so pystray re-creates it next call
+                # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
+                #
+                # S2-CR-71: if a future pystray release (0.20+) removes or
+                # renames the private ``_icon_handle`` attribute, the
+                # workaround becomes a silent no-op — the OSError is
+                # still raised on every icon update but the workaround
+                # can't fire, so WinError 1402 resurfaces for users with
+                # no diagnostic surface. Log a WARNING in that case so
+                # the silent workaround failure shows up in diagnostics
+                # (the regression test
+                # ``tests/test_pystray_icon_handle_regression.py`` guards
+                # this exact attribute via ``hasattr(pystray.Icon,
+                # "_icon_handle")``).
+                if hasattr(self._icon, "_icon_handle"):
+                    self._icon._icon_handle = None
+                else:
+                    log.warning(
+                        "[TRAY] pystray.Icon no longer exposes the private "
+                        "`_icon_handle` attribute — DestroyIcon workaround "
+                        "disabled (OSError: %r). The tray will keep running "
+                        "but rapid icon updates on Windows may hit WinError "
+                        "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
+                        "private attribute access with a public "
+                        "`reset_icon_handle()` API when upstream exposes "
+                        "it, and bump pystray to the release that ships it.",
+                        exc,
+                    )
+            self._last_applied_state = state
+        # Tooltip is UNCONDITIONAL — elapsed mm:ss must stay live on the
+        # 1s recording tick even when the icon was skipped.
         self._icon.title = self._compute_tooltip(state, message)
 
     def _drain_pending(self) -> None:

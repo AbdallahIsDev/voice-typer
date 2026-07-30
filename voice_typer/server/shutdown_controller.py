@@ -84,12 +84,12 @@ log = logging.getLogger(__name__)
 
 # DR-28: the general-purpose thread-join timeout utilities
 # (``_run_with_timeout``, ``_run_parallel_with_timeout``, the
-# ``TIMEOUT`` sentinel, and the watchdog constants) now live in
+# ``TIMEOUT`` sentinel, and ``SHUTDOWN_WATCHDOG_TIMEOUT_S``) now live in
 # :mod:`voice_typer.server._timeout_utils`. They're re-exported here
 # (via the ``from ... import`` above) so existing callers — in
 # particular tests like ``tests/test_shutdown_controller_de.py`` that
 # do ``from voice_typer.server.shutdown_controller import _run_with_timeout,
-# _TIMEOUT, _DE11_GRACE_PERIOD_SECONDS`` — continue to work unchanged.
+# _TIMEOUT, SHUTDOWN_WATCHDOG_TIMEOUT_S`` — continue to work unchanged.
 
 
 class ShutdownController:

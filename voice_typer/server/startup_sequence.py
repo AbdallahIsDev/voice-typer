@@ -650,10 +650,33 @@ class StartupSequence:
         #     or moved machines, it gets re-registered.
         #
         # PERF-NEW-030: prewarm sync + mic enumeration are independent
-        # I/O-bound tasks. Run them in parallel on a ThreadPoolExecutor
-        # so the total startup time is max(t_prewarm, t_mics) instead
-        # of t_prewarm + t_mics.
-        import concurrent.futures
+        # I/O-bound tasks. Run them in parallel so the total startup
+        # time is max(t_prewarm, t_mics) instead of t_prewarm + t_mics.
+        #
+        # AB-31: the previous implementation used ``ThreadPoolExecutor``,
+        # whose worker threads are NON-daemon on Python 3.9+ (CPython's
+        # ``_python_exit`` atexit handler joins them with no timeout).
+        # If ``sync_prewarm_task`` got stuck inside ``subprocess.run``
+        # (``schtasks`` with a 30s timeout against a hung Windows Task
+        # Scheduler service), the pool's ``shutdown(wait=False,
+        # cancel_futures=True)`` returned immediately but the in-flight
+        # worker continued running for up to ~20 more seconds — and
+        # ``_python_exit`` then blocked process exit on it (up to 30s
+        # hang on Windows Task Scheduler).
+        #
+        # Fix: use ``_run_parallel_with_timeout`` from ``_timeout_utils``,
+        # which dispatches each task via ``_run_with_timeout`` — and
+        # ``_run_with_timeout`` wraps the call in a daemon
+        # ``threading.Thread``. Daemon threads are NOT registered in
+        # CPython's ``_threads_queues``, so ``_python_exit`` skips them
+        # entirely. A stuck ``schtasks`` worker therefore does NOT
+        # block process exit.
+        from voice_typer.server._timeout_utils import (
+            TIMEOUT as _TIMEOUT_SENTINEL,
+        )
+        from voice_typer.server._timeout_utils import (
+            _run_parallel_with_timeout,
+        )
 
         # RACE-020: pass the shutdown event to executor tasks so they
         # can abort early if the app is quitting during startup.
@@ -676,67 +699,47 @@ class StartupSequence:
         )
 
         def _startup_parallel_work() -> None:
-            # PVT-G5-015: ``ThreadPoolExecutor.__exit__`` calls
-            # ``shutdown(wait=True)``, which blocks until ALL submitted
-            # tasks complete. ``fut.result(timeout=10)`` raises
-            # ``TimeoutError`` after 10s but the underlying task
-            # continues (notably ``sync_prewarm_task`` ->
-            # ``task_scheduler._schtasks`` with ``timeout=30`` against
-            # a hung Windows Task Scheduler service). The ``with``
-            # block's ``__exit__`` then blocks for the remaining ~20s.
-            # Fix: explicitly manage the pool lifecycle and call
-            # ``shutdown(wait=False, cancel_futures=True)`` in a
-            # ``finally`` block so the pool is released immediately
-            # after the timeout fires, regardless of whether the
-            # underlying tasks have finished.
-            pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-            try:
-                # RW-9 Phase 2: invoke startup_tasks directly. The
-                # ``app._sync_prewarm_task`` / ``app._load_microphones``
-                # delegates were removed; callers now target startup_tasks.
-                prewarm_future = pool.submit(startup_tasks.sync_prewarm_task, app, _shutdown_event)
-                mic_future = pool.submit(startup_tasks.load_microphones, app, _shutdown_event)
-                # GT-A1-3: enforce a SINGLE shared 10s budget across
-                # both futures. The previous code called
-                # ``fut.result(timeout=10)`` sequentially, so a stuck
-                # ``prewarm`` task could consume the full 10s, then
-                # ``mic`` could consume ANOTHER 10s — total worst-case
-                # startup delay was 20s, not 10s. ``concurrent.futures.wait``
-                # with ``timeout=10`` enforces a single shared deadline:
-                # both futures must complete within 10s of submission,
-                # otherwise the not-done futures are reported as
-                # ``TIMEOUT`` and we log a warning per remaining future.
-                # RACE-020 (10s budget, down from 30s) is preserved.
-                done, not_done = concurrent.futures.wait(
-                    {prewarm_future, mic_future},
-                    timeout=10,
-                    return_when=concurrent.futures.ALL_COMPLETED,
-                )
-                for fut in done:
-                    # Surface any exception from a completed future.
-                    label = "prewarm" if fut is prewarm_future else "mic"
-                    try:
-                        fut.result()
-                    except Exception as exc:
-                        log.warning("[STARTUP] %s task failed: %s", label, exc)
-                for fut in not_done:
-                    label = "prewarm" if fut is prewarm_future else "mic"
+            # AB-31: build the parallel-work item list for
+            # ``_run_parallel_with_timeout``. Each entry is
+            # ``(description, func, timeout)``. The 10s per-task
+            # budget preserves RACE-020 (down from the original 30s)
+            # and matches the previous shared 10s deadline enforced
+            # via ``concurrent.futures.wait(timeout=10)``.
+            #
+            # Each task is wrapped in a closure that captures the
+            # shutdown event so the underlying startup_tasks functions
+            # can abort early on shutdown.
+            def _prewarm_task() -> None:
+                startup_tasks.sync_prewarm_task(app, _shutdown_event)
+
+            def _mic_task() -> None:
+                startup_tasks.load_microphones(app, _shutdown_event)
+
+            items = [
+                ("prewarm", _prewarm_task, 10.0),
+                ("mic", _mic_task, 10.0),
+            ]
+            results = _run_parallel_with_timeout(items)
+            for label, value in results:
+                # ``_run_parallel_with_timeout`` captures per-call
+                # failures into the result tuple (caller decides
+                # whether to re-raise / log / ignore). ``TIMEOUT``
+                # means the task did not finish within its budget;
+                # the daemon worker is leaked (and will be reaped at
+                # process exit by virtue of being a daemon).
+                if value is _TIMEOUT_SENTINEL:
                     log.warning(
-                        "[STARTUP] %s task did not complete within shared 10s budget "
-                        "(still running on worker thread; will be cancelled below)",
+                        "[STARTUP] %s task did not complete within 10s budget "
+                        "(daemon worker leaked; will not block process exit)",
                         label,
                     )
-            finally:
-                # PVT-G5-015: do NOT wait for the pool's worker threads
-                # to finish — they may be stuck inside ``subprocess.run``
-                # (``schtasks`` with a 30s timeout) which would block
-                # the main startup thread for the remaining ~20s after
-                # the ``fut.result(timeout=10)`` already gave up.
-                # ``cancel_futures=True`` cancels not-yet-started tasks;
-                # in-flight tasks continue on the worker thread (which
-                # is a daemon by default in ThreadPoolExecutor) so they
-                # don't block process exit either.
-                pool.shutdown(wait=False, cancel_futures=True)
+                elif isinstance(value, BaseException):
+                    log.warning("[STARTUP] %s task failed: %s", label, value)
+                else:
+                    # Task completed successfully (return value is
+                    # whatever the task function returned — typically
+                    # ``None`` for these two startup tasks).
+                    pass
             # PERF-FIX-2: the 30s ``sd.query_devices()`` device-change
             # poller (``_start_device_change_poller``) was removed from
             # startup because it is fully redundant with the

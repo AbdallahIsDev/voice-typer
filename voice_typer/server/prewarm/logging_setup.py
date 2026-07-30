@@ -34,7 +34,7 @@ import logging.handlers
 import os
 import sys
 
-from voice_typer.server.platform_utils import is_linux, is_windows
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.server.prewarm")
 
@@ -74,7 +74,15 @@ def _setup_logging(*, debug: bool = False) -> None:
     # umask wrap).  Restored in ``finally`` so the change does not leak.
     _old_umask = os.umask(0o077)
     try:
-        _setup_logging_shared(log_dir, debug=debug)
+        # XE-19-1 (Critical) / DJ-49: pass process_name="prewarm" so the shared
+        # setup_logging routes to voice-typer-prewarm.log (separate from the
+        # main voice-typer.log). This eliminates the multi-process log race
+        # (DJ-49) and the double-logging (DJ-45). The separate prewarm.log
+        # handler below is kept for backwards compatibility but is now redundant
+        # — the shared handler already writes to voice-typer-prewarm.log with
+        # the same _SecureRotatingFileHandler (post-rotation chmod, inter-process
+        # rotation lock) guarantees.
+        _setup_logging_shared(log_dir, debug=debug, process_name="prewarm")
         # G4-H-07: chmod the config dir 0o700 on POSIX so co-located
         # users cannot read it (best-effort — silently no-op on Windows).
         if os.name == "posix":
@@ -392,6 +400,37 @@ def _lower_io_priority() -> None:
                         )
             except Exception as e:
                 log.debug("[PREWARM] Linux: ioprio_set failed: %s", e)
+        # AB-19: lower I/O priority on macOS via setiopolicy_np.
+        # macOS does NOT support ioprio_set; instead libSystem exposes
+        # setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS,
+        # IOPOL_DISK_THROTTLE) which schedules this process's disk I/O
+        # at the lowest priority — the macOS equivalent of Linux's
+        # IOPRIO_CLASS_IDLE. Best-effort: silently no-ops if the call
+        # fails (older macOS, sandbox restrictions, etc.).
+        elif is_macos():
+            try:
+                import ctypes
+
+                lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+                # IOPOL_TYPE_DISK=0, IOPOL_SCOPE_PROCESS=0, IOPOL_DISK_THROTTLE=3
+                lib.setiopolicy_np.restype = ctypes.c_int
+                lib.setiopolicy_np.argtypes = [
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                ]
+                result = lib.setiopolicy_np(0, 0, 3)
+                if result == -1:
+                    log.debug(
+                        "[PREWARM] macOS: setiopolicy_np failed (errno=%d)",
+                        ctypes.get_errno(),
+                    )
+                else:
+                    log.debug("[PREWARM] macOS: lowered disk I/O priority to THROTTLE (IOPOL_DISK_THROTTLE)")
+            except OSError as e:
+                log.debug("[PREWARM] macOS: could not load libSystem.B.dylib: %s", e)
+            except Exception as e:
+                log.debug("[PREWARM] macOS: setiopolicy_np failed: %s", e)
         return
     try:
         import ctypes

@@ -15,6 +15,7 @@ from __future__ import annotations
 import inspect
 import ipaddress
 import logging
+import os
 import re
 import socket
 from collections.abc import Iterable
@@ -64,7 +65,14 @@ _KEY_PATTERNS = [
     # was returned UNREDACTED. Aligning the regex threshold with the
     # length guard closes the gap: any bare alphanumeric run long
     # enough to plausibly be a secret (>= 20 chars) is now redacted.
-    re.compile(r"\b[A-Za-z0-9_\-]{20,}\b"),
+    #
+    # XE-5-A (High): the negative lookbehind/lookahead on ``/`` and ``\\``
+    # prevents false-positive redaction of 20+ char filesystem path
+    # components (e.g. POSIX usernames like ``username_with_long_name``,
+    # pytest tmp_path components like ``test_banner_includes_file_path0``,
+    # macOS app-support subdirs). A run flanked by a path delimiter is
+    # semantically a path component, not a bare secret.
+    re.compile(r"(?<![/\\])\b[A-Za-z0-9_\-]{20,}\b(?![/\\])"),
 ]
 
 # SEC-9: explicit flag / key=value forms for secret-bearing keywords.
@@ -341,10 +349,33 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
 
 
 def redact_url(url: str) -> str:
-    """Redact userinfo (user:pass@) from a URL.
+    """Redact credentials from a URL.
 
-    Leaves the scheme, host, port, and path intact so the URL remains
-    useful for debugging, but strips any embedded credentials.
+    Strips the userinfo component (``user:pass@``) — preserving the
+    scheme, host, port, and path so the URL remains useful for
+    debugging — and then chains through :func:`redact_secret` so any
+    secret-bearing substring *elsewhere* in the URL is also masked.
+
+    UE-5-F5: pre-fix, only the userinfo component was stripped. A URL
+    like ``https://api.example.com/?key=sk-…`` or
+    ``https://api.example.com/?access_token=…`` — where the credential
+    lives in the query string rather than the userinfo — survived
+    redaction verbatim. Any caller that logged the URL (e.g.
+    :class:`voice_typer.server._http_safety._NoRedirectHandler` puts
+    the redirect target into ``HTTPError.url`` and the error message)
+    would leak the query-string secret. Chaining through
+    :func:`redact_secret` with ``aggressive=True`` masks query-string
+    ``key=value`` / ``token=value`` / ``access_token=value`` forms
+    (via :data:`_FLAG_KEY_PATTERNS`) AND bare ``sk-…`` / ``Bearer …``
+    / 20+ char alphanumeric runs (via :data:`_KEY_PATTERNS`).
+
+    The chained :func:`redact_secret` pass runs with
+    ``aggressive=True`` so short bare secrets (e.g. a 12-char
+    ``?key=abc`` value, or a 16-char ``?t=shorttoken``) are also
+    masked — the short-string guard from :func:`redact_secret` would
+    otherwise skip generic-pattern application on URLs whose total
+    length happens to be < 20 chars (rare, but possible for
+    ``https://a.b/?k=secret``).
     """
     if not url:
         return url
@@ -352,13 +383,146 @@ def redact_url(url: str) -> str:
         parsed = urlparse(url)
     except (ValueError, TypeError):
         return url
-    if not parsed.username and not parsed.password:
-        return url
-    # Reconstruct without userinfo
-    netloc = parsed.hostname or ""
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
-    return parsed._replace(netloc=netloc).geturl()
+    if parsed.username or parsed.password:
+        # Reconstruct without userinfo
+        netloc = parsed.hostname or ""
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        url = parsed._replace(netloc=netloc).geturl()
+    # UE-5-F5: chain through redact_secret so query-string / path /
+    # fragment secrets (?key=sk-…, ?access_token=…, ?api_key=…) are
+    # also masked. Pre-fix only the userinfo component was stripped,
+    # leaving query-string API keys verbatim. ``aggressive=True``
+    # bypasses the short-string guard so short bare secrets in the
+    # query string are caught too.
+    return redact_secret(url, aggressive=True)
+
+
+def _redact_home_path(path: str | os.PathLike[str]) -> str:
+    """Replace the user-home prefix in ``path`` with ``~``.
+
+    UE-5-F2: filesystem paths embedded in the diagnostic bundle
+    (``sentinel_path``, ``pid_file_path``, ``bundle_path``) leak the
+    OS username via the home-directory prefix
+    (e.g. ``/Users/alice/.voice-typer/…`` on macOS,
+    ``C:\\Users\\alice\\…`` on Windows, ``/home/alice/…`` on Linux).
+    Replacing the home prefix with ``~`` preserves the path structure
+    (so support engineers can still see "this is under the config
+    dir", "this is a relative path", "this is on a different drive")
+    without leaking the username.
+
+    The home directory is resolved via :func:`os.path.expanduser` at
+    call time (so a test that monkeypatches ``os.path.expanduser`` or
+    sets ``HOME`` / ``USERPROFILE`` sees the expected result). On
+    platforms where ``expanduser`` cannot determine the home dir it
+    returns the literal ``"~"`` — in that case the path is returned
+    unchanged (we never *introduce* a ``~`` that wasn't a real
+    prefix substitution).
+
+    Comparison is case-insensitive on Windows (NTFS is case-
+    insensitive; ``HOMEDRIVE`` / ``HOMEPATH`` / ``USERPROFILE`` can
+    vary by case between processes) and case-sensitive on POSIX
+    (where the home dir is stable per-user).
+
+    Parameters
+    ----------
+    path : str or os.PathLike
+        The filesystem path to redact. ``PathLike`` inputs are
+        stringified via :func:`os.fspath`.
+
+    Returns
+    -------
+    str
+        ``path`` with the user-home prefix replaced by ``~``. If the
+        home dir cannot be resolved, or ``path`` does not start with
+        it, ``path`` is returned unchanged (stringified).
+    """
+    s = os.fspath(path) if not isinstance(path, str) else path
+    try:
+        home = os.path.expanduser("~")
+    except (KeyError, RuntimeError):
+        # ``expanduser`` can raise on platforms where the user DB is
+        # unreadable; treat as "home unknown" and return the path
+        # verbatim (the leak is the username in the path, which we
+        # can't strip without knowing the home prefix).
+        return s
+    if not home or home == "~":
+        return s
+    home_norm = os.path.normpath(home)
+    s_norm = os.path.normpath(s)
+    # ``os.path.normpath`` collapses ``//`` → ``/`` on POSIX and
+    # ``C:\\`` → ``C:\\`` on Windows, but does NOT change case. On
+    # Windows we compare case-insensitively because NTFS path
+    # components can vary by case (``Users`` vs ``users``).
+    if os.name == "nt":
+        if s_norm.lower().startswith(home_norm.lower()):
+            return "~" + s_norm[len(home_norm) :]
+    else:
+        if s_norm.startswith(home_norm):
+            return "~" + s_norm[len(home_norm) :]
+    return s
+
+
+def redact_for_export(text: str) -> str:
+    """Unified PII + secret redaction pipeline for diagnostic exports.
+
+    UE-5-F4: pre-fix, the codebase ran TWO parallel PII-redaction
+    pipelines. :mod:`voice_typer.server.diagnostics_export` chained
+    ``redact_secret(redact_pii(line))`` for the live ``voice-typer.log``
+    in the diagnostic zip, while :mod:`voice_typer.server.ipc_diagnostics`
+    used :func:`voice_typer.server.security._redact_text` (which runs
+    the same chain internally but with a fast-path trigger). The two
+    pipelines had already drifted once (the diagnostics_export chain
+    did not pass ``aggressive=True`` to :func:`redact_secret`, missing
+    short bare secrets — UE-5-F7).
+
+    This helper is the single source of truth for "redact this text
+    before it lands in a diagnostic bundle / startup-error log". Both
+    callers route through it so a future redaction improvement (a new
+    pattern, a new keyword, a tighter threshold) only has to land in
+    one place.
+
+    Pipeline (UE-5-F7):
+      1. :func:`redact_pii` — applies the PII patterns (email, phone,
+         SSN, CC, IBAN) and then runs :func:`redact_secret` (non-
+         aggressive) + :func:`redact_url` internally.
+      2. :func:`redact_secret(…, aggressive=True)` — a second pass
+         with the short-string guard *bypassed* so bare short secrets
+         (e.g. a 12-char bare API key with no ``Bearer`` / ``--token=``
+         prefix) that survived the non-aggressive pass inside
+         ``redact_pii`` are now masked. Idempotent on already-redacted
+         text — the ``***`` mask doesn't match the secret patterns.
+
+    Parameters
+    ----------
+    text : str
+        The text to redact. Must already be a string — callers
+        converting from ``object`` should call ``str(value)`` first.
+
+    Returns
+    -------
+    str
+        ``text`` with PII patterns replaced by token markers
+        (``[EMAIL]``, ``[PHONE]``, …) and secret patterns replaced by
+        ``<prefix>***`` / ``***``.
+
+    Notes
+    -----
+    :func:`redact_pii` lives in :mod:`voice_typer.server.security`,
+    which imports from this module at module load time
+    (``from voice_typer.server._secrets import redact_secret,
+    redact_url``). Importing :func:`redact_pii` at the top of this
+    module would therefore create a circular import
+    (``_secrets`` → ``security`` → ``_secrets``). The lazy import
+    inside the function body breaks the cycle while preserving the
+    call-time patchability that the tests rely on (they monkeypatch
+    ``voice_typer.server.security.redact_pii`` and expect the patch
+    to take effect on the next call).
+    """
+    # Lazy import to break the ``_secrets`` ↔ ``security`` cycle.
+    from voice_typer.server.security import redact_pii
+
+    return redact_secret(redact_pii(text), aggressive=True)
 
 
 # ── Cloud URL allowlist ───────────────────────────────────────────────────

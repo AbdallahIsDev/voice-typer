@@ -652,13 +652,33 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
     import sys as _sys
     from pathlib import Path as _Path
 
-    python_bin = _sys.executable
-    if _pkg.is_windows():
-        pythonw = _Path(_sys.executable).parent / "pythonw.exe"
-        if pythonw.exists():
-            python_bin = str(pythonw)
+    # AB-18: use frozen exe via resolver when available (Tauri production
+    # mode). Falls back to the legacy python -m path when the resolver
+    # can't find a frozen exe (dev mode) or itself errors out.
+    try:
+        from voice_typer.server.prewarm_resolver import resolve_prewarm_exe
 
-    cmd = [python_bin, "-m", "voice_typer.server.prewarm"]
+        resolved = resolve_prewarm_exe()
+    except Exception:
+        resolved = None
+    if resolved:
+        if " -m " in resolved:
+            # dev fallback: multi-token command line
+            import shlex
+
+            cmd = shlex.split(resolved)
+        else:
+            # frozen exe path
+            cmd = [resolved]
+    else:
+        # ultimate fallback (existing behavior)
+        python_bin = _sys.executable
+        if _pkg.is_windows():
+            pythonw = _Path(_sys.executable).parent / "pythonw.exe"
+            if pythonw.exists():
+                python_bin = str(pythonw)
+        cmd = [python_bin, "-m", "voice_typer.server.prewarm"]
+
     if force:
         cmd.append("--force")
     cmd.extend(["--trigger", trigger])

@@ -92,6 +92,18 @@ class DuckCrashRecovery:
         # state. See the class docstring for the rationale.
         self._cached_stale: VolumeState | None = None
         self._cache_dirty: bool = False
+        # XE-16-3: ``_consumed_writeback_failed`` is set to True when
+        # ``_mark_consumed`` exhausts its retry budget without
+        # successfully writing ``consumed=True`` back to the file.
+        # ``load_stale`` consults this flag and, if set, returns ``None``
+        # on the NEXT process launch (treating the on-disk file as
+        # "unknown state — do NOT auto-restore") so we don't risk
+        # clobbering a user-initiated manual volume change with a
+        # second, possibly-incorrect restore. The caller surfaces a
+        # notification asking the user to verify their volume setting.
+        # Reset to ``False`` by ``save()`` (fresh duck cycle) and
+        # ``clear()`` (file deleted).
+        self._consumed_writeback_failed: bool = False
 
     @property
     def path(self) -> Path:
@@ -143,6 +155,13 @@ class DuckCrashRecovery:
         # "stale crash-recovery file" sense).
         self._cached_stale = None
         self._cache_dirty = False
+        # XE-16-3: a fresh ``save()`` always represents a clean duck
+        # cycle — clear the writeback-failed flag so a subsequent
+        # ``load_stale()`` doesn't accidentally treat the new file as
+        # "unknown state". The new ``consumed=False`` write is itself
+        # retried below; if THAT fails the operator sees the existing
+        # WARNING and the duck is aborted at the caller layer.
+        self._consumed_writeback_failed = False
 
         from voice_typer.server.config import _secure_atomic_write
 
@@ -197,6 +216,15 @@ class DuckCrashRecovery:
         saved state). The cache is invalidated by ``save()`` and
         ``clear()``.
 
+        XE-16-3: if the previous process's ``_mark_consumed``
+        write-back failed (signalled by ``consumed=True`` missing
+        from the on-disk file AND a known transient-disk condition),
+        ``load_stale`` returns ``None`` and the caller surfaces a
+        notification asking the user to verify their volume setting
+        rather than auto-restoring. Within the SAME process, the
+        in-memory ``_consumed_writeback_failed`` flag tracks this
+        state so the next ``load_stale()`` call is consistent.
+
         SEC-002: Uses _secure_read_text to prevent symlink-TOCTOU attacks.
         """
         # AC-94: in-memory cache hit — return the cached state without
@@ -207,6 +235,22 @@ class DuckCrashRecovery:
         # original state).
         if self._cached_stale is not None:
             return self._cached_stale
+
+        # XE-16-3: if a previous ``_mark_consumed`` write-back in THIS
+        # process exhausted its retry budget, treat the on-disk state
+        # as "unknown" — do NOT auto-restore. The caller surfaces a
+        # notification asking the user to verify their volume setting.
+        # (This guard fires only on the in-process re-call path; the
+        # cross-process path is handled by the ``consumed=True``
+        # on-disk flag below.)
+        if self._consumed_writeback_failed:
+            log.warning(
+                "[VOLUME-CRASH] consumed-writeback failed earlier in this "
+                "process; load_stale() returning None (unknown state — "
+                "surface a notification asking the user to verify their "
+                "volume setting rather than auto-restoring)"
+            )
+            return None
 
         if not self._path.exists():
             return None
@@ -233,12 +277,18 @@ class DuckCrashRecovery:
             # subsequent process launch (after a crash between this
             # load and the eventual ``clear()``) sees the consumed
             # flag and skips the (potentially destructive) restore.
-            # Best-effort: if the write-back fails, the cached state
-            # is still returned so this process can restore the
-            # volume — the next launch will simply retry the load
-            # (and re-attempt the consumed-writeback).
+            # XE-16-3: ``_mark_consumed`` now retries the write-back
+            # up to ``_SAVE_MAX_RETRIES`` times; if all attempts fail
+            # it sets ``_consumed_writeback_failed=True`` and this
+            # method does NOT cache the state (so a subsequent
+            # same-process ``load_stale()`` call returns None via the
+            # guard above). The caller's restore() still gets the
+            # state from THIS call so the in-process restore proceeds;
+            # the flag only blocks a NEXT-process re-restore via
+            # this method's re-call in the SAME process.
             self._mark_consumed(data)
-            self._cached_stale = state
+            if not self._consumed_writeback_failed:
+                self._cached_stale = state
             return state
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             log.warning("[VOLUME-CRASH] Failed to parse stale state: %s", exc)
@@ -248,25 +298,63 @@ class DuckCrashRecovery:
     def _mark_consumed(self, data: dict) -> None:
         """AC-94: write ``consumed=True`` back to the file in place.
 
-        Best-effort: failures are logged at debug level and swallowed
-        so the caller's ``load_stale()`` return value is not affected.
-        The in-memory cache (set by ``load_stale`` before calling this
-        helper) holds the state regardless of whether the write-back
-        succeeds.
-        """
-        try:
-            from voice_typer.server.config import _secure_atomic_write
+        XE-16-3: previously fire-and-forget (single attempt, swallowed
+        all exceptions at DEBUG). If the write-back failed — e.g. the
+        disk was transiently full, an antivirus briefly locked the
+        file, or NFS hiccupped — the on-disk file was left with
+        ``consumed=False`` even though this process had already
+        restored the volume. A subsequent process launch would then
+        re-restore (potentially clobbering a user-initiated manual
+        change made between launches), defeating AC-94's
+        double-restore protection.
 
-            data = dict(data)
-            data["consumed"] = True
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            _secure_atomic_write(self._path, json.dumps(data))
-            self._cache_dirty = True
-        except Exception as exc:
-            log.debug(
-                "[VOLUME-CRASH] Failed to mark stale state as consumed: %s",
-                exc,
-            )
+        Post-fix the write-back retries up to ``_SAVE_MAX_RETRIES``
+        times with ``_SAVE_BACKOFF_S`` delay (matching ``save()``'s
+        resilience pattern). If all retries fail, the failure is
+        logged at WARNING (not DEBUG) so the operator sees the
+        degradation, and the in-memory ``_consumed_writeback_failed``
+        flag is set so ``load_stale``'s next same-process call
+        returns ``None`` (treating the state as "unknown — do NOT
+        auto-restore; surface a notification asking the user to
+        verify their volume setting").
+        """
+        from voice_typer.server.config import _secure_atomic_write
+
+        data = dict(data)
+        data["consumed"] = True
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data)
+        last_exc: Exception | None = None
+        for attempt in range(_SAVE_MAX_RETRIES):
+            try:
+                _secure_atomic_write(self._path, payload)
+                self._cache_dirty = True
+                # XE-16-3: write succeeded — clear the failure flag
+                # (it may have been set by a previous failed attempt
+                # in this same call).
+                self._consumed_writeback_failed = False
+                return
+            except Exception as exc:
+                last_exc = exc
+                log.debug(
+                    "[VOLUME-CRASH] _mark_consumed attempt %d/%d failed: %s",
+                    attempt + 1,
+                    _SAVE_MAX_RETRIES,
+                    exc,
+                )
+                if attempt < _SAVE_MAX_RETRIES - 1:
+                    time.sleep(_SAVE_BACKOFF_S)
+        # All retries exhausted — signal the degradation to
+        # ``load_stale`` so the next same-process call returns None.
+        self._consumed_writeback_failed = True
+        log.warning(
+            "[VOLUME-CRASH] Failed to mark stale state as consumed after "
+            "%d attempts (load_stale will return None on subsequent calls "
+            "in this process; surface a notification asking the user to "
+            "verify their volume setting): %s",
+            _SAVE_MAX_RETRIES,
+            last_exc,
+        )
 
     def clear(self) -> None:
         """Delete the duck state file.
@@ -280,6 +368,10 @@ class DuckCrashRecovery:
         # AC-94: invalidate the in-memory cache.
         self._cached_stale = None
         self._cache_dirty = False
+        # XE-16-3: clear the writeback-failed flag — the file is being
+        # deleted, so the next ``load_stale()`` will see no file (return
+        # None) and there's no "unknown state" to track.
+        self._consumed_writeback_failed = False
         try:
             if self._path.exists():
                 self._path.unlink()

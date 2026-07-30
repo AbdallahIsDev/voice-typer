@@ -26,13 +26,23 @@ Behaviour is identical to the inlined blocks:
 * All imports are lazy (inside the function body) so test patches on
   ``voice_typer.server.config._secure_atomic_write`` /
   ``voice_typer.server.config._config_dir`` /
-  ``voice_typer.server.security._redact_text`` /
+  ``voice_typer.server._secrets.redact_for_export`` /
   ``tempfile.gettempdir`` are observed at call time — matching the
   pre-extraction behaviour where each block imported these symbols
   locally inside the ``except`` clause.
 * The function intentionally does NOT raise — every internal failure
   is caught and logged so a diagnostic-write failure cannot mask the
   original startup exception that triggered it.
+
+UE-5-F4: the redaction pipeline was switched from
+:func:`voice_typer.server.security._redact_text` to the unified
+:func:`voice_typer.server._secrets.redact_for_export` so the
+startup-error path uses the SAME redactor as the diagnostic-bundle
+path (``voice-typer.log`` + archived crash dumps). The two pipelines
+had drifted once already (the diagnostics_export path didn't pass
+``aggressive=True``, missing short bare secrets — UE-5-F7); routing
+both through ``redact_for_export`` ensures a future redaction
+improvement only has to land in one place.
 """
 
 from __future__ import annotations
@@ -50,7 +60,7 @@ _log = logging.getLogger("voice_typer.server.ipc_server")
 def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> None:
     """Write a startup-error diagnostic to ``<config_dir>/startup-error.log``.
 
-    Encapsulates the io.StringIO → traceback → _redact_text →
+    Encapsulates the io.StringIO → traceback → redact_for_export →
     _secure_atomic_write → /tmp-fallback pattern that was previously
     inlined (twice) in :func:`voice_typer.server.ipc_server.main`.
 
@@ -81,13 +91,17 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
 
     1. Build the buffer (phase header + redacted argv for the
        construction path + the traceback).
-    2. Try ``_secure_atomic_write(diag_path, _redact_text(buf))``.
+    2. Try ``_secure_atomic_write(diag_path, redact_for_export(buf))``
+       (UE-5-F4: redaction routed through the unified
+       :func:`voice_typer.server._secrets.redact_for_export` so the
+       startup-error path and the diagnostic-bundle path share one
+       redactor).
     3. On any failure: ``print(buf, file=sys.stderr)`` (so the
        traceback is visible under pythonw.exe where stdout/stderr are
        devnull, but still surfaces in terminal launches), then attempt
        an owner-only file at
        ``Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"``
-       via ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``.
+       via ``os.open(O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW, 0o600)``.
     4. If the /tmp fallback also fails, log the original write error
        (the ``write_exc`` from step 2) so the operator at least sees
        *something* went wrong.
@@ -102,8 +116,8 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
     # Lazy imports so test patches on these module attributes are
     # observed at call time (see the CR-40 / G4-M-27 regression tests
     # in tests/test_ipc_server_main_diagnostics.py).
+    from voice_typer.server._secrets import redact_for_export
     from voice_typer.server.config import _config_dir, _secure_atomic_write
-    from voice_typer.server.security import _redact_text
 
     buf = io.StringIO()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -116,10 +130,12 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # The PIIRedactionFilter attached to the rotating log handler
         # would scrub these in normal log lines, but this diagnostic
         # file is written via _secure_atomic_write — bypassing the
-        # logging filter. Pipe each argv entry through ``_redact_text``
-        # so secrets are masked the same way they would be in a log
-        # record.
-        redacted_argv = [_redact_text(str(arg)) for arg in sys.argv]
+        # logging filter. Pipe each argv entry through the unified
+        # ``redact_for_export`` pipeline (UE-5-F4) so secrets are
+        # masked the same way they would be in a log record — and
+        # the same way they ARE masked in the diagnostic bundle's
+        # ``voice-typer.log`` and archived crash dumps.
+        redacted_argv = [redact_for_export(str(arg)) for arg in sys.argv]
         buf.write(f"sys.argv: {redacted_argv}\n")
     elif phase == "app.start()":
         buf.write(f"\n--- app.start() failed at {timestamp} ---\n")
@@ -141,11 +157,14 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # G4-M-27: redact the traceback text too. ``traceback.print_exc``
         # can include ``str(exception)`` which may carry a URL with
         # ``?key=sk-…`` or an env-var dump from a buggy handler —
-        # piping through ``_redact_text`` mirrors the PIIRedactionFilter
-        # behavior that the rotating file log applies to ``log.exception``.
+        # piping through ``redact_for_export`` (UE-5-F4) mirrors the
+        # PIIRedactionFilter behavior that the rotating file log applies
+        # to ``log.exception``. ``redact_for_export`` passes
+        # ``aggressive=True`` to ``redact_secret`` (UE-5-F7) so bare
+        # short secrets in the traceback are caught too.
         # CR-10: OVERWRITE (not append) the diagnostic file so repeated
         # relaunch crashes don't grow it without bound.
-        _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
+        _secure_atomic_write(diag_path, redact_for_export(buf.getvalue()))
         # GT-14: log at CRITICAL (level 50) -- the level-name carries
         # the severity; an in-message ``[FATAL]`` prefix is dropped
         # because log aggregators / alerting rules key off
@@ -156,7 +175,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # traceback isn't lost (e.g. read-only config dir under
         # pythonw.exe where stdout/stderr are also devnull).
         # GT-B1-5: ``print`` bypasses the PIIRedactionFilter -- pipe
-        # the payload through ``_redact_text`` BEFORE the print so
+        # the payload through ``redact_for_export`` BEFORE the print so
         # secrets embedded in the traceback (URL query-string keys,
         # env-var dumps, bearer tokens) are masked the same way they
         # would be in a ``log.critical`` record.  If the redactor
@@ -165,7 +184,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # at all (this matches the ``except Exception:`` last-resort
         # philosophy of the surrounding block).
         try:
-            stderr_payload = _redact_text(buf.getvalue())
+            stderr_payload = redact_for_export(buf.getvalue())
         except Exception:
             stderr_payload = buf.getvalue()
         print(stderr_payload, file=sys.stderr)
@@ -176,7 +195,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # umask (typically 0o644) — world-readable, which leaks
             # the redacted-but-still-sensitive traceback (paths,
             # library versions, possibly partial secrets that
-            # ``_redact_text`` missed) to any local user.
+            # ``redact_for_export`` missed) to any local user.
             # PI-12: previously this used ``O_EXCL`` (atomic create,
             # refuses to clobber an existing file). With ``O_EXCL``,
             # if ``/tmp/voice-typer-startup-error.log`` exists from a
@@ -198,7 +217,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # by ``_secure_atomic_write`` via ``os.replace``); the
             # /tmp fallback uses overwrite semantics because the file
             # may legitimately exist from a previous crash.
-            redacted_payload = _redact_text(buf.getvalue())
+            redacted_payload = redact_for_export(buf.getvalue())
             tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
             fd = os.open(
                 str(tmp),

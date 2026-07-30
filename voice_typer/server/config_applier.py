@@ -28,6 +28,15 @@ from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
+# XE-11-2: import ``DEFAULT_HOTKEY`` so the ``hotkeys.restart()`` fallback
+# uses the canonical default (``<caps_lock>``) instead of the stale
+# literal ``"<f2>"`` that lived here pre-fix. ``<f2>`` was the legacy
+# default before DR-33 centralised the default-hotkey constant; the
+# fallback should never fire in practice (Config always carries a
+# ``hotkey`` field) but if it does, it must agree with the platform
+# default the rest of the codebase uses.
+from voice_typer.server.config import DEFAULT_HOTKEY
+
 log = logging.getLogger(__name__)
 
 
@@ -397,8 +406,20 @@ class ConfigApplier:
                 # user via a tray notification.
                 _notify_side_effect_failure(app, "esc_cancel_enabled", e)
 
-        # Register/unregister repaste hotkey
-        if "repaste_hotkey" in updates or "repaste_enabled" in updates:
+        # Register/unregister repaste hotkey.
+        # XE-11-3: dropped the ``or "repaste_enabled" in updates``
+        # disjunct. ``repaste_enabled`` is a run-time toggle on the
+        # repaste *action* (whether the repaste hotkey, when pressed,
+        # actually fires the repaste) — it does NOT change the hotkey
+        # registration. The disjunct was dead code that triggered a
+        # spurious ``register_repaste()`` call whenever the user
+        # toggled the repaste-enabled checkbox, even when the hotkey
+        # itself was unchanged. ``register_repaste()`` reads
+        # ``config.repaste_hotkey`` (the actual hotkey spec) so the
+        # call was harmless, but it was wasted work and misled
+        # reviewers into thinking ``repaste_enabled`` affected
+        # registration.
+        if "repaste_hotkey" in updates:
             try:
                 app.hotkeys.register_repaste()
             except Exception as e:
@@ -433,7 +454,19 @@ class ConfigApplier:
             # This block covers the case where ``restart()`` raises.)
             old_hotkey = getattr(config, "hotkey", None)
             try:
-                app.hotkeys.restart(getattr(config, "hotkey", "<f2>"))
+                # XE-11-2: use ``DEFAULT_HOTKEY`` (the canonical
+                # platform default from ``config.py``, currently
+                # ``<caps_lock>``) as the fallback instead of the
+                # stale literal ``"<f2>"``. ``<f2>`` was the legacy
+                # default before DR-33 centralised the constant —
+                # leaving it here meant a hypothetical config object
+                # without a ``hotkey`` attribute (test stub / legacy
+                # Config constructed via ``__new__``) would silently
+                # re-register the wrong key. In practice Config
+                # always carries ``hotkey``, so the fallback is
+                # defensive — but it must agree with the rest of the
+                # codebase when it does fire.
+                app.hotkeys.restart(getattr(config, "hotkey", DEFAULT_HOTKEY))
                 log.info(
                     "[SERVICE] Re-registered hotkey after recording_mode/hotkey change (mode=%s)",
                     getattr(config, "recording_mode", "toggle"),

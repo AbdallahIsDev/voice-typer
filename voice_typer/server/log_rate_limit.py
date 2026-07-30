@@ -219,9 +219,18 @@ def log_rate_limited(
         # (dynamic messages without an explicit ``key=``); we count
         # the evictions here and log a WARNING after releasing the
         # lock so the I/O doesn't block other callers.
+        # UE-16: the two GT-66 summary dicts are keyed by the same
+        # ``counter_key`` tuple — prune their entries for the evicted
+        # key here too, otherwise a caller that drives >1024 distinct
+        # dynamic messages would leak summary state forever (the
+        # summary dicts were never bounded).  ``popitem(last=False)``
+        # returns the (key, value) pair so we can clean up the
+        # correlated dicts in O(1) per eviction.
         evicted_count = 0
         while len(_RATE_LIMIT_COUNTS) > _MAX_COUNTERS:
-            _RATE_LIMIT_COUNTS.popitem(last=False)
+            evicted_key, _ = _RATE_LIMIT_COUNTS.popitem(last=False)
+            _RATE_LIMIT_NEXT_SUMMARY_DEADLINE.pop(evicted_key, None)
+            _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY.pop(evicted_key, None)
             evicted_count += 1
 
     if evicted_count:
@@ -313,7 +322,20 @@ def log_rate_limited(
         # regardless of the caller's logger level.  Use %s (not %r) so
         # the summary_key is not repr()'d into inner quotes -- makes the
         # line grep-friendly.
-        _log.info(
+        #
+        # UE-16: the summary severity tracks the caller's configured
+        # ``level`` (clamped to >= INFO so the summary always surfaces
+        # at the file handler's default level).  Pre-UE-16 the summary
+        # was hardcoded at INFO, so an ERROR-rate-limited path that
+        # fired 1000x in 60s surfaced an INFO summary -- losing the
+        # severity signal that operators' alerting rules key on
+        # (``level>=ERROR``).  ``max(logging.INFO, level)`` preserves
+        # the historical INFO baseline for callers that rate-limit
+        # DEBUG/INFO messages while escalating the summary to the
+        # caller's severity for WARNING/ERROR/CRITICAL paths.
+        summary_level = max(logging.INFO, level)
+        _log.log(
+            summary_level,
             "[rate-limit] %d suppressed occurrences of %s in last 60s",
             summary_delta,
             summary_key,

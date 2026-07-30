@@ -152,6 +152,17 @@ def _create_restrictive_security_attributes():
         #   <4-byte align pad>      @ 20
         #   ptstrName               @ 24  (8 bytes — pointer)
         # Total: 32 bytes.
+        #
+        # XE-1-D: ``ptstrName`` is ``PVOID`` (a single pointer) —
+        # previously declared as ``POINTER(c_void_p)`` (pointer-to-
+        # pointer-to-void), which was one indirection too many.  The
+        # layout was still correct on x64 (both types are 8 bytes), so
+        # reads succeeded via the ``ctypes.cast`` workaround at the
+        # assignment site — but the type was semantically wrong and
+        # required the cast to coerce the ``c_void_p`` SID pointer into
+        # a ``POINTER(c_void_p)``.  Switching the field type to
+        # ``c_void_p`` lets us drop the cast entirely (see the
+        # ``ea.Trustee.ptstrName = p_sid`` assignment below).
         class TRUSTEE_W(ctypes.Structure):  # noqa: N801
             _pack_ = 8
             _fields_ = [
@@ -159,7 +170,7 @@ def _create_restrictive_security_attributes():
                 ("MultipleTrusteeOperation", wintypes.DWORD),
                 ("TrusteeForm", wintypes.DWORD),
                 ("TrusteeType", wintypes.DWORD),
-                ("ptstrName", ctypes.POINTER(ctypes.c_void_p)),
+                ("ptstrName", ctypes.c_void_p),
             ]
 
         class EXPLICIT_ACCESS_W(ctypes.Structure):  # noqa: N801
@@ -214,7 +225,14 @@ def _create_restrictive_security_attributes():
             ea.Trustee.TrusteeType = 1  # TRUSTEE_IS_USER
             # CR-002: ptstrName is now at the correct offset (24 on x64)
             # via the TRUSTEE_W Structure's _pack_ = 8 layout.
-            ea.Trustee.ptstrName = ctypes.cast(p_sid, ctypes.POINTER(ctypes.c_void_p))
+            # XE-1-D: ptstrName is now ``c_void_p`` (a single pointer),
+            # matching the Win32 ``PVOID`` type for ``TRUSTEE_W.ptstrName``.
+            # The previous ``POINTER(c_void_p)`` field type was one
+            # indirection too many and required a ``ctypes.cast`` here
+            # to coerce ``p_sid`` (also ``c_void_p``) into the wrong
+            # shape.  With the corrected field type we can assign
+            # directly — no cast needed.
+            ea.Trustee.ptstrName = p_sid
 
             # Set the DACL
             new_acl = wintypes.LPVOID()

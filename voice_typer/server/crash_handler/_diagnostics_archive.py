@@ -34,6 +34,8 @@ from pathlib import Path
 
 from voice_typer.server.crash_handler._constants import (
     _ARCHIVE_RETENTION_KEEP,
+    _CODE_TO_INFO,
+    _CODE_TO_USER_SUMMARY,
     _CRASH_DIAGNOSTICS_ARCHIVE,
     _HEADER_MAX_MODULES,
     _MAX_ACTIVE_FILES,
@@ -121,6 +123,19 @@ def _compute_crash_header() -> bytes:
             top_level.append(top)
             if len(top_level) >= _HEADER_MAX_MODULES:
                 break
+        # GT-7: ALWAYS include the project's own top-level package
+        # (``voice_typer``) in the snapshot, even if it falls beyond
+        # the ``_HEADER_MAX_MODULES`` cap. The cap exists to bound
+        # PII / install-fingerprint exposure (YJ-47); the project's
+        # own package name is the same across installs and is the
+        # single most relevant entry for debugging a crash — without
+        # it, a support engineer reading the header can't even
+        # confirm the crash originated from this codebase. Allowed
+        # to overshoot the cap by 1 (101 entries max) — a negligible
+        # PII delta vs the 100-cap baseline.
+        if "voice_typer" in sys.modules and "voice_typer" not in seen:
+            top_level.append("voice_typer")
+            seen.add("voice_typer")
         total = len(sys.modules)
         lines.append(f"Loaded modules (total={total}, shown={len(top_level)}):")
         for m in top_level:
@@ -221,6 +236,16 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # the pre-fix behavior).
         with contextlib.suppress(Exception):
             _ch._crash_header_bytes = _compute_crash_header()
+        # AB-33: refresh the cached ASR backend at config-dir cache
+        # time so the excepthook can read it without disk I/O on the
+        # crashing thread. Best-effort — a refresh failure leaves the
+        # cache untouched (the excepthook falls back to ``"<unknown>"``).
+        with contextlib.suppress(Exception):
+            from voice_typer.server.crash_handler._python_excepthook import (
+                _refresh_cached_asr_backend,
+            )
+
+            _refresh_cached_asr_backend()
     except Exception as exc:
         log.debug("[CRASH] Failed to cache config dir: %s", exc)
         _ch._crash_file_path = ""
@@ -473,73 +498,47 @@ def report_pending_crash(config_dir: Path) -> str | None:
             # filter and drowning real warnings.
             log.warning("[CRASH] === Previous session crashed! Diagnostics follow ===")
             log.debug("[CRASH] Full crash diagnostics content for %s:\n%s", crash_file.name, content)
-            # Extract the exception code for a human-readable summary
-            # Each message now includes possible causes: low memory (RAM)
-            # and low disk space — the two most common triggers for
-            # silent heap corruption / access violation crashes.
-            if "STATUS_HEAP_CORRUPTION" in content:
-                summary_parts.append(
-                    "Heap corruption (0xC0000374). Likely cause: low memory (RAM), "
-                    "low disk space, or a C extension bug."
-                )
-            elif "STATUS_ACCESS_VIOLATION" in content:
-                summary_parts.append("Access violation (0xC0000005). Likely cause: low memory or a C extension bug.")
-            elif "STATUS_STACK_BUFFER_OVERRUN" in content:
-                summary_parts.append(
-                    "Stack overrun (0xC0000409). Likely cause: low memory, stack overflow, or a C extension bug."
-                )
-            elif "STATUS_FATAL_APP_EXIT" in content:
-                summary_parts.append(
-                    "Fatal exit (0x40000015). The process detected a critical "
-                    "error and terminated itself. Likely cause: low memory "
-                    "or a C extension bug."
-                )
-            elif "STATUS_ILLEGAL_INSTRUCTION" in content:
-                summary_parts.append(
-                    "Illegal instruction (0xC000001D). The CPU executed an invalid opcode — "
-                    "likely a C extension ABI mismatch or a corrupted code page."
-                )
-            elif "STATUS_INT_DIVIDE_BY_ZERO" in content:
-                summary_parts.append(
-                    "Integer divide by zero (0xC0000094). A C extension performed an "
-                    "unprotected integer division by zero."
-                )
-            elif "STATUS_PRIVILEGED_INSTRUCTION" in content:
-                summary_parts.append(
-                    "Privileged instruction (0xC0000096). User-mode code executed a "
-                    "kernel-only CPU instruction — likely a C extension bug."
-                )
-            elif "STATUS_IN_PAGE_ERROR" in content:
-                summary_parts.append(
-                    "In-page error (0xC0000006). The OS could not load a memory page — "
-                    "likely low disk space, disk failure, or quota exhaustion."
-                )
-            elif "STATUS_STACK_OVERFLOW" in content:
-                summary_parts.append(
-                    "Stack overflow (0xC00000FD). The thread exhausted its stack — "
-                    "likely unbounded recursion or a C extension bug."
-                )
-            elif "STATUS_NONCONTINUABLE_EXCEPTION" in content:
-                summary_parts.append(
-                    "Non-continuable exception (0xC0000025). The process attempted to "
-                    "continue after a non-continuable exception — likely a C extension bug."
-                )
-            elif "STATUS_INVALID_HANDLE" in content:
-                summary_parts.append(
-                    "Invalid handle (0xC0000008). A kernel API received an invalid handle — "
-                    "likely a C extension bug or a race during shutdown."
-                )
-            elif "STATUS_DATATYPE_MISALIGNMENT" in content:
-                summary_parts.append(
-                    "Datatype misalignment (0xC0000002). A misaligned memory access occurred — "
-                    "likely a C extension bug on an aligned-memory ABI."
-                )
-            elif "STATUS_GUARD_PAGE_VIOLATION" in content:
-                summary_parts.append(
-                    "Guard page violation (0x80000001). A guard page was touched — "
-                    "likely stack growth or a probe from a C extension."
-                )
-            else:
+            # UE-2-F3: replace the 13-clause if/elif chain (which
+            # duplicated the code → message mapping that already lived
+            # in ``_constants._CODE_TO_INFO`` / ``_CODE_TO_USER_SUMMARY``)
+            # with a single table-driven lookup. Drift between the VEH
+            # write-side and the report-side is now impossible: adding a
+            # new code requires editing ONE module (``_constants``),
+            # not three.
+            #
+            # The matching logic scans the crash file's CONTENT for the
+            # friendly-name token (e.g. the ASCII text
+            # ``STATUS_HEAP_CORRUPTION``) using the name-bytes from
+            # ``_CODE_TO_INFO[code][0]``; on the FIRST match, it
+            # appends the corresponding ``_CODE_TO_USER_SUMMARY[code]``
+            # to the user-facing summary. Iteration order follows
+            # ``_CODE_TO_INFO`` insertion order (Python 3.7+ dict
+            # ordering), which mirrors the original if/elif precedence
+            # (HEAP first, GUARD_PAGE last). Unknown codes fall through
+            # to the ``code=0x`` extraction + generic-fallback path
+            # (unchanged).
+            #
+            # Each message now includes possible causes: low memory
+            # (RAM) and low disk space — the two most common triggers
+            # for silent heap corruption / access violation crashes.
+            matched_summary: str | None = None
+            for _code, (_name_bytes, _short) in _CODE_TO_INFO.items():
+                # ``_name_bytes`` is the pre-encoded ASCII bytes the
+                # VEH callback writes (e.g.
+                # ``b"STATUS_HEAP_CORRUPTION: the process heap..."``).
+                # Match the bare status name (the part before the first
+                # colon) so the summary fires even if the rest of the
+                # line is truncated or the file is partially corrupted.
+                try:
+                    name_text = _name_bytes.split(b":", 1)[0].decode("ascii", errors="replace")
+                except Exception:
+                    continue
+                if name_text and name_text in content:
+                    matched_summary = _CODE_TO_USER_SUMMARY.get(_code)
+                    if matched_summary is not None:
+                        summary_parts.append(matched_summary)
+                        break
+            if matched_summary is None:
                 # Extract the crash code line for unknown codes
                 for line in content.split("\r\n"):
                     if "code=0x" in line:
@@ -616,11 +615,19 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     key, _, value = line.partition("=")
                     fields[key.strip()] = value.strip()
             exc_type = fields.get("exc_type", "UnknownException")
-            exc_value = fields.get("exc_value", "")
+            # XE-7-2: drop ``exc_value`` from the user-facing summary
+            # entirely. Pre-fix, the (redacted) ``exc_value`` was
+            # interpolated into the summary string at INFO level, which
+            # shipped dictated speech and any PII-shaped text that
+            # slipped past the redactor into the diagnostic bundle (and
+            # the tray notification, which embeds the summary verbatim).
+            # The full (redacted) ``exc_value`` remains in the marker
+            # file on disk for support engineers with disk access —
+            # surfacing it in the operator-visible summary is the leak.
             thread_name = fields.get("thread", "?")
             timestamp = fields.get("timestamp", "?")
             summary_parts.append(
-                f"Python crash: {exc_type}: {exc_value} "
+                f"Python crash: {exc_type} "
                 f"(thread={thread_name}, at={timestamp}). "
                 "Likely cause: an unhandled Python exception in the main "
                 "thread or a daemon thread."
@@ -674,11 +681,14 @@ def report_pending_crash(config_dir: Path) -> str | None:
     summary = summary + (
         "\nNext steps: run `python scripts/diagnostics.py export` to collect a full diagnostic bundle for a bug report."
     )
-    # FR-100: human-readable summary at INFO (was WARNING). The summary
-    # is the user-facing "previous session crashed" notification text —
-    # it's expected operational signal, not a runtime warning. Logging
-    # at INFO keeps it visible in the default production log without
-    # polluting the WARN-filtered log that operators scan for actionable
-    # warnings.
-    log.info("[CRASH] Crash summary for user notification:\n%s", summary)
+    # XE-7-2: demote the summary log line from INFO to DEBUG so the
+    # reduced (exc_value-less) summary only ships in the bundle when
+    # ``VOICE_TYPER_DEBUG=1``. Pre-fix the summary was logged at INFO,
+    # which meant even the reduced (exc_type + thread + timestamp only)
+    # summary landed in the default production log — visible to any
+    # operator reading voice-typer.log. The summary text is still
+    # returned to the caller (the tray notification embeds it), so the
+    # user still sees the previous-crash signal; the demotion only
+    # affects the rotating log file.
+    log.debug("[CRASH] Crash summary for user notification:\n%s", summary)
     return summary

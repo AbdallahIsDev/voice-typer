@@ -64,6 +64,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +103,38 @@ if sys.platform == "win32":
 else:
     _ft = None
     _st = None
+
+# Pre-allocated crash-message buffer (UE-2-F9: moved here from
+# ``_constants`` so all mutable runtime state lives on the facade).
+# Mutated in place by ``_vectored_handler_impl`` via bytearray slice
+# assignment — no heap allocation in the VEH callback. The reference
+# itself is never reassigned. Allocated lazily AFTER the ``_constants``
+# re-export below (which provides ``_CRASH_MSG_BUF_SIZE``); see the
+# ``_crash_msg_buf = bytearray(_CRASH_MSG_BUF_SIZE)`` assignment that
+# follows the import block.
+#
+# (Placeholder — the real allocation happens after the ``_constants``
+# import, since ``_CRASH_MSG_BUF_SIZE`` is defined there.)
+_crash_msg_buf: bytearray = bytearray(0)
+
+# UE-2-F2: rate-limit lock for the VEH callback's compare-and-set on
+# ``_crash_written``. Held briefly (from the flag check through the
+# kernel32 write) so two concurrent VEH callbacks (e.g. cascading
+# access violations on two threads) cannot BOTH pass the check and
+# write duplicate crash records. Non-blocking acquire: a concurrent
+# caller returns early rather than blocking the OS exception
+# dispatcher.
+#
+# Residual gap (documented): the VEH callback is NOT async-signal-
+# safe in Python (it allocates ctypes wrappers, calls kernel32
+# functions, etc.). During STATUS_HEAP_CORRUPTION the heap is
+# corrupted and the lock acquisition itself may fail or deadlock.
+# This is acceptable because (a) the alternative (no lock) is worse
+# (duplicate records, possible file corruption from concurrent
+# writes), and (b) for access violations / stack overruns (the
+# common case) the lock works reliably. See ``_veh_callback`` for
+# the usage site.
+_crash_write_lock: threading.Lock = threading.Lock()
 
 # Pre-computed file path (Python str, built at install time)
 # Stored as a Python str so we can pass it to CreateFileW via c_wchar_p
@@ -146,6 +179,13 @@ _original_threading_excepthook = None
 # it. Set at module-load time by ``_veh_callback`` (on Windows).
 _vectored_handler = None
 
+# AB-33: cached active ASR backend name. Populated at install time by
+# ``_refresh_cached_asr_backend`` (a single ``Config.load()`` disk
+# read). The excepthooks read this cached value via
+# ``_get_cached_asr_backend`` (NO disk I/O) instead of re-reading
+# config off disk on the crashing thread.
+_cached_active_backend: str | None = None
+
 
 # ── Re-exports (constants, structs, functions) ───────────────────────
 #
@@ -161,6 +201,8 @@ from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402
     _ARCHIVE_RETENTION_KEEP,
     _BOM,
     _CODE_LABEL,
+    _CODE_TO_INFO,
+    _CODE_TO_USER_SUMMARY,
     _CRASH_CODES,
     _CRASH_DIAGNOSTICS_ARCHIVE,
     _CRASH_LABEL,
@@ -209,8 +251,15 @@ from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402
     STATUS_PRIVILEGED_INSTRUCTION,
     STATUS_STACK_BUFFER_OVERRUN,
     STATUS_STACK_OVERFLOW,
-    _crash_msg_buf,
 )
+
+# UE-2-F9: allocate the mutable crash-message buffer HERE (after the
+# ``_constants`` import provides ``_CRASH_MSG_BUF_SIZE``) so it lives
+# on the facade alongside the other mutable runtime state. The
+# placeholder assignment in the state block above is overwritten with
+# the correct size now. ``_veh_callback`` accesses it via
+# ``_ch._crash_msg_buf``.
+_crash_msg_buf = bytearray(_CRASH_MSG_BUF_SIZE)
 from voice_typer.server.crash_handler._diagnostics_archive import (  # noqa: F401,E402
     _archive_crash_file,
     _compute_crash_header,
@@ -223,8 +272,14 @@ from voice_typer.server.crash_handler._python_excepthook import (  # noqa: F401,
     _crash_excepthook,
     _format_redacted_traceback,
     _get_active_asr_backend,
+    _get_cached_asr_backend,
+    _get_secure_atomic_write,
+    _redact_exc_value,
+    _refresh_cached_asr_backend,
+    _safe_redact_fallback,
     _sanitize_thread_name_for_filename,
     _thread_crash_excepthook,
+    _write_crash_marker,
     install_crash_handler,
     install_python_excepthook,
     install_threading_excepthook,

@@ -535,7 +535,7 @@ def get_keyring_status() -> dict[str, Any]:
 # ── Secret store / load / delete ────────────────────────────────────────
 
 
-def store_secret(provider: str, value: str) -> bool:
+def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool = False) -> bool:
     """Store a secret for ``provider`` in the OS keychain.
 
     Parameters
@@ -546,6 +546,14 @@ def store_secret(provider: str, value: str) -> bool:
         The secret value to store. An empty string is treated as a
         delete request — the secret is removed from both keyring and
         the plaintext fallback.
+    _caller_holds_config_lock : bool
+        XE-3-1 (Critical): when ``True``, indicates the caller (e.g.
+        ``Config._save_unlocked``) already holds the cross-process
+        ``config.json.lock``. The plaintext-fallback write then SKIPS
+        re-acquiring the lock (which would deadlock — fcntl.flock is
+        per-open-file-description, NOT per-fd, so a second LOCK_EX on
+        a fresh fd in the same process blocks forever). Defaults to
+        ``False`` for backwards compat with all existing callers.
 
     Returns
     -------
@@ -663,7 +671,7 @@ def store_secret(provider: str, value: str) -> bool:
             len(value),
             redacted_reason,
         )
-        _write_plaintext_fallback(provider, value)
+        _write_plaintext_fallback(provider, value, caller_holds_config_lock=_caller_holds_config_lock)
         # CR-94: record the fallback outcome (with the redacted reason)
         # so the IPC handler can include the reason in the ack payload
         # the renderer shows to the user.
@@ -906,7 +914,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     return value
 
 
-def _write_plaintext_fallback(provider: str, value: str) -> None:
+def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_lock: bool = False) -> None:
     """Write a secret (or empty string) to config.json's flat api_key field.
 
     Reads config.json, updates the single field, and writes it back
@@ -915,15 +923,17 @@ def _write_plaintext_fallback(provider: str, value: str) -> None:
 
     On any I/O error, logs and returns — never raises.
 
-    XZ-SEC-02: the read-modify-write is now wrapped in
+    XZ-SEC-02: the read-modify-write is wrapped in
     ``_acquire_config_lock()`` (the same cross-process lock used by
-    ``Config.save()`` and ``migrate_secrets_to_keyring``). Pre-fix,
-    a concurrent ``Config.save()`` could clobber the field written
-    here (or vice versa) because the two writers didn't coordinate.
-    The lock is re-acquired per call (fcntl.flock/msvcrt.locking on
-    a fresh fd), so nesting under an already-held lock (e.g. when
-    ``Config.save()`` calls ``store_secret`` → this function) is safe
-    — the inner flock is a separate fd and fcntl.flock is per-fd.
+    ``Config.save()`` and ``migrate_secrets_to_keyring``).
+
+    XE-3-1 (Critical): the OLD docstring claimed flock was "per-fd"
+    and therefore safe to nest. This is FALSE — fcntl.flock is
+    per-open-file-description, so a second LOCK_EX on a fresh fd in
+    the same process DEADLOCKS. When ``caller_holds_config_lock`` is
+    ``True`` (the caller is ``Config._save_unlocked`` which already
+    holds the lock), we SKIP re-acquiring and rely on the caller's
+    lock for cross-process safety.
     """
     try:
         from voice_typer.server.config import (
@@ -934,10 +944,8 @@ def _write_plaintext_fallback(provider: str, value: str) -> None:
         )
 
         config_file = _config_dir() / "config.json"
-        # XZ-SEC-02: hold the cross-process lock for the full
-        # read-modify-write so concurrent Config.save() / migration
-        # can't clobber our change (or vice versa).
-        with _acquire_config_lock():
+
+        def _do_read_modify_write() -> None:
             data: dict[str, Any] = {}
             if config_file.exists():
                 try:
@@ -958,6 +966,18 @@ def _write_plaintext_fallback(provider: str, value: str) -> None:
                 # Field not present and we're clearing — nothing to do.
                 return
             _secure_atomic_write(config_file, json.dumps(data, indent=2))
+
+        if caller_holds_config_lock:
+            # XE-3-1: caller (Config._save_unlocked) already holds the
+            # cross-process lock — re-acquiring would deadlock because
+            # fcntl.flock is per-open-file-description, not per-fd.
+            _do_read_modify_write()
+        else:
+            # XZ-SEC-02: hold the cross-process lock for the full
+            # read-modify-write so concurrent Config.save() / migration
+            # can't clobber our change (or vice versa).
+            with _acquire_config_lock():
+                _do_read_modify_write()
         if value:
             log.info(
                 "[CREDENTIAL_STORE] wrote plaintext fallback for provider=%s (len=%d) to config.json",
@@ -1174,12 +1194,36 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         )
         return 0
 
+    # XZ-SEC-08: one-time legacy keyring service-name cutover. Runs
+    # BEFORE the ``secrets_migrated`` early-return so it's not blocked
+    # by a prior successful migration. Gated on the independent
+    # ``service_name_migrated`` config flag. If keyring is unavailable,
+    # the flag is NOT set (we'll retry next launch).
+    service_name_migrated_this_run = False
+    if not data.get("service_name_migrated", False):
+        if is_keyring_available():
+            _migrate_legacy_service_names_locked()
+            data["service_name_migrated"] = True
+            service_name_migrated_this_run = True
+        else:
+            log.info("[CREDENTIAL_STORE] migration: deferring legacy service-name cutover — keyring unavailable")
+
     # RACE-001 (HIGH-13): re-check the secrets_migrated flag NOW that
     # we hold the lock.  A concurrent process may have completed the
     # migration while we were waiting — if so, skip our own migration
     # entirely (idempotent).
     if data.get("secrets_migrated", False):
         log.debug("[CREDENTIAL_STORE] migration: secrets_migrated flag already set — skipping")
+        # If we just set ``service_name_migrated`` this run, persist it
+        # before early-returning.
+        if service_name_migrated_this_run:
+            try:
+                _secure_atomic_write(config_file, json.dumps(data, indent=2))
+            except Exception as e:
+                log.error(
+                    "[CREDENTIAL_STORE] migration: failed to persist service_name_migrated flag: %s",
+                    _redact_sensitive(str(e)),
+                )
         return 0
 
     migrated = 0
@@ -1259,11 +1303,25 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             # gated on set_password succeeding), so the final
             # _secure_atomic_write preserves it. The user's secret is
             # never lost — it's either in keyring OR in config.json.
+            #
+            # XE-3-2 (High): we MUST set ``skipped_plaintext = True``
+            # here so the XZ-SEC-04 gating below does NOT set
+            # ``secrets_migrated``. Pre-fix, when ``set_password``
+            # raised mid-migration, this branch only logged a warning
+            # and fell through to ``continue`` without setting
+            # ``skipped_plaintext``. The XZ-SEC-04 gate then saw
+            # ``skipped_plaintext == False`` and set
+            # ``secrets_migrated = True`` — meaning the NEXT launch
+            # would skip migration entirely and the plaintext would
+            # persist in config.json forever. Post-fix, the gate stays
+            # open so the next launch re-attempts migration.
             log.warning(
                 "[CREDENTIAL_STORE] migration: failed to move provider=%s to keyring: %s — keeping plaintext",
                 provider,
                 _redact_sensitive(str(e)),
             )
+            skipped_plaintext = True
+            continue
 
     # XZ-SEC-04: gate ``secrets_migrated`` on whether we actually had
     # to skip any real plaintext. If keyring was unavailable AND there
@@ -1298,6 +1356,85 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         # store_secret overwrites).
 
     return migrated
+
+
+def _migrate_legacy_service_names_locked() -> int:
+    """XZ-SEC-08 / XE-3-3: copy keyring entries from legacy service names
+    to the current :data:`KEYRING_SERVICE_NAME`, then delete the legacy
+    entries.
+
+    Pre-XZ-SEC-08, Voice Typer stored secrets under the bare service
+    name ``"voice-typer"``. XZ-SEC-08 changed the service name to the
+    reverse-DNS form ``"app.voicetyper"``. This function performs the
+    one-time cutover: for each legacy service name in
+    :data:`_LEGACY_KEYRING_SERVICE_NAMES` and each provider in
+    :data:`PROVIDER_TO_CONFIG_FIELD`, copy the entry forward to the
+    new service name and delete the legacy entry.
+
+    Assumes the cross-process ``config.json.lock`` is held (caller is
+    :func:`_migrate_secrets_to_keyring_locked`) AND that
+    :func:`is_keyring_available` returned True.
+
+    Best-effort and never raises. Returns the number of entries
+    successfully copied forward.
+    """
+    try:
+        import keyring  # type: ignore[import-not-found]
+    except Exception as e:
+        log.debug(
+            "[CREDENTIAL_STORE] legacy service-name cutover: keyring import failed: %s",
+            _redact_sensitive(str(e)),
+        )
+        return 0
+
+    copied = 0
+    for legacy_name in _LEGACY_KEYRING_SERVICE_NAMES:
+        for provider in PROVIDER_TO_CONFIG_FIELD:
+            try:
+                value = _run_keyring_call(keyring.get_password, legacy_name, provider)
+            except Exception as e:
+                log.debug(
+                    "[CREDENTIAL_STORE] legacy cutover: get_password(service=%s, provider=%s) raised: %s — skipping",
+                    legacy_name,
+                    provider,
+                    _redact_sensitive(str(e)),
+                )
+                continue
+            if not value:
+                continue
+            try:
+                _run_keyring_call(keyring.set_password, KEYRING_SERVICE_NAME, provider, value)
+                log.info(
+                    "[CREDENTIAL_STORE] legacy cutover: copied provider=%s "
+                    "from legacy service=%s to current service=%s (len=%d)",
+                    provider,
+                    legacy_name,
+                    KEYRING_SERVICE_NAME,
+                    len(value),
+                )
+                copied += 1
+            except Exception as e:
+                log.warning(
+                    "[CREDENTIAL_STORE] legacy cutover: set_password(service=%s, "
+                    "provider=%s) raised — keeping legacy entry under %s: %s",
+                    KEYRING_SERVICE_NAME,
+                    provider,
+                    legacy_name,
+                    _redact_sensitive(str(e)),
+                )
+                continue
+            try:
+                _run_keyring_call(keyring.delete_password, legacy_name, provider)
+            except Exception as e:
+                log.debug(
+                    "[CREDENTIAL_STORE] legacy cutover: delete_password("
+                    "service=%s, provider=%s) raised: %s — stale legacy entry "
+                    "left in place",
+                    legacy_name,
+                    provider,
+                    _redact_sensitive(str(e)),
+                )
+    return copied
 
 
 __all__ = [

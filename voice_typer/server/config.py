@@ -126,6 +126,28 @@ from voice_typer.server.config_validators import (  # noqa: E402
     MAX_RECORDING_TIME_SECONDS_MIN,
 )
 
+# XE-11-4: canonical lower bounds for the streaming-overlap / -guard
+# seconds. Defined locally in config.py (NOT in config_validators.py —
+# that's F1's territory) so the load-time clamp has a named constant
+# instead of an inlined literal. Pre-fix, the IPC validator
+# (config_validators.py:1191-1192) used ``lo=0.0`` while this module's
+# ``_coerce_streaming_fields`` raised the values to ``3.0`` / ``1.5`` —
+# letting a user-set 0.5-second value pass IPC, persist to disk, then
+# silently be bumped on next ``Config.load()`` (desyncing the
+# renderer's in-memory state from config.json).
+#
+# The split-brain at the IPC validator side is F1's to fix (they need
+# to update ``config_validators.py:1191-1192`` to use the same MIN
+# bounds — see the comment in ``_coerce_streaming_fields`` below).
+# The fix on THIS side (config.py) is:
+#   1. Stop silently clamping — log a WARNING + add to ``_load_warnings``
+#      so the renderer sees the value was reset.
+#   2. Reset to the field default explicitly (3.0 / 1.5) rather than
+#      ``max(value, default)`` which is a silent clamp.
+#   3. Use named constants so the bound is discoverable + grep-able.
+STREAMING_LEFT_OVERLAP_SECONDS_MIN: float = 3.0
+STREAMING_RIGHT_GUARD_SECONDS_MIN: float = 1.5
+
 log = logging.getLogger("voice_typer.server.config")
 
 
@@ -1231,7 +1253,21 @@ class Config:
                             )
                             continue
                     if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
-                        credential_store.store_secret(provider, value)
+                        # XE-3-1 (Critical): pass ``_caller_holds_config_lock=True``
+                        # so ``store_secret`` → ``_write_plaintext_fallback`` does
+                        # NOT re-acquire ``config.json.lock`` (which would deadlock
+                        # — fcntl.flock is per-open-file-description on Linux, so a
+                        # second ``open()`` + ``flock(LOCK_EX | LOCK_NB)`` on the
+                        # same lock file from THIS process fails with EWOULDBLOCK
+                        # and spins until the 5s ``_CONFIG_LOCK_TIMEOUT_SECONDS``
+                        # deadline, then raises TimeoutError — pre-fix, that was
+                        # caught by ``_write_plaintext_fallback``'s broad
+                        # ``except Exception`` and logged at ERROR, silently
+                        # dropping the user's API key when keyring failed mid-save).
+                        # We're inside ``_save_unlocked`` (caller
+                        # :meth:`save` acquired the lock at line ~1118 via
+                        # ``with _acquire_config_lock():``), so the lock IS held.
+                        credential_store.store_secret(provider, value, _caller_holds_config_lock=True)
                         data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
         except Exception as e:
             # DE-28: log only the exception TYPE (not the message) —
@@ -1598,12 +1634,30 @@ class Config:
 
             # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
             # toggles on every load.
+            #
+            # XE-11-8: pre-fix the failure was swallowed at DEBUG. A
+            # preset-application failure means the user's audio filter
+            # chain doesn't match their preset selection (e.g. a stale
+            # preset name from a downgrade, or a preset module import
+            # error after a botched package install). The user has no
+            # way to know their audio filters are wrong because the
+            # error was invisible. Promote to WARNING + append to
+            # ``instance.last_load_warnings`` so the renderer surfaces
+            # a "your audio preset couldn't be applied" notice.
             try:
                 from voice_typer.server.audio_presets import apply_preset
 
                 apply_preset(instance.audio_preset, instance)
-            except Exception:
-                log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
+            except Exception as preset_exc:
+                log.warning(
+                    "[CONFIG] apply_preset on load failed: %s: %s",
+                    type(preset_exc).__name__,
+                    preset_exc,
+                    exc_info=True,
+                )
+                instance.last_load_warnings.append(
+                    f"apply_preset({instance.audio_preset!r}) on load failed: {type(preset_exc).__name__}: {preset_exc}"
+                )
 
             # XZ-CFG-04: invoke the full-config validator
             # (``validate_config``) so a hand-edited or migrated
@@ -1631,11 +1685,38 @@ class Config:
             # the next launch doesn't re-run the same migrations
             # (and re-trigger any bugs in a migrator that already
             # raised).  The save() is best-effort.
+            #
+            # XE-11-7: pre-fix, the return value of ``instance.save()``
+            # was silently discarded. A failed post-migration save
+            # (e.g. read-only filesystem, disk full, permission denied
+            # after a sudo-installed package upgrade) means the bumped
+            # ``schema_version`` never lands on disk — the next launch
+            # sees the OLD version and re-runs the same migrations
+            # (which may have side effects like double-appending to
+            # list fields or double-migrating keys). Promote to
+            # WARNING + append to ``instance.last_load_warnings`` so
+            # the renderer surfaces a "your migration couldn't be
+            # persisted — migrations will re-run on next launch" notice.
             if migrations_ran:
                 try:
-                    instance.save()
-                except Exception:
-                    log.debug("[CONFIG] eager post-migration save failed", exc_info=True)
+                    _post_migration_save_ok = instance.save()
+                except Exception as post_mig_exc:
+                    log.warning(
+                        "[CONFIG] eager post-migration save raised %s: %s — migrations will re-run on next launch",
+                        type(post_mig_exc).__name__,
+                        post_mig_exc,
+                        exc_info=True,
+                    )
+                    instance.last_load_warnings.append(
+                        f"post-migration save raised {type(post_mig_exc).__name__}: "
+                        f"{post_mig_exc} — migrations will re-run on next launch"
+                    )
+                else:
+                    if not _post_migration_save_ok:
+                        log.warning("[CONFIG] post-migration save failed — migrations will re-run on next launch")
+                        instance.last_load_warnings.append(
+                            "post-migration save failed — migrations will re-run on next launch"
+                        )
 
             return instance
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
@@ -1944,28 +2025,90 @@ class Config:
         # resets ONLY that field to its default rather than
         # aborting the entire load (which would discard every
         # other valid field too).
+        #
+        # XE-11-4: pre-fix the clamp used ``max(value, 3.0)`` /
+        # ``max(value, 1.5)`` which SILENTLY raised sub-minimum values
+        # to the floor. That created a split-brain with the IPC
+        # validator (``config_validators.py:1191-1192`` — F1's
+        # territory, which at the time of writing still uses
+        # ``lo=0.0``): a user could ``set_config`` a 0.5-second
+        # overlap, the IPC validator would accept it, ``Config.save()``
+        # would persist it to disk, and on the next ``Config.load()``
+        # the clamp would silently bump it to 3.0 — desyncing the
+        # renderer's in-memory state from the on-disk config.json.
+        #
+        # The fix: stop silently clamping. If the on-disk value is
+        # below the floor, RESET to the floor explicitly AND log a
+        # WARNING + add to ``_load_warnings`` so the renderer can
+        # surface "your config was corrected" notice. The IPC
+        # validator side (F1's territory) needs a parallel update
+        # to ``lo=STREAMING_*_SECONDS_MIN``; until that lands,
+        # the load-time reset on THIS side at least surfaces the
+        # correction to the user instead of silently changing it.
         try:
-            data["streaming_left_overlap_seconds"] = max(
-                float(data.get("streaming_left_overlap_seconds", 3.0)),
-                3.0,
-            )
+            _left_overlap_raw = float(data.get("streaming_left_overlap_seconds", STREAMING_LEFT_OVERLAP_SECONDS_MIN))
         except (TypeError, ValueError):
+            _left_overlap_invalid = data.get("streaming_left_overlap_seconds")
             log.warning(
-                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
-                data.get("streaming_left_overlap_seconds"),
+                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default %.1f",
+                _left_overlap_invalid,
+                STREAMING_LEFT_OVERLAP_SECONDS_MIN,
             )
-            data["streaming_left_overlap_seconds"] = 3.0
+            data["streaming_left_overlap_seconds"] = STREAMING_LEFT_OVERLAP_SECONDS_MIN
+            data.setdefault("_load_warnings", []).append(
+                f"streaming_left_overlap_seconds had non-numeric value "
+                f"{_left_overlap_invalid!r}, reset to "
+                f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}"
+            )
+            _left_overlap_raw = STREAMING_LEFT_OVERLAP_SECONDS_MIN
+        else:
+            if _left_overlap_raw < STREAMING_LEFT_OVERLAP_SECONDS_MIN:
+                log.warning(
+                    "[CONFIG] streaming_left_overlap_seconds=%.3f below minimum %.1f; "
+                    "resetting to %.1f (XE-11-4: was silently clamped pre-fix)",
+                    _left_overlap_raw,
+                    STREAMING_LEFT_OVERLAP_SECONDS_MIN,
+                    STREAMING_LEFT_OVERLAP_SECONDS_MIN,
+                )
+                data.setdefault("_load_warnings", []).append(
+                    f"streaming_left_overlap_seconds={_left_overlap_raw} below minimum "
+                    f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}, reset to "
+                    f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}"
+                )
+                _left_overlap_raw = STREAMING_LEFT_OVERLAP_SECONDS_MIN
+            data["streaming_left_overlap_seconds"] = _left_overlap_raw
         try:
-            data["streaming_right_guard_seconds"] = max(
-                float(data.get("streaming_right_guard_seconds", 1.5)),
-                1.5,
-            )
+            _right_guard_raw = float(data.get("streaming_right_guard_seconds", STREAMING_RIGHT_GUARD_SECONDS_MIN))
         except (TypeError, ValueError):
+            _right_guard_invalid = data.get("streaming_right_guard_seconds")
             log.warning(
-                "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default 1.5",
-                data.get("streaming_right_guard_seconds"),
+                "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default %.1f",
+                _right_guard_invalid,
+                STREAMING_RIGHT_GUARD_SECONDS_MIN,
             )
-            data["streaming_right_guard_seconds"] = 1.5
+            data["streaming_right_guard_seconds"] = STREAMING_RIGHT_GUARD_SECONDS_MIN
+            data.setdefault("_load_warnings", []).append(
+                f"streaming_right_guard_seconds had non-numeric value "
+                f"{_right_guard_invalid!r}, reset to "
+                f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}"
+            )
+            _right_guard_raw = STREAMING_RIGHT_GUARD_SECONDS_MIN
+        else:
+            if _right_guard_raw < STREAMING_RIGHT_GUARD_SECONDS_MIN:
+                log.warning(
+                    "[CONFIG] streaming_right_guard_seconds=%.3f below minimum %.1f; "
+                    "resetting to %.1f (XE-11-4: was silently clamped pre-fix)",
+                    _right_guard_raw,
+                    STREAMING_RIGHT_GUARD_SECONDS_MIN,
+                    STREAMING_RIGHT_GUARD_SECONDS_MIN,
+                )
+                data.setdefault("_load_warnings", []).append(
+                    f"streaming_right_guard_seconds={_right_guard_raw} below minimum "
+                    f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}, reset to "
+                    f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}"
+                )
+                _right_guard_raw = STREAMING_RIGHT_GUARD_SECONDS_MIN
+            data["streaming_right_guard_seconds"] = _right_guard_raw
         # NEW-CQ-017: enforce streaming config invariants so the
         # AudioWindowPlanner doesn't run forever or produce
         # overlapping windows that never advance.
@@ -2057,9 +2200,34 @@ class Config:
         Extracted verbatim from ``load()``. If the on-disk
         ``model_size`` is not in the allowlist (e.g. a stale entry from
         a previous build), reset to ``"small.en"`` (the default).
+
+        XE-11-6: the reset is now logged at WARNING and appended to
+        ``data["_load_warnings"]`` so the renderer can surface a
+        "your config was corrected" notice via
+        ``instance.last_load_warnings``. Pre-fix, the reset was silent
+        — the user's ``model_size`` was changed without any signal.
+
+        Note: only warn when ``model_size`` is EXPLICITLY present in
+        ``data`` (i.e. on-disk) with an invalid value. If the key is
+        missing entirely (a partial config.json from a fresh install),
+        the dataclass default applies silently — the user has no
+        "correction" to be notified about.
         """
-        if data.get("model_size") not in ALLOWED_USER_MODELS:
+        # ``model_size`` missing from on-disk config → dataclass default
+        # applies silently (no correction to surface).
+        if "model_size" not in data:
+            return
+        _model_size = data.get("model_size")
+        if _model_size not in ALLOWED_USER_MODELS:
+            log.warning(
+                "[CONFIG] model_size=%r not in allowlist %s; resetting to default 'small.en'",
+                _model_size,
+                sorted(ALLOWED_USER_MODELS),
+            )
             data["model_size"] = "small.en"
+            data.setdefault("_load_warnings", []).append(
+                f"model_size={_model_size!r} not in allowlist, reset to 'small.en'"
+            )
 
     @classmethod
     def _validate_qwen_model_path(cls, data: dict[str, Any]) -> None:
@@ -2069,10 +2237,39 @@ class Config:
         validate ``qwen_model_path`` is in a safe location (the config
         dir or ``$HF_HOME``). Resets to ``None`` if the path doesn't
         exist, isn't a directory, or escapes the safe dirs.
+
+        XE-11-1 (Medium): pre-fix, a non-``str`` value (e.g.
+        ``qwen_model_path: 123`` or ``qwen_model_path: ["/tmp"]`` in a
+        hand-edited config.json) crashed ``Path(qwen_path)`` with
+        ``TypeError`` — which propagated up through ``Config.load()``'s
+        outer ``except`` (catches ``TypeError``), reset the ENTIRE
+        config to defaults, and moved config.json aside as corrupt
+        (even though only one field was bad). The fix adds an
+        ``isinstance(qwen_path, str)`` guard at the top: non-str
+        values are reset to ``None`` with a logged WARNING + a
+        ``_load_warnings`` entry, and the rest of the load proceeds.
+
+        XE-11-6: every reset site (non-str, missing dir, unsafe dir)
+        now appends to ``data["_load_warnings"]`` so the renderer
+        surfaces a "your config was corrected" notice via
+        ``instance.last_load_warnings``.
         """
         # Validate qwen_model_path: must be an existing directory if set
         qwen_path = data.get("qwen_model_path")
         if qwen_path is not None:
+            # XE-11-1: guard against non-str values that would crash
+            # ``Path(qwen_path)`` and reset the ENTIRE config.
+            if not isinstance(qwen_path, str):
+                log.warning(
+                    "[CONFIG] Config qwen_model_path has non-str value %r (type=%s); resetting to None",
+                    qwen_path,
+                    type(qwen_path).__name__,
+                )
+                data["qwen_model_path"] = None
+                data.setdefault("_load_warnings", []).append(
+                    f"qwen_model_path had non-str value {qwen_path!r} (type={type(qwen_path).__name__}), reset to None"
+                )
+                return
             p = Path(qwen_path)
             if not p.exists() or not p.is_dir():
                 log.warning(
@@ -2080,6 +2277,9 @@ class Config:
                     qwen_path,
                 )
                 data["qwen_model_path"] = None
+                data.setdefault("_load_warnings", []).append(
+                    f"qwen_model_path={qwen_path!r} does not exist or is not a directory, reset to None"
+                )
             else:
                 # SEC-audit-007: Validate qwen_model_path is in a safe location
                 qwen_resolved = p.resolve()
@@ -2093,6 +2293,9 @@ class Config:
                         qwen_path,
                     )
                     data["qwen_model_path"] = None
+                    data.setdefault("_load_warnings", []).append(
+                        f"qwen_model_path={qwen_path!r} outside safe directories, reset to None"
+                    )
 
     @classmethod
     def _validate_corrections_path(cls, data: dict[str, Any]) -> None:
@@ -2110,10 +2313,35 @@ class Config:
         to the user's home directory or the config directory — both are
         user-writable locations where the user has explicitly chosen to
         store data.
+
+        XE-11-1 (Medium): pre-fix, a non-``str`` value (e.g.
+        ``corrections_path: 42``) crashed ``Path(corrections)`` with
+        ``TypeError`` — propagated up through ``Config.load()``'s outer
+        ``except`` (catches ``TypeError``), reset the ENTIRE config to
+        defaults, and moved config.json aside as corrupt. The fix adds
+        an ``isinstance(corrections, str)`` guard at the top.
+
+        XE-11-6: every reset site (non-str, missing file, unsafe dir)
+        now appends to ``data["_load_warnings"]`` so the renderer
+        surfaces the correction via ``instance.last_load_warnings``.
         """
         # Validate corrections_path: must be an existing file if set
         corrections = data.get("corrections_path")
         if corrections is not None:
+            # XE-11-1: guard against non-str values that would crash
+            # ``Path(corrections)`` and reset the ENTIRE config.
+            if not isinstance(corrections, str):
+                log.warning(
+                    "[CONFIG] Config corrections_path has non-str value %r (type=%s); resetting to None",
+                    corrections,
+                    type(corrections).__name__,
+                )
+                data["corrections_path"] = None
+                data.setdefault("_load_warnings", []).append(
+                    f"corrections_path had non-str value {corrections!r} "
+                    f"(type={type(corrections).__name__}), reset to None"
+                )
+                return
             cp = Path(corrections)
             if not cp.exists() or not cp.is_file():
                 log.warning(
@@ -2121,6 +2349,9 @@ class Config:
                     corrections,
                 )
                 data["corrections_path"] = None
+                data.setdefault("_load_warnings", []).append(
+                    f"corrections_path={corrections!r} does not exist or is not a file, reset to None"
+                )
             else:
                 try:
                     cp_resolved = cp.resolve()
@@ -2137,6 +2368,9 @@ class Config:
                         exc,
                     )
                     data["corrections_path"] = None
+                    data.setdefault("_load_warnings", []).append(
+                        f"corrections_path={corrections!r} rejected: {exc}, reset to None"
+                    )
 
     @classmethod
     def _validate_privacy_consents(cls, data: dict[str, Any]) -> None:
@@ -2208,6 +2442,55 @@ class Config:
     # them if a future variant needs different warning formatting
     # (e.g. structured logging).
 
+    # XE-11-11 (Low): the set of Config dataclass field names that
+    # hold secret material (API keys / tokens). Used by
+    # :meth:`_warn_and_reset` to redact ``val`` before logging so a
+    # malformed-on-disk api_key value doesn't get echoed into log
+    # files at WARNING level. The set is sourced from
+    # ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()`` (the
+    # canonical provider→field map) with a hardcoded fallback in case
+    # ``credential_store`` cannot be imported (defensive — should never
+    # happen in production but guards against test environments with
+    # partial module mocks).
+    #
+    # The set is computed lazily on first access (via the classmethod
+    # :meth:`_secret_field_names`) to avoid an import-cycle at module
+    # load time (``credential_store`` imports from ``_secrets`` which
+    # imports from ``secure_file_io`` — none of those import
+    # ``config``, so the cycle is currently safe, but the lazy pattern
+    # is forward-compatible if a future refactor adds a back-edge).
+    _SECRET_FIELD_NAMES_FALLBACK: ClassVar[frozenset[str]] = frozenset(
+        {
+            "openai_api_key",
+            "groq_api_key",
+            "deepgram_api_key",
+            "cloud_api_key",
+            "llm_api_key",
+        }
+    )
+
+    @classmethod
+    def _secret_field_names(cls) -> frozenset[str]:
+        """XE-11-11: return the set of Config field names holding secrets.
+
+        Lazily imports ``credential_store.PROVIDER_TO_CONFIG_FIELD``
+        (the canonical provider→field map) so the secret-field list
+        stays in sync with the credential-store definition. Falls back
+        to :data:`_SECRET_FIELD_NAMES_FALLBACK` (a hardcoded set of the
+        five known api_key field names) if the import fails — defensive
+        against test environments with partial module mocks.
+        """
+        try:
+            from voice_typer.server import credential_store
+
+            return frozenset(credential_store.PROVIDER_TO_CONFIG_FIELD.values())
+        except Exception:  # noqa: BLE001 — defensive fallback
+            log.debug(
+                "[CONFIG] could not import credential_store for _secret_field_names — using hardcoded fallback set",
+                exc_info=True,
+            )
+            return cls._SECRET_FIELD_NAMES_FALLBACK
+
     @staticmethod
     def _warn_and_reset(
         field_name: str,
@@ -2253,7 +2536,23 @@ class Config:
             this back to ``data[field_name]``).
         """
         default_val = getattr(defaults, field_name)
-        msg = f"Config field '{field_name}' {reason} {val!r}, resetting to default {default_val!r}"
+        # XE-11-11 (Low): redact ``val`` for secret fields so a
+        # malformed-on-disk api_key value (e.g. ``"openai_api_key": 123``
+        # — an int instead of a str, which would trigger
+        # ``_warn_and_reset`` via the str-validation branch) doesn't
+        # get echoed into log files at WARNING level. Pre-fix, the
+        # raw value was logged via ``{val!r}`` in the warning message
+        # — if a user had pasted a real API key as an int (unlikely
+        # but possible via a botched config-restore), the key would
+        # land in ``backend.log`` and any crash-diagnostic bundle.
+        # The redaction preserves the diagnostic shape (type + length)
+        # so the operator can still see "the value was a 25-char
+        # string" without leaking the actual content.
+        if field_name in Config._secret_field_names():
+            val_repr = f"<redacted {type(val).__name__} length={len(repr(val))}>"
+        else:
+            val_repr = repr(val)
+        msg = f"Config field '{field_name}' {reason} {val_repr}, resetting to default {default_val!r}"
         log.warning("[CONFIG] %s", msg)
         warnings.append(msg)
         return default_val
@@ -2298,6 +2597,15 @@ class Config:
             ``data[field_name]``).
         """
         msg = f"Config field '{field_name}' {reason} {val!r}, coerced to {coerced!r}"
+        # XE-11-11 (Low): mirror the redaction in ``_warn_and_reset``
+        # for secret fields. ``_warn_and_coerce`` is reached when the
+        # on-disk value is coercible (e.g. ``"openai_api_key": 123``
+        # coerced to ``"123"``) — the original int value would be
+        # logged via ``{val!r}`` without this guard.
+        if field_name in Config._secret_field_names():
+            val_repr = f"<redacted {type(val).__name__} length={len(repr(val))}>"
+            coerced_repr = f"<redacted {type(coerced).__name__} length={len(repr(coerced))}>"
+            msg = f"Config field '{field_name}' {reason} {val_repr}, coerced to {coerced_repr}"
         log.warning("[CONFIG] %s", msg)
         warnings.append(msg)
         return coerced
@@ -2335,7 +2643,23 @@ class Config:
         verbatim — it captures the ``str | None`` fields whose ``None``
         sentinel is meaningful (no microphone / no Qwen path / no
         Parakeet override).
+
+        XE-11-9 (Low): pre-fix the validator SKIPPED complex types
+        (``list[str]``, ``dict[str, ...]``) — only bool/str/int/float
+        had explicit branches, and any other annotation fell through
+        the loop body without validation. That meant a hand-edited
+        config.json with ``"disabled_backends": "whisper"`` (a string
+        instead of a list) would silently load as a string, then crash
+        ``"whisper" in cfg.disabled_backends`` checks downstream (which
+        expect iteration over a list of strings) — or worse, succeed
+        accidentally (``"w" in "whisper"`` returns True, masking the
+        type error). The fix adds a generic ``else`` branch that uses
+        ``typing.get_origin`` to extract the container type (``list``,
+        ``dict``, etc.) and resets to default if ``val`` is not an
+        instance of that container type.
         """
+        import typing
+
         warnings: list[str] = []
         # str | None fields where None is a meaningful sentinel
         # (no microphone / no Qwen path / no Parakeet override). The
@@ -2480,6 +2804,70 @@ class Config:
                     coerced,
                     warnings,
                     reason="had non-float value",
+                )
+
+            else:
+                # XE-11-9 (Low): generic branch for complex container
+                # types (``list[str]``, ``dict[str, ...]``, ``tuple[...]``,
+                # etc.) that the four primitive branches above don't
+                # cover. ``expected_type`` here is a ``typing`` generic
+                # alias (e.g. ``list[str]``) — ``typing.get_origin``
+                # extracts the bare container type (``list`` / ``dict``)
+                # so we can ``isinstance``-check without the
+                # subscripted-alias TypeError (``isinstance(x, list[str])``
+                # raises ``TypeError`` in Python 3.9+; ``isinstance(x, list)``
+                # works fine).
+                #
+                # If ``val`` is already an instance of the container
+                # type, no coercion is needed (the contents are
+                # validated downstream by the per-field validators +
+                # the IPC allowlist). If ``val`` is a different type
+                # (e.g. a string where a list was expected), reset to
+                # the dataclass default and warn.
+                import types as _types
+
+                container_origin = typing.get_origin(expected_type)
+                # Skip Union / Optional (``str | None``) annotations —
+                # these are handled by the primitive branches above
+                # for str/int/float/bool, and for other Union shapes
+                # (e.g. ``dict[str, str] | None``) the bare ``None``
+                # sentinel is meaningful and a non-None value of the
+                # first union member type is best left to the
+                # downstream per-field validators (attempting to
+                # ``isinstance(val, typing.Union)`` raises TypeError).
+                # Also skip ``types.UnionType`` (the PEP 604 syntax
+                # ``str | None``) which ``_derive_field_type_registry``
+                # doesn't currently unwrap — leaving it as-is here
+                # preserves the pre-XE-11-9 behavior of skipping
+                # these annotations.
+                if container_origin is typing.Union or container_origin is _types.UnionType:
+                    continue
+                if container_origin is None:
+                    # Bare type annotation without subscription (e.g.
+                    # ``dict`` instead of ``dict[str, str]``). Use the
+                    # annotation directly.
+                    container_origin = expected_type if isinstance(expected_type, type) else None
+                if container_origin is None:
+                    # Unrecognized annotation shape — skip validation
+                    # (don't risk a TypeError on an exotic annotation).
+                    continue
+                # ``None`` is acceptable for ``T | None`` fields that
+                # survived the Optional-unwrap in
+                # ``_derive_field_type_registry`` (e.g. ``custom_theme``
+                # is ``dict[str, dict[str, str]] | None`` — when
+                # unwrapped, the bare ``dict[...]`` doesn't carry the
+                # ``| None``, but the dataclass field's default is
+                # ``None`` so a missing or null on-disk value is valid).
+                if val is None:
+                    continue
+                if isinstance(val, container_origin):
+                    continue
+                data[field_name] = cls._warn_and_reset(
+                    field_name,
+                    val,
+                    defaults,
+                    warnings,
+                    reason=f"had non-{container_origin.__name__} value",
                 )
 
         # NEW-CQ-016: stash warnings so load() can surface them

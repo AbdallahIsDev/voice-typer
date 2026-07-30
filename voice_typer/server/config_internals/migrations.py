@@ -211,16 +211,75 @@ def _run_migrations(
                     # failure must not mask the original
                     # migrator failure.
                     try:
-                        import shutil
+                        # XE-10-2: use the SEC-002 symlink-TOCTOU-safe
+                        # read+write pair (mirrors
+                        # ``_backup_before_downgrade`` /
+                        # ``_backup_before_migration`` in config.py)
+                        # instead of ``shutil.copy2``.  ``copy2`` follows
+                        # symlinks, so a ``config.json`` symlinked at
+                        # an attacker-controlled path would have been
+                        # transparently copied here — defeating the
+                        # symlink-TOCTOU guard the rest of the load()
+                        # path enforces.  ``_secure_read_text`` opens
+                        # with ``O_NOFOLLOW`` (POSIX) / reparse-point
+                        # check (Windows) so a planted symlink is
+                        # rejected; ``_secure_atomic_write`` writes via
+                        # a temp file + atomic rename.
+                        import os
 
-                        ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-                        failed_bak = config_file.parent / (f"config.json.bak.failed-migration-{ts}-to-v{version}")
-                        shutil.copy2(config_file, failed_bak)
+                        from voice_typer.server.secure_file_io import (
+                            _secure_atomic_write,
+                            _secure_read_text,
+                        )
+
+                        # XE-10-3: the previous ``time.strftime("%Y%m%d-
+                        # %H%M%S", time.gmtime())`` suffix had 1-second
+                        # resolution — two failures in the same second
+                        # (e.g. renderer-triggered reload + backend
+                        # independent load during startup) silently
+                        # overwrote each other via ``shutil.copy2``,
+                        # destroying the first failure's forensic
+                        # recovery point.  Mirror config.py:1676's
+                        # ``{int(time.time())}-{os.getpid()}-{time.time_ns()
+                        # % 1_000_000}`` format: PID disambiguates
+                        # same-second loads from DIFFERENT processes,
+                        # the microsecond fraction disambiguates
+                        # same-process same-second loads.
+                        ts_sec = int(time.time())
+                        pid = os.getpid()
+                        ts_ns = time.time_ns() % 1_000_000
+                        failed_bak = config_file.parent / (
+                            f"config.json.bak.failed-migration-{ts_sec}-{pid}-{ts_ns}-to-v{version}"
+                        )
+                        raw_text = _secure_read_text(config_file)
+                        _secure_atomic_write(failed_bak, raw_text)
                         log.warning(
                             "[CONFIG] migrator to v%d failed; saved pre-failure config.json backup to %s",
                             version,
                             failed_bak,
                         )
+                        # XE-10-3: cap retained failed-migration backups
+                        # to 5 (oldest pruned).  Mirrors the
+                        # ``_prune_kept_backups`` call in
+                        # ``_backup_before_migration`` (config.py:1824)
+                        # so the directory doesn't grow unbounded
+                        # across many failed launches.  Looked up via
+                        # the ``config`` module attribute (lazy import)
+                        # to avoid a circular module-load (``config.py``
+                        # imports this module at the top of the file).
+                        try:
+                            from voice_typer.server import config as _cfg_module
+
+                            _cfg_module._prune_kept_backups(
+                                config_file.parent,
+                                prefix="config.json.bak.failed-migration-",
+                                keep=5,
+                            )
+                        except OSError as prune_exc:
+                            log.debug(
+                                "[CONFIG] failed to prune old failed-migration backups: %s",
+                                prune_exc,
+                            )
                     except OSError as backup_exc:
                         log.warning(
                             "[CONFIG] migrator to v%d failed AND pre-failure backup also failed: %s",

@@ -48,7 +48,6 @@ from voice_typer.server.crash_handler._constants import (
     FILE_SHARE_WRITE,
     GENERIC_WRITE,
     OPEN_ALWAYS,
-    _crash_msg_buf,
 )
 
 
@@ -197,110 +196,152 @@ def _vectored_handler_impl(exception_pointers) -> int:
     # exceptions.  Once we've written one record, subsequent VEH
     # callbacks (which the OS may deliver as the exception dispatcher
     # unwinds) return early so we don't corrupt or duplicate the file.
-    if _ch._crash_written:
+    #
+    # UE-2-F2: the rate-limit check + write + flag-set is now wrapped
+    # in a compare-and-set via ``_ch._crash_write_lock``. Pre-fix,
+    # two concurrent VEH callbacks (e.g. cascading access violations on
+    # two threads) could BOTH pass the ``_crash_written`` check before
+    # either set the flag, producing two crash records (and potentially
+    # corrupting the file via concurrent ``WriteFile`` calls to the
+    # same path). The lock is acquired non-blocking: if another thread
+    # is mid-write, this callback returns early so it doesn't block the
+    # OS exception dispatcher.
+    #
+    # Residual gap (documented): the VEH callback is NOT
+    # async-signal-safe in Python (it allocates ctypes wrappers, calls
+    # kernel32 functions, etc.). During STATUS_HEAP_CORRUPTION the
+    # heap is corrupted and the ``Lock.acquire`` call itself may fail
+    # or deadlock. This is acceptable because (a) the alternative (no
+    # lock) is worse (duplicate records, possible file corruption from
+    # concurrent writes), and (b) for access violations / stack
+    # overruns (the common case) the lock works reliably. The OS will
+    # terminate the process shortly regardless.
+    if not _ch._crash_write_lock.acquire(blocking=False):
+        # Another thread is mid-crash-write — return early so we don't
+        # write a duplicate record or block the exception dispatcher.
         return EXCEPTION_CONTINUE_SEARCH
+    try:
+        if _ch._crash_written:
+            return EXCEPTION_CONTINUE_SEARCH
 
-    _ch._ensure_kernel32()
+        # UE-2-F8: wrap kernel32 resolution in try/except — a failure
+        # here (e.g. kernel32 function not found, or a non-Windows test
+        # mock that didn't wire up all the function pointers) must not
+        # propagate out of the VEH callback. Pre-fix, an exception
+        # here would unwind through ctypes and force-kill the process
+        # without writing a crash record.
+        try:
+            _ch._ensure_kernel32()
+        except Exception:
+            return EXCEPTION_CONTINUE_SEARCH
 
-    pid = _ch._func_get_current_process_id()
-    tid = _ch._func_get_current_thread_id()
+        pid = _ch._func_get_current_process_id()
+        tid = _ch._func_get_current_thread_id()
 
-    # Build the crash message in the pre-allocated buffer using ONLY
-    # bytearray slice assignment (no heap allocations).
-    buf = _crash_msg_buf
-    pos = 0
+        # Build the crash message in the pre-allocated buffer using ONLY
+        # bytearray slice assignment (no heap allocations).
+        # UE-2-F9: ``_crash_msg_buf`` now lives on the facade (alongside
+        # the other mutable runtime state) — access via ``_ch.`` so
+        # test mutations on ``crash_handler._crash_msg_buf`` propagate.
+        buf = _ch._crash_msg_buf
+        pos = 0
 
-    # BOM
-    buf[pos : pos + 3] = _BOM
-    pos += 3
+        # BOM
+        buf[pos : pos + 3] = _BOM
+        pos += 3
 
-    # Timestamp
-    pos += _write_timestamp(buf, pos)
+        # Timestamp
+        pos += _write_timestamp(buf, pos)
 
-    # "  CRASH  "
-    buf[pos : pos + 2] = _SEP
-    pos += 2
-    buf[pos : pos + 5] = _CRASH_LABEL
-    pos += 5
-    buf[pos : pos + 2] = _SEP
-    pos += 2
+        # "  CRASH  "
+        buf[pos : pos + 2] = _SEP
+        pos += 2
+        buf[pos : pos + 5] = _CRASH_LABEL
+        pos += 5
+        buf[pos : pos + 2] = _SEP
+        pos += 2
 
-    # "code=0x"
-    buf[pos : pos + 5] = _CODE_LABEL
-    pos += 5
-    buf[pos] = 0x30  # '0'
-    buf[pos + 1] = 0x78  # 'x'
-    pos += 2
-    pos += _write_u32_hex(exc_code, buf, pos)
+        # "code=0x"
+        buf[pos : pos + 5] = _CODE_LABEL
+        pos += 5
+        buf[pos] = 0x30  # '0'
+        buf[pos + 1] = 0x78  # 'x'
+        pos += 2
+        pos += _write_u32_hex(exc_code, buf, pos)
 
-    # ", addr=0x"
-    buf[pos : pos + 7] = _ADDR_LABEL
-    pos += 7
-    buf[pos] = 0x30  # '0'
-    buf[pos + 1] = 0x78  # 'x'
-    pos += 2
-    pos += _write_u64_hex(exc_addr, buf, pos)
+        # ", addr=0x"
+        buf[pos : pos + 7] = _ADDR_LABEL
+        pos += 7
+        buf[pos] = 0x30  # '0'
+        buf[pos + 1] = 0x78  # 'x'
+        pos += 2
+        pos += _write_u64_hex(exc_addr, buf, pos)
 
-    # ", pid=0x"
-    buf[pos : pos + 5] = _PID_LABEL
-    pos += 5
-    buf[pos] = 0x30  # '0'
-    buf[pos + 1] = 0x78  # 'x'
-    pos += 2
-    pos += _write_u32_hex(pid, buf, pos)
+        # ", pid=0x"
+        buf[pos : pos + 5] = _PID_LABEL
+        pos += 5
+        buf[pos] = 0x30  # '0'
+        buf[pos + 1] = 0x78  # 'x'
+        pos += 2
+        pos += _write_u32_hex(pid, buf, pos)
 
-    # ", tid=0x"
-    buf[pos : pos + 5] = _TID_LABEL
-    pos += 5
-    buf[pos] = 0x30  # '0'
-    buf[pos + 1] = 0x78  # 'x'
-    pos += 2
-    pos += _write_u32_hex(tid, buf, pos)
+        # ", tid=0x"
+        buf[pos : pos + 5] = _TID_LABEL
+        pos += 5
+        buf[pos] = 0x30  # '0'
+        buf[pos + 1] = 0x78  # 'x'
+        pos += 2
+        pos += _write_u32_hex(tid, buf, pos)
 
-    buf[pos : pos + 2] = _NL
-    pos += 2
+        buf[pos : pos + 2] = _NL
+        pos += 2
 
-    # Friendly name
-    # AC-88: replaced the 13-clause ``if exc_code == STATUS_X: name =
-    # _NAME_X`` ``elif`` chain with a single dict lookup into
-    # ``_CODE_TO_INFO`` (the unified code → (name_bytes, summary_str)
-    # table in ``_constants.py``). Drift eliminated: adding a new code
-    # now requires editing ONE place (``_CODE_TO_INFO``) rather than
-    # three (constants + VEH if-elif + read-side if-elif). The
-    # ``_NAME_UNKNOWN`` fallback mirrors the original ``else`` branch.
-    _info = _CODE_TO_INFO.get(exc_code)
-    name = _info[0] if _info is not None else _NAME_UNKNOWN
+        # Friendly name
+        # AC-88: replaced the 13-clause ``if exc_code == STATUS_X: name =
+        # _NAME_X`` ``elif`` chain with a single dict lookup into
+        # ``_CODE_TO_INFO`` (the unified code → (name_bytes, summary_str)
+        # table in ``_constants.py``). Drift eliminated: adding a new code
+        # now requires editing ONE place (``_CODE_TO_INFO``) rather than
+        # three (constants + VEH if-elif + read-side if-elif). The
+        # ``_NAME_UNKNOWN`` fallback mirrors the original ``else`` branch.
+        _info = _CODE_TO_INFO.get(exc_code)
+        name = _info[0] if _info is not None else _NAME_UNKNOWN
 
-    n_name = len(name)
-    buf[pos : pos + n_name] = name
-    pos += n_name
-    buf[pos : pos + 2] = _NL
-    pos += 2
+        n_name = len(name)
+        buf[pos : pos + n_name] = name
+        pos += n_name
+        buf[pos : pos + 2] = _NL
+        pos += 2
 
-    # Write the crash diagnostics file
-    # NOTE: buf[:pos] creates a new bytes object (heap allocation).
-    # This is an acceptable limitation — see the module docstring.
-    if _ch._crash_file_path:
-        # Prepend the pre-computed static header (app/python/OS
-        # version + loaded-module snapshot) so the crash_diagnostics
-        # file carries enough context for a support engineer to triage
-        # the crash.  ``_crash_header_bytes`` is built once at
-        # ``set_crash_handler_config_dir()`` time, so this concatenation
-        # is the only extra heap allocation relative to the pre-fix
-        # behavior — acceptable per the module docstring's heap-alloc
-        # caveat.  If the header is empty (e.g. config_dir was never
-        # set, or header computation failed), we fall back to writing
-        # only the crash body, preserving the pre-fix behavior.
-        body = buf[:pos]
-        if _ch._crash_header_bytes:
-            _write_to_file(_ch._crash_file_path, _ch._crash_header_bytes + body)
-        else:
-            _write_to_file(_ch._crash_file_path, body)
-        # Mark as written so cascading VEH callbacks don't write a
-        # second record.
-        _ch._crash_written = True
+        # Write the crash diagnostics file
+        # NOTE: buf[:pos] creates a new bytes object (heap allocation).
+        # This is an acceptable limitation — see the module docstring.
+        if _ch._crash_file_path:
+            # Prepend the pre-computed static header (app/python/OS
+            # version + loaded-module snapshot) so the crash_diagnostics
+            # file carries enough context for a support engineer to triage
+            # the crash.  ``_crash_header_bytes`` is built once at
+            # ``set_crash_handler_config_dir()`` time, so this concatenation
+            # is the only extra heap allocation relative to the pre-fix
+            # behavior — acceptable per the module docstring's heap-alloc
+            # caveat.  If the header is empty (e.g. config_dir was never
+            # set, or header computation failed), we fall back to writing
+            # only the crash body, preserving the pre-fix behavior.
+            body = buf[:pos]
+            if _ch._crash_header_bytes:
+                _write_to_file(_ch._crash_file_path, _ch._crash_header_bytes + body)
+            else:
+                _write_to_file(_ch._crash_file_path, body)
+            # Mark as written so cascading VEH callbacks don't write a
+            # second record. Set AFTER the successful write so a
+            # transient kernel32 failure (e.g. disk full) doesn't
+            # permanently silence the VEH — the next crash callback can
+            # retry.
+            _ch._crash_written = True
 
-    return EXCEPTION_CONTINUE_SEARCH
+        return EXCEPTION_CONTINUE_SEARCH
+    finally:
+        _ch._crash_write_lock.release()
 
 
 # Wrap the VEH callback implementation in ``WINFUNCTYPE`` ONLY on Windows.

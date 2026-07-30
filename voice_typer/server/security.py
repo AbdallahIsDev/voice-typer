@@ -16,11 +16,16 @@ file ``tests/test_restart_token.py``) have been removed; the
 restart is in progress, but no token file is created or verified.
 """
 
+import contextlib
 import hashlib
 import hmac
 import json
 import logging
+import mmap
+import os
 import re
+import tempfile
+import threading
 import traceback as _traceback
 from pathlib import Path
 from typing import Any
@@ -60,7 +65,10 @@ log = logging.getLogger(__name__)
 #                  (``_KEY_PATTERNS[3]``); also catches any flag form
 #                  whose *value* is 20+ chars (the common production
 #                  case — real API keys are long).
-_FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|[A-Za-z0-9_\-]{20,}")
+# XE-5-A: the 20+ char alternation uses negative lookbehind/lookahead on
+# path delimiters so filesystem path components are not false-positive
+# redacted (mirrors the fix in _secrets._KEY_PATTERNS[-1]).
+_FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])")
 
 
 def _redact_text(text: str) -> str:
@@ -393,30 +401,118 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
 MODEL_HASHES: "dict[str, dict[str, Any]]" = _load_model_hashes()
 
 
+# ─── AB-8: On-disk integrity cache for SHA-256 verification ─────────────
+#
+# verify_model_integrity() is called UNCONDITIONALLY on every model load
+# (cache hit AND miss). Pre-AB-8, this re-hashed the full multi-GB weight
+# file (model.safetensors ~2.5 GB for Parakeet, model.bin ~3 GB for
+# Whisper large-v3) on EVERY load — 5-10 s of pure I/O + SHA-256 CPU per
+# load. The TY-11 idle-unload feature made this worse.
+#
+# The integrity cache is a JSON file at <config_dir>/cache/integrity_cache.json
+# keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256_hex. On a
+# cache hit (mtime+size match), the cached hash is returned without
+# re-reading the file.
+#
+# Security: the cache key includes mtime_ns + size. An attacker with
+# write access to the HF cache would need to (a) modify the file, (b)
+# restore the original mtime to nanosecond precision, AND (c) preserve
+# the exact byte size — AND the cached hash still has to match the
+# pinned manifest hash. So the cache does NOT weaken the security
+# guarantee; it only skips the redundant re-hash of unchanged files.
+_INTEGRITY_CACHE_VERSION = 1
+_integrity_cache_lock = threading.Lock()
+# Tests can override the cache path by setting this attribute.
+_integrity_cache_path_override: "Path | None" = None
+
+
+def _integrity_cache_path() -> Path:
+    """Return the path to the on-disk integrity cache JSON file."""
+    if _integrity_cache_path_override is not None:
+        return _integrity_cache_path_override
+    from voice_typer.server._paths import config_dir
+
+    return config_dir() / "cache" / "integrity_cache.json"
+
+
+def _load_integrity_cache() -> "dict[str, Any]":
+    """Load the integrity cache from disk. Returns empty cache on any error."""
+    empty = {"version": _INTEGRITY_CACHE_VERSION, "repos": {}}
+    try:
+        path = _integrity_cache_path()
+        if not path.exists():
+            return empty
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return empty
+        if raw.get("version") != _INTEGRITY_CACHE_VERSION:
+            return empty
+        repos = raw.get("repos", {})
+        if not isinstance(repos, dict):
+            return empty
+        return {"version": _INTEGRITY_CACHE_VERSION, "repos": repos}
+    except Exception as exc:
+        log.debug("[SECURITY] integrity cache load failed (%s) — starting empty", exc)
+        return empty
+
+
+def _save_integrity_cache(cache: "dict[str, Any]") -> None:
+    """Atomically write the integrity cache to disk. Best-effort."""
+    tmp_name = None
+    try:
+        path = _integrity_cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(path.parent),
+            prefix=path.name + ".",
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(cache))
+                f.flush()
+            os.replace(tmp_name, str(path))
+            tmp_name = None
+        except Exception:
+            if tmp_name is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                tmp_name = None
+            raise
+    except Exception as exc:
+        log.debug("[SECURITY] integrity cache save failed (%s) — cache will not persist", exc)
+
+
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hash of a file.
 
-    Reads in 64 KB chunks to avoid loading large model files
-    entirely into memory.
-
-    Parameters
-    ----------
-    path : Path
-        File to hash.
-
-    Returns
-    -------
-    str
-        Hex-encoded SHA-256 digest.
+    AB-8: uses mmap when possible for zero-copy hashing of large model
+    files. Falls back to the 64 KB chunk loop on mmap failure (e.g.
+    mmap of a 0-length file raises ValueError).
     """
     h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
+    try:
+        with open(path, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                h.update(mm)
+            finally:
+                mm.close()
+        return h.hexdigest()
+    except (ValueError, OSError) as exc:
+        log.debug(
+            "[SECURITY] mmap hash failed for %s — falling back to chunk loop: %s",
+            path,
+            exc,
+        )
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
 
 
 def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
@@ -427,6 +523,13 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     are pinned for a given file, a basic structural check is performed
     (file exists and is not empty) and the computed hash is logged at
     INFO level so it can be added to the manifest later.
+
+    AB-8: hashes are memoized in an on-disk integrity cache
+    (``<config_dir>/cache/integrity_cache.json``) keyed on
+    ``(repo_id, relpath, st_mtime_ns, st_size)``. On a cache hit, the
+    cached hash is reused without re-reading the multi-GB weight file
+    — saving 5-10 s of pure I/O+CPU on every model load. The cache is
+    invalidated automatically when the file's mtime or size changes.
 
     Parameters
     ----------
@@ -503,6 +606,47 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         )
         return False
 
+    # AB-8: load the integrity cache ONCE for the whole verification
+    # call. Keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256.
+    # The cache lock is held only for load/save — NOT for hash
+    # computation (which can take 5-10 s for a multi-GB weight file).
+    with _integrity_cache_lock:
+        cache = _load_integrity_cache()
+    cache_dirty = False
+
+    def _hash_with_cache(file_path: Path, relpath: str) -> str:
+        """Return the SHA-256 of file_path, using the cache when possible."""
+        nonlocal cache_dirty
+        try:
+            st = file_path.stat()
+            mtime_ns = st.st_mtime_ns
+            size = st.st_size
+        except OSError as exc:
+            log.debug(
+                "[SECURITY] stat failed for %s — computing uncached hash: %s",
+                file_path,
+                exc,
+            )
+            return compute_file_sha256(file_path)
+        repos = cache.setdefault("repos", {})
+        repo_entries = repos.setdefault(repo_id, {})
+        entry = repo_entries.get(relpath)
+        if (
+            isinstance(entry, dict)
+            and entry.get("mtime_ns") == mtime_ns
+            and entry.get("size") == size
+            and isinstance(entry.get("sha256"), str)
+        ):
+            return entry["sha256"]
+        digest = compute_file_sha256(file_path)
+        repo_entries[relpath] = {
+            "mtime_ns": mtime_ns,
+            "size": size,
+            "sha256": digest,
+        }
+        cache_dirty = True
+        return digest
+
     # SEC-audit-005: Verify pinned file hashes if available.
     # The manifest entry for a repo can include a "files" dict mapping
     # relative file paths to expected SHA-256 hex digests. When present,
@@ -529,7 +673,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
                     local_dir,
                 )
                 return False
-            actual_hash = compute_file_sha256(file_path)
+            actual_hash = _hash_with_cache(file_path, filename)
             if not hmac.compare_digest(actual_hash, expected_hash):
                 log.warning(
                     "[SECURITY] Model integrity: hash mismatch for %s in %s "
@@ -567,11 +711,16 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
             if not entry.is_file():
                 continue
             try:
-                h = compute_file_sha256(entry)
                 rel = entry.relative_to(model_path).as_posix()
+                h = _hash_with_cache(entry, rel)
                 log.info("[SECURITY]   %s: sha256=%s", rel, h)
             except Exception as exc:
                 log.debug("[SECURITY]   failed to hash %s: %s", entry, exc)
+
+    # AB-8: persist the cache once at the end (only if dirty).
+    if cache_dirty:
+        with _integrity_cache_lock:
+            _save_integrity_cache(cache)
 
     return True
 

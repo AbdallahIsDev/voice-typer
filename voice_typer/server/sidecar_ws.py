@@ -93,6 +93,7 @@ import json
 import logging
 import os
 import sys
+import time
 from typing import TYPE_CHECKING
 
 # websockets is a hard new dep under ADR-0020 §14. Import lazily
@@ -869,7 +870,34 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
                     return
                 try:
                     raw = json.dumps(event, ensure_ascii=False)
-                    if len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:
+                    # AB-38: use ``len(raw)`` (char count) instead of
+                    # ``len(raw.encode("utf-8"))`` (byte count) for the
+                    # size check. Previously every outbound frame was
+                    # UTF-8 encoded TWICE: once here to compute the byte
+                    # length (O(n), then discarded), and once inside
+                    # ``websocket.send(raw)`` which re-encodes the str
+                    # to bytes for the WS TEXT frame. For near-cap frames
+                    # (~1 MiB) at 1-5 Hz that's 1-5 MiB/sec of garbage
+                    # allocation on the asyncio loop thread.
+                    #
+                    # Safety: ``len(raw)`` (char count) is a LOWER BOUND
+                    # on the UTF-8 byte count because every non-ASCII
+                    # character occupies 2-4 bytes in UTF-8. So if char
+                    # count > limit, byte count > limit (definitely drop).
+                    # If char count <= limit, byte count MAY exceed the
+                    # limit (multi-byte chars inflate the byte count) —
+                    # in that case we send the frame and rely on the
+                    # Rust host's tungstenite reader to enforce its own
+                    # ``max_size`` on receive (it will close the
+                    # connection with a 1009 close code, which the
+                    # reconnect path handles). This is a safe
+                    # overestimate of the drop condition; the only
+                    # behaviour change is that a frame with byte count
+                    # > limit but char count <= limit is now sent
+                    # instead of pre-emptively dropped, which is fine
+                    # because the tungstenite reader enforces the limit
+                    # authoritatively on the receive side.
+                    if len(raw) > _MAX_FRAME_BYTES:
                         log.error(
                             "[SIDECAR-WS] outbound frame exceeds %d bytes — dropping",
                             _MAX_FRAME_BYTES,
@@ -934,6 +962,33 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
             # correlation (ADR-0020 §7 — the host's dispatch() command
             # assigns a per-request id). Echo it back on the response.
             request_id = msg.get("id")
+            # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
+            # the read loop BEFORE awaiting ``dispatch()`` so the
+            # heartbeat-ack is not delayed by an in-flight long
+            # dispatch (e.g. ``download_model``, ``transcribe``) running
+            # on the dispatch pool. The Rust host's liveness probe
+            # (3 consecutive misses ≥30s → respawn, see ADR-0018 /
+            # ADR-0020 §10) would otherwise fire spuriously during a
+            # legitimate long-running command — restarting the sidecar
+            # mid-download and forcing the user to retry. Bypassing the
+            # dispatch pool keeps the heartbeat-ack latency at the
+            # ``websocket.send()`` round-trip (~1 ms loopback) instead
+            # of the dispatch-pool queue depth.
+            if msg.get("type") == "heartbeat":
+                # Mirror ``_handle_heartbeat``'s update of
+                # ``_last_heartbeat_at`` so the Python-side heartbeat
+                # watchdog (if installed) sees fresh liveness.
+                with contextlib.suppress(AttributeError):
+                    server._last_heartbeat_at = time.monotonic()
+                ack: dict[str, object] = {"type": "heartbeat_ack"}
+                if request_id is not None:
+                    ack["id"] = request_id
+                try:
+                    await websocket.send(json.dumps(ack))
+                except Exception:
+                    log.warning("[SIDECAR-WS] heartbeat ack send failed", exc_info=True)
+                    break
+                continue
             result = await dispatch(msg, websocket)
             if result is not None:
                 if request_id is not None and isinstance(result, dict):

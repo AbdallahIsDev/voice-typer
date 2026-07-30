@@ -2,13 +2,17 @@
 
 Status codes, the ``_CRASH_CODES`` frozenset, Win32 file-I/O constants
 (``GENERIC_WRITE`` / ``FILE_SHARE_*`` / ``OPEN_ALWAYS``), archive +
-retention constants, the VEH message-buffer layout, and the
-pre-allocated ``_crash_msg_buf`` bytearray.
+retention constants, the VEH message-buffer layout, and pre-encoded
+static byte parts.
 
-No mutable state lives here — only constants and the pre-allocated
-``_crash_msg_buf`` (which is mutated in place by ``_veh_callback`` but
-never reassigned, so the module-level reference is effectively
-constant).
+No mutable state lives here — only constants. The pre-allocated
+``_crash_msg_buf`` bytearray that USED to live here was moved to the
+``crash_handler`` facade (``__init__.py``) in UE-2-F9 alongside the
+other mutable runtime state (kernel32 pointers, file paths, the
+rate-limit flag, the rate-limit lock). The buffer's contents ARE
+mutated in place by ``_veh_callback``; keeping it next to the other
+mutable state makes the mutation surface explicit and avoids the
+"constants module with mutable state" smell.
 
 Split out from the original monolithic ``crash_handler.py`` so the
 constants can be imported by the VEH callback, the kernel32 resolver,
@@ -158,13 +162,21 @@ _CRASH_MSG_LAYOUT: list[tuple[str, int]] = [
 # the headroom is ample.
 _CRASH_MSG_BUF_SIZE = sum(width for _, width in _CRASH_MSG_LAYOUT) + 256
 
-# Pre-allocated crash message buffer. Mutated in place by
-# ``_vectored_handler_impl`` (bytearray slice assignment — no heap
-# allocation in the VEH callback). The reference itself is never
-# reassigned, so importing it as a module-level constant is safe.
-_crash_msg_buf: bytearray = bytearray(_CRASH_MSG_BUF_SIZE)
-
 # Pre-encoded static message parts (ASCII)
+#
+# UE-2-F9: the pre-allocated ``_crash_msg_buf`` bytearray that used
+# to live here has been MOVED to ``crash_handler/__init__.py`` (the
+# facade) alongside the other mutable runtime state. The buffer's
+# contents are mutated in place by ``_vectored_handler_impl`` (via
+# bytearray slice assignment — no heap allocation in the VEH
+# callback), so it is mutable state and belongs with the other
+# mutable state. The reference itself is never reassigned, but
+# co-locating it with the kernel32 pointers / file paths / rate-limit
+# flag makes the mutation surface explicit and removes the
+# "constants module with mutable state" smell. The VEH callback
+# accesses it via ``_ch._crash_msg_buf`` (consistent with how it
+# accesses ``_ch._crash_file_path``, ``_ch._crash_header_bytes``,
+# etc.).
 _BOM = b"\xef\xbb\xbf"
 _SEP = b"  "
 _CRASH_LABEL = b"CRASH"
@@ -200,6 +212,13 @@ _NAME_UNKNOWN = b"Unknown fatal exception."
 # pre-encoded friendly-name bytes and a human-readable summary string.
 # The VEH callback reads ``[0]`` (the name bytes) for the crash
 # diagnostics message; ``[1]`` is reserved for diagnostic UI or logs.
+#
+# UE-2-F3: ``_diagnostics_archive._summarize_crash_file`` ALSO uses
+# this table (via the ``_CODE_TO_USER_SUMMARY`` mapping below) to
+# replace its own 13-clause if/elif chain. Drift between the VEH
+# write-side and the report-side is now impossible: adding a new code
+# requires editing ``_CODE_TO_INFO`` + ``_CODE_TO_USER_SUMMARY`` in
+# ONE module (here), not three places.
 _CODE_TO_INFO: dict[int, tuple[bytes, str]] = {
     STATUS_HEAP_CORRUPTION: (_NAME_HEAP, "Process heap corrupted"),
     STATUS_ACCESS_VIOLATION: (_NAME_ACCESS, "Invalid memory access"),
@@ -218,3 +237,69 @@ _CODE_TO_INFO: dict[int, tuple[bytes, str]] = {
 
 # Lookup table for hex digit encoding (pre-computed)
 _HEX_CHARS = b"0123456789ABCDEF"
+
+# UE-2-F3: user-facing summary strings keyed by NTSTATUS code.
+# Replaces the 13-clause if/elif chain in
+# ``_diagnostics_archive._summarize_crash_file`` that previously
+# duplicated the code → message mapping. Each value is a single-line
+# summary surfaced to the tray notification (via
+# ``report_pending_crash`` → ``startup_sequence._do_startup`` →
+# ``app.tray.notify_safety``) and to the INFO-level crash-summary log
+# record. The strings are kept IDENTICAL to the pre-fix messages so
+# existing tests that assert substrings (e.g. ``"Heap corruption"``
+# in ``result``, ``"0xC0000374"`` in ``result``) continue to pass.
+#
+# The matching logic in ``_summarize_crash_file`` scans the crash
+# file's CONTENT for the friendly-name token (e.g. the ASCII bytes
+# ``STATUS_HEAP_CORRUPTION``) using ``_CODE_TO_INFO[code][0]``; on a
+# match, it appends the corresponding ``_CODE_TO_USER_SUMMARY[code]``
+# to the user-facing summary. Unknown codes fall through to the
+# ``code=0x`` extraction + generic-fallback path (unchanged).
+_CODE_TO_USER_SUMMARY: dict[int, str] = {
+    STATUS_HEAP_CORRUPTION: (
+        "Heap corruption (0xC0000374). Likely cause: low memory (RAM), low disk space, or a C extension bug."
+    ),
+    STATUS_ACCESS_VIOLATION: ("Access violation (0xC0000005). Likely cause: low memory or a C extension bug."),
+    STATUS_STACK_BUFFER_OVERRUN: (
+        "Stack overrun (0xC0000409). Likely cause: low memory, stack overflow, or a C extension bug."
+    ),
+    STATUS_FATAL_APP_EXIT: (
+        "Fatal exit (0x40000015). The process detected a critical "
+        "error and terminated itself. Likely cause: low memory "
+        "or a C extension bug."
+    ),
+    STATUS_ILLEGAL_INSTRUCTION: (
+        "Illegal instruction (0xC000001D). The CPU executed an invalid opcode — "
+        "likely a C extension ABI mismatch or a corrupted code page."
+    ),
+    STATUS_INT_DIVIDE_BY_ZERO: (
+        "Integer divide by zero (0xC0000094). A C extension performed an unprotected integer division by zero."
+    ),
+    STATUS_PRIVILEGED_INSTRUCTION: (
+        "Privileged instruction (0xC0000096). User-mode code executed a "
+        "kernel-only CPU instruction — likely a C extension bug."
+    ),
+    STATUS_IN_PAGE_ERROR: (
+        "In-page error (0xC0000006). The OS could not load a memory page — "
+        "likely low disk space, disk failure, or quota exhaustion."
+    ),
+    STATUS_STACK_OVERFLOW: (
+        "Stack overflow (0xC00000FD). The thread exhausted its stack — likely unbounded recursion or a C extension bug."
+    ),
+    STATUS_NONCONTINUABLE_EXCEPTION: (
+        "Non-continuable exception (0xC0000025). The process attempted to "
+        "continue after a non-continuable exception — likely a C extension bug."
+    ),
+    STATUS_INVALID_HANDLE: (
+        "Invalid handle (0xC0000008). A kernel API received an invalid handle — "
+        "likely a C extension bug or a race during shutdown."
+    ),
+    STATUS_DATATYPE_MISALIGNMENT: (
+        "Datatype misalignment (0xC0000002). A misaligned memory access occurred — "
+        "likely a C extension bug on an aligned-memory ABI."
+    ),
+    STATUS_GUARD_PAGE_VIOLATION: (
+        "Guard page violation (0x80000001). A guard page was touched — "
+        "likely stack growth or a probe from a C extension."
+    ),
+}

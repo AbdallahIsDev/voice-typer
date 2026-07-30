@@ -52,7 +52,8 @@ log = logging.getLogger(__name__)
 _LOG_RETENTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 30 days
 _LOG_ROTATION_GLOBS: tuple[str, ...] = (
     "voice-typer.log.*",  # main process rotations (``.1``..``.5``)
-    "prewarm.log.*",  # prewarm process rotations
+    "prewarm.log.*",  # legacy prewarm process rotations
+    "voice-typer-prewarm.log.*",  # XE-19-1: prewarm process rotations (DJ-49 fix)
 )
 
 
@@ -297,8 +298,19 @@ class _BubbleLevelExclusionFilter(logging.Filter):
         # diagnostic error lines.
         if record.levelno >= logging.WARNING:
             return True
-        msg = record.getMessage()
-        return self._MARKER not in msg
+        # UE-4-F6: hybrid check. ``record.msg`` is the raw template
+        # string (no %-format substitution) — checking it first avoids
+        # the ``getMessage()`` call on every DEBUG/INFO record. Fall
+        # back to ``getMessage()`` only when the record carries
+        # positional args (i.e. the marker could appear in the
+        # substituted output but not the template). The hot path is a
+        # literal ``"bubble_level"`` log call with no args, so the
+        # cheap ``in record.msg`` check covers it; the fallback
+        # preserves correctness for callers that interpolate the
+        # marker via ``%s``.
+        if not record.args:
+            return self._MARKER not in record.msg
+        return self._MARKER not in record.getMessage()
 
 
 # ── Shared colour tables ──────────────────────────────────────────────
@@ -906,8 +918,16 @@ def _ensure_last_resort_redacted(pii_filter: logging.Filter) -> None:
     last_resort = getattr(logging, "lastResort", None)
     if last_resort is None:
         return
-    # Idempotent: skip if a PIIRedactionFilter is already attached.
-    if any(type(f).__name__ == "PIIRedactionFilter" for f in last_resort.filters):
+    # Idempotent: skip if a PIIRedactionFilter of the same class is
+    # already attached.
+    # UE-4-F10: use ``isinstance(f, type(pii_filter))`` instead of the
+    # string-based ``type(f).__name__ == "PIIRedactionFilter"`` check.
+    # The string check is brittle: a future subclass, rename, or
+    # monkeypatch (e.g. a test double named differently but inheriting
+    # from ``PIIRedactionFilter``) would silently bypass the idempotency
+    # guard and double-attach. The isinstance check is type-safe and
+    # survives subclassing.
+    if any(isinstance(f, type(pii_filter)) for f in last_resort.filters):
         return
     last_resort.addFilter(pii_filter)
 
@@ -918,6 +938,7 @@ def setup_logging(
     debug: bool = False,
     quiet: bool = False,
     port_mode: bool = False,
+    process_name: str = "main",
 ) -> str:
     """Configure Voice Typer logging — rotating file + optional coloured console.
 
@@ -977,7 +998,10 @@ def setup_logging(
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(config_dir, 0o700)
-        log_file = config_dir / "voice-typer.log"
+        # XE-19-1 (Critical) / DJ-49: route to voice-typer-prewarm.log when
+        # process_name == "prewarm" so the prewarm and main processes don't
+        # race on the same file.
+        log_file = get_log_file_path(config_dir, process_name=process_name)
 
         # RW-13: structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
         # When enabled, the file (and console, below) use _JsonFormatter so
@@ -1019,7 +1043,15 @@ def setup_logging(
         # Root stays at DEBUG so child loggers can still emit DEBUG
         # records when ``VOICE_TYPER_DEBUG=1`` is set — the handler
         # filter is what actually drops them at INFO level.
-        handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        # UE-4-F8: gate the file handler on ``debug`` AND ``quiet`` so
+        # the handler level matches the root logger level set below.
+        # Pre-UE-4-F8 ``quiet=True`` raised the root to WARNING but
+        # left the file handler at INFO — the handler still wanted INFO
+        # records but the root logger filtered them out before they
+        # reached any handler, so the effective file verbosity did not
+        # match the ``quiet`` contract. Now ``quiet=True`` lowers the
+        # file handler to WARNING too, matching the root logger.
+        handler.setLevel(logging.WARNING if quiet else (logging.DEBUG if debug else logging.INFO))
         # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
         # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
         # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
@@ -1033,18 +1065,15 @@ def setup_logging(
 
         # PII / API-key redaction — imported lazily to avoid circular imports
         # and to keep the security module's import order clean.
-        # RW-6: the filter is attached to BOTH the ``voice_typer`` logger
-        # (so records logged directly to it are redacted before any handler
-        # sees them) AND to each handler (so records logged to *child*
-        # loggers like ``voice_typer.server.app`` — which do not trigger
-        # the parent logger's filters per Python's logging semantics — are
-        # also redacted).  Attaching to the handler is what makes the
-        # redaction actually fire for the vast majority of call sites,
-        # which use ``logging.getLogger(__name__)`` directly and therefore
-        # log to ``voice_typer.server.<module>``.  The filter is idempotent
-        # (redacting an already-redacted message is a no-op), so
-        # double-filtering records that hit both the logger and handler
-        # filters is harmless.
+        # XV-130 (supersedes the stale RW-6 block): the filter is attached
+        # to each HANDLER (file + stderr), NOT to the ``voice_typer`` root
+        # logger. Python's logging semantics: handler filters fire for
+        # EVERY record that reaches the handler (regardless of which
+        # logger it was logged to), so attaching at the handler level is
+        # sufficient AND avoids a redundant double-scan for records
+        # logged directly to ``voice_typer``. See the XV-130 comment
+        # block below the handler-installation block for the full
+        # rationale.
         from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
 
         _pii_filter = _PIIRedactionFilter()
@@ -1062,7 +1091,13 @@ def setup_logging(
 
         root = logging.getLogger("voice_typer")
         # Avoid duplicate handlers if setup is called multiple times.
-        if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
+        # UE-4-F9: dedup on the ``_SecureRotatingFileHandler`` subclass
+        # (not the parent ``RotatingFileHandler``) so a future caller
+        # that installs a stock ``RotatingFileHandler`` (e.g. a test
+        # helper) is NOT mistaken for the secure handler — the secure
+        # handler is always re-installed in that case so the perms and
+        # inter-process lock guarantees are preserved.
+        if not any(isinstance(h, _SecureRotatingFileHandler) for h in root.handlers):
             root.addHandler(handler)
         # XV-130: PII + session filters are attached to each HANDLER
         # (file + stderr) above, NOT to the ``voice_typer`` root logger.
@@ -1172,13 +1207,19 @@ def setup_logging(
         os.umask(_old_umask)
 
 
-def get_log_file_path(config_dir: Path | None = None) -> Path:
-    """Return the absolute path to ``voice-typer.log``.
+def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "main") -> Path:
+    """Return the absolute path to the log file for the given process.
 
     G4-L-19: used by agent 2-y for the in-app log viewer (``View Main
     Log`` button alongside ``Open Log Folder``).  Centralising the
     literal here means the viewer and ``setup_logging`` agree on the
     filename even if it ever changes.
+
+    XE-19-1 (Critical) / DJ-49: the ``process_name`` parameter routes
+    the prewarm process to a separate ``voice-typer-prewarm.log`` file
+    so the prewarm and main processes don't race on the same file.
+    ``"main"`` (and any unrecognised value) routes to ``voice-typer.log``;
+    ``"prewarm"`` routes to ``voice-typer-prewarm.log``.
 
     Parameters
     ----------
@@ -1187,17 +1228,22 @@ def get_log_file_path(config_dir: Path | None = None) -> Path:
         ``None``, the canonical config dir is resolved via
         :func:`voice_typer.server._paths.config_dir` (lazy import to
         avoid circular imports at module load time).
+    process_name:
+        ``"main"`` (default) or ``"prewarm"``. Controls which log file
+        is returned.
 
     Returns
     -------
     Path
-        ``<config_dir>/voice-typer.log``.  The path may not yet exist
-        on disk — callers should check ``.exists()`` before opening.
+        ``<config_dir>/voice-typer.log`` or ``<config_dir>/voice-typer-prewarm.log``.
+        The path may not yet exist on disk — callers should check ``.exists()`` before opening.
     """
     if config_dir is None:
         from voice_typer.server import _paths
 
         config_dir = _paths.config_dir()
+    if process_name == "prewarm":
+        return config_dir / "voice-typer-prewarm.log"
     return config_dir / "voice-typer.log"
 
 
@@ -1268,9 +1314,16 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
                     msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                 return fd
         except Exception as exc:
+            # UE-4-F13: log only the exception class name. ``str(exc)``
+            # can include the lock file path (which contains the user's
+            # home directory) — leaking it to stderr/debug logs is a
+            # minor PII/privacy leak. The class name (e.g.
+            # ``PermissionError``, ``OSError``) is enough for an
+            # operator to diagnose the failure mode without exposing
+            # the on-disk path layout.
             log.debug(
                 "[LOG-SETUP] inter-process rotation lock acquire failed (%s); falling back to racy rotation",
-                exc,
+                type(exc).__name__,
             )
             if isinstance(fd, int):
                 with contextlib.suppress(OSError):
@@ -1305,17 +1358,39 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
             return True
 
     def doRollover(self) -> None:  # noqa: D401, N802
+        # UE-17: tighten the process umask for the duration of the
+        # rollover so the freshly-created active log file is 0o600 from
+        # the very first ``open()`` call (mode 0o666 & ~umask=0o077 →
+        # 0o600). Pre-UE-17 the umask had been restored to the parent's
+        # value (typically 0o022 → 0o644 world-readable) by the time
+        # ``doRollover`` ran, so ``super().doRollover()`` created the
+        # file world-readable and the post-creation chmod ran AFTER the
+        # rotation lock was released — a TOCTOU window during which a
+        # co-located user could ``open()`` the file and read
+        # dictated-text fragments. Tightening the umask here closes the
+        # window at the source: the file is born 0o600. Restored in
+        # ``finally`` so the umask change does not leak to other
+        # threads or to subprocesses spawned after doRollover returns.
+        saved_umask = os.umask(0o077)
         lock_fd = self._acquire_rotation_lock()
         try:
             if not self._rotation_needed():
                 return
             super().doRollover()
+            # UE-17 belt-and-suspenders: chmod INSIDE the lock + try
+            # block (before ``_release_rotation_lock``) so even if a
+            # caller bypassed the umask (or a future refactor swapped
+            # the open mode), the file is still re-locked to 0o600
+            # before any other process can observe it. The umask
+            # already ensures 0o600 at creation; this chmod guarantees
+            # it post-hoc and runs in the same critical section that
+            # holds the inter-process rotation lock.
+            if os.name == "posix":
+                with contextlib.suppress(OSError):
+                    os.chmod(self.baseFilename, 0o600)
         finally:
             self._release_rotation_lock(lock_fd)
-        # FR-2: re-lock the freshly-created active log file to 0o600 on POSIX.
-        if os.name == "posix":
-            with contextlib.suppress(OSError):
-                os.chmod(self.baseFilename, 0o600)
+            os.umask(saved_umask)
 
 
 def close_devnull_files() -> None:

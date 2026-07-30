@@ -61,14 +61,29 @@ def _setup_logging():
     # (rather than introspected from ``log``) so the banner stays
     # accurate even if ``setup_logging`` is changed to compute JSON
     # mode from a different source in the future.
-    _log_file = config_dir / "voice-typer.log"
+    # XE-19-11: use get_log_file_path() instead of hardcoded literal so the
+    # banner reflects the actual log file (which may be voice-typer-prewarm.log
+    # for the prewarm process after the DJ-49 fix).
+    from voice_typer.server.log import get_log_file_path
+
+    _log_file = get_log_file_path(config_dir)
     _json_mode = os.environ.get("VOICE_TYPER_LOG_JSON", "").lower() in (
         "1",
         "true",
         "yes",
     )
-    _root_level = logging.getLogger().level
-    log.info(
+    # XE-5-B / XE-19-7: read the voice_typer logger level (which setup_logging
+    # actually configures) instead of the true root logger level (which is
+    # always WARNING=30 and never modified by setup_logging). Pre-fix, the
+    # banner always reported level=WARNING regardless of debug/quiet flags.
+    _root_level = logging.getLogger("voice_typer").level
+    # XE-5-C: in quiet mode, the voice_typer logger is at WARNING. The banner
+    # is logged at INFO, which is BELOW WARNING — the logger-level filter
+    # would drop it before any handler is consulted. Log at WARNING when
+    # quiet=True so the banner survives the filter and is written to disk.
+    _banner_level = logging.WARNING if quiet else logging.INFO
+    log.log(
+        _banner_level,
         "[STARTUP] logging initialized: file=%s, level=%s, json=%s, debug=%s, quiet=%s, session=%s",
         _log_file,
         logging.getLevelName(_root_level),

@@ -136,6 +136,21 @@ def _secure_atomic_write(
         # os.replace is atomic and does NOT follow symlinks on the target.
         os.replace(str(tmp_path), str(target))
 
+        # UE-5-F12: explicit chmod to 0o600 (POSIX, best-effort) —
+        # defense-in-depth even though ``tempfile.mkstemp`` creates the
+        # tmp file with 0o600 already. ``os.replace`` brings the
+        # source inode (with its permissions) to the destination on
+        # POSIX, so the 0o600 from mkstemp IS preserved across the
+        # rename — but we re-apply it explicitly so a future refactor
+        # that changes the tmp-creation path (e.g. a caller that
+        # passes a pre-opened fd, or a future Python release that
+        # changes mkstemp's default mode) can't silently leak
+        # world-readable config files. ``_chmod_owner_only`` is a
+        # no-op on Windows (POSIX permission bits are ignored; ACLs
+        # apply) and suppresses OSError at debug level so a read-only
+        # filesystem doesn't fail the write.
+        _chmod_owner_only(target)
+
         # fsync the parent directory so the rename is durable.
         # POSIX-only -- Windows has no equivalent.  Best-effort.
         # ER-80: skip when durability=False (the rename still happens,
@@ -280,6 +295,12 @@ def _secure_read_text(
         # XZ-R10-01: split the try so the deliberate reparse-point raise
         # is NOT caught by the tolerant except (which previously swallowed
         # it, making the Windows reparse-point protection dead code).
+        # XE-8-C: initialize stat_result to None BEFORE the try-block so an
+        # OSError from os.lstat does not leave it unbound (the subsequent
+        # `stat_result is not None` reference would raise UnboundLocalError,
+        # which is NOT caught by the caller's `except (json.JSONDecodeError,
+        # OSError, ValueError)` and would crash app startup).
+        stat_result = None
         try:
             stat_result = os.lstat(str(p)) if hasattr(os, "lstat") else None
             attrs = getattr(stat_result, "st_file_attributes", 0) or 0
@@ -364,6 +385,13 @@ class PersistedJSON:
         self._path = Path(path)
         self._default = default
         self._bak_path = self._path.with_name(self._path.name + ".bak")
+        # XE-8-A (High): _last_written_bytes cache for DJ-53 diff optimization.
+        # Populated on load() and updated on save(). When the new content's
+        # byte length matches AND the existing file's content matches, the
+        # write is skipped entirely (no fsync, no rename). This eliminates
+        # the 2-fsync-per-save overhead for vocabulary/templates that are
+        # saved frequently but rarely change.
+        self._last_written_bytes: int | None = None
 
     @property
     def path(self) -> Path:
@@ -386,12 +414,26 @@ class PersistedJSON:
         rename fails the corrupt file is left in place) and the default
         is returned.  This mirrors the pattern in
         ``config.py:1744-1763`` and ``crash_recovery.py:186-219``.
+
+        XE-8-B (Medium): if the main file is corrupt/missing, attempt
+        to load from the ``.bak`` before returning the default. The
+        ``.bak`` is a single-slot snapshot written on every save (when
+        content differs). If the ``.bak`` loads successfully, log a
+        warning and return the recovered data.
         """
         if not self._path.exists():
+            # XE-8-B: main file missing — try .bak before returning default.
+            recovered = self._try_load_bak()
+            if recovered is not None:
+                return recovered
             return self._default
         try:
             raw = _secure_read_text(self._path, encoding="utf-8")
-            return json.loads(raw)
+            result = json.loads(raw)
+            # XE-8-A: populate the diff cache so the next save() can skip
+            # the write if the content hasn't changed.
+            self._last_written_bytes = len(raw.encode("utf-8"))
+            return result
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.warning(
                 "[PERSISTED_JSON] Failed to load %s: %s — quarantining corrupt file and returning default",
@@ -399,7 +441,33 @@ class PersistedJSON:
                 exc,
             )
             self._quarantine_corrupt()
+            # XE-8-B: try .bak recovery after quarantining the corrupt main.
+            recovered = self._try_load_bak()
+            if recovered is not None:
+                return recovered
             return self._default
+
+    def _try_load_bak(self) -> Any | None:
+        """XE-8-B: attempt to load from the .bak file. Returns None if .bak
+        is missing or also corrupt (caller falls back to default)."""
+        try:
+            if not self._bak_path.exists() or self._bak_path.is_symlink():
+                return None
+            raw = _secure_read_text(self._bak_path, encoding="utf-8")
+            result = json.loads(raw)
+            log.warning(
+                "[PERSISTED_JSON] Main file corrupt/missing — restored from .bak: %s",
+                self._bak_path.name,
+            )
+            self._last_written_bytes = len(raw.encode("utf-8"))
+            return result
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
+            log.debug(
+                "[PERSISTED_JSON] .bak recovery failed for %s: %s",
+                self._bak_path,
+                exc,
+            )
+            return None
 
     def _quarantine_corrupt(self) -> None:
         """Best-effort rename the corrupt file to ``<path>.corrupt-<ts>``.
@@ -454,7 +522,7 @@ class PersistedJSON:
                 move_exc,
             )
 
-    def save(self, data: Any) -> None:
+    def save(self, data: Any, *, durability: bool = True) -> None:
         """Atomic save.  Creates ``.bak`` before overwrite.  Sets 0o600 perms.
 
         Parameters
@@ -464,6 +532,13 @@ class PersistedJSON:
             ensure_ascii=False)`` is used so non-ASCII characters
             survive the round-trip (mirrors ``vocabulary.py`` and
             ``templates.py`` which both pass ``ensure_ascii=False``).
+        durability : bool
+            XE-8-A (High) / DJ-52: when ``True`` (default), the write
+            uses the full ``_secure_atomic_write`` path with ``fsync``
+            of both file data and parent directory. When ``False``, the
+            fsync calls are skipped — suitable for non-critical cache
+            files where the OS page cache is sufficient and the
+            fsync overhead (2 syscalls per save) is undesirable.
 
         Notes
         -----
@@ -515,6 +590,25 @@ class PersistedJSON:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         content = json.dumps(data, indent=2, ensure_ascii=False)
         content_bytes = content.encode("utf-8")
+
+        # XE-8-A (High) / DJ-53: diff-cache optimization. If the new
+        # content's byte length matches the last-written byte length,
+        # do a quick content comparison against the existing file. If
+        # they're identical, skip the write entirely (no fsync, no
+        # rename, no .bak churn). This eliminates the redundant
+        # read-then-write cycle for vocabulary/templates that are saved
+        # frequently but rarely change.
+        if self._last_written_bytes is not None and len(content_bytes) == self._last_written_bytes:
+            try:
+                if self._path.exists() and not self._path.is_symlink():
+                    existing_text = _secure_read_text(self._path, encoding="utf-8")
+                    if existing_text.encode("utf-8") == content_bytes:
+                        # Content unchanged — skip the write.
+                        return
+            except OSError:
+                # If the read fails (file vanished, perms), fall through
+                # to the normal write path.
+                pass
 
         # FR-7: Best-effort single-slot .bak before overwrite.
         #
@@ -583,5 +677,8 @@ class PersistedJSON:
                 self._bak_path,
             )
 
-        _secure_atomic_write(self._path, content)
+        _secure_atomic_write(self._path, content, durability=durability)
+        # XE-8-A: update the diff cache so the next save() can skip if
+        # the content hasn't changed.
+        self._last_written_bytes = len(content_bytes)
         _chmod_owner_only(self._path)

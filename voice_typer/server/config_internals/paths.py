@@ -136,7 +136,7 @@ def _validate_path_safety(path: Path, parent: Path) -> Path:
     return path.resolve()
 
 
-def _is_path_within(path: Path, root: Path) -> bool:
+def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = None) -> bool:
     """RW-5: whether ``path`` is ``root`` itself or a descendant of it.
 
     Cross-platform path-containment check used by
@@ -153,6 +153,16 @@ def _is_path_within(path: Path, root: Path) -> bool:
     ``/home/user`` (a naive ``str.startswith`` would incorrectly accept
     it).  ``commonpath`` also handles the root-directory edge case
     (``/etc`` IS within ``/``).
+
+    XE-1-E: ``case_sensitive`` lets callers override the platform auto-
+    detection.  ``None`` (default) preserves the original behaviour —
+    auto-detect via ``sys.platform`` (Windows + macOS -> case-
+    insensitive, everything else -> case-sensitive).  Tests pass
+    ``True`` / ``False`` explicitly so they don't depend on the global
+    ``sys.platform`` value (which is fragile on Linux CI runners — the
+    POSIX-only Python build always reports ``"linux"`` regardless of
+    whether the test is trying to exercise the Windows branch).
+    Production callers pass ``None`` and get the current behaviour.
     """
     import os.path
 
@@ -163,7 +173,9 @@ def _is_path_within(path: Path, root: Path) -> bool:
         # Path.resolve() can raise on some platforms if the path is
         # not decodable; treat that as "not within".
         return False
-    if sys.platform in ("win32", "darwin"):
+    if case_sensitive is None:
+        case_sensitive = sys.platform not in ("win32", "darwin")
+    if not case_sensitive:
         p_resolved = p_resolved.lower()
         r_resolved = r_resolved.lower()
     try:
@@ -452,8 +464,46 @@ def _reset_config_dir_cache() -> None:
     _config_dir.cache_clear()
 
 
+def _find_symlink_in_tree(root):
+    """XE-1-A: return the path of the first symlink found under ``root``,
+    or ``None`` if there are none.
+
+    Mirrors :func:`voice_typer.server.service._helpers._find_symlink_in_tree`
+    so the migration path uses the same poison-dir detection logic the
+    ``import_model`` IPC handler relies on.  Inlined here (rather than
+    imported) to avoid a circular dependency: ``service._helpers`` is a
+    leaf module that imports from ``voice_typer.server.config``, and
+    ``config`` imports this module (via ``config_internals.paths``) —
+    so importing ``service._helpers`` from here would close a cycle.
+
+    ``os.walk`` with the default ``followlinks=False`` does NOT descend
+    into symlinked directories, but it DOES include them in
+    ``dirnames`` — so both symlinked files and symlinked directories
+    are detected by this check.
+    """
+    import os as _os
+
+    for dirpath, dirnames, filenames in _os.walk(root):
+        for name in list(dirnames) + list(filenames):
+            full = _os.path.join(dirpath, name)
+            if _os.path.islink(full):
+                return full
+    return None
+
+
 def _migrate_from_legacy():
-    """One-time migration from old platform-specific location (e.g. %APPDATA%)."""
+    """One-time migration from old platform-specific location (e.g. %APPDATA%).
+
+    XE-1-A: before ``shutil.copytree`` runs, scan the legacy tree for
+    symlinks.  If any symlink is found (e.g. ``legacy/models/qwen`` ->
+    ``~/.ssh/id_rsa`` planted by an attacker who got write access to
+    the legacy dir), abort the migration with a WARNING and leave the
+    legacy dir in place — copytree with the default ``symlinks=True``
+    would have followed the link and copied arbitrary attacker-chosen
+    content into the new config dir.  Mirrors the poison-dir rejection
+    in :meth:`VoiceTyperService.import_model` via
+    :func:`voice_typer.server.service._helpers._find_symlink_in_tree`.
+    """
     if _is_windows():
         base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
     elif _is_macos():
@@ -468,6 +518,19 @@ def _migrate_from_legacy():
         return
     import shutil
 
+    # XE-1-A: refuse to migrate a poisoned legacy tree.
+    symlink = _find_symlink_in_tree(legacy)
+    if symlink is not None:
+        log.warning(
+            "[CONFIG] refusing to migrate legacy config %s -> %s — "
+            "symlink detected at %s (symlinks are not allowed in the "
+            "config dir; leaving legacy dir in place for manual review)",
+            legacy,
+            target,
+            symlink,
+        )
+        return
+
     shutil.copytree(legacy, target, dirs_exist_ok=True)
     log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
@@ -478,9 +541,18 @@ def _acquire_config_lock(timeout: float | None = None):
 
     Mirrors credential_store._acquire_migration_lock.  POSIX uses
     fcntl.flock(LOCK_EX) polled with LOCK_NB to enforce the timeout.
-    Windows uses msvcrt.locking(LK_LOCK) retried in a loop.  On
-    timeout, raises TimeoutError (caught by Config.save() which
-    returns False).
+    Windows uses msvcrt.locking(LK_NBLCK) polled in a self-paced retry
+    loop (XE-1-C: the previous ``LK_LOCK`` call blocked for ~10s
+    internally, ignoring the caller's 5s deadline).  On timeout, raises
+    TimeoutError (caught by Config.save() which returns False).
+
+    XE-1-B: a failure to even CREATE the lock file (e.g. read-only
+    config dir, ENOSPC, ENOENT for a deleted parent) is now fatal —
+    the previous "yield without lock" fallback silently raced against
+    concurrent writers, which is exactly the corruption G4-H-11 was
+    added to prevent.  We now raise ``TimeoutError`` so the caller
+    aborts the save; the log level is elevated from DEBUG to WARNING
+    so operators notice.
     """
     import os as _os
 
@@ -508,9 +580,19 @@ def _acquire_config_lock(timeout: float | None = None):
         try:
             fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR, 0o600)
         except OSError as e:
-            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
-            yield
-            return
+            # XE-1-B: refuse to proceed without the lock.  The previous
+            # "yield without lock" fallback silently raced concurrent
+            # writers; we now raise so the caller aborts the save.
+            log.warning(
+                "[CONFIG] could not create lock file %s (%s) -- aborting "
+                "save (XE-1-B: refusing to proceed without the cross-process lock)",
+                lock_file,
+                e,
+            )
+            raise TimeoutError(
+                f"Config.save() could not create config.json.lock ({e}) -- "
+                f"aborting save to prevent concurrent-write corruption."
+            ) from e
         deadline = time.monotonic() + timeout
         try:
             while True:
@@ -527,10 +609,20 @@ def _acquire_config_lock(timeout: float | None = None):
                             ) from e
                         time.sleep(0.05)
                         continue
-                    log.debug("[CONFIG] flock failed (%s) -- proceeding without lock", e)
+                    # XE-1-B: any other flock failure (e.g. EBADF) is
+                    # also fatal — proceeding without the lock would
+                    # race concurrent writers.
+                    log.warning(
+                        "[CONFIG] flock on %s failed (%s) -- aborting save "
+                        "(XE-1-B: refusing to proceed without the cross-process lock)",
+                        lock_file,
+                        e,
+                    )
                     _os.close(fd)
-                    yield
-                    return
+                    raise TimeoutError(
+                        f"Config.save() could not lock config.json.lock ({e}) -- "
+                        f"aborting save to prevent concurrent-write corruption."
+                    ) from e
             try:
                 yield
             finally:
@@ -549,14 +641,31 @@ def _acquire_config_lock(timeout: float | None = None):
         try:
             fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR)
         except OSError as e:
-            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
-            yield
-            return
+            # XE-1-B (Windows branch): same fatal-on-create contract as
+            # the POSIX branch above.  Yielding without the lock would
+            # race concurrent writers on the same machine.
+            log.warning(
+                "[CONFIG] could not create lock file %s (%s) -- aborting "
+                "save (XE-1-B: refusing to proceed without the cross-process lock)",
+                lock_file,
+                e,
+            )
+            raise TimeoutError(
+                f"Config.save() could not create config.json.lock ({e}) -- "
+                f"aborting save to prevent concurrent-write corruption."
+            ) from e
         deadline = time.monotonic() + timeout
         try:
             while True:
                 try:
-                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                    # XE-1-C: LK_NBLCK (non-blocking) + self-paced
+                    # retry loop mirrors the POSIX branch's
+                    # LOCK_EX | LOCK_NB pattern.  The previous LK_LOCK
+                    # call blocked for ~10s internally, ignoring the
+                    # caller's 5s deadline; LK_NBLCK returns
+                    # immediately so the loop honors ``deadline``
+                    # exactly.
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                     break
                 except OSError as e:
                     if time.monotonic() >= deadline:
