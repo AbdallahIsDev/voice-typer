@@ -129,41 +129,50 @@ class TestRmsSnapshotReadsInsideLock:
     inside the lock; downstream code uses the snapshot.
     """
 
-    def test_recent_rms_snapshot_taken_inside_lock(self):
-        # RW-8: KEEP — pins RACE-003 fix (snapshot taken inside lock,
-        # post-lock code uses the snapshot, not the live deque). A
-        # behavioral test would need to reproduce the exact race window
-        # (concurrent callback mutating the deque mid-iteration), which
-        # is non-deterministic; the source-string check catches the
-        # regression deterministically.
-        from voice_typer.server import recording as rec_mod
+    def test_recent_rms_set_inside_lock(self):
+        # RW-8: KEEP — pins RACE-003 invariant (RMS written inside lock
+        # so the audio callback and the level-monitor reader never race).
+        # S3-CR-17 / Phase 4.5: the processing body moved from
+        # Recorder._process_audio_chunk to AudioPipeline.process_audio_chunk.
+        # The old snapshot pattern was removed (PVT-27) — _last_rms is now
+        # set atomically under the lock.
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        src = inspect.getsource(rec_mod.Recorder._process_audio_chunk)
-        # The snapshot line must be inside the with self._lock block
-        assert "recent_rms_snapshot = list(self._recent_rms_values)" in src
-        # The post-lock code must NOT re-read _recent_rms_values directly
-        # (it should use recent_rms_snapshot instead)
-        assert "recent_rms = recent_rms_snapshot" in src
+        src = inspect.getsource(AudioPipeline.process_audio_chunk)
+        # _last_rms must be written inside recorder._lock
+        lines = src.splitlines()
+        lock_block_start = None
+        lock_block_end = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("with recorder._lock:"):
+                lock_block_start = i + 1  # next line
+            elif lock_block_start is not None and stripped.startswith("recorder._last_rms = "):
+                lock_block_end = i
+        assert lock_block_start is not None, "RACE-003: process_audio_chunk must have a with recorder._lock: block"
+        assert lock_block_end is not None, "RACE-003: recorder._last_rms must be assigned inside recorder._lock"
+        assert lock_block_end > lock_block_start, (
+            "RACE-003: recorder._last_rms must be INSIDE the lock block "
+            f"(lock starts at line {lock_block_start}, assignment at {lock_block_end})"
+        )
 
     def test_no_direct_recent_rms_read_outside_lock(self):
-        """The post-lock code must NOT contain
+        """The processing code must NOT contain
         ``recent_rms = self._recent_rms_values`` (the pre-fix pattern).
 
         RW-8: KEEP — pins the negative half of RACE-003 (the pre-fix
         pattern must not return). Source-string check is the most
-        direct way to catch a regression where the snapshot is bypassed.
-        """
-        from voice_typer.server import recording as rec_mod
+        direct way to catch a regression where the lock is bypassed.
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        src = inspect.getsource(rec_mod.Recorder._process_audio_chunk)
-        # The pre-fix line was: recent_rms = self._recent_rms_values
-        # (read outside the lock). The fix replaces it with the snapshot.
+        S3-CR-17 / Phase 4.5: inspect AudioPipeline.process_audio_chunk
+        instead of Recorder._process_audio_chunk (now a 1-line delegator).
+        """
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
+
+        src = inspect.getsource(AudioPipeline.process_audio_chunk)
         assert "recent_rms = self._recent_rms_values" not in src, (
             "RACE-003 regression: _recent_rms_values is being read "
-            "directly outside the lock — use the snapshot taken inside "
-            "the lock instead."
+            "directly outside the lock — set _last_rms under the lock instead."
         )
 
 
