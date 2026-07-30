@@ -938,9 +938,7 @@ class TestZR35ForceClosedReadSideGuard:
         """
         recorder = self._make_test_recorder()
         # Sanity: flag starts False (declared in Recorder.__init__).
-        assert recorder._force_closed is False, (
-            "ZR-35: Recorder.__init__ must declare _force_closed: bool = False"
-        )
+        assert recorder._force_closed is False, "ZR-35: Recorder.__init__ must declare _force_closed: bool = False"
 
         # Simulate the force-closed condition (as shutdown_controller
         # does when recorder.stop() times out).
@@ -982,9 +980,7 @@ class TestZR35ForceClosedReadSideGuard:
             "ZR-35: Recorder.__init__ must declare _force_closed so the "
             "attribute exists before shutdown_controller writes it"
         )
-        assert recorder._force_closed is False, (
-            "ZR-35: _force_closed must default to False"
-        )
+        assert recorder._force_closed is False, "ZR-35: _force_closed must default to False"
 
 
 # ── GT-72: in-flight timer drain after _cancel_pending_timers ──────────

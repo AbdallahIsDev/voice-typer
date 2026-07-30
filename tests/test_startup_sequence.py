@@ -378,9 +378,7 @@ class TestXZR1201OnboardingStartedMarkerGate:
         app_for_startup.config.bubble_show_on_startup = False
         monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
 
-    def test_auto_heal_skipped_when_started_marker_present(
-        self, app_for_startup, tmp_config_dir, monkeypatch
-    ):
+    def test_auto_heal_skipped_when_started_marker_present(self, app_for_startup, tmp_config_dir, monkeypatch):
         """If ``.onboarding_started`` exists, auto-heal MUST NOT fire.
 
         The user is mid-wizard (e.g. crashed/restarted before
@@ -435,13 +433,10 @@ class TestXZR1201OnboardingStartedMarkerGate:
         )
         # onboarding_completed was NOT flipped to True by auto-heal.
         assert app_for_startup.config.onboarding_completed is False, (
-            "XZ-R12-01: auto-heal must NOT flip onboarding_completed when "
-            ".onboarding_started marker is present"
+            "XZ-R12-01: auto-heal must NOT flip onboarding_completed when .onboarding_started marker is present"
         )
 
-    def test_auto_heal_fires_when_started_marker_absent(
-        self, app_for_startup, tmp_config_dir, monkeypatch
-    ):
+    def test_auto_heal_fires_when_started_marker_absent(self, app_for_startup, tmp_config_dir, monkeypatch):
         """If ``.onboarding_started`` does NOT exist (and config.json
         does), auto-heal MUST fire — this is the "stale state from a
         previous install" scenario the auto-heal was designed for.
@@ -489,9 +484,7 @@ class TestXZR1201OnboardingStartedMarkerGate:
             "in the stale-state recovery path (no .onboarding_started marker)"
         )
 
-    def test_auto_heal_defers_when_config_json_absent(
-        self, app_for_startup, tmp_config_dir, monkeypatch
-    ):
+    def test_auto_heal_defers_when_config_json_absent(self, app_for_startup, tmp_config_dir, monkeypatch):
         """If ``config.json`` does NOT exist, auto-heal must defer to
         the wizard regardless of the ``.onboarding_started`` marker.
 
@@ -526,11 +519,9 @@ class TestXZR1201OnboardingStartedMarkerGate:
 
         # Genuine first run — auto-heal does NOT fire.
         assert mark_complete_calls == [], (
-            "XZ-R12-01: auto-heal must NOT fire on genuine first run "
-            "(config.json absent) — defer to the wizard"
+            "XZ-R12-01: auto-heal must NOT fire on genuine first run (config.json absent) — defer to the wizard"
         )
         # onboarding_completed stays False so the wizard shows.
         assert app_for_startup.config.onboarding_completed is False, (
-            "XZ-R12-01: onboarding_completed must stay False on genuine "
-            "first run so the wizard renders"
+            "XZ-R12-01: onboarding_completed must stay False on genuine first run so the wizard renders"
         )

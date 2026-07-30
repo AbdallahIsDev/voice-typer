@@ -486,15 +486,14 @@ class ShutdownController:
                 if _stop_result is TIMEOUT:
                     with contextlib.suppress(Exception):
                         app.recorder._force_closed = True
-                    log.warning(
-                        "[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path"
-                    )
+                    log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
         except Exception:
             log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
 
         # 4. _clear_backend_pid_file()
         try:
             from voice_typer.server import app as _app_module
+
             _app_module._clear_backend_pid_file()
         except Exception:
             log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
@@ -504,6 +503,7 @@ class ShutdownController:
             if hasattr(app, "_mutex_handle") and app._mutex_handle:
                 if is_windows():
                     import ctypes
+
                     ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
                 else:
                     app._mutex_handle.release()

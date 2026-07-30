@@ -51,8 +51,8 @@ log = logging.getLogger(__name__)
 # many backups are currently retained.
 _LOG_RETENTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 30 days
 _LOG_ROTATION_GLOBS: tuple[str, ...] = (
-    "voice-typer.log.*",     # main process rotations (``.1``..``.5``)
-    "prewarm.log.*",         # prewarm process rotations
+    "voice-typer.log.*",  # main process rotations (``.1``..``.5``)
+    "prewarm.log.*",  # prewarm process rotations
 )
 
 
@@ -118,6 +118,7 @@ def _sweep_stale_log_rotations(config_dir: Path) -> None:
                         )
     except Exception as exc:  # noqa: BLE001 — best-effort sweep
         log.debug("[LOG-SETUP] stale-log-rotation sweep failed: %s", exc)
+
 
 # ── Module-level state ────────────────────────────────────────────────
 # Encapsulated here instead of in a class so it's accessible to filters

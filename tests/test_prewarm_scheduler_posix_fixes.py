@@ -44,8 +44,7 @@ class TestPrewarmPythonShlexParsing:
         monkeypatch.setattr(pr, "resolve_prewarm_exe", _fake_resolve)
         result = psp._prewarm_python()
         assert result == spaced_path, (
-            f"XZ-R12-07 regression: spaced Python path was mangled to {result!r}; "
-            f"expected {spaced_path!r}"
+            f"XZ-R12-07 regression: spaced Python path was mangled to {result!r}; expected {spaced_path!r}"
         )
 
     def test_path_without_spaces_still_parses(self, monkeypatch):
@@ -55,9 +54,7 @@ class TestPrewarmPythonShlexParsing:
         monkeypatch.setenv("TAURI_SIDECAR", "1")
         import voice_typer.server.prewarm_resolver as pr
 
-        monkeypatch.setattr(
-            pr, "resolve_prewarm_exe", lambda: dev_fallback_cmd
-        )
+        monkeypatch.setattr(pr, "resolve_prewarm_exe", lambda: dev_fallback_cmd)
         assert psp._prewarm_python() == plain_path
 
     def test_malformed_command_falls_back_to_sys_executable(self, monkeypatch):
@@ -67,9 +64,7 @@ class TestPrewarmPythonShlexParsing:
         monkeypatch.setenv("TAURI_SIDECAR", "1")
         import voice_typer.server.prewarm_resolver as pr
 
-        monkeypatch.setattr(
-            pr, "resolve_prewarm_exe", lambda: '"unterminated -m voice_typer'
-        )
+        monkeypatch.setattr(pr, "resolve_prewarm_exe", lambda: '"unterminated -m voice_typer')
         # Must NOT raise; must return a usable interpreter path.
         result = psp._prewarm_python()
         assert isinstance(result, str)
@@ -105,8 +100,7 @@ class TestPlistEscaping:
         import xml.etree.ElementTree as ET
 
         no_doctype = plist.replace(
-            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
             "",
         )
         # Must not raise ParseError.
@@ -116,8 +110,7 @@ class TestPlistEscaping:
         # reversible, not lossy).
         strings = [s.text or "" for s in root.iter("string")]
         assert '/path/with"quote/python' in strings, (
-            f"XZ-R6-AS-05 regression: path with quote did not round-trip; "
-            f"strings={strings!r}"
+            f"XZ-R6-AS-05 regression: path with quote did not round-trip; strings={strings!r}"
         )
 
     def test_plist_emits_boolean_shorthand_without_space(self, monkeypatch):
@@ -128,12 +121,8 @@ class TestPlistEscaping:
         monkeypatch.setattr(psp, "_prewarm_args", lambda: ["-m", "voice_typer.server.prewarm"])
 
         plist = psp._build_macos_plist()
-        assert "<true/>" in plist, (
-            f"plist must use <true/> (no space); got: {plist!r}"
-        )
-        assert "<false/>" in plist, (
-            f"plist must use <false/> (no space); got: {plist!r}"
-        )
+        assert "<true/>" in plist, f"plist must use <true/> (no space); got: {plist!r}"
+        assert "<false/>" in plist, f"plist must use <false/> (no space); got: {plist!r}"
         # ElementTree's default <true /> form (with space) must NOT appear.
         assert "<true />" not in plist
         assert "<false />" not in plist
@@ -141,16 +130,13 @@ class TestPlistEscaping:
     def test_plist_escapes_ampersand_in_arg(self, monkeypatch):
         """An arg containing ``&`` must be escaped to ``&amp;``."""
         monkeypatch.setattr(psp, "_prewarm_python", lambda: "/usr/bin/python3")
-        monkeypatch.setattr(
-            psp, "_prewarm_args", lambda: ["-m", "voice_typer.server.prewarm&inject"]
-        )
+        monkeypatch.setattr(psp, "_prewarm_args", lambda: ["-m", "voice_typer.server.prewarm&inject"])
 
         plist = psp._build_macos_plist()
         import xml.etree.ElementTree as ET
 
         no_doctype = plist.replace(
-            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
             "",
         )
         ET.fromstring(no_doctype)  # must parse
@@ -181,9 +167,7 @@ class TestSystemdExecStartEscaping:
 
         service = psp._build_linux_service()
         # The literal ``"`` inside the token must be escaped as ``\"``.
-        assert '\\"' in service, (
-            f"XZ-R6-AS-11 regression: double quote not escaped in ExecStart: {service!r}"
-        )
+        assert '\\"' in service, f"XZ-R6-AS-11 regression: double quote not escaped in ExecStart: {service!r}"
 
     def test_token_with_backslash_is_doubled(self, monkeypatch):
         """A token containing a literal ``\\`` must be doubled to ``\\\\``."""
@@ -191,9 +175,7 @@ class TestSystemdExecStartEscaping:
         monkeypatch.setattr(psp, "_prewarm_args", lambda: ["-m", "voice_typer.server.prewarm"])
 
         service = psp._build_linux_service()
-        assert "\\\\" in service, (
-            f"XZ-R6-AS-11 regression: backslash not doubled in ExecStart: {service!r}"
-        )
+        assert "\\\\" in service, f"XZ-R6-AS-11 regression: backslash not doubled in ExecStart: {service!r}"
 
     def test_newline_in_token_raises(self, monkeypatch):
         """A newline in a token must raise ``ValueError`` (defence
@@ -247,9 +229,7 @@ class TestAtomicFileWrites:
         """``_register_prewarm_macos`` must call ``_secure_atomic_write``
         rather than ``Path.write_text``."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setattr(
-            psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0)
-        )
+        monkeypatch.setattr(psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0))
         # Spy on ``_secure_atomic_write`` to confirm it's called with
         # the plist path + the plist body.
         calls: list[tuple] = []
@@ -280,12 +260,8 @@ class TestAtomicFileWrites:
     def test_linux_register_uses_secure_atomic_write(self, monkeypatch, tmp_path):
         """``_register_prewarm_linux`` must call ``_secure_atomic_write``
         for BOTH the .service and .timer unit files."""
-        monkeypatch.setattr(
-            psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)}
-        )
-        monkeypatch.setattr(
-            psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0)
-        )
+        monkeypatch.setattr(psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
+        monkeypatch.setattr(psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0))
         calls: list[tuple] = []
         import voice_typer.server.secure_file_io as sio
 
@@ -314,9 +290,7 @@ class TestLinuxRegisterStartsTimer:
     on the current session, not just the next boot."""
 
     def test_start_command_is_issued(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(
-            psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)}
-        )
+        monkeypatch.setattr(psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
         captured_cmds: list[list[str]] = []
 
         def fake_run(cmd, *args, **kwargs):
@@ -328,20 +302,14 @@ class TestLinuxRegisterStartsTimer:
         assert psp._register_prewarm_linux() is True
         # The third systemctl call must be ``start`` (after daemon-reload
         # and enable).
-        assert any(
-            cmd == ["systemctl", "--user", "start", "voice-typer-prewarm.timer"]
-            for cmd in captured_cmds
-        ), (
-            f"XZ-R12-10 regression: ``systemctl --user start`` was not issued; "
-            f"captured: {captured_cmds}"
+        assert any(cmd == ["systemctl", "--user", "start", "voice-typer-prewarm.timer"] for cmd in captured_cmds), (
+            f"XZ-R12-10 regression: ``systemctl --user start`` was not issued; captured: {captured_cmds}"
         )
 
     def test_start_failure_is_non_fatal(self, monkeypatch, tmp_path):
         """A failure of ``systemctl start`` must not cause registration
         to fail (it's best-effort; the timer is already ``enable``'d)."""
-        monkeypatch.setattr(
-            psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)}
-        )
+        monkeypatch.setattr(psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
 
         def fake_run(cmd, *args, **kwargs):
             # ``start`` fails (returns non-zero); others succeed.
@@ -363,13 +331,9 @@ class TestLinuxUnregisterStopsService:
     terminated."""
 
     def test_stop_service_command_is_issued(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(
-            psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)}
-        )
+        monkeypatch.setattr(psp.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
         # First register so the unit files exist.
-        monkeypatch.setattr(
-            psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0)
-        )
+        monkeypatch.setattr(psp.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0))
         psp._register_prewarm_linux()
 
         captured_cmds: list[list[str]] = []
@@ -383,10 +347,6 @@ class TestLinuxUnregisterStopsService:
 
         # The ``stop voice-typer-prewarm.service`` call must be present
         # alongside the timer disable/stop calls.
-        assert any(
-            cmd == ["systemctl", "--user", "stop", "voice-typer-prewarm.service"]
-            for cmd in captured_cmds
-        ), (
-            f"XZ-R12-18 regression: ``systemctl --user stop .service`` was not issued; "
-            f"captured: {captured_cmds}"
+        assert any(cmd == ["systemctl", "--user", "stop", "voice-typer-prewarm.service"] for cmd in captured_cmds), (
+            f"XZ-R12-18 regression: ``systemctl --user stop .service`` was not issued; captured: {captured_cmds}"
         )

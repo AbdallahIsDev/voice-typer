@@ -46,9 +46,9 @@ _MANIFEST_PATH = _REPO_ROOT / "tauri-binaries.json"
 # the autostart launcher's ``_tauri_binary`` helper scans well-known
 # install paths per OS and returns the first one that exists.
 _REQUIRED_BINARY_ENTRIES: tuple[str, ...] = (
-    "voice-typer-tauri",          # Linux
-    "voice-typer-tauri.exe",      # Windows
-    "voice-typer-tauri.app",      # macOS
+    "voice-typer-tauri",  # Linux
+    "voice-typer-tauri.exe",  # Windows
+    "voice-typer-tauri.app",  # macOS
 )
 
 # Each binary entry must declare these top-level fields. The loader
@@ -99,9 +99,7 @@ class TestTauriBinariesManifestXZR6AS01:
                 f"`json.loads(...)` on this file — a malformed manifest "
                 f"would crash the autostart path on every login."
             )
-        assert isinstance(data, dict), (
-            "XZ-R6-AS-01: manifest root must be a JSON object (dict)."
-        )
+        assert isinstance(data, dict), "XZ-R6-AS-01: manifest root must be a JSON object (dict)."
 
     def test_manifest_has_binaries_key(self) -> None:
         """The manifest root must have a ``binaries`` key holding the
@@ -140,9 +138,7 @@ class TestTauriBinariesManifestXZR6AS01:
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
     @pytest.mark.parametrize("field_name", _REQUIRED_ENTRY_FIELDS)
-    def test_each_entry_has_all_required_fields(
-        self, binary_name: str, field_name: str
-    ) -> None:
+    def test_each_entry_has_all_required_fields(self, binary_name: str, field_name: str) -> None:
         """Each binary entry must declare all five required fields.
         A future contributor who renames ``sha256`` to ``hash`` (or
         drops ``min_proto_version``) breaks the loader silently —
@@ -177,8 +173,7 @@ class TestTauriBinariesManifestXZR6AS01:
                 f"chars."
             )
             assert all(c in "0123456789abcdef" for c in sha), (
-                f"XZ-R6-AS-01: `{binary_name}.sha256` must be lowercase "
-                f"hex (got non-hex chars)."
+                f"XZ-R6-AS-01: `{binary_name}.sha256` must be lowercase hex (got non-hex chars)."
             )
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
@@ -189,12 +184,8 @@ class TestTauriBinariesManifestXZR6AS01:
         targets."""
         data = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
         platforms = data["binaries"][binary_name]["_platforms"]
-        assert isinstance(platforms, list), (
-            f"XZ-R6-AS-01: `{binary_name}._platforms` must be a list."
-        )
-        assert len(platforms) > 0, (
-            f"XZ-R6-AS-01: `{binary_name}._platforms` must not be empty."
-        )
+        assert isinstance(platforms, list), f"XZ-R6-AS-01: `{binary_name}._platforms` must be a list."
+        assert len(platforms) > 0, f"XZ-R6-AS-01: `{binary_name}._platforms` must not be empty."
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
     def test_install_paths_field_is_a_non_empty_list(self, binary_name: str) -> None:
@@ -204,22 +195,16 @@ class TestTauriBinariesManifestXZR6AS01:
         binary is expected to live."""
         data = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
         paths = data["binaries"][binary_name]["_install_paths"]
-        assert isinstance(paths, list), (
-            f"XZ-R6-AS-01: `{binary_name}._install_paths` must be a list."
-        )
-        assert len(paths) > 0, (
-            f"XZ-R6-AS-01: `{binary_name}._install_paths` must not be empty."
-        )
+        assert isinstance(paths, list), f"XZ-R6-AS-01: `{binary_name}._install_paths` must be a list."
+        assert len(paths) > 0, f"XZ-R6-AS-01: `{binary_name}._install_paths` must not be empty."
 
     def test_manifest_has_version_field(self) -> None:
         """The manifest root must declare a ``version`` field for
         future schema migrations. Initial value is 1."""
         data = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
         assert "version" in data, (
-            "XZ-R6-AS-01: manifest root must declare a `version` field "
-            "for future schema migrations."
+            "XZ-R6-AS-01: manifest root must declare a `version` field for future schema migrations."
         )
         assert isinstance(data["version"], int), (
-            f"XZ-R6-AS-01: `version` must be an int (got "
-            f"{type(data['version']).__name__})."
+            f"XZ-R6-AS-01: `version` must be an int (got {type(data['version']).__name__})."
         )

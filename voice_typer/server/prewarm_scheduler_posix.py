@@ -288,9 +288,7 @@ def _build_linux_service() -> str:
     args = _prewarm_args()
     # XZ-R6-AS-11: validate + escape each ExecStart token to prevent
     # directive injection via env-var-controlled paths.
-    exec_tokens = [_systemd_escape_arg(python)] + [
-        _systemd_escape_arg(a) for a in args
-    ]
+    exec_tokens = [_systemd_escape_arg(python)] + [_systemd_escape_arg(a) for a in args]
     exec_start = " ".join(exec_tokens)
     return f"""[Unit]
 Description=Voice Typer cache prewarm (torch + model weights)
@@ -337,12 +335,8 @@ def _register_prewarm_linux() -> bool:
         # XZ-R12-09: write both unit files atomically (temp +
         # ``os.replace``). The prior ``Path.write_text`` was
         # truncate-then-write.
-        _secure_atomic_write(
-            _linux_service_path(), _build_linux_service(), durability=False
-        )
-        _secure_atomic_write(
-            _linux_timer_path(), _build_linux_timer(), durability=False
-        )
+        _secure_atomic_write(_linux_service_path(), _build_linux_service(), durability=False)
+        _secure_atomic_write(_linux_timer_path(), _build_linux_timer(), durability=False)
         # SEC-003: systemd user unit files are written to
         # ~/.config/systemd/user/ which is a per-user directory.
         # Restrictive permissions (0o600) are NOT applied here because:

@@ -63,6 +63,7 @@ def _make_fake_websocket(auth_frame: str | None = None) -> MagicMock:
 
         ws.recv = _fake_recv
     else:
+
         async def _parked_recv():
             await asyncio.Future()
 
@@ -156,9 +157,7 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     await sidecar_ws._handle_connection(ws, server, dispatch)
 
     # Exactly one error frame was sent with max_connections_reached.
-    assert len(ws._sent_frames) == 1, (
-        f"expected exactly one max_connections_reached frame, got {ws._sent_frames}"
-    )
+    assert len(ws._sent_frames) == 1, f"expected exactly one max_connections_reached frame, got {ws._sent_frames}"
     frame = json.loads(ws._sent_frames[0])
     assert frame["type"] == "error"
     assert frame["data"]["code"] == "max_connections_reached", (
@@ -169,9 +168,7 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     # Close was called with code 1008.
     assert len(ws._closed_with) == 1
     _, close_kwargs = ws._closed_with[0]
-    assert close_kwargs.get("code") == 1008, (
-        f"expected close(code=1008), got kwargs={close_kwargs}"
-    )
+    assert close_kwargs.get("code") == 1008, f"expected close(code=1008), got kwargs={close_kwargs}"
 
     # Auth was NEVER invoked — the recv mock was never awaited.
     # (The recv coroutine object exists but was never called because
@@ -195,17 +192,14 @@ async def test_semaphore_released_after_auth_fail(monkeypatch) -> None:
 
     sem = server._ws_connection_semaphore
     # The semaphore should be back to full capacity (not locked).
-    assert not sem.locked(), (
-        "semaphore should be released after auth-failed connection completed"
-    )
+    assert not sem.locked(), "semaphore should be released after auth-failed connection completed"
 
     # A second connection should proceed normally (not be rejected).
     ws2 = _make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
     await sidecar_ws._handle_connection(ws2, server, dispatch)
     frame = json.loads(ws2._sent_frames[0])
     assert frame["data"]["code"] == "auth_failed", (
-        "second connection should proceed to auth (semaphore was released), "
-        f"got {frame['data']['code']!r}"
+        f"second connection should proceed to auth (semaphore was released), got {frame['data']['code']!r}"
     )
 
 
@@ -247,9 +241,7 @@ async def test_semaphore_released_after_clean_disconnect(monkeypatch) -> None:
         await sidecar_ws._handle_connection(ws, server, dispatch)
 
     sem = server._ws_connection_semaphore
-    assert not sem.locked(), (
-        "semaphore should be released after clean disconnect"
-    )
+    assert not sem.locked(), "semaphore should be released after clean disconnect"
 
 
 def test_max_ws_connections_constant_is_sane() -> None:
@@ -280,9 +272,7 @@ def test_get_ws_connection_semaphore_creates_real_semaphore() -> None:
     # Fresh MagicMock: getattr auto-vivifies a child mock, NOT None.
     # The helper must NOT return that child mock.
     sem = sidecar_ws._get_ws_connection_semaphore(server)
-    assert isinstance(sem, asyncio.Semaphore), (
-        f"expected a real asyncio.Semaphore, got {type(sem).__name__}"
-    )
+    assert isinstance(sem, asyncio.Semaphore), f"expected a real asyncio.Semaphore, got {type(sem).__name__}"
 
     # A second call returns the SAME semaphore (idempotent — the helper
     # stores it on the server).

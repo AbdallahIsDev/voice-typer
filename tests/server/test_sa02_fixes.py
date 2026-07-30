@@ -51,8 +51,7 @@ class TestXZIPC001StandaloneStdinSuppression:
         src = inspect.getsource(ipc_server.main)
         # The unconditional assignment must be present.
         assert "server._tcp_mode = True" in src, (
-            "XZ-IPC-001: main() must set server._tcp_mode = True "
-            "unconditionally before server.start()."
+            "XZ-IPC-001: main() must set server._tcp_mode = True unconditionally before server.start()."
         )
         # The old conditional guard must be GONE.
         assert "if port is not None or ws_mode:" not in src, (
@@ -64,9 +63,7 @@ class TestXZIPC001StandaloneStdinSuppression:
         # CALL (not the comment mention). We strip comments by removing
         # lines starting with ``#`` so the substring search only sees
         # real code.
-        code_only = "\n".join(
-            ln for ln in src.split("\n") if not ln.lstrip().startswith("#")
-        )
+        code_only = "\n".join(ln for ln in src.split("\n") if not ln.lstrip().startswith("#"))
         tcp_mode_idx = code_only.index("server._tcp_mode = True")
         start_idx = code_only.index("server.start()")
         assert tcp_mode_idx < start_idx, (
@@ -270,11 +267,7 @@ class TestXZIPC009StaleLineRefs:
 
         src = inspect.getsource(IPCServer._dispatch)
         # The new comment must reference the sender module / OutputMixin.
-        assert (
-            "OutputMixin._send" in src
-            or "ipc/sender.py" in src
-            or "_cached_shutting_down" in src
-        ), (
+        assert "OutputMixin._send" in src or "ipc/sender.py" in src or "_cached_shutting_down" in src, (
             "XZ-IPC-009: _dispatch comment must reference the "
             "_cached_shutting_down read in OutputMixin._send in "
             "ipc/sender.py — not a stale line number."

@@ -589,8 +589,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     sem = _get_ws_connection_semaphore(server)
     if sem.locked():
         log.warning(
-            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s "
-            "with 1008 (XZ-IPC-003)",
+            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s with 1008 (XZ-IPC-003)",
             _MAX_WS_CONNECTIONS,
             peer,
         )
@@ -616,11 +615,10 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         sem.release()
 
 
-async def _handle_connection_inner(
-    websocket, server: IPCServer, dispatch, peer
-) -> None:
+async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer) -> None:
     """Auth + read/dispatch loop body (XZ-IPC-003 extraction)."""
     from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+
     if not await _authenticate(websocket):
         # EC-11 (cross-transport parity): mirror the TCP path's
         # ``auth_failed`` error frame (ipc_server.py:~L925) BEFORE

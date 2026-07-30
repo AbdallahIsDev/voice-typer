@@ -648,9 +648,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         # successful schtasks run. Now log the failure and fall
         # through with ``STILL_ACTIVE`` (259) sentinel so the caller's
         # ``rc != 0`` branch (which logs warning + retries) fires.
-        get_exit_ok = ctypes.windll.kernel32.GetExitCodeProcess(
-            sei.hProcess, ctypes.byref(exit_code)
-        )
+        get_exit_ok = ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
         if not get_exit_ok:
             log.warning(
                 "[TASK] _schtasks_elevated: GetExitCodeProcess failed for args=%r "

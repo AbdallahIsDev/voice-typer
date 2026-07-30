@@ -57,8 +57,7 @@ class TestXZ_R17_06_FastCleanup:  # noqa: N801
         assert app._cleanup_done is False
         controller._do_fast_cleanup()
         assert app._cleanup_done is True, (
-            "_do_fast_cleanup must set _cleanup_done so a subsequent "
-            "_do_cleanup call is a no-op (idempotency guard)"
+            "_do_fast_cleanup must set _cleanup_done so a subsequent _do_cleanup call is a no-op (idempotency guard)"
         )
 
     def test_do_fast_cleanup_idempotent(self):
@@ -71,8 +70,9 @@ class TestXZ_R17_06_FastCleanup:  # noqa: N801
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush = MagicMock()
         controller._do_fast_cleanup()
-        app._crash_recovery.flush.assert_not_called(), (
-            "second _do_fast_cleanup call must short-circuit at _cleanup_done"
+        (
+            app._crash_recovery.flush.assert_not_called(),
+            ("second _do_fast_cleanup call must short-circuit at _cleanup_done"),
         )
 
     def test_do_fast_cleanup_flushes_crash_recovery(self):
@@ -151,12 +151,8 @@ class TestXZ_R17_11_NullHotkeyRefs:  # noqa: N801
         backend3.stop.assert_called_once()
 
         # XZ-R17-11: refs should now be None.
-        assert app.hotkeys._hotkey_backend is None, (
-            "_hotkey_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
-        )
-        assert app.hotkeys._esc_backend is None, (
-            "_esc_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
-        )
+        assert app.hotkeys._hotkey_backend is None, "_hotkey_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
+        assert app.hotkeys._esc_backend is None, "_esc_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
         assert app.hotkeys._repaste_backend is None, (
             "_repaste_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
         )
