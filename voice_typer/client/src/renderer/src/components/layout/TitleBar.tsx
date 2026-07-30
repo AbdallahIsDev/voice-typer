@@ -1,5 +1,6 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
@@ -143,7 +144,7 @@ function TitleBarButton({
 	);
 }
 
-export function TitleBar({
+function TitleBarInner({
 	onToggleSidebar,
 	onGoBack,
 	onGoForward,
@@ -268,8 +269,8 @@ export function TitleBar({
 			</button>
 
 			{/* UX-8: discoverable "?" help button. Mirrors the "?"
-			    keyboard shortcut (handled in App.tsx) so mouse users and
-			    AT users can also open the keyboard-shortcut overlay. */}
+                            keyboard shortcut (handled in App.tsx) so mouse users and
+                            AT users can also open the keyboard-shortcut overlay. */}
 			<button
 				type="button"
 				onClick={onOpenHelp}
@@ -314,3 +315,7 @@ export function TitleBar({
 		</div>
 	);
 }
+
+// DJ-94: wrap in React.memo so stable callbacks from App.tsx can
+// short-circuit re-renders when no props have changed.
+export const TitleBar = memo(TitleBarInner);

@@ -25,6 +25,9 @@ import { notifyLocaleSubscribers } from "./hooks";
 import { type Locale, SUPPORTED_LOCALES } from "./locale";
 import { pushLocaleToMainProcess, pushLocaleToPythonBackend } from "./push";
 import { isRtlLocale } from "./rtl";
+// DJ-95: invalidate per-(locale, key) resolved-string cache when a
+// locale's translation map is replaced.
+import { _invalidateResolvedCache } from "./translate";
 // ER-65: ar/de/es/fr/hi/ru/zh dynamically imported via ensureLocaleLoaded()
 import en from "./translations/en.json";
 
@@ -101,6 +104,10 @@ export function flatten(
 // universal fallback so it MUST be available synchronously — the
 // dynamic-import path is only for non-English locales.
 _translations.set("en", flatten(en as TranslationDict));
+// DJ-95: defensive — drop any stale resolved-string cache for "en"
+// (the cache is empty at module load, but this keeps the registration
+// paths consistent with ensureLocaleLoaded/registerTranslations below).
+_invalidateResolvedCache("en");
 
 /**
  * Asynchronously load + register a non-English locale's translation
@@ -139,6 +146,10 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 			);
 			const data = (mod as { default: TranslationDict }).default;
 			_translations.set(locale, flatten(data));
+			// DJ-95: drop the per-locale resolved-string cache so
+			// the next ``t()`` call resolves against the freshly-
+			// loaded map.
+			_invalidateResolvedCache(locale);
 			// Notify subscribers (the ``useT`` hook) so every
 			// subscribed component re-renders with the now-available
 			// locale strings. We use the same path as ``setLocale()``.
@@ -165,6 +176,9 @@ export function registerTranslations(
 	data: TranslationDict,
 ): void {
 	_translations.set(locale, flatten(data));
+	// DJ-95: invalidate the per-locale resolved-string cache so the
+	// newly-registered translations are picked up by the next ``t()`` call.
+	_invalidateResolvedCache(locale);
 }
 
 // ── Locale switch orchestrator ───────────────────────────────────

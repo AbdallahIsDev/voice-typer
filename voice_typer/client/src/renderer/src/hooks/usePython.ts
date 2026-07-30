@@ -404,17 +404,48 @@ export function usePython() {
 					typeof e === "string"
 						? e
 						: ((e as { message?: string } | null)?.message ?? "unknown error");
-				throw new Error(msg);
+				// XE-13-A: surface the structured ``_code`` field
+				// (e.g. ``command_timeout``,
+				// ``backend_not_connected``,
+				// ``backend_exited_early``) so callers can branch
+				// on retry / surface-toast / escalate. Pre-fix,
+				// the envelope's ``_code`` was dropped on the
+				// floor and every error became a plain
+				// ``new Error(msg)`` — consumers could not
+				// distinguish transient timeouts from fatal
+				// backend-exited errors.
+				const code = (result as { _code?: unknown })._code;
+				const err = new Error(msg);
+				if (typeof code === "string" && code.length > 0) {
+					(err as { code?: string }).code = code;
+				}
+				throw err;
 			}
 			if (
 				result &&
 				typeof result === "object" &&
 				(result as { type?: unknown }).type === "error"
 			) {
-				throw new Error(
-					(result as { data?: { message?: string } }).data?.message ??
-						"unknown error",
-				);
+				// FR-22: surface the FULL ``data.errors`` list when
+				// present so multi-field validation failures (e.g.
+				// batched Settings → Audio saves with 3 invalid
+				// fields) don't require 3 fix-and-resubmit cycles.
+				// ``data.message`` is kept as ``errors[0]`` for
+				// backward compat with older renderers; new
+				// renderers (useSettingsConfig) prefer
+				// ``err.errors`` (joined) when present.
+				const data = (
+					result as { data?: { message?: string; errors?: string[] } }
+				).data;
+				const msg = data?.message ?? "unknown error";
+				const errs = Array.isArray(data?.errors)
+					? (data?.errors as string[])
+					: undefined;
+				const err = new Error(msg);
+				if (errs && errs.length > 0) {
+					(err as { errors?: string[] }).errors = errs;
+				}
+				throw err;
 			}
 			return result as T;
 		},

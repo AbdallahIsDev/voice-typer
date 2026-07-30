@@ -16,6 +16,7 @@
  * config — the overlay itself doesn't read config so it stays a pure
  * presentational component.
  */
+import { memo } from "react";
 import { Modal } from "@/components/common/Modal";
 import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
 import { useT } from "@/i18n/i18n";
@@ -31,7 +32,7 @@ interface HelpOverlayProps {
 	repasteLabel: string;
 }
 
-export function HelpOverlay({
+function HelpOverlayInner({
 	open,
 	onClose,
 	dictationLabel,
@@ -90,3 +91,7 @@ export function HelpOverlay({
 		</Modal>
 	);
 }
+
+// DJ-94: wrap in React.memo so stable callbacks from App.tsx can
+// short-circuit re-renders when no props have changed.
+export const HelpOverlay = memo(HelpOverlayInner);

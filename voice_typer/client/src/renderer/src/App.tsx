@@ -360,7 +360,14 @@ export default function App() {
 		return undefined;
 	});
 
-	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
+	// DJ-94: stable callbacks so React.memo on <TitleBar>/<HelpOverlay> can
+	// short-circuit when their other props haven't changed.
+	const handleToggleSidebar = useCallback(
+		() => setSidebarCollapsed((c) => !c),
+		[],
+	);
+	const handleOpenHelp = useCallback(() => setShowHelpOverlay(true), []);
+	const handleCloseHelp = useCallback(() => setShowHelpOverlay(false), []);
 
 	const handleOnboardingComplete = useCallback(async () => {
 		navigate("home");
@@ -455,7 +462,7 @@ export default function App() {
 					canGoBack={canGoBack}
 					canGoForward={canGoForward}
 					isMaximized={isMaximized}
-					onOpenHelp={() => setShowHelpOverlay(true)}
+					onOpenHelp={handleOpenHelp}
 				/>
 
 				<div className="flex min-h-0 flex-1">
@@ -494,7 +501,7 @@ export default function App() {
 				{/* BG-27: help overlay extracted to <HelpOverlay /> */}
 				<HelpOverlay
 					open={showHelpOverlay}
-					onClose={() => setShowHelpOverlay(false)}
+					onClose={handleCloseHelp}
 					dictationLabel={dictationLabel}
 					repasteLabel={repasteLabel}
 				/>

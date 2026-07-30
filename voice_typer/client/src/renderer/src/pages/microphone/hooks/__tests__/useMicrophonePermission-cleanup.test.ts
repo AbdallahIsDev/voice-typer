@@ -52,7 +52,7 @@ function makeMockPermissionStatus(
 		onchange: null,
 		addEventListener: vi.fn((type: string, cb: () => void) => {
 			if (!_handlers.has(type)) _handlers.set(type, new Set());
-			_handlers.get(type)!.add(cb);
+			_handlers.get(type)?.add(cb);
 		}),
 		removeEventListener: vi.fn((type: string, cb: () => void) => {
 			_handlers.get(type)?.delete(cb);
@@ -107,7 +107,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 		// The handler was registered via addEventListener.
 		expect(mockStatus._handlers.get("change")?.size ?? 0).toBe(1);
 		const registeredHandler = Array.from(
-			mockStatus._handlers.get("change")!,
+			mockStatus._handlers.get("change") ?? [],
 		)[0];
 
 		unmount();

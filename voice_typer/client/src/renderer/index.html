@@ -36,7 +36,8 @@
   -->
   <script>
     (() => {
-      var locale, SUPPORTED, tag;
+      // FZ-65: `let`/`const` instead of `var` (block-scoped, no global leak).
+      let locale, SUPPORTED, tag;
       try {
         locale = localStorage.getItem("voice-typer-ui-locale");
         if (typeof locale !== "string" || locale === "") return;

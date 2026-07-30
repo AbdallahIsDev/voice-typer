@@ -21,6 +21,30 @@ import { _translations, getLocale } from "./store";
 // Map<string, RegExp> cache reuses the same RegExp instance forever.
 export const _interpCache = new Map<string, RegExp>();
 
+// DJ-95: per-(locale, key) resolved-string cache.
+//
+// ``t()`` previously walked the locale → English → key fallback chain
+// on every call. With ~77 ``t()`` calls in ``AudioFilterChain.tsx``
+// alone and dozens more across Dashboard/Home/Settings, the Map.has +
+// Map.get chain runs hundreds of times per render. The keyspace
+// (locale, key) is small and stable, so memoizing the resolved string
+// (before interpolation) skips the lookup chain on hits.
+//
+// Invalidation: when a locale's translation Map is replaced (via
+// ``registerTranslations`` or ``ensureLocaleLoaded`` in store.ts), the
+// entire per-locale cache entry is dropped via
+// ``_invalidateResolvedCache``.
+export const _resolvedCache: Map<Locale, Map<string, string>> = new Map();
+
+/**
+ * Drop the cached resolved strings for a locale. Called when a locale's
+ * translation table is registered/replaced (e.g. via the dynamic
+ * import path in ``ensureLocaleLoaded``) so stale strings don't linger.
+ */
+export function _invalidateResolvedCache(locale: Locale): void {
+	_resolvedCache.delete(locale);
+}
+
 /**
  * Get (or create) the cached interpolation RegExp for a placeholder key.
  * The RegExp matches the literal ``{key}`` token globally so it can be
@@ -91,6 +115,24 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 export function t(key: string, params?: Record<string, string>): string {
 	let result: string;
 	const currentLocale = getLocale();
+
+	// DJ-95: per-(locale, key) resolved-string cache. The cached value
+	// is the pre-interpolation template, so we still run interpolation
+	// after the cache hit — only the lookup chain is short-circuited.
+	let cachedLocale = _resolvedCache.get(currentLocale);
+	if (cachedLocale !== undefined) {
+		const cached = cachedLocale.get(key);
+		if (cached !== undefined) {
+			result = cached;
+			if (params) {
+				for (const [k, v] of Object.entries(params)) {
+					result = result.replace(interpRegex(k), v);
+				}
+			}
+			return result;
+		}
+	}
+
 	// Try current locale first
 	const currentMap = _translations.get(currentLocale);
 	if (currentMap?.has(key)) {
@@ -105,6 +147,13 @@ export function t(key: string, params?: Record<string, string>): string {
 			result = key;
 		}
 	}
+	// DJ-95: store the resolved (pre-interpolation) template so the
+	// next call with the same (locale, key) skips the lookup chain.
+	if (cachedLocale === undefined) {
+		cachedLocale = new Map<string, string>();
+		_resolvedCache.set(currentLocale, cachedLocale);
+	}
+	cachedLocale.set(key, result);
 	// Interpolate {placeholder} values
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
