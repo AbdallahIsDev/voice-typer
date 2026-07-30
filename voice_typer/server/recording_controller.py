@@ -139,6 +139,121 @@ class RecordingController:
         # forgets, the backend guard in
         # ``_stop_level_monitor_for_recorder_start`` is the safety net.
         self._level_monitor_was_active: bool = False
+        # DJ-65: wire the G4-M-41 active-mic-lost hooks + the
+        # ``on_device_lost`` callback so the OS-event-driven watcher
+        # can cancel in-flight recordings sub-second when the active
+        # mic disappears (USB/BT unplug), instead of falling through
+        # to the misleading "silence detected" message after 1-2s of
+        # retries. Best-effort: guarded so a recorder without a mic
+        # watcher (tests, mock recorders) doesn't fail init.
+        self._wire_mic_watcher_hooks()
+
+    def _wire_mic_watcher_hooks(self) -> None:
+        """DJ-65: register the active-mic-lost callback + device-id
+        provider + on_device_lost callback on the recorder.
+
+        Idempotent — safe to call multiple times. The hooks are stored
+        on the recorder's ``_mic_watcher`` (a property delegating to
+        ``DeviceManager._mic_watcher``) and on the recorder itself
+        (``on_device_lost``). All assignments are best-effort and
+        wrapped in ``contextlib.suppress`` so a partially-initialized
+        recorder (or a test mock) doesn't crash RecordingController
+        construction.
+        """
+        app = self._app
+        recorder = getattr(app, "recorder", None)
+        if recorder is None:
+            return
+        # Wire on_device_lost so the terminal "max retries reached"
+        # path (recorder.py:_handle_device_disconnect) fires the
+        # dedicated "Microphone disconnected" notification instead of
+        # falling through to on_silence_auto_stop.
+        with contextlib.suppress(Exception):
+            recorder.on_device_lost = self.on_device_lost
+        # Wire the G4-M-41 active-mic-lost hooks. The mic_watcher
+        # property may return None on platforms where the watcher
+        # failed to start (macOS without the CoreAudio bridge).
+        mic_watcher = getattr(recorder, "_mic_watcher", None)
+        if mic_watcher is None:
+            return
+        with contextlib.suppress(Exception):
+            mic_watcher.set_on_active_mic_lost(self.on_active_mic_lost)
+        with contextlib.suppress(Exception):
+            mic_watcher.set_device_id_provider(self._list_active_mic_ids)
+
+    def _list_active_mic_ids(self) -> list:
+        """DJ-65: return the current list of microphone IDs for the
+        active-mic-lost watcher's membership check.
+
+        The watcher calls this once per OS device-change event (after
+        the cache-invalidation callback runs) and checks whether the
+        active mic_id (set in :meth:`_start_impl` via
+        ``set_active_mic_id``) is still present. If not,
+        ``on_active_mic_lost`` fires.
+        """
+        try:
+            return [m.get("id") for m in self._app.list_microphones() if m.get("id") is not None]
+        except Exception:
+            log.debug("[DICTATION] _list_active_mic_ids failed", exc_info=True)
+            return []
+
+    def on_device_lost(self) -> None:
+        """DJ-65: handle the terminal 'max disconnect retries reached'
+        case with a dedicated 'Microphone disconnected' notification.
+
+        Distinct from ``on_silence_auto_stop`` so the user sees an
+        accurate 'microphone disconnected' message rather than the
+        misleading 'silence detected' message. The actual stop is
+        scheduled off this thread (which is the recorder's
+        disconnect-retry thread) to mirror the deadlock-avoidance
+        pattern in ``on_silence_auto_stop``.
+        """
+        log.warning(
+            "[DICTATION] Microphone disconnected mid-recording -- stopping after max retries"
+        )
+        with contextlib.suppress(Exception):
+            self._app.tray.notify_safety(
+                APP_NAME,
+                "Microphone disconnected. Recording stopped. "
+                "Reconnect the microphone to resume.",
+            )
+        # Emit a dedicated IPC event so the renderer can show a banner
+        # (distinct from the silence / max-duration auto-stop toast).
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish({"type": "microphone_disconnected"})
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to publish microphone_disconnected event",
+                exc_info=True,
+            )
+        # Stop the recording off this thread (mirror the
+        # on_silence_auto_stop pattern).
+        self._app._schedule_timer(0, self._app._stop_dictation)
+
+    def on_active_mic_lost(self) -> None:
+        """DJ-65: handle the OS-event-driven active-mic-lost signal
+        from ``MicrophoneDeviceWatcher``.
+
+        The watcher fires this when it detects a device-list change AND
+        the active mic_id (set in :meth:`_start_impl`) is no longer in
+        the freshly-queried device list. This is sub-second detection
+        of USB/BT unplug mid-recording — faster than the 1-2s
+        zero-fill-chunk retry path in ``_handle_device_disconnect``.
+
+        Scheduled stop (mirrors ``on_silence_auto_stop``) so we don't
+        deadlock on ``Recorder._lock`` if the watcher thread holds it.
+        """
+        log.warning(
+            "[DICTATION] Active microphone lost (OS event) -- stopping recording"
+        )
+        with contextlib.suppress(Exception):
+            self._app.tray.notify_safety(
+                APP_NAME,
+                "Microphone was unplugged. Recording stopped.",
+            )
+        self._app._schedule_timer(0, self._app._stop_dictation)
 
     # ── Streaming session accessors ────────────────────────────────────
 
@@ -427,6 +542,20 @@ class RecordingController:
             self._stop_level_monitor_for_recorder_start()
 
             app.recorder.start()
+            # DJ-65: tell the mic watcher which mic_id we're recording
+            # from so the OS-event-driven active-mic-lost check can
+            # fire on the next device-list change. Best-effort: a
+            # missing/None mic_watcher (platform without OS watcher)
+            # is silently skipped.
+            with contextlib.suppress(Exception):
+                mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                if mic_watcher is not None:
+                    # The resolved device index (or None for default)
+                    # is the active mic_id the watcher will look for.
+                    resolved = getattr(app.recorder, "_effective_device", None)
+                    if resolved is None:
+                        resolved = app.recorder._resolve_device()
+                    mic_watcher.set_active_mic_id(resolved)
             app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
             app._waveform_bubble.show()
@@ -684,6 +813,13 @@ class RecordingController:
                 # AB-12: recorder.stop() is the FIRST step. Pre-fix this
                 # ran synchronously on the hotkey thread.
                 audio = app.recorder.stop()
+                # DJ-65: clear the active-mic-id on the watcher so it
+                # stops checking for the now-stopped recording's mic.
+                # Best-effort: a missing mic_watcher is silently skipped.
+                with contextlib.suppress(Exception):
+                    mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                    if mic_watcher is not None:
+                        mic_watcher.set_active_mic_id(None)
             except Exception:
                 log.exception("[DICTATION] Failed to stop recording (worker, AB-12)")
                 self._cancel_streaming_session()
@@ -981,6 +1117,12 @@ class RecordingController:
                 app._waveform_bubble.reset_level()
                 app.recorder.discard()
                 log.info("[CANCEL] Recording discarded (cycle=%s)", app._cycle_id)
+                # DJ-65: clear the active-mic-id on the watcher so it
+                # stops checking for the now-cancelled recording's mic.
+                with contextlib.suppress(Exception):
+                    mic_watcher = getattr(app.recorder, "_mic_watcher", None)
+                    if mic_watcher is not None:
+                        mic_watcher.set_active_mic_id(None)
                 # Immediately secure-clear the audio buffers from memory
                 # after discard. Without this, the numpy array holding the
                 # user's voice can persist in RAM for 30+ minutes until GC
