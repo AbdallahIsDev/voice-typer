@@ -622,7 +622,7 @@ class TestStartupResilience:
         app.recorder.start.assert_called_once()
 
     def test_start_dictation_fails_gracefully_if_model_still_unavailable(self, app):
-        """If model retry fails, should not attempt recording."""
+        """If model retry fails, should discard recording (AB-9)."""
         app.models.transcriber = MagicMock()
         app.models.transcriber.is_loaded = False
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("still OOM"))
@@ -632,8 +632,12 @@ class TestStartupResilience:
 
         app._start_dictation()
 
-        # Should NOT have tried to record
-        app.recorder.start.assert_not_called()
+        # AB-9: recorder.start() is called first (to buffer audio), then
+        # model loading is attempted. When model still fails, the recorder
+        # is discarded to avoid leaking the mic stream.
+        app.recorder.start.assert_called_once()
+        app.recorder.discard.assert_called_once()
+        assert app.recorder.recording is False
 
 
 # ─── Startup integration: construction → tray → hotkey → F2 ────────────
