@@ -453,23 +453,31 @@ def test_integration_with_real_logger_and_caplog(caplog):
 
 
 class TestGt66PeriodicInfoSummary:
-    """GT-66: emit a periodic INFO-level summary per counter key —
-    every 60s of wall-clock time, if any counter incremented >0 since
-    the last summary, log::
+    """GT-66: emit a periodic summary per counter key — every 60s of
+    wall-clock time, if any counter incremented >0 since the last
+    summary, log::
 
-        log.info('[rate-limit] %d suppressed occurrences of %s in last 60s',
+        log.log(max(INFO, level),
+                '[rate-limit] %d suppressed occurrences of %s in last 60s',
                  delta, key)
 
     YJ-45: the format string uses ``%s`` (NOT ``%r``) so the counter key
     appears in the log line WITHOUT inner ``repr()`` quotes — keeping
     the line grep-friendly (``grep '<key>' log`` finds it instead of
     ``grep "'<key>'" log``). The summary is routed through the module
-    logger
-    (``voice_typer.server.log_rate_limit``) so it's always visible at
-    the file handler's INFO level regardless of the caller's logger
-    level.  The first suppressed occurrence seeds the timer (so the
-    first 60-second window starts ticking from the second call, not
+    logger (``voice_typer.server.log_rate_limit``) so it's always
+    visible at the file handler's INFO level regardless of the caller's
+    logger level.  The first suppressed occurrence seeds the timer (so
+    the first 60-second window starts ticking from the second call, not
     from process boot).
+
+    UE-16: the summary severity tracks the caller's configured
+    ``level`` (clamped to >= INFO) so an ERROR-rate-limited path
+    surfaces an ERROR summary (not INFO) — alerting rules keyed on
+    ``level>=ERROR`` continue to fire on the recurrence. The existing
+    tests below use ``logging.ERROR`` as the rate-limited level, so the
+    summaries are now emitted at ERROR severity; assertions filter on
+    ``levelno >= INFO`` (not ``== INFO``) to match the new contract.
     """
 
     def test_first_suppressed_occurrence_does_not_emit_summary(self, caplog):
@@ -483,10 +491,9 @@ class TestGt66PeriodicInfoSummary:
             log_rate_limited(logger, logging.ERROR, msg, every_n=100)
             log_rate_limited(logger, logging.ERROR, msg, every_n=100)
 
-        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         assert summaries == [], (
-            f"GT-66: no INFO summary should fire on the first suppressed "
-            f"occurrence (timer just seeded); got {summaries!r}"
+            f"GT-66: no summary should fire on the first suppressed occurrence (timer just seeded); got {summaries!r}"
         )
 
     def test_summary_fires_after_interval_with_delta(self, monkeypatch, caplog):
@@ -512,9 +519,9 @@ class TestGt66PeriodicInfoSummary:
             fake_time[0] = 61.0
             log_rate_limited(logger, logging.ERROR, msg, every_n=100)
 
-        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         assert len(summaries) == 1, (
-            f"expected exactly 1 INFO summary after the 60s threshold; "
+            f"expected exactly 1 summary after the 60s threshold; "
             f"got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
         msg_text = summaries[0].getMessage()
@@ -566,7 +573,7 @@ class TestGt66PeriodicInfoSummary:
             for _ in range(3):
                 log_rate_limited(logger, logging.ERROR, msg, every_n=100)
 
-        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         assert len(summaries) == 2, (
             f"expected 2 summaries (one per 60s window); got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
@@ -605,7 +612,7 @@ class TestGt66PeriodicInfoSummary:
             for _ in range(5):
                 log_rate_limited(logger, logging.ERROR, msg, every_n=100)
 
-        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         assert len(summaries) == 1, (
             f"only one summary should fire per 60s window; got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
@@ -642,7 +649,7 @@ class TestGt66PeriodicInfoSummary:
             log_rate_limited(logger, logging.ERROR, msg_a, every_n=100)
             log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
 
-        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         # PI-25: both keys were seeded at t=0 and both cross their
         # 60s deadlines at t=61, so both fire — per-key independence
         # means each key fires on its own cadence, not "first key wins".
@@ -800,3 +807,139 @@ class TestGTB112LRUEviction:
         assert not log_rate_limit._RATE_LIMIT_COUNTS
         assert not log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE
         assert not log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY
+
+    def test_eviction_prunes_summary_dicts_ue16(self, monkeypatch, caplog):
+        """UE-16: when a counter is LRU-evicted from
+        ``_RATE_LIMIT_COUNTS``, its entries in
+        ``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE`` and
+        ``_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY`` must ALSO be pruned.
+
+        Pre-UE-16 the two summary dicts were keyed by the same
+        ``counter_key`` tuple as ``_RATE_LIMIT_COUNTS`` but were never
+        pruned on eviction — so a caller that drove >1024 distinct
+        dynamic messages would leak summary state forever (the summary
+        dicts were never bounded).
+        """
+        logger = FakeLogger()
+        for i in range(log_rate_limit._MAX_COUNTERS):
+            log_rate_limited(logger, logging.ERROR, f"ue16-msg-{i}", every_n=100)
+        first_key = (logger.name, "ue16-msg-0")
+        assert first_key in log_rate_limit._RATE_LIMIT_COUNTS
+
+        log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE[first_key] = 1.0
+        log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[first_key] = 5
+        assert first_key in log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE
+        assert first_key in log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY
+
+        log_rate_limited(logger, logging.ERROR, "ue16-msg-new", every_n=100)
+
+        assert first_key not in log_rate_limit._RATE_LIMIT_COUNTS, (
+            "GT-B1-12 regression: LRU key was not evicted from _RATE_LIMIT_COUNTS"
+        )
+        assert first_key not in log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE, (
+            "UE-16 regression: evicted key was not pruned from _RATE_LIMIT_NEXT_SUMMARY_DEADLINE (summary dict leak)"
+        )
+        assert first_key not in log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY, (
+            "UE-16 regression: evicted key was not pruned from _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY (summary dict leak)"
+        )
+
+    def test_eviction_keeps_summary_dicts_bounded_ue16(self):
+        """UE-16: driving >>_MAX_COUNTERS distinct keys must NOT cause
+        the summary dicts to grow beyond ``_MAX_COUNTERS`` entries.
+        """
+        logger = FakeLogger()
+        for i in range(log_rate_limit._MAX_COUNTERS * 3):
+            log_rate_limited(logger, logging.ERROR, f"ue16-bound-{i}", every_n=100)
+            log_rate_limited(logger, logging.ERROR, f"ue16-bound-{i}", every_n=100)
+
+        max_counters = log_rate_limit._MAX_COUNTERS
+        assert len(log_rate_limit._RATE_LIMIT_COUNTS) == max_counters, (
+            f"GT-B1-12: _RATE_LIMIT_COUNTS should be capped at {max_counters}, "
+            f"got {len(log_rate_limit._RATE_LIMIT_COUNTS)}"
+        )
+        assert len(log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE) <= max_counters, (
+            f"UE-16: _RATE_LIMIT_NEXT_SUMMARY_DEADLINE must be bounded at "
+            f"{max_counters} entries, got "
+            f"{len(log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE)} (pre-UE-16 "
+            f"this dict leaked unbounded)"
+        )
+        assert len(log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY) <= max_counters, (
+            f"UE-16: _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY must be bounded at "
+            f"{max_counters} entries, got "
+            f"{len(log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY)} (pre-UE-16 "
+            f"this dict leaked unbounded)"
+        )
+
+
+# ── 10. UE-16: summary severity tracks caller's configured level ──────
+
+
+class TestUe16SummarySeverity:
+    """UE-16: the GT-66 summary severity is ``max(logging.INFO, level)``
+    so an ERROR-rate-limited path surfaces an ERROR summary (not INFO).
+
+    Pre-UE-16 the summary was hardcoded at ``_log.info(...)`` — so a
+    caller invoking ``log_rate_limited(log, logging.CRITICAL, ...)``
+    whose error fired 1000x in 60s would see one CRITICAL line then ~60s
+    later an INFO summary. The CRITICAL severity was lost; alerting
+    rules keyed on ``level>=ERROR`` missed the recurrence.
+
+    Post-UE-16 the summary escalates to the caller's configured level
+    (clamped to >= INFO so a DEBUG-caller's summary still surfaces at
+    the file handler's default level).
+    """
+
+    def _force_summary(self, monkeypatch, caplog, level: int, msg: str):
+        """Helper: fire >60s of suppressed occurrences for *msg* at
+        *level* and return the resulting summary records.
+        """
+        logger = FakeLogger()
+        fake_time = [0.0]
+        monkeypatch.setattr(
+            "voice_typer.server.log_rate_limit.time.monotonic",
+            lambda: fake_time[0],
+        )
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, level, msg, every_n=100)
+            log_rate_limited(logger, level, msg, every_n=100)
+            fake_time[0] = 61.0
+            log_rate_limited(logger, level, msg, every_n=100)
+        return [r for r in caplog.records if "[rate-limit]" in r.message and "suppressed occurrences" in r.message]
+
+    def test_error_caller_surfaces_error_summary(self, monkeypatch, caplog):
+        summaries = self._force_summary(monkeypatch, caplog, logging.ERROR, "ue16-error")
+        assert len(summaries) == 1
+        assert summaries[0].levelno == logging.ERROR, (
+            f"UE-16: ERROR-caller summary should be at ERROR level, got {logging.getLevelName(summaries[0].levelno)}"
+        )
+
+    def test_critical_caller_surfaces_critical_summary(self, monkeypatch, caplog):
+        summaries = self._force_summary(monkeypatch, caplog, logging.CRITICAL, "ue16-critical")
+        assert len(summaries) == 1
+        assert summaries[0].levelno == logging.CRITICAL, (
+            f"UE-16: CRITICAL-caller summary should be at CRITICAL level, got "
+            f"{logging.getLevelName(summaries[0].levelno)}"
+        )
+
+    def test_warning_caller_surfaces_warning_summary(self, monkeypatch, caplog):
+        summaries = self._force_summary(monkeypatch, caplog, logging.WARNING, "ue16-warning")
+        assert len(summaries) == 1
+        assert summaries[0].levelno == logging.WARNING, (
+            f"UE-16: WARNING-caller summary should be at WARNING level, got "
+            f"{logging.getLevelName(summaries[0].levelno)}"
+        )
+
+    def test_info_caller_stays_at_info_baseline(self, monkeypatch, caplog):
+        summaries = self._force_summary(monkeypatch, caplog, logging.INFO, "ue16-info")
+        assert len(summaries) == 1
+        assert summaries[0].levelno == logging.INFO, (
+            f"UE-16: INFO-caller summary should stay at INFO baseline, got {logging.getLevelName(summaries[0].levelno)}"
+        )
+
+    def test_debug_caller_clamped_up_to_info(self, monkeypatch, caplog):
+        summaries = self._force_summary(monkeypatch, caplog, logging.DEBUG, "ue16-debug")
+        assert len(summaries) == 1
+        assert summaries[0].levelno == logging.INFO, (
+            f"UE-16: DEBUG-caller summary should be clamped up to INFO, got "
+            f"{logging.getLevelName(summaries[0].levelno)}"
+        )

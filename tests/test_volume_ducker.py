@@ -7,6 +7,8 @@ real audio hardware, so tests run on any platform (CI included).
 from __future__ import annotations
 
 import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -453,3 +455,277 @@ class TestDuckCrashRecoveryFile:
         crash_recovery.path.write_text("{invalid json")
         assert crash_recovery.load_stale() is None
         assert not crash_recovery.path.exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UE-23: restore() must call _stop_smart_duck_monitor() under self._lock
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestUE23StopMonitorUnderLock:
+    """UE-23: restore() must call _stop_smart_duck_monitor() from inside
+    self._lock so the stop + _saved_state-clear is atomic with respect
+    to a concurrent duck() (which calls _start_smart_duck_monitor()
+    under the same lock).
+    """
+
+    def test_stop_smart_duck_monitor_called_under_lock(self) -> None:
+        """_stop_smart_duck_monitor() is invoked while self._lock is held."""
+        backend = FakeBackend(current=0.5, speaker_active=False)
+        ducker = VolumeDucker(backend=backend)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+        ducker.duck(0.25)  # smart-duck skips, monitor starts
+        assert ducker.is_monitor_running
+
+        spy_done = threading.Event()
+        proceed = threading.Event()
+        lock_held_during_stop: list[bool] = [False]
+        original_stop = ducker._stop_smart_duck_monitor
+
+        def spy_stop() -> None:
+            # From a worker thread, try to acquire the lock with a short
+            # timeout.  If restore() holds the lock (the UE-23 fix), the
+            # worker times out and acquired is False.  We use a worker
+            # thread because Lock.acquire(blocking=False) from the same
+            # thread that holds the lock also returns False (Lock is not
+            # reentrant) -- we cannot distinguish "held by current
+            # thread" from "held by another thread" without a second
+            # thread.
+            result: list[bool] = [True]
+
+            def worker() -> None:
+                acquired = ducker._lock.acquire(timeout=0.1)
+                if acquired:
+                    ducker._lock.release()
+                else:
+                    result[0] = False
+
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join(timeout=1.0)
+            lock_held_during_stop[0] = not result[0]
+            # Signal the test thread that we've recorded the lock state.
+            spy_done.set()
+            # Block here so the test thread can read lock_held_during_stop
+            # before the restore thread continues (and potentially
+            # releases the lock, which would make a later re-check
+            # incorrect).
+            proceed.wait(timeout=2.0)
+            original_stop()
+
+        ducker._stop_smart_duck_monitor = spy_stop  # type: ignore[assignment]
+
+        restore_thread = threading.Thread(target=ducker.restore)
+        restore_thread.start()
+        assert spy_done.wait(timeout=2.0), "_stop_smart_duck_monitor not called by restore()"
+        assert lock_held_during_stop[0], (
+            "UE-23: _stop_smart_duck_monitor() must be called while "
+            "self._lock is held (prevents premature-stop race with "
+            "concurrent duck())"
+        )
+        # Release the spy so restore() can finish.
+        proceed.set()
+        restore_thread.join(timeout=2.0)
+        assert not restore_thread.is_alive(), "restore thread did not finish"
+
+    def test_concurrent_duck_after_restore_starts_fresh_monitor(self) -> None:
+        """Functional race test: after restore() + a new duck(), the new
+        dictation's monitor is alive (UE-23 regression).
+
+        This is the user-facing scenario: dictation 1 ends (restore),
+        dictation 2 starts immediately (duck with smart-duck skip).  The
+        monitor for dictation 2 must be running so audio starting
+        mid-dictation triggers a retroactive duck.
+        """
+        backend = FakeBackend(current=0.5, speaker_active=False)
+        ducker = VolumeDucker(backend=backend)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+
+        # Dictation 1: smart-duck skips, monitor starts.
+        ducker.duck(0.25)
+        assert ducker.is_monitor_running
+        ducker.restore()
+        # Give the old monitor a moment to wind down.
+        deadline = time.monotonic() + 1.0
+        while ducker.is_monitor_running and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        # Dictation 2: smart-duck skips again -- a FRESH monitor must start.
+        ducker.duck(0.25)
+        assert ducker.is_monitor_running, (
+            "UE-23: the second dictation's smart-duck monitor must be running (premature-stop race would leave it dead)"
+        )
+        ducker.restore()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UE-12-F6: duck() must drop self._lock during backend.fade_to()
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestUE12F6DuckDropsLockDuringFade:
+    """UE-12-F6: duck() must NOT hold self._lock during backend.fade_to()
+    (up to 150 ms).  Holding the lock serialises restore() (ESC cancel)
+    behind the fade -- visible as a 150 ms "ESC doesn't respond" delay.
+
+    The pattern mirrors level_monitor/worker._process_level_chunk:
+    snapshot shared state under the lock, release for the heavy work,
+    re-acquire for the shared-state writes.
+    """
+
+    @staticmethod
+    def _make_lock_probing_fade(ducker: VolumeDucker, backend: FakeBackend) -> tuple[Callable[..., bool], list[bool]]:
+        """Wrap backend.fade_to so it records whether self._lock was held.
+
+        Returns (spy_fade, lock_held_during_fade) where
+        lock_held_during_fade[0] is True if the lock was held.
+        """
+        lock_held_during_fade: list[bool] = [False]
+        original_fade = backend.fade_to
+
+        def spy_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            # Worker thread tries to acquire the lock with a short
+            # timeout.  If duck() holds the lock during fade_to, the
+            # worker times out.
+            result: list[bool] = [True]
+
+            def worker() -> None:
+                acquired = ducker._lock.acquire(timeout=0.1)
+                if acquired:
+                    ducker._lock.release()
+                else:
+                    result[0] = False
+
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join(timeout=1.0)
+            lock_held_during_fade[0] = not result[0]
+            return original_fade(target_linear, duration_ms, steps)
+
+        return spy_fade, lock_held_during_fade
+
+    def test_first_duck_drops_lock_during_fade(self) -> None:
+        """First-duck path: the lock is NOT held during backend.fade_to()."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend)
+        ducker.initialize()
+
+        spy_fade, lock_held = self._make_lock_probing_fade(ducker, backend)
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+
+        ok = ducker.duck(0.25)
+        assert ok is True
+        assert lock_held[0] is False, (
+            "UE-12-F6: duck() must NOT hold self._lock during "
+            "backend.fade_to() on the first-duck path (ESC-cancel "
+            "would wait 150ms for the fade to complete)"
+        )
+
+    def test_level_update_drops_lock_during_fade(self) -> None:
+        """Already-ducked path: the lock is NOT held during the level-update fade."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend)
+        ducker.initialize()
+        ducker.duck(0.25)  # first duck (uses real fade_to -- unspied)
+        backend._fade_calls.clear()
+
+        spy_fade, lock_held = self._make_lock_probing_fade(ducker, backend)
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+
+        ok = ducker.duck(0.15)  # level update
+        assert ok is True
+        assert lock_held[0] is False, (
+            "UE-12-F6: duck() must NOT hold self._lock during backend.fade_to() on the level-update path"
+        )
+
+    def test_smart_duck_skip_does_not_fade(self) -> None:
+        """Sanity: the smart-duck skip path returns early (no fade, lock
+        released normally).  Guards against the UE-12-F6 refactor
+        accidentally introducing a fade on the skip path."""
+        backend = FakeBackend(current=0.5, speaker_active=False)
+        ducker = VolumeDucker(backend=backend)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+
+        fade_called = [False]
+        original_fade = backend.fade_to
+
+        def spy_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            fade_called[0] = True
+            return original_fade(target_linear, duration_ms, steps)
+
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+        ok = ducker.duck(0.25)
+        assert ok is True
+        assert fade_called[0] is False, "Smart-duck skip must NOT call fade_to"
+        ducker.restore()
+
+    def test_duck_state_consistent_after_fade(self) -> None:
+        """After duck() returns, _actually_ducked is True and _saved_state
+        is set -- the post-fade re-acquire block updated them correctly."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend)
+        ducker.initialize()
+        ok = ducker.duck(0.25)
+        assert ok is True
+        assert ducker.actually_ducked is True
+        assert ducker.is_ducked is True
+        assert backend._fade_calls[-1][0] == 0.25
+
+    def test_restore_during_duck_fade_does_not_corrupt_state(self) -> None:
+        """If restore() runs during duck()'s fade (now possible because
+        duck() drops the lock), the post-fade re-acquire block must NOT
+        mark _actually_ducked = True (restore() already cleared
+        _saved_state and faded back)."""
+        backend = FakeBackend(current=0.5, speaker_active=True)
+        ducker = VolumeDucker(backend=backend)
+        ducker.initialize()
+
+        # Block the fade so we can interleave a restore() call.
+        fade_started = threading.Event()
+        proceed = threading.Event()
+        original_fade = backend.fade_to
+
+        def blocking_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            fade_started.set()
+            proceed.wait(timeout=2.0)
+            return original_fade(target_linear, duration_ms, steps)
+
+        backend.fade_to = blocking_fade  # type: ignore[assignment]
+
+        errors: list[Exception] = []
+
+        def duck_thread() -> None:
+            try:
+                ducker.duck(0.25)
+            except Exception as e:
+                errors.append(e)
+
+        t = threading.Thread(target=duck_thread)
+        t.start()
+        assert fade_started.wait(timeout=2.0), "fade_to not called"
+
+        # While duck()'s fade is blocked (lock released per UE-12-F6),
+        # run restore().  It should acquire the lock, clear _saved_state,
+        # and fade back.
+        ducker.restore()
+        assert not ducker.is_ducked, "restore() should have cleared ducked state"
+
+        # Release the duck fade -- it completes, re-acquires the lock,
+        # sees _saved_state is None, skips the state update.
+        proceed.set()
+        t.join(timeout=2.0)
+        assert not t.is_alive(), "duck thread did not finish"
+        assert not errors, f"duck() raised: {errors}"
+
+        # Final state: restore() won.  _actually_ducked must be False
+        # (restore() set it) -- NOT True (which would happen if the
+        # post-fade block didn't re-check _saved_state).
+        assert ducker.actually_ducked is False, (
+            "UE-12-F6: after restore() ran during duck()'s fade, "
+            "_actually_ducked must remain False (post-fade re-check "
+            "must skip the state update)"
+        )
+        assert not ducker.is_ducked

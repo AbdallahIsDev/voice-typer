@@ -225,9 +225,12 @@ class TestH17TranscriptionThreadClearUsesWatchdogLock:
         # take the cancelled-cycle early-return path.
         app.recording._cancelled_cycle_ids = set()
         app.recording._cancelled_cycle_ids_lock = threading.Lock()
-        # The streaming-session cleanup in finally touches
-        # ``get_streaming_session()``; make it return None.
-        app.recording.get_streaming_session = MagicMock(return_value=None)
+        # UE-10: the streaming-session cleanup in finally (and the
+        # pop in ``_transcribe``) call ``pop_streaming_session()``;
+        # make it return None so neither branch attempts to cancel a
+        # real session. (Pre-UE-10 the code called
+        # ``get_streaming_session()`` instead.)
+        app.recording.pop_streaming_session = MagicMock(return_value=None)
         # ``_reset_watchdog`` / ``_stop_watchdog_thread`` are called
         # from finally — make them no-ops.
         app.recording._reset_watchdog = MagicMock()
@@ -302,7 +305,10 @@ class TestH17TranscriptionThreadClearUsesWatchdogLock:
         pipeline = _new_pipeline(app)
         app.recording._cancelled_cycle_ids = set()
         app.recording._cancelled_cycle_ids_lock = threading.Lock()
-        app.recording.get_streaming_session = MagicMock(return_value=None)
+        # UE-10: ``_transcribe`` and the finally block both call
+        # ``pop_streaming_session()`` (atomic) — mock it to return
+        # None so the cleanup branches short-circuit.
+        app.recording.pop_streaming_session = MagicMock(return_value=None)
         app.recording._reset_watchdog = MagicMock()
         app.recording._stop_watchdog_thread = MagicMock()
 

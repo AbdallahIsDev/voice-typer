@@ -195,17 +195,24 @@ class TestGt14CriticalLevel:
 
 class TestGTB15StderrRedaction:
     """GT-B1-5: the ``print(buf.getvalue(), file=sys.stderr)`` third-tier
-    fallback must call ``_redact_text`` on the payload BEFORE the print
-    so secrets embedded in the traceback are masked the same way they
-    would be in a ``log.critical`` record.
+    fallback must call ``redact_for_export`` on the payload BEFORE the
+    print so secrets embedded in the traceback are masked the same way
+    they would be in a ``log.critical`` record.
+
+    UE-5-F4: the redactor was switched from ``_redact_text`` to the
+    unified ``redact_for_export`` so the startup-error path and the
+    diagnostic-bundle path share one redactor. The tests below were
+    updated to patch ``redact_for_export`` (instead of the historical
+    ``_redact_text``) at the new call site.
     """
 
-    def test_redact_text_called_on_stderr_payload(self, diag_dir: Path, tmp_path: Path, monkeypatch) -> None:
-        """When the primary write fails, ``_redact_text`` MUST be invoked
-        on the buffer payload before it is printed to stderr.
+    def test_redact_for_export_called_on_stderr_payload(self, diag_dir: Path, tmp_path: Path, monkeypatch) -> None:
+        """When the primary write fails, ``redact_for_export`` MUST be
+        invoked on the buffer payload before it is printed to stderr.
 
         Asserts the call happened (via a spy that still delegates to the
-        real ``_redact_text`` so the rest of the fallback chain works).
+        real ``redact_for_export`` so the rest of the fallback chain
+        works).
         """
         # Make tempfile.gettempdir point at a non-existent dir so the
         # second-tier fallback fails too — we want to isolate the
@@ -213,7 +220,9 @@ class TestGTB15StderrRedaction:
         nonexistent = tmp_path / "does-not-exist"
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(nonexistent))
 
-        real_redact = voice_typer.server.security._redact_text  # type: ignore[attr-defined]
+        from voice_typer.server import _secrets as secrets_mod
+
+        real_redact = secrets_mod.redact_for_export
         call_count = {"n": 0}
         captured_payloads: list[str] = []
 
@@ -232,13 +241,13 @@ class TestGTB15StderrRedaction:
                 side_effect=OSError("read-only filesystem"),
             ),
             patch(
-                "voice_typer.server.security._redact_text",
+                "voice_typer.server._secrets.redact_for_export",
                 side_effect=_spy,
             ),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
-        # _redact_text is called at least twice on this path:
+        # redact_for_export is called at least twice on this path:
         #   1. for the primary _secure_atomic_write path (which raises)
         #   2. for the stderr print fallback
         # We don't pin the exact count (future code might add more
@@ -246,10 +255,10 @@ class TestGTB15StderrRedaction:
         # payload by checking that at least one call saw the
         # "Voice Typer startup failed at" header.
         assert call_count["n"] >= 2, (
-            f"expected _redact_text to be called ≥2 times (primary write + stderr fallback); got {call_count['n']}"
+            f"expected redact_for_export to be called ≥2 times (primary write + stderr fallback); got {call_count['n']}"
         )
         assert any("Voice Typer startup failed at" in p for p in captured_payloads), (
-            "expected at least one _redact_text call to receive the "
+            "expected at least one redact_for_export call to receive the "
             "diagnostic payload (with the 'Voice Typer startup failed at' "
             f"header); captured payloads: {captured_payloads!r}"
         )
@@ -295,31 +304,39 @@ class TestGTB15StderrRedaction:
     def test_redactor_failure_falls_back_to_unredacted_print(
         self, diag_dir: Path, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """If ``_redact_text`` itself raises on the stderr-fallback call,
-        the stderr fallback must still print SOMETHING (the unredacted
-        payload) — a partially-redacted traceback is better than no
-        traceback at all (matches the ``except Exception:`` last-resort
-        philosophy of the surrounding block).
+        """If ``redact_for_export`` itself raises on the stderr-fallback
+        call, the stderr fallback must still print SOMETHING (the
+        unredacted payload) — a partially-redacted traceback is better
+        than no traceback at all (matches the ``except Exception:``
+        last-resort philosophy of the surrounding block).
 
         The test uses a side_effect function that lets the first few
-        ``_redact_text`` calls succeed (so the function reaches the
-        stderr-fallback path) and then raises on the call inside the
-        stderr-fallback ``try`` block.  This isolates the GT-B1-5
-        fallback branch from the other ``_redact_text`` call sites in
-        the function (``redacted_argv`` and the primary-write path).
+        ``redact_for_export`` calls succeed (so the function reaches
+        the stderr-fallback path) and then raises on the call inside
+        the stderr-fallback ``try`` block. This isolates the GT-B1-5
+        fallback branch from the other ``redact_for_export`` call
+        sites in the function (``redacted_argv`` and the primary-
+        write path).
+
+        UE-5-F4: patches ``redact_for_export`` instead of the
+        historical ``_redact_text`` (the redactor was switched to the
+        unified pipeline).
         """
         nonexistent = tmp_path / "does-not-exist"
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(nonexistent))
 
-        real_redact = voice_typer.server.security._redact_text  # type: ignore[attr-defined]
+        from voice_typer.server import _secrets as secrets_mod
+
+        real_redact = secrets_mod.redact_for_export
         call_state = {"n": 0}
 
         def _partial_redactor(text: str) -> str:
             call_state["n"] += 1
-            # The function makes 3 ``_redact_text`` calls on this path
-            # before reaching the stderr-fallback try block:
-            #   1. redacted_argv (one call per sys.argv entry — the test
-            #      fixture sets sys.argv to a single-element list).
+            # The function makes 3 ``redact_for_export`` calls on this
+            # path before reaching the stderr-fallback try block:
+            #   1. redacted_argv (one call per sys.argv entry — the
+            #      test fixture sets sys.argv to a single-element
+            #      list).
             #   2. primary-write payload (inside the outer try, before
             #      _secure_atomic_write raises OSError).
             # The 3rd call is inside the stderr-fallback try block —
@@ -338,7 +355,7 @@ class TestGTB15StderrRedaction:
                 side_effect=OSError("read-only filesystem"),
             ),
             patch(
-                "voice_typer.server.security._redact_text",
+                "voice_typer.server._secrets.redact_for_export",
                 side_effect=_partial_redactor,
             ),
         ):
@@ -353,8 +370,8 @@ class TestGTB15StderrRedaction:
         # And we must have actually taken the raising branch (i.e. the
         # side_effect was called at least 3 times).
         assert call_state["n"] >= 3, (
-            f"expected _redact_text to be called >=3 times (argv + primary "
-            f"write + stderr fallback); got {call_state['n']}"
+            f"expected redact_for_export to be called >=3 times (argv + "
+            f"primary write + stderr fallback); got {call_state['n']}"
         )
 
 

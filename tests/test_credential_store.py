@@ -399,9 +399,13 @@ class TestMigrateSecretsToKeyring:
     def test_migrate_keeps_plaintext_when_keyring_unavailable(self, mock_keyring_unavailable, tmp_path):
         """When keyring is unavailable, migrate should NOT delete the
         plaintext values — it should leave them in config.json so the
-        user's keys still work. The secrets_migrated flag IS set so we
-        don't retry on every launch (once a backend is installed, the
-        user can manually trigger re-migration by clearing the flag)."""
+        user's keys still work. Per XZ-SEC-04, the ``secrets_migrated``
+        flag is NOT set in this case (deferred-migration contract) —
+        otherwise the next launch (when keyring may be available) would
+        skip migration and the plaintext would persist forever. Instead,
+        a diagnostic flag ``secrets_migrated_keyring_was_unavailable``
+        is recorded so operators can see why migration was deferred,
+        and the next launch re-runs migration automatically."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"openai_api_key": "sk-keep-me"}))
 
@@ -411,8 +415,21 @@ class TestMigrateSecretsToKeyring:
         # Plaintext value preserved
         data = json.loads(config_file.read_text())
         assert data["openai_api_key"] == "sk-keep-me"
-        # Flag still set so we don't retry every launch
-        assert data["secrets_migrated"] is True
+        # XZ-SEC-04 deferred-migration contract: ``secrets_migrated``
+        # is NOT set (so the next launch re-runs migration once keyring
+        # becomes available). The diagnostic flag IS set so operators
+        # can see why migration was deferred.
+        assert "secrets_migrated" not in data, (
+            "XZ-SEC-04 regression: secrets_migrated must NOT be set when "
+            "keyring was unavailable AND real plaintext was skipped — "
+            "otherwise the next launch would skip migration and the "
+            "plaintext would persist forever."
+        )
+        assert data.get("secrets_migrated_keyring_was_unavailable") is True, (
+            "XZ-SEC-04: the secrets_migrated_keyring_was_unavailable "
+            "diagnostic flag must be set so operators can see why "
+            "migration was deferred."
+        )
 
     def test_migrate_handles_missing_config_file(self, mock_keyring_available, tmp_path):
         """If config.json doesn't exist, migrate should write a minimal
@@ -796,8 +813,12 @@ class TestMigrationMidFailureSafety:
         """If keyring succeeds for provider A but fails for provider B,
         the migration must: (a) store A's secret in keyring, (b)
         replace A's config.json field with a keyring:// reference,
-        (c) leave B's plaintext in config.json, (d) set secrets_migrated
-        = True so we don't retry on every launch."""
+        (c) leave B's plaintext in config.json, (d) per XE-3-2, NOT
+        set ``secrets_migrated`` (the next launch must re-attempt so
+        the failed provider eventually migrates once the keychain is
+        unlocked). The XZ-SEC-04 diagnostic flag
+        ``secrets_migrated_keyring_was_unavailable`` IS set so
+        operators see why migration was deferred."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -853,8 +874,16 @@ class TestMigrationMidFailureSafety:
         assert data["openai_api_key"] == "keyring://openai"
         # groq plaintext preserved (not replaced with reference token)
         assert data["groq_api_key"] == "gsk-groq-migrate-fail"
-        # Flag set so we don't retry on every launch
-        assert data["secrets_migrated"] is True
+        # XE-3-2: ``secrets_migrated`` must NOT be set — the next launch
+        # must re-attempt migration so groq's plaintext is moved once
+        # the keychain is unlocked. The XZ-SEC-04 diagnostic flag IS
+        # set so operators see why migration was deferred.
+        assert "secrets_migrated" not in data, (
+            "XE-3-2: secrets_migrated must NOT be set when set_password "
+            "raised mid-migration — the next launch must re-attempt so "
+            "the failed provider eventually migrates."
+        )
+        assert data.get("secrets_migrated_keyring_was_unavailable") is True
 
     def test_migrate_no_data_loss_when_atomic_write_fails(self, monkeypatch, tmp_path):
         """If the final _secure_atomic_write fails AFTER keyring has

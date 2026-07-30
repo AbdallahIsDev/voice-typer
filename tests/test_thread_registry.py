@@ -501,3 +501,566 @@ class TestThreadRegistryEntry:
             join_timeout=2.0,
         )
         assert entry.stop_event is None
+
+
+# ─── UE-11-F3: register() auto-prune ────────────────────────────────────
+
+
+class TestRegisterAutoPrune:
+    """UE-11-F3: ``register()`` auto-prunes dead entries at the start
+    of every call."""
+
+    def test_register_prunes_dead_entries(self):
+        """A dead entry is removed when the next ``register()`` is called."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = _make_worker(stop1)
+        try:
+            reg.register("old", t1, stop1, join_timeout=1.0)
+            assert reg.list_all() == ["old"]
+            stop1.set()
+            t1.join(timeout=2.0)
+            assert not t1.is_alive()
+            # list_all still shows "old" (no register call yet).
+            assert reg.list_all() == ["old"]
+            # Now register a new thread — auto-prune should remove "old".
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                reg.register("new", t2, stop2, join_timeout=1.0)
+                assert reg.list_all() == ["new"], f"dead 'old' entry should have been pruned; got {reg.list_all()}"
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+            t1.join(timeout=2.0)
+
+    def test_register_keeps_alive_entries(self):
+        """Alive entries are NOT pruned."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        stop2 = threading.Event()
+        t1 = _make_worker(stop1)
+        t2 = _make_worker(stop2)
+        try:
+            reg.register("a", t1, stop1, join_timeout=1.0)
+            reg.register("b", t2, stop2, join_timeout=1.0)
+            assert reg.list_all() == ["a", "b"]
+        finally:
+            stop1.set()
+            stop2.set()
+            t1.join(timeout=2.0)
+            t2.join(timeout=2.0)
+
+    def test_register_same_name_prunes_dead_old_silently(self, caplog):
+        """Re-registering a name whose old thread is DEAD is silent."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = _make_worker(stop1)
+        try:
+            reg.register("w", t1, stop1, join_timeout=1.0)
+            stop1.set()
+            t1.join(timeout=2.0)
+            assert not t1.is_alive()
+
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                with caplog.at_level(logging.WARNING, logger="voice_typer.server.thread_registry"):
+                    reg.register("w", t2, stop2, join_timeout=1.0)
+                warnings = [r for r in caplog.records if r.levelno >= logging.WARNING and "Re-registering" in r.message]
+                assert warnings == [], (
+                    f"re-registering a dead name should be silent; got warnings: {[r.message for r in warnings]}"
+                )
+                assert reg.list_all() == ["w"]
+                assert reg._entries["w"].thread is t2
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+            t1.join(timeout=2.0)
+
+    def test_register_prunes_multiple_dead_entries(self):
+        """Multiple dead entries are all pruned in one ``register()`` call."""
+        reg = ThreadRegistry()
+        stops = [threading.Event() for _ in range(3)]
+        threads = [_make_worker(s) for s in stops]
+        try:
+            for i, (s, t) in enumerate(zip(stops, threads, strict=False)):
+                reg.register(f"w{i}", t, s, join_timeout=1.0)
+            assert reg.list_all() == ["w0", "w1", "w2"]
+            for s in stops:
+                s.set()
+            for t in threads:
+                t.join(timeout=2.0)
+            assert reg.list_all() == ["w0", "w1", "w2"]
+            assert reg.list_active() == []
+            stop_new = threading.Event()
+            t_new = _make_worker(stop_new)
+            try:
+                reg.register("new", t_new, stop_new, join_timeout=1.0)
+                assert reg.list_all() == ["new"], f"all dead entries should be pruned; got {reg.list_all()}"
+            finally:
+                stop_new.set()
+                t_new.join(timeout=2.0)
+        finally:
+            for s in stops:
+                s.set()
+            for t in threads:
+                t.join(timeout=2.0)
+
+
+# ─── UE-11-F3: shutdown_all() auto-prune ────────────────────────────────
+
+
+class TestShutdownAllAutoPrune:
+    """UE-11-F3: ``shutdown_all()`` prunes dead entries at the end of
+    the call (after Phase 3 logging)."""
+
+    def test_shutdown_all_prunes_dead_entries_at_end(self):
+        """After ``shutdown_all()``, dead entries are removed from
+        ``self._entries``."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = _make_worker(stop)
+        reg.register("w", t, stop, join_timeout=2.0)
+        try:
+            assert reg.list_all() == ["w"]
+            reg.shutdown_all()
+            assert not t.is_alive()
+            assert reg.list_all() == [], f"dead entry should be pruned after shutdown_all; got {reg.list_all()}"
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+    def test_shutdown_all_keeps_alive_entries(self):
+        """Alive entries (stuck threads) stay in the registry after
+        ``shutdown_all()``."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = _make_worker(stop, never_exit=True)
+        reg.register("stuck", t, stop, join_timeout=0.1)
+        try:
+            reg.shutdown_all()
+            assert t.is_alive(), "stuck thread should still be alive"
+            assert reg.list_all() == ["stuck"], f"alive entry should stay after shutdown_all; got {reg.list_all()}"
+        finally:
+            pass  # never_exit worker — let it die as daemon
+
+    def test_shutdown_all_phase3_still_logs_exited_cleanly(self, caplog):
+        """Phase 3 logging uses the original snapshot, so a dead entry
+        still gets the 'exited cleanly' debug log."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = _make_worker(stop)
+        reg.register("w", t, stop, join_timeout=5.0)
+        stop.set()
+        t.join(timeout=2.0)
+        assert not t.is_alive()
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.thread_registry"):
+            reg.shutdown_all()
+        debugs = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and "w" in r.message and "exited cleanly" in r.message
+        ]
+        assert len(debugs) == 1, (
+            f"expected 'exited cleanly' debug for dead entry; got: {[r.message for r in caplog.records]}"
+        )
+
+    def test_shutdown_all_prunes_dead_entries_each_slice(self):
+        """UE-11-F3 sub-item 5: the join loop prunes dead entries at
+        the start of each slice so we don't keep re-walking them."""
+        reg = ThreadRegistry()
+        for i in range(10):
+            dead_t = threading.Thread(target=lambda: None, daemon=True)
+            dead_t.start()
+            dead_t.join(timeout=1.0)
+            assert not dead_t.is_alive()
+            reg.register(f"dead{i}", dead_t, stop_event=None, join_timeout=5.0)
+        stop = threading.Event()
+        alive_t = _make_worker(stop)
+        reg.register("alive", alive_t, stop, join_timeout=2.0)
+        try:
+            start = time.monotonic()
+            reg.shutdown_all()
+            elapsed = time.monotonic() - start
+            assert elapsed < 1.0, f"shutdown_all took {elapsed:.2f}s with 10 dead + 1 alive; expected <1.0s"
+            assert not alive_t.is_alive()
+            assert reg.list_all() == []
+        finally:
+            stop.set()
+            alive_t.join(timeout=2.0)
+
+    def test_shutdown_all_idempotent_after_prune(self):
+        """After the first ``shutdown_all()`` prunes dead entries, the
+        second call sees an empty registry and returns immediately."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = _make_worker(stop)
+        reg.register("w", t, stop, join_timeout=2.0)
+        try:
+            reg.shutdown_all()
+            assert not t.is_alive()
+            assert reg.list_all() == []
+            start = time.monotonic()
+            reg.shutdown_all()
+            elapsed = time.monotonic() - start
+            assert elapsed < 0.1, f"second shutdown_all on empty registry took {elapsed:.2f}s; expected <0.1s"
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+
+# ─── UE-11-F3: register(join_previous_timeout=...) ─────────────────────
+
+
+class TestJoinPreviousTimeout:
+    """UE-11-F3: ``register()`` optionally signals + joins the previous
+    thread before overwriting."""
+
+    def test_join_previous_timeout_signals_and_joins_old(self):
+        """``join_previous_timeout=1.0`` sets the old thread's
+        stop_event and joins it before overwriting."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = _make_worker(stop1)
+        try:
+            reg.register("w", t1, stop1, join_timeout=1.0)
+            assert t1.is_alive()
+
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                reg.register(
+                    "w",
+                    t2,
+                    stop2,
+                    join_timeout=1.0,
+                    join_previous_timeout=2.0,
+                )
+                assert not t1.is_alive(), "join_previous_timeout should have signaled + joined t1"
+                assert stop1.is_set(), "stop1 should have been set"
+                assert reg._entries["w"].thread is t2
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+            t1.join(timeout=2.0)
+
+    def test_join_previous_timeout_zero_preserves_old_behavior(self):
+        """``join_previous_timeout=0.0`` (default) does NOT join the
+        old thread — preserves the prior behavior."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = _make_worker(stop1)
+        try:
+            reg.register("w", t1, stop1, join_timeout=1.0)
+            assert t1.is_alive()
+
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                reg.register("w", t2, stop2, join_timeout=1.0)
+                assert t1.is_alive(), "default join_previous_timeout=0 should NOT join t1"
+                assert not stop1.is_set(), "default join_previous_timeout=0 should NOT set stop1"
+                assert reg._entries["w"].thread is t2
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+            t1.join(timeout=2.0)
+
+    def test_join_previous_timeout_no_stop_event_joins_without_signal(self):
+        """When the old entry has ``stop_event=None``, join_previous
+        joins without signaling."""
+        reg = ThreadRegistry()
+
+        def _quick():
+            time.sleep(0.05)
+
+        t1 = threading.Thread(target=_quick, daemon=True, name="old")
+        t1.start()
+        try:
+            reg.register("w", t1, stop_event=None, join_timeout=1.0)
+            assert t1.is_alive()
+
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                reg.register(
+                    "w",
+                    t2,
+                    stop2,
+                    join_timeout=1.0,
+                    join_previous_timeout=2.0,
+                )
+                assert not t1.is_alive(), "join_previous_timeout should have joined t1 even without stop_event"
+                assert reg._entries["w"].thread is t2
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            t1.join(timeout=2.0)
+
+    def test_join_previous_timeout_overwrites_on_timeout(self, caplog):
+        """If the old thread doesn't exit within join_previous_timeout,
+        the entry is overwritten anyway (best-effort) and a warning is
+        logged."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = _make_worker(stop1, never_exit=True)
+        try:
+            reg.register("w", t1, stop1, join_timeout=1.0)
+            assert t1.is_alive()
+
+            stop2 = threading.Event()
+            t2 = _make_worker(stop2)
+            try:
+                with caplog.at_level(logging.WARNING, logger="voice_typer.server.thread_registry"):
+                    reg.register(
+                        "w",
+                        t2,
+                        stop2,
+                        join_timeout=1.0,
+                        join_previous_timeout=0.05,
+                    )
+                assert t1.is_alive(), "t1 should still be alive (never_exit)"
+                assert reg._entries["w"].thread is t2, "t2 should be registered even though t1 didn't exit"
+                timeout_warnings = [
+                    r
+                    for r in caplog.records
+                    if r.levelno >= logging.WARNING and "did not exit within" in r.message and "'w'" in r.message
+                ]
+                assert len(timeout_warnings) >= 1, (
+                    f"expected a warning about t1 not exiting; got: {[r.message for r in caplog.records]}"
+                )
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+
+    def test_join_previous_timeout_same_thread_is_noop(self):
+        """``join_previous_timeout`` doesn't fire when re-registering
+        the SAME thread object."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = _make_worker(stop)
+        try:
+            reg.register("w", t, stop, join_timeout=1.0)
+            reg.register(
+                "w",
+                t,
+                stop,
+                join_timeout=2.0,
+                join_previous_timeout=1.0,
+            )
+            assert t.is_alive(), "same-thread re-register should not join"
+            assert reg._entries["w"].join_timeout == 2.0
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+
+# ─── UE-11-F3: spawn_and_register ──────────────────────────────────────
+
+
+class TestSpawnAndRegister:
+    """UE-11-F3: ``spawn_and_register`` creates, starts, and registers
+    a worker thread in one call."""
+
+    def test_creates_starts_and_registers(self):
+        """``spawn_and_register`` returns a started, registered thread."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        try:
+            t = reg.spawn_and_register(
+                "my-worker",
+                _worker_target,
+                args=(stop,),
+                stop_event=stop,
+                join_timeout=2.0,
+            )
+            assert isinstance(t, threading.Thread)
+            assert t.name == "my-worker"
+            assert t.is_alive(), "spawned thread should be running"
+            assert "my-worker" in reg.list_all()
+            assert reg.list_active() == ["my-worker"]
+            assert reg._entries["my-worker"].thread is t
+        finally:
+            stop.set()
+            reg.shutdown_all()
+
+    def test_returns_the_registered_thread(self):
+        """The returned thread is the same object as the one in the
+        registry."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        try:
+            t = reg.spawn_and_register(
+                "w",
+                _worker_target,
+                args=(stop,),
+                stop_event=stop,
+                join_timeout=2.0,
+            )
+            assert reg._entries["w"].thread is t
+        finally:
+            stop.set()
+            reg.shutdown_all()
+
+    def test_daemon_by_default(self):
+        """The spawned thread is a daemon by default."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        try:
+            t = reg.spawn_and_register(
+                "w",
+                _worker_target,
+                args=(stop,),
+                stop_event=stop,
+                join_timeout=2.0,
+            )
+            assert t.daemon is True
+        finally:
+            stop.set()
+            reg.shutdown_all()
+
+    def test_non_daemon_when_requested(self):
+        """``daemon=False`` creates a non-daemon thread."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        try:
+            t = reg.spawn_and_register(
+                "w",
+                _worker_target,
+                args=(stop,),
+                stop_event=stop,
+                join_timeout=2.0,
+                daemon=False,
+            )
+            assert t.daemon is False
+        finally:
+            stop.set()
+            reg.shutdown_all()
+
+    def test_passes_args_and_kwargs(self):
+        """``args`` and ``kwargs`` are forwarded to the target."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        received: dict = {}
+        received_lock = threading.Lock()
+
+        def _target(stop_event, *, label):
+            with received_lock:
+                received["args"] = (stop_event,)
+                received["kwargs"] = {"label": label}
+            while not stop_event.is_set():
+                time.sleep(0.01)
+
+        try:
+            reg.spawn_and_register(
+                "w",
+                _target,
+                args=(stop,),
+                kwargs={"label": "test"},
+                stop_event=stop,
+                join_timeout=2.0,
+            )
+            for _ in range(100):
+                if received:
+                    break
+                time.sleep(0.01)
+            assert received.get("kwargs") == {"label": "test"}, f"kwargs not forwarded; got {received}"
+            assert received.get("args") == (stop,), f"args not forwarded; got {received}"
+        finally:
+            stop.set()
+            reg.shutdown_all()
+
+    def test_shutdown_all_joins_spawned_worker(self):
+        """A worker spawned via ``spawn_and_register`` is joined by
+        ``shutdown_all()``."""
+        reg = ThreadRegistry()
+        stop = threading.Event()
+        t = reg.spawn_and_register(
+            "w",
+            _worker_target,
+            args=(stop,),
+            stop_event=stop,
+            join_timeout=2.0,
+        )
+        reg.shutdown_all()
+        assert not t.is_alive(), "shutdown_all should have joined the spawned worker"
+
+    def test_spawn_and_register_join_previous(self):
+        """``spawn_and_register`` forwards ``join_previous_timeout`` to
+        ``register()``."""
+        reg = ThreadRegistry()
+        stop1 = threading.Event()
+        t1 = reg.spawn_and_register(
+            "w",
+            _worker_target,
+            args=(stop1,),
+            stop_event=stop1,
+            join_timeout=1.0,
+        )
+        try:
+            assert t1.is_alive()
+            stop2 = threading.Event()
+            t2 = reg.spawn_and_register(
+                "w",
+                _worker_target,
+                args=(stop2,),
+                stop_event=stop2,
+                join_timeout=1.0,
+                join_previous_timeout=2.0,
+            )
+            try:
+                assert not t1.is_alive(), "spawn_and_register(join_previous_timeout=...) should have joined t1"
+                assert stop1.is_set()
+                assert reg._entries["w"].thread is t2
+            finally:
+                stop2.set()
+                t2.join(timeout=2.0)
+        finally:
+            stop1.set()
+            t1.join(timeout=2.0)
+
+    def test_spawn_and_register_no_stop_event(self):
+        """``spawn_and_register`` accepts ``stop_event=None`` for
+        fire-and-forget workers."""
+        reg = ThreadRegistry()
+        done = threading.Event()
+
+        def _quick():
+            time.sleep(0.05)
+            done.set()
+
+        try:
+            t = reg.spawn_and_register(
+                "quick",
+                _quick,
+                stop_event=None,
+                join_timeout=2.0,
+            )
+            done.wait(timeout=2.0)
+            t.join(timeout=2.0)
+            assert not t.is_alive()
+            reg.shutdown_all()
+        finally:
+            pass
+
+
+# ─── Helpers for the new test classes ───────────────────────────────────
+
+
+def _worker_target(stop_event: threading.Event) -> None:
+    """A simple worker that loops until *stop_event* is set."""
+    while not stop_event.is_set():
+        time.sleep(0.01)

@@ -350,7 +350,10 @@ class TestSettingsWindowIntegration:
         app.config.device = "cpu"
         # RW-9 Phase 2: was ``app._change_model("medium.en")`` (test-seam
         # delegate removed); call the ModelManager method directly.
-        app.models.change_model("medium.en")
+        # AB-10: change_model is now non-blocking (returns immediately with
+        # "loading" status); tests that need to inspect the synchronous result
+        # must call the blocking variant.
+        app.models._change_model_blocking("medium.en")
 
         assert app.config.model_size == "medium.en"
         assert app.models._model_load_attempted is False

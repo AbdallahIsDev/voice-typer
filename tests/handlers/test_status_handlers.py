@@ -1,13 +1,11 @@
 """Unit tests for ``StatusHandlersMixin`` (CR-12).
 
-Covers the 8 status-query IPC handlers defined in
+Covers the 6 status-query IPC handlers defined in
 ``voice_typer/server/handlers/status_handlers.py``:
 
 - ``_handle_get_status`` — returns ``{type: status, data: <dict|string>}``.
-- ``_handle_get_rms_level`` — returns ``{type: rms_level, data: <result>}``.
 - ``_handle_get_volume_backend_status`` — returns
   ``{type: volume_backend_status, data: <status with is_windows flag>}``.
-- ``_handle_get_audio_status`` — returns ``{type: audio_status, data: <result>}``.
 - ``_handle_get_model_status`` — returns ``{type: model_status, data: <result>}``.
 - ``_handle_get_prewarm_status`` — returns
   ``{type: prewarm_status, data: <result>}`` (delegates to prewarm module).
@@ -27,6 +25,12 @@ layer; the interesting invariants are:
    ``subprocess.Popen`` to assert the command shape without spawning.
 4. ``open_prewarm_log`` returns ``{opened: False, reason: "not_found"}``
    when the log file doesn't exist yet (prewarm hasn't run this boot).
+
+UE-15 (2026-07-30): ``_handle_get_rms_level`` and
+``_handle_get_audio_status`` were deleted — both commands were
+dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
+the Tauri migration. The corresponding ``TestGetRmsLevel`` and
+``TestGetAudioStatus`` classes were removed in lockstep.
 """
 
 from __future__ import annotations
@@ -65,24 +69,6 @@ class TestGetStatus:
         assert resp["data"] == {"status": "recording"}
 
 
-class TestGetRmsLevel:
-    """``_handle_get_rms_level`` — returns the current RMS / peak level."""
-
-    def test_happy_path_returns_rms_level(self, ipc_server, fake_service):
-        fake_service.get_rms_level.return_value = {"rms": 0.42, "peak": 0.85}
-        resp = ipc_server._handle_get_rms_level({}, {})
-        assert resp["type"] == "rms_level"
-        assert resp["data"] == {"rms": 0.42, "peak": 0.85}
-
-    def test_service_raises_returns_error(self, ipc_server, fake_service):
-        fake_service.get_rms_level.side_effect = RuntimeError("recorder not started")
-        resp = ipc_server._handle_get_rms_level({}, {})
-        assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
-
-
 class TestGetVolumeBackendStatus:
     """``_handle_get_volume_backend_status`` — augments with ``is_windows``."""
 
@@ -109,32 +95,6 @@ class TestGetVolumeBackendStatus:
     def test_service_raises_returns_error(self, ipc_server, fake_service):
         fake_service.get_volume_backend_status.side_effect = RuntimeError("no backend")
         resp = ipc_server._handle_get_volume_backend_status({}, {})
-        assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
-
-
-class TestGetAudioStatus:
-    """``_handle_get_audio_status`` — returns the audio filter chain status."""
-
-    def test_happy_path_returns_audio_status(self, ipc_server, fake_service):
-        fake_service.get_audio_status.return_value = {
-            "filter_chain": ["noise_suppressor", "highpass"],
-            "degraded": False,
-            "degraded_reasons": [],
-            "latency_ms": 12.5,
-            "vad_backend": "silero",
-            "sample_rate": 16000,
-        }
-        resp = ipc_server._handle_get_audio_status({}, {})
-        assert resp["type"] == "audio_status"
-        assert resp["data"]["filter_chain"] == ["noise_suppressor", "highpass"]
-        assert resp["data"]["vad_backend"] == "silero"
-
-    def test_service_raises_returns_error(self, ipc_server, fake_service):
-        fake_service.get_audio_status.side_effect = RuntimeError("chain not built")
-        resp = ipc_server._handle_get_audio_status({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"

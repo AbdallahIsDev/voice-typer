@@ -1,5 +1,6 @@
 """Tests for SEC-005: Path traversal validation."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -83,29 +84,72 @@ class TestIsPathWithin:
     def test_case_insensitive_on_windows_and_macos(self, monkeypatch):
         # On win32/darwin the comparison is lower-cased, so C:\Users\X
         # is within c:\users\X.
+        #
+        # XE-1-F: previously ``monkeypatch.setattr(config.sys, "platform",
+        # "win32")`` — but ``config`` does NOT import ``sys`` at module
+        # level (no ``import sys`` in ``config.py``), so ``config.sys``
+        # raised ``AttributeError`` and the test always errored out
+        # before reaching the assertion.  Patching the GLOBAL ``sys``
+        # module's ``platform`` attribute (which ``_is_path_within``
+        # reads via its own ``import sys``) is the correct fix.
+        #
+        # XE-1-E: even more robust — pass ``case_sensitive=False`` to
+        # ``_is_path_within`` explicitly so the test no longer depends
+        # on the global ``sys.platform`` value at all (the
+        # case-insensitive branch is exercised deterministically
+        # regardless of the host platform).
         from voice_typer.server import config
 
-        monkeypatch.setattr(config.sys, "platform", "win32")
+        # Belt-and-braces: patch the global sys.platform too so any
+        # code path that reads sys.platform directly (e.g. inside
+        # ``_is_path_within`` when ``case_sensitive is None``) sees
+        # "win32".  ``case_sensitive=False`` below makes this belt-only.
+        monkeypatch.setattr(sys, "platform", "win32")
         root = Path("C:/users/X")
         child = Path("C:/Users/X/AppData")
-        assert config._is_path_within(child, root) is True
+        assert config._is_path_within(child, root, case_sensitive=False) is True
 
     def test_case_sensitive_on_linux(self, monkeypatch):
         # On Linux the comparison is case-sensitive, so /Home/X is NOT
         # within /home/X.
+        #
+        # XE-1-F: same AttributeError bug — ``config.sys`` doesn't
+        # exist.  Patch the global ``sys`` module instead.
+        #
+        # XE-1-E: pass ``case_sensitive=True`` explicitly so the test
+        # exercises the case-sensitive branch deterministically (the
+        # Linux CI runner is already case-sensitive, but pinning the
+        # parameter makes the intent obvious and survives a future
+        # move to a case-insensitive CI filesystem).
         from voice_typer.server import config
 
-        monkeypatch.setattr(config.sys, "platform", "linux")
+        monkeypatch.setattr(sys, "platform", "linux")
         root = Path("/home/X")
         child = Path("/Home/X")
-        assert config._is_path_within(child, root) is False
+        assert config._is_path_within(child, root, case_sensitive=True) is False
 
     def test_cross_drive_windows_returns_false(self, monkeypatch):
         # commonpath raises ValueError for paths on different drives;
         # the function must return False rather than raise.
+        #
+        # XE-1-F: same AttributeError bug — patch the global ``sys``
+        # module instead of ``config.sys`` (which doesn't exist).
+        # XE-1-E: pass ``case_sensitive=False`` explicitly to exercise
+        # the Windows-style (case-insensitive) branch deterministically.
+        #
+        # NOTE: on a Linux CI runner ``Path("C:/voice-typer").resolve()``
+        # returns ``/cwd/C:/voice-typer`` (Linux treats ``C:`` as a
+        # regular path component, not a drive letter), so the test
+        # passes because the two paths diverge at the drive-letter
+        # component, not because ``os.path.commonpath`` raises
+        # ``ValueError`` for cross-drive paths.  This is acceptable
+        # for the regression contract (the function must return False
+        # — and it does); a true cross-drive ``ValueError`` test
+        # requires running on Windows or mocking ``Path.resolve()``
+        # to return Windows-style absolute paths.
         from voice_typer.server import config
 
-        monkeypatch.setattr(config.sys, "platform", "win32")
+        monkeypatch.setattr(sys, "platform", "win32")
         root = Path("C:/voice-typer")
         child = Path("D:/voice-typer/data")
-        assert config._is_path_within(child, root) is False
+        assert config._is_path_within(child, root, case_sensitive=False) is False

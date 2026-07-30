@@ -1175,3 +1175,234 @@ class TestDefaultDeviceChangeDetection:
         assert any("on_default_device_changed callback raised" in m for m in warning_messages), (
             f"Expected warning about callback raising, got: {warning_messages}"
         )
+
+
+# ── UE-12-F2 / UE-12-F14: lifecycle + hooks lock tests ──────────────
+
+
+class TestMicrophoneWatcherLifecycleLock:
+    """UE-12-F2: ``MicrophoneDeviceWatcher.start()``/``stop()`` are
+    guarded by ``self._lock`` so concurrent callers can't double-spawn
+    a polling thread / double-join the same thread.
+
+    These tests force the platform to ``linux`` and mock ``/dev/snd``
+    so the polling thread starts deterministically. The concurrent
+    start/stop calls are fired from 8 threads to maximise the chance
+    of catching a race (the lock makes the outcome deterministic
+    regardless of scheduling).
+    """
+
+    def test_start_lock_serializes_concurrent_starts(self):
+        """Eight concurrent ``start()`` calls spawn exactly one thread."""
+        state = {"entries": ["controlC0"]}
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+
+        with (
+            patch("os.listdir", side_effect=_make_listdir_mock(state)),
+            patch("os.path.isdir", side_effect=_isdir_mock),
+        ):
+            threads = [threading.Thread(target=watcher.start) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # Only one thread should have won the race — _thread is
+            # set exactly once and is a single Thread object.
+            assert watcher._thread is not None, "start() should have spawned a thread"
+            first_thread = watcher._thread
+            # A follow-up start() from the main thread is a no-op.
+            watcher.start()
+            assert watcher._thread is first_thread, "start() after concurrent starts must return the SAME thread"
+            watcher.stop()
+
+        assert watcher._thread is None
+
+    def test_stop_lock_serializes_concurrent_stops(self):
+        """Eight concurrent ``stop()`` calls don't raise and clear _thread once."""
+        state = {"entries": ["controlC0"]}
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+
+        with (
+            patch("os.listdir", side_effect=_make_listdir_mock(state)),
+            patch("os.path.isdir", side_effect=_isdir_mock),
+        ):
+            watcher.start()
+            assert watcher._thread is not None
+
+            threads = [threading.Thread(target=watcher.stop) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # All stop() callers returned without raising; _thread is
+            # cleared exactly once.
+            assert watcher._thread is None
+
+    def test_lifecycle_lock_attribute_exists(self):
+        """UE-12-F2: ``self._lock`` is a threading lock."""
+        import threading as _threading
+
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
+        assert watcher._lock is not None
+        # threading.Lock() returns a _thread.lock; both Lock and RLock
+        # expose acquire/release. Just verify the interface.
+        assert callable(getattr(watcher._lock, "acquire", None))
+        assert callable(getattr(watcher._lock, "release", None))
+        # Not held initially.
+        acquired = watcher._lock.acquire(blocking=False)
+        try:
+            assert acquired, "_lock should not be held when no start/stop is running"
+        finally:
+            watcher._lock.release()
+        # Sanity: the lock is a real lock (not a no-op dummy).
+        assert isinstance(watcher._lock, type(_threading.Lock()))
+
+
+class TestMicrophoneWatcherHooksLock:
+    """UE-12-F14: ``_check_active_mic_lost`` snapshots
+    ``_active_mic_id``/``_on_active_mic_lost``/``_device_id_provider``
+    together under ``self._hooks_lock`` so a concurrent ``set_*`` call
+    can't leave it with a torn view.
+    """
+
+    def test_hooks_lock_attribute_exists(self):
+        """UE-12-F14: ``self._hooks_lock`` is a threading lock."""
+        import threading as _threading
+
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
+        assert watcher._hooks_lock is not None
+        assert callable(getattr(watcher._hooks_lock, "acquire", None))
+        assert callable(getattr(watcher._hooks_lock, "release", None))
+        assert isinstance(watcher._hooks_lock, type(_threading.Lock()))
+
+    def test_check_active_mic_lost_uses_snapshot_not_live_value(self):
+        """The snapshot is taken before the provider runs.
+
+        Scenario: ``active_mic_id`` is ``"mic-1"`` at snapshot time.
+        The ``device_id_provider`` returns ``["mic-2"]`` (which does
+        NOT contain ``"mic-1"``) AND simultaneously calls
+        ``set_active_mic_id("mic-2")`` mid-call.
+
+        With the snapshot: the check uses the snapshotted
+        ``active_mic_id = "mic-1"``, sees ``"mic-1" not in ["mic-2"]``
+        -> True -> fires ``on_active_mic_lost``.
+
+        Without the snapshot (live ``self._active_mic_id``): the
+        provider's ``set_active_mic_id("mic-2")`` has mutated the
+        attribute by the time the ``not in`` check runs, so the check
+        sees ``"mic-2" not in ["mic-2"]`` -> False -> does NOT fire.
+
+        The test asserts the lost callback FIRES — proving the
+        snapshot was used.
+        """
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+
+        lost_event = threading.Event()
+        watcher.set_active_mic_id("mic-1")
+        watcher.set_on_active_mic_lost(lost_event.set)
+
+        def provider():
+            # Mutate active_mic_id mid-check. Without the snapshot,
+            # the live attribute would now be "mic-2" (which IS in
+            # the returned list), suppressing the lost callback.
+            watcher.set_active_mic_id("mic-2")
+            return ["mic-2"]
+
+        watcher.set_device_id_provider(provider)
+
+        # Direct invocation — no watcher thread needed.
+        watcher._check_active_mic_lost()
+
+        assert lost_event.is_set(), (
+            "UE-12-F14: _check_active_mic_lost must use the snapshotted "
+            "active_mic_id ('mic-1'), not the live value ('mic-2' set by "
+            "the provider). Without the snapshot, the check would see "
+            "'mic-2' in the device list and skip the lost callback."
+        )
+
+    def test_check_active_mic_lost_clears_id_during_provider_skips_via_snapshot(self):
+        """A concurrent ``set_active_mic_id(None)`` during the provider
+        call does NOT suppress a legitimately-detected loss.
+
+        This is the inverse of the previous test: the snapshot was
+        taken when ``active_mic_id = "mic-1"`` (a real recording), so
+        the loss is reported. A concurrent recording-stop (which
+        clears ``active_mic_id`` to ``None``) must not race in between
+        the guard and the check — the snapshot guarantees we still
+        report the loss for the recording that WAS active when the
+        check started.
+        """
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+        watcher._platform = "linux"
+
+        lost_event = threading.Event()
+        watcher.set_active_mic_id("mic-1")
+        watcher.set_on_active_mic_lost(lost_event.set)
+
+        def provider():
+            # Simulate a concurrent recording-stop landing during the
+            # provider call. The snapshot path must not crash when the
+            # attribute is mutated underneath.
+            watcher.set_active_mic_id(None)
+            return ["other-mic"]
+
+        watcher.set_device_id_provider(provider)
+
+        watcher._check_active_mic_lost()
+
+        assert lost_event.is_set(), (
+            "The snapshot was 'mic-1' (not in ['other-mic']); the lost "
+            "callback must fire even though a concurrent set_active_mic_id(None) "
+            "landed during the provider call."
+        )
+        # After the check, the live value reflects the concurrent clear.
+        assert watcher._active_mic_id is None
+
+    def test_set_methods_are_thread_safe_under_concurrent_calls(self):
+        """Concurrent ``set_*`` calls don't corrupt the attributes.
+
+        Fires many concurrent registrations of all three hooks. With
+        the lock, each assignment is atomic — the attributes end up
+        holding one of the registered values (not a torn reference).
+        Without the lock, CPython's GIL still makes simple assignments
+        atomic, so this test is mostly a regression guard that the
+        lock doesn't deadlock under contention.
+        """
+        watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
+
+        def setter_active():
+            for _i in range(200):
+                watcher.set_active_mic_id(f"mic-{_i}")
+
+        def setter_lost():
+            for _i in range(200):
+                watcher.set_on_active_mic_lost(lambda: None)
+
+        def setter_provider():
+            for _i in range(200):
+                watcher.set_device_id_provider(lambda: [])
+
+        threads = [
+            threading.Thread(target=setter_active),
+            threading.Thread(target=setter_lost),
+            threading.Thread(target=setter_provider),
+            threading.Thread(target=setter_active),
+            threading.Thread(target=setter_lost),
+            threading.Thread(target=setter_provider),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # All setters completed without deadlock. The final values
+        # are whichever assignment landed last — we just verify they
+        # are not corrupted (still callable / str / None).
+        assert watcher._active_mic_id is None or isinstance(watcher._active_mic_id, str)
+        assert callable(watcher._on_active_mic_lost)
+        assert callable(watcher._device_id_provider)

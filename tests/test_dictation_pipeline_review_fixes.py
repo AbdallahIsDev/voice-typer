@@ -441,11 +441,16 @@ class TestTranscribeNoBroadTypeErrorCatch:
         pre-fix broad catch would have retried and re-raised the
         same TypeError, producing a confusing trace. Post-fix, the
         original TypeError propagates directly.
+
+        UE-10 sibling: ``_transcribe`` now pops the streaming
+        session via ``pop_streaming_session()`` (atomic) instead of
+        the racy get+set pair, so we mock the pop (not the get)
+        to force the batch path.
         """
         app = _make_app()
         # No streaming session — forces the ``else`` branch which
         # calls active.transcribe_with_fallback.
-        app.recording.get_streaming_session.return_value = None
+        app.recording.pop_streaming_session.return_value = None
 
         active = MagicMock()
         sentinel = TypeError("simulated None.lower() bug")
@@ -470,9 +475,14 @@ class TestTranscribeNoBroadTypeErrorCatch:
     def test_audio_stats_passed_through_to_engine(self):
         """The audio_stats tuple captured from the recorder must be
         forwarded to the engine's transcribe_with_fallback.
+
+        UE-10 sibling: ``_transcribe`` now pops the streaming
+        session via ``pop_streaming_session()`` (atomic) instead of
+        the racy get+set pair, so we mock the pop (not the get)
+        to force the batch path.
         """
         app = _make_app()
-        app.recording.get_streaming_session.return_value = None
+        app.recording.pop_streaming_session.return_value = None
 
         active = MagicMock()
         active.transcribe_with_fallback.return_value = "hello"

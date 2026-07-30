@@ -21,10 +21,11 @@ Each test pins a specific finding from the comprehensive review:
   message to both the renderer (event_bus) and the tray notification,
   NOT the raw exception text (which may contain absolute file paths,
   device names, hostnames, or audio metadata).
-- ``DE-52`` — ``stop()`` uses ``pop_streaming_session()`` (atomic
-  get-and-clear) instead of ``get_streaming_session`` + setting the
-  cancel event (which left the session in the slot, leaking worker
-  thread + audio chunk references until the next ``start()``).
+- ``DE-52`` / ``UE-9-F1`` — ``stop()`` uses ``pop_streaming_session()``
+  (atomic get-and-clear) + public ``session.cancel()`` instead of
+  ``get_streaming_session`` + setting the private cancel event (which
+  left the session in the slot, leaking worker thread + audio chunk
+  references until the next ``start()``).
 - ``DE-55`` — ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the
   previous thread before deciding to reuse vs create new, so a dying
   thread (in the window between ``_watchdog_stop_event.set()`` and
@@ -61,6 +62,11 @@ def _make_controller() -> RecordingController:
     app.recorder = MagicMock()
     app.recorder.recording = False
     app.recorder.last_rms = 0.0
+    # UE-9-F6: ``_stop_impl`` reads ``_dropped_ring_chunks`` after
+    # ``recorder.stop()`` and logs a WARNING if > 0. MagicMock auto-
+    # creates attributes as truthy MagicMocks, so set it to 0 explicitly
+    # to avoid spurious WARNINGs in every stop() test.
+    app.recorder._dropped_ring_chunks = 0
     app.config = MagicMock()
     app.config.voice_biometric_consent = True
     app.config.sample_rate = 16000
@@ -385,22 +391,28 @@ class TestDE51GenericErrorMessage:
         assert "Could not start recording" in msg
 
 
-# ─── DE-52: stop() streaming session signalled but not cleared ─────────
-# NOTE: the full DE-52 fix (pop the session in stop()) was NOT applied
-# because it would break ``DictationPipeline._transcribe`` (outside this
-# file's ownership), which reads the session via ``get_streaming_session()``
-# and calls ``session.finalize(audio)`` on it. See the inline comment in
-# ``recording_controller._stop_impl`` for the full reasoning. The test
-# below verifies the documented contract: stop() sets the cancel_event
-# on the session (signalling the worker to wind down) and the pipeline
-# is responsible for clearing the slot in its finally block.
+# ─── DE-52 / UE-9-F1: stop() pops + cancels the streaming session ───────
+# UE-9-F1 (supersedes the DE-52 partial deferral): ``_stop_impl`` now
+# uses the atomic ``_cancel_streaming_session()`` helper
+# (``pop_streaming_session()`` + public ``session.cancel()``) instead
+# of get + private-attr poke. The session is popped from the slot
+# (clearing ``self._streaming_session``) and cancelled via the public
+# API. This eliminates the stale-session reference that previously
+# persisted across the entire transcription window.
+#
+# NOTE (UE-9 / UE-10 coordination): popping the session here means
+# ``DictationPipeline._transcribe`` can no longer read it via
+# ``get_streaming_session()`` — it falls back to direct batch
+# transcription. The UE-10 sibling fix (``dictation_pipeline.py``)
+# updates the pipeline to use ``pop_streaming_session()`` before
+# ``finalize()``.
 
 
 class TestDE52StopSignalsStreamingSession:
-    """DE-52 (partial): ``stop()`` sets the cancel_event on the active
-    streaming session so the worker thread winds down. The full
-    pop-on-stop fix is deferred — see the inline comment in
-    ``_stop_impl`` for why."""
+    """DE-52 / UE-9-F1: ``stop()`` pops the active streaming session
+    from the slot and calls the public ``cancel()`` method on it so the
+    worker thread winds down. The session is NO LONGER left in the slot
+    (the pre-fix private-attr poke + no-pop behavior is gone)."""
 
     def test_cancel_event_set_on_session_after_stop(self):
         ctrl, app = _make_controller()
@@ -416,14 +428,23 @@ class TestDE52StopSignalsStreamingSession:
         with patch("voice_typer.server.dictation_pipeline.DictationPipeline"):
             ctrl.stop()
 
-        # DE-52 (partial): the cancel_event on the session must have
-        # been set so the worker thread winds down. The full fix would
-        # ALSO pop the session from the slot — but that requires
-        # coordinated changes to dictation_pipeline.py (outside this
-        # file's ownership). See the inline comment in _stop_impl.
-        assert fake_session._cancel_event.is_set(), (
-            "DE-52 (partial): stop() must set the cancel_event on the active "
-            "streaming session so its worker thread winds down."
+        # UE-9-F1: the public ``cancel()`` method must have been called
+        # on the session (NOT a private ``_cancel_event.set()`` poke).
+        # ``cancel()`` internally sets ``_cancel_event`` plus does
+        # thread/registry cleanup, so it is a strict superset of the
+        # pre-fix poke.
+        assert fake_session.cancel.called, (
+            "UE-9-F1: stop() must call session.cancel() (public method) on "
+            "the active streaming session, not poke the private _cancel_event."
+        )
+        # UE-9-F1: the session must have been POPPED from the slot —
+        # ``get_streaming_session()`` returns None after stop(). Pre-fix,
+        # the slot kept pointing at the now-cancelled session across the
+        # entire transcription window.
+        assert ctrl.get_streaming_session() is None, (
+            "UE-9-F1: stop() must pop the streaming session from the slot "
+            "(pop_streaming_session). Pre-fix, the stale session reference "
+            "persisted in self._streaming_session."
         )
 
 

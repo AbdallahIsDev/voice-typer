@@ -213,10 +213,22 @@ class TestTranscribeEmptyResultDiagnostic:
     def test_empty_batch_result_logs_warning(self, caplog):
         """When ``transcribe_with_fallback`` returns "" on the batch
         path, a warning must be logged with the diagnostic context.
+
+        UE-10 sibling: ``_transcribe`` now pops the streaming
+        session via ``pop_streaming_session()`` (atomic) instead of
+        the racy get+set pair, so we mock the pop (not the get)
+        to force the batch path.
+
+        UE-47: the test's MagicMock ``active`` has a truthy
+        ``is_loaded`` attribute (MagicMock auto-mock), so
+        ``backend_was_loaded`` is True and the empty-warning path
+        runs WITHOUT raising ``BackendNotLoadedError`` — the test
+        still asserts ``result == ""`` (the empty string propagates
+        unchanged when the backend WAS loaded).
         """
         app = _TestApp()
         # No streaming session → forces the batch path.
-        app.recording.get_streaming_session.return_value = None
+        app.recording.pop_streaming_session.return_value = None
 
         active = MagicMock()
         active.transcribe_with_fallback.return_value = ""  # empty!
@@ -245,9 +257,14 @@ class TestTranscribeEmptyResultDiagnostic:
         assert "path=batch" in msg, f"path missing from: {msg}"
 
     def test_nonempty_result_does_not_log_empty_warning(self, caplog):
-        """When transcription succeeds, no empty-result warning fires."""
+        """When transcription succeeds, no empty-result warning fires.
+
+        UE-10 sibling: ``_transcribe`` now pops the streaming session
+        via ``pop_streaming_session()`` (atomic), so we mock the pop
+        (not the get) to force the batch path.
+        """
         app = _TestApp()
-        app.recording.get_streaming_session.return_value = None
+        app.recording.pop_streaming_session.return_value = None
 
         active = MagicMock()
         active.transcribe_with_fallback.return_value = "hello world"

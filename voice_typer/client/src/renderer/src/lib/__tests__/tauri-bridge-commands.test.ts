@@ -82,6 +82,13 @@ interface WindowBridgeState {
 		setDraggable?: (draggable: boolean) => void;
 		moveBy?: (dx: number, dy: number) => void;
 		hideComplete?: () => void;
+		// UE-14: `dismiss` is now wired in the Tauri bridge
+		// (invoke("bubble_dismiss")). Optional here because the
+		// main-renderer bridge (label "main") doesn't install
+		// it — the bubble-dismiss test below overrides
+		// `getCurrentWindow` to return `label: "bubble"` so the
+		// full BubbleWindowBubble (including dismiss) is installed.
+		dismiss?: () => void;
 	};
 	window_?: {
 		minimize: () => void;
@@ -343,6 +350,40 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		bubble?.hideComplete?.();
 
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_hide_complete");
+	});
+
+	it("bubble.dismiss invokes 'bubble_dismiss' with no args (UE-14)", async () => {
+		// UE-14: the Tauri bridge now wires `dismiss` to
+		// `invoke("bubble_dismiss")`. The `dismiss` method is
+		// bubble-window-only (it's on `BubbleWindowExtras`, not
+		// `MainRendererBubbleMutators`), so the default
+		// `makeTauriStub` (which returns a window without a
+		// `label`, defaulting to "main") would NOT install it.
+		// Override `getCurrentWindow` to return `label: "bubble"`
+		// so the bridge installs the full `BubbleWindowBubble`
+		// (including `dismiss`). This mirrors how the real
+		// bubble window's bridge is installed in production
+		// (`installTauriBridge()` in index.ts reads
+		// `getCurrentWindow().label` and passes "bubble" to
+		// `createBubbleNamespace` when the label is "bubble").
+		const stub = makeTauriStub();
+		stub.window.getCurrentWindow = vi.fn(() => ({
+			label: "bubble",
+			minimize: vi.fn(() => Promise.resolve()),
+			toggleMaximize: vi.fn(() => Promise.resolve()),
+			close: vi.fn(() => Promise.resolve()),
+			isMaximized: vi.fn(() => Promise.resolve(false)),
+			onResized: vi.fn(() => Promise.resolve(() => {})),
+		}));
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+
+		await import("@/lib/tauri-bridge");
+
+		const bubble = (window as unknown as WindowBridgeState).bubble;
+		expect(bubble?.dismiss).toBeDefined();
+		bubble?.dismiss?.();
+
+		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_dismiss");
 	});
 
 	// ─── MIG-1.9: Electron-mode no-op (Phase 3 UI port invariant) ──

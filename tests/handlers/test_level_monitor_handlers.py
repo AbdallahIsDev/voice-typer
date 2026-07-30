@@ -1,18 +1,22 @@
 """Unit tests for ``LevelMonitorHandlersMixin`` (CR-12).
 
-Covers the 3 level-monitor IPC handlers defined in
+Covers the 2 level-monitor IPC handlers defined in
 ``voice_typer/server/handlers/level_monitor_handlers.py``:
 
 - ``_handle_level_monitor_start`` — start the background level monitor
   (optional ``mic_id``).
 - ``_handle_level_monitor_stop`` — stop the background level monitor.
-- ``_handle_level_monitor_status`` — poll the monitor's running state.
 
-All three handlers are thin pass-throughs that return
+Both handlers are thin pass-throughs that return
 ``{type: level_monitor_status, data: <result>}`` on success.  The
 interesting invariant is in ``_handle_level_monitor_start``: a
 non-dict ``data`` payload is gracefully coerced to ``{}`` so
 ``mic_id`` defaults to ``None``.
+
+UE-15 (2026-07-30): ``_handle_level_monitor_status`` was deleted —
+the renderer subscribes to the ``level_monitor_level`` push event
+instead of polling a status endpoint. The corresponding
+``TestLevelMonitorStatus`` class was removed in lockstep.
 """
 
 from __future__ import annotations
@@ -98,32 +102,6 @@ class TestLevelMonitorStop:
     def test_service_raises_returns_error(self, ipc_server, fake_service):
         fake_service.level_monitor_stop.side_effect = RuntimeError("not running")
         resp = ipc_server._handle_level_monitor_stop({}, {})
-        assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
-
-
-class TestLevelMonitorStatus:
-    """``_handle_level_monitor_status`` — poll the monitor's running state."""
-
-    def test_happy_path_returns_level_monitor_status(self, ipc_server, fake_service):
-        fake_service.level_monitor_status.return_value = {
-            "running": True,
-            "elapsed_seconds": 12.5,
-            "mic_id": "usb_mic_1",
-        }
-        resp = ipc_server._handle_level_monitor_status({}, {})
-        assert resp["type"] == "level_monitor_status"
-        assert resp["data"] == {
-            "running": True,
-            "elapsed_seconds": 12.5,
-            "mic_id": "usb_mic_1",
-        }
-
-    def test_service_raises_returns_error(self, ipc_server, fake_service):
-        fake_service.level_monitor_status.side_effect = RuntimeError("state corrupt")
-        resp = ipc_server._handle_level_monitor_status({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"

@@ -1,6 +1,6 @@
 """Unit tests for ``ModelHandlersMixin`` (CR-12).
 
-Covers the 8 model-management IPC handlers defined in
+Covers the 7 model-management IPC handlers defined in
 ``voice_typer/server/handlers/model_handlers.py``:
 
 - ``_handle_download_model`` — validates ``model`` name, calls
@@ -9,11 +9,15 @@ Covers the 8 model-management IPC handlers defined in
 - ``_handle_pause_model_download`` / ``_handle_resume_model_download`` —
   toggle the in-progress download pause flag.
 - ``_handle_get_model_catalog`` — returns the static ``MODEL_REGISTRY``.
-- ``_handle_test_llm_connection`` — calls ``service.test_llm_connection``.
 - ``_handle_import_model`` — validates ``dir_path`` against allowed roots,
   checks the directory exists, then calls ``service.import_model``.
 - ``_handle_delete_model`` — validates ``model`` name, calls
   ``service.delete_model``.
+
+UE-15 (2026-07-30): ``_handle_test_llm_connection`` was deleted — the
+renderer's Settings page now uses ``service.test_llm_connection``
+directly (not over IPC). The corresponding ``TestTestLlmConnection``
+class was removed in lockstep.
 """
 
 from __future__ import annotations
@@ -113,25 +117,6 @@ class TestGetModelCatalog:
         # Each entry must be a dict (the to_dict() output).
         first = resp["data"]["models"][0]
         assert isinstance(first, dict)
-
-
-class TestTestLlmConnection:
-    """``_handle_test_llm_connection`` — tests the LLM Polisher connection."""
-
-    def test_happy_path_returns_test_result(self, ipc_server, fake_service):
-        fake_service.test_llm_connection.return_value = {"ok": True, "latency_ms": 120}
-        resp = ipc_server._handle_test_llm_connection({}, {})
-        assert resp["type"] == "test_llm_connection_result"
-        assert resp["data"] == {"ok": True, "latency_ms": 120}
-        fake_service.test_llm_connection.assert_called_once_with()
-
-    def test_service_raises_returns_error(self, ipc_server, fake_service):
-        fake_service.test_llm_connection.side_effect = RuntimeError("api key invalid")
-        resp = ipc_server._handle_test_llm_connection({}, {})
-        assert resp["type"] == "error"
-        # CR-20 + G4-M-22: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
 
 
 class TestImportModel:

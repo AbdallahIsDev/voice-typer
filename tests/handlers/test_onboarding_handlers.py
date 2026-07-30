@@ -1,11 +1,10 @@
 """Unit tests for ``OnboardingHandlersMixin`` (CR-12).
 
-Covers the 13 onboarding-wizard IPC handlers defined in
+Covers the onboarding-wizard IPC handlers defined in
 ``voice_typer/server/handlers/onboarding_handlers.py``:
 
 Step-navigation handlers (return ``{type: onboarding_step, data: <step>}``):
 - ``_handle_onboarding_start``
-- ``_handle_onboarding_get_step``
 - ``_handle_onboarding_next_step``
 - ``_handle_onboarding_prev_step``
 
@@ -31,6 +30,15 @@ if the service returned a dict containing an ``error`` key (the
 service uses this to signal e.g. "microphone not found").  This is
 the only handler in the IPC layer that branches on the service
 return value's shape rather than on exceptions.
+
+UE-15 (2026-07-30): ``_handle_onboarding_get_step``,
+``_handle_onboarding_get_model_catalog``, and
+``_handle_onboarding_request_keyboard_permission`` were deleted from
+``OnboardingHandlersMixin`` (the renderer no longer invokes them).
+The corresponding ``TestOnboardingStepNavigation.test_get_step_*``,
+``TestOnboardingGetModelCatalogHandler``, and any
+``TestOnboardingRequestKeyboardPermission`` classes were removed in
+lockstep.
 """
 
 from __future__ import annotations
@@ -55,18 +63,13 @@ class TestOnboardingIsFirstRun:
 
 
 class TestOnboardingStepNavigation:
-    """The 4 step-navigation handlers all return ``{type: onboarding_step}``."""
+    """The 3 step-navigation handlers all return ``{type: onboarding_step}``."""
 
     def test_start_returns_onboarding_step(self, ipc_server, fake_service):
         fake_service.onboarding_start.return_value = {"step": "welcome", "index": 0}
         resp = ipc_server._handle_onboarding_start({}, {})
         assert resp["type"] == "onboarding_step"
         assert resp["data"] == {"step": "welcome", "index": 0}
-
-    def test_get_step_returns_onboarding_step(self, ipc_server, fake_service):
-        fake_service.onboarding_get_step.return_value = {"step": "mic_select", "index": 1}
-        resp = ipc_server._handle_onboarding_get_step({}, {})
-        assert resp["type"] == "onboarding_step"
 
     def test_next_step_returns_onboarding_step(self, ipc_server, fake_service):
         fake_service.onboarding_next_step.return_value = {"step": "hotkey", "index": 2}
@@ -251,85 +254,7 @@ class TestOnboardingListHandlers:
         assert resp["data"]["message"] == "internal error"
 
 
-# ── FIX-11: new onboarding IPC handlers (UX-32 / UX-4 / UX-27) ────────
-
-
-class TestOnboardingGetModelCatalogHandler:
-    """``_handle_onboarding_get_model_catalog`` — UX-32.
-
-    Returns the full ``model_registry`` catalog (rich metadata) so
-    the wizard's Model step can render every variant with VRAM /
-    language / speed / accuracy badges, instead of being limited to
-    the curated ``MODEL_OPTIONS`` subset.
-
-    Unlike most onboarding handlers, this does NOT delegate to
-    ``self.service`` — the catalog is pure static metadata shared
-    with the Models page's ``get_model_catalog`` IPC.
-    """
-
-    def test_happy_path_returns_onboarding_model_catalog(self, ipc_server, fake_service):
-        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
-        assert resp["type"] == "onboarding_model_catalog"
-        models = resp["data"]["models"]
-        assert isinstance(models, list)
-        assert len(models) > 0
-        # Catalog is a superset of MODEL_OPTIONS — must include the
-        # English-only Whisper variants plus multilingual, distilled,
-        # turbo, Parakeet.
-        names = {m["name"] for m in models}
-        assert "tiny.en" in names
-        assert "small.en" in names
-        assert "parakeet" in names
-
-    def test_response_includes_rich_metadata_fields(self, ipc_server, fake_service):
-        """UX-32 / UX-13: catalog entries must carry rich metadata
-        fields (download_size_mb, required_vram_mb, backend,
-        multilingual, supported_languages, repo_id, speed_rating,
-        accuracy_rating) so the renderer can render badges."""
-        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
-        models = resp["data"]["models"]
-        required_fields = {
-            "name",
-            "download_size_mb",
-            "required_vram_mb",
-            "backend",
-            "multilingual",
-            "supported_languages",
-            "repo_id",
-            "speed_rating",
-            "accuracy_rating",
-        }
-        for entry in models:
-            missing = required_fields - set(entry.keys())
-            assert not missing, f"catalog entry {entry.get('name')!r} missing: {missing}"
-
-    def test_does_not_call_service(self, ipc_server, fake_service):
-        """The handler must NOT delegate to ``self.service`` — the
-        catalog is pure static metadata from ``model_registry``."""
-        fake_service.onboarding_get_model_options.reset_mock()
-        fake_service.onboarding_get_model_catalog = None  # type: ignore[attr-defined]
-        ipc_server._handle_onboarding_get_model_catalog({}, {})
-        # Verify the service was never asked for model options.
-        fake_service.onboarding_get_model_options.assert_not_called()
-
-    def test_registry_failure_returns_error(self, ipc_server, fake_service, monkeypatch):
-        """If the catalog lookup raises, the handler returns an
-        ``error`` response (rather than propagating the exception)."""
-        # Force OnboardingController.get_model_catalog to raise.
-        from voice_typer.server import onboarding as onboarding_mod
-
-        def _boom():
-            raise RuntimeError("registry corrupted")
-
-        monkeypatch.setattr(onboarding_mod.OnboardingController, "get_model_catalog", _boom)
-        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
-        assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak) —
-        # the handler no longer surfaces "registry corrupted" to the
-        # renderer; the full traceback lands in voice-typer.log via
-        # ``_respond_with_error``'s ``log.error(..., exc_info=True)``.
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
+# ── FIX-11: new onboarding IPC handlers (UX-4 / UX-27) ────────────────
 
 
 class TestOnboardingCheckPermissionsHandler:

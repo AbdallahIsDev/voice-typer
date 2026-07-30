@@ -185,3 +185,125 @@ def test_secure_rotating_file_handler_chmods_after_rollover(tmp_path):
         f"FR-2: _SecureRotatingFileHandler.doRollover must chmod the active file to 0o600; got {oct(mode)}"
     )
     handler.close()
+
+
+# ─── UE-17: umask tightening + chmod inside the lock ────────────────────
+
+
+def test_do_rollover_restores_umask_after_success(tmp_path):
+    """UE-17: ``doRollover`` tightens the process umask to 0o077 for the
+    duration of the rollover and restores the prior umask in ``finally``.
+    """
+    log_file = tmp_path / "ue17-umask-restore.log"
+    handler = vt_log._SecureRotatingFileHandler(log_file, maxBytes=64, backupCount=1)
+    handler.setLevel(logging.DEBUG)
+
+    sentinel_umask = 0o037
+    saved = os.umask(sentinel_umask)
+    try:
+        record = logging.LogRecord("vt", logging.INFO, __file__, 1, "x" * 128, None, None)
+        handler.emit(record)
+        handler.doRollover()
+        assert os.umask(sentinel_umask) == sentinel_umask, (
+            f"UE-17: doRollover must restore the prior umask; expected "
+            f"{oct(sentinel_umask)}, got {oct(os.umask(sentinel_umask))}"
+        )
+    finally:
+        os.umask(saved)
+        handler.close()
+
+
+def test_do_rollover_restores_umask_on_early_return(tmp_path):
+    """UE-17: the umask is restored even when ``doRollover`` takes the
+    early-return path (``_rotation_needed()`` returns False).
+    """
+    log_file = tmp_path / "ue17-umask-early.log"
+    handler = vt_log._SecureRotatingFileHandler(log_file, maxBytes=1024, backupCount=1)
+    handler.setLevel(logging.DEBUG)
+
+    sentinel_umask = 0o037
+    saved = os.umask(sentinel_umask)
+    try:
+        handler.doRollover()
+        assert os.umask(sentinel_umask) == sentinel_umask, (
+            f"UE-17: doRollover must restore the prior umask even on the "
+            f"early-return path; expected {oct(sentinel_umask)}, got "
+            f"{oct(os.umask(sentinel_umask))}"
+        )
+    finally:
+        os.umask(saved)
+        handler.close()
+
+
+def test_do_rollover_umask_tightened_during_super_call(tmp_path, monkeypatch):
+    """UE-17: during ``super().doRollover()`` the umask must be 0o077 so
+    the new active log file is born 0o600 from the first ``open()`` call.
+    """
+    log_file = tmp_path / "ue17-umask-during.log"
+    handler = vt_log._SecureRotatingFileHandler(log_file, maxBytes=64, backupCount=1)
+    handler.setLevel(logging.DEBUG)
+
+    captured = []
+    original = logging.handlers.RotatingFileHandler.doRollover
+
+    def spy(self):
+        captured.append(os.umask(0o077))
+        os.umask(captured[-1])
+        return original(self)
+
+    monkeypatch.setattr(logging.handlers.RotatingFileHandler, "doRollover", spy)
+
+    sentinel = 0o022
+    saved = os.umask(sentinel)
+    try:
+        record = logging.LogRecord("vt", logging.INFO, __file__, 1, "x" * 128, None, None)
+        handler.emit(record)
+        handler.doRollover()
+    finally:
+        os.umask(saved)
+        handler.close()
+
+    assert captured, "UE-17 test setup failed: super().doRollover() was not invoked"
+    assert captured[0] == 0o077, (
+        f"UE-17: during super().doRollover() the umask must be 0o077; got "
+        f"{oct(captured[0])}. Pre-UE-17 the umask was the parent's value "
+        f"(typically 0o022) and the file was created world-readable (0o644)."
+    )
+
+
+def test_do_rollover_chmod_runs_inside_lock(tmp_path, monkeypatch):
+    """UE-17: the post-rotation ``os.chmod`` runs INSIDE the lock (before
+    ``_release_rotation_lock``).
+    """
+    log_file = tmp_path / "ue17-chmod-order.log"
+    handler = vt_log._SecureRotatingFileHandler(log_file, maxBytes=64, backupCount=1)
+    handler.setLevel(logging.DEBUG)
+
+    call_order: list[str] = []
+    original_release = handler._release_rotation_lock
+
+    def spy_release(fd):
+        call_order.append("release")
+        return original_release(fd)
+
+    monkeypatch.setattr(handler, "_release_rotation_lock", spy_release)
+
+    original_chmod = os.chmod
+
+    def spy_chmod(path, *args, **kwargs):
+        if str(path) == str(log_file):
+            call_order.append("chmod")
+        return original_chmod(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", spy_chmod)
+
+    record = logging.LogRecord("vt", logging.INFO, __file__, 1, "x" * 128, None, None)
+    handler.emit(record)
+    handler.doRollover()
+    handler.close()
+
+    assert "chmod" in call_order, f"UE-17: chmod not called; call_order={call_order!r}"
+    assert "release" in call_order, f"UE-17: release not called; call_order={call_order!r}"
+    assert call_order.index("chmod") < call_order.index("release"), (
+        f"UE-17: chmod must run BEFORE release; got call_order={call_order!r}"
+    )

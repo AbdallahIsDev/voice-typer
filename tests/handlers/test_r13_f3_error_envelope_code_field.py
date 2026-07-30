@@ -16,7 +16,11 @@ class TestErrorResponseHelper:
         result = _error_response(resp, "disk full")
         assert result is resp
         assert result["type"] == "error"
-        assert result["data"] == {"code": "server.handler_error", "message": "disk full"}
+        assert result["data"] == {
+            "code": "server.handler_error",
+            "legacy_code": "handler_error",
+            "message": "disk full",
+        }
         assert result["id"] == 42
 
     def test_default_code_is_server_handler_error(self):
@@ -40,7 +44,11 @@ class TestErrorResponseHelper:
         _error_response(resp, "handler raised")
         assert resp["id"] == 99
         assert resp["type"] == "error"
-        assert resp["data"] == {"code": "server.handler_error", "message": "handler raised"}
+        assert resp["data"] == {
+            "code": "server.handler_error",
+            "legacy_code": "handler_error",
+            "message": "handler raised",
+        }
 
     def test_message_is_not_truncated_or_modified(self):
         from voice_typer.server.ipc.validation import _error_response
@@ -82,13 +90,23 @@ class TestErrorCodesRegistry:
             result = helper._respond_with_error(resp, exc, "test_cmd")
         assert result is resp
         assert result["type"] == "error"
-        assert result["data"] == {"code": "server.internal_error", "message": "internal error"}
+        assert result["data"] == {
+            "code": "server.internal_error",
+            "legacy_code": "internal_error",
+            "message": "internal error",
+        }
         assert "simulated handler crash" not in str(result["data"])
 
 
 class TestHandlerFilesUseHelper:
     HANDLERS_DIR = Path("voice_typer/server/handlers")
     NON_HANDLER_FILES = {"__init__.py", "_base.py", "_log.py"}
+    # UE-15 (2026-07-30): these handlers were reduced to empty stubs
+    # (the IPC dispatch routes were deleted; the Tauri host invokes
+    # the service layer directly via dedicated Rust commands). They
+    # have no catch-all to wrap, so the helper-coverage test must
+    # skip them.
+    STUB_HANDLER_FILES = {"privacy_handlers.py", "vocabulary_automation_handlers.py"}
 
     @pytest.fixture(autouse=True)
     def _handlers_dir_exists(self):
@@ -98,6 +116,8 @@ class TestHandlerFilesUseHelper:
     def _handler_files(self):
         for fpath in sorted(self.HANDLERS_DIR.glob("*.py")):
             if fpath.name in self.NON_HANDLER_FILES:
+                continue
+            if fpath.name in self.STUB_HANDLER_FILES:
                 continue
             yield fpath, fpath.read_text()
 
@@ -143,8 +163,14 @@ class TestHandlerCatchAllEnvelopeShape:
         assert resp["data"]["message"] == "internal error"
 
     def test_export_diagnostics_catch_all_has_code_field(self, ipc_server, fake_service):
-        fake_service.export_diagnostics.side_effect = RuntimeError("disk full")
-        resp = ipc_server._handle_export_diagnostics({}, {})
+        """UE-15 (2026-07-30): ``_handle_export_diagnostics`` was deleted
+        from ``SystemHandlersMixin`` (the Tauri host handles the
+        diagnostics export via a dedicated Rust command). The
+        catch-all envelope-shape regression it covered is now exercised
+        via ``_handle_cancel_model_download`` (a sibling handler with
+        the same catch-all path)."""
+        fake_service.cancel_model_download.side_effect = RuntimeError("disk full")
+        resp = ipc_server._handle_cancel_model_download({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
@@ -179,8 +205,11 @@ class TestHandlerCatchAllLogging:
         assert any(r.exc_info is not None for r in error_records)
 
     def test_catch_all_does_not_leak_traceback_to_client(self, ipc_server, fake_service):
-        fake_service.export_diagnostics.side_effect = ValueError("malformed input\n  detail line 1\n  detail line 2")
-        resp = ipc_server._handle_export_diagnostics({}, {})
+        # UE-15: was ``_handle_export_diagnostics`` — switched to
+        # ``_handle_cancel_model_download`` (same catch-all path) after
+        # the export_diagnostics handler was deleted.
+        fake_service.cancel_model_download.side_effect = ValueError("malformed input\n  detail line 1\n  detail line 2")
+        resp = ipc_server._handle_cancel_model_download({}, {})
         msg = resp["data"]["message"]
         assert msg == "internal error"
         assert "Traceback" not in msg

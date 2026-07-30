@@ -568,5 +568,160 @@ class TestCfg3MultiKeyComboRejection:
         assert "3" in result, f"Error message should include the count '3'; got: {result!r}"
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# XE-12-1: caps_lock / capslock are NOT modifiers
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestXe12CapsLockNotAModifier:
+    """XE-12-1 (Medium): ``caps_lock`` and ``capslock`` were previously
+    declared as modifiers in ``hotkey_reserved.json`` even though they
+    are NOT in the canonical ``hotkey_spec.MODIFIER_ALIASES``. The
+    canonical parser (correctly) treats ``caps_lock`` as a non-modifier
+    key (it's a toggle key, not a held modifier). The JSON list was
+    out of sync with the canonical parser, so:
+
+    - ``_HOTKEY_MODIFIERS`` (built from the JSON) contained
+      ``caps_lock`` / ``capslock``.
+    - ``_parse_hotkey_parts`` delegates to the canonical parser, which
+      classifies ``caps_lock`` as a non-modifier key.
+    - The Stage 5 multi-non-modifier check used ``_HOTKEY_MODIFIERS``
+      for the non-mod filter, so ``<caps_lock>+<v>`` was incorrectly
+      accepted (``caps_lock`` was in ``_HOTKEY_MODIFIERS``, so it was
+      filtered out of ``non_mods`` → ``non_mods == ["v"]`` → only one
+      non-modifier → accepted).
+
+    After the fix (remove ``caps_lock`` / ``capslock`` from the JSON
+    modifiers list), ``_HOTKEY_MODIFIERS`` no longer contains them, so
+    Stage 5 correctly sees ``<caps_lock>+<v>`` as having two
+    non-modifier keys (``caps_lock`` and ``v``) and rejects it.
+
+    These tests pin the fix and guard against accidental re-addition
+    of ``caps_lock`` / ``capslock`` to the JSON modifiers list.
+    """
+
+    def test_caps_lock_not_in_hotkey_modifiers(self) -> None:
+        """``caps_lock`` and ``capslock`` must NOT be in
+        ``_HOTKEY_MODIFIERS`` (XE-12-1). They are toggle keys, not
+        held modifiers — the canonical ``hotkey_spec.MODIFIER_ALIASES``
+        correctly excludes them, and the JSON list must agree."""
+        assert "caps_lock" not in _HOTKEY_MODIFIERS, (
+            "XE-12-1: 'caps_lock' must NOT be in _HOTKEY_MODIFIERS — it's a "
+            "toggle key, not a modifier. Remove it from hotkey_reserved.json."
+        )
+        assert "capslock" not in _HOTKEY_MODIFIERS, (
+            "XE-12-1: 'capslock' must NOT be in _HOTKEY_MODIFIERS — it's a "
+            "toggle key, not a modifier. Remove it from hotkey_reserved.json."
+        )
+
+    def test_caps_lock_still_recognized_as_non_modifier_key(self) -> None:
+        """``<caps_lock>`` alone is still a valid single-key hotkey
+        (it's the default hotkey on every platform). XE-12-1 only
+        removes it from the MODIFIERS list — it remains a valid
+        non-modifier key."""
+        # Pin platform to linux for determinism (some single-key
+        # checks are platform-conditional — e.g. <super> on Linux).
+        import voice_typer.server.config_validators as cv
+
+        original = cv._sys.platform
+        cv._sys.platform = "linux"
+        try:
+            assert _validate_hotkey("<caps_lock>") is None, (
+                "<caps_lock> alone should remain a valid hotkey (XE-12-1 only "
+                "removes it from the modifiers list, not from the keyspace)"
+            )
+            assert _validate_hotkey("<capslock>") is None, "<capslock> (no underscore) should remain a valid hotkey"
+        finally:
+            cv._sys.platform = original
+
+    def test_caps_lock_plus_v_rejected(self) -> None:
+        """``<caps_lock>+<v>`` must be rejected — both ``caps_lock``
+        and ``v`` are non-modifier keys, so the combo has 2
+        non-modifiers and is structurally invalid for a global
+        hotkey listener (Stage 5).
+
+        Before XE-12-1, this was incorrectly accepted because
+        ``caps_lock`` was in ``_HOTKEY_MODIFIERS`` (filtered out of
+        ``non_mods`` → only ``v`` counted → 1 non-modifier → accepted).
+        """
+        result = _validate_hotkey("<caps_lock>+<v>")
+        assert result is not None, (
+            "XE-12-1: <caps_lock>+<v> must be rejected — caps_lock is not a "
+            "modifier, so the combo has 2 non-modifier keys (Stage 5)"
+        )
+        assert "at most one non-modifier" in result, (
+            f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
+        )
+
+    def test_caps_lock_plus_ctrl_plus_v_rejected(self) -> None:
+        """``<caps_lock>+<ctrl>+<v>`` must be rejected — even with
+        a real modifier (``ctrl``) present, the combo still has 2
+        non-modifier keys (``caps_lock`` and ``v``) and is structurally
+        invalid (Stage 5).
+
+        Before XE-12-1, this was incorrectly accepted because
+        ``caps_lock`` was in ``_HOTKEY_MODIFIERS`` (filtered out of
+        ``non_mods`` → only ``v`` counted → 1 non-modifier → accepted).
+        """
+        # Pin platform to linux for determinism (Ctrl+V is in the
+        # blocked-letters list, but Stage 5 runs FIRST and rejects
+        # the combo before Stage 8's Ctrl+letter check is reached —
+        # so the rejection reason is the same on every platform).
+        import voice_typer.server.config_validators as cv
+
+        original = cv._sys.platform
+        cv._sys.platform = "linux"
+        try:
+            result = _validate_hotkey("<caps_lock>+<ctrl>+<v>")
+            assert result is not None, (
+                "XE-12-1: <caps_lock>+<ctrl>+<v> must be rejected — caps_lock "
+                "is not a modifier, so the combo has 2 non-modifier keys (Stage 5)"
+            )
+            assert "at most one non-modifier" in result, (
+                f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
+            )
+        finally:
+            cv._sys.platform = original
+
+    def test_capslock_no_underscore_plus_v_rejected(self) -> None:
+        """The ``capslock`` (no underscore) alias must also be
+        rejected in a combo. The canonical parser treats both
+        ``caps_lock`` and ``capslock`` as the same non-modifier key
+        (via ``_normalize_key_name`` in ``native_hotkeys``), so both
+        must be rejected by Stage 5 when combined with another
+        non-modifier key."""
+        result = _validate_hotkey("<capslock>+<v>")
+        assert result is not None, (
+            "XE-12-1: <capslock>+<v> must be rejected — capslock (no underscore) "
+            "is not a modifier, so the combo has 2 non-modifier keys (Stage 5)"
+        )
+        assert "at most one non-modifier" in result, (
+            f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
+        )
+
+    def test_caps_lock_plus_caps_lock_dedups_to_single_key(self) -> None:
+        """``<caps_lock>+<caps_lock>`` is deduplicated by the canonical
+        parser to a single non-modifier key (``keys=("caps_lock",)``),
+        so it's effectively the same as ``<caps_lock>`` alone and is
+        accepted. This test pins that the XE-12-1 fix only rejects
+        combos with TWO DISTINCT non-modifier keys — it doesn't
+        over-block dedup-eligible combos.
+        """
+        import voice_typer.server.config_validators as cv
+
+        original = cv._sys.platform
+        cv._sys.platform = "linux"
+        try:
+            result = _validate_hotkey("<caps_lock>+<caps_lock>")
+            # Dedup'd to a single non-modifier key → accepted.
+            assert result is None, (
+                "XE-12-1: <caps_lock>+<caps_lock> deduplicates to a single "
+                "non-modifier key and should be accepted (same as <caps_lock>); "
+                f"got: {result!r}"
+            )
+        finally:
+            cv._sys.platform = original
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

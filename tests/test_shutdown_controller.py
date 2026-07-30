@@ -274,6 +274,13 @@ class TestDoCleanupIdempotency:
     def test_do_cleanup_twice_is_noop(self, controller, fake_app):
         """Calling ``_do_cleanup()`` twice must invoke each subsystem
         exactly once — the second call is a true no-op."""
+        # XE-17-1: capture backend refs BEFORE _do_cleanup() because the
+        # XZ-R17-11 fix nulls _hotkey_backend/_esc_backend/_repaste_backend
+        # after _teardown_hotkeys (production code is correct; tests must
+        # capture refs before they're nulled).
+        hk = fake_app.hotkeys._hotkey_backend
+        esc = fake_app.hotkeys._esc_backend
+        repaste = fake_app.hotkeys._repaste_backend
         controller._do_cleanup()
         controller._do_cleanup()
 
@@ -284,9 +291,9 @@ class TestDoCleanupIdempotency:
         fake_app.history_db.close.assert_called_once()
         fake_app._crash_recovery.flush.assert_called_once()
         fake_app._crash_recovery.shutdown.assert_called_once()
-        fake_app.hotkeys._hotkey_backend.stop.assert_called_once()
-        fake_app.hotkeys._esc_backend.stop.assert_called_once()
-        fake_app.hotkeys._repaste_backend.stop.assert_called_once()
+        hk.stop.assert_called_once()
+        esc.stop.assert_called_once()
+        repaste.stop.assert_called_once()
         fake_app.tray.stop.assert_called_once()
         fake_app._restore_volume.assert_called_once_with(fade_ms=0)
 
@@ -412,10 +419,15 @@ class TestDoCleanupSubsystemCoverage:
         fake_app._restore_volume.assert_called_once_with(fade_ms=0)
 
     def test_calls_all_three_hotkey_backend_stops(self, controller, fake_app):
+        # XE-17-1: capture backend refs BEFORE _do_cleanup() because the
+        # XZ-R17-11 fix nulls them after _teardown_hotkeys.
+        hk = fake_app.hotkeys._hotkey_backend
+        esc = fake_app.hotkeys._esc_backend
+        repaste = fake_app.hotkeys._repaste_backend
         controller._do_cleanup()
-        fake_app.hotkeys._hotkey_backend.stop.assert_called_once_with()
-        fake_app.hotkeys._esc_backend.stop.assert_called_once_with()
-        fake_app.hotkeys._repaste_backend.stop.assert_called_once_with()
+        hk.stop.assert_called_once_with()
+        esc.stop.assert_called_once_with()
+        repaste.stop.assert_called_once_with()
 
     def test_calls_crash_recovery_flush_and_shutdown(self, controller, fake_app):
         controller._do_cleanup()

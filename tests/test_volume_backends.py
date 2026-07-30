@@ -404,3 +404,354 @@ class TestVolumeBackendFadeTo:
         # With duration_ms <= 0, the default impl does a single set_linear
         assert len(set_calls) == 1
         assert set_calls[0] == 0.5
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UE-25: per-backend consecutive-error counter (observability)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Backends swallow errors and return safe defaults (True for
+# is_speaker_active, None for get_state) so duck-state is never
+# corrupted by a transient backend hiccup.  But a stuck/revoked COM
+# pointer (Windows), a missing CLI tool (Linux), or revoked AppleScript
+# permission (macOS 13+) would degrade ducking to a silent no-op with
+# no log breadcrumb.  UE-25 adds a per-backend consecutive-error
+# counter that surfaces a WARNING after N consecutive failures.
+#
+# The safe-default return values are preserved -- the counter is purely
+# additive observability.
+
+
+class TestUE25WinBackendErrorCounter:
+    """UE-25: WinVolumeBackend.get_state / is_speaker_active error counter."""
+
+    def test_get_state_warns_after_threshold(self, caplog):
+        """3 consecutive get_state failures fire a WARNING (safe-default None preserved)."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.volume_backends import WinVolumeBackend
+
+        b = WinVolumeBackend()
+        # Simulate an initialised backend with a broken _vol COM pointer.
+        b._vol = MagicMock()
+        b._vol.GetMasterVolumeLevelScalar.side_effect = RuntimeError("COM pointer revoked")
+        b._vol.GetMute = MagicMock(return_value=0)
+        b._com_initialized = True
+        b._consecutive_errors = 0
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b.get_state() is None  # safe default preserved
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "get_state" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive get_state failures"
+
+    def test_get_state_counter_resets_on_success(self, caplog):
+        """A single success resets the consecutive-error counter."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.volume_backends import WinVolumeBackend
+
+        b = WinVolumeBackend()
+        b._vol = MagicMock()
+        b._vol.GetMute = MagicMock(return_value=0)
+        b._com_initialized = True
+        b._consecutive_errors = 0
+
+        call_count = [0]
+
+        def flaky():
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                raise RuntimeError("transient")
+            return 0.5  # success on 3rd call
+
+        b._vol.GetMasterVolumeLevelScalar.side_effect = flaky
+
+        with caplog.at_level(logging.WARNING):
+            assert b.get_state() is None  # fail 1
+            assert b.get_state() is None  # fail 2
+            state = b.get_state()  # success
+            assert state is not None
+
+        assert b._consecutive_errors == 0, "Counter must reset on success"
+        # No WARNING should have fired (only 2 consecutive failures).
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "get_state" in r.message and "failed" in r.message
+        ]
+        assert len(warnings) == 0, f"No WARNING should fire below threshold; got {warnings}"
+
+    def test_is_speaker_active_warns_after_threshold(self, caplog):
+        """3 consecutive is_speaker_active failures fire a WARNING (safe-default True preserved)."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.volume_backends import WinVolumeBackend
+
+        b = WinVolumeBackend()
+        b._meter = MagicMock()
+        b._meter.GetPeakValue.side_effect = RuntimeError("meter revoked")
+        b._com_initialized = True
+        b._consecutive_errors = 0
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b.is_speaker_active() is True  # safe default preserved
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "is_speaker_active" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive is_speaker_active failures"
+
+    def test_is_speaker_active_success_resets_counter(self, caplog):
+        """A successful is_speaker_active call resets the counter."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.volume_backends import WinVolumeBackend
+
+        b = WinVolumeBackend()
+        b._meter = MagicMock()
+        b._com_initialized = True
+        b._consecutive_errors = 0
+
+        call_count = [0]
+
+        def flaky():
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                raise RuntimeError("transient")
+            return 0.05  # success on 3rd call (>= 0.01 threshold)
+
+        b._meter.GetPeakValue.side_effect = flaky
+
+        for _ in range(2):
+            assert b.is_speaker_active() is True  # safe default
+        assert b.is_speaker_active() is True  # success (peak >= 0.01)
+        assert b._consecutive_errors == 0, "Counter must reset on success"
+
+
+class TestUE25LinuxBackendErrorCounter:
+    """UE-25: LinuxVolumeBackend._alsa_is_playing error counter."""
+
+    def test_alsa_is_playing_warns_after_threshold(self, caplog, monkeypatch):
+        """3 consecutive _alsa_is_playing failures fire a WARNING (safe-default True preserved)."""
+        import logging
+
+        from voice_typer.server.volume_backends import LinuxVolumeBackend
+
+        b = LinuxVolumeBackend()
+        b._tool = "amixer"  # forces the _alsa_is_playing path
+        b._consecutive_errors = 0
+
+        # Patch volume_backends.Path to raise on construction -- simulates
+        # a broken /proc/asound (e.g. permission denied on all reads).
+        import voice_typer.server.volume_backends as vb_mod
+
+        class BrokenPath:
+            def __init__(self, p):
+                raise OSError("permission denied")
+
+        monkeypatch.setattr(vb_mod, "Path", BrokenPath)
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b._alsa_is_playing() is True  # safe default preserved
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "_alsa_is_playing" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive _alsa_is_playing failures"
+
+    def test_alsa_is_playing_success_resets_counter(self, tmp_path, monkeypatch):
+        """A successful _alsa_is_playing call resets the counter."""
+        from voice_typer.server.volume_backends import LinuxVolumeBackend
+
+        b = LinuxVolumeBackend()
+        b._tool = "amixer"
+        b._consecutive_errors = 5  # pretend we had prior failures
+
+        # Build a fake /proc/asound with no running substreams (returns False = success).
+        import voice_typer.server.volume_backends as vb_mod
+
+        original_path = vb_mod.Path
+
+        def fake_path(p):
+            if str(p) == "/proc/asound":
+                return original_path(str(tmp_path))
+            return original_path(str(p))
+
+        monkeypatch.setattr(vb_mod, "Path", fake_path)
+
+        result = b._alsa_is_playing()
+        assert result is False  # no running substreams
+        assert b._consecutive_errors == 0, "Counter must reset on success"
+
+
+class TestUE25MacBackendErrorCounter:
+    """UE-25: MacVolumeBackend._osascript_run / _osascript_get_state error counter."""
+
+    def test_osascript_run_warns_after_threshold(self, caplog, monkeypatch):
+        """3 consecutive _osascript_run failures fire a WARNING (safe-default None preserved)."""
+        import logging
+
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        b._use_coreaudio = False
+        b._consecutive_errors = 0
+
+        # Patch subprocess.run to raise -- simulates osascript missing.
+        import voice_typer.server.volume_backends.macos as mac_mod
+
+        def broken_run(*args, **kwargs):
+            raise FileNotFoundError("osascript not found")
+
+        monkeypatch.setattr(mac_mod.subprocess, "run", broken_run)
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b._osascript_run("get volume settings") is None  # safe default
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "_osascript_run" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive _osascript_run failures"
+
+    def test_osascript_run_nonzero_exit_increments_counter(self, caplog, monkeypatch):
+        """A non-zero osascript exit (e.g. revoked permission) increments the counter."""
+        import logging
+
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        b._use_coreaudio = False
+        b._consecutive_errors = 0
+
+        import voice_typer.server.volume_backends.macos as mac_mod
+
+        class FakeResult:
+            returncode = 1
+            stderr = "execution error: Not authorised to send Apple events. (-1743)"
+            stdout = ""
+
+        monkeypatch.setattr(mac_mod.subprocess, "run", lambda *a, **k: FakeResult())
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b._osascript_run("get volume settings") is None
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "_osascript_run" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 non-zero osascript exits"
+
+    def test_osascript_run_success_resets_counter(self, monkeypatch):
+        """A successful _osascript_run call resets the counter."""
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        b._use_coreaudio = False
+        b._consecutive_errors = 5  # pretend we had prior failures
+
+        import voice_typer.server.volume_backends.macos as mac_mod
+
+        class FakeResult:
+            returncode = 0
+            stderr = ""
+            stdout = "65"
+
+        monkeypatch.setattr(mac_mod.subprocess, "run", lambda *a, **k: FakeResult())
+
+        result = b._osascript_run("get volume settings")
+        assert result == "65"
+        assert b._consecutive_errors == 0, "Counter must reset on success"
+
+    def test_osascript_get_state_parse_error_increments_counter(self, caplog):
+        """An unparseable volume string from _osascript_get_state increments the counter."""
+        import logging
+
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        b._use_coreaudio = False
+        b._consecutive_errors = 0
+
+        # _osascript_run returns a non-numeric string -> ValueError in _osascript_get_state.
+        b._osascript_run = lambda script, timeout=2.0: "not a number"
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                assert b._osascript_get_state() is None  # safe default
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "_osascript_get_state" in r.message and "failed 3 times" in r.message
+        ]
+        assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive _osascript_get_state parse failures"
+
+    def test_osascript_get_state_no_double_count(self, monkeypatch):
+        """When _osascript_run fails, _osascript_get_state must NOT double-count.
+
+        _osascript_run already increments the counter on subprocess failure;
+        _osascript_get_state returns None without incrementing again.
+        """
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        b._use_coreaudio = False
+        b._consecutive_errors = 0
+
+        # _osascript_run fails (returns None) -- the REAL _osascript_run
+        # records the error via _record_error before returning None.
+        # Simulate that real behaviour so the counter reflects one failure.
+        def fake_run(script, timeout=2.0):
+            b._record_error("_osascript_run", RuntimeError("subprocess failed"))
+            return None
+
+        b._osascript_run = fake_run
+
+        result = b._osascript_get_state()
+        assert result is None
+        assert b._consecutive_errors == 1, (
+            f"_osascript_get_state must NOT double-count when _osascript_run fails; got counter={b._consecutive_errors}"
+        )
+
+
+class TestUE25CrossPlatformImportSafety:
+    """UE-25: all backends import cleanly on any OS (no pycaw/pyobjc required)."""
+
+    def test_windows_backend_imports_without_pycaw(self):
+        from voice_typer.server.volume_backends import WinVolumeBackend
+
+        b = WinVolumeBackend()
+        assert b._consecutive_errors == 0
+        assert b.name == "pycaw (WASAPI)"
+
+    def test_linux_backend_imports_without_pactl(self):
+        from voice_typer.server.volume_backends import LinuxVolumeBackend
+
+        b = LinuxVolumeBackend()
+        assert b._consecutive_errors == 0
+
+    def test_macos_backend_imports_without_pyobjc(self):
+        from voice_typer.server.volume_backends import MacVolumeBackend
+
+        b = MacVolumeBackend()
+        assert b._consecutive_errors == 0

@@ -88,9 +88,33 @@ def restore_excepthook():
     ``install_python_excepthook`` swaps the global ``sys.excepthook``;
     without restoring it, the mock hook leaks into subsequent tests in
     the same process.
+
+    Test-isolation hardening: the fixture ALSO resets ``sys.excepthook``
+    and ``crash_handler._original_excepthook`` to a clean state BEFORE
+    each test (and restores the prior state at teardown). Without the
+    setup-time reset, a prior test in another module that constructs
+    ``VoiceTyperApp()`` (which calls ``install_python_excepthook`` as
+    part of init) leaves ``sys.excepthook = _crash_excepthook`` and
+    ``_original_excepthook = <prior hook>`` — the next test's
+    ``original = sys.excepthook`` then captures the crash hook itself,
+    and ``install_python_excepthook`` short-circuits via its
+    ``if sys.excepthook is _crash_excepthook: return`` idempotency
+    guard, breaking the ``assert sys.excepthook is not original``
+    contract that ``test_install_sets_custom_excepthook`` (and the
+    remove / roundtrip variants) rely on. Resetting at setup ensures
+    each test starts from a known clean state regardless of what
+    earlier tests left behind.
     """
     saved = sys.excepthook
     saved_orig_attr = crash_handler._original_excepthook
+    # Setup: reset to a clean state so install_python_excepthook has
+    # work to do (the tests assert that install actually swaps the
+    # hook). ``sys.__excepthook__`` is Python's documented bootstrap
+    # default; using it (rather than the ddtrace telemetry hook or
+    # whatever the prior test left) gives a deterministic starting
+    # point that is provably distinct from ``_crash_excepthook``.
+    sys.excepthook = sys.__excepthook__
+    crash_handler._original_excepthook = None
     yield
     sys.excepthook = saved
     crash_handler._original_excepthook = saved_orig_attr
@@ -440,7 +464,16 @@ class TestCrashHandlerReportPending:
     def test_python_crash_marker_archived_and_surfaced(self, tmp_path):
         """G4-M-34: a ``python_crash.<PID>.txt`` marker file written by
         the Python excepthook is surfaced in the startup notification
-        summary and archived alongside VEH crash diagnostics."""
+        summary and archived alongside VEH crash diagnostics.
+
+        XE-7-2: the user-facing summary now carries ONLY ``exc_type``,
+        ``thread``, ``timestamp``, and the "Likely cause" hint — the
+        (redacted) ``exc_value`` is dropped from the summary entirely
+        and remains only in the on-disk marker file. Asserting
+        ``"test python crash" in result`` would now fail by design;
+        we assert the marker's archived content still carries the
+        full value (so support engineers with disk access retain it).
+        """
         marker = tmp_path / "python_crash.4321.txt"
         marker.write_text(
             "exc_type=ValueError\nexc_value=test python crash\nthread=MainThread\ntimestamp=2026-07-22T12:34:56.789\n",
@@ -451,7 +484,13 @@ class TestCrashHandlerReportPending:
         assert result is not None
         assert "Python crash" in result
         assert "ValueError" in result
-        assert "test python crash" in result
+        # XE-7-2: ``exc_value`` is dropped from the user-facing summary
+        # (the redacted value remains in the on-disk marker file only).
+        assert "test python crash" not in result, (
+            "XE-7-2: exc_value must NOT be surfaced in the user-facing "
+            "crash summary (the value can embed dictated speech / PII). "
+            f"Got summary: {result!r}"
+        )
 
         # Original marker is moved out of config_dir root.
         assert not marker.exists()
@@ -459,7 +498,15 @@ class TestCrashHandlerReportPending:
         archive_dir = tmp_path / "crash_diagnostics_archive"
         archived = list(archive_dir.glob("python_crash.*.txt"))
         assert len(archived) == 1
-        assert "ValueError" in archived[0].read_text(encoding="utf-8")
+        # XE-7-2: the on-disk marker file RETAINS the full (redacted)
+        # exc_value so support engineers with disk access can still
+        # diagnose the crash.
+        archived_content = archived[0].read_text(encoding="utf-8")
+        assert "ValueError" in archived_content
+        assert "test python crash" in archived_content, (
+            "XE-7-2: the on-disk marker file must retain the (redacted) "
+            "exc_value even though it's omitted from the user-facing summary."
+        )
 
     def test_archive_retention_keeps_last_five(self, tmp_path):
         """G4-M-33: the archive enforces a keep-last-5 retention policy

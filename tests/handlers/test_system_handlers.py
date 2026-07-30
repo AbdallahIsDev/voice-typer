@@ -1,11 +1,10 @@
 """Unit tests for ``SystemHandlersMixin`` (CR-12).
 
-Covers the 7 system-level IPC handlers defined in
+Covers the 6 system-level IPC handlers defined in
 ``voice_typer/server/handlers/system_handlers.py``:
 
 - ``_handle_restart_app`` — sends ack, then calls ``service.restart()``.
 - ``_handle_quit_app`` — sends ack, then calls ``service.quit()``.
-- ``_handle_export_diagnostics`` — returns ``diagnostics_result``.
 - ``_handle_check_accessibility`` — returns ``accessibility_status``
   with ``granted`` (True on non-macOS) and ``platform`` fields.
 - ``_handle_set_tray_locale`` — validates a ``locale`` field, returns
@@ -20,6 +19,14 @@ Each test calls the handler directly with a fresh ``resp={}`` dict
 and asserts on the returned dict (or, for handlers that return
 ``None`` because they call ``self._send(resp)`` internally, asserts
 on the call arguments captured by the mocked ``_send``).
+
+UE-15 (2026-07-30): ``_handle_export_diagnostics`` was deleted — the
+Tauri host now handles it via a dedicated Rust command. The
+corresponding ``TestExportDiagnostics`` class was removed in
+lockstep; the catch-all envelope-shape regression it covered is
+still exercised by ``TestHandlerCatchAllEnvelopeShape`` in
+``tests/handlers/test_r13_f3_error_envelope_code_field.py`` via
+``_handle_cancel_model_download``.
 """
 
 from __future__ import annotations
@@ -81,30 +88,6 @@ class TestQuitApp:
         ipc_server._send = lambda msg: None
         result = ipc_server._handle_quit_app({}, {})
         assert result is None
-
-
-class TestExportDiagnostics:
-    """``_handle_export_diagnostics`` — returns ``diagnostics_result``."""
-
-    def test_happy_path_returns_diagnostics_result(self, ipc_server, fake_service):
-        fake_service.export_diagnostics.return_value = {
-            "path": "/tmp/diag.zip",
-            "size_bytes": 12345,
-        }
-        resp = ipc_server._handle_export_diagnostics({}, {})
-        assert resp["type"] == "diagnostics_result"
-        assert resp["data"] == {"path": "/tmp/diag.zip", "size_bytes": 12345}
-        fake_service.export_diagnostics.assert_called_once_with()
-
-    def test_service_raises_returns_error_response(self, ipc_server, fake_service):
-        """G4-CR-09: a service exception in ``export_diagnostics`` must
-        produce the generic WS-path envelope
-        ``{code: 'server.internal_error', message: 'internal error'}``."""
-        fake_service.export_diagnostics.side_effect = RuntimeError("disk full")
-        resp = ipc_server._handle_export_diagnostics({}, {})
-        assert resp["type"] == "error"
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
 
 
 class TestCheckAccessibility:

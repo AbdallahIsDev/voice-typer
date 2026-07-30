@@ -29,6 +29,7 @@ subquery into an index range walk: O(log K + 100) per batch.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -243,3 +244,388 @@ class TestRetentionFunctional:
         # Favorites are still there.
         fav_remaining = [r for r in remaining if r["favorite"] == 1]
         assert len(fav_remaining) == 2
+
+
+class TestRetentionTimezoneXE9B:
+    """XE-9-B regression: ``apply_retention`` cutoff must be UTC and
+    formatted as ``'%Y-%m-%d %H:%M:%S'`` (matching SQLite's
+    ``CURRENT_TIMESTAMP``), not naive local time + ISO 8601 (which
+    appends a TZ offset and skews the comparison by the local TZ
+    offset hours).
+
+    The ``transcriptions.timestamp`` column is populated by SQLite's
+    ``CURRENT_TIMESTAMP`` (UTC, ``'%Y-%m-%d %H:%M:%S'`` format). The
+    previous ``apply_retention`` computed the cutoff as
+    ``datetime.now().isoformat()`` — local time with a ``+HH:MM``
+    suffix. Lexicographic comparison of an offset-suffixed string
+    against a bare UTC string gives wrong results on any machine
+    whose local TZ is not UTC.
+
+    The fix: ``datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')``
+    (UTC, bare format, no TZ suffix).
+    """
+
+    def _insert_rows_at_utc(self, db, timestamps_utc: list[str]) -> None:
+        """Insert rows with the given UTC timestamp strings."""
+
+        def _do_insert(conn):
+            cursor = conn.cursor()
+            for ts in timestamps_utc:
+                cursor.execute(
+                    "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 0)",
+                    (f"row@{ts}", ts),
+                )
+            conn.commit()
+
+        db._submit_write(_do_insert, wait=True)
+
+    def test_retention_cutoff_is_utc_not_local(self, db):
+        """XE-9-B: with ``retention_days=7``, a row whose UTC timestamp
+        is exactly 8 days old MUST be deleted, and a row whose UTC
+        timestamp is exactly 6 days old MUST be kept.
+
+        We pin the "now" by patching ``datetime`` inside the retention
+        module so the cutoff is computed relative to a fixed UTC instant
+        regardless of the test machine's local TZ.
+        """
+        from voice_typer.server.history_db_internals import retention as retention_mod
+
+        now_utc = datetime(2026, 7, 30, 12, 0, 0, tzinfo=timezone.utc)
+
+        old_8d = (now_utc - timedelta(days=8)).strftime("%Y-%m-%d %H:%M:%S")
+        old_7_5d = (now_utc - timedelta(days=7, hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+        recent_6d = (now_utc - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S")
+        self._insert_rows_at_utc(db, [old_8d, old_7_5d, recent_6d])
+
+        assert len(db.get_recent(limit=10)) == 3
+
+        class _FakeDateTime:
+            real = datetime
+
+            @classmethod
+            def now(cls, tz=None):
+                if tz is not None:
+                    return now_utc.astimezone(tz) if now_utc.tzinfo else now_utc.replace(tzinfo=tz)
+                return now_utc.replace(tzinfo=None)
+
+            def __getattr__(self, name):
+                return getattr(self.real, name)
+
+        original_datetime = retention_mod.datetime
+        retention_mod.datetime = _FakeDateTime
+        try:
+            deleted = db.apply_retention(retention_days=7, max_entries=0)
+        finally:
+            retention_mod.datetime = original_datetime
+
+        assert deleted == 2, (
+            f"XE-9-B: expected 2 rows deleted (8d + 7.5d old), got {deleted}. "
+            "If this is 3, the cutoff is computed in local time (bug)."
+        )
+        remaining = db.get_recent(limit=10)
+        assert len(remaining) == 1
+        assert remaining[0]["text"] == f"row@{recent_6d}"
+
+    def test_retention_cutoff_format_matches_current_timestamp(self, db):
+        """XE-9-B: the cutoff string format must be ``'%Y-%m-%d %H:%M:%S'``
+        (no TZ suffix) so the lexicographic ``timestamp < ?`` comparison
+        against ``CURRENT_TIMESTAMP``-formatted values is apples-to-apples.
+        """
+        captured_cutoffs: list[str] = []
+        original_submit = db._submit_write
+
+        def capturing_submit(fn, *, wait=True):
+            def wrapped_fn(real_conn):
+                class _SpyCursor:
+                    def __init__(self, real):
+                        self._real = real
+
+                    def execute(self, sql, *args, **kwargs):
+                        if "timestamp < ?" in sql and args:
+                            captured_cutoffs.extend(a for a in args[0] if isinstance(a, str))
+                        return self._real.execute(sql, *args, **kwargs)
+
+                    def __getattr__(self, name):
+                        return getattr(self._real, name)
+
+                    @property
+                    def rowcount(self):
+                        return self._real.rowcount
+
+                class _SpyConn:
+                    def __init__(self, real):
+                        self._real = real
+
+                    def cursor(self):
+                        return _SpyCursor(self._real.cursor())
+
+                    def commit(self):
+                        return self._real.commit()
+
+                    def execute(self, sql, *args, **kwargs):
+                        return self._real.execute(sql, *args, **kwargs)
+
+                    def close(self):
+                        return self._real.close()
+
+                    @property
+                    def row_factory(self):
+                        return self._real.row_factory
+
+                    @row_factory.setter
+                    def row_factory(self, v):
+                        self._real.row_factory = v
+
+                    def __getattr__(self, name):
+                        return getattr(self._real, name)
+
+                spy = _SpyConn(real_conn)
+                return fn(spy)
+
+            return original_submit(wrapped_fn, wait=wait)
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        self._insert_rows_at_utc(db, [old_ts])
+
+        db._submit_write = capturing_submit
+        try:
+            db.apply_retention(retention_days=7, max_entries=0)
+        finally:
+            db._submit_write = original_submit
+
+        assert captured_cutoffs, "XE-9-B: no cutoff captured — DELETE subquery did not run"
+        cutoff = captured_cutoffs[0]
+        assert "+" not in cutoff, f"XE-9-B: cutoff has '+' (TZ offset suffix): {cutoff!r} — bug"
+        datetime.strptime(cutoff, "%Y-%m-%d %H:%M:%S")
+        parsed = datetime.strptime(cutoff, "%Y-%m-%d %H:%M:%S")
+        delta = datetime.now(timezone.utc).replace(tzinfo=None) - parsed
+        assert timedelta(days=6, hours=23) <= delta <= timedelta(days=7, hours=1), (
+            f"XE-9-B: cutoff {cutoff} is not ~7 days before now (delta={delta})"
+        )
+
+
+class TestRetentionFts5RebuildFailureXE9E:
+    """XE-9-E regression: when the FTS5 ``'rebuild'`` command fails
+    after a retention sweep, the failure is no longer silent. The
+    returned :class:`RetentionResult` carries ``fts5_rebuild_ok=False``,
+    the per-instance ``db._fts5_rebuild_failures`` counter is
+    incremented, an ``event_bus`` event
+    ``{"type": "history_fts5_rebuild_failed"}`` is published, and the
+    log is escalated from WARNING to ERROR (the privacy guarantee is
+    broken, not merely suboptimal).
+    """
+
+    def test_apply_retention_returns_retention_result_with_fts5_rebuild_ok(self, db):
+        """XE-9-E: ``apply_retention`` returns a :class:`RetentionResult`
+        (an ``int`` subclass) that supports both int comparison
+        (``deleted == N``) AND dict-style access
+        (``result["fts5_rebuild_ok"]``)."""
+        from voice_typer.server.history_db_internals.retention import RetentionResult
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
+        def _do_insert(conn):
+            conn.cursor().execute(
+                "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 0)",
+                ("old secret", old_ts),
+            )
+            conn.commit()
+
+        db._submit_write(_do_insert, wait=True)
+
+        result = db.apply_retention(retention_days=7, max_entries=0)
+
+        assert int(result) == 1
+        assert result == 1
+        assert result["deleted"] == 1
+        assert result["fts5_rebuild_ok"] is True
+        assert result.fts5_rebuild_ok is True
+        assert isinstance(result, int)
+        assert isinstance(result, RetentionResult)
+
+    def test_apply_retention_fts5_rebuild_failure_sets_flag_and_increments_counter(self, db, monkeypatch):
+        """XE-9-E: when the FTS5 ``'rebuild'`` command raises
+        ``sqlite3.Error`` inside the retention sweep, the returned
+        ``RetentionResult`` carries ``fts5_rebuild_ok=False`` AND
+        ``db._fts5_rebuild_failures`` is incremented.
+        """
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
+        def _do_insert(conn):
+            cursor = conn.cursor()
+            for i in range(5):
+                cursor.execute(
+                    "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 0)",
+                    (f"old secret {i}", old_ts),
+                )
+            conn.commit()
+
+        db._submit_write(_do_insert, wait=True)
+
+        db._fts5_rebuild_failures = 0
+
+        original_submit = db._submit_write
+
+        class _RebuildFailingCursor:
+            def __init__(self, real):
+                self._real = real
+
+            def execute(self, sql, *args, **kwargs):
+                if "transcriptions_fts" in sql and "rebuild" in sql.lower():
+                    raise sqlite3.Error("simulated FTS5 rebuild failure (XE-9-E test)")
+                return self._real.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            @property
+            def rowcount(self):
+                return self._real.rowcount
+
+            def close(self):
+                return self._real.close()
+
+        class _RebuildFailingConn:
+            def __init__(self, real):
+                self._real = real
+
+            def cursor(self):
+                return _RebuildFailingCursor(self._real.cursor())
+
+            def commit(self):
+                return self._real.commit()
+
+            def execute(self, sql, *args, **kwargs):
+                return self._real.execute(sql, *args, **kwargs)
+
+            def close(self):
+                return self._real.close()
+
+            @property
+            def row_factory(self):
+                return self._real.row_factory
+
+            @row_factory.setter
+            def row_factory(self, v):
+                self._real.row_factory = v
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        def failing_submit(fn, *, wait=True):
+            def wrapped_fn(real_conn):
+                return fn(_RebuildFailingConn(real_conn))
+
+            return original_submit(wrapped_fn, wait=wait)
+
+        monkeypatch.setattr(db, "_submit_write", failing_submit)
+
+        result = db.apply_retention(retention_days=7, max_entries=0)
+
+        assert int(result) == 5
+        assert result["fts5_rebuild_ok"] is False, "XE-9-E: fts5_rebuild_ok should be False when the rebuild raises"
+        assert result.fts5_rebuild_ok is False
+        assert db._fts5_rebuild_failures >= 1, "XE-9-E: _fts5_rebuild_failures should be incremented on rebuild failure"
+
+    def test_apply_retention_fts5_rebuild_failure_publishes_event_bus_event(self, db, monkeypatch):
+        """XE-9-E: when the FTS5 ``'rebuild'`` command fails, an
+        ``event_bus.publish`` call is made with
+        ``{"type": "history_fts5_rebuild_failed"}`` so the renderer
+        can show a toast."""
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+
+        def _do_insert(conn):
+            conn.cursor().execute(
+                "INSERT INTO transcriptions (text, timestamp, favorite) VALUES (?, ?, 0)",
+                ("old secret", old_ts),
+            )
+            conn.commit()
+
+        db._submit_write(_do_insert, wait=True)
+
+        published_events: list[dict] = []
+        import voice_typer.server.event_bus as event_bus_mod
+
+        original_publish = event_bus_mod.publish
+
+        def capturing_publish(event, *args, **kwargs):
+            published_events.append(event)
+            return original_publish(event, *args, **kwargs)
+
+        monkeypatch.setattr(event_bus_mod, "publish", capturing_publish)
+
+        original_submit = db._submit_write
+
+        class _RebuildFailingCursor:
+            def __init__(self, real):
+                self._real = real
+
+            def execute(self, sql, *args, **kwargs):
+                if "transcriptions_fts" in sql and "rebuild" in sql.lower():
+                    raise sqlite3.Error("simulated FTS5 rebuild failure (XE-9-E event test)")
+                return self._real.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            @property
+            def rowcount(self):
+                return self._real.rowcount
+
+            def close(self):
+                return self._real.close()
+
+        class _RebuildFailingConn:
+            def __init__(self, real):
+                self._real = real
+
+            def cursor(self):
+                return _RebuildFailingCursor(self._real.cursor())
+
+            def commit(self):
+                return self._real.commit()
+
+            def execute(self, sql, *args, **kwargs):
+                return self._real.execute(sql, *args, **kwargs)
+
+            def close(self):
+                return self._real.close()
+
+            @property
+            def row_factory(self):
+                return self._real.row_factory
+
+            @row_factory.setter
+            def row_factory(self, v):
+                self._real.row_factory = v
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        def failing_submit(fn, *, wait=True):
+            def wrapped_fn(real_conn):
+                return fn(_RebuildFailingConn(real_conn))
+
+            return original_submit(wrapped_fn, wait=wait)
+
+        monkeypatch.setattr(db, "_submit_write", failing_submit)
+
+        db.apply_retention(retention_days=7, max_entries=0)
+
+        rebuild_events = [e for e in published_events if e.get("type") == "history_fts5_rebuild_failed"]
+        assert rebuild_events, (
+            "XE-9-E: expected event_bus.publish({type: 'history_fts5_rebuild_failed'}) "
+            f"to be called, but published events were: {published_events}"
+        )
+        event = rebuild_events[0]
+        assert event["data"]["source"] == "apply_retention"
+        assert "error" in event["data"]
+
+    def test_apply_retention_no_rebuild_attempted_when_nothing_deleted(self, db):
+        """XE-9-E: when ``apply_retention`` deletes nothing (no-op sweep),
+        the FTS5 rebuild step is skipped and ``fts5_rebuild_ok`` stays
+        ``True`` (default — no privacy failure to report)."""
+        result = db.apply_retention(retention_days=999, max_entries=0)
+        assert int(result) == 0
+        assert result["fts5_rebuild_ok"] is True, "XE-9-E: fts5_rebuild_ok should be True when no rebuild was attempted"
+        assert db._fts5_rebuild_failures == 0

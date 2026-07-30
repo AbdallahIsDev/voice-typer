@@ -554,6 +554,46 @@ class TestCrashRecoveryShutdownFallback:
             "mark_latest_pasted() post-shutdown must persist the pasted=True flag to disk via the sync fallback"
         )
 
+    def test_mark_pasted_after_shutdown_persists(self, recovery_dir):
+        """XE-16-1: ``mark_pasted(index)`` post-shutdown must also
+        persist (mirrors ``test_mark_latest_pasted_after_shutdown_persists``
+        for the index-based path).
+
+        Pre-fix, ``mark_pasted`` enqueued the save INSIDE
+        ``with self._lock:`` — when called post-shutdown,
+        ``_enqueue_save`` falls back to ``_save_sync`` which
+        re-acquires ``self._lock`` for the snapshot, deadlocking the
+        calling thread (the test would hang until pytest's
+        ``--timeout`` killed it). Post-fix, the enqueue happens
+        OUTSIDE the lock scope, breaking the re-entrancy.
+        """
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        cr.add("first entry", pasted=False)
+        cr.add("second entry", pasted=False)
+        cr.flush(timeout=2.0)
+        cr.shutdown()
+        if cr._save_thread is not None:
+            cr._save_thread.join(timeout=2.0)
+
+        # Post-shutdown: mark the FIRST entry as pasted. Pre-fix this
+        # would deadlock (the in-lock _enqueue_save → _save_sync →
+        # _save_lock + re-acquire of _lock never returns).
+        ok = cr.mark_pasted(0)
+        assert ok is True, "mark_pasted(0) must return True for an in-range index"
+
+        recovery_file = recovery_dir / "voice-typer-recovery.json"
+        data = json.loads(recovery_file.read_text(encoding="utf-8"))
+        entries = data.get("entries", [])
+        assert entries, "expected the pre-shutdown entries on disk"
+        assert entries[0].get("pasted") is True, (
+            "mark_pasted(0) post-shutdown must persist the pasted=True "
+            "flag to disk via the sync fallback (XE-16-1 regression)"
+        )
+        # The second entry must remain unpasted (no over-broad mutation).
+        assert entries[1].get("pasted") is False, "mark_pasted(0) must not affect other entries' pasted flag"
+
     def test_clear_after_shutdown_persists_empty_state(self, recovery_dir):
         """Finding A1: ``clear()`` post-shutdown must persist the empty
         state (otherwise a re-opened session would resurrect stale

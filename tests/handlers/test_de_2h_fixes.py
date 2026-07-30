@@ -140,18 +140,23 @@ class TestDE38ScrubTraceback:
     def test_respond_with_error_scrubs_secret_from_log(self, ipc_server, fake_service, caplog):
         """DE-38: the log record's formatted message must not carry the secret.
 
-        ``export_diagnostics`` ships the log file back to the renderer,
-        so any secret that reaches the log is exfiltrated when the
-        user attaches the diagnostics bundle to a bug report. This
-        test asserts the scrubbed log message redacts the ``sk-...``
-        key. ``record.exc_info`` is still set so structured-logging
-        consumers and existing ``r.exc_info is not None`` test
-        assertions continue to hold.
+        The ``voice-typer.log`` file is shipped to the renderer when the
+        user attaches a diagnostics bundle to a bug report (the export
+        path is now in the Tauri Rust host — see UE-15), so any secret
+        that reaches the log is exfiltrated. This test asserts the
+        scrubbed log message redacts the ``sk-...`` key. ``record.exc_info``
+        is still set so structured-logging consumers and existing
+        ``r.exc_info is not None`` test assertions continue to hold.
+
+        UE-15 (2026-07-30): was ``_handle_export_diagnostics`` (deleted
+        from ``SystemHandlersMixin``); switched to
+        ``_handle_cancel_model_download`` (a sibling handler with the
+        same catch-all path).
         """
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
-        fake_service.export_diagnostics.side_effect = RuntimeError(f"key not found: {secret}")
+        fake_service.cancel_model_download.side_effect = RuntimeError(f"key not found: {secret}")
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.ipc_server"):
-            resp = ipc_server._handle_export_diagnostics({}, {})
+            resp = ipc_server._handle_cancel_model_download({}, {})
 
         # The renderer envelope is unchanged.
         assert resp["data"]["code"] == "server.internal_error"
@@ -177,15 +182,21 @@ class TestDE38ScrubTraceback:
         )
 
     def test_respond_with_error_scrubs_home_dir_from_log(self, ipc_server, fake_service, caplog, monkeypatch):
-        """DE-38: home-directory paths in the log are replaced with ``~``."""
+        """DE-38: home-directory paths in the log are replaced with ``~``.
+
+        UE-15 (2026-07-30): was ``_handle_export_diagnostics`` (deleted
+        from ``SystemHandlersMixin``); switched to
+        ``_handle_cancel_model_download`` (a sibling handler with the
+        same catch-all path).
+        """
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
             pytest.skip("HOME is not set or is root — cannot test home-dir scrub")
-        fake_service.export_diagnostics.side_effect = RuntimeError(
+        fake_service.cancel_model_download.side_effect = RuntimeError(
             f"failed to open {home}/.config/voice-typer/config.json"
         )
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.ipc_server"):
-            ipc_server._handle_export_diagnostics({}, {})
+            ipc_server._handle_cancel_model_download({}, {})
 
         error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert error_records

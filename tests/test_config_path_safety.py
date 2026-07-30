@@ -15,6 +15,7 @@ See:
 - ``review.md`` finding CR-17
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -114,27 +115,40 @@ class TestIsPathWithinCrossDrive:
         """``C:\\foo`` is NOT within ``D:\\foo`` (different drives)."""
         from voice_typer.server import config
 
+        # XE-1-F: previously ``monkeypatch.setattr(config.sys,
+        # "platform", "win32")`` — but ``config`` does NOT import
+        # ``sys`` at module level, so ``config.sys`` raised
+        # ``AttributeError`` and the test always errored out.  Patch
+        # the GLOBAL ``sys`` module's ``platform`` attribute instead.
         # commonpath raises ValueError for paths on different drives;
         # the helper must catch and return False.
-        monkeypatch.setattr(config.sys, "platform", "win32")
+        monkeypatch.setattr(sys, "platform", "win32")
         root = Path("D:/voice-typer")
         child = Path("C:/voice-typer/data")
-        assert config._is_path_within(child, root) is False
+        # XE-1-E: pass ``case_sensitive=False`` explicitly so the test
+        # exercises the Windows-style (case-insensitive) branch
+        # deterministically regardless of the host platform.
+        assert config._is_path_within(child, root, case_sensitive=False) is False
 
     def test_same_drive_windows_accepted(self, monkeypatch):
         """``C:\\Users\\X\\AppData`` IS within ``C:\\Users\\X``."""
         from voice_typer.server import config
 
-        monkeypatch.setattr(config.sys, "platform", "win32")
+        # XE-1-F: same AttributeError fix as above.
+        monkeypatch.setattr(sys, "platform", "win32")
         root = Path("C:/Users/X")
         child = Path("C:/Users/X/AppData/Roaming")
-        assert config._is_path_within(child, root) is True
+        # XE-1-E: ``case_sensitive=False`` for the Windows branch.
+        assert config._is_path_within(child, root, case_sensitive=False) is True
 
     def test_case_insensitive_windows(self, monkeypatch):
         """On Windows the comparison is case-insensitive."""
         from voice_typer.server import config
 
-        monkeypatch.setattr(config.sys, "platform", "win32")
+        # XE-1-F: same AttributeError fix as above.
+        monkeypatch.setattr(sys, "platform", "win32")
         root = Path("C:/Users/X")
         child = Path("c:/users/x/appdata")
-        assert config._is_path_within(child, root) is True
+        # XE-1-E: ``case_sensitive=False`` exercises the case-
+        # insensitive branch deterministically.
+        assert config._is_path_within(child, root, case_sensitive=False) is True

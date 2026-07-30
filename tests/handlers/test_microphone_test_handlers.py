@@ -1,20 +1,24 @@
 """Unit tests for ``MicrophoneTestHandlersMixin`` (CR-12).
 
-Covers the 5 microphone-test IPC handlers defined in
+Covers the 4 microphone-test IPC handlers defined in
 ``voice_typer/server/handlers/microphone_test_handlers.py``:
 
 - ``_handle_microphone_test_start`` — start a recording test
   (``mic_id``, ``duration``, optional ``filters``).
 - ``_handle_microphone_test_stop`` — stop an in-progress test early.
 - ``_handle_microphone_test_cancel`` — cancel an in-progress test.
-- ``_handle_microphone_test_status`` — poll the test status.
 - ``_handle_microphone_test_get_level`` — poll the real-time audio level.
 
-All five handlers are thin pass-throughs to the service layer with
+All four handlers are thin pass-throughs to the service layer with
 the standard try/except error envelope.  The interesting invariant
 is in ``_handle_microphone_test_start``: it gracefully coerces
 non-dict ``data`` to ``{}`` and applies defaults (``duration=10.0``)
 so a missing field doesn't crash.
+
+UE-15 (2026-07-30): ``_handle_microphone_test_status`` was deleted —
+the renderer polls ``microphone_test_get_level`` at 60 Hz during a
+test; the separate status query was unused. The corresponding
+``TestMicrophoneTestStatus`` class was removed in lockstep.
 """
 
 from __future__ import annotations
@@ -154,27 +158,6 @@ class TestMicrophoneTestCancel:
     def test_service_raises_returns_error(self, ipc_server, fake_service):
         fake_service.microphone_test_cancel.side_effect = RuntimeError("already finished")
         resp = ipc_server._handle_microphone_test_cancel({}, {})
-        assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "server.internal_error"
-        assert resp["data"]["message"] == "internal error"
-
-
-class TestMicrophoneTestStatus:
-    """``_handle_microphone_test_status`` — poll the test status."""
-
-    def test_happy_path_returns_microphone_test_status(self, ipc_server, fake_service):
-        fake_service.microphone_test_status.return_value = {
-            "running": True,
-            "elapsed_ms": 1500,
-        }
-        resp = ipc_server._handle_microphone_test_status({}, {})
-        assert resp["type"] == "microphone_test_status"
-        assert resp["data"] == {"running": True, "elapsed_ms": 1500}
-
-    def test_service_raises_returns_error(self, ipc_server, fake_service):
-        fake_service.microphone_test_status.side_effect = RuntimeError("state corrupt")
-        resp = ipc_server._handle_microphone_test_status({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"

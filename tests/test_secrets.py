@@ -9,11 +9,13 @@ Verifies:
 import pytest
 from voice_typer.server import _secrets
 from voice_typer.server._secrets import (
+    _redact_home_path,
     assert_url_allowed,
     extend_url_allowlist,
     get_url_allowlist,
     is_url_allowed,
     redact_api_keys,
+    redact_for_export,
     redact_secret,
     redact_url,
 )
@@ -260,6 +262,241 @@ class TestRedactUrl:
         # Malformed URL — should be returned as-is rather than crash
         bad = "not a url at all"
         assert redact_url(bad) == bad
+
+    # ── UE-5-F5: query-string API keys must be redacted ──────────
+
+    def test_ue5_f5_redacts_query_string_api_key(self):
+        """UE-5-F5: a ``?key=sk-…`` query-string secret is masked.
+
+        Pre-fix, ``redact_url`` only stripped the userinfo component
+        (``user:pass@host``) — secrets in the query string survived
+        verbatim. Any caller logging the URL (e.g.
+        :class:`_http_safety._NoRedirectHandler` puts the redirect
+        target into ``HTTPError.url``) would leak the query-string
+        secret.
+        """
+        url = "https://api.example.com/v1/chat?key=sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        out = redact_url(url)
+        # The secret MUST NOT appear in the redacted URL.
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
+        # The ``key=`` prefix is preserved (so support can see a key
+        # WAS supplied); only the value is masked.
+        assert "key=" in out
+        # The host + path are preserved.
+        assert "api.example.com" in out
+        assert "/v1/chat" in out
+
+    def test_ue5_f5_redacts_query_string_access_token(self):
+        """UE-5-F5: ``?access_token=…`` is also masked (the SEC-9
+        ``_BARE_KEY_VALUE_PATTERN`` keyword list includes
+        ``access_token``)."""
+        url = "https://api.example.com/v1/listen?access_token=abcdefghij1234567890XYZ"
+        out = redact_url(url)
+        assert "abcdefghij1234567890XYZ" not in out
+        assert "access_token=" in out
+
+    def test_ue5_f5_redacts_bare_bearer_in_url(self):
+        """UE-5-F5: a ``Bearer …`` substring in the URL is masked
+        (via the ``_KEY_PATTERNS`` Bearer pattern, not the query-
+        string flag pattern)."""
+        url = "https://api.example.com/auth?header=Bearer%20sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        out = redact_url(url)
+        # The sk-… secret portion must not appear (whether percent-
+        # encoded or not — the ``sk-`` pattern matches the bare form).
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
+
+    def test_ue5_f5_userinfo_plus_query_string_secret_both_redacted(self):
+        """UE-5-F5: both the userinfo AND a query-string secret are
+        masked in a single call (defense in depth — the userinfo
+        strip runs first, then the ``redact_secret`` chained pass
+        catches the query-string form)."""
+        url = "https://user:pass@api.example.com/v1?key=sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        out = redact_url(url)
+        # Userinfo gone.
+        assert "user:pass" not in out
+        # Query-string secret masked.
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
+        # Host preserved.
+        assert "api.example.com" in out
+
+    def test_ue5_f5_redact_url_does_not_mangle_benign_query_strings(self):
+        """UE-5-F5: a benign query string with no secret keywords
+        passes through unchanged (false-positive guard)."""
+        url = "https://api.example.com/v1/listen?model=whisper&language=en"
+        out = redact_url(url)
+        assert out == url, f"benign query string was mangled: {out!r}"
+
+
+# ─── UE-5-F2: _redact_home_path ──────────────────────────────────
+
+
+class TestRedactHomePath:
+    """UE-5-F2: ``_redact_home_path`` replaces the user-home prefix
+    with ``~`` so filesystem paths embedded in the diagnostic bundle
+    (``sentinel_path``, ``pid_file_path``, ``bundle_path``) don't leak
+    the OS username via the home-directory prefix.
+    """
+
+    def test_replaces_posix_home_prefix(self, monkeypatch):
+        """A POSIX home path ``/home/alice/.voice-typer/...`` becomes
+        ``~/.voice-typer/...``."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
+        out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
+        assert out == "~/.voice-typer/.prewarm-sentinel", out
+
+    def test_replaces_macos_home_prefix(self, monkeypatch):
+        """A macOS home path ``/Users/alice/...`` becomes ``~/...``."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/Users/alice" if p == "~" else p)
+        out = _redact_home_path("/Users/alice/.voice-typer/diagnostics.zip")
+        assert out == "~/.voice-typer/diagnostics.zip", out
+
+    def test_replaces_windows_home_prefix(self, monkeypatch):
+        """A Windows home path ``C:\\Users\\alice\\...`` becomes
+        ``~\\...`` (case-insensitive comparison)."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "C:\\Users\\alice" if p == "~" else p)
+        monkeypatch.setattr("os.name", "nt", raising=False)
+        # ``os.path.normpath`` on POSIX collapses backslashes inside
+        # the path string differently than on Windows; the helper
+        # uses ``os.sep`` semantics. We test with the platform-
+        # appropriate normalisation by mocking both ``expanduser``
+        # and ``os.name``.
+        out = _redact_home_path("C:\\Users\\alice\\.voice-typer\\diagnostics.zip")
+        assert out.startswith("~"), out
+        assert "alice" not in out, f"username leaked: {out!r}"
+
+    def test_path_outside_home_unchanged(self, monkeypatch):
+        """A path that does NOT start with the home prefix is
+        returned unchanged (no spurious ``~`` insertion)."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
+        out = _redact_home_path("/etc/passwd")
+        assert out == "/etc/passwd"
+
+    def test_relative_path_unchanged(self, monkeypatch):
+        """A relative path is returned unchanged."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
+        out = _redact_home_path("relative/path/to/file")
+        assert out == "relative/path/to/file"
+
+    def test_pathlike_input_accepted(self, monkeypatch):
+        """``PathLike`` inputs (e.g. ``pathlib.Path``) are stringified
+        and the home prefix is still redacted."""
+        from pathlib import Path
+
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
+        out = _redact_home_path(Path("/home/alice/.voice-typer/.prewarm-sentinel"))
+        assert out == "~/.voice-typer/.prewarm-sentinel", out
+
+    def test_empty_home_returns_path_unchanged(self, monkeypatch):
+        """If ``os.path.expanduser('~')`` returns ``'~'`` (cannot
+        determine home), the path is returned unchanged (no infinite
+        recursion, no spurious ``~`` insertion)."""
+        monkeypatch.setattr("os.path.expanduser", lambda p: "~")
+        out = _redact_home_path("/home/alice/.voice-typer")
+        assert out == "/home/alice/.voice-typer"
+
+    def test_trailing_slash_in_home_handled(self, monkeypatch):
+        """If the home dir has a trailing slash (some platforms add
+        one), the prefix comparison still works (via ``normpath``
+        normalization)."""
+        # expanduser normally returns without trailing slash; simulate
+        # the edge case where it does (or where the test path has a
+        # double slash).
+        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice/" if p == "~" else p)
+        out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
+        assert out == "~/.voice-typer/.prewarm-sentinel", out
+
+
+# ─── UE-5-F4 / UE-5-F7: redact_for_export unified pipeline ───────
+
+
+class TestRedactForExport:
+    """UE-5-F4: ``redact_for_export`` is the unified PII + secret
+    redaction pipeline used by both ``diagnostics_export`` (live log
+    + archived crash dumps) and ``ipc_diagnostics`` (startup-error
+    traceback). UE-5-F7: it passes ``aggressive=True`` to
+    :func:`redact_secret` so short bare secrets are caught.
+    """
+
+    def test_redacts_bearer_token(self):
+        """A Bearer token is masked, prefix preserved."""
+        out = redact_for_export("Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890")
+        assert "Bearer" in out
+        assert "sk-abcdef" not in out
+        assert "***" in out
+
+    def test_redacts_pii_email(self):
+        """An email address is masked with the ``[EMAIL]`` token."""
+        out = redact_for_export("contact: alice@example.com")
+        assert "alice@example.com" not in out
+        assert "[EMAIL]" in out
+
+    def test_redacts_pii_phone(self):
+        """An international phone number is masked with ``[PHONE]``."""
+        out = redact_for_export("call me at +1 (415) 555-2671")
+        assert "555-2671" not in out
+        assert "[PHONE]" in out
+
+    def test_redacts_url_userinfo(self):
+        """URL-embedded ``user:pass@`` credentials are stripped.
+
+        Note: the ``pass@api.example.com`` substring looks like an
+        email to the PII pattern matcher, so ``redact_pii`` may
+        redact it as ``[EMAIL]`` rather than just stripping the
+        userinfo — either way, the credential is masked.
+        """
+        out = redact_for_export("fetching https://aliceuser:secretpass@api.example.com/v1")
+        # The credential MUST NOT appear in the redacted output.
+        assert "secretpass" not in out
+        assert "aliceuser:secretpass" not in out
+        # The output should mention either the host (if userinfo strip
+        # ran first) or an ``[EMAIL]`` token (if the PII matcher fired
+        # first). Both are acceptable — the credential is masked
+        # either way.
+        assert "api.example.com" in out or "[EMAIL]" in out, out
+
+    def test_redacts_url_query_string_api_key(self):
+        """UE-5-F5 integration: a ``?key=sk-…`` query-string secret
+        in the URL is masked (because ``redact_for_export`` calls
+        ``redact_pii`` which calls ``redact_url`` which now chains
+        through ``redact_secret``)."""
+        out = redact_for_export("GET https://api.example.com/?key=sk-abcdefghijklmnopqrstuvwxyz1234567890")
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
+        assert "api.example.com" in out
+
+    def test_ue5_f7_aggressive_redacts_short_bare_secret(self):
+        """UE-5-F7: a BARE short secret (no ``Bearer``/``--token=``
+        prefix, under 20 chars) IS redacted by ``redact_for_export``
+        because the unified pipeline passes ``aggressive=True``.
+
+        Without ``aggressive=True``, the short-string guard from
+        :func:`redact_secret` would skip the generic 20+ char
+        alphanumeric pattern application on short inputs. The bare
+        ``sk-or-...`` prefix is matched by ``_KEY_PATTERNS[2]``
+        regardless of length, but a hypothetical 12-char bare token
+        with no prefix would be missed without aggressive.
+        """
+        # ``sk-`` prefix is matched by _KEY_PATTERNS regardless of
+        # length when aggressive=True; without aggressive, the
+        # short-string guard (< 20 chars) returns it unchanged.
+        short_bare_secret = "sk-abcd1234567"  # 14 chars
+        assert len(short_bare_secret) < _secrets._MIN_REDACT_LEN
+        out = redact_for_export(f"key={short_bare_secret}")
+        assert short_bare_secret not in out, f"UE-5-F7: aggressive=True must redact short bare secrets; got {out!r}"
+
+    def test_idempotent_on_already_redacted_text(self):
+        """Running ``redact_for_export`` on already-redacted text
+        returns it unchanged (the ``***`` mask doesn't match the
+        secret patterns)."""
+        once = redact_for_export("Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890")
+        twice = redact_for_export(once)
+        assert once == twice
+
+    def test_preserves_ordinary_long_text(self):
+        """A long non-secret-bearing log line passes through
+        unchanged (false-positive guard)."""
+        line = "This is a perfectly normal log line about a network timeout error."
+        out = redact_for_export(line)
+        assert out == line
 
 
 class TestUrlAllowlist:
