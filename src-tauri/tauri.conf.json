@@ -116,7 +116,6 @@
   },
   "plugins": {
     "notification": {},
-    "clipboard-manager": {},
     "single-instance": {},
     "dialog": {},
     "shell": {

@@ -473,32 +473,41 @@ def test_grants_notification_permission(
     )
 
 
-# ─── Test 7: clipboard-manager write-text granted ──────────────────────
+# ─── Test 7: clipboard-manager plugin REMOVED (XE-4-4) ────────────────
 
 
-def test_grants_clipboard_manager_write_text(
+def test_clipboard_manager_plugin_removed(
     migrate_runtime_capability: dict,
 ) -> None:
-    """ADR-0020 §6.2 + §7: ``clipboard-manager:allow-write-text`` granted.
+    """XE-4-4: ``tauri-plugin-clipboard-manager`` capability grants removed.
 
-    The long-text paste path (>~300 chars) copies the text via
-    ``tauri-plugin-clipboard-manager`` then sends Ctrl+V / Cmd+V via
-    enigo. Without this grant, the long-text paste silently no-ops
-    (the short-text path uses enigo.text() only and is unaffected,
-    but anything over ~300 chars would be lost).
+    The paste path was deleted (FZ-19/PVT-051) and the renderer uses
+    the web-API ``navigator.clipboard.writeText()`` for all writes —
+    zero ``invoke('plugin:clipboard-manager|...')`` calls in the
+    renderer. The remaining capability grants
+    (``clipboard-manager:allow-read-text`` / ``allow-write-text`` /
+    ``allow-clear`` / ``clipboard-manager:default``) were vestigial
+    and ``allow-read-text`` was a clipboard-exfiltration vector (a
+    compromised renderer could read the system clipboard WITHOUT a
+    user gesture, unlike the web API — silently harvesting
+    password-manager / 2FA secrets).
 
-    ``clipboard-manager:default`` is also accepted (superset).
+    This test asserts the plugin's capability grants are GONE so a
+    future regression that re-adds them is caught.
     """
     permissions = migrate_runtime_capability["permissions"]
-    acceptable_clipboard_perms = {
+    forbidden_clipboard_perms = {
+        "clipboard-manager:allow-read-text",
         "clipboard-manager:allow-write-text",
+        "clipboard-manager:allow-clear",
         "clipboard-manager:default",
     }
-    granted = acceptable_clipboard_perms & set(permissions)
-    assert granted, (
-        f"capability must grant at least one of "
-        f"{acceptable_clipboard_perms} (ADR-0020 §6.2 + §7 — long-text "
-        f"paste path) — permissions: {permissions!r}"
+    granted = forbidden_clipboard_perms & set(permissions)
+    assert not granted, (
+        f"capability must NOT grant any of "
+        f"{forbidden_clipboard_perms} (XE-4-4 — clipboard-manager "
+        f"plugin removed as vestigial exfiltration vector) — "
+        f"permissions: {permissions!r}"
     )
 
 

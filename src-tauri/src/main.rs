@@ -236,7 +236,16 @@ fn main() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
+        // XE-4-4: tauri_plugin_clipboard_manager removed — the paste
+        // path was removed (FZ-19/PVT-051) and the renderer uses the
+        // web-API navigator.clipboard.writeText() for all writes. With
+        // the capability grants also dropped from
+        // capabilities/main-runtime.json, the plugin registration was
+        // pure dead code — and the capability grant
+        // `clipboard-manager:allow-read-text` let a compromised
+        // renderer read the system clipboard WITHOUT a user gesture
+        // (unlike the web API), enabling silent exfiltration of
+        // password-manager / 2FA secrets.
         // MIG-1.1: dialog plugin for export_history / export_vocabulary
         // save-file dialogs (invoked from Rust, not TS).
         .plugin(tauri_plugin_dialog::init())

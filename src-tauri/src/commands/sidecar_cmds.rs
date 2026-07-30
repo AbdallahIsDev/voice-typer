@@ -496,6 +496,42 @@ async fn dispatch_frame(
         return Err("sidecar shutting down".into());
     }
 
+    // XE-4-2 (Medium): cap `args.data` serialized size BEFORE
+    // constructing the WS frame. The WS layer's
+    // `max_message_size=1 MiB` check fires in the writer task AFTER
+    // the frame has been serialized and enqueued on the bounded
+    // `mpsc::channel(256)` — a compromised renderer could send 256
+    // concurrent ~5 MB dispatches (~1.28 GB peak) before the writer
+    // task ever broke a single frame. Capping at 256 KiB (4× the WS
+    // layer's 1 MiB / 4 cap to allow for cmd + id + JSON envelope
+    // overhead while still preventing the OOM vector) rejects
+    // oversized payloads at the dispatch entry point. The check runs
+    // BEFORE the pending-map insert so an oversized payload never
+    // consumes a pending slot.
+    const DISPATCH_DATA_MAX_BYTES: usize = 256 * 1024;
+    if let Some(data_val) = data.as_ref() {
+        let data_len = serde_json::to_string(data_val)
+            .map(|s| s.len())
+            .unwrap_or(usize::MAX);
+        if data_len > DISPATCH_DATA_MAX_BYTES {
+            log::warn!(
+                "[dispatch] id={} cmd={} rejected: data payload {} bytes > {} byte cap",
+                id,
+                cmd,
+                data_len,
+                DISPATCH_DATA_MAX_BYTES
+            );
+            let err = json!({
+                "type": "error",
+                "data": {
+                    "code": "data_too_large",
+                    "message": "dispatch data payload exceeds size cap"
+                }
+            });
+            return Err(err.to_string());
+        }
+    }
+
     let frame = json!({
         "type": cmd,
         "data": data.unwrap_or(json!({})),

@@ -293,7 +293,18 @@ pub async fn open_host_logs(
 /// pathological payload. Truncation is marked with `...[truncated]`
 /// so operators can see the cap was hit.
 #[tauri::command]
-pub async fn renderer_log_error(payload: Value, _app: tauri::AppHandle) -> Result<(), String> {
+pub async fn renderer_log_error(
+    payload: Value,
+    window: tauri::Window,
+    _app: tauri::AppHandle,
+) -> Result<(), String> {
+    // XE-4-1: main-window-origin guard. Without this, a compromised
+    // bubble renderer (withGlobalTauri: true) could invoke
+    // `invoke('renderer_log_error', payload)` directly and flood the
+    // 25 MiB rotating log at 60 Hz × 8 KiB ≈ 480 KiB/s, evicting real
+    // diagnostic logs in ~52 s. The `window` parameter is auto-injected
+    // by Tauri at runtime — the renderer's invoke() call is unchanged.
+    require_main_window(&window)?;
     let mut serialized =
         serde_json::to_string(&payload).unwrap_or_else(|_| "<unserializable>".to_string());
     // FR-44: cap serialized payload at 8 KiB so a runaway renderer

@@ -37,7 +37,13 @@ tauri-build = { version = "2", features = ["config-json5"] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "config-json5"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-clipboard-manager = "2"
+# XE-4-4: tauri-plugin-clipboard-manager removed — the renderer uses
+# the web-API navigator.clipboard.writeText() for all writes (paste
+# path was removed in FZ-19/PVT-051), and the capability grant
+# `clipboard-manager:allow-read-text` was a clipboard-exfiltration
+# vector (compromised renderer could read system clipboard WITHOUT a
+# user gesture, unlike the web API). The plugin registration in
+# main.rs was already removed; this drops the crate from the build.
 tauri-plugin-single-instance = "2"
 # ADR-0020 §6 + MIG-1.1: tauri-plugin-dialog for the save-file dialog
 # used by `export_history` / `export_vocabulary` Rust commands. The TS

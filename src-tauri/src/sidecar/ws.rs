@@ -173,6 +173,15 @@ fn is_allowed_event_type(event_type: &str) -> bool {
 // doesn't stall the supervisor forever.
 const WS_CONNECT_TIMEOUT_SECS: u64 = 5;
 
+// S1-CR-78: IPC protocol version this host implements. The Python
+// sidecar emits the same integer in its `server_started` stdout JSON
+// (see `voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION`). We also
+// send it in our auth frame so the sidecar can detect skew at handshake
+// time even when stdout parsing is bypassed (dev mode, manual restart).
+// Bump in lockstep with the Python constant. History:
+//   - 1 (SA-6): initial protocol-version negotiation.
+const EXPECTED_PROTOCOL_VERSION: u64 = 1;
+
 // G4-L-02: bound the wait for the `auth_ok` frame so a sidecar that
 // never sends one (e.g. crashed between TCP accept and WS auth, or a
 // malicious server holding the connection open) doesn't stall the
@@ -462,44 +471,86 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 // `.expect()` form). All subsequent callers read the cached `None` and
 // use the fallback path without re-attempting the spawn (and without
 // re-panicking).
-static RESPAWN_SUPERVISOR_TX: OnceLock<Option<std::sync::mpsc::SyncSender<RespawnRequest>>> =
-    OnceLock::new();
+// XE-15-3: pre-fix this was `OnceLock<Option<SyncSender>>`. The
+// ``get_or_init`` closure cached ``None`` permanently on transient
+// thread-spawn failure (RLIMIT_NPROC, sandbox, low memory), so a
+// single startup-time failure degraded the resilience layer to
+// per-trigger one-shot ``std::thread::spawn`` fallbacks for the
+// ENTIRE process lifetime — even after the resource pressure cleared.
+// Switching to ``OnceLock<Mutex<Option<SyncSender>>>`` lets each
+// subsequent ``respawn_supervisor_sender()`` call re-attempt the
+// spawn when the cached sender is ``None``, mirroring a bounded-retry
+// pattern: rate-limited by the OS thread-spawn cost (microseconds)
+// and never more than one concurrent spawn attempt (mutex-serialized).
+static RESPAWN_SUPERVISOR_TX: OnceLock<
+    std::sync::Mutex<Option<std::sync::mpsc::SyncSender<RespawnRequest>>>,
+> = OnceLock::new();
 
-fn respawn_supervisor_sender() -> Option<&'static std::sync::mpsc::SyncSender<RespawnRequest>> {
-    // FR-11: do NOT use `.expect()` on the thread spawn — a panic inside
-    // `get_or_init` poisons the `OnceLock`, making EVERY subsequent call
-    // re-panic in `get_or_init` and permanently bricking the resilience
-    // layer. Instead, store `Some(tx)` on success or `None` on failure
-    // inside the `get_or_init` closure (channel creation is infallible;
-    // only the thread spawn can fail). The spawn is attempted at most
-    // once per process — the cached result is reused on every call.
-    let tx_opt: &'static Option<std::sync::mpsc::SyncSender<RespawnRequest>> =
-        RESPAWN_SUPERVISOR_TX.get_or_init(|| {
-            // UE-8-F11: bounded `sync_channel(8)` — see the static's
-            // doc comment for the backpressure rationale.
-            let (tx, rx) = std::sync::mpsc::sync_channel::<RespawnRequest>(8);
-            match std::thread::Builder::new()
-                .name("respawn-supervisor".into())
-                .spawn(move || {
-                    for (app, state) in rx {
-                        let _ = tauri::async_runtime::block_on(async move {
-                            let _ = respawn(&app, &state).await;
-                        });
-                    }
-                }) {
-                Ok(_) => Some(tx),
-                Err(e) => {
-                    log::error!(
-                        "[SUPERVISOR] failed to spawn long-lived respawn-supervisor \
-                         thread: {} — will use per-trigger std::thread::spawn fallback \
-                         for the rest of this process (FR-11)",
-                        e
-                    );
-                    None
-                }
+fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequest>> {
+    // XE-15-3: lazily initialise the outer ``Mutex``. ``OnceLock``
+    // guarantees the ``Mutex`` is created exactly once; the inner
+    // ``Option<Sender>`` is mutable under the mutex so we can retry
+    // the spawn after a transient failure (closes the FR-11
+    // regression where ``OnceLock<Option<Sender>>`` cached ``None``
+    // permanently).
+    let mutex: &'static std::sync::Mutex<Option<std::sync::mpsc::SyncSender<RespawnRequest>>> =
+        RESPAWN_SUPERVISOR_TX.get_or_init(|| std::sync::Mutex::new(None));
+    // Hold the lock for the whole attempt so two concurrent callers
+    // don't both spawn supervisor threads (the second would create a
+    // dead receiver that's instantly dropped, no-op-ing the first
+    // sender). ``try_send`` on the sender is non-blocking so the
+    // critical section is short.
+    let mut guard = match mutex.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            // G4-H-27: recover from a poisoned mutex — the inner
+            // data may be stale but we can still attempt a fresh
+            // spawn.
+            log::warn!(
+                "[SUPERVISOR] respawn-supervisor mutex poisoned — recovering (XE-15-3)"
+            );
+            poisoned.into_inner()
+        }
+    };
+    if let Some(ref tx) = *guard {
+        // Cached sender is alive — clone (cheap; ``SyncSender`` is
+        // designed for multi-producer cloning) and return.
+        return Some(tx.clone());
+    }
+    // Cached sender is ``None`` (first call OR previous spawn failed).
+    // Attempt (re-)spawn. Channel creation is infallible; only the
+    // thread spawn can fail.
+    let (tx, rx) = std::sync::mpsc::sync_channel::<RespawnRequest>(8);
+    match std::thread::Builder::new()
+        .name("respawn-supervisor".into())
+        .spawn(move || {
+            for (app, state) in rx {
+                let _ = tauri::async_runtime::block_on(async move {
+                    let _ = respawn(&app, &state).await;
+                });
             }
-        });
-    tx_opt.as_ref()
+        }) {
+        Ok(_) => {
+            // Cache the sender so future calls skip the spawn.
+            // Keep a clone for the caller.
+            *guard = Some(tx.clone());
+            drop(guard);
+            log::info!(
+                "[SUPERVISOR] long-lived respawn-supervisor thread spawned (XE-15-3)"
+            );
+            Some(tx)
+        }
+        Err(e) => {
+            drop(guard);
+            log::error!(
+                "[SUPERVISOR] failed to spawn long-lived respawn-supervisor \
+                 thread: {} — will retry on next call; using per-trigger \
+                 std::thread::spawn fallback this call (FR-11, XE-15-3)",
+                e
+            );
+            None
+        }
+    }
 }
 
 // ─── XZ-11: phase helpers extracted from `reconnect_ws` ──────────────────
@@ -584,7 +635,15 @@ fn queue_auth_and_store_ws_tx(
 ) -> Result<mpsc::Receiver<Message>, String> {
     let (ws_tx, ws_rx) = mpsc::channel::<Message>(256);
     // Send the auth frame via the channel so the writer task sends it.
-    let auth = json!({"type": "auth", "token": token});
+    // S1-CR-78: include `protocol_version` so the sidecar can detect
+    // host/sidecar version skew at handshake time. The field is
+    // additive — older Python sidecars that don't yet parse it continue
+    // to function (the sidecar's `_authenticate` ignores unknown fields).
+    let auth = json!({
+        "type": "auth",
+        "token": token,
+        "protocol_version": EXPECTED_PROTOCOL_VERSION,
+    });
     // PVT-G5-059: use `try_send` (bounded channel) instead of `send`
     // (which would await on a full channel). The auth frame is the
     // very first frame queued — the channel is empty so `try_send`
@@ -623,7 +682,27 @@ fn queue_auth_and_store_ws_tx(
 /// `catch_unwind` future still resolves normally so the outer
 /// `tokio::spawn` future completes cleanly instead of propagating the
 /// panic to the runtime.
-fn spawn_writer_task(write: SplitSink<WsStream, Message>, mut ws_rx: mpsc::Receiver<Message>) {
+fn spawn_writer_task(
+    app: tauri::AppHandle,
+    state: Arc<SidecarState>,
+    write: SplitSink<WsStream, Message>,
+    mut ws_rx: mpsc::Receiver<Message>,
+) {
+    // XE-15-1: clone handles for the cleanup block, mirroring
+    // ``spawn_reader_task``'s pattern. The originals are moved into
+    // the ``AssertUnwindSafe`` body; the cleanup clones are used
+    // AFTER ``catch_unwind`` so the cleanup runs even if the body
+    // panics. Pre-fix, the writer task had NO cleanup block — when
+    // ``write.send()`` returned ``Err`` (write half broken), the
+    // task just ``break``ed, leaving ``state.ws_tx`` pointing at the
+    // dead sender and ``state.pending`` un-drained. Subsequent
+    // ``dispatch`` calls queued onto the dead channel and waited up
+    // to 30s for the heartbeat to detect the failure and trigger
+    // respawn. With this cleanup block, the writer now clears
+    // ``ws_tx`` + drains pending + emits ``supervisor_relaunching`` +
+    // triggers respawn — symmetric with the reader's cleanup.
+    let app_for_cleanup = app.clone();
+    let state_for_cleanup = state.clone();
     tokio::spawn(async move {
         let result = AssertUnwindSafe(async move {
             let mut write = write;
@@ -639,6 +718,37 @@ fn spawn_writer_task(write: SplitSink<WsStream, Message>, mut ws_rx: mpsc::Recei
             log::error!(
                 "[WS-WRITER] writer task panicked during body — task exiting \
                  (write half dropped, WS connection will close)"
+            );
+        }
+        // XE-15-1: symmetric cleanup block — clear ws_tx + drain
+        // pending + trigger supervisor respawn (gated on
+        // ``!shutting_down`` so a graceful shutdown doesn't fire a
+        // spurious respawn). Mirrors ``spawn_reader_task``'s
+        // post-catch_unwind cleanup block at lines ~1086-1128.
+        {
+            let mut ws_tx_guard = mutex_lock(&state_for_cleanup.ws_tx);
+            *ws_tx_guard = None;
+        }
+        {
+            let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
+            if count > 0 {
+                log::warn!(
+                    "[WS-WRITER] drained {} pending dispatch requests on write-half failure (XE-15-1)",
+                    count
+                );
+            }
+        }
+        if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
+            let _ = app_for_cleanup.emit(
+                "supervisor_relaunching",
+                json!({"reason": "writer_half_closed"}),
+            );
+            log::warn!(
+                "[WS-WRITER] write half closed — triggering supervisor respawn (XE-15-1)"
+            );
+            trigger_respawn_off_thread(
+                app_for_cleanup.clone(),
+                state_for_cleanup.clone(),
             );
         }
     });
@@ -1350,7 +1460,12 @@ pub(crate) async fn reconnect_ws(
     // and silence the misleading-underscore lint.
     let (write, read) = ws_connect(port).await?;
     let ws_rx = queue_auth_and_store_ws_tx(state, token)?;
-    spawn_writer_task(write, ws_rx);
+    // XE-15-1: pass ``app`` + ``state`` so ``spawn_writer_task`` can
+    // run the symmetric cleanup block (clear ws_tx, drain pending,
+    // trigger respawn) on write-half failure — previously the writer
+    // task had no cleanup block, leaving dead writes blocking
+    // dispatch callers for up to 30s.
+    spawn_writer_task(app.clone(), state.clone(), write, ws_rx);
     let state_clone = state.clone();
     let app_handle = app.clone();
     let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;

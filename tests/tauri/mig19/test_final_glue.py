@@ -187,7 +187,13 @@ EXPECTED_MAIN_RS_PLUGINS = [
     "tauri_plugin_single_instance",
     "tauri_plugin_shell",
     "tauri_plugin_notification",
-    "tauri_plugin_clipboard_manager",
+    # XE-4-4: tauri_plugin_clipboard_manager REMOVED — the paste path
+    # was deleted (FZ-19/PVT-051) and the renderer uses the web-API
+    # navigator.clipboard.writeText() for all writes. The plugin
+    # registration was pure dead code, and the capability grant
+    # `clipboard-manager:allow-read-text` let a compromised renderer
+    # silently harvest password-manager / 2FA secrets from the system
+    # clipboard WITHOUT a user gesture (unlike the web API).
     "tauri_plugin_dialog",
 ]
 

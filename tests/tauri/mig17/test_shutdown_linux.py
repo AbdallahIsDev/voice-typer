@@ -365,25 +365,47 @@ class TestShutdownSidecarSource:
 
     def test_has_dev_mode_fallback_path(self):
         """Dev-mode sidecars (tokio::process::Child) have no
-        CommandEvent stream → fall back to bounded sleep polling.
+        CommandEvent stream → fall back to a bounded sleep before the
+        force-kill backstop.
 
         ADR-0020 §1: the DevMode variant is used when
         ``VOICE_TYPER_SIDECAR_DEV=1`` runs ``python -m ...ipc_server``
         directly (no externalBin). The shutdown path must still work
-        for dev mode — it just can't poll Terminated, so it sleeps in
-        SHUTDOWN_POLL_INTERVAL_MS increments up to the deadline.
+        for dev mode — it just can't poll Terminated, so it falls back
+        to a single bounded sleep for the full
+        ``SHUTDOWN_ACK_TIMEOUT_MS`` window before force-killing.
 
         On Linux this is the variant that uses SIGKILL (via
         tokio::process::Child::kill) instead of SIGTERM.
         """
         body = _shutdown_sidecar_body()
-        assert "SHUTDOWN_POLL_INTERVAL_MS" in body, (
-            "shutdown_sidecar must use SHUTDOWN_POLL_INTERVAL_MS for the "
-            "dev-mode bounded-sleep fallback (no CommandEvent stream available)"
-        )
+        # RT-8: the production code uses the literal ``dev-mode``
+        # substring in both the comment block ("Dev-mode path
+        # (tokio::process::Child) — no CommandEvent receiver") and the
+        # log line ("[SHUTDOWN] dev-mode sidecar — sleeping ...ms
+        # before force-kill").
         assert "dev-mode" in body.lower(), (
             "shutdown_sidecar must have an explicit dev-mode fallback branch "
             "(tokio::process::Child has no CommandEvent receiver)"
+        )
+        # RT-8: the dev-mode branch must sleep for the configured
+        # ``SHUTDOWN_ACK_TIMEOUT_MS`` window before force-killing. The
+        # implementation chose a single bounded sleep (not incremental
+        # ``SHUTDOWN_POLL_INTERVAL_MS`` polling) because there is no
+        # event stream to monitor between sleeps — a single
+        # ``tokio::time::sleep(deadline_dur)`` is equivalent to N×
+        # ``SHUTDOWN_POLL_INTERVAL_MS`` sleeps and avoids the
+        # bookkeeping of a deadline/elapsed counter. The
+        # ``SHUTDOWN_POLL_INTERVAL_MS`` constant in ``util.rs`` is
+        # kept as a forward-looking hook for a future incremental-
+        # polling refactor; the current dev-mode path does not need
+        # it. Asserting on ``SHUTDOWN_ACK_TIMEOUT_MS`` (not
+        # ``SHUTDOWN_POLL_INTERVAL_MS``) matches the implementation
+        # as of the CR-2 cooperative-shutdown landing.
+        assert "SHUTDOWN_ACK_TIMEOUT_MS" in body, (
+            "shutdown_sidecar must reference SHUTDOWN_ACK_TIMEOUT_MS — the "
+            "dev-mode fallback sleeps for the full cooperative-shutdown "
+            "deadline window before force-killing the sidecar"
         )
 
 
@@ -851,18 +873,23 @@ class TestSupervisorSource:
         idx_log = src.index("respawn succeeded")
         # Search forward from the log line for `return Ok(())`.
         idx_return = src.index("return Ok(())", idx_log)
-        # NF-R19-2 / CR-29: the gap between the "respawn succeeded" log
-        # and the `return Ok(())` widened — CR-29 added a
-        # ``write_restart_counter(0)`` call + a ``supervisor_reconnected``
-        # event emit + a ``respawn_in_progress.store(false, ...)`` flag
-        # clear between the log and the return. Accept a 1500-char gap
-        # (was 400) so the test stays green across the CR-29 refactor
-        # while still asserting the return is in the same match arm.
-        assert idx_return - idx_log < 1500, (
+        # NF-R19-2 / CR-29 / CR-13 / RT-8: the gap between the "respawn
+        # succeeded" log and the `return Ok(())` widened across two
+        # refactors — CR-29 added a ``write_restart_counter(0)`` call +
+        # a ``supervisor_reconnected`` event emit + a
+        # ``respawn_in_progress.store(false, ...)`` flag clear, and
+        # CR-13 added a 17-line comment block explaining the flag-clear
+        # ordering rationale. Accept a 2000-char gap so the test stays
+        # green across the CR-29 + CR-13 refactors while still
+        # asserting the return is in the same match arm (the actual
+        # code-without-comments gap is ~760 chars — well under the
+        # threshold).
+        assert idx_return - idx_log < 2000, (
             f"`return Ok(())` after 'respawn succeeded' log must be in the "
-            f"same match arm (within 1500 chars, widened for CR-29's "
+            f"same match arm (within 2000 chars, widened for CR-29's "
             f"write_restart_counter + supervisor_reconnected emit + "
-            f"respawn_in_progress clear); gap was "
+            f"respawn_in_progress clear AND CR-13's flag-clear rationale "
+            f"comment block); gap was "
             f"{idx_return - idx_log} chars — the supervisor must return "
             f"immediately on successful reconnect_ws (reset-on-success: the "
             f"loop exits early, the next crash starts a fresh backoff schedule)"
@@ -1034,6 +1061,13 @@ class TestPythonShutdownHandler:
         # (an RLock created in ``__init__``). ``__new__`` skips
         # ``__init__``, so create it explicitly.
         server._dispatch_lock = threading.RLock()
+        # UE-18 / RT-8: ``_handle_shutdown`` accesses ``self._shutdown_started``
+        # (a threading.Event created in ``__init__``) before scheduling the
+        # background cleanup thread. ``__new__`` skips ``__init__``, so create
+        # it explicitly (otherwise the dispatch raises AttributeError and the
+        # ack envelope is replaced with a ``{"type":"error","code":
+        # "server.internal_error"}`` frame).
+        server._shutdown_started = threading.Event()
         server.app = MagicMock(name="VoiceTyperApp")
         # PVT-G5-004: ``_dispatch`` checks ``app._shutting_down is True``
         # (strict identity check, not truthiness) — MagicMock auto-vivifies
@@ -1316,6 +1350,13 @@ class TestPythonShutdownReleasesMic:
 
         server = IPCServer.__new__(IPCServer)
         server._dispatch_lock = threading.RLock()
+        # UE-18 / RT-8: ``_handle_shutdown`` accesses ``self._shutdown_started``
+        # (threading.Event created in ``__init__``). ``__new__`` skips
+        # ``__init__``, so create it explicitly — same rationale as the
+        # ``_dispatch_lock`` line above. Without this, dispatch returns
+        # ``{"type":"error","code":"server.internal_error"}`` instead of
+        # the expected ack envelope.
+        server._shutdown_started = threading.Event()
         server.app = MagicMock(name="VoiceTyperApp")
         server.app._shutting_down = False
         # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``.

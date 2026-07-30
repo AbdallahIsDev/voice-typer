@@ -166,13 +166,32 @@ def linux_env(monkeypatch):
     patching also future-proofs them against running on CI runners
     that report ``linux2``/``linux3`` style platforms or are shared
     with macOS/Windows dev containers).
+
+    XE-12-5 / RT-8: ``_spawn_process`` now calls
+    ``verify_native_binary_or_skip`` (imported locally from
+    ``binary_path``) BEFORE ``subprocess.Popen`` to close the TOCTOU
+    window between the factory-time verify and the watchdog respawn.
+    The sandbox has no native-binary manifest populated (no real
+    ``linux-key-listener`` binary + no SHA-256 entry), so the
+    verification fails and ``_spawn_process`` returns early without
+    calling ``Popen`` — breaking the ``TestSubprocessSpawn`` suite
+    which asserts on the ``Popen`` call. Mock the verifier to return
+    True here so the ``Popen`` call is reached; the verifier's own
+    behavior is pinned by the dedicated ``tests/test_native_hotkeys*``
+    suite (which builds a real manifest + binary).
     """
     from voice_typer.server import native_hotkeys
+    from voice_typer.server.native_hotkeys import binary_path
 
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
     monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
     monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+    # XE-12-5 / RT-8: bypass the SHA-256 manifest gate so
+    # ``_spawn_process`` reaches the ``subprocess.Popen`` call (the
+    # ``TestSubprocessSpawn`` tests inject their own ``fake_popen`` and
+    # assert on its arguments; they don't exercise the verifier).
+    monkeypatch.setattr(binary_path, "verify_native_binary_or_skip", lambda _path: True)
     return native_hotkeys
 
 
@@ -420,6 +439,15 @@ class TestSubprocessSpawn:
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
         backend._binary_path = tmp_path / "linux-key-listener"
+        # XE-12-5 / RT-8: ``_spawn_process`` opens the binary with
+        # ``os.open`` (O_RDONLY | O_CLOEXEC) BEFORE the SHA-256 verify +
+        # Popen so the fd pins the inode for the pre-Popen stat check.
+        # The file must exist on disk or the ``os.open`` fails first
+        # (setting ``_failed=True`` + returning early — NOT raising).
+        # Create a placeholder so the ``os.open`` succeeds; the test
+        # exercises the ``Popen``-raises path, not the ``os.open``-fails
+        # path.
+        backend._binary_path.write_text("dummy")
         backend._stop_event.set()
 
         def raising_popen(cmd, **kwargs):
