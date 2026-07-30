@@ -997,12 +997,14 @@ class TestBackpressureDetectionOnDequeOverflow:
         # tests the increment behavior, but doesn't catch a regression
         # where the comparison is against a hardcoded length. Source-string
         # check catches the implementation choice.
-        from voice_typer.server import recording
+        #
+        # S3-CR-17 / Phase 4.5: backpressure lives in
+        # AudioPipeline.append_to_buffer_locked.
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        src = inspect.getsource(recording.Recorder._process_audio_chunk)
+        src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
         assert "_dropped_chunks" in src, "AUDIO-010: recording callback must track _dropped_chunks."
-        assert "self._buffer.maxlen" in src, "AUDIO-010: backpressure check must compare against _buffer.maxlen."
+        assert "recorder._buffer.maxlen" in src, "AUDIO-010: backpressure check must compare against _buffer.maxlen."
 
 
 # ADR-0007: AGC removed; test deleted because the feature no longer exists.
@@ -1113,10 +1115,12 @@ class TestPeakMeterAccuracy:
         # peak-tracking behavior, but doesn't catch a regression where
         # the implementation switches to max(filtered) (without abs),
         # which would return wrong values for negative-going signals.
-        from voice_typer.server import recording
+        #
+        # S3-CR-17 / Phase 4.5: peak computation lives in
+        # AudioPipeline.compute_rms_and_peak.
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        src = inspect.getsource(recording.Recorder._process_audio_chunk)
+        src = inspect.getsource(AudioPipeline.compute_rms_and_peak)
         # The peak computation returns max(|x|). The canonical forms
         # are ``abs_filtered.max()`` and ``np.abs(filtered).max()``.
         # PERF-FIX-2 introduced an allocation-free equivalent:
