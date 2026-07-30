@@ -7311,36 +7311,8 @@ The following items were identified during the verifier pass of the Fix-Existing
 **Fix:** Rename files to descriptive names following `test_<feature>_<concern>.py` convention. Update any imports referencing the old names.
 **Severity:** 🟢 Low
 
----
-
-## AB-1 — `_recorder_split.take_snapshot` no-resample branch rebuilds full array on every poll (~460 MB/s memcpy churn)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `_recorder_split.take_snapshot`'s no-resample branch caches by `buf_len` only, so it misses on every poll (the streaming thread polls at 4 Hz while the audio worker appends at 16 Hz → buf_len always differs). The cache miss path runs `np.concatenate(chunks, axis=0).reshape(-1)`, rebuilding the full array every poll. This is the COMMON path because `AudioProcessor` resamples to 16 kHz before appending (so `_buffer_sr == target_sr`).
-**User Impact:** On a 30-min 16kHz mono dictation (~115 MB buffer), each 4 Hz poll rebuilds the full array → ~460 MB/s of memcpy + garbage allocation. Causes GC pressure, CPU spikes (10-30% on laptops), battery drain, and blocks the streaming transcription thread for 5-50ms per poll (scaling with recording length), delaying partial transcription results.
-**Root Cause:** The no-resample path lacks the segment-list + lazy-concat optimization that the resample path has (lines 225-227). The asymmetry was overlooked when PERF-NEW-003 optimized only the resample branch.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/_recorder_split.py`
-**Fix:** Apply the same segment-list pattern: maintain `_cached_no_resample_segments` (list of chunks) and `_cached_no_resample_concat_dirty`. On each snapshot, append only the NEW chunks (`islice(buffer, cached_len, None)`) to the segment list, then lazily concat via `_ensure_no_resample_concat` (mirroring `_ensure_resampled_concat`).
-**Severity:** 🔴 High
-
----
-
-## AB-2 — `audio_worker_loop` drain loop burns 3.2s of CPU before checking stop event (orphaned worker after stop)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `capture.py`'s `audio_worker_loop` inner drain loop pops + `_process_audio_chunk` for every queued chunk with NO stop-event check inside the loop. When the worker falls behind (RNNoise ~50ms/chunk vs 32ms arrival at 16 Hz), the 64-slot ring buffer fills (~1s of headroom). The drain loop then burns 64 × 50ms = 3.2s of solid CPU before checking the stop event.
-**User Impact:** (1) `stop()` latency is up to 2.0s (the join timeout) when worker is in catch-up mode — user presses stop and waits up to 2s for transcription to finalize. (2) The orphaned daemon worker consumes 50ms × remaining chunks of CPU after stop() returns, draining battery. (3) If user re-presses hotkey during that window, `start()` clears the ring buffer but old worker may still be mid-`_process_audio_chunk`, appending stale chunks to the new session's `_buffer` under `_lock`.
-**Root Cause:** No stop-event check inside the drain loop; check is only after the drain completes.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/capture.py`
-**Fix:** Check `recorder._worker_stop_event.is_set()` between chunk processing iterations in the drain loop (e.g. every 4 chunks). On stop signal, break out of the drain immediately (sacrificing in-flight audio — acceptable since `drain=True` is best-effort).
-**Severity:** 🔴 High
-
----
-
 ## AB-3 — `device_manager._resolve_effective_sample_rate` and `_same_physical_microphone_candidates` bypass the device cache (200-1200ms avoidable RPC latency on hot-swap)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `_refresh_device_list` builds the cached device list with only `{id,index,name,max_input_channels}` — omitting `default_samplerate` and `hostapi`. Consequently `_resolve_effective_sample_rate` must issue a fresh `sd.query_devices(device)` RPC and a second `sd.query_hostapis(host_api_idx)` RPC on every `start()` candidate (1-3) and every disconnect-restart. `_same_physical_microphone_candidates` also calls `sd.query_devices(device)` + `list(sd.query_devices())` directly, bypassing the cache. The host_api index→name mapping is stable at runtime but re-queried on every call.
 **User Impact:** On the `start()` critical path (hotkey press → recording begins), 1-3 candidates × 2 RPCs each × 50-200ms/RPC = 100-1200ms of avoidable latency on Windows MME. On hot-swap restart, 100-600ms additional avoidable latency. BT mic flapping 3 times = 300-1800ms of cumulative wasted time before recording resumes.
 **Root Cause:** Cache schema was designed when only `_cached_max_input_channels` consumed it; `_resolve_effective_sample_rate` was never updated to use it.
@@ -7351,24 +7323,8 @@ The following items were identified during the verifier pass of the Fix-Existing
 **Fix:** (a) Extend the cache dict in `_refresh_device_list` to include `default_samplerate` and `hostapi`. Add a `_cached_device_info(device)` helper. (b) Refactor `_resolve_effective_sample_rate` to read from the cache. (c) Build a `dict[int, str]` host_api cache lazily in `DeviceManager.__init__`. (d) Replace `sd.query_devices(...)` calls in `_same_physical_microphone_candidates` and `disconnect_handler.restart_stream` with cached helpers.
 **Severity:** 🔴 High
 
----
-
-## AB-4 — Level monitor opens its own `sd.InputStream` while Recorder's stream is also open (double audio capture / Windows MME device conflict)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `level_monitor.start_monitoring()` opens its own `sd.InputStream` on the mic device. `RecordingController.start()` opens a SEPARATE `sd.InputStream` via `app.recorder.start()`. `recording_controller.py` has ZERO `level_monitor` references — the backend has no coordination: `start_dictation` does NOT call `level_monitor.stop_monitoring()` before opening the Recorder's stream. The only coordination that exists is in the frontend (calling `level_monitor_stop` IPC before `recording_start` IPC); if the frontend ever forgets, both streams run concurrently.
-**User Impact:** When the level bar is visible AND recording starts: Linux/macOS gets 2× audio capture, 2× `indata.copy()` per chunk, 2× RMS computation, and 2× RNNoise (5-50ms/chunk each) — effectively doubling audio-path CPU during every recording. Windows MME: the second `sd.InputStream` open FAILS (device-conflict error per `__init__.py:9-13`) — recording fails to start.
-**Root Cause:** No backend guard in `RecordingController.start()`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/level_monitor/monitoring.py`
-- `voice_typer/server/recording_controller.py`
-**Fix:** In `RecordingController.start()` (or `Recorder.start()`), guard with `if level_monitor.is_monitoring(): level_monitor.stop_monitoring()` BEFORE `recorder.start()`. Re-start the monitor in `RecordingController.stop()` if `bubble_behavior == "always_visible"`. Alternatively, route the Recorder's existing per-chunk RMS callback to the level bar so the level_monitor stream can be torn down permanently whenever a Recorder is alive.
-**Severity:** 🔴 High
-
----
-
 ## AB-5 — Level monitor runs RNNoise filter chain on every cosmetic level-bar chunk (15-100% CPU peg for a non-functional bar)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** When `_level_processor` is set (which happens whenever `noise_filter_enabled=True`), every monitor chunk (31.25 Hz @ 16 kHz/512, 93.75 Hz @ 48 kHz/512) is passed through `processor.process_chunk(indata.reshape(-1, 1))` which may include RNNoise (5-50 ms per chunk on CPU). This runs continuously while the monitor is active. The ER-14 idle-timeout (5 s) ONLY fires when the frontend stops polling `get_level` — i.e. when the tray bubble is HIDDEN. If the bubble is visible (`bubble_behavior == "always_visible"`) and the user isn't dictating, the RNNoise chain pegs a core indefinitely.
 **User Impact:** Continuous ~5-50 ms × 31-94 Hz = 15-100% of one core burned for a COSMETIC level bar when not recording. Battery drain on laptops. Heat / fan spin-up.
 **Root Cause:** Filter chain applied unconditionally per chunk "so the bar reflects what the user hears after filtering."
@@ -7382,7 +7338,7 @@ The following items were identified during the verifier pass of the Fix-Existing
 ---
 
 ## AB-6 — Microphone watcher Linux poll interval defaults to 1.0s (DJ-48 fix never applied, 1Hz idle wakeups for app lifetime)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `microphone_watcher.py:94` defaults `poll_interval: float = 1.0` — but DJ-48 in `review.md:9110-9125` documents the fix should have bumped it to `5.0`. The guard test `test_default_poll_interval_is_5_seconds` ASSERTS `_poll_interval == 5.0` and FAILS. The Linux mic-watcher daemon thread (lifetime of the app) wakes every 1 s to `os.listdir("/dev/snd")` — ~86,400 idle wakeups/day, ~43 s of CPU/day, prevents deep C-states, drains laptop battery.
 **User Impact:** Constant 1 Hz background activity for the entire app lifetime on Linux. Combined with the other 1 Hz background timers (crash-recovery-saver DJ-42, smart-duck 1 Hz), the app has constant 1 Hz background activity preventing kernel deep-sleep.
 **Root Cause:** DJ-48 fix described in `review.md` was never applied to production code (or was reverted). The macOS-fallback path uses 3.0 s effective (better), but Linux is not mitigated.
@@ -7395,7 +7351,7 @@ The following items were identified during the verifier pass of the Fix-Existing
 ---
 
 ## AB-7 — `microphone_list.list_microphones` queries PortAudio on every IPC call (50-200ms latency per call)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `list_microphones()` calls `sd.query_devices(kind="input")`, `sd.query_hostapis()`, and `sd.query_devices()` on every invocation. No module-level cache. `find_microphone_by_name` and `find_microphone_by_id` call `_pkg.list_microphones()` in a loop — re-enumerating all devices on every call. The production caller `device_manager.py:620-622` calls `find_microphone_by_name` during device restart-after-disconnect recovery. Each call = 50-200 ms PortAudio round-trip.
 **User Impact:** 50-200 ms latency added to device-restart path after a Bluetooth/USB disconnect. Same PortAudio data fetched 2-3× within a single recovery sequence (list → find by name → resolve device).
 **Root Cause:** Caching is delegated to specific callers but `find_microphone_by_name`/`find_microphone_by_id` bypass both caches and hit PortAudio directly.
@@ -7405,189 +7361,8 @@ The following items were identified during the verifier pass of the Fix-Existing
 **Fix:** Add a 5 s module-level TTL cache inside `list_microphones()` so ALL callers benefit. Invalidate the cache when the OS device-change watcher fires (the watcher already calls `_invalidate_device_cache` on device_manager — extend it to invalidate the platform-layer cache too).
 **Severity:** 🟡 Medium
 
----
-
-## AB-8 — ASR model integrity SHA-256 recomputed on every model load (5-10s pure I/O+CPU per load, no cache)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `parakeet_engine.py:464-472` docstring states verify_model_integrity is run UNCONDITIONALLY on every load — "The ~1-3s SHA-256 cost is acceptable vs the 5-50s from_pretrained load time." `transcription.py:705-724`: cache-hit branch runs verify_model_integrity() before returning, on every load. For Parakeet the pinned files include model.safetensors (2.5 GB); for Whisper large-v3 they include model.bin (~3 GB). No cache layer keyed on (path, mtime, size) — the digest is recomputed even when the file has not changed since the previous load. The TY-11 idle-unload feature makes this worse: every return-from-idle reload now pays the full SHA-256 tax.
-**User Impact:** 5-10 s of pure disk I/O + SHA-256 CPU added to every model load. When idle-unload is enabled, every return-from-idle reload pays this tax again, doubling perceived reload latency.
-**Root Cause:** The integrity check was deliberately made unconditional to defend against cache-tamper attacks, but the implementation re-reads and re-hashes the full multi-GB weight file on every load with no positive-result caching.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/security.py`
-- `voice_typer/server/parakeet_engine.py`
-- `voice_typer/server/transcription.py`
-**Fix:** Introduce an on-disk integrity cache (JSON at `~/.voice-typer/cache/integrity_cache.json`) keyed by `(repo_id, relpath, st_mtime_ns, st_size)` → sha256_hex. On a cache hit, skip the re-hash. The mtime+size key defeats accidental tampering that doesn't bump mtime. Also: use mmap in `compute_file_sha256` instead of 64KB chunk loop.
-**Severity:** 🔴 High
-
----
-
-## AB-9 — `ensure_active_engine_loaded` blocks F2 hotkey thread (first 5-30s of speech lost on idle-unload reload)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `recording_controller.py:354-406` calls `app.models.apply_pending_model_change()` then `app.models.ensure_active_engine_loaded()` BEFORE `app.recorder.start()` (line 406). Both calls are synchronous on the F2 hotkey handler thread. `model_manager.py:1099-1106`: if `engine.is_loaded` is False (i.e. the TY-11 idle-unload timer has fired), the method calls `self._registry.load_active(progress_callback=on_progress)` inline — a 5-30 s blocking operation. The recorder is not started until line 406, AFTER the model reload completes. Audio is not being captured during the reload window.
-**User Impact:** When idle-unload is enabled (`model_idle_unload_minutes > 0`), the user presses F2 and waits silently for 5-30 s while the model reloads. The first 5-30 s of speech is lost because `app.recorder.start()` has not been called yet. This silently defeats the purpose of a "voice typer" for users who pause between dictation bursts.
-**Root Cause:** The idle-unload reload path was implemented as a synchronous inline load rather than as a "start recording into a ring buffer while reloading in parallel" pattern.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording_controller.py`
-- `voice_typer/server/model_manager.py`
-**Fix:** Restructure `_start_dictation` so that `app.recorder.start()` is called BEFORE `ensure_active_engine_loaded()` when a reload is needed. Buffer the incoming audio chunks in the recorder while the model reloads on a background thread; once the model is ready, transcribe the buffered audio followed by the live stream.
-**Severity:** 🔴 High
-
----
-
-## AB-10 — `change_model` / `set_active_backend` block IPC worker synchronously (5-30s UI hang, can exhaust 4-worker IPC pool)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `config_handlers.py:216` calls `self.service.change_model(...)` synchronously on the IPC worker thread. `model_manager.py:762-776`: `_change_model_load_phase` runs under `_model_change_lock` and calls `self._registry.load_active(...)` which invokes `backend.load()` — a 5-30 s operation (disk + torch import + weight load). The calling IPC worker is blocked for the entire duration. `transport_tcp.py:63-66`: `ThreadPoolExecutor(max_workers=4)`. A single `change_model` call occupies 1 of 4 workers for 5-30 s. If the user changes models twice in quick succession (or another slow IPC op coincides), the pool can be temporarily exhausted and subsequent IPC requests (tray polls, config reads) queue. `start_background_load` (line 435-475) correctly spawns a daemon thread for the INITIAL load — `change_model` does NOT follow this pattern.
-**User Impact:** UI/renderer can appear hung (settings page spinner, no ack) for the duration of a model swap. Other IPC clients (e.g. a tray-status poller) are delayed. On low-core machines the 4-worker pool is a real bottleneck.
-**Root Cause:** `change_model` was written as a synchronous IPC handler with no background-load path, unlike `load_background`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/model_manager.py`
-- `voice_typer/server/handlers/config_handlers.py`
-- `voice_typer/server/ipc/transport_tcp.py`
-**Fix:** Move `_change_model_load_phase` to a background daemon thread (mirroring `start_background_load`). Hold `_model_change_lock` across the background load so concurrent `change_model` / `set_active_backend` calls serialize. Return an ack to the IPC caller immediately with a "loading" status; emit an `asr_backend_ready` event on the event_bus when the load completes.
-**Severity:** 🔴 High
-
----
-
-## AB-11 — Parakeet inference runs WITHOUT `torch.inference_mode()` (10-30% latency + 2× activation memory)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `_transcribe_segment`, `_transcribe_batch`, and `_transcribe_segment_unlocked` all call `self._model.generate(**inputs, return_dict_in_generate=True)` with NO `torch.inference_mode()` / `torch.no_grad()` context. `rg` confirms zero `no_grad`/`inference_mode` uses in `parakeet_engine.py` (vad.py uses it 3× — so the codebase knows the pattern).
-**User Impact:** PyTorch builds and retains the autograd graph for every `generate()` call. For a 25s chunk on CUDA this (a) roughly doubles activation-memory footprint (increasing OOM risk — the code already has CUDA-OOM fallback paths), and (b) adds ~10-30% inference latency from gradient-tracking overhead. Multiplied across 13 chunks for a 5-minute dictation, the latency penalty is several seconds.
-**Root Cause:** Verified — inference runs with autograd enabled.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/parakeet_engine.py`
-- `voice_typer/server/qwen_engine.py`
-**Fix:** Wrap each `generate()` call in `with self._torch.inference_mode():`. Apply to all three call sites in `parakeet_engine.py` and to `qwen_engine.py:392-396, 465-468`.
-**Severity:** 🔴 High
-
----
-
-## AB-12 — `recording_controller.stop()` blocks F2 hotkey thread for up to ~2.4s on every stop (frozen tray, queued hotkeys)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `stop()` acquires `_toggle_lock` (RLock) at line 518, then calls `_stop_impl` which calls `audio = app.recorder.stop()` at line 576 while STILL holding `_toggle_lock`. `recorder.stop()` does: 300ms stream-teardown poll + `_stop_audio_worker(timeout=2.0s, drain=True)` + `_stop_event_worker(timeout=2.0s, drain=True)` + `np.concatenate` (50-300ms) + `_prepare_audio` resample-from-scratch. Worst-case ~2.4s (down from ~5.8s pre-fix). The F2 hotkey thread runs `app.toggle_dictation()` → `recording.toggle()` → `_toggle_impl()` → `app._stop_dictation()` → `recording.stop()` → `_stop_impl()` — all synchronous on the hotkey thread.
-**User Impact:** The F2 hotkey backend's single dispatch thread is blocked for up to ~2.4s on every stop. During that window: (a) a second F2 press to start a new recording queues in the OS event queue and is not processed until stop returns; (b) an ESC press to cancel queues behind `_toggle_lock`; (c) a silence/max-duration auto-stop Timer callback blocks on `_toggle_lock`. The tray icon also does not transition to TRANSCRIBING until `recorder.stop()` returns, so the user sees a frozen RECORDING state for ~2.4s.
-**Root Cause:** `recorder.stop()` is a synchronous, multi-second teardown called inline on the caller's thread.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording_controller.py`
-**Fix:** Move the `recorder.stop()` call (and the subsequent audio-stats/resample work) into a short-lived background thread, OR restructure so the existing "Transcription" daemon thread performs `recorder.stop()` as its first step. The hotkey thread would: clear `recorder.recording` flag (so the audio callback stops appending), set tray to "stopping", spawn the stop+transcribe worker, and return immediately. The `_toggle_lock` would only be held for the flag-flip + thread spawn (~microseconds), not the 2.4s teardown.
-**Severity:** 🔴 High
-
----
-
-## AB-13 — `cancel()` is silently swallowed during the transcription phase (ESC does nothing; user waits 270s for watchdog)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `_cancel_impl` checks `if not app.recorder.recording:` at line 757 and returns immediately with only a debug log. After `_stop_impl` calls `app.recorder.stop()` (line 576), `recorder.recording` is False. The transcription thread is then started and may run for seconds-to-minutes. During the transcription phase, ESC → `hotkey_dispatcher._esc_callback` → `app._cancel_dictation` → `recording.cancel()` → `_cancel_impl` → early return. The user's ESC keypress does nothing. The only recovery path is the watchdog: `_watchdog_loop` waits 90s per cycle, force-recovers only after 3 firings (270s total).
-**User Impact:** A user who stops a long recording and then realizes the ASR engine is hung has NO way to abort via ESC. They must wait 270s for the watchdog to force-recover, during which the stuck thread continues consuming CPU + GPU memory. This is the single worst responsiveness gap in the controller.
-**Root Cause:** `cancel()` was designed only for the recording phase; there is no branch for the transcription phase.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording_controller.py`
-**Fix:** Add a transcription-phase branch to `_cancel_impl`: if `recorder.recording` is False but `_transcription_thread` is alive and `_busy_event` is cleared, mark the cycle_id in `_cancelled_cycle_ids` (so the pipeline's CancellationGuard skips the paste), call `_force_recover_from_stuck_transcription(force=True)` to reset the busy flag + tray immediately.
-**Severity:** 🔴 High
-
----
-
-## AB-14 — `_force_recover_from_stuck_transcription` leaks the streaming session (worker thread + audio buffers linger)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** On force-recovery, the method clears `self._current_audio` (line 1131) and calls `gc.collect()` (line 1133), but NEVER touches `self._streaming_session`. The streaming session was signalled to cancel in `_stop_impl` (line 645: `session._cancel_event.set()`), but the `StreamingTranscriptionSession` worker thread only checks `_cancel_event` between transcribe_words calls. If the worker is mid-call when the watchdog force-recovers, the worker thread + its stack + any in-flight audio window buffer remain alive. The session reference (holding recorder + transcriber + config + _thread refs) is held until the NEXT `_start_streaming_session_if_enabled` call clears it via `set_streaming_session(None)` at line 966.
-**User Impact:** After any watchdog force-recovery (which fires whenever a transcription exceeds 270s), the streaming session object + potentially-alive worker thread linger in memory. The worker thread consumes ~8MB stack + whatever audio buffers it's processing. On a system where the user frequently hits long transcriptions (e.g. CPU-fallback Whisper on a slow laptop), this is a repeating per-cycle leak until the next successful recording.
-**Root Cause:** `_force_recover` was written before the streaming-session lifecycle was fully wired; cleanup was simply missed.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording_controller.py`
-**Fix:** In `_force_recover_from_stuck_transcription`, before resetting `_busy_event`, call `self._cancel_streaming_session()` (which atomically pops + calls `session.cancel()`). If the worker thread is still alive after cancel(), log a warning but do not block.
-**Severity:** 🟡 Medium
-
----
-
-## AB-15 — Volume ducker smart-poll clamp is bypassed after first dictation (10-20% CPU on Linux during every subsequent dictation)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `volume_ducker.set_smart_duck_poll_interval(ms)` does `self._smart_duck_poll_ms = max(50, min(5000, int(ms)))` — NO min_poll clamp. The `min_poll_interval_ms` clamp lives ONLY in `VolumeDucker.initialize()` (lines 201-213). `initialize()` returns early after the first call. `VolumeController._duck_volume` (called on EVERY dictation start) calls `set_smart_duck_poll_interval(config.volume_duck_smart_poll_interval_ms or 500)`, then `initialize()` (no-op after first dictation), then `duck(...)`. So on the 2nd, 3rd, … dictation, `set_smart_duck_poll_interval` resets `_smart_duck_poll_ms` to the user value (default 500 ms) WITHOUT applying the backend's min_poll clamp. `LinuxVolumeBackend.min_poll_interval_ms = 1500`. At 500 ms cadence, the smart-duck monitor spawns `pactl list sink-inputs` (~50-100 ms per call) every 500 ms = 10-20% CPU on one core continuously during dictation-with-silence (the common case). The XV-57 comment at `volume_ducker.py:188-200` explicitly warns about this and the clamp was designed to prevent it — but the clamp is bypassed after the first dictation.
-**User Impact:** 10-20% CPU waste on one core on Linux laptops during every dictation session after the first; corresponding battery drain. The exact regression the XV-57 fix was designed to prevent.
-**Root Cause:** The min_poll clamp is applied only once in `initialize()`; `set_smart_duck_poll_interval()` unconditionally overwrites `_smart_duck_poll_ms` with no re-clamp.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/volume_ducker.py`
-- `voice_typer/server/volume_controller.py`
-**Fix:** In `set_smart_duck_poll_interval`, after setting `self._smart_duck_poll_ms`, re-apply `max(self._smart_duck_poll_ms, backend.min_poll_interval_ms)` when `self._backend` is initialized. Alternatively, move the clamp into a private `_clamp_poll_interval()` helper called from both `initialize()` and `set_smart_duck_poll_interval()`.
-**Severity:** 🔴 High
-
----
-
-## AB-17 — Prewarm ER-68 cache-ratio skip-warming constants defined but never wired in (re-warms already-cached models)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `pipeline.py:84-92` defines `_CACHE_RATIO_SKIP_WARMING_THRESHOLD = 0.9` and `_CACHE_RATIO_PROBE_MIN_BYTES = 100 * 1024 * 1024`. The actual warming loop at `pipeline.py:256-260` calls `_pkg._warm_file(f)` unconditionally — never probes `_cache_ratio`. `_CACHE_RATIO_SKIP_WARMING_THRESHOLD` and `_CACHE_RATIO_PROBE_MIN_BYTES` have ZERO read-sites anywhere in the repo. The `_cache_ratio()` probe exists in `cache_probe.py:588` but is only called from `_probe_cache_status` (for status display), never from the warming pipeline.
-**User Impact:** When prewarm re-fires (manual `--force`, sentinel cleared, or `spawn_background_prewarm` after `wait_for_prewarm` timeout), the pipeline re-reads the entire ~2.4 GB `model.safetensors` even when the OS standby cache already holds ≥90 % of it. On a warm cache this is ~2.4 GB of pointless sequential disk I/O at background priority — adds ~5-15 s of disk contention per re-fire.
-**Root Cause:** ER-68 was tracked as "Not Fixed" in `review.md:5111-5122`, but the constants were committed anyway — a half-applied fix leaving dead code.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/prewarm/pipeline.py`
-- `voice_typer/server/prewarm/cache_probe.py`
-**Fix:** Before `_pkg._warm_file(f)`, check `f.stat().st_size >= _CACHE_RATIO_PROBE_MIN_BYTES` and `_pkg._cache_ratio(f, samples=10) >= _CACHE_RATIO_SKIP_WARMING_THRESHOLD`; if so, skip (log at DEBUG). The probe costs ~10 random 4 K reads (~1 ms on warm cache) — far cheaper than re-reading a 2.4 GB file.
-**Severity:** 🟡 Medium
-
----
-
-## AB-18 — Prewarm `spawn_background_prewarm` bypasses `resolve_prewarm_exe()` (1-2s slower Python interpreter bootstrap on every runtime re-spawn)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `process_tracker.py:655-664` (`spawn_background_prewarm`) ignores the `TAURI_SIDECAR` / `VOICE_TYPER_PREWARM_EXE` env vars and unconditionally uses `python -m voice_typer.server.prewarm`. The resolver `resolve_prewarm_exe()` is invoked from `task_scheduler.py:139,803` and `prewarm_scheduler_posix.py:55,86` but NEVER from `spawn_background_prewarm`. In Tauri production mode, the scheduler uses the frozen exe (fast: ~100 ms startup), but the runtime re-spawn (called from `model_manager.py:618,641` after `wait_for_prewarm` timeout) uses `python -m` (slow: ~1-2 s Python interpreter bootstrap + module imports).
-**User Impact:** Each runtime re-spawn wastes ~1-2 s of CPU + disk I/O. In install layouts where the `voice_typer` package is not importable via `python -m` (e.g. a stripped-down Tauri bundle that ships only the frozen `prewarm-<triple>` exe), `spawn_background_prewarm` would silently fail.
-**Root Cause:** `spawn_background_prewarm` predates the Tauri-sidecar migration and was not updated to use the resolver.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/prewarm/process_tracker.py`
-- `voice_typer/server/prewarm_resolver.py`
-**Fix:** Delegate to `resolve_prewarm_exe()` and split the result into command + args (mirroring `_prewarm_python()` / `_prewarm_args()` with `shlex.split`). When the resolver returns a frozen exe path, `cmd = [frozen_exe]`; when it returns the dev fallback, `cmd = shlex.split(dev_fallback)`.
-**Severity:** 🟡 Medium
-
----
-
-## AB-19 — Prewarm macOS I/O priority not lowered (setiopolicy_np never called)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `logging_setup.py:304-395` (`_lower_io_priority`): `os.nice(10)` lowers CPU priority on ALL POSIX; `ioprio_set` (IOPRIO_CLASS_IDLE) lowers I/O priority on Linux only; macOS falls through with NO I/O priority lowering. macOS exposes `setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_DISK_THROTTLE)` for exactly this purpose. `rg` confirms `setiopolicy_np` / `IOPOL_TYPE_DISK` / `IOPOL_DISK_THROTTLE` appear nowhere in the codebase. The docstring at `__init__.py:14-15` claims the prewarm pipeline runs "with low I/O priority so it never competes with the user's real work," but on macOS only CPU priority is lowered.
-**User Impact:** On macOS, prewarm's ~6 GB of sequential reads compete with the user's foreground apps at normal I/O scheduling priority. On a busy Mac with multiple apps hitting disk, prewarm can cause noticeable I/O stalls for ~30-60 s.
-**Root Cause:** `is_macos()` is never checked in `_lower_io_priority`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/prewarm/logging_setup.py`
-**Fix:** Add an `is_macos()` branch in `_lower_io_priority` that calls `setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_DISK_THROTTLE)` via `ctypes` (the function is in `libSystem.B.dylib`; no extra dependency). Best-effort with a DEBUG log on failure, mirroring the Linux `ioprio_set` pattern.
-**Severity:** 🟡 Medium
-
----
-
-## AB-20 — Dictation pipeline streaming snapshot taken unconditionally every 250ms poll (~8 GB allocation churn on long dictations)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `streaming.py:661-662, 785-789`: The worker loop calls `self.recorder.snapshot()` every `poll_interval_seconds` (default 0.25 s) BEFORE `self.planner.next_window()` decides whether a new window is available. `Recorder.snapshot()` always returns a fresh array. With `step_seconds=5.0` and `poll_interval=0.25 s`, only ~1 in 20 polls produces a new window; the other ~19 polls allocate a full-length copy of the recording, pass it to `next_window` (which returns None), then zero and discard it in the `finally` (streaming.py:703-705).
-**User Impact:** For a 5-minute recording at 16 kHz mono float32 (peak snapshot ~19.2 MB): with a fast GPU backend (~100 ms transcribe), the loop iterates ~857 times, churning ~8 GB of short-lived allocations through gen-0 GC. Sustained allocation pressure increases GC frequency, jitters the streaming worker, and competes with the ASR engine for memory bandwidth.
-**Root Cause:** Snapshot is taken unconditionally; the planner's "not enough audio yet" check happens AFTER the allocation.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/streaming.py`
-- `voice_typer/server/recording/_recorder_split.py`
-**Fix:** Query the recorder for its current sample count cheaply (expose `recorder.current_duration_seconds` without copying) and short-circuit `process_available_audio_once` BEFORE calling `snapshot()` when `duration < planner._last_window_end + config.step_seconds`. Alternatively, raise `poll_interval_seconds` to ~1.0 s.
-**Severity:** 🟡 Medium
-
----
-
-## AB-21 — VocabularyManager constructed per `get_vocabulary` IPC call (re-reads corrections.json + user vocab from disk every call)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `service/vocabulary.py:38`: `vm = VocabularyManager(config_dir=self._app.config.config_dir)` is called on every `get_vocabulary` IPC invocation. `VocabularyManager.__init__` calls `_load_and_merge()` which reads `corrections.json` (bundled) + `voice-typer-vocabulary.json` (user) from disk, parses both JSON files, and merges them. The sibling method `save_vocabulary_with_diff` in the same file was already fixed (XZ-R11-10 comment at line 58-65) to reuse `self._app._vocabulary_manager` — but `get_vocabulary` was NOT fixed. `app.py:504` confirms a live `_vocabulary_manager` is constructed eagerly at startup.
-**User Impact:** Every time the renderer opens the Vocabulary settings page (or polls it), the server does 2 file reads + 2 JSON parses + a merge + 6-category normalization. For a 5000-entry vocabulary this is ~5-20ms of disk I/O + CPU per IPC call.
-**Root Cause:** XZ-R11-10 only fixed the save path; the get path still constructs a throwaway instance per IPC call.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/service/vocabulary.py`
-**Fix:** Reuse `self._app._vocabulary_manager` (already initialized at app startup). Construct a fresh instance only as a cold-start / test-fixture fallback when the live manager is None.
-**Severity:** 🔴 High
-
----
-
 ## AB-22 — `VocabularyManager.apply_to_text` redundantly tokenizes 4× per dictation (4 word-level categories each split+join)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `vocabulary.py:678-691`: The `for cat in ("misspellings", "technical_terms", "names", "products")` loop calls `tokens = text.split(" ")` (line 682) and `text = " ".join(output)` (line 691) INSIDE the loop body — so a 50-word transcript is split + joined 4 times per dictation. `text_cleanup.py` already solved this exact pattern with XV-52 (tokenize once, pass token list through helpers). Additionally, per-token `_re.sub(r"^\W+|\W+$", "", token)` (line 685) and `_re.match(r"^(\W*)(\w+)(\W*)$", token)` (line 688) use UNCOMPILED string patterns — `text_cleanup.py` already precompiled these exact patterns as `_RE_TOKEN_KEY` (line 562) and `_RE_MISSPELL_WRAP` (line 569).
 **User Impact:** 4× redundant tokenization + re-joining per dictation. For typical dictations (~50 words) the cost is sub-millisecond; for long dictations (500+ words) it becomes measurable (~ms scale). Compounds with the uncompiled regex lookups (200 re-cache lookups per dictation for 50 words × 4 categories).
 **Root Cause:** The XV-52 single-tokenize optimization was applied to `text_cleanup` but not to the parallel `VocabularyManager.apply_to_text` word-level path.
@@ -7600,7 +7375,7 @@ The following items were identified during the verifier pass of the Fix-Existing
 ---
 
 ## AB-23 — `VocabularyManager.apply_to_text` snapshot allocates 6 containers × 5000 ref-copies per dictation (over-applied CR-23 snapshot)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `vocabulary.py:659-660`: `data_snapshot = {cat: (list(v) if isinstance(v, list) else dict(v)) for cat, v in self._data.items()}` is called on every `apply_to_text` invocation. For a 5000-entry vocabulary this allocates 6 new containers with 5000 reference-copies each (~30,000 reference copies) per dictation cycle. The snapshot is only needed for the phrase-level path (which iterates patterns); the word-level path does only `key in entries` / `entries[key]` (O(1) atomic ops under the GIL — no iteration, no race).
 **User Impact:** ~30K reference copies + 6 container allocations per dictation. For a 5000-entry vocab this is ~0.5-1ms of pure allocation overhead per dictation, plus memory churn that triggers more GC.
 **Root Cause:** CR-23 added the snapshot for thread safety but over-applied it to the word-level path which doesn't need it.
@@ -7613,7 +7388,7 @@ The following items were identified during the verifier pass of the Fix-Existing
 ---
 
 ## AB-24 — LLM polish call blocks dictation pipeline thread (up to 10s paste latency)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ❌ Not Fixed (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `llm_polish.py:280`: `_opener.open(req, timeout=10)` is a synchronous blocking call inside `_call_api`, called from `polish()`, called synchronously from `dictation_pipeline._apply_llm_polish` (line 1162: `text = self._app._llm_polisher.polish(text)`). The dictation pipeline thread is blocked until the LLM responds or the 10s timeout fires.
 **User Impact:** When LLM polish is enabled, the user's text paste is delayed by the LLM round-trip (typically 1-5s, up to 10s on timeout). The pipeline thread is occupied and cannot process new dictation triggers (start/stop/cancel) during the wait. For a stalled connection, the user waits up to 10s before seeing their text.
 **Root Cause:** By design, but no async/offload path exists.
@@ -7624,147 +7399,8 @@ The following items were identified during the verifier pass of the Fix-Existing
 **Fix:** Run polish in a side-thread with a `Future` that the pipeline awaits with a shorter effective timeout (e.g. 4s), falling back to unpolished text on timeout.
 **Severity:** 🟡 Medium
 
----
-
-## AB-25 — FTS5 'rebuild' runs unconditionally on every retention tick (O(N) reindex every 10 min on large DBs)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `retention.py:141-189`: The FTS5 'rebuild' command runs whenever `deleted > 0 and initial_count > 0`, with NO ratio threshold gate (unlike the VACUUM at line 143 which is gated on `ratio > 0.20`). The comment at line 157 says "after a bulk retention delete" but the code fires for ANY deletion — even 1 row out of 50 000. `schedule_periodic_retention` runs every 600s (10 min).
-**User Impact:** FTS5 'rebuild' drops all segments and re-indexes the ENTIRE content table — O(N) where N = total row count. On a 50K-row power-user DB, a 10-row retention delete triggers a full 50K-row re-index every 10 minutes. Burns CPU, holds the writer-thread lock for the rebuild duration, and blocks MATCH search reads.
-**Root Cause:** The FTS5 'rebuild' is inside the outer `if deleted > 0` guard, NOT gated by the 20% ratio.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/history_db_internals/retention.py`
-**Fix:** Gate the FTS5 'rebuild' on the SAME `ratio > 0.20` threshold as VACUUM (or a dedicated threshold like `ratio > 0.05`). For sub-threshold deletes, the FTS5 delete-bitmap (populated by the `transcriptions_ad_fts` trigger) already hides deleted rows from MATCH results.
-**Severity:** 🔴 High
-
----
-
-## AB-26 — `get_today_stats` does an uncached aggregating scan on every call (60s cache exists for `get_history_count` but not for `get_today_stats`)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `history_db.py:2250-2279` (`get_today_stats`) issues an uncached aggregating scan: `SELECT COUNT(*), SUM(char_count), SUM(word_count), SUM(duration) FROM transcriptions WHERE timestamp >= DATE('now') AND timestamp < DATE('now', '+1 day')`. The predicate is sargable (uses idx_timestamp) but the SUMs require a table lookup per matching row (idx_timestamp is non-covering). There is NO TTL cache equivalent to `get_history_count`'s 60s cache. The rate_limiter caps `get_today_stats` at 1 call/sec/client, and the Dashboard refreshes on every `transcription_final` event.
-**User Impact:** For a power user with 2K–5K rows/day, each call scans thousands of rows and does a table-lookup per row for the SUM columns. At 1 call/sec this is continuous background CPU on the reader thread during active dictation.
-**Root Cause:** `get_history_count` has an explicit TTL cache + invalidation hook; `get_today_stats` has neither. Inconsistency suggests this was an oversight.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/history_db.py`
-- `voice_typer/server/handlers/history_handlers.py`
-**Fix:** Add a short-TTL cache (e.g. 10–15s) for `get_today_stats`, invalidated on `add_transcription` / `delete` / `clear_all` / `restore` / `apply_retention`.
-**Severity:** 🟡 Medium
-
----
-
-## AB-27 — History DB per-reader cache_size=20MB (120-180MB idle RAM for a <50MB DB)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `history_db.py:1327-1331` (`_get_read_conn`) + `schema.py:145` (`open_write_conn`): Every connection (writer + each thread-local reader) sets `PRAGMA cache_size=-20000` = 20 MB page cache. The writer has 1 connection (20 MB). Each IPC handler / tray / pipeline reader thread gets its own thread-local read connection (20 MB each). With 5–8 reader threads (typical for the IPC thread pool + tray + dictation pipeline), peak page-cache memory is 120–180 MB — for a DB that is typically < 50 MB.
-**User Impact:** Idle RAM footprint is 100+ MB higher than necessary. On memory-constrained devices (low-end laptops, VMs) this is a meaningful chunk of resident memory for a background dictation assistant.
-**Root Cause:** 20 MB per connection is justified for the WRITER (which does batch INSERTs and VACUUM), but the same size is applied to read-only connections that only do indexed SELECTs.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/history_db.py`
-- `voice_typer/server/history_db_internals/schema.py`
-**Fix:** Use a smaller cache_size for read-only connections (e.g. -2000 = 2 MB or -5000 = 5 MB). Reads are indexed lookups + small aggregations; the working set is tiny. Keep -20000 only on the writer connection.
-**Severity:** 🟡 Medium
-
----
-
-## AB-28 — Eager numpy import via transitive chain through `app.py` (defeats the lazy_module optimization in 5 modules)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `app.py:86` declares `np = lazy_module("numpy")` with a 12-line comment claiming the proxy "defers the real import to first attribute access." But `app.py:55` eagerly imports `Recorder` from `voice_typer.server.recording`, whose `__init__.py:198` imports `.recorder`, and `recorder.py:49` has a top-level `import numpy as np`. The transitive chain also pulls in `vad.py:32` (`import numpy as np`) and `vad_processor.py:51` (`import numpy as np`), both eagerly. Additionally `app.py:73` `from voice_typer.server.streaming import ...` pulls in `streaming.py:11` `import numpy as np` (eager). So numpy is loaded synchronously during `import voice_typer.server.app`, defeating the lazy proxy at app.py:86 AND the equivalent lazy proxies in `recording/__init__.py:161`, `audio_quality.py:26`, `audio_processor.py:39`, `transcription.py:43`.
-**User Impact:** The worklog notes "numpy was eagerly imported at module top … added ~250-335ms cumulative to every cold start". The optimization in app.py is essentially cosmetic — the actual cold-start numpy cost is still paid because of the transitive imports.
-**Root Cause:** The lazy_module optimization in 5 modules is nullified by eager `import numpy as np` at the top of `recorder.py`, `vad.py`, `vad_processor.py`, and `streaming.py`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/recording/recorder.py`
-- `voice_typer/server/vad.py`
-- `voice_typer/server/vad_processor.py`
-- `voice_typer/server/streaming.py`
-**Fix:** In `recorder.py`, `vad.py`, `vad_processor.py`, and `streaming.py`, replace top-level `import numpy as np` with `from voice_typer.server._lazy_import import lazy_module; np = lazy_module("numpy")` (matching the pattern already used in `audio_quality.py`, `audio_processor.py`, `transcription.py`, `recording/__init__.py`).
-**Severity:** 🔴 High
-
----
-
-## AB-29 — `app.py:646` `np.ndarray` annotation is fragile (one `from __future__` removal = ~250ms cold-start regression)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `app.py:646` declares `def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:`. The annotation relies on `from __future__ import annotations` (line 3) to stay as an unevaluated string (PEP 563). The 12-line comment at `app.py:18-31` explicitly warns about this.
-**User Impact:** No current perf impact, but a latent footgun. If a future contributor removes the `from __future__ import annotations` line (or runs a tool like `flynt` / `pyupgrade` that rewrites annotations), the `np.ndarray` annotation resolves at function-definition time, triggering `lazy_module("numpy").__getattr__("ndarray")` → `importlib.import_module("numpy")` → ~250-335ms cold-start regression.
-**Root Cause:** Fragile invariant protected only by a comment.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py`
-**Fix:** Either (a) remove the `np.ndarray` annotation (use `Any` or `"np.ndarray"` as a literal string annotation), or (b) add a regression test that asserts `numpy` is NOT in `sys.modules` after `import voice_typer.server.app`.
-**Severity:** 🟡 Medium
-
----
-
-## AB-30 — Startup `__init__` eagerly constructs 23+ components synchronously (qwen multi-GB model can load synchronously!)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `app.py:122-426` `VoiceTyperApp.__init__` eagerly constructs 23+ components synchronously before returning control to `ipc_server.main()`: Config.load(), ThreadRegistry, AudioProcessor, AudioQualityAnalyzer, Recorder, RecordingController, ModelManager + eager `self.models._ensure_engine("qwen")` if qwen backend configured (line 230 — can load a multi-GB Qwen model synchronously!), ClipboardManager, TrayIcon, SettingsController, ShutdownController, LifecycleController, UndoRepasteController, AudioQualityController, ConfigEditorLauncher, HotkeyDispatcher, HistoryDB, CrashRecovery, DuckCrashRecovery, VolumeController, VolumeDucker, WaveformBubble, WaveformBubbleWiring, TimerCoordinator, TemplateManager, VocabularyManager.
-**User Impact:** `VoiceTyperApp()` construction takes ~hundreds of ms (most of it module imports for the controllers + TrayIcon init which can spawn GTK/Cocoa on Linux/macOS). On qwen-configured installs, add multi-second model load. The Electron frontend sees no `ready` IPC event until construction + `server.start()` + `app.start()` all complete.
-**Root Cause:** The comment at line 410-413 explicitly says "ARCH-011: eager-init managers so config changes between startup and first dictation are reflected." Forces ALL users to pay the construction cost upfront.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/app.py`
-**Fix:** Move `TemplateManager` and `VocabularyManager` construction to first access (lazy @property). Move `self.models._ensure_engine("qwen")` (line 230) into the background `start_background_load()` path. Move `ClipboardManager`, `WaveformBubble`, `WaveformBubbleWiring` construction to first use.
-**Severity:** 🟡 Medium
-
----
-
-## AB-31 — Startup `_python_exit` blocks on non-daemon ThreadPoolExecutor workers (Windows Task Scheduler hang can delay exit by ~30s)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `startup_sequence.py:738-745`: The comment at line 743 claims `ThreadPoolExecutor` workers are daemon (so they don't block process exit). Empirically verified on Python 3.9+: `ThreadPoolExecutor` worker threads have `daemon = False`. CPython's `_python_exit` atexit handler joins them with no timeout. The pool submits `startup_tasks.sync_prewarm_task` which internally calls `task_scheduler._schtasks` → `subprocess.run(timeout=30)`. The `concurrent.futures.wait(..., timeout=10)` then fires, `pool.shutdown(wait=False, cancel_futures=True)` returns, but the in-flight schtasks worker continues for up to ~20 more seconds and is non-daemon — so `_python_exit` blocks process exit on it.
-**User Impact:** If Windows Task Scheduler service is hung during startup, a subsequent `quit()` from the main thread (tray Quit) or external-kill atexit path can block process exit for up to ~30s while `_python_exit` joins the stuck worker. The 2s GT-43 `os._exit(0)` watchdog only fires for non-main-thread `quit()` — the atexit-driven path has no such backstop.
-**Root Cause:** The comment's claim about daemon workers is outdated (Python 3.9 changed ThreadPoolExecutor workers to non-daemon).
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/startup_sequence.py`
-- `voice_typer/server/_timeout_utils.py`
-**Fix:** Replace the `ThreadPoolExecutor` with `_run_parallel_with_timeout` from `_timeout_utils.py` (which uses `threading.Thread(..., daemon=True)`). Daemon workers are NOT registered in `_threads_queues`, so `_python_exit` skips them.
-**Severity:** 🔴 High
-
----
-
-## AB-32 — Signal watcher loop polls every 1s for app lifetime (60 wakeups/min, prevents deep C-states)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `signal_handlers.py:130`: `while not controller._shutdown_signal_event.wait(timeout=1.0): pass` polls every 1 second for the lifetime of the app. The comment at line 124-129 acknowledges the 1s poll is intentional "to keep the thread responsive to interpreter shutdown on platforms where the underlying lock isn't released automatically".
-**User Impact:** 60 kernel wakeups/minute for the entire app session (~2.4-12 Wh/day on battery). The `A11yPulse` thread (startup_tasks.py:384) was already fixed (TY-16) to use a single 60s wait; the signal-watcher was not.
-**Root Cause:** Weak rationale: CPython's `threading.Event.wait()` on POSIX uses pthread condition variables which are reliably released at interpreter shutdown.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/signal_handlers.py`
-**Fix:** Replace `wait(timeout=1.0)` with `wait()` (no timeout) — `Event.set()` from the signal handler wakes the watcher immediately, and CPython's interpreter shutdown releases the underlying lock.
-**Severity:** 🟡 Medium
-
----
-
-## AB-33 — Crash excepthook does disk I/O on crashing thread (Config.load + fsync + handler.flush loop; can hang the crash report itself)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `_python_excepthook.py:108-254` (`_crash_excepthook`): On the crashing thread, the hook performs `log.critical()` × 2-3 calls, `_get_active_asr_backend()` → `Config.load()` (a DISK READ + JSON parse, line 226), `_secure_atomic_write(marker_path, content)` (temp file + write + `fsync(file)` + rename + `fsync(parent_dir)` — default durability=True), and `for handler in logging.getLogger("voice_typer").handlers: handler.flush()` (N handler flushes, each typically an fsync for RotatingFileHandler). `_thread_crash_excepthook` mirrors this pattern. The whole body is wrapped in `contextlib.suppress(Exception)` but suppress does NOT interrupt a hung syscall (NFS hang, disk full → fsync blocks forever).
-**User Impact:** (a) Crash marker write is delayed by 100–500 ms+ on slow disks; if the crash was caused by disk failure the hook itself hangs, masking the original crash and producing NO marker (defeats the crash-recovery purpose). (b) On the crashing thread (often the main thread), every ms of latency delays process termination. (c) A stuck daemon thread can hold locks / resources that block `shutdown_all()` joins.
-**Root Cause:** `_get_active_asr_backend()` reads persisted Config off disk during crash handling; `_secure_atomic_write` uses durability=True; `handler.flush()` iterates ALL handlers.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/crash_handler/_python_excepthook.py`
-- `voice_typer/server/crash_recovery.py`
-**Fix:** (1) Cache `_get_active_asr_backend()` at install time (a single str attribute on the facade). (2) Pass `durability=False` to `_secure_atomic_write` for the crash marker — fsync on a process that is already terminating provides no durability benefit. (3) Bound the `handler.flush()` loop with a per-handler timeout. (4) Apply same fix to `_save_sync` in `crash_recovery.py` (durability=False for the per-dictation save path; keep durability=True for atexit/__del__ final save).
-**Severity:** 🟡 Medium
-
----
-
-## AB-34 — Hotkey dispatcher recreates ESC + repaste backends on every main-hotkey config change
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `hotkey_dispatcher.py:148-154`: `register()` unconditionally calls `self.register_esc()` (line 150) and `self.register_repaste()` (line 154) on every invocation. `register_esc()` stops any existing `_esc_backend` then creates a fresh one. `register_repaste()` does the same for `_repaste_backend`. `restart()` (line 467) calls `register()` after stopping only the MAIN backend. So when a user changes ONLY the main dictation hotkey, the ESC and repaste backends are torn down and re-created even though their specs haven't changed. Per unnecessary re-creation: 1 subprocess spawn (native) or 1 thread + 1 RegisterHotKey + 1 LL hook install (legacy Windows) or 1 socket bind + 1 accept-loop thread (Wayland), plus 1 reader thread + 1 watchdog thread (native).
-**User Impact:** Wasteful subprocess/thread spawns on every config change. If a user tries 5 different main hotkeys in quick succession, that's 10 unnecessary ESC+repaste backend re-creations (5 changes × 2 backends). Each re-creation costs ~50ms (pynput sleep) + subprocess spawn + thread creation. Also briefly leaves ESC/repaste dead during the stop→start window.
-**Root Cause:** `register()` was designed for first-time setup; `restart()` reuses it for hot-swap but doesn't skip the ESC/repaste re-registration when their config is unchanged.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/hotkey_dispatcher.py`
-**Fix:** In `register()`, skip `register_esc()`/`register_repaste()` if the existing backend's `hotkey_str` matches the config and the backend is still alive. Or split `register()` into `register_main()` + `register_esc()` + `register_repaste()` and have `restart()` only call `register_main()`.
-**Severity:** 🟡 Medium
-
----
-
 ## AB-35 — Windows native hotkey installs 3 separate WH_KEYBOARD_LL hooks (3× per-keystroke system-wide CPU)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ⚠️ Partial (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** `hotkey_dispatcher.register()` creates 3 independent `HotkeyBackend` instances (main dictation, ESC cancel, repaste). On Windows in toggle mode, each backend's `start()` calls `_install_low_level_hook()` which calls `SetWindowsHookExW(WH_KEYBOARD_LL, ...)` — a SYSTEM-WIDE low-level keyboard hook. The hook proc (`_hook_proc` at `windows_native.py:732`) fires for EVERY keystroke system-wide. With 3 backends all in toggle mode, 3 separate hooks fire per keystroke = ~12 syscalls per keystroke system-wide, plus 3 dedicated `GetMessageW` message-pump threads.
 **User Impact:** Constant per-keystroke CPU overhead system-wide (even when the user is typing in an unrelated app). Scales linearly with the number of registered hotkeys (currently 3, could grow). At 100 WPM typing (~5 keystrokes/sec), overhead is ~60 syscalls/sec — small but persistent.
 **Root Cause:** The architecture uses one backend per hotkey spec rather than one backend serving multiple specs.
@@ -7775,90 +7411,8 @@ The following items were identified during the verifier pass of the Fix-Existing
 **Fix:** Consolidate the 3 hotkey specs into a single `WH_KEYBOARD_LL` hook that dispatches to the appropriate callback based on the vk code + modifiers. This reduces system-wide per-keystroke overhead from 3× to 1×. Alternatively, only install the LL hook for the main dictation hotkey and use `RegisterHotKey`+`WM_HOTKEY` (event-driven, no per-keystroke proc) for ESC and repaste.
 **Severity:** 🟡 Medium
 
----
-
-## AB-36 — Windows native hotkey caps-lock backup check fires every 1.6s instead of every 200ms (8× discrepancy with comments)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `windows_native.py:509-532`: Line 509 comment: "Iteration counter for periodic caps lock state checks (~200ms cadence)." But the actual check at line 531 is `_caps_check_iter % 200 == 0` inside a loop with `self._kernel32.Sleep(8)` (line 594). So the check fires every 200 × 8ms = 1600ms = 1.6 seconds, NOT 200ms. The comment promises 200ms responsiveness but delivers 1.6s — an 8× discrepancy.
-**User Impact:** If the reactive caps-lock suppression (`_suppress_caps_lock_toggle` on key press) fails due to timing, the periodic backup check takes up to 1.6s to correct the caps state — the user types in ALL CAPS for up to 1.6s.
-**Root Cause:** The iteration counter modulus (200) was likely chosen when the sleep was 1ms (200 × 1ms = 200ms), but the sleep was later increased to 8ms (PERF-01/CPU-01) without updating the modulus.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/hotkeys/windows_native.py`
-**Fix:** Change `% 200` to `% 25` to match the documented 200ms cadence (25 × 8ms = 200ms). Update the comments.
-**Severity:** 🟡 Medium
-
----
-
-## AB-37 — TCP drain loop issues 100 separate sendall syscalls per reconnect-catch-up push (waveform bubble freezes)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `sender.py:388-395` (drain loop) + `transport.py:95-99` (`_TCPLineIO.write/flush`): The pending-drain loop issues a separate `tcp_client.write(p + "\n")` + `tcp_client.flush()` for each of up to `_TCP_PENDING_DRAIN_CAP` (100) entries per `_send` call. Each write is a separate `socket.sendall` syscall. `_TCPLineIO.flush()` is a no-op (`pass`), so there is NO user-space buffering — every write goes straight to sendall. After a disconnect that filled `_pending_tcp` to its 1000-entry cap, each subsequent push issues 1 (current msg) + 100 (drain) = 101 sendall syscalls under `_tcp_write_lock`.
-**User Impact:** On client reconnect after a disconnect, the deferred-executor's single worker thread (which serializes ALL RT-thread event_bus publishes) is blocked for the duration of 101 sendall syscalls per push. During this catch-up window, new bubble_level events queue behind the single worker, fill the 256-entry deferred queue, and are dropped. User-visible: waveform bubble freezes during reconnect catch-up.
-**Root Cause:** `_TCPLineIO` was designed with a `flush()` stub (suggesting buffering was intended) but `write()` bypasses any buffer and calls sendall directly.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc/sender.py`
-- `voice_typer/server/ipc/transport.py`
-**Fix:** Add a write buffer to `_TCPLineIO` (BytesIO); have `write()` append and `flush()` do the sendall. Then in the drain loop, write all `recent` entries to the buffer and flush ONCE: `batch = "".join(p + "\n" for p in recent); tcp_client.conn.sendall(batch.encode("utf-8"))`. Reduces 101 syscalls to 2.
-**Severity:** 🟡 Medium
-
----
-
-## AB-38 — WS sidecar double UTF-8 encodes every outbound frame (1-5 MiB/sec garbage on large frames)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `sidecar_ws.py:871-878` (`_writer` coroutine): For every outbound WS frame: `raw = json.dumps(event, ensure_ascii=False)` (str), then `if len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:` (encodes str→bytes, O(n), discards bytes), then `await websocket.send(raw)` (websockets library encodes str→bytes AGAIN internally). The str is UTF-8 encoded to bytes TWICE per frame.
-**User Impact:** GC pressure on the asyncio event-loop thread for large/medium frames; ~2× CPU on JSON encoding for the outbound path. For large frames (download_progress with metadata, near the 1 MiB cap), each frame wastes 1 MiB of allocation; at 1-5 Hz that's 1-5 MiB/sec of garbage.
-**Root Cause:** The length check eagerly encodes to compute byte length, but `websocket.send` needs a str to emit a TEXT frame.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/sidecar_ws.py`
-**Fix:** Use `if len(raw) > _MAX_FRAME_BYTES:` — char count is a lower bound on byte count, so if char count > limit the byte count definitely exceeds it (safe overestimate; the Rust host's tungstenite reader enforces its own `max_size` on receive).
-**Severity:** 🟡 Medium
-
----
-
-## AB-39 — Bubble renderer rAF loop runs at 60 Hz continuously even when hidden (backgroundThrottling:false)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `useAudioLevels.ts:176-226`: The `animate` callback unconditionally re-schedules the next frame at the TOP of the loop: `frameRef.current = requestAnimationFrame(animate);` then early-returns when `!visibleRef.current` or `!recordingRef.current`. The comment explicitly states "Always schedule the next frame so the loop resumes instantly". `backgroundThrottling: false` is set on the bubble BrowserWindow (lifecycle.ts:99), so Chromium does NOT throttle rAF when the window is hidden. In show_on_record mode (the default), the bubble is hidden ~90% of the app lifetime.
-**User Impact:** ~60 no-op callbacks/sec continuously while the app runs. Sub-millisecond CPU per callback, but the renderer process is prevented from sleeping — real battery drain on laptops for a background voice-typing app. Affects idle RAM (renderer process stays warm) and idle CPU.
-**Root Cause:** The design intentionally keeps the rAF chain alive to avoid ~16ms re-arm latency on show, but combined with `backgroundThrottling:false` this means the bubble renderer process never enters an idle/low-power state for the entire app lifetime.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/bubble/useAudioLevels.ts`
-- `voice_typer/client/src/main/windows/bubble/lifecycle.ts`
-**Fix:** Cancel the rAF in a `useEffect` that watches `isVisible` (or `recordingRef`), and re-schedule it when the bubble becomes visible / enters recording mode. The "resume instantly" concern is a one-frame (~16ms) latency on show, which is imperceptible. Alternatively, gate the rAF re-schedule itself on `visibleRef.current && recordingRef.current` and re-arm from the `onShow` / `onSetState` callbacks.
-**Severity:** 🟡 Medium
-
----
-
-## AB-40 — Synchronous log rotation on Electron main thread (5-200ms blocking per rotation event)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `rotation.ts:177-201` (`rotateIfNeeded`): `rotateIfNeeded` performs `fs.unlinkSync(backup)` + `fs.renameSync(filePath, backup)` synchronously on the main thread when the file exceeds the cap. `appendLogLine` performs `fs.appendFileSync` + `fs.chmodSync` on EVERY call, both synchronous. On a busy session with `VOICE_TYPER_ELECTRON_INFO_LOG=1` (30 Hz bubble_level lifecycle logging), this is 30 sync writes + 30 sync chmods + occasional sync rename/unlink per second on the main thread. A rotation event (5 MiB cap hit) blocks the main thread for the duration of unlink+rename — typically 5-50ms on SSD, up to 200ms on slow disks.
-**User Impact:** Main-thread jank during rotation; 30 sync syscalls/sec when PERSIST_INFO is enabled. Renderer frame drops if rotation coincides with a bubble animation frame (the main process dispatches the bubble_level IPC events).
-**Root Cause:** The design is intentionally synchronous for crash-log durability (a crash mid-rotation would lose the log line). The XV-154 file-size cache mitigates the per-call `statSync` but does NOT mitigate the append/chmod/rename sync I/O.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/main/logging/rotation.ts`
-**Fix:** (1) Skip `fs.chmodSync` when the cached file size > 0 (file already existed with correct perms) — only chmod on the first create. (2) Move rotation to a `setImmediate`-deferred path so it doesn't block the current IPC dispatch. (3) Long-term: make `appendLogLine` async (write via `fs.createWriteStream` with `{flags:"a"}` and a buffered queue).
-**Severity:** 🟡 Medium
-
----
-
-## AB-41 — `useMicrophonePermission` leaks `status.onchange` closure on unmount
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `useMicrophonePermission.ts:42-56`: Line 42: `status.onchange = () => { ... }` registers a closure on the `PermissionStatus` object. The cleanup (line 54-56) only sets `cancelled = true` — it does NOT clear `status.onchange`. The `PermissionStatus` object is owned by `navigator.permissions` cache and lives for the document lifetime. The `onchange` closure (which captures `setMicPermission` and `cancelled`) is held until the next mount overwrites it.
-**User Impact:** Bounded single-closure leak per unmount (overwritten on next mount). Holds a reference to the React setState function and the component's closure scope, preventing GC of the unmounted component's fiber.
-**Root Cause:** The cleanup omits `status.onchange = null`.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/microphone/hooks/useMicrophonePermission.ts`
-**Fix:** In the cleanup, set `status.onchange = null` (and/or use `status.addEventListener("change", handler)` + `removeEventListener` in cleanup for a more robust pattern).
-**Severity:** 🟡 Medium
-
----
-
 ## AB-42 — Audio filter chain per-chunk heap allocation churn (compressor/limiter/equalizer zi wrappers + RNNoise resampler zero-stuffing)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
+**Status:** ⚠️ Partial (code audit: fix was never applied to source; see AB audit report for details)
 **Description:** Audio filter chain has multiple per-chunk allocation hotspots that compound on the ~16 Hz audio worker thread:
 - `compressor.py:97,103; limiter.py:74,80` allocate two fresh 1-element `np.float64` arrays per chunk purely to wrap the scalar envelope for `lfilter`'s `zi` argument — 64 small heap allocations/sec.
 - `compressor.py:82,117; limiter.py:68,92` do redundant dtype conversions (`np.abs(samples).astype(np.float64)` + `samples.astype(np.float64) * gain).astype(np.float32)`) — ~160 allocs/sec for Compressor + Limiter combined.
@@ -7877,65 +7431,6 @@ The following items were identified during the verifier pass of the Fix-Existing
 - `voice_typer/server/audio_filters/noise_suppressor.py`
 **Fix:** Pre-allocate persistent 1-element `zi` arrays + 3-element delay-line zi in `__init__` for compressor/limiter/equalizer; use `np.abs(samples, dtype=np.float64)` + `(samples * gain).astype(np.float32, copy=False)` to fuse dtype conversions; pre-allocate `x_up_buf` in `_StreamingResampler`; use `np.clip(frame, -1.0, 1.0, out=frame)` + in-place divide in `_process_rnnoise`; optionally wrap the noise_gate loop in `@numba.njit` (numba is already a transitive dep via deepfilternet/torch).
 **Severity:** 🟡 Medium
-
----
-
-## AB-43 — VAD `compute_vad_prob` rebuilds a dict + allocates arrays per call on the audio hot path
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `vad.py` has several per-call allocation patterns on the audio hot path:
-- Line 284: `_expected_samples = {16000: 512, 8000: 256}` is allocated INSIDE `compute_vad_prob` and rebuilt on every call — ~30 small dict allocations/sec (DJ-76, "Progress: NOT applied").
-- Line 225: `np.concatenate([chunk, reflect]).astype(out_dtype)` — `astype` defaults to `copy=True`, so even when `concatenate` already returns the right dtype, `.astype` allocates a second array. Two allocations per short-chunk reflect-pad instead of one.
-- Line 358: `rms = float(np.sqrt(np.mean(audio_chunk**2)))` — `audio_chunk**2` materializes a full-size float array. The rest of the codebase uses the allocation-free `np.dot(flat, flat) / flat.size` pattern. DJ-78, "Progress: NOT applied". This is the RMS-fallback path that runs ONLY when VAD is unavailable (torch missing or model load failed) — i.e. precisely the resource-constrained user (no torch installed).
-- Line 318-330: For long chunks (n > 512), the multi-sub-chunk loop calls `model(sub, sample_rate).item()` per sub-chunk inside a Python for loop. `.item()` forces a CPU→Python sync per iteration. Doubles VAD CPU on the audio worker thread for ≥1024-sample chunks.
-**User Impact:** ~30 trivial dict allocations/sec (DJ-76), ~60 KB/sec of GC pressure on the no-torch fallback path (DJ-78), ~2× inference latency on long-chunk path (test-contract-pinned). Individually tiny but cumulative, and DJ-76/DJ-78 were explicitly filed as NOT-applied in prior sessions.
-**Root Cause:** Per-call allocations; design tradeoff pinned by test contract for the multi-sub-chunk path.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/vad.py`
-- `voice_typer/server/vad_processor.py`
-**Fix:** (a) Hoist `_EXPECTED_SAMPLES = {16000: 512, 8000: 256}` to module level. (b) Use `np.concatenate([chunk, reflect], dtype=out_dtype)` (numpy ≥1.20 supports `dtype=` to `concatenate`) — single allocation. (c) `flat = audio_chunk.ravel(); rms = float(np.sqrt(np.dot(flat, flat) / flat.size))` — zero intermediate allocation. (d) For the multi-sub-chunk path: update `tests/test_vad_dtype_optimization.py::test_compute_vad_prob_long_chunk_float32_input` to accept a single 2D-tensor batched call, then refactor to batch sub-chunks as a single 2D tensor (test-contract change requires sign-off).
-**Severity:** 🟡 Medium
-
----
-
-## AB-44 — `crash_recovery._save_sync` does redundant mkdir + double fsync per save (5+ saves/sec under streaming)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `crash_recovery.py:359` (`_save_sync`): Every `_save_sync()` call invokes `self._path.parent.mkdir(parents=True, exist_ok=True)`. The `_dir_ensured` flag (added in XZ-R17-08) guards ONLY the `os.chmod(self._path.parent, 0o700)` call (line 364-367); the `mkdir` itself runs on every save. The comment at line 152-160 explicitly notes "under rapid dictation (5+ saves / second when streaming is on) the redundant chmod dominated the save path's syscall count" — the `mkdir` is the same class of redundant syscall that was fixed for `chmod`. Additionally, `_secure_atomic_write` is called with default `durability=True` — performs TWO fsyncs per write (one on temp file, one on parent dir). Crash-recovery file holds transcription text (not secrets) and is overwritten on every save.
-**User Impact:** Under rapid dictation (5+ saves/sec), this is 5+ extra mkdir syscalls + 10+ fsync syscalls per second. On SSDs each fsync is 1-5 ms; on spinning disks 5-20 ms. The writes happen on the background saver thread (not the audio thread), so capture is not directly affected, but the saver thread can fall behind under disk pressure, causing the bounded queue (maxsize=32) to drop intermediate saves.
-**Root Cause:** The XZ-R17-08 fix only addressed chmod, not mkdir. `_secure_atomic_write` defaults to `durability=True`; crash_recovery does not override it.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/crash_recovery.py`
-**Fix:** (1) Extend the `_dir_ensured` flag to also gate the mkdir. (2) Pass `durability=False` to `_secure_atomic_write` in `_save_sync` — crash-recovery text does not need power-loss durability beyond what the rename provides. Keep `durability=True` for the atexit/__del__ final save.
-**Severity:** 🟡 Medium
-
----
-
-## AB-45 — `thread_registry` retains strong references to dead threads (latent leak under repeated start/stop)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `thread_registry.py:110-160` (register / shutdown_all): `_entries: dict[str, ThreadRegistryEntry]` holds a strong reference to each registered Thread object. There is NO auto-eviction of dead threads: if a thread exits naturally and the caller never calls `unregister(name)`, the entry stays in the dict forever, holding a strong ref to the dead Thread object. A dead `threading.Thread` holds strong refs to its target callable + args + kwargs (the closure), which can transitively keep large objects alive (audio buffers, model state, IPC sockets). The A11yPulse thread and the scipy-preloader pattern register without a documented unregister-on-exit path.
-**User Impact:** Long-running sessions that spawn/restart threads (e.g. repeated start/stop of recording, multiple StreamingTranscription sessions) can accumulate dead entries. Each entry is small (~200 bytes), but the transitive closure retention is the real risk — a dead audio-worker Thread can keep a multi-MB audio buffer alive if the target closure captured it. Bounded in practice by the small number of distinct thread names (re-registration overwrites by name), so this is a slow leak, not a fast one.
-**Root Cause:** `register()` does not evict dead entries; no `reap()` method exists.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/thread_registry.py`
-**Fix:** Add a `reap_dead()` method that iterates `_entries` and removes entries where `entry.thread.is_alive()` is False. Call it at the start of `register()` (cheap O(n) over a small dict). Alternatively, `register()` can evict the existing entry under the same name if `existing.thread.is_alive()` is False (silent overwrite, no warning).
-**Severity:** 🟡 Medium
-
----
-
-## AB-46 — `event_bus._config_change_listeners` holds strong refs to listeners (latent leak once production listeners are wired in)
-**Status:** ✅ Fixed (verified on Linux (sandbox); Windows/macOS host validation pending)
-**Description:** `event_bus.py:845` (`_config_change_listeners`): `_config_change_listeners: set[ConfigChangeListener] = set()` holds STRONG references to listeners. Unlike the generic `_subscribers` set (which uses `weakref.WeakMethod` for bound methods via `_SubscriberSet` — PVT-031), this set has no weak-ref handling. A listener object that subscribes and is later destroyed without calling `unsubscribe_config_changes()` stays in the set forever, keeping the listener (and any objects it references) alive. Verified usage: `subscribe_config_changes` is currently called ONLY from tests. The docstring says it's planned to be wired into the post-apply fan-out — so this is a latent leak: it will manifest once production listeners are wired in.
-**User Impact:** Theoretical — no production callers yet. Once config-reactive modules subscribe (the stated migration plan), any module that is recreated (e.g. per-session Recorder, per-stream `StreamingTranscriptionSession`) will leak via this set unless it explicitly unsubscribes.
-**Root Cause:** `set()` with strong refs; no WeakSet / WeakMethod handling.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/event_bus.py`
-**Fix:** Either (a) document that listeners MUST be long-lived singletons and MUST call `unsubscribe_config_changes` in their `__del__` / `stop()` / `close()`, OR (b) use a `weakref.WeakSet` for listeners that implement the protocol via a bound method (mirror the `_SubscriberSet` approach). Add a guard in `_publish_config_change` that prunes None refs.
-**Severity:** 🟡 Medium
-
----
 
 ## AB-47 — `microphone_test_recorder.start_test_recording` has duplicate ~35-line setup blocks (DRY violation)
 **Status:** 🚫 Won't Fix
