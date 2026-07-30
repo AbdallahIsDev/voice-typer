@@ -707,7 +707,10 @@ class TestAppInitManagerFailureWarning:
     ``TemplateManager``/``VocabularyManager`` init failures at
     ``log.debug`` level, making them effectively invisible in
     production logs (default level is INFO). The fix bumps to
-    ``log.warning`` with ``exc_info=True``."""
+    ``log.warning`` with ``exc_info=True``.
+
+    AB-30: construction is now LAZY (via @property), so the failure
+    is triggered on first access, not during ``__init__``."""
 
     def test_template_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
         """When TemplateManager construction raises, the exception must
@@ -735,17 +738,17 @@ class TestAppInitManagerFailureWarning:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
             app_instance = VoiceTyperApp()
+            # AB-30: trigger lazy init by accessing the property
+            _tm = app_instance._template_manager
 
         try:
             template_records = [
                 r
                 for r in caplog.records
-                if "TemplateManager eager-init failed" in r.message
-                or "TemplateManager eager-init failed" in str(r.getMessage())
+                if "TemplateManager lazy-init failed" in r.message
+                or "TemplateManager lazy-init failed" in str(r.getMessage())
             ]
-            assert template_records, (
-                "APP-8: VoiceTyperApp.__init__ must log a warning when TemplateManager construction fails"
-            )
+            assert template_records, "APP-8: VoiceTyperApp._template_manager must log a warning when construction fails"
             rec = template_records[0]
             assert rec.levelno == logging.WARNING, (
                 f"APP-8: TemplateManager init failure must be logged at "
@@ -761,8 +764,8 @@ class TestAppInitManagerFailureWarning:
             templates_mod.TemplateManager = original_tm
 
     def test_vocabulary_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
-        """When VocabularyManager construction raises, the exception
-        must be logged at WARNING level (not debug)."""
+        """When VocabularyManager construction raises, the exception must
+        be logged at WARNING level (not debug)."""
         import logging
 
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
@@ -786,17 +789,17 @@ class TestAppInitManagerFailureWarning:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
             app_instance = VoiceTyperApp()
+            # AB-30: trigger lazy init by accessing the property
+            _vm = app_instance._vocabulary_manager
 
         try:
             vocab_records = [
                 r
                 for r in caplog.records
-                if "VocabularyManager eager-init failed" in r.message
-                or "VocabularyManager eager-init failed" in str(r.getMessage())
+                if "VocabularyManager lazy-init failed" in r.message
+                or "VocabularyManager lazy-init failed" in str(r.getMessage())
             ]
-            assert vocab_records, (
-                "APP-8: VoiceTyperApp.__init__ must log a warning when VocabularyManager construction fails"
-            )
+            assert vocab_records, "APP-8: VoiceTyperApp._vocabulary_manager must log a warning when construction fails"
             rec = vocab_records[0]
             assert rec.levelno == logging.WARNING, (
                 f"APP-8: VocabularyManager init failure must be logged at WARNING level (got {rec.levelname})"
