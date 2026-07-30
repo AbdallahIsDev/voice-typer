@@ -350,6 +350,24 @@ export function createBubbleNamespace(
 					console.warn("[bubble IPC] bubble_hide_complete failed:", err),
 				);
 		},
+
+		// UE-14: dismiss the bubble from its own '×' button
+		// (BG-96 / always_visible mode). The Rust `bubble_dismiss`
+		// command mirrors `bubble_hide_complete` — emits
+		// `bubble:hide` (so the renderer's cleanup runs BEFORE
+		// the window becomes invisible) then hides the window
+		// unconditionally. Gated by `require_bubble_window` on the
+		// Rust side (SEC-016 — only the bubble window may dismiss
+		// itself). Matches Electron's
+		// `ipcRenderer.send("bubble:dismiss")` in preload/bubble.ts
+		// (routed to `hideBubbleWindow()` in bubble-handlers.ts).
+		dismiss: () => {
+			tauri.core
+				.invoke("bubble_dismiss")
+				.catch((err) =>
+					console.warn("[bubble IPC] bubble_dismiss failed:", err),
+				);
+		},
 	};
 
 	// Bubble window — return the full BubbleWindowBubble shape:

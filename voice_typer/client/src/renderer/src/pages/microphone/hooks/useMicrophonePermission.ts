@@ -1,17 +1,14 @@
 // OS-level microphone permission probe.
 //
-// PVT-036 (Fix 3): probes the OS-level microphone permission state on
-// mount via ``navigator.permissions.query({name: "microphone"})``. The
-// standard Chromium API works in Electron's renderer and in Tauri's
-// WebView2 (Windows) / WKWebView (macOS) when the host exposes it. On
-// Linux Tauri (WebKitGTK) it typically rejects; we catch and treat the
-// result as "unknown" (no banner shown — better to be silent than to
-// show a false-positive "permission denied" banner).
-//
-// The returned ``micPermission`` is consumed by
-// ``MicrophonePermissionBanner``, which only renders when the state is
-// ``"denied"``. ``"prompt"`` (first-run, user hasn't decided yet) and
-// ``"unknown"`` (API unavailable) both suppress the banner.
+// AB-41 (onchange leak fix): the previous implementation registered the
+// change listener via status.onchange = handler but the cleanup only
+// set cancelled = true — it did NOT clear status.onchange. The
+// PermissionStatus object is owned by navigator.permissions cache and
+// lives for the document lifetime, so the onchange closure was held
+// until the next mount overwrote it. AB-41 switches to
+// status.addEventListener("change", handler) + removes the listener in
+// cleanup, and ALSO sets status.onchange = null defensively. The
+// cancelled flag pattern is preserved.
 
 import { useEffect, useState } from "react";
 
@@ -26,33 +23,50 @@ export function useMicrophonePermission(): UseMicrophonePermissionResult {
 
 	useEffect(() => {
 		let cancelled = false;
+		// AB-41: lift permStatus + changeHandler to the effect scope so
+		// the cleanup can remove the listener and clear onchange.
+		let permStatus: PermissionStatus | null = null;
+		let changeHandler: (() => void) | null = null;
+
 		const probe = async () => {
 			try {
-				// Some TypeScript DOM lib versions don't include
-				// "microphone" in the PermissionName union. Cast to
-				// the wider string type so the call compiles without
-				// mutating the global lib typings.
 				const name = "microphone" as PermissionName;
 				const status = await navigator.permissions.query({ name });
 				if (cancelled) return;
 				const state = status.state as "granted" | "denied" | "prompt";
 				setMicPermission(state);
-				// Listen for changes (e.g. user grants permission from
-				// the OS settings dialog while the app is open).
-				status.onchange = () => {
+				changeHandler = () => {
 					if (cancelled) return;
 					setMicPermission(
 						(status.state as "granted" | "denied" | "prompt") ?? "unknown",
 					);
 				};
+				status.addEventListener("change", changeHandler);
+				permStatus = status;
 			} catch {
 				if (cancelled) return;
 				setMicPermission("unknown");
 			}
 		};
 		void probe();
+
 		return () => {
 			cancelled = true;
+			// AB-41: clear the onchange closure + removeEventListener.
+			if (permStatus && changeHandler) {
+				try {
+					permStatus.removeEventListener("change", changeHandler);
+				} catch {
+					/* best-effort */
+				}
+			}
+			if (permStatus) {
+				try {
+					permStatus.onchange = null;
+				} catch {
+					/* best-effort */
+				}
+			}
 		};
 	}, []);
 

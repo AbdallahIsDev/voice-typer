@@ -50,6 +50,7 @@ import { PauseIcon, PlayIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import { formatBytes, formatSpeed } from "@/lib/format";
 
 interface DownloadProgressBarProps {
 	progress: number;
@@ -72,28 +73,6 @@ interface DownloadProgressBarProps {
 	/** XA-13 priority #3: when provided AND `error` is set, a "Retry"
 	 * button renders next to Cancel. */
 	onRetry?: () => void;
-}
-
-function formatBytes(bytes: number | null | undefined): string {
-	if (bytes == null || bytes < 0 || !Number.isFinite(bytes)) return "—";
-	if (bytes < 1024) return `${bytes} B`;
-	const KB = 1024;
-	const MB = KB * 1024;
-	const GB = MB * 1024;
-	if (bytes < MB) return `${(bytes / KB).toFixed(1)} KB`;
-	if (bytes < GB) return `${(bytes / MB).toFixed(1)} MB`;
-	return `${(bytes / GB).toFixed(2)} GB`;
-}
-
-function formatSpeed(bps: number | null | undefined): string {
-	if (bps == null || bps < 0 || !Number.isFinite(bps)) return "—";
-	const KB = 1024;
-	const MB = KB * 1024;
-	const GB = MB * 1024;
-	if (bps < KB) return `${bps.toFixed(0)} B/s`;
-	if (bps < MB) return `${(bps / KB).toFixed(0)} KB/s`;
-	if (bps < MB * 100) return `${(bps / MB).toFixed(1)} MB/s`;
-	return `${(bps / GB).toFixed(2)} GB/s`;
 }
 
 function formatEta(seconds: number | null | undefined): string {

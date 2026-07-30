@@ -30,6 +30,19 @@ export interface SetConfigRequest {
 // Connection-readiness probe used by ``useConnection`` and the
 // ``usePython`` error-envelope tests. Returns
 // ``{ type: "status", data: { connected: boolean, … } }``. No payload.
+export interface SetTrayLocaleRequest {
+	type: "set_tray_locale";
+	data: { locale: string; labels: Record<string, string> };
+}
+
+export interface OnboardingResetRequest {
+	type: "onboarding_reset";
+}
+
+export interface OnboardingCheckPermissionsRequest {
+	type: "onboarding_check_permissions";
+}
+
 export interface GetStatusRequest {
 	type: "get_status";
 }
@@ -160,7 +173,10 @@ export type PythonRequest =
 	| GetStatusRequest
 	| LevelMonitorStartRequest
 	| LevelMonitorStopRequest
-	| MicrophoneTestGetLevelRequest;
+	| MicrophoneTestGetLevelRequest
+	| SetTrayLocaleRequest
+	| OnboardingResetRequest
+	| OnboardingCheckPermissionsRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //

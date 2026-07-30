@@ -82,7 +82,15 @@ export interface MainRendererBubbleMutators {
 	// type now matches). The Rust `bubble_set_position` command keeps
 	// `String` at the boundary (defense-in-depth — it validates the
 	// value at runtime before any window move).
-	setPosition?: (pos: "top" | "bottom") => void;
+	// UE-19-F06: the parameter name is `position` (matching the
+	// Tauri bridge implementation in `bubble-namespace.ts` and the
+	// Rust command's `position: String` arg). The prior `pos` name
+	// drifted from the impl, which made positional-call mistakes
+	// (e.g. `setPosition(undefined, "bottom")`) invisible to the
+	// type system. Renaming the type param aligns the contract with
+	// the impl and with the Electron preload's
+	// `setPosition(position: "top" | "bottom")` signature.
+	setPosition?: (position: "top" | "bottom") => void;
 	setDraggable?: (v: boolean) => void;
 	show?: () => void;
 	// NOTE: ``hide`` and ``setLevel`` were intentionally removed from this
@@ -150,14 +158,27 @@ export interface BubbleWindowExtras {
 	// renderer's exit-animation handler should invoke this — the
 	// main renderer has no equivalent lifecycle.
 	hideComplete: () => void;
-	// BG-96: dismiss the bubble from its own '×' button. The bubble
-	// preload's `dismiss` method sends the `bubble:dismiss` IPC; the
-	// main-process handler (in bubble-handlers.ts) routes to
-	// `hideBubbleWindow()`. Optional because the Tauri bridge does not
-	// yet implement `dismiss` (no `bubble_dismiss` Rust command); the
-	// dismiss-button click handler tolerates the missing method via
-	// optional chaining.
-	dismiss?: () => void;
+	// BG-96 / UE-14: dismiss the bubble from its own '×' button
+	// (always_visible mode only — the dismiss button is hidden in
+	// show_on_record mode). The bubble preload's `dismiss()` method
+	// sends the `bubble:dismiss` IPC; the main-process handler (in
+	// bubble-handlers.ts under Electron) routes to
+	// `hideBubbleWindow()`. Under Tauri, the `bubble_dismiss` Rust
+	// command (mirror of `bubble_hide_complete`) emits `bubble:hide`
+	// then hides the window unconditionally; gated by
+	// `require_bubble_window` (SEC-016).
+	//
+	// Non-optional (UE-14): the Tauri bridge now implements
+	// `dismiss` via `invoke("bubble_dismiss")` in
+	// `bubble-namespace.ts`, and the Electron preload has always
+	// exposed it. The prior optional-typing (`dismiss?: () => void`)
+	// was a workaround for the missing Tauri command — the
+	// dismiss-button click handler in `Bubble.tsx` tolerated the
+	// missing method via optional chaining, silently no-op'ing under
+	// Tauri. With `bubble_dismiss` registered, the type is now
+	// required, matching the `BubbleWindowExtras` contract for the
+	// other bubble-only mutators.
+	dismiss: () => void;
 }
 
 /**

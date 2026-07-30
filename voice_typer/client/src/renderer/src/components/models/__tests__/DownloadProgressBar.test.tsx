@@ -29,14 +29,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is HOISTED before imports, so the mocked `t` is in place by
 // the time DownloadProgressBar imports it. We use importOriginal to
-// preserve the rest of the i18n module and only override `t` for:
-//   • the `models.download.progressAria` sentinel test (existing), AND
-//   • the new XA-13 keys that have not yet been added to en.json by
-//     the primary agent. The stubs interpolate the params so tests can
-//     verify the component passes the right values through. Once the
-//     primary agent adds the keys to en.json, the stubs will override
-//     the catalogue values during tests — which is fine, since the
-//     tests assert on component behaviour, not catalogue contents.
+// preserve the rest of the i18n module and only override `t` for the
+// `models.download.progressAria` sentinel test (existing). The stubs
+// interpolate the params so tests can verify the component passes the
+// right values through. The stubs override the catalogue values during
+// tests — which is fine, since the tests assert on component behaviour,
+// not catalogue contents.
 let useSentinel = false;
 vi.mock("@/i18n/i18n", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/i18n/i18n")>();

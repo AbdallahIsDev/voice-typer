@@ -76,8 +76,6 @@
     "alt", "alt_l", "alt_r", "alt_gr",
     "cmd", "cmd_l", "cmd_r",
     "win", "super",
-    "fn", "globe",
-    "caps_lock",
-    "capslock"
+    "fn", "globe"
   ]
 }

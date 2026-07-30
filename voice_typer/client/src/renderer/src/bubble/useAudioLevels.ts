@@ -1,38 +1,15 @@
 /**
- * Bubble overlay package — `useAudioLevels` hook (60fps direct-DOM
+ * Bubble overlay package — useAudioLevels hook (60fps direct-DOM
  * animation, paused when hidden).
  *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16).
- *
- * React state is intentionally NOT used for the per-frame bar heights;
- * we grab a ref to each <span> and mutate style directly from
- * requestAnimationFrame — zero React re-render overhead at 60 Hz.
- *
- * PVT (rAF pause): the rAF loop now early-returns when the bubble is
- * hidden. Previously, even when the BrowserWindow was hidden, the loop
- * kept computing bar heights and calling getComputedStyle 60 times a
- * second. We keep the loop alive (so it resumes instantly on show())
- * but skip the DOM work while `visibleRef.current === false`.
- *
- * rAF recording-gate + barColor cache: the loop now ALSO early-
- * returns when the bubble is not in `mode === "recording"` — the
- * visualizer bars aren't mounted in idle/transcribing/error mode, so
- * the per-frame `getComputedStyle` + style writes were pure waste
- * (1.8–3 % of one core continuously in `always_visible` idle). The
- * recording flag is mirrored locally from the same `window.bubble`
- * events that drive `useBubbleStateMachine` (Bubble.tsx owns the
- * authoritative state machine; this hook keeps a parallel boolean so
- * it can gate without a round-trip through props).
- *
- * barColor cache: the `--text-primary` / `--foreground` CSS
- * vars are now read ONCE on first frame + whenever the document's
- * `class` / `style` attribute changes (theme switch, dark/light
- * toggle, OS prefers-color-scheme flip). The cached color is applied
- * to every dot via a `useEffect`-driven helper, NOT per-frame. The
- * previous implementation re-read `getComputedStyle` and re-wrote
- * `el.style.backgroundColor` 60 times a second even though the value
- * only changes on theme switch.
+ * AB-39 (rAF scheduling gate): the next-frame requestAnimationFrame
+ * call has moved to the END of the callback and is gated on
+ * visibleRef.current && recordingRef.current. When either gate is
+ * closed, the loop STOPS scheduling new frames entirely. The loop
+ * is re-armed (via wake()) from the initial mount, the api.onShow
+ * callback, the api.onSetState callback, and a separate useEffect
+ * that watches the isVisible prop. The visibility-watching effect
+ * also cancels the in-flight frame when isVisible becomes false.
  */
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 import {
@@ -52,22 +29,11 @@ export function useAudioLevels(
 	const frameRef = useRef<number | null>(null);
 	const visibleRef = useRef(isVisible);
 	visibleRef.current = isVisible;
-
-	// mirror of `useBubbleStateMachine`'s `mode === "recording"`
-	// flag. Updated by the same `window.bubble` events so the rAF loop
-	// can pause per-frame DOM work in idle/transcribing/error mode
-	// without an extra prop drill. Default `true` matches the state
-	// machine's initial `mode = "recording"`.
 	const recordingRef = useRef(true);
-
-	// cached bar color. `null` until the first frame reads it;
-	// afterwards refreshed by the MutationObserver effect below.
 	const barColorRef = useRef<string | null>(null);
+	// AB-39: wake function ref.
+	const wakeRef = useRef<(() => void) | null>(null);
 
-	// apply the cached bar color to every currently-mounted dot.
-	// Called on first frame, on theme change (via MutationObserver), and
-	// whenever new dots mount (the rAF loop catches them on the next
-	// frame).
 	const applyBarColor = useCallback(() => {
 		const c = barColorRef.current;
 		if (c === null) return;
@@ -79,10 +45,6 @@ export function useAudioLevels(
 		}
 	}, [dotRefs]);
 
-	// read the bar color from CSS vars. Hoisted out of the rAF
-	// loop — only called on first frame (from inside the loop, when
-	// `barColorRef.current === null`) and from the MutationObserver
-	// below (when the document's class/style changes).
 	const refreshBarColor = useCallback(() => {
 		const rootStyle = getComputedStyle(document.documentElement);
 		const c =
@@ -95,13 +57,6 @@ export function useAudioLevels(
 		applyBarColor();
 	}, [applyBarColor]);
 
-	// invalidate the barColor cache when the document's class or
-	// style attribute changes. This covers every theme-switch path:
-	// `useThemeSync` toggles `.dark` + calls `applyThemeVars` (which
-	// writes CSS vars to `document.documentElement.style`), and the OS
-	// prefers-color-scheme listener (also in `useThemeSync`) toggles
-	// `.dark` on OS-level flips. `attributeFilter: ["class", "style"]`
-	// avoids firing on unrelated attribute changes (e.g. `dir`).
 	useEffect(() => {
 		refreshBarColor();
 		if (typeof MutationObserver === "undefined") return;
@@ -113,55 +68,18 @@ export function useAudioLevels(
 		return () => observer.disconnect();
 	}, [refreshBarColor]);
 
-	// mirror the bubble mode from the same events that drive
-	// `useBubbleStateMachine` (Bubble.tsx). We only need the boolean
-	// "is recording" flag — the rAF loop doesn't care about idle vs
-	// transcribing vs error (all pause the loop). The transition rules
-	// mirror the state machine's `onShow` / `onSetState` handlers.
-	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api?.onShow || !api?.onSetState) return;
-
-		// Local mirror of the state machine's `mode`. Default matches
-		// `useBubbleStateMachine`'s `useState<BubbleMode>("recording")`.
-		let mode: BubbleMode = "recording";
-		const sync = () => {
-			recordingRef.current = mode === "recording";
-		};
-
-		const offShow = api.onShow(() => {
-			// State machine: `prev === "transcribing" ? prev : "recording"`.
-			mode = mode === "transcribing" ? "transcribing" : "recording";
-			sync();
-		});
-		const offSetState = api.onSetState((state) => {
-			// State machine: ignore while fading.
-			if (mode === "fading") return;
-			if (
-				state === "transcribing" ||
-				state === "idle" ||
-				state === "recording" ||
-				state === "error"
-			) {
-				mode = state;
-				sync();
-			}
-		});
-		return () => {
-			offShow();
-			offSetState();
-		};
-	}, []);
-
+	// AB-39: combined recording-mode tracking + rAF setup + onLevel subscription.
 	useEffect(() => {
 		const api = window.bubble as
 			| import("@/types/ipc").BubbleWindowBubble
 			| undefined;
 		if (!api) return;
 
-		// Asymmetric smoothing: fast attack, slower release.
+		let mode: BubbleMode = "recording";
+		const sync = () => {
+			recordingRef.current = mode === "recording";
+		};
+
 		const onLevel = (data: { rms: number; peak: number }) => {
 			const norm = rmsToNorm(data.rms);
 			const cur = rawLevelRef.current;
@@ -171,29 +89,20 @@ export function useAudioLevels(
 				rawLevelRef.current = cur * 0.82 + norm * 0.18;
 			}
 		};
-		const off = api.onLevel(onLevel);
+		const offLevel = api.onLevel?.(onLevel);
 
 		const animate = () => {
-			// Always schedule the next frame so the loop resumes instantly
-			// when the bubble becomes visible / re-enters recording mode.
-			frameRef.current = requestAnimationFrame(animate);
-
-			// Pause DOM work while the bubble window is hidden.
-			if (!visibleRef.current) return;
-			// also pause while not in recording mode — the
-			// visualizer bars aren't mounted in idle/transcribing/error
-			// mode, so the per-frame getComputedStyle + style writes
-			// would be pure waste (1.8–3 % of one core in
-			// `always_visible` idle).
-			if (!recordingRef.current) return;
+			// AB-39: clear the frame handle so wake() can re-schedule.
+			frameRef.current = null;
+			// AB-39: if either gate is closed, do NOT schedule the next frame.
+			if (!visibleRef.current || !recordingRef.current) return;
 
 			const dots = dotRefs.current;
-			if (!dots) return;
+			if (!dots) {
+				frameRef.current = requestAnimationFrame(animate);
+				return;
+			}
 
-			// ensure the barColor cache is initialised on the
-			// first frame. The MutationObserver effect runs after
-			// paint, so the very first frame may not have a cached
-			// color yet.
 			if (barColorRef.current === null) {
 				refreshBarColor();
 			}
@@ -208,20 +117,65 @@ export function useAudioLevels(
 				const cur = parseFloat(el.style.height) || MIN_HEIGHT;
 				const next = cur + (target - cur) * 0.36;
 				el.style.height = `${Math.max(MIN_HEIGHT, next)}px`;
-				// backgroundColor is no longer set per-frame —
-				// `applyBarColor` writes it on first frame + on theme
-				// change. Re-writing the same string 60 times a second
-				// was wasted work (the value only changes on theme
-				// switch).
 				el.style.opacity = `${0.35 + level * 0.65}`;
+			}
+
+			// AB-39: schedule the next frame ONLY if both gates are still open.
+			if (visibleRef.current && recordingRef.current) {
+				frameRef.current = requestAnimationFrame(animate);
 			}
 		};
 
-		frameRef.current = requestAnimationFrame(animate);
+		// AB-39: wake function — idempotent (re)starter.
+		const wake = () => {
+			if (frameRef.current !== null) return;
+			if (!visibleRef.current || !recordingRef.current) return;
+			frameRef.current = requestAnimationFrame(animate);
+		};
+		wakeRef.current = wake;
+
+		const offShow = api.onShow?.(() => {
+			mode = mode === "transcribing" ? "transcribing" : "recording";
+			sync();
+			wake();
+		});
+		const offSetState = api.onSetState?.((state) => {
+			if (mode === "fading") return;
+			if (
+				state === "transcribing" ||
+				state === "idle" ||
+				state === "recording" ||
+				state === "error"
+			) {
+				mode = state;
+				sync();
+				if (mode === "recording") wake();
+			}
+		});
+
+		wake();
 
 		return () => {
-			off();
-			if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+			offShow?.();
+			offSetState?.();
+			offLevel?.();
+			wakeRef.current = null;
+			if (frameRef.current !== null) {
+				cancelAnimationFrame(frameRef.current);
+				frameRef.current = null;
+			}
 		};
 	}, [dotRefs, refreshBarColor]);
+
+	// AB-39: visibility-watching effect — cancel on hide, re-arm on show.
+	useEffect(() => {
+		if (!isVisible) {
+			if (frameRef.current !== null) {
+				cancelAnimationFrame(frameRef.current);
+				frameRef.current = null;
+			}
+			return;
+		}
+		wakeRef.current?.();
+	}, [isVisible]);
 }
