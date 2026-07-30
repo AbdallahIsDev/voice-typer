@@ -318,7 +318,7 @@
 		"noDataDescription": "Нажмите горячую клавишу (или Caps Lock) на главной странице для диктовки — ваша статистика появится здесь.",
 		"startDictation": "Начать диктовку",
 		"refreshFailed": "Не удалось обновить статистику",
-		"dayActivityAria": "{label}: {count} transcriptions",
+		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Загрузка панели управления",
 		"cards": {
 			"dictations": "Диктовки",
@@ -952,7 +952,7 @@
 			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
 		},
 		"fastStartup": "Быстрый запуск (прогрев)",
-		"fastStartupDescription": "Прогревает файловый кэш ОС при загрузке, чтобы модель речи загружалась за секунды вместо 30+ секунд. Отключите, если нужно освободить диск/ОЗУ для других приложений. Вы всё ещё можете прогреть по запросу со страницы «О программе».",
+		"fastStartupDescription": "Прогревает файловый кэш ОС при загрузке, чтобы модель речи загружалась за секунды вместо 30+ секунд. Отключите, если нужно освободить диск/ОЗУ для других приложений. Вы можете прогреть по запросу через Настройки → Устранение неполадок → Состояние кэша.",
 		"keyring": {
 			"secure": "Безопасно",
 			"plaintext": "Открытый текст",
@@ -1060,7 +1060,12 @@
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Загрузить зависимости",
 			"progressAria": "Загрузка модели: {percent}% завершено",
-			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it",
+			"progressAriaWithName": "Загрузка {name}: {percent}% завершено",
+			"errorMessage": "Ошибка загрузки: {error}",
+			"errorMessageWithName": "Ошибка загрузки {name}: {error}",
+			"retry": "Повторить",
+			"retryAria": "Повторить загрузку"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1145,7 +1150,7 @@
 		},
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
 		"speed": {
-			"fastest": "Fastest",
+			"fastest": "Самая быстрая",
 			"variable": "Variable",
 			"slow": "Slow",
 			"fast": "Fast"
@@ -1300,8 +1305,8 @@
 		"loadFailedTitle": "Не удалось загрузить историю",
 		"retry": "Повторить",
 		"charsSuffix": " ({count} chars)",
-		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
-		"sortLabel": "Sort"
+		"exportTruncatedWarning": "Экспорт ограничен {count} последними записями — используйте поиск для экспорта старых записей.",
+		"sortLabel": "Сортировать"
 	},
 	"onboarding": {
 		"welcomeTitle": "Добро пожаловать в Voice Typer",
@@ -1348,9 +1353,9 @@
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
-		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmTitle": "Пропустить настройку?",
 		"skipConfirmMessage": "Пропуск сейчас означает, что ваш микрофон и горячая клавиша могут не работать. Вы можете запустить этого мастера настройки позже из Настройки → Устранение неполадок, либо настроить отдельные параметры в Настройках.",
-		"skipConfirmLabel": "Skip anyway",
+		"skipConfirmLabel": "Всё равно пропустить",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
 		"permissionsRefreshAria": "Re-check keyboard permission",
@@ -1368,7 +1373,10 @@
 		"step5Item": "Завершить настройку",
 		"refreshMics": "Обновить микрофоны",
 		"noMicsHint": "Подключите микрофон или проверьте разрешение на микрофон в ОС, затем нажмите Обновить.",
-		"modelDownloadingHint": "Модель начнет загружаться в фоновом режиме — вы можете пользоваться приложением во время загрузки."
+		"modelDownloadingHint": "Модель начнет загружаться в фоновом режиме — вы можете пользоваться приложением во время загрузки.",
+		"vramBadge": "Видеопамять: ~{vram}",
+		"englishOnlyBadge": "Только английский",
+		"multilingualBadge": "Многоязычный"
 	},
 	"titleBar": {
 		"minimize": "Свернуть",

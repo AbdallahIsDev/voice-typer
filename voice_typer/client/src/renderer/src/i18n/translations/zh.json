@@ -318,7 +318,7 @@
 		"noDataDescription": "在首页按下热键（或 Caps Lock）开始听写 — 您的统计数据将显示在此处。",
 		"startDictation": "开始听写",
 		"refreshFailed": "刷新统计失败",
-		"dayActivityAria": "{label}: {count} transcriptions",
+		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "正在加载仪表盘",
 		"cards": {
 			"dictations": "听写",
@@ -952,7 +952,7 @@
 			"privacy": "privacy, recovery, crash, export, consent, troubleshooting, diagnostics, reset, log, bug, help, faq"
 		},
 		"fastStartup": "快速启动（预热）",
-		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可以从「关于」页面按需预热。",
+		"fastStartupDescription": "在启动时预热操作系统文件缓存，使语音模型在几秒内加载完成，而不是 30 多秒。如果其他应用需要磁盘/内存资源，可禁用。您仍可从「设置 → 疑难解答 → 缓存状态」按需预热。",
 		"keyring": {
 			"secure": "安全",
 			"plaintext": "明文",
@@ -1060,7 +1060,12 @@
 			"depsAria": "Download dependencies for {name}",
 			"deps": "下载依赖项",
 			"progressAria": "下载模型中：已完成 {percent}%",
-			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it",
+			"progressAriaWithName": "{name} 下载：{percent}% 完成",
+			"errorMessage": "下载失败：{error}",
+			"errorMessageWithName": "{name} 下载失败：{error}",
+			"retry": "重试",
+			"retryAria": "重试下载"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1368,7 +1373,10 @@
 		"step5Item": "完成设置",
 		"refreshMics": "刷新麦克风",
 		"noMicsHint": "连接麦克风或检查操作系统的麦克风权限，然后点击刷新。",
-		"modelDownloadingHint": "模型将在后台开始下载 — 您可以在加载时使用应用程序。"
+		"modelDownloadingHint": "模型将在后台开始下载 — 您可以在加载时使用应用程序。",
+		"vramBadge": "显存: ~{vram}",
+		"englishOnlyBadge": "仅英语",
+		"multilingualBadge": "多语言"
 	},
 	"titleBar": {
 		"minimize": "最小化",

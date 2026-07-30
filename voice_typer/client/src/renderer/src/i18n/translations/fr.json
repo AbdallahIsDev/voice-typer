@@ -581,7 +581,7 @@
 			"privacy": "confidentialité, récupération, crash, export, consentement, dépannage, diagnostic, réinitialiser, journal, bug, aide, faq"
 		},
 		"fastStartup": "Démarrage rapide (préchauffage)",
-		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis la page À propos.",
+		"fastStartupDescription": "Réchauffe le cache de fichiers du système au démarrage pour que le modèle vocal se charge en quelques secondes au lieu de 30+ secondes. Désactivez si vous avez besoin de l'espace disque/RAM pour d'autres applications. Vous pouvez toujours réchauffer à la demande depuis Paramètres → Dépannage → État du cache.",
 		"keyring": {
 			"secure": "Sécurisé",
 			"plaintext": "Texte brut",
@@ -610,7 +610,12 @@
 			"depsAria": "Télécharger les dépendances pour {name}",
 			"deps": "Télécharger les Dépendances",
 			"progressAria": "Téléchargement du modèle : {percent}% terminé",
-			"oneAtATime": "Un seul téléchargement à la fois — attendez la fin du téléchargement en cours ou annulez-le"
+			"oneAtATime": "Un seul téléchargement à la fois — attendez la fin du téléchargement en cours ou annulez-le",
+			"progressAriaWithName": "Téléchargement de {name} : {percent}% terminé",
+			"errorMessage": "Échec du téléchargement : {error}",
+			"errorMessageWithName": "Échec du téléchargement de {name} : {error}",
+			"retry": "Réessayer",
+			"retryAria": "Réessayer le téléchargement"
 		},
 		"active": "Actif",
 		"delete": "Supprimer",
@@ -1163,7 +1168,7 @@
 		"noDataDescription": "Appuyez sur votre touche de raccourci (ou Verr Maj) sur la page d'accueil pour dicter — vos statistiques apparaîtront ici.",
 		"startDictation": "Démarrer la dictée",
 		"refreshFailed": "Échec de l'actualisation des statistiques",
-		"dayActivityAria": "{label}: {count} transcriptions",
+		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Chargement du tableau de bord",
 		"cards": {
 			"dictations": "Dictées",
@@ -1501,7 +1506,10 @@
 		"step5Item": "Terminer la configuration",
 		"refreshMics": "Actualiser les microphones",
 		"noMicsHint": "Branchez un microphone ou vérifiez l'autorisation de microphone de votre système d'exploitation, puis cliquez sur Actualiser.",
-		"modelDownloadingHint": "Le modèle commencera à télécharger en arrière-plan — vous pouvez utiliser l'application pendant le chargement."
+		"modelDownloadingHint": "Le modèle commencera à télécharger en arrière-plan — vous pouvez utiliser l'application pendant le chargement.",
+		"vramBadge": "Mémoire vidéo : ~{vram}",
+		"englishOnlyBadge": "Anglais uniquement",
+		"multilingualBadge": "Multilingue"
 	},
 	"microphoneTest": {
 		"title": "Test terminé",

@@ -318,7 +318,7 @@
 		"noDataDescription": "Drücken Sie Ihre Taste (oder Caps Lock) auf der Startseite zum Diktieren — Ihre Statistiken erscheinen hier.",
 		"startDictation": "Diktat starten",
 		"refreshFailed": "Statistiken konnten nicht aktualisiert werden",
-		"dayActivityAria": "{label}: {count} Transkriptionen",
+		"dayActivityAria": "{label}: {count} Diktate",
 		"loadingAria": "Dashboard wird geladen",
 		"cards": {
 			"dictations": "Diktate",
@@ -952,7 +952,7 @@
 			"diagnosticBundleExportFailed": "Export des Diagnostikpakets fehlgeschlagen"
 		},
 		"fastStartup": "Schnellstart (Prewarm)",
-		"fastStartupDescription": "Wärmt den OS-Dateicache beim Start, damit das Sprachmodell in Sekunden statt 30+ Sekunden lädt. Deaktivieren Sie dies, wenn Sie den Festplatten-/RAM-Speicherplatz für andere Apps benötigen.",
+		"fastStartupDescription": "Wärmt den OS-Dateicache beim Start, damit das Sprachmodell in Sekunden statt 30+ Sekunden lädt. Deaktivieren Sie dies, wenn Sie den Festplatten-/RAM-Speicherplatz für andere Apps benötigen. Sie können das Modell bei Bedarf unter Einstellungen → Fehlerbehebung → Cache-Status erneut vorwärmen.",
 		"keyring": {
 			"secure": "Sicher",
 			"plaintext": "Klartext",
@@ -1060,7 +1060,12 @@
 			"depsAria": "Abhängigkeiten für {name} herunterladen",
 			"deps": "Abhängigkeiten herunterladen",
 			"progressAria": "Modell wird heruntergeladen: {percent}% abgeschlossen",
-			"oneAtATime": "Nur ein Download gleichzeitig – warten Sie, bis der aktuelle Download abgeschlossen ist, oder brechen Sie ihn ab"
+			"oneAtATime": "Nur ein Download gleichzeitig – warten Sie, bis der aktuelle Download abgeschlossen ist, oder brechen Sie ihn ab",
+			"progressAriaWithName": "{name}-Download: {percent}% abgeschlossen",
+			"errorMessage": "Download fehlgeschlagen: {error}",
+			"errorMessageWithName": "{name}-Download fehlgeschlagen: {error}",
+			"retry": "Erneut versuchen",
+			"retryAria": "Download erneut versuchen"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1368,7 +1373,10 @@
 		"step5Item": "Einrichtung abschließen",
 		"refreshMics": "Mikrofone aktualisieren",
 		"noMicsHint": "Verbinden Sie ein Mikrofon oder überprüfen Sie die Mikrofonberechtigung Ihres Betriebssystems und klicken Sie dann auf Aktualisieren.",
-		"modelDownloadingHint": "Das Modell wird im Hintergrund heruntergeladen — Sie können die App währenddessen nutzen."
+		"modelDownloadingHint": "Das Modell wird im Hintergrund heruntergeladen — Sie können die App währenddessen nutzen.",
+		"vramBadge": "VRAM-Speicher: ~{vram}",
+		"englishOnlyBadge": "Nur Englisch",
+		"multilingualBadge": "Mehrsprachig"
 	},
 	"titleBar": {
 		"minimize": "Minimieren",

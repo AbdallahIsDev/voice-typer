@@ -318,7 +318,7 @@
 		"noDataDescription": "Presiona tu tecla de acceso directo (o Bloq Mayús) en la página de Inicio para dictar — tus estadísticas aparecerán aquí.",
 		"startDictation": "Iniciar dictado",
 		"refreshFailed": "Error al actualizar las estadísticas",
-		"dayActivityAria": "{label}: {count} transcripciones",
+		"dayActivityAria": "{label}: {count} dictados",
 		"loadingAria": "Cargando panel",
 		"cards": {
 			"dictations": "Dictados",
@@ -953,7 +953,7 @@
 			"diagnosticBundleExportFailed": "Error al exportar el paquete de diagnóstico"
 		},
 		"fastStartup": "Inicio rápido (precalentamiento)",
-		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde la página Acerca de.",
+		"fastStartupDescription": "Calienta el caché de archivos del sistema al inicio para que el modelo de voz se cargue en segundos en lugar de 30+ segundos. Desactívelo si necesita espacio en disco/RAM para otras aplicaciones. Puede calentar bajo demanda desde Configuración → Solución de problemas → Estado del caché.",
 		"keyring": {
 			"secure": "Seguro",
 			"plaintext": "Texto plano",
@@ -1060,7 +1060,12 @@
 			"depsAria": "Descargar dependencias para {name}",
 			"deps": "Descargar Deps",
 			"progressAria": "Descarga del modelo: {percent}% completado",
-			"oneAtATime": "Solo una descarga a la vez — espera a que la descarga actual termine o cancélala"
+			"oneAtATime": "Solo una descarga a la vez — espera a que la descarga actual termine o cancélala",
+			"progressAriaWithName": "Descarga de {name}: {percent}% completada",
+			"errorMessage": "Error de descarga: {error}",
+			"errorMessageWithName": "Error en la descarga de {name}: {error}",
+			"retry": "Reintentar",
+			"retryAria": "Reintentar descarga"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1368,7 +1373,10 @@
 		"step5Item": "Completar configuración",
 		"refreshMics": "Actualizar micrófonos",
 		"noMicsHint": "Conecta un micrófono o verifica el permiso de micrófono de tu sistema operativo, luego haz clic en Actualizar.",
-		"modelDownloadingHint": "El modelo comenzará a descargarse en segundo plano — puedes usar la aplicación mientras se carga."
+		"modelDownloadingHint": "El modelo comenzará a descargarse en segundo plano — puedes usar la aplicación mientras se carga.",
+		"vramBadge": "Memoria de vídeo: ~{vram}",
+		"englishOnlyBadge": "Solo inglés",
+		"multilingualBadge": "Multilingüe"
 	},
 	"titleBar": {
 		"minimize": "Minimizar",

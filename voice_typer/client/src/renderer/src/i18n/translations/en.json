@@ -325,7 +325,7 @@
 		"noDataDescription": "Press your hotkey (or Caps Lock) on the Home page to dictate — your stats will appear here.",
 		"startDictation": "Start dictation",
 		"refreshFailed": "Failed to refresh stats",
-		"dayActivityAria": "{label}: {count} transcriptions",
+		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Loading dashboard",
 		"cards": {
 			"dictations": "Dictations",
@@ -562,7 +562,7 @@
 		"launchAtLogin": "Launch at Login",
 		"launchAtLoginDescription": "Automatically start Voice Typer when you log into Windows.",
 		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from Settings → Troubleshooting → Cache Status.",
 		"notifications": "Notifications",
 		"notificationsDescription": "Show a desktop notification when transcription completes or an error occurs.",
 		"trayClick": "Tray Click",
@@ -1075,7 +1075,12 @@
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Download Deps",
 			"progressAria": "Model download: {percent}% complete",
-			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it",
+			"progressAriaWithName": "{name} download: {percent}% complete",
+			"errorMessage": "Download failed: {error}",
+			"errorMessageWithName": "{name} download failed: {error}",
+			"retry": "Retry",
+			"retryAria": "Retry download"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1390,7 +1395,10 @@
 		"step5Item": "Complete setup",
 		"refreshMics": "Refresh microphones",
 		"noMicsHint": "Connect a microphone or check your OS microphone permission, then click Refresh.",
-		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads."
+		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads.",
+		"vramBadge": "VRAM: ~{vram}",
+		"englishOnlyBadge": "English only",
+		"multilingualBadge": "Multilingual"
 	},
 	"titleBar": {
 		"minimize": "Minimize",
