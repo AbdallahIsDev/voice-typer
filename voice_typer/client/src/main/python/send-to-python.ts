@@ -17,6 +17,7 @@
  * substring from that file.
  */
 import { ALLOWED_COMMANDS } from "../allowed-commands";
+import { IPC_TIMEOUT_LONG_MS, IPC_TIMEOUT_SHORT_MS } from "../constants";
 import {
 	MAX_PENDING_REQUESTS,
 	RATE_LIMIT_MAX_CALLS,
@@ -162,7 +163,9 @@ function _commandTimeoutMs(cmd: string): number {
 	if (override !== undefined) {
 		return override;
 	}
-	return _isLongRunningCommand(cmd) ? 120_000 : 15_000;
+	return _isLongRunningCommand(cmd)
+		? IPC_TIMEOUT_LONG_MS
+		: IPC_TIMEOUT_SHORT_MS;
 }
 
 export function sendToPython(

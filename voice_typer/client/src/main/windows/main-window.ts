@@ -14,7 +14,7 @@
  */
 import path from "node:path";
 import { app, BrowserWindow, dialog, Menu, nativeTheme } from "electron";
-import { START_HIDDEN } from "../constants";
+import { RENDER_RELOAD_BACKOFF_MS, START_HIDDEN } from "../constants";
 import { WindowChannels } from "../ipc/channels";
 import {
 	appendLogLine,
@@ -465,7 +465,7 @@ export function createMainWindow(forceShow = false): void {
 					error: (err as Error).message,
 				});
 			}
-		}, 2000);
+		}, RENDER_RELOAD_BACKOFF_MS);
 	});
 
 	// `preload-error` fires when the preload script throws at module

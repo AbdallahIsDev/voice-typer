@@ -10,7 +10,11 @@
 import net from "node:net";
 
 import { app, dialog } from "electron";
-import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
+import {
+	HEARTBEAT_INTERVAL_MS,
+	IPC_TOKEN,
+	TCP_FRAME_MAX_BYTES,
+} from "../constants";
 import { PythonChannels } from "../ipc/channels";
 import { log } from "../logging";
 import { state } from "../state";
@@ -206,9 +210,9 @@ export function tcpConnect(port: number): void {
 			// growth from malformed frames (e.g. a chunk with no newline
 			// that never gets split). Drop the connection on overflow.
 			state.tcpBuffer += chunk.toString();
-			if (state.tcpBuffer.length > 4 * 1024 * 1024) {
+			if (state.tcpBuffer.length > TCP_FRAME_MAX_BYTES) {
 				log.error(
-					"[TCP] tcpBuffer exceeded 4 MB without a newline - dropping connection (possible malformed frame)",
+					`[TCP] tcpBuffer exceeded 4 MB without a newline - dropping connection (possible malformed frame)`,
 				);
 				state.tcpBuffer = "";
 				client.destroy();

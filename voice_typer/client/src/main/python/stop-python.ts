@@ -158,7 +158,44 @@ export function stopPython() {
 	}
 	const killTimer = setTimeout(() => {
 		if (state.pythonProcess) {
-			state.pythonProcess.kill();
+			const proc = state.pythonProcess;
+			// XE-15-5: escalate SIGTERM → SIGKILL after a
+			// short grace. ``proc.kill()`` with no argument
+			// sends SIGTERM, which is BLOCKED when Python is
+			// stuck in a C extension (torch model load,
+			// sounddevice buffer hold) — the signal is
+			// queued but never delivered until the GIL is
+			// released. SIGKILL is unblockable at the kernel
+			// level. Pre-fix, stop-python.ts sent SIGTERM
+			// and immediately nulled ``state.pythonProcess``
+			// + flipped ``isStopped`` — Electron proceeded
+			// to exit thinking Python was dead, but Python
+			// was actually orphaned, still holding the
+			// VoiceTyperSingleInstance mutex. The next app
+			// launch failed to acquire the mutex and showed
+			// a misleading "Only one instance can run"
+			// dialog. Mirrors the escalation pattern in
+			// ``relaunch-app.ts::_killPythonProcessWithSigkillFallback``.
+			try {
+				if (!proc.killed) {
+					proc.kill("SIGTERM");
+				}
+				// Give SIGTERM 1.5s to take effect
+				// (Python got 3s of quit_app grace
+				// already). If still alive, SIGKILL.
+				const escalateTimer = setTimeout(() => {
+					if (!proc.killed) {
+						try {
+							proc.kill("SIGKILL");
+						} catch {
+							/* best-effort */
+						}
+					}
+				}, 1500);
+				proc.once("exit", () => clearTimeout(escalateTimer));
+			} catch {
+				/* best-effort — proc may have already exited */
+			}
 			state.pythonProcess = null;
 		}
 		armedKillTimer = null;

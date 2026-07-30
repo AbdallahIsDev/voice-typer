@@ -150,15 +150,13 @@ export function showBubbleWindow(): void {
 			e,
 		);
 	}
-	try {
-		win.setAlwaysOnTop(true, "screen-saver");
-	} catch (e) {
-		// best-effort — window may be destroyed mid-call.
-		log.warn(
-			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow re-affirm setAlwaysOnTop failed:`,
-			e,
-		);
-	}
+	// DJ-91: dropped the second redundant setAlwaysOnTop call that
+	// previously re-affirmed the always-on-top flag immediately after
+	// moveTop(). The first call above (before show()) already set the
+	// flag, and the setImmediate fallback below re-applies it IF
+	// `!win.isVisible()` (defensive retry on the unhappy path only).
+	// The redundant happy-path call was a Win32/Cocoa round-trip with
+	// no behavioral benefit on every dictation start.
 
 	setImmediate(() => {
 		if (!win || win.isDestroyed()) return;

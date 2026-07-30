@@ -43,7 +43,7 @@ describe("XE-20-1: cross-layer parity (TS side)", () => {
 	];
 
 	for (const [input, expected] of cases) {
-		it(`redacts ${input.length > 30 ? input.slice(0, 30) + "…" : input} → ${expected}`, () => {
+		it(`redacts ${input.length > 30 ? `${input.slice(0, 30)}…` : input} → ${expected}`, () => {
 			const out = redactPii(input);
 			expect(out).toBe(expected);
 		});

@@ -127,8 +127,22 @@ function _killPythonProcessWithSigkillFallback(mode: "dev" | "prod"): void {
 			// (stuck in a C extension like torch/sounddevice),
 			// force-kill so the old process doesn't survive and
 			// hold the VoiceTyperSingleInstance mutex.
+			//
+			// XE-18-1 (Critical): the previous guard `if (!proc.killed)`
+			// was always FALSE after the SIGTERM above because Node.js
+			// sets `subprocess.killed = true` synchronously inside
+			// `subprocess.kill()` — regardless of whether the signal
+			// was delivered or the process has actually exited. This
+			// made the SIGKILL fallback dead code: a Python process
+			// stuck in a C extension (torch/sounddevice) would survive
+			// SIGTERM, never get SIGKILL'd, hold the single-instance
+			// mutex, and force the new Python to exit with "another
+			// instance is already running" — breaking the user's
+			// PRIMARY recovery path (tray "Restart"). The correct
+			// liveness check is `exitCode === null && signalCode === null`
+			// (both are null until the process actually exits).
 			const killTimer = setTimeout(() => {
-				if (!proc.killed) {
+				if (proc.exitCode === null && proc.signalCode === null) {
 					try {
 						proc.kill("SIGKILL");
 					} catch {
@@ -156,11 +170,43 @@ function _appendRestartTimestamp(history: number[]): void {
 		// mode 0o600: the file records restart cadence (operational
 		// telemetry) — no PII, but tighten perms anyway to match the
 		// rest of the config dir (electron.pid is also 0o600).
-		fs.writeFileSync(file, JSON.stringify(pruned), {
+		//
+		// XE-15-6: atomic write (temp + fsync + rename). Pre-fix,
+		// ``fs.writeFileSync`` with ``flag: "w"`` was
+		// truncate-then-write — a crash mid-write left a partial
+		// JSON body that ``_readRestartHistory``'s
+		// ``JSON.parse`` rejected, silently returning ``[]`` and
+		// BYPASSING the loop-breaker on the next launch (re-entering
+		// the crash loop with no "cannot restart safely" dialog).
+		// The Rust mirror (``supervisor.rs::write_restart_counter``)
+		// already used ``atomic_write_bytes`` (temp + fsync + rename)
+		// for this exact reason. We now mirror that pattern in JS:
+		// write to ``<file>.tmp``, fsync, then atomic-rename over
+		// the destination. On POSIX, ``rename`` is atomic; on
+		// Windows, ``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``
+		// is atomic. A crash mid-write now leaves the previous
+		// (complete) history file intact — the .tmp is the only
+		// casualty, and it's overwritten on the next attempt.
+		const tmp = `${file}.tmp`;
+		fs.writeFileSync(tmp, JSON.stringify(pruned), {
 			encoding: "utf-8",
-			flag: "w",
 			mode: 0o600,
 		});
+		// fsync the .tmp so the bytes hit disk before the rename
+		// (otherwise a power loss after rename but before the
+		// FS sync could leave the destination file with zero
+		// bytes on some filesystems).
+		try {
+			const fd = fs.openSync(tmp, "r");
+			try {
+				fs.fsyncSync(fd);
+			} finally {
+				fs.closeSync(fd);
+			}
+		} catch {
+			/* fsync best-effort — not all FSes / platforms support it */
+		}
+		fs.renameSync(tmp, file);
 	} catch (e) {
 		// Best-effort: if we can't persist the counter, the worst
 		// case is the cap not firing this round — the underlying
@@ -287,8 +333,23 @@ export function relaunchApp(): void {
 			log.warn("[RESTART] dev: mainWindow reload failed:", e);
 		}
 
-		startPython();
-		state._relaunching = false;
+		// XE-18-2: wrap ``startPython()`` in try/finally so
+		// ``state._relaunching`` is cleared even if startPython
+		// throws (e.g. pythonArgs() throws on unrecognized
+		// platform, spawn() throws on invalid arguments,
+		// tcpConnect() throws on invalid port). Pre-fix, a
+		// throw left ``_relaunching = true`` permanently —
+		// every subsequent ``relaunchApp()`` call was a no-op
+		// (the idempotency guard at the top of this function
+		// short-circuits), bricking the Restart tray menu
+		// item for the rest of the Electron process lifetime.
+		// The production branch (``app.exit(0)``) doesn't have
+		// this issue because the process terminates.
+		try {
+			startPython();
+		} finally {
+			state._relaunching = false;
+		}
 		log.info("[RESTART] Dev mode restart complete -- waiting for new backend");
 		return;
 	}

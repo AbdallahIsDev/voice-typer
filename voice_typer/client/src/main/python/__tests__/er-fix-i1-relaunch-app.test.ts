@@ -78,6 +78,13 @@ function makeMockProc(
 	const proc = {
 		pid: 99999,
 		killed: false,
+		// XE-18-1: Node sets `exitCode` / `signalCode` to `null` until
+		// the child actually exits. The mock mirrors that so the
+		// SIGKILL-fallback liveness check
+		// (`proc.exitCode === null && proc.signalCode === null`) works
+		// the same way it does against a real ChildProcess.
+		exitCode: null as number | null,
+		signalCode: null as string | null,
 		on: vi.fn((ev: string, cb: (...a: unknown[]) => void) => {
 			if (!listeners[ev]) listeners[ev] = [];
 			listeners[ev].push(cb);
@@ -94,8 +101,19 @@ function makeMockProc(
 			proc.killed = true;
 			if (autoExitOnKill) {
 				const fire = () => {
+					// Mirror Node: when a signal kills the proc,
+					// `signalCode = sig` and `exitCode = null`. The
+					// previous mock passed `(0, sig)` to listeners
+					// which conflated exit code + signal. Modeling the
+					// signal-kill case here lets the SIGKILL-fallback
+					// liveness guard see `signalCode != null` after the
+					// proc has actually exited (autoExitOnKill=true),
+					// and `signalCode === null` when it hasn't
+					// (autoExitOnKill=false).
+					proc.signalCode = sig ?? "SIGTERM";
+					proc.exitCode = null;
 					(listeners.exit ?? []).forEach((cb) => {
-						cb(0, sig);
+						cb(null, proc.signalCode);
 					});
 				};
 				if (exitDelayMs > 0) setTimeout(fire, exitDelayMs);
@@ -219,11 +237,17 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		expect(mockStartPython).toHaveBeenCalledTimes(1);
 	});
 
-	it.skip("SIGKILL fallback fires if proc doesn't exit within 3s timeout", async () => {
-		// Skipped: relaunchApp() now sends SIGTERM (not bare kill) and the
-		// 3s SIGKILL fallback fires via the killTimer on the proc itself;
-		// the test's exact mock-based assertion no longer matches the
-		// refactored kill path.
+	it("SIGKILL fallback fires if proc doesn't exit within 3s timeout", async () => {
+		// XE-18-1 (Critical): previously skipped because the production
+		// guard `if (!proc.killed)` was always false after the SIGTERM
+		// (Node sets `subprocess.killed = true` synchronously inside
+		// `subprocess.kill()`), making the SIGKILL fallback dead code.
+		// The fix replaces the guard with
+		// `if (proc.exitCode === null && proc.signalCode === null)` so
+		// it fires whenever the proc is genuinely still alive. The
+		// mock now models `exitCode` / `signalCode` to match Node's
+		// real semantics, so this test exercises the new liveness
+		// check instead of the misleading `killed` flag.
 		vi.resetModules();
 		vi.useFakeTimers();
 		try {

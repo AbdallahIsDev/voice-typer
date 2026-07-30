@@ -56,3 +56,39 @@ export const BUBBLE_HEIGHT = 46;
 // battery. Same detection window (45s = 3 misses) as the prior 5s+45s
 // (9 misses) config — a crashed peer is still detected within 45s.
 export const HEARTBEAT_INTERVAL_MS = 15000;
+
+// FZ-64: named magic numbers previously inlined across `main/`.
+// Keeping them in one module makes the rationale (e.g. "why 3s vs 2s
+// for the SIGTERM vs production-exit backstop") discoverable and lets a
+// future tuning change touch one site instead of N.
+
+// SIGTERM/SIGINT backstop: if `app.quit()` (called from the signal
+// handler) doesn't actually exit the process within 3s, force-exit so a
+// wedged `before-quit` listener can't trap us on SIGTERM. Longer than
+// the production-exit backstop below because signal handlers also wait
+// on the Python shutdown IPC handshake.
+export const SIGTERM_EXIT_BACKSTOP_MS = 3000;
+
+// Production-exit backstop in `bootstrap.ts::productionExit()`: if
+// `app.quit()` doesn't exit within 2s (e.g. a `before-quit` handler
+// called `event.preventDefault()` or the Python shutdown ack hangs),
+// force-exit so the user isn't left with a zombie process.
+export const PROCESS_EXIT_BACKSTOP_MS = 2000;
+
+// Crash-storm backoff: 2s wait before reloading a renderer that crashed
+// (`render-process-gone`) to avoid CPU-bound crash loops. Lives in
+// `main-window.ts` (was previously in `bubble-window.ts` before FZ-51
+// split the bubble-window god-file).
+export const RENDER_RELOAD_BACKOFF_MS = 2000;
+
+// SEC-023: cap `tcpBuffer` at 4 MB to prevent unbounded memory growth
+// from malformed frames (e.g. a chunk with no newline that never gets
+// split). `tcp-connect.ts` drops the connection on overflow.
+export const TCP_FRAME_MAX_BYTES = 4 * 1024 * 1024;
+
+// FZ-64: IPC command timeouts in `send-to-python.ts::_commandTimeoutMs`.
+// Long-running commands (model load, transcription) get the long
+// timeout; everything else gets the short timeout. Per-command overrides
+// live in `_SHORT_TIMEOUT_COMMANDS`.
+export const IPC_TIMEOUT_SHORT_MS = 15_000;
+export const IPC_TIMEOUT_LONG_MS = 120_000;
