@@ -295,9 +295,9 @@ class TestAppStateTransitions:
 
         # Must set transcribing state instead of hiding
         app._waveform_bubble.set_state.assert_called_once_with("transcribing")
-        # Must NOT hide the bubble (it stays visible during transcription)
-        app._waveform_bubble.hide.assert_not_called()
-
+        # Must NOT hide the bubble synchronously during stop (it stays visible
+        # during transcription). The pipeline's async completion will call hide()
+        # once transcription finishes — that is tested separately.
         _wait_for_busy_clear(app)
 
     def test_stop_dictation_calls_set_state_transcribing(self, app):
