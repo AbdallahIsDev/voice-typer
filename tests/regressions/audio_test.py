@@ -939,22 +939,23 @@ class TestAudioDeviceDisconnectHandling:
         rec.on_silence_auto_stop = lambda: None
         rec.on_max_duration_auto_stop = lambda: None
 
-        # S3-CR-17 / Phase 4.5: the processing body moved from
-        # Recorder._process_audio_chunk to AudioPipeline.process_audio_chunk.
+        # S3-CR-17 / Phase 4.5: the device-disconnect body moved from
+        # Recorder._process_audio_chunk to
+        # AudioPipeline.detect_device_disconnect.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        src = inspect.getsource(AudioPipeline.process_audio_chunk)
+        src = inspect.getsource(AudioPipeline.detect_device_disconnect)
         assert "_device_disconnected" in src
         # AUDIO-008 / RT-SAFE-001: the zero-filled disconnect check.
-        # The implementation uses ``np.count_nonzero(indata) == 0``
-        # (equivalent to ``np.all(indata == 0)`` / ``not indata.any()``);
+        # The implementation uses ``not np.any(indata)``
+        # (equivalent to ``np.count_nonzero(indata) == 0`` / ``np.all(indata == 0)``);
         # accept any of the three idioms so the test pins the
         # *behavior* (all-zero indata ⇒ disconnect) rather than a
         # specific spelling that may be refectored.
-        assert "np.count_nonzero(indata) == 0" in src or "np.all(indata == 0)" in src or "not indata.any()" in src, (
-            "_process_audio_chunk must check for zero-filled indata to detect "
-            "device disconnect (via np.count_nonzero(indata) == 0 or "
-            "np.all(indata == 0) or not indata.any())"
+        assert "not np.any(indata)" in src or "np.count_nonzero(indata) == 0" in src or "np.all(indata == 0)" in src, (
+            "detect_device_disconnect must check for zero-filled indata to detect "
+            "device disconnect (via not np.any(indata) or "
+            "np.count_nonzero(indata) == 0 or np.all(indata) == 0)"
         )
 
 
