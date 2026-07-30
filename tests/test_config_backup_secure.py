@@ -394,9 +394,7 @@ class TestXZR1003PreMigrationBackupSecure:
         re-verify), not ``shutil.copy2`` (which follows symlinks on
         both source AND destination)."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"}))
 
         import voice_typer.server.config as config_mod
 
@@ -428,9 +426,7 @@ class TestXZR1003PreMigrationBackupSecure:
         ``_secure_atomic_write`` (atomic os.replace + fsync + 0o600),
         not ``shutil.copy2`` (non-atomic, no fsync, 0o644 window)."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"}))
 
         import voice_typer.server.config as config_mod
 
@@ -463,9 +459,7 @@ class TestXZR1003PreMigrationBackupSecure:
         Pattern: ``config.json.pre-migration-v{N}-{ts}-{pid}-{us}.bak``
         """
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"}))
 
         Config.load()
 
@@ -490,16 +484,12 @@ class TestXZR1003PreMigrationBackupSecure:
             pid = int(match.group(3))
             us = int(match.group(4))
             now = int(time.time())
-            assert abs(now - ts) < 60, (
-                f"XZ-CFG-11: backup timestamp {ts} not recent (now={now})."
-            )
+            assert abs(now - ts) < 60, f"XZ-CFG-11: backup timestamp {ts} not recent (now={now})."
             assert pid == _os.getpid(), (
                 f"XZ-CFG-11: backup PID {pid} does not match current "
                 f"PID {_os.getpid()} — the PID suffix must use os.getpid()."
             )
-            assert 0 <= us < 1_000_000, (
-                f"XZ-CFG-11: microsecond fraction {us} out of range [0, 1_000_000)."
-            )
+            assert 0 <= us < 1_000_000, f"XZ-CFG-11: microsecond fraction {us} out of range [0, 1_000_000)."
 
     def test_pre_migration_backup_rejects_symlinked_source(
         self,
@@ -513,9 +503,7 @@ class TestXZR1003PreMigrationBackupSecure:
         secret_file.write_text(secret_content)
 
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"}))
 
         config_file.unlink()
         config_file.symlink_to(secret_file)
@@ -539,9 +527,7 @@ class TestXZR1003PreMigrationBackupSecure:
         """XZ-CFG-11: after the 4th pre-migration backup is created, the
         oldest must be pruned so only the 3 newest remain."""
         config_file = _isolated_config_dir / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<caps_lock>"}))
 
         import os as _os
         import time as _time

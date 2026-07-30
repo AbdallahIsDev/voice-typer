@@ -792,8 +792,7 @@ class TestServiceProtocolTypeNarrowingYJ7:
 
         func_node = _service_protocol_method_node(method_name)
         assert func_node is not None, (
-            f"ServiceProtocol must declare `{method_name}()` — YJ-7 test "
-            f"depends on this method existing."
+            f"ServiceProtocol must declare `{method_name}()` — YJ-7 test depends on this method existing."
         )
         # Skip 'self' (positional 0); locate the named arg.
         all_args = list(func_node.args.args) + list(func_node.args.kwonlyargs)
@@ -805,8 +804,7 @@ class TestServiceProtocolTypeNarrowingYJ7:
                 # written in source (Python 3.9+).
                 return _ast.unparse(arg.annotation)
         raise AssertionError(
-            f"`{method_name}()` does not declare a parameter named "
-            f"`{param_name}` — has the signature changed?"
+            f"`{method_name}()` does not declare a parameter named `{param_name}` — has the signature changed?"
         )
 
     def test_microphone_test_start_mic_id_not_any(self):
@@ -843,8 +841,7 @@ class TestServiceProtocolTypeNarrowingYJ7:
         """``mic_id`` on ``level_monitor_start`` must not be ``Any``."""
         ann = self._param_annotation_text("level_monitor_start", "mic_id")
         assert ann != "Any", (
-            "YJ-7 regression: `level_monitor_start(self, mic_id: Any)` — "
-            "`mic_id` must be narrowed (e.g. `str | None`)."
+            "YJ-7 regression: `level_monitor_start(self, mic_id: Any)` — `mic_id` must be narrowed (e.g. `str | None`)."
         )
 
     def test_onboarding_set_microphone_mic_id_not_any(self):

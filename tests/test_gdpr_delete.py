@@ -622,9 +622,7 @@ def test_delete_all_personal_data_erases_history_db_corrupt(tmp_path) -> None:
             "history.db.corrupt-* must be deleted — retains dictated plaintext (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("history.db.corrupt-*"))
-        assert remaining == [], (
-            f"history.db.corrupt-* files still present after GDPR delete: {remaining}"
-        )
+        assert remaining == [], f"history.db.corrupt-* files still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -641,9 +639,7 @@ def test_delete_all_personal_data_erases_diagnostics_zip(tmp_path) -> None:
             "voice-typer-diagnostics-*.zip must be deleted — contains history + log fragments (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("voice-typer-diagnostics-*.zip"))
-        assert remaining == [], (
-            f"voice-typer-diagnostics-*.zip files still present after GDPR delete: {remaining}"
-        )
+        assert remaining == [], f"voice-typer-diagnostics-*.zip files still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -660,9 +656,7 @@ def test_delete_all_personal_data_erases_gdpr_export_zip(tmp_path) -> None:
             "gdpr-export-*.zip must be deleted — contains user's full personal data (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("gdpr-export-*.zip"))
-        assert remaining == [], (
-            f"gdpr-export-*.zip files still present after GDPR delete: {remaining}"
-        )
+        assert remaining == [], f"gdpr-export-*.zip files still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -677,8 +671,6 @@ def test_delete_all_personal_data_erases_all_xz_sec_03_artifacts(tmp_path) -> No
         result = svc.delete_all_personal_data()
         assert result["success"] is True
         for name, path in artifacts.items():
-            assert not path.exists(), (
-                f"{name} survived GDPR delete — XZ-SEC-03 regression."
-            )
+            assert not path.exists(), f"{name} survived GDPR delete — XZ-SEC-03 regression."
     finally:
         mp.undo()

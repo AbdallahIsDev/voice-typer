@@ -526,9 +526,20 @@ class TestRestartAppStopsBackends:
             patch.object(app_module, "list_microphones", return_value=[], create=True),
         ):
             app = app_module.VoiceTyperApp()
-            app.hotkeys._hotkey_backend = MagicMock()
-            app.hotkeys._esc_backend = MagicMock()
-            app.hotkeys._repaste_backend = MagicMock()
+            # XZ-R17-11: production ``_teardown_hotkey_backends`` (in
+            # ``voice_typer/server/shutdown_controller.py``) nulls the
+            # ``app.hotkeys._hotkey_backend`` / ``_esc_backend`` /
+            # ``_repaste_backend`` attributes AFTER calling ``stop()``
+            # on each one — so re-reading ``app.hotkeys.<attr>`` after
+            # ``restart_app()`` returns ``None``, not the mock we
+            # installed. Capture the mock references BEFORE the call
+            # so we can still assert ``stop`` was invoked on them.
+            hotkey_backend_mock = MagicMock()
+            esc_backend_mock = MagicMock()
+            repaste_backend_mock = MagicMock()
+            app.hotkeys._hotkey_backend = hotkey_backend_mock
+            app.hotkeys._esc_backend = esc_backend_mock
+            app.hotkeys._repaste_backend = repaste_backend_mock
             app.recorder = MagicMock()
             app.recorder.discard = MagicMock()
             app.tray = MagicMock()
@@ -537,9 +548,7 @@ class TestRestartAppStopsBackends:
                 app.restart_app()
 
             stops_called = sum(
-                1
-                for be in (app.hotkeys._hotkey_backend, app.hotkeys._esc_backend, app.hotkeys._repaste_backend)
-                if be.stop.called
+                1 for be in (hotkey_backend_mock, esc_backend_mock, repaste_backend_mock) if be.stop.called
             )
             assert stops_called >= 1
 

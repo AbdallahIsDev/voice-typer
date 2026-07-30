@@ -296,8 +296,7 @@ class TestCorruptConfigBackup:
         )
         contents = sorted(p.read_text(encoding="utf-8") for p in corrupt_backups)
         assert contents == ["CORRUPT_1", "CORRUPT_2"], (
-            f"XZ-R10-10: backup contents should be both CORRUPT_1 and "
-            f"CORRUPT_2 (no overwrite), got {contents!r}"
+            f"XZ-R10-10: backup contents should be both CORRUPT_1 and CORRUPT_2 (no overwrite), got {contents!r}"
         )
 
     def test_corrupt_load_returns_defaults(self, tmp_path, monkeypatch):

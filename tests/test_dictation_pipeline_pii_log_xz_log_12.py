@@ -166,18 +166,14 @@ def test_dictation_pipeline_source_is_readable() -> None:
     was loaded from a compiled .pyc with no source available)."""
     source = inspect.getsource(dictation_pipeline)
     assert "class DictationPipeline" in source, (
-        "Could not find `class DictationPipeline` in the source — "
-        "inspect.getsource may have returned the wrong module."
+        "Could not find `class DictationPipeline` in the source — inspect.getsource may have returned the wrong module."
     )
 
 
 def test_raw_text_variables_tuple_is_nonempty() -> None:
     """If someone accidentally empties ``_RAW_TEXT_VARIABLES``, the
     offender-grep becomes a no-op. Pin the tuple to a non-empty set."""
-    assert _RAW_TEXT_VARIABLES, (
-        "_RAW_TEXT_VARIABLES must be non-empty — otherwise the "
-        "regression test silently passes."
-    )
+    assert _RAW_TEXT_VARIABLES, "_RAW_TEXT_VARIABLES must be non-empty — otherwise the regression test silently passes."
     assert "text" in _RAW_TEXT_VARIABLES, (
         "'text' MUST be in the raw-text-variables tuple — it's the "
         "canonical name for the transcription text throughout the "

@@ -95,9 +95,7 @@ class TestSpawnProcessReVerifiesBinary:
     directly (no factory), so this is the only gate that closes the
     TOCTOU window for respawns."""
 
-    def test_calls_verify_on_first_spawn(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_calls_verify_on_first_spawn(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
@@ -143,22 +141,17 @@ class TestSpawnProcessReVerifiesBinary:
         ):
             b = LinuxEvdevHotkey("<caps_lock>")
             b._spawn_process()
-        assert b._failed is True, (
-            "XZ-R6-NH-01: _spawn_process must set _failed=True when verification fails"
-        )
+        assert b._failed is True, "XZ-R6-NH-01: _spawn_process must set _failed=True when verification fails"
         assert b._error_message is not None
         assert "SHA-256" in b._error_message or "verification" in b._error_message, (
-            "XZ-R6-NH-01: error message must mention SHA-256 / verification; "
-            f"got {b._error_message!r}"
+            f"XZ-R6-NH-01: error message must mention SHA-256 / verification; got {b._error_message!r}"
         )
         assert not popen_calls, (
             "XZ-R6-NH-01: _spawn_process must NOT call subprocess.Popen when "
             "verification fails — that would spawn an untrusted binary."
         )
 
-    def test_none_binary_path_sets_failed_and_skips_spawn(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_none_binary_path_sets_failed_and_skips_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _setup_linux(monkeypatch)
         _patch_binary_path(monkeypatch, None)
         popen_calls: list = []
@@ -247,9 +240,7 @@ class TestInitAcceptsBinaryPathParameter:
     is optional so existing call sites (tests, etc.) that don't pass
     it continue to work."""
 
-    def test_binary_path_parameter_is_used_when_provided(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_binary_path_parameter_is_used_when_provided(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         # Make get_native_binary_path return a DIFFERENT path so we
@@ -275,9 +266,7 @@ class TestInitAcceptsBinaryPathParameter:
         b = LinuxEvdevHotkey("<caps_lock>")
         assert b._binary_path == fake_bin
 
-    def test_binary_path_none_explicit_falls_back(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_binary_path_none_explicit_falls_back(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Passing ``binary_path=None`` explicitly must behave the same
         as omitting the kwarg (fall back to get_native_binary_path).
         This pins the ``if binary_path is not None`` branch."""
@@ -298,9 +287,7 @@ class TestReVerificationOnEverySpawn:
     swapping the binary between the first spawn and a respawn is
     caught."""
 
-    def test_verify_called_on_second_spawn(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_verify_called_on_second_spawn(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)

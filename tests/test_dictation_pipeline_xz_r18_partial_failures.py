@@ -126,15 +126,10 @@ class TestCleanTextWrappedInTryExcept:
         def _boom(_text: str, **_kwargs: object) -> str:
             raise RuntimeError("clean_transcribed_text exploded")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup.clean_transcribed_text", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup.clean_transcribed_text", _boom)
         original = "hello world"
         result = pipeline._clean_text(original)
-        assert result == original, (
-            "XZ-R18-02: _clean_text must return the original text on failure, "
-            f"got {result!r}"
-        )
+        assert result == original, f"XZ-R18-02: _clean_text must return the original text on failure, got {result!r}"
 
     def test_logs_warning_on_clean_failure(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
         app = _make_app()
@@ -143,14 +138,12 @@ class TestCleanTextWrappedInTryExcept:
         def _boom(_text: str, **_kwargs: object) -> str:
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup.clean_transcribed_text", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup.clean_transcribed_text", _boom)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
             pipeline._clean_text("hello")
-        assert any(
-            "Text cleanup failed" in r.getMessage() for r in caplog.records
-        ), "XZ-R18-02: _clean_text must log a WARNING on failure"
+        assert any("Text cleanup failed" in r.getMessage() for r in caplog.records), (
+            "XZ-R18-02: _clean_text must log a WARNING on failure"
+        )
 
     def test_notify_once_fires_only_on_first_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
@@ -160,17 +153,12 @@ class TestCleanTextWrappedInTryExcept:
         def _boom(_text: str, **_kwargs: object) -> str:
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup.clean_transcribed_text", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup.clean_transcribed_text", _boom)
         pipeline1._clean_text("hello")
         pipeline2._clean_text("world")
         # The tray.notify call count for the cleanup-failed message
         # must be exactly 1 (only the first cycle fires).
-        notify_calls = [
-            c for c in app.tray.notify.call_args_list
-            if c.args and "Text cleanup failed" in str(c.args)
-        ]
+        notify_calls = [c for c in app.tray.notify.call_args_list if c.args and "Text cleanup failed" in str(c.args)]
         assert len(notify_calls) == 1, (
             "XZ-R18-02: tray.notify('Text cleanup failed') must fire EXACTLY "
             f"once across two consecutive failures (session-scoped flag); got {len(notify_calls)}"
@@ -182,13 +170,12 @@ class TestCleanTextWrappedInTryExcept:
         pipeline = _new_pipeline(app)
 
         called = []
+
         def _should_not_be_called(_text: str, **_kwargs: object) -> str:
             called.append(True)
             return "should not reach"
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup.clean_transcribed_text", _should_not_be_called
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup.clean_transcribed_text", _should_not_be_called)
         result = pipeline._clean_text("hello world")
         assert result == "hello world"
         assert not called, "clean_transcribed_text must NOT be called when text_cleanup_enabled=False"
@@ -209,14 +196,10 @@ class TestApplyPunctuationWrappedInTryExcept:
         def _boom(_text: str) -> str:
             raise RuntimeError("punctuation boom")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom)
         original = "hello world"
         result = pipeline._apply_punctuation(original)
-        assert result == original, (
-            "XZ-R18-02: _apply_punctuation must return the original text on failure"
-        )
+        assert result == original, "XZ-R18-02: _apply_punctuation must return the original text on failure"
 
     def test_logs_warning_on_punctuation_failure(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
         app = _make_app()
@@ -225,14 +208,12 @@ class TestApplyPunctuationWrappedInTryExcept:
         def _boom(_text: str) -> str:
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
             pipeline._apply_punctuation("hello")
-        assert any(
-            "Auto-punctuation failed" in r.getMessage() for r in caplog.records
-        ), "XZ-R18-02: _apply_punctuation must log a WARNING on failure"
+        assert any("Auto-punctuation failed" in r.getMessage() for r in caplog.records), (
+            "XZ-R18-02: _apply_punctuation must log a WARNING on failure"
+        )
 
     def test_notify_once_fires_only_on_first_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
@@ -242,18 +223,13 @@ class TestApplyPunctuationWrappedInTryExcept:
         def _boom(_text: str) -> str:
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _boom)
         pipeline1._apply_punctuation("hello")
         pipeline2._apply_punctuation("world")
         notify_calls = [
-            c for c in app.tray.notify.call_args_list
-            if c.args and "Auto-punctuation failed" in str(c.args)
+            c for c in app.tray.notify.call_args_list if c.args and "Auto-punctuation failed" in str(c.args)
         ]
-        assert len(notify_calls) == 1, (
-            "XZ-R18-02: tray.notify('Auto-punctuation failed') must fire EXACTLY once"
-        )
+        assert len(notify_calls) == 1, "XZ-R18-02: tray.notify('Auto-punctuation failed') must fire EXACTLY once"
 
     def test_disabled_punctuation_does_not_call_helper(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
@@ -261,13 +237,12 @@ class TestApplyPunctuationWrappedInTryExcept:
         pipeline = _new_pipeline(app)
 
         called = []
+
         def _should_not_be_called(_text: str) -> str:
             called.append(True)
             return "should not reach"
 
-        monkeypatch.setattr(
-            "voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _should_not_be_called
-        )
+        monkeypatch.setattr("voice_typer.server.text_cleanup._add_safe_terminal_punctuation", _should_not_be_called)
         result = pipeline._apply_punctuation("hello world")
         assert result == "hello world"
         assert not called
@@ -303,24 +278,23 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
         pipeline = self._make_llm_polish_pipeline(app)
         original = "hello world"
         result = pipeline._apply_llm_polish(original)
-        assert result == original, (
-            "XZ-R18-05: _apply_llm_polish must return the original (un-polished) text on failure"
-        )
+        assert result == original, "XZ-R18-05: _apply_llm_polish must return the original (un-polished) text on failure"
 
     def test_logs_warning_on_failure(self, caplog) -> None:
         app = _make_app()
         pipeline = self._make_llm_polish_pipeline(app)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
             pipeline._apply_llm_polish("hello")
-        assert any(
-            "Polish failed" in r.getMessage() for r in caplog.records
-        ), "XZ-R18-05: must log WARNING with 'Polish failed' message"
+        assert any("Polish failed" in r.getMessage() for r in caplog.records), (
+            "XZ-R18-05: must log WARNING with 'Polish failed' message"
+        )
 
     def test_publishes_llm_polish_failed_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
         pipeline = self._make_llm_polish_pipeline(app)
 
         published_events: list[dict] = []
+
         def _capture_publish(event: dict) -> None:
             published_events.append(event)
 
@@ -331,9 +305,7 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
 
         monkeypatch.setattr(event_bus_mod, "publish", _capture_publish)
         pipeline._apply_llm_polish("hello")
-        assert any(
-            e.get("type") == "llm_polish_failed" for e in published_events
-        ), (
+        assert any(e.get("type") == "llm_polish_failed" for e in published_events), (
             "XZ-R18-05: must publish a {'type': 'llm_polish_failed'} event to "
             f"the event bus. Published: {published_events}"
         )
@@ -344,10 +316,7 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
         pipeline2 = self._make_llm_polish_pipeline(app)
         pipeline1._apply_llm_polish("hello")
         pipeline2._apply_llm_polish("world")
-        notify_calls = [
-            c for c in app.tray.notify.call_args_list
-            if c.args and "LLM polish failed" in str(c.args)
-        ]
+        notify_calls = [c for c in app.tray.notify.call_args_list if c.args and "LLM polish failed" in str(c.args)]
         assert len(notify_calls) == 1, (
             "XZ-R18-05: tray.notify('LLM polish failed') must fire EXACTLY "
             f"once across two consecutive failures; got {len(notify_calls)}"

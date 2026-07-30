@@ -350,9 +350,7 @@ class TestNoiseFilterDefaultsSync:
         mismatches: list[str] = []
         missing_in_defaults: list[str] = []
         for f in fields(config_snapshot):
-            if not (
-                f.name.startswith("noise_filter_") or f.name == "noise_suppression_method"
-            ):
+            if not (f.name.startswith("noise_filter_") or f.name == "noise_suppression_method"):
                 continue
             if f.name in self._RUNTIME_OR_DEPRECATED_FIELDS:
                 continue
@@ -369,18 +367,13 @@ class TestNoiseFilterDefaultsSync:
             # plain ``str``, so a direct ``==`` comparison works for both
             # bool / float / str fields.
             if config_default != builder_default:
-                mismatches.append(
-                    f"{f.name}: Config default={config_default!r}, "
-                    f"_DEFAULTS value={builder_default!r}"
-                )
+                mismatches.append(f"{f.name}: Config default={config_default!r}, _DEFAULTS value={builder_default!r}")
         assert not missing_in_defaults, (
             "audio_chain_builder._DEFAULTS is missing noise_filter_* fields "
-            "present on Config (and NOT in _RUNTIME_OR_DEPRECATED_FIELDS):\n  "
-            + "\n  ".join(missing_in_defaults)
+            "present on Config (and NOT in _RUNTIME_OR_DEPRECATED_FIELDS):\n  " + "\n  ".join(missing_in_defaults)
         )
-        assert not mismatches, (
-            "audio_chain_builder._DEFAULTS drifted from Config defaults:\n  "
-            + "\n  ".join(mismatches)
+        assert not mismatches, "audio_chain_builder._DEFAULTS drifted from Config defaults:\n  " + "\n  ".join(
+            mismatches
         )
 
     def test_defaults_dict_has_no_extra_noise_filter_fields_not_on_config(self) -> None:
@@ -399,13 +392,9 @@ class TestNoiseFilterDefaultsSync:
         extras: list[str] = []
         for name in _DEFAULTS:
             if name not in config_field_names:
-                extras.append(
-                    f"{name}: present in _DEFAULTS (value={_DEFAULTS[name]!r}) "
-                    f"but NOT a field on Config"
-                )
-        assert not extras, (
-            "audio_chain_builder._DEFAULTS has noise_filter_* entries not on Config:\n  "
-            + "\n  ".join(extras)
+                extras.append(f"{name}: present in _DEFAULTS (value={_DEFAULTS[name]!r}) but NOT a field on Config")
+        assert not extras, "audio_chain_builder._DEFAULTS has noise_filter_* entries not on Config:\n  " + "\n  ".join(
+            extras
         )
 
     def test_gate_adaptive_getattr_fallback_matches_config_default(self) -> None:

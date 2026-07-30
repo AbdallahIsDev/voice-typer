@@ -967,18 +967,12 @@ class TestSEC10CreateLnkShortcutIntegration:
         cmd = captured["cmd"]
         # XZ-R6-AS-08: must use ``-Command`` (not ``-File``) so no
         # on-disk .ps1 artifact exists for a TOCTOU attacker to swap.
-        assert "-Command" in cmd, (
-            f"must use -Command (XZ-R6-AS-08); got cmd: {cmd}"
-        )
-        assert "-File" not in cmd, (
-            f"must NOT use -File (XZ-R6-AS-08 TOCTOU); got cmd: {cmd}"
-        )
+        assert "-Command" in cmd, f"must use -Command (XZ-R6-AS-08); got cmd: {cmd}"
+        assert "-File" not in cmd, f"must NOT use -File (XZ-R6-AS-08 TOCTOU); got cmd: {cmd}"
         content = captured["script"]
 
         # The script must use single-quoted strings.
-        assert "$s.CreateShortcut('" in content, (
-            f"script must use single-quoted strings; was:\n{content}"
-        )
+        assert "$s.CreateShortcut('" in content, f"script must use single-quoted strings; was:\n{content}"
         assert '$s.CreateShortcut("' not in content
         # The dangerous semicolon must appear literally inside the
         # description's single-quoted string.

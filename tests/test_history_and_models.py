@@ -1194,14 +1194,23 @@ class TestPERF21DownloadPollScopedToModelDir:
         download is impractical in unit tests (snapshot_download +
         threading). The source-level guard catches any future revert
         that re-widens the rglob.
+
+        DR-17: the polling loop was extracted from the original
+        monolithic ``VoiceTyperService.download_model`` (now a thin
+        dispatcher delegating to ``_download_whisper_family`` /
+        ``_download_qwen`` / ``_download_parakeet``) into the
+        module-level ``poll_download_progress`` helper in
+        ``voice_typer/server/service/_download_helpers.py``. The
+        PERF-21 invariant still lives there, so this test introspects
+        the helper's source rather than ``download_model``.
         """
         import inspect
 
-        from voice_typer.server.service import VoiceTyperService
+        from voice_typer.server.service._download_helpers import poll_download_progress
 
-        src = inspect.getsource(VoiceTyperService.download_model)
+        src = inspect.getsource(poll_download_progress)
         assert "model_dir = cache_dir / f\"models--{repo_id.replace('/', '--')}\"" in src, (
-            "PERF-21: download_model must compute model_dir = "
+            "PERF-21: poll_download_progress must compute model_dir = "
             "cache_dir / models--<repo_id> and walk THAT, not the whole cache"
         )
         assert 'model_dir.rglob("*")' in src, (
@@ -1219,7 +1228,7 @@ class TestPERF21DownloadPollScopedToModelDir:
             code_only_lines.append(line)
         code_only = "\n".join(code_only_lines)
         assert 'cache_dir.rglob("*")' not in code_only, (
-            "PERF-21 regression: download_model still calls "
+            "PERF-21 regression: poll_download_progress still calls "
             "cache_dir.rglob('*') in actual code — this walks the ENTIRE "
             "HF cache tree every 1 s and was the bug PERF-21 fixed."
         )

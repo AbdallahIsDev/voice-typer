@@ -195,9 +195,7 @@ class TestSetTrayLocale:
             "voice_typer.server.tray.register_tray_labels",
             lambda loc, labels: registered.append((loc, labels)),
         )
-        resp = ipc_server._handle_set_tray_locale(
-            {"locale": "en", "labels": {"app_name": "x" * 1025}}, {}
-        )
+        resp = ipc_server._handle_set_tray_locale({"locale": "en", "labels": {"app_name": "x" * 1025}}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "labels"
@@ -207,9 +205,7 @@ class TestSetTrayLocale:
         """XZ-R3-04: non-string label key → ``code: invalid_field`` error."""
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
         monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
-        monkeypatch.setattr(
-            "voice_typer.server.tray.register_tray_labels", lambda loc, labels: None
-        )
+        monkeypatch.setattr("voice_typer.server.tray.register_tray_labels", lambda loc, labels: None)
         resp = ipc_server._handle_set_tray_locale(
             {"locale": "en", "labels": {123: "value"}},  # type: ignore[dict-item]
             {},
@@ -222,15 +218,11 @@ class TestSetTrayLocale:
         """XZ-R3-04: total payload > 64 KiB → ``code: invalid_payload`` error."""
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
         monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
-        monkeypatch.setattr(
-            "voice_typer.server.tray.register_tray_labels", lambda loc, labels: None
-        )
+        monkeypatch.setattr("voice_typer.server.tray.register_tray_labels", lambda loc, labels: None)
         # Each label value is ≤1024 chars (passes per-field cap) but
         # the total payload exceeds 64 KiB.
         big_labels = {f"key_{i:03d}": "v" * 1000 for i in range(70)}
-        resp = ipc_server._handle_set_tray_locale(
-            {"locale": "en", "labels": big_labels}, {}
-        )
+        resp = ipc_server._handle_set_tray_locale({"locale": "en", "labels": big_labels}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
@@ -243,9 +235,7 @@ class TestSetTrayLocale:
             "voice_typer.server.tray.register_tray_labels",
             lambda loc, labels: registered.append((loc, labels)),
         )
-        resp = ipc_server._handle_set_tray_locale(
-            {"locale": "ar", "labels": {"app_name": "Voice Typer AR"}}, {}
-        )
+        resp = ipc_server._handle_set_tray_locale({"locale": "ar", "labels": {"app_name": "Voice Typer AR"}}, {})
         assert resp["type"] == "ack"
         assert resp["data"] == {"locale": "ar"}
         assert registered == [("ar", {"app_name": "Voice Typer AR"})]

@@ -417,9 +417,7 @@ class TestXzEh002ServiceErrorRedaction:
     def test_apply_redacts_openai_key(self, ipc_server, fake_service):
         """``onboarding_apply`` service error containing an OpenAI
         ``sk-...`` key is redacted."""
-        fake_service.onboarding_apply.return_value = {
-            "error": f"cloud config error: invalid key {self._SECRET_SK}"
-        }
+        fake_service.onboarding_apply.return_value = {"error": f"cloud config error: invalid key {self._SECRET_SK}"}
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
         # ``sk-...`` is fully replaced with ``***`` by ``redact_secret``
@@ -439,27 +437,21 @@ class TestXzEh002ServiceErrorRedaction:
 
     def test_set_hotkey_redacts_error(self, ipc_server, fake_service):
         """``onboarding_set_hotkey`` service error is redacted."""
-        fake_service.onboarding_set_hotkey.return_value = {
-            "error": f"hotkey reserved: {self._SECRET_SK}"
-        }
+        fake_service.onboarding_set_hotkey.return_value = {"error": f"hotkey reserved: {self._SECRET_SK}"}
         resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": "<f2>"}, {})
         assert resp["type"] == "error"
         assert self._SECRET_SK not in resp["data"]["error"]
 
     def test_set_model_redacts_error(self, ipc_server, fake_service):
         """``onboarding_set_model`` service error is redacted."""
-        fake_service.onboarding_set_model.return_value = {
-            "error": f"model unavailable: {self._SECRET_BEARER}"
-        }
+        fake_service.onboarding_set_model.return_value = {"error": f"model unavailable: {self._SECRET_BEARER}"}
         resp = ipc_server._handle_onboarding_set_model({"model": "small.en"}, {})
         assert resp["type"] == "error"
         assert self._SECRET_BEARER not in resp["data"]["error"]
 
     def test_skip_redacts_error(self, ipc_server, fake_service):
         """``onboarding_skip`` service error is redacted."""
-        fake_service.onboarding_skip.return_value = {
-            "error": f"skip failed: {self._SECRET_SK}"
-        }
+        fake_service.onboarding_skip.return_value = {"error": f"skip failed: {self._SECRET_SK}"}
         resp = ipc_server._handle_onboarding_skip({}, {})
         assert resp["type"] == "error"
         assert self._SECRET_SK not in resp["data"]["error"]
@@ -488,4 +480,3 @@ class TestXzEh002ServiceErrorRedaction:
         assert resp["type"] == "error"
         # The ``None`` value is preserved (not redacted to a string).
         assert resp["data"]["error"] is None
-

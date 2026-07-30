@@ -142,8 +142,7 @@ class TestSystemRootNotepadPath:
             f"SYSTEMROOT-derived path; got {result!r}, expected {default_path!r}"
         )
         assert result != attacker_path, (
-            "XZ-R6-AS-07: SYSTEMROOT-derived path must NOT be returned "
-            "when the hardcoded default also exists"
+            "XZ-R6-AS-07: SYSTEMROOT-derived path must NOT be returned when the hardcoded default also exists"
         )
 
     def test_returns_systemroot_path_when_it_exists(self, monkeypatch):

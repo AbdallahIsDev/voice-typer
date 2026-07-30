@@ -974,8 +974,7 @@ class TestAsyncDispatch:
             # The subscriber ran on the executor thread, NOT the publisher's.
             assert received_thread, "subscriber thread name must be recorded"
             assert received_thread[0] != publisher_thread, (
-                f"subscriber must run on the deferred-executor thread, not the publisher's "
-                f"({publisher_thread!r})"
+                f"subscriber must run on the deferred-executor thread, not the publisher's ({publisher_thread!r})"
             )
             assert "event-bus-publisher" in received_thread[0], (
                 f"subscriber must run on the event-bus-publisher thread; got {received_thread[0]!r}"

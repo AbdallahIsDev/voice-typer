@@ -581,8 +581,7 @@ class TestRateLimiterUsesElevatedCost:
         # (the parameter name is misleading — it's a count, not a rate).
         # Set it high so only the burst check trips in this test.
         assert COMMAND_COSTS["clear_history"] == 10, (
-            "clear_history cost changed — pick another cost-10 command "
-            "for this test"
+            "clear_history cost changed — pick another cost-10 command for this test"
         )
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
@@ -607,10 +606,7 @@ class TestRateLimiterUsesElevatedCost:
         accept all calls, not just 200). Use ``get_status`` (also
         cost 1) for the cost-1 behavioural guard instead.
         """
-        assert COMMAND_COSTS["get_status"] == 1, (
-            "get_status cost changed — pick another cost-1 command "
-            "for this test"
-        )
+        assert COMMAND_COSTS["get_status"] == 1, "get_status cost changed — pick another cost-1 command for this test"
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         for _ in range(205):

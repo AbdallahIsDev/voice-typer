@@ -332,9 +332,7 @@ class TestTemplateManagerLock:
             stop.set()
             t.join(timeout=2.0)
 
-        assert errors == [], (
-            f"match raised during concurrent CRUD mutations (XZ-R11-06 regression): {errors}"
-        )
+        assert errors == [], f"match raised during concurrent CRUD mutations (XZ-R11-06 regression): {errors}"
 
     def test_export_json_concurrent_with_delete(self, tm):
         """``export_json`` snapshot under the lock so a concurrent
@@ -382,6 +380,4 @@ class TestTemplateManagerLock:
         snapshot = tm.templates
         snapshot.clear()
         # Manager's view must be unchanged.
-        assert len(tm.templates) == 1, (
-            "templates property returned a non-snapshot list (XZ-R11-06 regression)."
-        )
+        assert len(tm.templates) == 1, "templates property returned a non-snapshot list (XZ-R11-06 regression)."

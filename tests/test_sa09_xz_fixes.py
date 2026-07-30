@@ -204,8 +204,7 @@ class TestXR6AS06List2CmdLine:
         # (i.e., the executable line ``arg_str = " ".join(f'"{a}"' ...)``)
         # must be gone. Comments referencing the old pattern are OK.
         assert 'arg_str = " ".join' not in src, (
-            "XZ-R6-AS-06: the old hand-rolled arg-quoting join "
-            "(arg_str = \" \".join(f'\"{a}\"' ...)) must be removed"
+            'XZ-R6-AS-06: the old hand-rolled arg-quoting join (arg_str = " ".join(f\'"{a}"\' ...)) must be removed'
         )
 
     def test_list2cmdline_quotes_embedded_double_quote(self):
@@ -217,13 +216,9 @@ class TestXR6AS06List2CmdLine:
         # An arg with an embedded double-quote must be quoted AND the
         # embedded quote must be escaped.
         result = subprocess.list2cmdline(['arg with " quote'])
-        assert result.startswith('"'), (
-            "list2cmdline must quote args containing special chars"
-        )
+        assert result.startswith('"'), "list2cmdline must quote args containing special chars"
         # The embedded " must be escaped as \".
-        assert '\\"' in result, (
-            "list2cmdline must escape embedded double-quotes as \\\""
-        )
+        assert '\\"' in result, 'list2cmdline must escape embedded double-quotes as \\"'
 
 
 # ─── XZ-R12-16: __del__ lock-based empty check ────────────────────────────
@@ -253,17 +248,13 @@ class TestXZR1216DelLockBasedCheck:
         # must be GONE. We strip comments (lines starting with ``#``)
         # before checking so the docstring/comment references to the
         # old pattern don't trigger a false positive.
-        executable_lines = [
-            line for line in src.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
+        executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
         executable_src = "\n".join(executable_lines)
         # The bare ``if self._entries:`` must NOT appear as an
         # executable statement. The lock-guarded check uses
         # ``has_entries = bool(self._entries)`` inside the ``with`` block.
         assert "\nif self._entries:\n" not in "\n" + executable_src + "\n", (
-            "XZ-R12-16: the bare executable ``if self._entries:`` check "
-            "must be replaced with a lock-guarded check"
+            "XZ-R12-16: the bare executable ``if self._entries:`` check must be replaced with a lock-guarded check"
         )
 
 
@@ -283,12 +274,8 @@ class TestXZR1708DirEnsuredFlag:
         with tempfile.TemporaryDirectory() as tmpdir:
             cr = CrashRecovery(config_dir=Path(tmpdir))
             try:
-                assert hasattr(cr, "_dir_ensured"), (
-                    "XZ-R17-08: CrashRecovery must have a _dir_ensured flag"
-                )
-                assert cr._dir_ensured is False, (
-                    "XZ-R17-08: _dir_ensured must default to False"
-                )
+                assert hasattr(cr, "_dir_ensured"), "XZ-R17-08: CrashRecovery must have a _dir_ensured flag"
+                assert cr._dir_ensured is False, "XZ-R17-08: _dir_ensured must default to False"
             finally:
                 cr.shutdown()
 
@@ -321,9 +308,7 @@ class TestXZR1708DirEnsuredFlag:
 
                 time.sleep(0.2)
                 first_chmod_count = len(chmod_calls)
-                assert first_chmod_count >= 1, (
-                    "XZ-R17-08: first save must call os.chmod at least once"
-                )
+                assert first_chmod_count >= 1, "XZ-R17-08: first save must call os.chmod at least once"
                 # Second add → second save → chmod must NOT be called
                 # again (the _dir_ensured flag is set).
                 cr.add("second transcription")
@@ -356,12 +341,8 @@ class TestXZR1713FinalSaveDoneDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             cr = CrashRecovery(config_dir=Path(tmpdir))
             try:
-                assert hasattr(cr, "_final_save_done"), (
-                    "XZ-R17-13: CrashRecovery must have a _final_save_done flag"
-                )
-                assert cr._final_save_done is False, (
-                    "XZ-R17-13: _final_save_done must default to False"
-                )
+                assert hasattr(cr, "_final_save_done"), "XZ-R17-13: CrashRecovery must have a _final_save_done flag"
+                assert cr._final_save_done is False, "XZ-R17-13: _final_save_done must default to False"
             finally:
                 cr.shutdown()
 
@@ -378,8 +359,7 @@ class TestXZR1713FinalSaveDoneDedup:
                 # Simulate atexit firing.
                 cr_mod._atexit_flush_all()
                 assert cr._final_save_done is True, (
-                    "XZ-R17-13: _atexit_flush_all must set _final_save_done=True "
-                    "after a successful save"
+                    "XZ-R17-13: _atexit_flush_all must set _final_save_done=True after a successful save"
                 )
             finally:
                 cr.shutdown()
@@ -433,8 +413,7 @@ class TestXZR1713FinalSaveDoneDedup:
 
             mtime_after = recovery_file.stat().st_mtime_ns
             assert mtime_after == mtime_before, (
-                "XZ-R17-13: __del__ must NOT re-write the file when "
-                "_final_save_done is set (atexit already persisted)"
+                "XZ-R17-13: __del__ must NOT re-write the file when _final_save_done is set (atexit already persisted)"
             )
 
 

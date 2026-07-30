@@ -157,9 +157,7 @@ class TestHotplugDisconnectRecovery:
         dm._invalidate_device_cache()
 
         assert dm._device_list_cache is None
-        assert len(spawn_calls) == 1, (
-            f"TY-5: expected 1 recovery spawn, got {len(spawn_calls)}"
-        )
+        assert len(spawn_calls) == 1, f"TY-5: expected 1 recovery spawn, got {len(spawn_calls)}"
         assert spawn_calls[0]["name"] == "device-hotplug-recovery"
         assert spawn_calls[0]["single_flight"] is True
 
@@ -175,9 +173,7 @@ class TestHotplugDisconnectRecovery:
         dm._invalidate_device_cache()
 
         assert dm._device_list_cache is None
-        assert spawn_calls == [], (
-            "TY-5: no recovery spawn expected when not disconnected"
-        )
+        assert spawn_calls == [], "TY-5: no recovery spawn expected when not disconnected"
 
     def test_hotplug_no_recovery_when_recording_stopped(self):
         """When recording has been deliberately stopped, a hot-plug event
@@ -191,9 +187,7 @@ class TestHotplugDisconnectRecovery:
         dm._invalidate_device_cache()
 
         assert dm._device_list_cache is None
-        assert spawn_calls == [], (
-            "TY-5: no recovery spawn when recording has been stopped"
-        )
+        assert spawn_calls == [], "TY-5: no recovery spawn when recording has been stopped"
 
 
 # ── DJ-69: name-based device resolution ──────────────────────────────

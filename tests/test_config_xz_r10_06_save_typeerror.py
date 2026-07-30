@@ -121,6 +121,7 @@ class TestXZR1006SaveCatchesJsonDumpsTypeError:
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
+
         # Smuggle in a non-serializable value (a custom object with no
         # JSON representation).
         class _NotJsonSerializable:
@@ -177,8 +178,7 @@ class TestXZR1006SaveCatchesJsonDumpsTypeError:
             config_mod.json.dumps = original_dumps  # type: ignore[method-assign]
 
         assert result is False, (
-            "XZ-R10-06 regression: save() should return False when "
-            "json.dumps raises ValueError, but it returned True."
+            "XZ-R10-06 regression: save() should return False when json.dumps raises ValueError, but it returned True."
         )
 
     def test_save_happy_path_still_returns_true(
@@ -196,8 +196,7 @@ class TestXZR1006SaveCatchesJsonDumpsTypeError:
         result = cfg.save()
 
         assert result is True, (
-            "XZ-R10-06 over-correction: a normal save with "
-            "all-serializable fields should return True."
+            "XZ-R10-06 over-correction: a normal save with all-serializable fields should return True."
         )
         # The new hotkey must be persisted.
         new_data = json.loads(config_file.read_text())

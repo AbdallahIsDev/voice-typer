@@ -272,10 +272,7 @@ class TestCompareLogic:
         _up007 = _baseline["by_rule"].get("UP007", 1)
         # Input: (_b007 + 1) B007 + max(0, _up007 - 1) UP007
         # → B007 grew (per-rule regression), total = _b007 + 1 + _up007 - 1 = _b007 + _up007 (same)
-        stdin = json.dumps(
-            [{"code": "B007"}] * (_b007 + 1)
-            + [{"code": "UP007"}] * max(0, _up007 - 1)
-        )
+        stdin = json.dumps([{"code": "B007"}] * (_b007 + 1) + [{"code": "UP007"}] * max(0, _up007 - 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (per-rule regression), got {result.returncode}.\nstdout:\n{result.stdout}"
