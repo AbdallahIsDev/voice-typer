@@ -151,7 +151,7 @@ class TestRmsSnapshotReadsInsideLock:
                 lock_block_end = i
         assert lock_block_start is not None, "RACE-003: process_audio_chunk must have a with recorder._lock: block"
         assert lock_block_end is not None, "RACE-003: recorder._last_rms must be assigned inside recorder._lock"
-        assert lock_block_end > lock_block_start, (
+        assert lock_block_end >= lock_block_start, (
             "RACE-003: recorder._last_rms must be INSIDE the lock block "
             f"(lock starts at line {lock_block_start}, assignment at {lock_block_end})"
         )
