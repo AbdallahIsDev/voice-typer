@@ -106,17 +106,18 @@ class TestAudioCallbackUsesMinimalLockScope:
         check is the most direct way to catch a regression where a
         future contributor adds expensive work inside the lock.
         """
-        from voice_typer.server import recording as rec_mod
+        from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # RT-SAFE-001: the heavy callback body now lives in
-        # _process_audio_chunk (runs on the audio worker thread, not
-        # the real-time audio thread). Inspect that method's source.
-        src = inspect.getsource(rec_mod.Recorder._process_audio_chunk)
+        # S3-CR-17 / Phase 4.5: the buffer-append lock scope moved to
+        # AudioPipeline.append_to_buffer_locked. Recorder._process_audio_chunk
+        # is now a 1-line delegator — inspect the pipeline method instead.
+        src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
         # The lock block must include buffer.append and _chunk_count
-        assert "self._buffer.append" in src
-        assert "self._chunk_count" in src
-        # RACE-003: the recent_rms snapshot must be taken INSIDE the lock
-        assert "recent_rms_snapshot = list(self._recent_rms_values)" in src
+        assert "recorder._buffer.append" in src
+        assert "recorder._chunk_count" in src
+        # RACE-003: the recent_rms snapshot is now read inside
+        # AudioPipeline.run_vad_state_machine (see test below).
+        # The old inline snapshot line no longer exists in this method.
 
 
 class TestRmsSnapshotReadsInsideLock:
