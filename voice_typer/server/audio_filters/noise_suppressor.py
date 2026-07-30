@@ -88,6 +88,10 @@ class _StreamingResampler:
         self._in_total: int = 0
         self._out_total: int = 0
         self._phase: int = 0
+        # DJ-75: pre-allocated upsample buffer (zero-filled, reused across
+        # process() calls) to avoid allocating a fresh (n_in * up) float64
+        # array per chunk. Lazy-resized to the largest chunk seen.
+        self._x_up_buf: np.ndarray | None = None
 
     def process(self, x: np.ndarray) -> np.ndarray:
         """Resample ``x`` (float32/float64) by ``up / down``."""
@@ -100,7 +104,25 @@ class _StreamingResampler:
         down = self._down
 
         # Upsample: insert up-1 zeros between samples.
-        x_up = np.zeros(n_in * up, dtype=np.float64)
+        # DJ-75: reuse a pre-allocated zero-filled buffer instead of
+        # allocating a fresh (n_in * up) float64 array per chunk. The
+        # buffer is zero-filled once at allocation; subsequent calls
+        # only need to overwrite the up-spaced samples (the zeros between
+        # them are preserved because we never write to those indices).
+        # This drops ~12 KB/chunk allocation on the 16k->48k path.
+        up_len = n_in * up
+        if self._x_up_buf is None or self._x_up_buf.shape[0] < up_len:
+            self._x_up_buf = np.zeros(max(up_len, 1024), dtype=np.float64)
+        x_up = self._x_up_buf[:up_len]
+        # Zero out only the slots we're about to write — actually we
+        # write to x_up[::up], which spans indices [0, up, 2*up, ...].
+        # The non-stride slots retain zeros from the initial np.zeros
+        # allocation OR from a previous call where they were already
+        # zero (we never write to non-stride slots). But across calls
+        # with different up_len, the buffer may have stale non-zero
+        # data in slots beyond the previous up_len. To be safe, zero
+        # the active region before writing the strided samples.
+        x_up.fill(0)
         x_up[::up] = x64
 
         # Apply FIR filter with persistent state.
@@ -163,6 +185,13 @@ class NoiseSuppressor(AudioFilter):
 
         # Frame buffering: carry holds partial frames between process() calls.
         self._carry: np.ndarray = np.array([], dtype=np.float32)
+
+        # DJ-77: pre-allocated per-frame conversion buffers for the RNNoise
+        # loop. Reused across every 480-sample frame to avoid ~5 small
+        # allocations (clip, mul, astype, astype, div) per frame — at
+        # 48 RNNoise frames/sec that's ~240 allocations/sec saved.
+        self._frame_f32_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.float32)
+        self._frame_i16_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.int16)
 
         # XV-32/XV-33: streaming resamplers created lazily by
         # ``_ensure_resamplers``. At the native RNNoise rate (48kHz) both stay
@@ -422,7 +451,14 @@ class NoiseSuppressor(AudioFilter):
                 # so out-of-range floats (e.g. from upstream gain stages) do not
                 # wrap around the int16 range. ``_INT16_SCALE`` is the float ->
                 # int16 multiplier (= 32767.0). pyrnnoise uses int16 internally.
-                frame_i16 = (np.clip(frame, -1.0, 1.0) * _INT16_SCALE).astype(np.int16)
+                # DJ-77: reuse pre-allocated conversion buffers — np.clip +
+                # np.multiply + astype each into the same float32 buffer, then
+                # copy into the int16 buffer. Saves 3-5 allocations per frame.
+                frame_f32 = self._frame_f32_buf
+                np.clip(frame, -1.0, 1.0, out=frame_f32)
+                np.multiply(frame_f32, _INT16_SCALE, out=frame_f32)
+                frame_i16 = self._frame_i16_buf
+                frame_i16[:] = frame_f32.astype(np.int16)
                 # pyrnnoise expects [num_channels, 480]; returns (speech_prob, cleaned) as int16
                 _, cleaned_i16 = self._backend.denoise_frame(frame_i16[np.newaxis, :])
                 output_frames.append(cleaned_i16[0].astype(np.float32) / _FLOAT_TO_INT16_MAX)

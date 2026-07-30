@@ -67,6 +67,11 @@ class Equalizer(AudioFilter):
         self._delay3: float = 0.0
         self._low_state: float = ANTIDENORMAL_EPSILON
         self._high_state: float = 0.0
+        # DJ-74: pre-allocated delay-line buffer (3-prefix + n-input) so
+        # process() does not allocate a fresh (n+3)-element array per
+        # chunk for the 3-sample delay line. Lazy-resized to the largest
+        # chunk seen.
+        self._delay_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if audio.size == 0:
@@ -108,9 +113,25 @@ class Equalizer(AudioFilter):
 
         # 3-sample delay line: d3[i] = x[i-3], using the carried _delay1/2/3
         # as x[-1], x[-2], x[-3] respectively.
-        prefix = np.array([self._delay3, self._delay2, self._delay1], dtype=np.float64)
-        extended = np.concatenate([prefix, x])
-        d3 = extended[:n]
+        # DJ-74: build d3 directly via slice-assignment into a pre-allocated
+        # buffer instead of np.concatenate([prefix, x]) which allocated a
+        # fresh (n+3)-element array per chunk just to read the first n
+        # elements. d3[0..2] = (delay3, delay2, delay1); d3[3..n] = x[0..n-3].
+        # For n < 3 (rare; only at startup / end-of-stream), fall back to
+        # the original concatenate path — it's correct and cheap at small n.
+        if n >= 3:
+            if self._delay_buf is None or self._delay_buf.shape[0] < n:
+                cap = max(n, 1024)
+                self._delay_buf = np.empty(cap, dtype=np.float64)
+            d3 = self._delay_buf[:n]
+            d3[0] = self._delay3
+            d3[1] = self._delay2
+            d3[2] = self._delay1
+            d3[3:] = x[:-3]
+        else:
+            prefix = np.array([self._delay3, self._delay2, self._delay1], dtype=np.float64)
+            extended = np.concatenate([prefix, x])
+            d3 = extended[:n]
 
         mid = d3 - (low_s + high)
 
@@ -120,9 +141,16 @@ class Equalizer(AudioFilter):
         output = (low_s * low_gain + mid * mid_gain + high * high_gain).astype(np.float32)
 
         # Carry the last 3 input samples + final band states to the next chunk.
-        self._delay1 = float(extended[-1])
-        self._delay2 = float(extended[-2])
-        self._delay3 = float(extended[-3])
+        # DJ-74: when n >= 3, the last 3 samples of x are the new delay
+        # values (no need to index into a concatenated `extended` array).
+        if n >= 3:
+            self._delay1 = float(x[-1])
+            self._delay2 = float(x[-2])
+            self._delay3 = float(x[-3])
+        else:
+            self._delay1 = float(extended[-1])
+            self._delay2 = float(extended[-2])
+            self._delay3 = float(extended[-3])
         self._low_state = float(low_s[-1])
         self._high_state = float(high_s[-1])
 

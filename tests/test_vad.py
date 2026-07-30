@@ -25,11 +25,13 @@ class _MockTensor:
     def float(self):
         return self
 
-    def to(self, dtype):
+    def to(self, dtype, copy=True):
         # TY-26: ``.to(torch.float32)`` is a no-op (returns the same
         # tensor) when the dtype already matches — mirroring real
         # torch's behaviour. The mock tensor is always float32, so
         # ``.to(<any dtype>)`` returns ``self``.
+        # DJ-76: ``copy=False`` kwarg accepted (real torch's ``.to()``
+        # supports it; the no-op-same-dtype semantics are preserved).
         return self
 
     def item(self):

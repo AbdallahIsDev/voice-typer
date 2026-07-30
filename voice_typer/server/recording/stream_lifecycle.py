@@ -42,7 +42,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES
+from voice_typer.server._audio_constants import (
+    _AUDIO_BLOCKSIZE,
+    _TEARDOWN_CALLBACK_DRAIN_BUDGET_S,
+    _TEARDOWN_CALLBACK_POLL_INTERVAL_S,
+    SILERO_VAD_SAMPLE_RATES,
+)
 from voice_typer.server._lazy_import import lazy_module
 
 # PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
@@ -154,7 +159,7 @@ class StreamLifecycle:
                     # gets the exact chunk size it expects. PortAudio
                     # may still deliver a different size on some drivers,
                     # but vad.py now pads/truncates to handle that.
-                    blocksize=512,
+                    blocksize=_AUDIO_BLOCKSIZE,
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
                 )
@@ -274,7 +279,7 @@ class StreamLifecycle:
                     device=candidate,
                     callback=callback,
                     # VAD-001: request 512-sample blocks for Silero VAD
-                    blocksize=512,
+                    blocksize=_AUDIO_BLOCKSIZE,
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
                 )
@@ -418,13 +423,15 @@ class StreamLifecycle:
         # callback genuinely runs past ``stream.stop()``, the poll loop
         # waits for it to finish (restoring the AUDIO-009/AUDIO-015
         # safety contract).
-        _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
-        _poll_interval_s = 0.005  # 5ms poll
-        _deadline = time.perf_counter() + _backoff_budget_s
+        # DJ-106: magic numbers extracted to module constants
+        # (``_TEARDOWN_CALLBACK_DRAIN_BUDGET_S`` /
+        # ``_TEARDOWN_CALLBACK_POLL_INTERVAL_S``) so they can be tuned /
+        # referenced from tests without grep-and-replace.
+        _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
         while recorder._is_in_audio_callback.is_set():
             remaining = _deadline - time.perf_counter()
             if remaining <= 0:
                 break
-            time.sleep(min(_poll_interval_s, remaining))
+            time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
         recorder._stream.close()
         recorder._stream = None

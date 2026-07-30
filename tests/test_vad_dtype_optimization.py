@@ -44,11 +44,20 @@ class TestVadSourceUsesToFloat32:
     regressions where someone reverts the TY-26 optimization."""
 
     def test_compute_vad_prob_uses_to_float32(self):
-        """``compute_vad_prob`` source must contain ``.to(torch.float32)``."""
+        """``compute_vad_prob`` source must use ``.to(torch.float32)``
+        (optionally with ``copy=False`` — DJ-76 optimization)."""
         from voice_typer.server import vad
 
         src = inspect.getsource(vad.compute_vad_prob)
-        assert ".to(torch.float32)" in src, (
+        # DJ-76: accept either the bare form (.to(torch.float32)) or
+        # the copy=False form (.to(torch.float32, copy=False)). The
+        # copy=False form is a strict improvement (no-op when dtype
+        # already matches, same as the bare form).
+        uses_to_float32 = (
+            ".to(torch.float32)" in src
+            or ".to(torch.float32, copy=False)" in src
+        )
+        assert uses_to_float32, (
             "TY-26: compute_vad_prob must use .to(torch.float32) instead "
             "of .float(). The .to() form is a no-op when the dtype "
             "already matches, avoiding a ~2KB memcpy per chunk at 16 Hz."
@@ -79,11 +88,20 @@ class TestVadSourceUsesToFloat32:
         in ``compute_vad_prob`` — one for the initial tensor
         conversion and one for the reflect-padded short-chunk path.
         Catches a regression where one site is reverted but the other
-        is left in place."""
+        is left in place.
+
+        DJ-76: accepts both ``.to(torch.float32)`` and
+        ``.to(torch.float32, copy=False)`` forms (the latter is a
+        strict improvement — same no-op semantics when the dtype
+        already matches)."""
         from voice_typer.server import vad
 
         src = inspect.getsource(vad.compute_vad_prob)
-        count = src.count(".to(torch.float32)")
+        # DJ-76: count both the bare form (.to(torch.float32)) and the
+        # copy=False form (.to(torch.float32, copy=False)). The substring
+        # `.to(torch.float32` (without the closing paren) matches both,
+        # so we count occurrences of that prefix instead.
+        count = src.count(".to(torch.float32")
         assert count >= 2, (
             f"TY-26: compute_vad_prob must have at least 2 "
             f".to(torch.float32) call sites (initial + reflect-pad). "
@@ -349,8 +367,9 @@ class _MockTensor:
     def squeeze(self):
         return self
 
-    def to(self, dtype):
+    def to(self, dtype, copy=True):
         # TY-26: .to(float32) is a no-op for an already-float32 tensor.
+        # DJ-76: ``copy=False`` kwarg accepted (real torch supports it).
         return self
 
     def float(self):

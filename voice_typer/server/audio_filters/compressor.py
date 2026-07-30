@@ -68,6 +68,24 @@ class Compressor(AudioFilter):
         self._attack_coeff = one_pole_coeff(self._sample_rate, attack_ms / 1000.0)
         self._release_coeff = one_pole_coeff(self._sample_rate, release_ms / 1000.0)
         self._envelope: float = 0.0
+        # DJ-72: pre-allocate the b/a coefficient arrays and the zi
+        # state buffer in __init__ so process() does not allocate
+        # fresh Python lists + 1-element ndarrays per call. The b/a
+        # arrays are constant after __init__; the zi buffer is
+        # overwritten with the current envelope before each lfilter
+        # call (lfilter accepts zi as the initial state and does not
+        # mutate the caller's array — it returns the final state as a
+        # new array via the second tuple element, which we discard).
+        self._attack_b = np.array([1.0 - self._attack_coeff], dtype=np.float64)
+        self._attack_a = np.array([1.0, -self._attack_coeff], dtype=np.float64)
+        self._release_b = np.array([1.0 - self._release_coeff], dtype=np.float64)
+        self._release_a = np.array([1.0, -self._release_coeff], dtype=np.float64)
+        self._zi_buf = np.zeros(1, dtype=np.float64)
+        # DJ-73: pre-allocated float64 working buffer for the
+        # safe_env -> env_db -> gain_db pipeline. Lazy-resized to the
+        # largest chunk seen so the first call allocates and subsequent
+        # calls reuse. Eliminates 3 fresh array allocations per chunk.
+        self._env_db_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if audio.size == 0:
@@ -89,28 +107,48 @@ class Compressor(AudioFilter):
         #   - attack_env responds fast (small coeff) -> tracks rising signals
         #   - release_env decays slow (large coeff) -> holds falling signals
         # max(attack_env, release_env) reproduces the asymmetric behavior.
-
+        #
+        # DJ-72: reuse the pre-allocated zi buffer — set the initial
+        # state to the current envelope, then pass the buffer to
+        # lfilter. lfilter reads but does not mutate the caller's zi
+        # array (it returns the final state as a new array).
+        self._zi_buf[0] = self._envelope
         attack_env, _ = lfilter(
-            [1.0 - self._attack_coeff],
-            [1.0, -self._attack_coeff],
+            self._attack_b,
+            self._attack_a,
             abs_x,
-            zi=np.array([self._envelope], dtype=np.float64),
+            zi=self._zi_buf,
         )
+        self._zi_buf[0] = self._envelope
         release_env, _ = lfilter(
-            [1.0 - self._release_coeff],
-            [1.0, -self._release_coeff],
+            self._release_b,
+            self._release_a,
             abs_x,
-            zi=np.array([self._envelope], dtype=np.float64),
+            zi=self._zi_buf,
         )
-        env = np.maximum(attack_env, release_env)
+        env = np.maximum(attack_env, release_env, out=attack_env)
 
         # dB-domain gain (vectorized). env_db = 20*log10(env) where env>1e-10
         # else -inf. gain_db = slope * (threshold_db - env_db), clamped <= 0.
         above_floor = env > 1e-10
-        safe_env = np.where(above_floor, env, 1.0)
-        env_db = 20.0 * np.log10(safe_env)
-        gain_db = self._slope * (self._threshold_db - env_db)
-        np.minimum(gain_db, 0.0, out=gain_db)
+        # DJ-73: reuse a pre-allocated buffer for the safe_env / env_db /
+        # gain_db pipeline — 3 ops collapsed into a single buffer.
+        if self._env_db_buf is None or self._env_db_buf.shape[0] < n:
+            cap = max(n, 1024)
+            self._env_db_buf = np.empty(cap, dtype=np.float64)
+        env_db = self._env_db_buf[:n]
+        # safe_env = where(above_floor, env, 1.0) — np.where has no out=
+        # kwarg, so use np.copyto with a where= mask + a scalar fill on
+        # the below-floor slots. Avoids one fresh allocation per chunk.
+        np.copyto(env_db, env, where=above_floor)
+        env_db[~above_floor] = 1.0
+        np.log10(env_db, out=env_db)
+        env_db *= 20.0  # 20 * log10(safe_env)
+        # gain_db = slope * (threshold_db - env_db) in-place.
+        env_db *= -self._slope
+        env_db += self._slope * self._threshold_db
+        np.minimum(env_db, 0.0, out=env_db)
+        gain_db = env_db
         gain = np.power(10.0, gain_db / 20.0) * self._output_gain
         gain = np.where(above_floor, gain, self._output_gain)
 

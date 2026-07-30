@@ -313,6 +313,15 @@ _BUFFER_TELEMETRY_ENABLED = os.environ.get("VOICE_TYPER_VERBOSE", "").lower() in
 # maxlen silently evicts the oldest chunk and the callback logs a
 # "ring buffer full" warning.
 _AUDIO_RING_BUFFER_CAPACITY = 64
+
+# DJ-104: PortAudio ``blocksize`` literal is defined in
+# ``voice_typer.server._audio_constants`` (single source of truth, no
+# circular import) and re-exported via this module for back-compat with
+# callers that already ``from voice_typer.server.recording import
+# _AUDIO_BLOCKSIZE``. See ``_audio_constants._AUDIO_BLOCKSIZE`` for the
+# rationale (VAD-001 512-sample block contract).
+from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE  # noqa: E402
+
 _AUDIO_WORKER_THREAD_NAME = "audio-worker"
 # Worker thread join timeout for stop() — generous to allow the worker
 # to drain the ring buffer (up to 64 chunks * ~5ms VAD = ~320ms) plus
@@ -602,9 +611,9 @@ class Recorder(VadShimMixin):
         # using _effective_sr without re-reading config (which the audio
         # callback does not touch).
         self._preroll_seconds: float = preroll_seconds
-        self._preroll_blocksize: int = 512  # matches sd.InputStream blocksize
+        self._preroll_blocksize: int = _AUDIO_BLOCKSIZE  # DJ-104: matches sd.InputStream blocksize
         self._preroll_buffer: collections.deque = collections.deque(
-            maxlen=int(preroll_seconds * sample_rate / 512) + 2 if preroll_seconds > 0 else 0
+            maxlen=int(preroll_seconds * sample_rate / _AUDIO_BLOCKSIZE) + 2 if preroll_seconds > 0 else 0
         )
         self._preroll_active: bool = preroll_seconds > 0  # only capture when enabled
 
@@ -1114,7 +1123,7 @@ class Recorder(VadShimMixin):
         Note: sd.InputStream does NOT support an error_callback parameter.
         The finished_callback is the correct way to detect stream termination
         in sounddevice. The primary disconnect detection is done in the audio
-        callback via zero-filled indata detection (see _audio_callback_record).
+        callback via zero-filled indata detection (see _audio_callback_dispatch).
 
         GT-24: capture ``gen = self._stop_generation`` at scheduling time
         and pass it via ``kwargs={'_captured_generation': gen}`` so the

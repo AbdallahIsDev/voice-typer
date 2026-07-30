@@ -63,6 +63,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from voice_typer.server import recording as _recording_pkg
+from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server.vad_processor import (
     DEFAULT_VAD_SILENCE_THRESHOLD_DB,
     DEFAULT_VAD_SPEECH_THRESHOLD_DB,
@@ -429,7 +430,7 @@ class SessionState:
         chunks already captured by the audio callback (between
         stream.start() above and here) are preserved.
         """
-        blocksize = 512  # matches sd.InputStream blocksize below
+        blocksize = _AUDIO_BLOCKSIZE  # DJ-104: matches sd.InputStream blocksize below
         sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
         if sizing_sr <= 0:
             sizing_sr = recorder.config.sample_rate

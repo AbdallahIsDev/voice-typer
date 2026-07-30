@@ -50,6 +50,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+# DJ-99: ``retune_audio_processor`` consolidates the retune block that
+# was duplicated between ``start_recording`` (below) and
+# ``DisconnectHandler.restart_stream``.
+from .disconnect_handler import retune_audio_processor
 from .exceptions import ResampleError
 
 if TYPE_CHECKING:
@@ -665,46 +669,18 @@ def start_recording(recorder: Recorder) -> None:
     # recorder — every chunk paid the resample cost after a
     # hot-plug or on first start with a non-16 kHz device.
     #
-    # Strategy (mirrors AudioQualityController._rebuild_audio_processor):
-    # - If ``AudioProcessor.set_sample_rate`` exists (post-FIX-19),
-    #   call it with ``effective_sr``. It atomically swaps the chain
-    #   AND updates ``_sample_rate``, so a single call is sufficient.
-    # - Else (pre-FIX-19 fallback or a spec-limited test double),
-    #   call ``rebuild_from_config(config)``.
-    # - When ``effective_sr == _sample_rate``, skip entirely.
-    # Guard with try/except so a buggy AudioProcessor can't break
-    # the recording-start critical path.
-    if recorder._audio_processor is not None:
-        _proc_sr = getattr(recorder._audio_processor, "_sample_rate", None)
-        if _proc_sr is not None and int(_proc_sr) != int(effective_sr):
-            _set_sr = getattr(recorder._audio_processor, "set_sample_rate", None)
-            if callable(_set_sr):
-                try:
-                    _set_sr(int(effective_sr))
-                    log.info(
-                        "[RECORDING] AudioProcessor.set_sample_rate(%d) called — "
-                        "chain retuned to device native rate (XV-31)",
-                        effective_sr,
-                    )
-                except Exception:
-                    log.warning(
-                        "[RECORDING] AudioProcessor.set_sample_rate(%d) failed — "
-                        "per-chunk resample will run on the RT thread",
-                        effective_sr,
-                        exc_info=True,
-                    )
-            else:
-                try:
-                    recorder._audio_processor.rebuild_from_config(recorder.config)
-                    log.info(
-                        "[RECORDING] AudioProcessor.rebuild_from_config called — "
-                        "chain rebuilt (fallback, set_sample_rate unavailable)",
-                    )
-                except Exception:
-                    log.warning(
-                        "[RECORDING] AudioProcessor.rebuild_from_config failed — filter coefficients may be mistuned",
-                        exc_info=True,
-                    )
+    # DJ-99: the retune block was consolidated into
+    # ``retune_audio_processor`` (shared with
+    # ``DisconnectHandler.restart_stream``) so the 3-level fallback
+    # chain (set_sample_rate → rebuild_from_config → log-and-continue)
+    # lives in one place. The helper is a no-op when
+    # ``_sample_rate == effective_sr`` or when ``_audio_processor`` is None.
+    retune_audio_processor(
+        recorder._audio_processor,
+        effective_sr,
+        recorder.config,
+        context="on start",
+    )
 
     # refresh the per-chunk VAD property cache now that
     # ``_effective_sr`` (and the AudioProcessor's ``_sample_rate``,

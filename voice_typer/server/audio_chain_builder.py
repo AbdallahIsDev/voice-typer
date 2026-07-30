@@ -134,17 +134,30 @@ def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_R
     """Build a FilterChain from a config dict (for testing).
 
     Like :func:`build_chain` but accepts a plain dict instead of a
-    Config object. Missing keys use the same defaults as :func:`build_chain`.
+    Config object. Missing keys use the canonical defaults declared on
+    :class:`voice_typer.server.config.Config` — FZ-55: previously this
+    function shadowed ``Config`` defaults with a parallel ``_DEFAULTS``
+    dict that drifted whenever a default was bumped on ``Config`` (e.g.
+    ``noise_filter_gate_hold_ms`` 150 → 200 in ADR 0007 §5). The dict
+    path now constructs a real ``Config()`` and applies the overrides
+    via ``setattr`` so there is exactly one source of truth for each
+    default.
     """
 
-    class _DictConfig:
-        def __getattr__(self, name: str):
-            return config_dict.get(name, _DEFAULTS.get(name))
+    from voice_typer.server.config import Config
 
-    return build_chain(_DictConfig(), sample_rate=sample_rate)
+    cfg = Config()
+    for key, value in config_dict.items():
+        setattr(cfg, key, value)
+    return build_chain(cfg, sample_rate=sample_rate)
 
 
-# Default values matching the Config class defaults (ADR 0007 §5)
+# FZ-55: the previous ``_DEFAULTS`` dict is intentionally retained (now
+# unused by ``build_chain_from_dict``) for backward-compatibility imports
+# in case external scripts/tests reference it. It is no longer the
+# source of truth — ``Config()`` defaults are. New code should not
+# reference ``_DEFAULTS``; instead construct a ``Config()`` instance or
+# import the canonical default directly from the dataclass field.
 _DEFAULTS: dict[str, object] = {
     "noise_filter_highpass": True,
     "noise_filter_highpass_cutoff_hz": 80.0,

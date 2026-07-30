@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
 
 # PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
@@ -57,6 +58,73 @@ sd = lazy_module("sounddevice")
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
+
+
+# DJ-99: ``retune_audio_processor`` consolidates the inline retune block
+# that was duplicated between ``Recorder.start()`` (in
+# ``_recorder_split.py``) and ``DisconnectHandler.restart_stream()``. The
+# two copies had drifted (the start-path copy included an info log on the
+# rebuild_from_config fallback; the disconnect-path copy omitted it), and
+# any fix to the 3-level fallback chain (set_sample_rate →
+# rebuild_from_config → log-and-continue) had to be applied in two places.
+# The ``context`` parameter substitutes for the divergent log messages
+# ("on start" vs "on hot-plug restart").
+def retune_audio_processor(
+    proc: object,
+    effective_sr: int,
+    config: object,
+    *,
+    context: str = "on start",
+) -> None:
+    """Retune an :class:`AudioProcessor` to a new device's native sample rate.
+
+    Strategy (mirrors ``AudioQualityController._rebuild_audio_processor``):
+      1. If ``proc._sample_rate`` already equals ``effective_sr``, no-op.
+      2. If ``proc.set_sample_rate`` exists (post-FIX-19), call it with
+         ``effective_sr``. It atomically swaps the chain AND updates
+         ``_sample_rate``, so a single call is sufficient.
+      3. Else (pre-FIX-19 fallback or a spec-limited test double), call
+         ``proc.rebuild_from_config(config)``.
+      4. Guard every step with try/except so a buggy AudioProcessor can't
+         break the recording-start / hot-plug recovery critical path.
+    """
+    if proc is None:
+        return
+    _proc_sr = getattr(proc, "_sample_rate", None)
+    if _proc_sr is None or int(_proc_sr) == int(effective_sr):
+        return
+    _set_sr = getattr(proc, "set_sample_rate", None)
+    if callable(_set_sr):
+        try:
+            _set_sr(int(effective_sr))
+            log.info(
+                "[RECORDING] AudioProcessor.set_sample_rate(%d) called %s — "
+                "chain retuned to device native rate (XV-31)",
+                effective_sr,
+                context,
+            )
+        except Exception:
+            log.warning(
+                "[RECORDING] AudioProcessor.set_sample_rate(%d) failed %s — "
+                "per-chunk resample will run on the RT thread",
+                effective_sr,
+                context,
+                exc_info=True,
+            )
+    else:
+        try:
+            proc.rebuild_from_config(config)  # type: ignore[attr-defined]
+            log.info(
+                "[RECORDING] AudioProcessor.rebuild_from_config called %s — "
+                "chain rebuilt (fallback, set_sample_rate unavailable)",
+                context,
+            )
+        except Exception:
+            log.warning(
+                "[RECORDING] AudioProcessor.rebuild_from_config failed %s — filter coefficients may be mistuned",
+                context,
+                exc_info=True,
+            )
 
 if TYPE_CHECKING:
     from .recorder import Recorder
@@ -110,19 +178,65 @@ class DisconnectHandler:
         _configured_device = recorder._resolve_device()
         if _configured_device is not None:
             _named_candidates = recorder._same_physical_microphone_candidates(_configured_device)
-            # The first candidate is the original device index; skip
-            # it (it just disconnected). Try the alternates.
-            for _cand in _named_candidates[1:]:
+            # DJ-67: BT headsets that drop and reconnect within the
+            # detection→restart-scheduling→restart-execution window
+            # (~50-500ms; BT link-manager reconnection is 200-800ms)
+            # often reappear at the SAME PortAudio index. The previous
+            # ``[1:]`` slice skipped that index unconditionally, so the
+            # loop fell through with ``_restart_device = None`` and the
+            # recorder silently switched to ``device=None`` (OS default
+            # = laptop built-in mic). Try the original index FIRST —
+            # if ``sd.query_devices()`` succeeds AND the device name
+            # still matches, use it (the device reconnected). Only
+            # fall through to ``[1:]`` alternates if the original
+            # index is gone or renamed.
+            _original_index = _named_candidates[0] if _named_candidates else None
+            _expected_name = ""
+            if _original_index is not None:
                 try:
-                    sd.query_devices(_cand)
-                    _restart_device = _cand
-                    log.info(
-                        "[RECORDING] Restart: found same-named device at index %s",
-                        _cand,
-                    )
-                    break
+                    _orig_info = sd.query_devices(_original_index)
+                    _expected_name = str(_orig_info.get("name", "")).strip().lower()
+                    if _expected_name:
+                        # The original index is present and named —
+                        # the device likely reconnected. Use it.
+                        _restart_device = _original_index
+                        log.info(
+                            "[RECORDING] Restart: original device index %s reconnected (name='%s')",
+                            _original_index,
+                            _orig_info.get("name", ""),
+                        )
+                    else:
+                        log.debug(
+                            "[RECORDING] Restart: original device index %s has empty name, skipping",
+                            _original_index,
+                        )
                 except Exception:
-                    continue
+                    log.debug(
+                        "[RECORDING] Restart: original device index %s is gone (BT not yet reconnected?)",
+                        _original_index,
+                    )
+            # Try the alternates only if the original index didn't
+            # reconnect (or had no name).
+            if _restart_device is None:
+                for _cand in _named_candidates[1:]:
+                    try:
+                        _cand_info = sd.query_devices(_cand)
+                        # Name-match check: confirm the device at this
+                        # alternate index is the same physical device
+                        # (same name) — guards against PortAudio
+                        # renumbering pointing the index at a different
+                        # device after hot-swap.
+                        _cand_name = str(_cand_info.get("name", "")).strip().lower()
+                        if _expected_name and _cand_name and _cand_name != _expected_name:
+                            continue
+                        _restart_device = _cand
+                        log.info(
+                            "[RECORDING] Restart: found same-named device at alternate index %s",
+                            _cand,
+                        )
+                        break
+                    except Exception:
+                        continue
         if _restart_device is None:
             log.info("[RECORDING] Restart: no same-named device found, falling back to OS default")
 
@@ -161,7 +275,7 @@ class DisconnectHandler:
                 dtype=np.float32,
                 device=_restart_device,  # configured-by-name or None
                 callback=recorder._current_callback,
-                blocksize=512,
+                blocksize=_AUDIO_BLOCKSIZE,
                 # AUDIO-HOT: finished_callback detects unexpected stream termination
                 finished_callback=recorder._stream_finished_callback,
             )
@@ -215,37 +329,20 @@ class DisconnectHandler:
                 "default" if _restart_device is None else f"index {_restart_device}",
                 candidate_sr,
             )
-            # High: retune the AudioProcessor's chain to the new device's
+            # DJ-99: retune the AudioProcessor's chain to the new device's
             # native rate so filter coefficients are tuned correctly
             # (XV-31 mitigation) and the per-chunk ``process_chunk`` call
-            # avoids the RT-thread resample branch. Mirrors the start()
-            # retune logic. Guard with try/except so a buggy
-            # AudioProcessor can't break the recovery.
-            if recorder._audio_processor is not None:
-                _proc_sr = getattr(recorder._audio_processor, "_sample_rate", None)
-                if _proc_sr is not None and int(_proc_sr) != int(candidate_sr):
-                    _set_sr = getattr(recorder._audio_processor, "set_sample_rate", None)
-                    if callable(_set_sr):
-                        try:
-                            _set_sr(int(candidate_sr))
-                            log.info(
-                                "[RECORDING] AudioProcessor.set_sample_rate(%d) called on hot-plug restart",
-                                candidate_sr,
-                            )
-                        except Exception:
-                            log.warning(
-                                "[RECORDING] AudioProcessor.set_sample_rate(%d) failed on restart",
-                                candidate_sr,
-                                exc_info=True,
-                            )
-                    else:
-                        try:
-                            recorder._audio_processor.rebuild_from_config(recorder.config)
-                        except Exception:
-                            log.warning(
-                                "[RECORDING] AudioProcessor.rebuild_from_config failed on restart",
-                                exc_info=True,
-                            )
+            # avoids the RT-thread resample branch. Shares the
+            # ``retune_audio_processor`` helper with ``Recorder.start()``
+            # (in ``_recorder_split.py``) so fixes to the 3-level fallback
+            # chain (set_sample_rate -> rebuild_from_config -> log-and-
+            # continue) land in one place.
+            retune_audio_processor(
+                recorder._audio_processor,
+                candidate_sr,
+                recorder.config,
+                context="on hot-plug restart",
+            )
             # refresh the VAD cache because ``_effective_sr`` (and
             # possibly the processor's ``_sample_rate``) just changed.
             # The (up, down) resample ratio is recomputed from the new

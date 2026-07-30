@@ -46,3 +46,25 @@ RNNOISE_SAMPLE_RATE: int = 48000
 # Bluetooth-HFP detector (HFP devices run at 8 or 16 kHz) and by the
 # level monitor's "what rate should I open the stream at?" heuristic.
 NATIVE_MIC_RATES: frozenset[int] = frozenset({8000, 16000, 44100, 48000})
+
+# DJ-104: PortAudio ``blocksize`` literal. VAD-001 / AUDIO-001 — Silero
+# VAD requires 512-sample blocks per its model contract; ``vad.py`` pads /
+# truncates driver deviations. The literal is load-bearing across
+# ``recorder.py`` (StreamLifecycle.open_stream_for_candidates /
+# open_stream_fallback, DisconnectHandler.restart_stream,
+# SessionState.resize_buffers_for_sample_rate, Recorder._preroll_blocksize
+# init). Tag here as a single source of truth so a future change (e.g.
+# 1024 for lower callback frequency on slow ARM devices — see DJ-58)
+# lands in one place.
+_AUDIO_BLOCKSIZE: int = 512
+
+# DJ-106: ``_teardown_stream`` busy-poll budget + interval. The
+# ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
+# RUNNING and CLEARED on exit — the inverse of the typical
+# wait-for-event-set pattern. ``teardown_stream_body`` polls for the flag
+# to become *clear* before closing the stream (closing while the callback
+# is mid-flight can deadlock PortAudio on some drivers). On a healthy
+# system the flag is already clear on the first check → 0ms wait. The
+# 300 ms budget matches the original 6×50 ms worst-case backoff.
+_TEARDOWN_CALLBACK_DRAIN_BUDGET_S: float = 0.300
+_TEARDOWN_CALLBACK_POLL_INTERVAL_S: float = 0.005

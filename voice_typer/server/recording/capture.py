@@ -466,6 +466,24 @@ class AudioCallbackDispatcher:
         recorder._worker_wake_event.clear()
         recorder._worker_thread = None
 
+    @staticmethod
+    def _drain_event_queue(recorder: Any) -> None:
+        """Drain ``recorder._event_queue`` non-blockingly (DJ-108).
+
+        Previously this loop was duplicated between
+        :meth:`start_event_worker_body` (drain stale events before start)
+        and :meth:`stop_event_worker_body` (drain on discard path), both
+        wrapped in an over-broad ``contextlib.suppress(Exception)`` that
+        hid bugs. The only expected exception from ``get_nowait()`` is
+        ``queue.Empty``; we catch only that and let any other exception
+        propagate.
+        """
+        while True:
+            try:
+                recorder._event_queue.get_nowait()
+            except queue.Empty:
+                break
+
     def start_event_worker_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._start_event_worker` (inside the
         ``_worker_lifecycle_lock`` block).
@@ -510,13 +528,8 @@ class AudioCallbackDispatcher:
         if recorder._event_worker_thread is not None and recorder._event_worker_thread.is_alive():
             return
         recorder._event_stop_event.clear()
-        # Drain any stale events from a previous session.
-        with contextlib.suppress(Exception):
-            while True:
-                try:
-                    recorder._event_queue.get_nowait()
-                except queue.Empty:
-                    break
+        # Drain any stale events from a previous session (DJ-108: shared helper).
+        self._drain_event_queue(recorder)
         recorder._event_worker_thread = threading.Thread(
             target=recorder._event_worker_loop,
             name=_EVENT_WORKER_THREAD_NAME,
@@ -586,12 +599,7 @@ class AudioCallbackDispatcher:
             # discard() path: clear the queue so the worker has nothing
             # left to publish. It will finish its current publish (if
             # any) and then exit on the next iteration.
-            with contextlib.suppress(Exception):
-                while True:
-                    try:
-                        recorder._event_queue.get_nowait()
-                    except queue.Empty:
-                        break
+            self._drain_event_queue(recorder)
         # Signal the worker to stop.
         recorder._event_stop_event.set()
         # push a sentinel onto the queue to wake the worker immediately

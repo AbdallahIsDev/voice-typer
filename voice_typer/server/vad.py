@@ -167,6 +167,15 @@ def _load_model():
     if _VAD_MODEL_PATH.exists():
         try:
             log.debug("[VAD] Loading local Silero VAD model from %s", _VAD_MODEL_PATH)
+            # DJ-79: Silero VAD is a small LSTM (~2 MB). For 512-sample
+            # chunks at 16 Hz, CPU inference (~0.5 ms) is faster than the
+            # GPU transfer overhead (~1-2 ms roundtrip). Keep on CPU even
+            # when CUDA is available — intentionally NOT probing / moving
+            # to CUDA. Other ML paths (parakeet_engine, qwen_engine,
+            # transcription) DO probe CUDA because their workloads benefit
+            # from it; VAD's small model + tiny per-call tensor size does
+            # not. Documented here so a future reader doesn't 'fix' this
+            # by adding .to('cuda') and regressing performance.
             _model = torch.jit.load(str(_VAD_MODEL_PATH))
             _model.eval()
             _utils = None  # JIT model bundles everything, no utils needed
@@ -289,7 +298,14 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         import torch
 
         # Silero expects a 1D float32 tensor
-        audio_tensor = torch.from_numpy(audio_chunk).to(torch.float32)
+        # DJ-76: pass copy=False so torch skips the dtype-conversion copy
+        # when the input is already float32 (which is the case everywhere
+        # upstream — audio_pipeline.py:441 and audio_processor.py:318 both
+        # call .astype(np.float32) before reaching here). copy=False is a
+        # no-op when the dtype already matches; falls back to a copy only
+        # when a real conversion is needed (defensive for any future caller
+        # that feeds int16 / float64).
+        audio_tensor = torch.from_numpy(audio_chunk).to(torch.float32, copy=False)
         if audio_tensor.dim() > 1:
             audio_tensor = audio_tensor.squeeze()
 
@@ -302,7 +318,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         # is out-of-distribution for Silero and under-reports speech).
         if n < expected:
             padded = _reflect_pad_to(audio_chunk.astype(np.float32, copy=False), expected)
-            audio_tensor = torch.from_numpy(padded).to(torch.float32)
+            audio_tensor = torch.from_numpy(padded).to(torch.float32, copy=False)
             if audio_tensor.dim() > 1:
                 audio_tensor = audio_tensor.squeeze()
             n = expected

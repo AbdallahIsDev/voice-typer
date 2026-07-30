@@ -275,8 +275,20 @@ class AudioPipeline:
             # filtering. Without this argument the resampler is bypassed
             # and filters built at 16 kHz are fed native-rate audio
             # (e.g. 48 kHz), silently mistuning every coefficient.
+            #
+            # DJ-60: the previous ``indata_mono.copy()`` was a redundant
+            # allocation on the worker hot path. ``indata`` is already
+            # an owned copy (the audio callback did ``indata.copy()``
+            # before enqueuing to the ring buffer — PortAudio reuses
+            # the input buffer). ``_ensure_mono`` returns either the
+            # same reference (mono input) or a fresh ``np.mean`` result
+            # (stereo downmix). ``process_chunk`` does NOT mutate its
+            # input — it returns a new array (resample_poly / lfilter /
+            # etc. all allocate). The defensive copy was duplicating
+            # the callback's already-owned copy for the common mono
+            # case (~2KB per chunk at 60-94 Hz).
             filtered = recorder._audio_processor.process_chunk(
-                indata_mono.copy(), input_sample_rate=recorder._effective_sr
+                indata_mono, input_sample_rate=recorder._effective_sr
             )
             # Critical: the AudioProcessor resamples each chunk to its
             # chain's construction rate (typically 16 kHz) before
@@ -541,8 +553,8 @@ class AudioPipeline:
         continue to take effect).
 
         This method contains the heavy processing pipeline that was
-        previously in the PortAudio callback (``_callback_impl``). It
-        is called by ``_audio_worker_loop`` for each chunk popped from
+        previously in the PortAudio callback (``_audio_callback_dispatch``).
+        It is called by ``_audio_worker_loop`` for each chunk popped from
         the ring buffer.
 
         Operations (in order):
