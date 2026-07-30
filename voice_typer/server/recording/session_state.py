@@ -132,6 +132,28 @@ class SessionState:
         # NEW-PERF-003: invalidate the no-resample cache too.
         recorder._cached_no_resample_len = -1
         recorder._cached_no_resample_arr = None
+        # XE-6-1: zero each segment's underlying numpy buffer BEFORE
+        # dropping the list reference, mirroring the secure-clear
+        # contract in ``secure_clear_caches`` / ``_secure_clear_session_caches``.
+        # ``reset_session_state`` runs from ``start()`` AFTER
+        # ``_secure_clear_session_caches`` (which already zeroed the
+        # previous session's segments), so the list is normally
+        # already-empty here — but defensive zeroing protects against
+        # any code path that populates the list between
+        # ``_secure_clear_session_caches`` and this reset (e.g. a
+        # racing ``snapshot()`` from the streaming thread), and keeps
+        # the contract symmetric with the ``stop()``/``discard()``
+        # path so a future maintainer can't regress one without
+        # regressing the other.
+        try:
+            for seg in recorder._cached_resampled_segments:
+                if seg is not None and seg.size > 0:
+                    _recording_pkg._secure_clear_array(seg)
+        except (OSError, ValueError):
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_resampled_segments in reset_session_state",
+                exc_info=True,
+            )
         # reset the resample-path segment list + dirty flag so a
         # new session starts with an empty cache (no stale segments
         # carried over from the previous session).
@@ -322,10 +344,36 @@ class SessionState:
                 "[RECORDER] secure_clear_array failed for _cached_no_resample_arr",
                 exc_info=True,
             )
+        # XE-6-1 (High): the resample-path segment list
+        # (``_cached_resampled_segments``) holds the per-snapshot
+        # resampled prefix as a Python list of contiguous ndarrays.
+        # ``_ensure_resampled_concat`` may keep
+        # ``_cached_resampled`` pointing at ``segments[0]`` directly
+        # (the 1-segment fast path), so simply dropping the list
+        # reference (as the original code did) leaves up to ~115 MB of
+        # dictated float32 audio in process memory until the numpy
+        # allocator reuses the blocks — defeating G4-H-06's intent for
+        # the segment cache. Zero each segment in-place BEFORE the
+        # list reassignment. Best-effort: a failure to zero one
+        # segment doesn't block zeroing the rest or the cache reset.
+        try:
+            for seg in recorder._cached_resampled_segments:
+                if seg is not None and seg.size > 0:
+                    _recording_pkg._secure_clear_array(seg)
+        except (OSError, ValueError):
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_resampled_segments",
+                exc_info=True,
+            )
         recorder._cached_resampled = np.array([], dtype=np.float32)
         recorder._cached_no_resample_arr = None
         recorder._cached_native_chunk_count = 0
         recorder._cached_no_resample_len = -1
+        # XE-6-1: now that every segment's underlying numpy buffer has
+        # been zeroed in-place (above), drop the list reference and
+        # reset the dirty flag so the next session starts clean.
+        recorder._cached_resampled_segments = []
+        recorder._cached_resampled_concat_dirty = False
         # XZ-PRIV-01: reset the audio processor's filter state too.
         # IIR ``zi`` arrays + RNNoise ``_carry`` (up to 479 samples,
         # ~2 KB at 16 kHz float32) retain audio-derived residuals

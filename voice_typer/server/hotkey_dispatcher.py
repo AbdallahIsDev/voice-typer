@@ -44,6 +44,15 @@ class HotkeyDispatcher:
         self._hotkey_backend: HotkeyBackend | None = None
         self._esc_backend: HotkeyBackend | None = None
         self._repaste_backend: HotkeyBackend | None = None
+        # XE-12-3: track the last-registered ESC and repaste specs so
+        # ``register()`` can skip the teardown+rebuild cycle when the
+        # spec hasn't changed. Previously ``register()`` unconditionally
+        # rebuilt both backends on every call (including the
+        # ``restart()`` path that delegates back to ``register()``),
+        # causing a brief window where ESC / repaste weren't available
+        # plus unnecessary OS grab churn on Windows / macOS.
+        self._esc_spec: str | None = None
+        self._repaste_spec: str | None = None
         # CR-85 + M-94 (combined): threading.Event for atomic cross-
         # thread access. Both sessions independently identified the
         # plain-bool race; session-2's attribute name
@@ -146,12 +155,41 @@ class HotkeyDispatcher:
             )
 
         # Feature: ESC to cancel -- register ESC hotkey when enabled
+        # XE-12-3: skip the teardown+rebuild if the ESC backend is
+        # already alive with the same spec ("<esc>"). Previously
+        # ``register()`` unconditionally called ``register_esc()``, which
+        # stops and recreates the backend on every call — causing a
+        # brief ESC-unavailable window and unnecessary OS grab churn.
+        # When ESC is disabled, tear down any existing backend.
         if app.config.esc_cancel_enabled:
-            self.register_esc()
+            esc_already_alive = (
+                self._esc_backend is not None and self._esc_backend.is_alive() and self._esc_spec == "<esc>"
+            )
+            if not esc_already_alive:
+                self.register_esc()
+        elif self._esc_backend is not None:
+            with contextlib.suppress(Exception):
+                self._esc_backend.stop()
+            self._esc_backend = None
+            self._esc_spec = None
 
         # Feature: Repaste hotkey
+        # XE-12-3: skip the teardown+rebuild if the repaste backend is
+        # already alive with the same spec. When repaste is disabled
+        # (empty / None), tear down any existing backend.
         if app.config.repaste_hotkey:
-            self.register_repaste()
+            repaste_already_alive = (
+                self._repaste_backend is not None
+                and self._repaste_backend.is_alive()
+                and self._repaste_spec == app.config.repaste_hotkey
+            )
+            if not repaste_already_alive:
+                self.register_repaste()
+        elif self._repaste_backend is not None:
+            with contextlib.suppress(Exception):
+                self._repaste_backend.stop()
+            self._repaste_backend = None
+            self._repaste_spec = None
 
         return success
 
@@ -278,6 +316,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._esc_backend.stop()
             self._esc_backend = None
+            self._esc_spec = None
 
         # ESC-KEYUP-FIX / M-94 + CR-85 (combined): Event (initially
         # not-set, equivalent to the old ``False``) set on ESC key-down
@@ -290,6 +329,15 @@ class HotkeyDispatcher:
 
         try:
             self._esc_backend = create_hotkey_backend("<esc>")
+            # AB-35: prefer the event-driven WM_HOTKEY message loop over
+            # the per-keystroke WH_KEYBOARD_LL hook for the ESC backend.
+            # Only the main dictation hotkey installs an LL hook (was 3).
+            # If RegisterHotKey fails for ESC (some keys are reserved),
+            # the backend falls back to the LL hook for ESC only — 2 hooks
+            # instead of 3, still an improvement. suppress() so non-Windows
+            # backends without ``_prefer_message_loop_first`` are skipped.
+            with contextlib.suppress(AttributeError, TypeError):
+                self._esc_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
 
             def _esc_callback() -> None:
                 # XZ-R17-02: shutdown guard (see _dictation_callback).
@@ -312,8 +360,22 @@ class HotkeyDispatcher:
                 self._app._cancel_dictation()
 
             self._esc_backend.start(_esc_callback)
+            self._esc_spec = "<esc>"
             log.info("[HOTKEY] ESC cancel hotkey registered")
         except Exception:
+            # XE-12-4: null the failed backend reference so a subsequent
+            # ``register()`` / ``register_esc()`` doesn't try to ``stop()``
+            # a partially-started backend (which may have acquired OS
+            # resources via ``create_hotkey_backend`` even if ``start()``
+            # raised). ``stop()`` is safe to call on a partially-started
+            # backend (it suppresses AttributeError / OSError on missing
+            # listener threads), so call it before nulling to release any
+            # resources the partial start did acquire.
+            if self._esc_backend is not None:
+                with contextlib.suppress(Exception):
+                    self._esc_backend.stop()
+            self._esc_backend = None
+            self._esc_spec = None
             log.warning("[HOTKEY] ESC cancel hotkey registration failed")
 
     def _on_esc_release(self) -> None:
@@ -376,6 +438,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._esc_backend.stop()
             self._esc_backend = None
+            self._esc_spec = None
             log.info("[HOTKEY] ESC cancel hotkey unregistered")
 
     def register_repaste(self) -> None:
@@ -384,12 +447,53 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._repaste_backend.stop()
             self._repaste_backend = None
+            self._repaste_spec = None
         if self._app.config.repaste_hotkey:
+            # XE-12-2: validate the configured repaste hotkey BEFORE
+            # attempting to register it. ``Config.load()`` bypasses the
+            # denylist, so a stale/hand-edited config could contain an
+            # OS-reserved shortcut (e.g. ``<win>+<l>``) or — after
+            # XE-12-1 — ``<caps_lock>+<v>`` (caps_lock is now correctly
+            # rejected by Stage 5 as a non-modifier key in a multi-
+            # non-modifier combo, instead of being silently accepted
+            # because it was incorrectly listed as a modifier). On
+            # rejection, DISABLE repaste (set ``repaste_hotkey=""``)
+            # rather than resetting to the default ``<caps_lock>``,
+            # which would conflict with the main dictation hotkey.
+            from voice_typer.server.config_validators import _validate_hotkey
+
+            validation_error = _validate_hotkey(self._app.config.repaste_hotkey)
+            if validation_error is not None:
+                log.warning(
+                    "[HOTKEY] configured repaste_hotkey %r rejected (%s) — "
+                    "disabling repaste (not resetting to <caps_lock> to avoid "
+                    "conflict with the main dictation hotkey)",
+                    self._app.config.repaste_hotkey,
+                    validation_error,
+                )
+                self._app.config.repaste_hotkey = ""
+                return
             try:
                 self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey)
+                # AB-35: same WM_HOTKEY-preference flag as the ESC backend
+                # (see register_esc for the full rationale).
+                with contextlib.suppress(AttributeError, TypeError):
+                    self._repaste_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
                 self._repaste_backend.start(self._make_repaste_callback())
+                self._repaste_spec = self._app.config.repaste_hotkey
                 log.info("[HOTKEY] Repaste hotkey registered: %s", self._app.config.repaste_hotkey)
             except Exception:
+                # XE-12-4: null the failed backend reference so a
+                # subsequent ``register()`` / ``register_repaste()``
+                # doesn't try to ``stop()`` a partially-started backend.
+                # ``stop()`` is safe to call on a partially-started
+                # backend, so call it before nulling to release any OS
+                # resources the partial start did acquire.
+                if self._repaste_backend is not None:
+                    with contextlib.suppress(Exception):
+                        self._repaste_backend.stop()
+                self._repaste_backend = None
+                self._repaste_spec = None
                 log.warning("[HOTKEY] Repaste hotkey registration failed")
 
     def restart(self, hotkey: str) -> None:
@@ -517,3 +621,8 @@ class HotkeyDispatcher:
                 except Exception:
                     log.debug("[HOTKEY] Failed to stop %s", backend_attr, exc_info=True)
                 setattr(self, backend_attr, None)
+        # XE-12-3: clear the spec trackers so a post-shutdown register()
+        # call (e.g. from a test or a hot restart) does NOT skip the
+        # rebuild under the "same spec" fast-path.
+        self._esc_spec = None
+        self._repaste_spec = None

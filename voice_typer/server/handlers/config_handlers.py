@@ -171,6 +171,15 @@ class ConfigHandlersMixin(HandlerBase):
             # failed. Errors are logged at ERROR with ``exc_info=True``.
             model_errors: list[dict] = []
             applied: list[str] = []
+            # AB-10: ``change_model`` / ``set_active_backend`` now return
+            # immediately (the heavy load runs in a background daemon
+            # thread). Capture the ack dicts here so the response can
+            # surface a "loading" status to the renderer — the renderer
+            # shows a spinner and dismisses it on the ``asr_backend_ready``
+            # event (published by the background thread on completion).
+            # Without this field the renderer would see ``ack`` and
+            # assume the model is ready immediately.
+            model_loading: list[dict] = []
             # DE-6: track which keys failed their model/backend swap so
             # we can DROP them from the dict passed to ``apply_config``
             # (otherwise the failed model value gets persisted to disk)
@@ -212,9 +221,31 @@ class ConfigHandlersMixin(HandlerBase):
                 if "model_size" in validated and validated["model_size"] != getattr(
                     self.app.config, "model_size", None
                 ):
+                    # AB-10: capture the OLD values BEFORE the call —
+                    # ``change_model`` now spawns a background thread
+                    # that mutates config asynchronously, so reading
+                    # AFTER the call would race with the background
+                    # setattr phase.
+                    old_model_size = getattr(self.app.config, "model_size", None)
+                    old_backend = getattr(self.app.config, "asr_backend", None)
                     try:
                         self.service.change_model(validated["model_size"])
                         applied.append("model_size")
+                        # AB-10: surface the "loading" status so the
+                        # renderer shows a spinner and listens for the
+                        # ``asr_backend_ready`` event (published by the
+                        # background thread on completion).
+                        model_loading.append(
+                            {
+                                "field": "model_size",
+                                "status": "loading",
+                                "previous": {
+                                    "backend": old_backend,
+                                    "model_size": old_model_size,
+                                },
+                                "pending": {"model_size": validated["model_size"]},
+                            }
+                        )
                     except Exception as e:
                         # G4-M-20: log at ERROR with exc_info + surface
                         # partial-success envelope. CR-76: include the
@@ -250,9 +281,25 @@ class ConfigHandlersMixin(HandlerBase):
                 if "asr_backend" in validated and validated["asr_backend"] != getattr(
                     self.app.config, "asr_backend", None
                 ):
+                    # AB-10: capture the OLD backend BEFORE the call
+                    # (see the model_size branch above for rationale).
+                    old_backend = getattr(self.app.config, "asr_backend", None)
+                    old_model_size = getattr(self.app.config, "model_size", None)
                     try:
                         self.service.set_active_backend(validated["asr_backend"])
                         applied.append("asr_backend")
+                        # AB-10: surface the "loading" status (see above).
+                        model_loading.append(
+                            {
+                                "field": "asr_backend",
+                                "status": "loading",
+                                "previous": {
+                                    "backend": old_backend,
+                                    "model_size": old_model_size,
+                                },
+                                "pending": {"backend": validated["asr_backend"]},
+                            }
+                        )
                     except Exception as e:
                         # G4-M-20: same partial-success pattern as above.
                         # str(e) is logged server-side but not sent to
@@ -385,6 +432,14 @@ class ConfigHandlersMixin(HandlerBase):
                 response_data["status"] = "partial"
                 response_data["model_errors"] = model_errors
                 response_data["applied"] = applied
+            if model_loading:
+                # AB-10: surface the "loading" status so the renderer
+                # shows a spinner and listens for the
+                # ``asr_backend_ready`` event (published by the
+                # background thread on completion). Without this field
+                # the renderer would see ``ack`` and assume the model
+                # is ready immediately, hiding the 5-30s load latency.
+                response_data["model_loading"] = model_loading
             if response_data:
                 resp["data"] = response_data
         except Exception as exc:

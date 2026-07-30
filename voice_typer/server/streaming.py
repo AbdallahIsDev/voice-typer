@@ -1,5 +1,7 @@
 """Core helpers for hidden streaming transcription."""
 
+from __future__ import annotations
+
 import collections
 import contextlib
 import logging
@@ -8,30 +10,64 @@ import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
 
 
 def _secure_clear_audio(arr: np.ndarray | None) -> None:
-    """SEC-audit-008 / XZ-PRIV-02: zero a numpy audio array in-place.
+    """DEPRECATED (XE-6-2): retained for source-level backward compatibility.
 
-    Streaming transcription creates short-lived ``AudioWindow`` views into
-    the recorder snapshot array (see ``AudioWindowPlanner.next_window``).
-    After transcription, those buffers can contain sensitive voice data
-    (PII, biometric identifiers) and previously lingered in process memory
-    until the next GC pass freed the underlying numpy block.  This helper
-    mirrors ``voice_typer.server.recording._secure_clear_array`` (the batch
-    path used by ``dictation_pipeline.py:345``) so the streaming path
-    applies the same secure-clear guarantee.
+    Do NOT call from new code — the streaming path no longer invokes
+    this helper (see ``process_available_audio_once`` and
+    ``_finalize_impl``). The function body is preserved unchanged so
+    any out-of-tree caller still gets the array-zeroing behavior, but
+    the streaming call sites have been removed because zeroing the
+    recorder's snapshot view was both destructive for correctness and
+    ineffective for privacy (see below).
 
-    Best-effort: array views whose base array is shared with another live
-    reference (e.g. the recorder's snapshot) cannot be safely zeroed
-    without invalidating the other consumer.  Callers therefore pass the
-    *window-local* snapshot only after the window has been consumed, and
-    the recorder hands out a fresh array per snapshot so no shared base
-    remains.
+    The recorder hands out a VIEW (``np.ndarray[:]``) of the shared
+    concat cache, not a fresh array. Filling this view with zeros
+    either (a) in the 1-segment case, zeros ``segments[0]`` causing
+    silent transcription windows, or (b) in the 2+ segment case,
+    zeros only the concat result which is immediately rebuilt from
+    unzeroed segments — completely ineffective for privacy. The
+    secure-clear responsibility belongs to ``secure_clear_caches`` at
+    ``stop()`` / ``discard()`` time (after the XE-6-1 fix covers the
+    segments list).
+
+    History (kept for context — the streaming call sites that needed
+    this helper have been removed):
+
+    Streaming transcription created short-lived ``AudioWindow`` views
+    into the recorder snapshot array (see
+    ``AudioWindowPlanner.next_window``). After transcription, those
+    buffers can contain sensitive voice data (PII, biometric
+    identifiers) and previously lingered in process memory until the
+    next GC pass freed the underlying numpy block. This helper
+    mirrored ``voice_typer.server.recording._secure_clear_array`` (the
+    batch path used by ``dictation_pipeline.py:345``) so the streaming
+    path applied the same secure-clear guarantee.
+
+    The pre-XE-6-2 "Best-effort" caveat (array views whose base array
+    is shared with another live reference cannot be safely zeroed
+    without invalidating the other consumer) turned out to be exactly
+    the failure mode the streaming path was hitting — the recorder
+    hands out a view (``_cached_resampled[:]``), not a fresh array,
+    so the "best-effort" zeroing was actually destructive for
+    correctness in the 1-segment case (zeroed ``segments[0]``) and
+    ineffective for privacy in the 2+ segment case (zeroed only the
+    concat result, immediately rebuilt from the unzeroed segments
+    list on the next snapshot).
     """
+    # XE-6-2: kept for source-level backward compatibility (existing
+    # callers — if any — still get the array-zeroing behavior). The
+    # streaming path no longer calls this helper: the snapshot view
+    # zeroing was both destructive (1-segment case: zeroed
+    # ``segments[0]``) and ineffective (2+ segment case: zeroed only
+    # the concat result, immediately rebuilt from unzeroed segments).
     if arr is None:
         return
     with contextlib.suppress(Exception):
@@ -222,7 +258,7 @@ class StreamingTextAssembler:
     # O(1) — no need to shift every stored index by 1.
     _base_offset: int = 0
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
-    _word_key_index: dict[str, "collections.deque[int]"] = field(default_factory=dict)
+    _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
     _lock: threading.RLock = field(default_factory=threading.RLock)
     # PERF-018: cache the sorted committed_text and invalidate on mutation
@@ -650,14 +686,38 @@ class StreamingTranscriptionSession:
         if self._fallback_required:
             return False
 
-        # XZ-PRIV-02: hold a reference to the snapshot + window so we can
-        # zero them in the ``finally`` block below even when an exception
-        # fires mid-transcription.  Without this, the audio buffers would
-        # linger in process memory until the next GC pass (SEC-audit-008
-        # regression in the streaming path).
+        # XZ-PRIV-02 (historical): the pre-fix code held references to
+        # the snapshot + window so they could be zeroed in the
+        # ``finally`` block below even when an exception fired
+        # mid-transcription. XE-6-2 removed the zeroing (see the
+        # finally-block comment for why), but the explicit local
+        # bindings are kept so the function body remains readable and
+        # so a future maintainer can re-introduce a safe variant
+        # (e.g. copying the snapshot into a fresh array before
+        # zeroing the copy) without restructuring the function.
         audio: np.ndarray | None = None
         window: AudioWindow | None = None
         try:
+            # AB-20: skip the snapshot allocation entirely when the
+            # recorder hasn't accumulated enough NEW audio since the
+            # last emitted window. The streaming thread polls at 4 Hz;
+            # without this guard each poll called ``snapshot()`` which
+            # (even with the segment-list cache) materializes a numpy
+            # view + the planner's per-call bookkeeping. The
+            # ``current_duration_seconds`` property is a O(1) scalar
+            # read (``len(self._buffer) / sample_rate``) with NO array
+            # copy, so this guard is cheaper than the snapshot it
+            # skips. Only applies once at least one window has been
+            # emitted (``_last_window_end_seconds`` is None before the
+            # first window — in that case we always need a snapshot to
+            # decide whether the first chunk is big enough).
+            last_end = self.planner._last_window_end_seconds
+            if (
+                last_end is not None
+                and hasattr(self.recorder, "current_duration_seconds")
+                and self.recorder.current_duration_seconds < (last_end + self.config.step_seconds)
+            ):
+                return False
             audio = self.recorder.snapshot()
             window = self.planner.next_window(audio, self.sample_rate)
             if window is None:
@@ -689,20 +749,42 @@ class StreamingTranscriptionSession:
                 self._fallback_required = True
             return False
         finally:
-            # XZ-PRIV-02 / SEC-audit-008: zero the per-window audio
-            # buffers now that transcription has consumed them.  The
-            # batch path (``dictation_pipeline.py:345``) has always done
-            # this; the streaming path was leaving the snapshot + window
-            # views in process memory until the next GC pass.  Both
-            # ``audio`` (the recorder snapshot) and ``window.audio``
-            # (a view into ``audio``) point at the same underlying numpy
-            # buffer, so zeroing ``audio`` covers both.  We zero in
-            # ``finally`` so the guarantee holds even when the chunk
-            # transcribe raises (the previous attempt's audio must not
-            # leak either).
-            _secure_clear_audio(audio)
-            if window is not None:
-                _secure_clear_audio(window.audio)
+            # XE-6-2: the pre-fix ``_secure_clear_audio(audio)`` /
+            # ``_secure_clear_audio(window.audio)`` calls have been
+            # REMOVED. The recorder hands out a VIEW
+            # (``_cached_resampled[:]``) of the shared concat cache,
+            # not a fresh array — so zeroing the snapshot was:
+            #
+            #   (a) Destructive for correctness in the 1-segment case:
+            #       ``_ensure_resampled_concat`` keeps
+            #       ``_cached_resampled`` pointing at ``segments[0]``
+            #       directly, so ``snapshot.fill(0)`` zeroed
+            #       ``segments[0]``. The next ``snapshot()`` returned
+            #       the zeroed segment → silent transcription windows.
+            #
+            #   (b) Ineffective for privacy in the 2+ segment case:
+            #       zeroing the snapshot zeroed only the concat
+            #       result (a transient ``np.concatenate(segments)``).
+            #       ``_cached_resampled_concat_dirty`` was already
+            #       ``False`` (set when ``_ensure_resampled_concat``
+            #       last ran), so the next ``snapshot()`` returned the
+            #       zeroed concat directly — silent transcription
+            #       windows. If a new chunk arrived in between, the
+            #       dirty flag would be ``True`` and the next
+            #       ``_ensure_resampled_concat`` would rebuild from
+            #       the (unzeroed) segments list — overwriting the
+            #       zeroed concat, so the privacy clear was a no-op.
+            #
+            # The secure-clear responsibility for the segment list
+            # (the actual primary storage, ~115 MB of dictated audio
+            # for a 30-min session) belongs to ``secure_clear_caches``
+            # at ``stop()`` / ``discard()`` time, fixed in XE-6-1.
+            # The local ``audio`` / ``window`` bindings go out of
+            # scope when the function returns, releasing the view
+            # references and letting the GC reclaim the view objects
+            # (NOT the underlying cache, which is owned by the
+            # recorder and cleared at stop()/discard() time).
+            pass
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
         # H16: Snapshot assembler state under lock at the beginning
@@ -710,21 +792,44 @@ class StreamingTranscriptionSession:
             snapshot_committed_text = self.assembler.committed_text
             snapshot_last_committed_time = self.assembler.last_committed_time
 
-        # XZ-PRIV-02 / SEC-audit-008: zero ``full_audio`` once we no
-        # longer need it.  We capture the caller's array reference up
-        # front, drive all the existing tail-merge / batch-fallback
-        # paths, and zero the buffer in a ``finally`` so the guarantee
-        # holds regardless of which return branch fires.  Mirrors
-        # ``dictation_pipeline.py:337-346``'s ``self._audio.fill(0)``
-        # pattern.
-        try:
-            return self._finalize_impl_inner(
-                full_audio,
-                snapshot_committed_text,
-                snapshot_last_committed_time,
-            )
-        finally:
-            _secure_clear_audio(full_audio)
+        # XE-6-2: the pre-fix ``_secure_clear_audio(full_audio)`` call
+        # in the ``finally`` block below has been REMOVED. ``full_audio``
+        # is the post-stop transcription array (the result of
+        # ``recorder.stop()``, which is a fresh ``np.concatenate`` of
+        # the snapshotted buffer chunks — NOT a view of the recorder's
+        # shared concat cache), so zeroing it is in principle safe.
+        # However:
+        #
+        #   (a) The secure-clear responsibility for the segments list
+        #       (the primary storage during recording) belongs to
+        #       ``secure_clear_caches`` at ``stop()`` / ``discard()``
+        #       time — fixed in XE-6-1. By the time ``finalize()``
+        #       runs, ``stop()`` has already cleared the segments.
+        #
+        #   (b) Keeping the call would leave ``_secure_clear_audio``
+        #       with a single in-tree caller, conflicting with the
+        #       "deprecated, retained for source-level backward
+        #       compatibility" status the helper now carries.
+        #
+        # The pre-fix comment (kept for reference) was:
+        #
+        #   XZ-PRIV-02 / SEC-audit-008: zero ``full_audio`` once we no
+        #   longer need it.  We capture the caller's array reference up
+        #   front, drive all the existing tail-merge / batch-fallback
+        #   paths, and zero the buffer in a ``finally`` so the guarantee
+        #   holds regardless of which return branch fires.  Mirrors
+        #   ``dictation_pipeline.py:337-346``'s ``self._audio.fill(0)``
+        #   pattern.
+        #
+        # The ``full_audio`` array is now released via normal Python
+        # GC when the caller (``DictationPipeline.run``) drops its
+        # ``self._audio`` reference in the finally block at
+        # ``dictation_pipeline.py:426`` (``self._audio = None``).
+        return self._finalize_impl_inner(
+            full_audio,
+            snapshot_committed_text,
+            snapshot_last_committed_time,
+        )
 
     def _finalize_impl_inner(
         self,

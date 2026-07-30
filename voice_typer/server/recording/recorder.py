@@ -46,20 +46,15 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-import numpy as np
-
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
-# library (and on some platforms probes audio hardware) at import time,
-# which adds measurable latency to the app cold-start path
-# (voice_typer.server.app imports this module at module top). sounddevice
-# is only needed once a recording actually starts, so defer the real
-# import to first attribute access. The proxy re-reads sys.modules on
-# every access, so tests that do
-# ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` — or that
-# inject a mock via ``monkeypatch.setitem(sys.modules, "sounddevice",
-# mock)`` — keep working unchanged. The ``from __future__ import
-# annotations`` above stringifies the ``Optional[sd.InputStream]``
-# annotation in Recorder.__init__ so it no longer forces an eager import.
+# AB-28: numpy was eagerly imported at module top, adding ~250-335ms to
+# every cold start (numpy performs heavy C-extension initialization at
+# import time). Replace with a lazy proxy so importing this module does
+# NOT pull numpy into ``sys.modules``; the real import is deferred to
+# first attribute access (typically the first ``Recorder.__init__`` or
+# the first ``snapshot()`` call). ``from __future__ import annotations``
+# above stringifies every ``np.ndarray`` annotation so function-def-time
+# annotation evaluation does NOT trigger the lazy proxy (which would
+# defeat the optimization).
 from voice_typer.server import event_bus
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
@@ -85,6 +80,8 @@ from voice_typer.server.vad_processor import VadProcessor, VadState
 #      ``_start_event_worker`` / ``_event_worker_loop``).
 
 sd = lazy_module("sounddevice")
+# AB-28: lazy numpy proxy — see comment above.
+np = lazy_module("numpy")
 
 log = logging.getLogger("voice_typer.server.recording")
 
@@ -516,6 +513,25 @@ class Recorder(VadShimMixin):
         # changes (i.e. a new chunk arrived).
         self._cached_no_resample_len: int = -1
         self._cached_no_resample_arr: np.ndarray | None = None
+        # AB-1: mirror the resample-path segment-list + lazy-concat
+        # optimization for the no-resample branch. Previously the cache
+        # was keyed on ``buf_len`` only and missed on every poll (the
+        # streaming thread polls at 4 Hz while the audio worker appends
+        # at 16 Hz → buf_len always differs), so the cache-miss path
+        # ran ``np.concatenate(chunks, axis=0).reshape(-1)`` — rebuilding
+        # the full array every poll (~460 MB/s memcpy churn on a 30-min
+        # 16 kHz mono dictation). We now keep the cached prefix as a
+        # *list* of segments (one per snapshot that saw new chunks) and
+        # only re-concatenate when the list changes (``_ensure_no_resample_concat``
+        # in :mod:`._recorder_split`). Snapshots that see no new chunks
+        # reuse the cached concat (zero memcpy). ``_cached_no_resample_len``
+        # is repurposed as the count of buffer chunks already in the
+        # segment list (with ``-1`` retained as the "invalidated"
+        # sentinel so existing ``_secure_clear_caches`` /
+        # ``reset_session_state`` callers — which we cannot modify —
+        # keep working unchanged).
+        self._cached_no_resample_segments: list[np.ndarray] = []
+        self._cached_no_resample_concat_dirty: bool = False
         # NEW-PERF-010: cache of (rms, peak, silence_pct) from the most
         # recent stop() call, so the transcription engine can reuse
         # them instead of recomputing on the same audio array.
@@ -1727,6 +1743,33 @@ class Recorder(VadShimMixin):
                 _recording_pkg._secure_clear_array(self._cached_no_resample_arr)
         except (OSError, ValueError):
             log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
+        # XE-6-1 (High): zero the resample-path segment list BEFORE
+        # reassignment, mirroring ``secure_clear_caches`` (the bulk
+        # helper called from ``stop()``/``discard()``). The segment
+        # list is the primary storage for the resampled prefix
+        # (``_cached_resampled`` may be a view of ``segments[0]`` in
+        # the 1-segment fast path of ``_ensure_resampled_concat``), so
+        # without this loop the previous session's dictated audio
+        # (up to ~115 MB of float32) would survive ``start()`` in
+        # process memory until the numpy allocator reused the blocks.
+        # ``reset_session_state`` (called immediately after this
+        # helper in ``start_recording``) reassigns the list to ``[]``
+        # with its own defensive zeroing pass — the loop here is the
+        # authoritative secure-clear, the loop there is the
+        # belt-and-suspenders guard against racing ``snapshot()``
+        # callers that re-populate the list between this helper and
+        # the reset.
+        try:
+            for seg in self._cached_resampled_segments:
+                if seg is not None and seg.size > 0:
+                    _recording_pkg._secure_clear_array(seg)
+        except (OSError, ValueError):
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_resampled_segments",
+                exc_info=True,
+            )
+        self._cached_resampled_segments = []
+        self._cached_resampled_concat_dirty = False
 
     def _reset_session_state(self) -> None:
         """Reset ALL per-session state for a fresh recording session.
@@ -2222,6 +2265,53 @@ class Recorder(VadShimMixin):
         vs copy semantics, lock-free empty-buffer fast path).
         """
         return _recorder_split.take_snapshot(self)
+
+    @property
+    def current_duration_seconds(self) -> float:
+        """Approximate duration (in seconds) of audio currently in the buffer.
+
+        AB-20: a cheap O(1) scalar read with NO array copy. Used by the
+        streaming thread (``StreamingTranscriber.process_available_audio_once``)
+        as an early-exit guard BEFORE calling :meth:`snapshot` — if the
+        recorder hasn't accumulated enough NEW audio since the last
+        emitted window, we skip the snapshot allocation entirely (the
+        streaming thread polls at 4 Hz; without this guard each poll
+        paid the snapshot cost even when there was nothing new to
+        transcribe).
+
+        Returns 0.0 when no audio has been recorded yet (empty buffer
+        or sample rate unknown). The sample rate is read from
+        ``_buffer_sr`` (the actual rate of the audio in the buffer,
+        typically 16 kHz once an ``AudioProcessor`` is active) with a
+        fallback to ``_effective_sr`` (the device's native rate) —
+        mirroring the rate-resolution logic in
+        :func:`._recorder_split.take_snapshot`.
+
+        The duration is approximate because it sums ``len(chunk)`` across
+        the deque's chunks without locking; the deque length is atomic
+        in CPython, and a concurrent append at most makes the value
+        slightly stale (which is fine for a polling guard). No array
+        is materialized — this is the key difference vs. calling
+        ``len(self.snapshot()) / sample_rate``.
+        """
+        buffer = self._buffer
+        if not buffer:
+            return 0.0
+        sr = getattr(self, "_buffer_sr", None) or self._effective_sr
+        if not sr:
+            return 0.0
+        # Sum chunk lengths without materializing a contiguous array.
+        # ``sum(len(c) for c in buffer)`` is O(chunks) where chunks ≪
+        # samples (16 Hz chunk arrival × recording length).
+        try:
+            total_samples = sum(int(c.shape[0]) for c in buffer)
+        except (AttributeError, TypeError):
+            # Defensive: a malformed chunk (rare) shouldn't crash the
+            # polling guard. Fall back to 0.0 so the caller proceeds
+            # with the snapshot path (which handles malformed chunks
+            # itself).
+            return 0.0
+        return total_samples / sr
 
     def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
         """Resample a single chunk of audio.

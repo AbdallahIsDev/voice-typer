@@ -1,8 +1,14 @@
-"""Microphone-test IPC handler mixin: 5 microphone_test_* commands.
+"""Microphone-test IPC handler mixin: 4 microphone_test_* commands.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_microphone_test_status`` was REMOVED —
+the renderer polls ``microphone_test_get_level`` at 60 Hz during a
+test; the separate status query was unused. The service-layer method
+``service.microphone_test_status`` still exists for internal callers;
+only the IPC dispatch route was deleted.
 """
 
 from voice_typer.server.asr_errors import ConsentRequiredError
@@ -11,7 +17,7 @@ from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
 class MicrophoneTestHandlersMixin(HandlerBase):
-    """Mixin: microphone-test IPC handlers (start / stop / cancel / status / get_level).
+    """Mixin: microphone-test IPC handlers (start / stop / cancel / get_level).
 
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
@@ -167,17 +173,6 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_cancel")
-        return resp
-
-    def _handle_microphone_test_status(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``microphone_test_status`` IPC command."""
-        try:
-            result = self.service.microphone_test_status()
-            resp["type"] = "microphone_test_status"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "microphone_test_status")
         return resp
 
     def _handle_microphone_test_get_level(self, data: dict | None, resp: dict) -> dict | None:

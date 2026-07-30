@@ -32,6 +32,15 @@ log = logging.getLogger(__name__)
 # value is also honoured.
 _LINUX_MIN_SMART_DUCK_POLL_MS = 1500
 
+# UE-25: number of consecutive backend failures before a WARNING is
+# surfaced.  See ``voice_typer/server/volume_backends/windows.py`` for
+# the full rationale.  Linux's ``_alsa_is_playing`` swallows exceptions
+# and returns ``True`` (safe default — duck anyway) at DEBUG, so a
+# persistently broken ``/proc/asound`` scan would degrade smart-duck to
+# "always duck" with no log breadcrumb.  The counter surfaces the
+# failure after ``_BACKEND_ERROR_WARN_THRESHOLD`` consecutive errors.
+_BACKEND_ERROR_WARN_THRESHOLD = 3
+
 
 class LinuxVolumeBackend(VolumeBackend):
     """Linux volume control with automatic backend detection.
@@ -51,6 +60,13 @@ class LinuxVolumeBackend(VolumeBackend):
 
     def __init__(self) -> None:
         self._tool: str | None = None
+        # UE-25: consecutive-error counter for ``_alsa_is_playing``
+        # (the only error-tracked method on this backend per UE-25).
+        # See ``WinVolumeBackend._consecutive_errors`` for the full
+        # rationale.  Initialized here (and reset in ``initialize``)
+        # so the method is callable before ``initialize`` without
+        # ``AttributeError``.
+        self._consecutive_errors: int = 0
 
     @property
     def name(self) -> str:
@@ -83,6 +99,8 @@ class LinuxVolumeBackend(VolumeBackend):
     def initialize(self) -> bool:
         if self._tool is not None:
             return True
+        # UE-25: reset the error counter on a fresh initialize() attempt.
+        self._consecutive_errors = 0
         for tool in ("pactl", "wpctl", "amixer"):
             if shutil.which(tool):
                 self._tool = tool
@@ -90,6 +108,27 @@ class LinuxVolumeBackend(VolumeBackend):
                 return True
         log.info("[VOLUME-LINUX] No volume tool found (pactl/wpctl/amixer)")
         return False
+
+    # ── UE-25 error-tracking helpers ──────────────────────────────────
+    # See ``WinVolumeBackend._record_error`` / ``_record_success`` for
+    # the full rationale.  The counter is shared across this backend's
+    # error-tracked methods (currently only ``_alsa_is_playing`` per
+    # UE-25 scope).
+
+    def _record_error(self, context: str, exc: BaseException) -> None:
+        self._consecutive_errors += 1
+        if self._consecutive_errors % _BACKEND_ERROR_WARN_THRESHOLD == 0:
+            log.warning(
+                "[VOLUME-LINUX] %s failed %d times in a row (last error: %s) "
+                "— safe-default returned, duck state preserved",
+                context,
+                self._consecutive_errors,
+                exc,
+            )
+
+    def _record_success(self) -> None:
+        if self._consecutive_errors:
+            self._consecutive_errors = 0
 
     def get_state(self) -> VolumeState | None:
         if self._tool == "pactl":
@@ -135,7 +174,7 @@ class LinuxVolumeBackend(VolumeBackend):
         if self._tool == "pactl" or self._tool == "wpctl":
             # Try pactl first (works on PulseAudio + PipeWire compat).
             # For wpctl-only systems without pactl, _run will return None
-            # and we fall through to the ALSA procfs check.
+            # and we fall through to the ALSA procfs check below.
             out = self._run(["pactl", "list", "sink-inputs"], timeout=1.5)
             if out is not None:
                 # Output contains blocks like:
@@ -174,6 +213,10 @@ class LinuxVolumeBackend(VolumeBackend):
             Path = _vb_pkg.Path  # noqa: N806
             asound = Path("/proc/asound")
             if not asound.exists():
+                # UE-25: success (we successfully determined "not Linux")
+                # — reset the counter so a transient error run doesn't
+                # poison subsequent successful calls.
+                self._record_success()
                 return True  # not Linux? — duck to be safe
             for card_dir in asound.iterdir():
                 if not card_dir.name.startswith("card"):
@@ -190,12 +233,23 @@ class LinuxVolumeBackend(VolumeBackend):
                         try:
                             content = status_file.read_text()
                             if "state: RUNNING" in content:
+                                # UE-25: success — a substream is running.
+                                self._record_success()
                                 return True
                         except (OSError, PermissionError):
                             continue
+            # UE-25: success — we successfully scanned /proc/asound and
+            # found no running substreams.
+            self._record_success()
             return False  # no running substreams found
         except Exception as exc:
             log.debug("[VOLUME-LINUX] _alsa_is_playing failed: %s", exc)
+            # UE-25: surface a WARNING after N consecutive failures so a
+            # persistently broken /proc/asound scan doesn't degrade
+            # smart-duck to "always duck" with no log breadcrumb.  The
+            # safe-default ``True`` return is preserved (prevents
+            # duck-state corruption).
+            self._record_error("_alsa_is_playing", exc)
             return True  # safe default
 
     # ── pactl (PulseAudio / PipeWire compat) ────────────────────────

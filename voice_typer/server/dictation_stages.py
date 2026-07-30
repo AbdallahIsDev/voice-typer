@@ -192,6 +192,19 @@ class EmptyCheckStage:
     between two ``with _timed_stage`` blocks without its own wrapper,
     so we set ``timed = False`` to keep the ``_timings`` dict keys
     identical to the original.
+
+    UE-47 (observability note): this stage only fires when the
+    backend WAS loaded but produced empty output (genuine silence or
+    a cloud provider returning 200 with an empty body). When the
+    backend was NOT loaded, ``DictationPipeline._transcribe`` raises
+    ``BackendNotLoadedError`` BEFORE returning text — that exception
+    propagates out of :class:`TranscribeStage` (which calls
+    ``self._transcribe()``) and is caught by ``run()``'s generic
+    ``except Exception`` block, so this stage never runs in the
+    unloaded-backend case. The two paths are intentionally distinct
+    so the user sees "model not loaded" (unloaded backend) vs.
+    "No speech detected" (loaded backend, empty output) instead of
+    the same ambiguous toast for both.
     """
 
     name = "empty_check"

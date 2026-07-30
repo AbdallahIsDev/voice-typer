@@ -96,6 +96,45 @@ def _ensure_resampled_concat(recorder: Recorder) -> None:
     recorder._cached_resampled_concat_dirty = False
 
 
+def _ensure_no_resample_concat(recorder: Recorder) -> None:
+    """Lazily materialize ``recorder._cached_no_resample_arr`` from the
+    no-resample segment list.
+
+    AB-1: mirrors :func:`_ensure_resampled_concat` for the no-resample
+    branch of :func:`take_snapshot`. The cached prefix is kept as a
+    *list* of segments (``recorder._cached_no_resample_segments``) — one
+    per snapshot that saw new chunks — and only re-concatenated into a
+    contiguous ndarray when a caller actually needs one. This eliminates
+    the O(N) re-copy of the entire buffer that previously happened on
+    every snapshot (``np.concatenate(chunks, axis=0).reshape(-1)`` where
+    ``chunks`` was the full deque).
+
+    This helper is a no-op when the segment list has not changed since
+    the last materialization (``_cached_no_resample_concat_dirty ==
+    False``) — the existing ``_cached_no_resample_arr`` array stays
+    valid and any previously-returned views into it remain correct.
+
+    Post-condition: ``recorder._cached_no_resample_arr`` is a contiguous
+    ndarray containing the concatenation of all segments in
+    ``recorder._cached_no_resample_segments`` (or an empty float32 array
+    when the list is empty), and ``_cached_no_resample_concat_dirty`` is
+    ``False``.
+    """
+    if not recorder._cached_no_resample_concat_dirty:
+        return
+    segments = recorder._cached_no_resample_segments
+    if not segments:
+        recorder._cached_no_resample_arr = np.array([], dtype=np.float32)
+    elif len(segments) == 1:
+        # Avoid the np.concatenate overhead for the single-segment case
+        # (common at the start of a session). The segment is already a
+        # contiguous ndarray, so we can use it directly.
+        recorder._cached_no_resample_arr = segments[0]
+    else:
+        recorder._cached_no_resample_arr = np.concatenate(segments)
+    recorder._cached_no_resample_concat_dirty = False
+
+
 def take_snapshot(recorder: Recorder) -> np.ndarray:
     """Return current recorded audio without clearing the active buffer.
 
@@ -185,6 +224,10 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
             # invalidate the segment list + lazy-concat cache too.
             recorder._cached_resampled_segments = []
             recorder._cached_resampled_concat_dirty = False
+            # AB-1: invalidate the no-resample segment list + lazy-concat
+            # cache too (mirror the resample-path invalidation).
+            recorder._cached_no_resample_segments = []
+            recorder._cached_no_resample_concat_dirty = False
 
         if effective_sr != target_sr and len(recorder._buffer) > recorder._cached_native_chunk_count:
             # PERF-NEW-003: islice avoids the full-deque list copy. Only
@@ -240,27 +283,82 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
             return recorder._cached_resampled[:]
         elif effective_sr == target_sr:
             # No resampling needed, just concatenate all.
-            # PERF-NEW-003: islice over the deque avoids the full list copy.
-            # ``np.fromiter`` would be even faster but requires a flat
-            # iterator; the deque holds 2D chunks so we still need one
-            # concatenate.
             #
-            # NEW-PERF-003: cache the no-resample concatenation too, so
-            # repeated snapshots with no new chunks don't repeat the
-            # concatenate. When chunks ARE new, we rebuild the cache. The
-            # cache key is the buffer length — if it hasn't changed, the
-            # cached array is still valid.
+            # AB-1: mirror the resample-path segment-list + lazy-concat
+            # optimization. The previous implementation cached the
+            # concatenation by ``buf_len`` only and missed on every
+            # poll (the streaming thread polls at 4 Hz while the audio
+            # worker appends at 16 Hz → ``buf_len`` always differs
+            # between polls). The cache-miss path ran
+            # ``np.concatenate(chunks, axis=0).reshape(-1)`` over the
+            # full deque on every poll — rebuilding the full array
+            # every poll, ~460 MB/s of memcpy + garbage allocation on
+            # a 30-min 16 kHz mono dictation (~115 MB buffer). This is
+            # the COMMON path because ``AudioProcessor`` resamples to
+            # 16 kHz before appending (so ``_buffer_sr == target_sr``).
+            #
+            # We now keep the cached prefix as a *list* of segments
+            # (one per snapshot that saw new chunks) and only
+            # re-concatenate when the list changes (``_ensure_no_resample_concat``).
+            # Snapshots that see no new chunks reuse the cached concat
+            # (zero memcpy). When new chunks DO arrive, only the new
+            # tail is materialized (via ``islice``) and appended; the
+            # cached prefix is re-concatenated lazily.
             buf_len = len(recorder._buffer)
-            if (
-                getattr(recorder, "_cached_no_resample_len", -1) == buf_len
-                and recorder._cached_no_resample_arr is not None
-            ):
-                return recorder._cached_no_resample_arr[:]
-            chunks = list(itertools.islice(recorder._buffer, 0, None))
-            audio = np.concatenate(chunks, axis=0).reshape(-1)
+            cached_chunks = recorder._cached_no_resample_len
+            # Detect invalidated / inconsistent cache state:
+            #   * ``cached_chunks < 0``: set by ``_secure_clear_caches``
+            #     (in the session_state module, which we cannot modify)
+            #     / ``reset_session_state`` / the key-change invalidation
+            #     block above. The segments list may still hold stale
+            #     references (the secure-clear path zeros the concat
+            #     array but doesn't touch the segment list — mirroring
+            #     the resample-path's ``_cached_resampled_segments``
+            #     treatment), so we drop them here on first use after
+            #     invalidation.
+            #   * ``cached_chunks > buf_len``: the buffer shrank
+            #     (defensive — should not happen in normal operation
+            #     because discard/stop replace the deque AND invalidate
+            #     the cache, but guards against a future code path that
+            #     clears the buffer without invalidating).
+            if cached_chunks < 0 or cached_chunks > buf_len:
+                if recorder._cached_no_resample_segments:
+                    recorder._cached_no_resample_segments = []
+                    recorder._cached_no_resample_concat_dirty = True
+                cached_chunks = 0
+            if buf_len > cached_chunks:
+                # PERF-NEW-003: islice avoids the full-deque list copy.
+                # Only the new tail is materialized.
+                new_chunks = list(
+                    itertools.islice(
+                        recorder._buffer,
+                        cached_chunks,
+                        None,
+                    )
+                )
+                if new_chunks:
+                    new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
+                    # Append the new segment to the segment list (O(1))
+                    # instead of re-concatenating the entire cached
+                    # prefix (O(N) where N = total cached samples). The
+                    # concat is materialized lazily by
+                    # ``_ensure_no_resample_concat`` below when the
+                    # caller actually needs a contiguous array.
+                    recorder._cached_no_resample_segments.append(new_audio)
+                    recorder._cached_no_resample_concat_dirty = True
             recorder._cached_no_resample_len = buf_len
-            recorder._cached_no_resample_arr = audio
-            return audio[:]
+            # materialize the lazy concat if the segment list changed
+            # since the last call. No-op when no new chunks arrived --
+            # the existing cached_no_resample_arr stays valid and the
+            # view we return shares memory with it.
+            _ensure_no_resample_concat(recorder)
+            # NEW-PERF-003: return a VIEW into the cache. The caller
+            # (streaming.py) only reads + slices this array; it never
+            # mutates. When the cache is later replaced by a new
+            # np.concatenate(...) assignment, this view remains valid
+            # (numpy keeps the underlying buffer alive until all views
+            # are released). This eliminates the per-poll copy.
+            return recorder._cached_no_resample_arr[:]
         else:
             # No new chunks, return cached.
             # NEW-PERF-003: return a VIEW, not a copy. See comment in the

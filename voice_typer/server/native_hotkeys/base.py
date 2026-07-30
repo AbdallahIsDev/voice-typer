@@ -21,6 +21,8 @@ to the package's binding at call time, rather than capturing the
 function object at import time.
 """
 
+import contextlib
+import os
 import signal
 import subprocess
 import threading
@@ -398,6 +400,64 @@ class SubprocessHotkeyBackend(ABC):
         so the caller's ``_ready_event.wait(timeout=...)`` times out
         and raises a clear ``RuntimeError`` (rather than spawning an
         untrusted binary).
+
+        XE-12-5: TOCTOU mitigation between ``verify_native_binary_or_skip``
+        and ``subprocess.Popen``. The previous code did::
+
+            if not verify_native_binary_or_skip(self._binary_path):
+                return
+            subprocess.Popen([str(self._binary_path), ...])
+
+        Between the verify and Popen, an attacker with write access to
+        the binary path could swap the file on disk. The verify reads
+        bytes via ``path.read_bytes()``; Popen re-resolves the path →
+        execve, so a swap between the two achieves native-code
+        execution as the user with a verified-clean path.
+
+        Mitigation (POSIX only — see Windows limitation below):
+
+        1. Open the file with ``os.open(path, O_RDONLY | O_CLOEXEC)``
+           BEFORE the verify, pinning the inode at that moment.
+        2. Run the existing SHA-256 verify (unchanged — uses
+           ``path.read_bytes()`` so the existing tests' patch of
+           ``verify_native_binary_or_skip`` continues to take effect).
+        3. After verify, ``fstat`` the fd → capture
+           ``(st_dev, st_ino, st_mtime_ns, st_size)``. This is the
+           stat of the inode the fd pinned.
+        4. Just before ``Popen``, ``os.stat`` the path and compare to
+           the fstat. If the quartet differs, the file was swapped or
+           modified between the os.open and the Popen — refuse to
+           spawn.
+
+        The fd does NOT need to be the same inode as what the verify
+        read. If the file was swapped between os.open and verify, the
+        os.stat check at step 4 catches it (path's stat ≠ fd's stat).
+        If the file was swapped between verify and os.stat, the
+        os.stat check catches it (path's stat ≠ fd's stat, because fd
+        still pins the original inode). The only residual TOCTOU is
+        between os.stat and the execve inside Popen — a sub-microsecond
+        window.
+
+        Residual TOCTOU (POSIX): an attacker who can win the race
+        between os.stat and execve (e.g. via inotify + a tight rename
+        loop) could still swap the binary. Closing this fully requires
+        ``fexecve(fd, argv, envp)`` (exec from the fd, not the path),
+        which is not exposed by ``subprocess.Popen`` and is not
+        portable to older Linux kernels. The fd is closed AFTER
+        ``Popen`` returns so the pinned inode stays referenced for the
+        duration of the spawn (defense-in-depth: an attacker who
+        unlinks+replaces the path can't reclaim the verified inode's
+        disk blocks while the fd is open).
+
+        Windows limitation: Windows does not have ``O_CLOEXEC`` and
+        ``subprocess.Popen`` on Windows does not accept an open fd as
+        argv[0] (it must be a path string). The TOCTOU window on
+        Windows is the same as the pre-XE-12-5 code (between verify
+        and the ``CreateProcess`` call inside Popen). This is
+        documented as a known limitation; the mitigation on Windows
+        is the existing SHA-256 manifest gate (still in place) plus
+        the assumption that the install dir is not writable by an
+        untrusted user.
         """
         if self._binary_path is None:
             self._failed = True
@@ -413,7 +473,34 @@ class SubprocessHotkeyBackend(ABC):
         # cycle if binary_path.py grows additional deps).
         from .binary_path import verify_native_binary_or_skip
 
+        # XE-12-5: on POSIX, open the file with O_RDONLY | O_CLOEXEC
+        # BEFORE the verify so the fd pins the inode. The fd is held
+        # across the verify and Popen so we can detect tampering via
+        # a stat mismatch (path-stat vs fd-stat) just before Popen.
+        # On Windows the fd-based check is skipped (see the docstring's
+        # "Windows limitation" section).
+        on_posix = is_macos() or is_linux()
+        fd: int | None = None
+        pinned_stat: tuple | None = None
+        if on_posix:
+            try:
+                fd = os.open(
+                    str(self._binary_path),
+                    os.O_RDONLY | os.O_CLOEXEC,
+                )
+            except OSError as exc:
+                self._failed = True
+                self._error_message = (
+                    f"Native {self.platform_name} binary open failed "
+                    f"during TOCTOU re-verify (path={self._binary_path}): {exc}"
+                )
+                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                return
+
         if not verify_native_binary_or_skip(self._binary_path):
+            if fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
             self._failed = True
             self._error_message = (
                 f"Native {self.platform_name} binary failed SHA-256 verification "
@@ -422,6 +509,57 @@ class SubprocessHotkeyBackend(ABC):
             )
             log.error("[NATIVE-HOTKEY] %s", self._error_message)
             return
+
+        # XE-12-5: capture the pinned inode's stat for the pre-Popen
+        # check. fstat reads metadata directly from the fd (no path
+        # re-resolution), so this is the stat of the inode the fd
+        # pinned at os.open time — unaffected by any later path swap.
+        if fd is not None:
+            try:
+                st = os.fstat(fd)
+                pinned_stat = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
+            except OSError as exc:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                self._failed = True
+                self._error_message = (
+                    f"Native {self.platform_name} binary fstat failed "
+                    f"during TOCTOU re-verify (path={self._binary_path}): {exc}"
+                )
+                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                return
+
+        # XE-12-5: pre-Popen stat check. If the path's stat differs
+        # from the pinned fd's stat, the file was swapped or modified
+        # between os.open and now (which includes the verify window).
+        # Refuse to spawn — this is the TOCTOU gate.
+        if pinned_stat is not None:
+            try:
+                pst = os.stat(str(self._binary_path))
+                path_stat = (pst.st_dev, pst.st_ino, pst.st_mtime_ns, pst.st_size)
+            except OSError as exc:
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                self._failed = True
+                self._error_message = (
+                    f"Native {self.platform_name} binary stat failed pre-Popen (path={self._binary_path}): {exc}"
+                )
+                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                return
+            if path_stat != pinned_stat:
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                self._failed = True
+                self._error_message = (
+                    f"Native {self.platform_name} binary stat changed "
+                    f"between verify and Popen (path={self._binary_path}) — "
+                    f"possible TOCTOU swap. Refusing to spawn an untrusted binary."
+                )
+                log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                return
+
         cmd = [str(self._binary_path), self.hotkey_str]
         try:
             self._process = subprocess.Popen(
@@ -441,12 +579,23 @@ class SubprocessHotkeyBackend(ABC):
                     subprocess.CREATE_NO_WINDOW if is_windows() and hasattr(subprocess, "CREATE_NO_WINDOW") else 0
                 ),
                 # Reset signal handlers in child so SIGTERM works cleanly
-                start_new_session=is_macos() or is_linux(),
+                start_new_session=on_posix,
             )
         except OSError as exc:
             self._failed = True
             self._error_message = f"Failed to spawn {self.platform_name} binary: {exc}"
+            if fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
             raise RuntimeError(self._error_message) from exc
+
+        # XE-12-5: close the pinned fd now that Popen has spawned.
+        # The child has its own reference to the binary via the
+        # execve, so the parent's fd is no longer needed. Closing
+        # here avoids leaking fds across respawns.
+        if fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(fd)
 
         # G4-H-31: reset the liveness timestamps so the freshly-spawned
         # binary gets a full 60s grace period before the watchdog

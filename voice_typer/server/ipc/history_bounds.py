@@ -92,6 +92,14 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "!_password",
     "!_credential",
     "!_bearer",
+    # XE-2-2: ``!_key`` catches generic key-suffixed fields that the
+    # narrower ``!_api_key`` suffix missed — ``secret_key``,
+    # ``signing_key``, ``private_key``, ``hmac_key``, ``aes_key``,
+    # ``encryption_key``. The pattern is NAME-based so a non-secret
+    # field like ``keyboard_layout_key`` (a configurable key code)
+    # WOULD match — but the conservative redaction stance is
+    # preferable to silently leaking a signing key.
+    "!_key",
     # Exact-match patterns (bare names — must be the WHOLE field name).
     "=password",
     "=credential",
@@ -99,6 +107,15 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "=secret",
     "=token",
     "=api_key",
+    # XE-2-2: bare-name exact matches for cryptographic key material
+    # that doesn't carry a vendor prefix. ``private_key`` /
+    # ``secret_key`` / ``signing_key`` are the conventional names for
+    # PEM-encoded key blobs; without these exact matches a Config
+    # field literally named ``private_key`` would be echoed verbatim
+    # to the IPC client (credential disclosure).
+    "=private_key",
+    "=secret_key",
+    "=signing_key",
 )
 
 

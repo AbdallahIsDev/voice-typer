@@ -16,6 +16,18 @@ from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
 
+# UE-25: number of consecutive backend failures before a WARNING is
+# surfaced.  Backends otherwise swallow errors and return safe defaults
+# (``True`` for ``is_speaker_active``, ``None`` for ``get_state``) so
+# duck-state is never corrupted by a transient backend hiccup — but a
+# stuck/revoked COM pointer would degrade ducking to a silent no-op
+# with no log breadcrumb.  The counter is per-instance and shared
+# across the backend's error-tracked methods; a single success resets
+# it.  The WARNING fires every ``_BACKEND_ERROR_WARN_THRESHOLD`` failures
+# (3, 6, 9, ...) so a persistently broken backend surfaces in the logs
+# without spamming on every call.
+_BACKEND_ERROR_WARN_THRESHOLD = 3
+
 
 class WinVolumeBackend(VolumeBackend):
     """Windows volume control via pycaw / COM.
@@ -35,6 +47,14 @@ class WinVolumeBackend(VolumeBackend):
         self._meter = None  # IAudioMeterInformation COM pointer
         self._sessions: list = []  # saved (session, original_volume) tuples
         self._com_initialized = False
+        # UE-25: consecutive-error counter for observability.  Reset on
+        # any success; surfaces a WARNING after
+        # ``_BACKEND_ERROR_WARN_THRESHOLD`` consecutive failures so a
+        # stuck/revoked COM pointer doesn't degrade ducking to a silent
+        # no-op.  Initialized here (and reset in ``initialize``) so
+        # methods can be called before ``initialize`` without
+        # ``AttributeError``.
+        self._consecutive_errors: int = 0
 
     @property
     def name(self) -> str:
@@ -47,6 +67,8 @@ class WinVolumeBackend(VolumeBackend):
     def initialize(self) -> bool:
         if self._vol is not None:
             return True
+        # UE-25: reset the error counter on a fresh initialize() attempt.
+        self._consecutive_errors = 0
         try:
             from ctypes import POINTER, cast
 
@@ -92,6 +114,38 @@ class WinVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-WIN] initialize failed: %s", exc)
             return False
 
+    # ── UE-25 error-tracking helpers ──────────────────────────────────
+    #
+    # ``_record_error`` increments the consecutive-failure counter and
+    # emits a WARNING every ``_BACKEND_ERROR_WARN_THRESHOLD`` failures
+    # (3, 6, 9, ...) so a persistently broken backend surfaces in the
+    # logs without spamming on every call.  ``_record_success`` resets
+    # the counter.  Both are no-ops with respect to the return values
+    # of the calling method — the safe-default return values are
+    # preserved (they prevent duck-state corruption); the counter is
+    # additive observability only.
+    #
+    # The counter is a plain ``int`` mutated under CPython's GIL.  A
+    # missed increment from a concurrent caller (the smart-duck monitor
+    # polls ``is_speaker_active`` outside the ``VolumeDucker`` lock) is
+    # acceptable for an observability counter — the WARNING still fires
+    # eventually on a persistently broken backend.
+
+    def _record_error(self, context: str, exc: BaseException) -> None:
+        self._consecutive_errors += 1
+        if self._consecutive_errors % _BACKEND_ERROR_WARN_THRESHOLD == 0:
+            log.warning(
+                "[VOLUME-WIN] %s failed %d times in a row (last error: %s) "
+                "— safe-default returned, duck state preserved",
+                context,
+                self._consecutive_errors,
+                exc,
+            )
+
+    def _record_success(self) -> None:
+        if self._consecutive_errors:
+            self._consecutive_errors = 0
+
     def get_state(self) -> VolumeState | None:
         if self._vol is None:
             return None
@@ -99,9 +153,13 @@ class WinVolumeBackend(VolumeBackend):
             scalar = float(self._vol.GetMasterVolumeLevelScalar())
             muted = bool(self._vol.GetMute())
             scalar = max(0.0, min(1.0, scalar))
+            self._record_success()
             return VolumeState(linear=scalar, muted=muted)
         except Exception as exc:
-            log.warning("[VOLUME-WIN] get_state failed: %s", exc)
+            # UE-25: per-failure DEBUG only; the threshold-based WARNING
+            # in ``_record_error`` is the operator-visible signal.
+            log.debug("[VOLUME-WIN] get_state failed: %s", exc)
+            self._record_error("get_state", exc)
             return None
 
     def set_linear(self, level: float, muted: bool | None = None) -> bool:
@@ -114,7 +172,9 @@ class WinVolumeBackend(VolumeBackend):
                 self._vol.SetMute(1 if muted else 0, None)
             return True
         except Exception as exc:
-            log.warning("[VOLUME-WIN] set_linear failed: %s", exc)
+            # UE-25: per-failure DEBUG; threshold WARNING handled by _record_error.
+            log.debug("[VOLUME-WIN] set_linear failed: %s", exc)
+            self._record_error("set_linear", exc)
             return False
 
     def is_speaker_active(self) -> bool:
@@ -131,9 +191,12 @@ class WinVolumeBackend(VolumeBackend):
             peak = float(self._meter.GetPeakValue())
             # Threshold at ~ -40 dBFS.  Below this, nothing audible is
             # coming out of the speakers.
-            return peak >= 0.01
+            active = peak >= 0.01
+            self._record_success()
+            return active
         except Exception as exc:
             log.debug("[VOLUME-WIN] is_speaker_active failed: %s", exc)
+            self._record_error("is_speaker_active", exc)
             return True
 
     def get_other_sessions(self) -> list:

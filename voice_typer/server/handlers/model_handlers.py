@@ -1,9 +1,16 @@
 """Model IPC handler mixin: download_model, cancel_model_download,
-test_llm_connection, delete_model, import_model.
+delete_model, import_model.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_test_llm_connection`` was REMOVED — the
+renderer's Settings page now uses ``service.test_llm_connection``
+directly (not over IPC). The TS allowlist also dropped the entry.
+The service-layer method ``service.test_llm_connection`` still exists
+(called from other internal paths); only the IPC dispatch route was
+deleted.
 
 NEW-MODEL-001: added ``_handle_get_model_catalog`` to expose the full
 ``MODEL_REGISTRY`` to the renderer (rich metadata for the Models page).
@@ -26,7 +33,7 @@ from voice_typer.server.ipc.validation import (
 
 
 class ModelHandlersMixin(HandlerBase):
-    """Mixin: model-management IPC handlers (download / cancel / test_llm / delete).
+    """Mixin: model-management IPC handlers (download / cancel / delete).
 
     CR-20: this mixin is one of the four "representative" handlers
     migrated to :meth:`HandlerBase._respond_with_error` for the
@@ -154,20 +161,6 @@ class ModelHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_model_catalog")
-        return resp
-
-    def _handle_test_llm_connection(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``test_llm_connection`` IPC command."""
-        # NEW-DEAD-015: wire up the previously-dead
-        # ``LLMPolisher.test_connection`` method so the renderer can
-        # add a "Test connection" button on the Settings page.
-        try:
-            result = self.service.test_llm_connection()
-            resp["type"] = "test_llm_connection_result"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope.
-            self._respond_with_error(resp, exc, "test_llm_connection")
         return resp
 
     def _handle_import_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:

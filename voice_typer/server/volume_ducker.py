@@ -132,6 +132,41 @@ class VolumeDucker:
 
     # ── Lifecycle ───────────────────────────────────────────────────
 
+    def _clamp_poll_interval(self, value: int) -> int:
+        """AB-15: apply backend ``min_poll_interval_ms`` floor on every
+        ``set_smart_duck_poll_interval`` call, not just inside
+        :meth:`initialize`.
+
+        XV-57 introduced the floor to stop subprocess backends (Linux
+        ``pactl``, macOS ``osascript``) from burning 10–20 % CPU per
+        core when smart-duck polls faster than the backend can service.
+        Originally the floor lived only inside ``initialize()``, which
+        no-ops after the first successful call — so the 2nd and later
+        dictations (whose ``VolumeController._duck_volume`` path calls
+        ``set_smart_duck_poll_interval`` BEFORE the now-no-op
+        ``initialize``) silently bypassed the floor.  Centralising the
+        clamp here ensures the floor is re-applied on every set.
+
+        When no backend is bound yet (the production ducker is created
+        with ``backend=None`` and auto-detects inside ``initialize``),
+        the helper is a pass-through — the floor is applied later by
+        ``initialize``.  This preserves the first-dictation behaviour
+        the production code path relies on.
+
+        Defensive ``int(...) or 0`` coercion: duck-typed test fakes and
+        ``MagicMock`` backends may return non-numeric values from
+        ``min_poll_interval_ms``; coerce so a missing attribute doesn't
+        leak a non-numeric value into the comparison.
+        """
+        if self._backend is not None:
+            try:
+                min_poll = int(getattr(self._backend, "min_poll_interval_ms", 0) or 0)
+            except (TypeError, ValueError):
+                min_poll = 0
+            if min_poll > value:
+                return min_poll
+        return value
+
     def initialize(self) -> bool:
         """Detect platform, set up the backend, and check for crash recovery.
 
@@ -193,24 +228,24 @@ class VolumeDucker:
         # use ``max(user_value, min_poll)`` so the monitor never polls
         # *faster* than the backend can handle.  Users who explicitly
         # configure a slower value are still honoured.
-        # Defensive int coercion: ``getattr(backend, "...", 0)`` on a
-        # ``MagicMock`` backend returns a ``MagicMock`` (not the default
-        # ``0``) because ``__getattr__`` auto-vivifies. Coerce via
-        # ``int(...)`` so a mock-or-MagicMock backend's missing attribute
-        # doesn't leak a non-numeric value into the comparison below.
-        try:
-            min_poll = int(getattr(self._backend, "min_poll_interval_ms", 0) or 0)
-        except (TypeError, ValueError):
-            min_poll = 0
-        if min_poll > self._smart_duck_poll_ms:
+        #
+        # AB-15: the clamp is applied via the shared
+        # ``_clamp_poll_interval`` helper so that
+        # ``set_smart_duck_poll_interval`` (called on every dictation
+        # start by ``VolumeController._duck_volume``) re-applies the
+        # same floor — preventing the 2nd-and-later-dictation bypass
+        # that previously reset the cadence to the unclamped user
+        # value (500 ms) on Linux and burned 10–20 % CPU per core.
+        clamped = self._clamp_poll_interval(self._smart_duck_poll_ms)
+        if clamped > self._smart_duck_poll_ms:
             log.info(
                 "[VOLUME] Backend %s requires %dms minimum poll interval "
                 "(was %dms) — adopting to avoid subprocess CPU waste",
                 self._backend.name,
-                min_poll,
+                clamped,
                 self._smart_duck_poll_ms,
             )
-            self._smart_duck_poll_ms = min_poll
+            self._smart_duck_poll_ms = clamped
 
         log.info(
             "[VOLUME] Backend ready: %s (per_session=%s)",
@@ -294,9 +329,24 @@ class VolumeDucker:
 
         level = max(0.0, min(1.0, level))
 
+        # UE-12-F6: ``backend.fade_to()`` can block for up to 150 ms
+        # (10 steps x 15 ms sleep on in-process backends; a single
+        # subprocess call on Linux/macOS).  Holding ``self._lock``
+        # during the fade serialises ``restore()`` (ESC cancel) behind
+        # the fade -- visible as a 150 ms "ESC doesn't respond" delay.
+        # We mirror the pattern in
+        # ``level_monitor/worker._process_level_chunk``: snapshot the
+        # shared state under the lock (quick), release the lock for
+        # the heavy fade, re-acquire for the post-fade state writes
+        # (re-checking invariants because ``restore()`` may have run
+        # while we were fading).  ``restore()`` itself still holds the
+        # lock for its own fade (out of scope for UE-12-F6) -- but the
+        # common path (duck in progress, user hits ESC) now lets
+        # ``restore()`` start fading back immediately instead of
+        # waiting for ``duck()``'s fade to finish.
         with self._lock:
             if self._saved_state is None:
-                # First duck — save current state.
+                # First duck -- save current state.
                 state = self._backend.get_state()
                 if state is None:
                     log.warning("[VOLUME] get_state failed — not ducking")
@@ -317,7 +367,7 @@ class VolumeDucker:
                 # v2.3: start a background monitor that polls
                 # is_speaker_active() every poll_interval_ms.  If audio
                 # starts playing mid-dictation, the monitor retroactively
-                # applies the duck — closing the gap where speaker bleed
+                # applies the duck -- closing the gap where speaker bleed
                 # could leak into the mic.  See _smart_duck_monitor_loop.
                 # ERR-ERR-003 (fix): null-check _backend before calling
                 if self._smart_duck_enabled and self._backend is not None and not self._backend.is_speaker_active():
@@ -326,38 +376,30 @@ class VolumeDucker:
                     self._start_smart_duck_monitor(level, fade_ms, per_session)
                     return True
 
-                if per_session and self._backend.supports_per_session:
-                    ok = self._backend.duck_other_sessions(level)
-                    if not ok:
-                        ok = self._backend.fade_to(level, fade_ms)
-                else:
-                    ok = self._backend.fade_to(level, fade_ms)
-                self._actually_ducked = True
-
-                if ok and self._crash_recovery is not None:
-                    self._crash_recovery.save(state)
-
-                log.info(
-                    "[VOLUME] Duck -> %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
-                    level * 100,
-                    state.linear * 100,
-                    state.muted,
-                    per_session,
-                )
-                return ok
+                # UE-12-F6: snapshot the fade parameters so we can
+                # drop the lock for the actual ``backend.fade_to()``
+                # call below.  ``saved_state`` is captured for the
+                # post-fade crash-recovery write; ``use_per_session``
+                # gates the ``duck_other_sessions`` fallback path.
+                saved_state = state
+                target_level = level
+                target_fade_ms = fade_ms
+                use_per_session = per_session and self._backend.supports_per_session
+                backend_ref = self._backend
+                is_first_duck = True
             else:
-                # Already ducked — update level without re-saving.
+                # Already ducked -- update level without re-saving.
                 #
                 # BUGFIX (v1.1): if smart-duck skipped the first duck
                 # (_actually_ducked=False), we must NOT call fade_to
-                # here — doing so would fade the user's volume down to
+                # here -- doing so would fade the user's volume down to
                 # the new duck level with no saved state to restore
                 # from.  Instead, just update the logical ducked_level
                 # so a later restore() (if audio has since started)
                 # knows the target.  The user's volume is unchanged.
                 #
                 # v2.3: if the smart-duck monitor is running, it will
-                # pick up the new _ducked_level on its next poll — no
+                # pick up the new _ducked_level on its next poll -- no
                 # need to restart it.
                 self._ducked_level = level
                 if not self._actually_ducked:
@@ -366,9 +408,71 @@ class VolumeDucker:
                         level * 100,
                     )
                     return True
-                ok = self._backend.fade_to(level, fade_ms)
-                log.info("[VOLUME] Duck level updated -> %.0f%%", level * 100)
+                # UE-12-F6: snapshot for unlocked fade (see comment above).
+                saved_state = None  # not used on the already-ducked path
+                target_level = level
+                target_fade_ms = fade_ms
+                use_per_session = False  # per-session only attempted on first duck
+                backend_ref = self._backend
+                is_first_duck = False
+
+        # -- Heavy fade OUTSIDE the lock (UE-12-F6) --
+        # ``backend.fade_to()`` may block for up to 150 ms.  Holding
+        # ``self._lock`` here would block ``restore()`` (ESC cancel)
+        # for the fade duration.  The backend's ``fade_to`` is
+        # thread-safe at the backend level (Windows COM is
+        # apartment-threaded; Linux/macOS spawn independent
+        # subprocesses), so concurrent fades from ``restore()`` race
+        # on the backend but do not corrupt ``VolumeDucker`` state --
+        # the post-fade re-check below handles the
+        # ``restore()``-ran-during-fade case.
+        if backend_ref is None:  # defensive -- checked at entry, but snapshotted
+            ok = False
+        elif use_per_session:
+            ok = backend_ref.duck_other_sessions(target_level)
+            if not ok:
+                ok = backend_ref.fade_to(target_level, target_fade_ms)
+        else:
+            ok = backend_ref.fade_to(target_level, target_fade_ms)
+
+        # -- Post-fade state writes UNDER the lock (UE-12-F6) --
+        with self._lock:
+            if is_first_duck:
+                # Re-check invariants: ``restore()`` may have run
+                # during the fade, clearing ``_saved_state`` and
+                # fading the volume back to the saved level.  If so,
+                # we must NOT mark ``_actually_ducked = True`` (that
+                # would leave the ducker in an inconsistent state
+                # where ``is_ducked`` is False but ``_actually_ducked``
+                # is True) and must NOT persist a crash-recovery file
+                # (the volume was already restored -- there's nothing
+                # to recover from).
+                if self._saved_state is None:
+                    log.info("[VOLUME] restore() ran during duck fade — skipping state update")
+                    return ok
+                self._actually_ducked = True
+                if ok and self._crash_recovery is not None:
+                    self._crash_recovery.save(saved_state)
+                log.info(
+                    "[VOLUME] Duck -> %.0f%% (saved %.0f%%, muted=%s, per_session=%s)",
+                    target_level * 100,
+                    saved_state.linear * 100,
+                    saved_state.muted,
+                    use_per_session,
+                )
                 return ok
+            # Already-ducked path: ``_ducked_level`` was updated
+            # before the fade (under the first lock acquisition), so
+            # the smart-duck monitor picks up the new level on its
+            # next poll.  Re-check whether ``restore()`` ran during
+            # the fade -- if so, skip the "level updated" log (the
+            # user-facing state is "restored", not "ducked at new
+            # level").
+            if self._saved_state is None:
+                log.info("[VOLUME] restore() ran during level-update fade — skipping state update")
+                return ok
+            log.info("[VOLUME] Duck level updated -> %.0f%%", target_level * 100)
+            return ok
 
     def restore(
         self,
@@ -389,16 +493,40 @@ class VolumeDucker:
         if not self._initialized or self._backend is None:
             return False
 
-        # v2.3: stop the smart-duck background monitor before touching
-        # state.  G4-M-19: _stop_smart_duck_monitor() is now non-blocking
-        # (signals the Event, clears _monitor_thread, returns without
-        # joining). The monitor thread is a daemon and will exit on its
-        # own within one poll iteration (~poll_ms). We acquire self._lock
-        # AFTER the signal so the monitor can acquire it to check
-        # _saved_state and exit cleanly.
-        self._stop_smart_duck_monitor()
-
+        # UE-23: stop the smart-duck background monitor INSIDE the lock.
+        # v2.3 originally signalled the monitor BEFORE acquiring
+        # ``self._lock`` so the monitor thread could acquire the lock
+        # to check ``_saved_state`` and exit cleanly.  But that
+        # ordering is racy: ``duck()`` (which holds the lock and calls
+        # ``_start_smart_duck_monitor()`` inside the lock) could run
+        # concurrently with ``restore()``'s unlocked
+        # ``_stop_smart_duck_monitor()``.  Sequence:
+        #
+        #   1. Thread A (restore) reads ``_monitor_thread`` = T1
+        #      (without the lock).
+        #   2. Thread A sets ``_monitor_stop``.
+        #   3. Thread B (concurrent duck) acquires the lock, calls
+        #      ``_start_smart_duck_monitor()``.  It reads
+        #      ``_monitor_thread`` — if Thread A hasn't nulled it yet,
+        #      it sees T1 (alive) and returns WITHOUT starting a fresh
+        #      monitor (``_start_smart_duck_monitor``'s early-exit when
+        #      a monitor is already running).  Thread A then nulls
+        #      ``_monitor_thread``; T1 exits on its next poll.  The new
+        #      dictation has NO monitor running — no retroactive-duck
+        #      protection.
+        #
+        # Calling ``_stop_smart_duck_monitor()`` from inside the lock
+        # makes the stop + ``_saved_state``-clear atomic with respect
+        # to ``duck()``'s start.  ``_stop_smart_duck_monitor()`` is
+        # non-blocking (G4-M-19: signals the Event, clears
+        # ``_monitor_thread``, returns without joining), so holding the
+        # lock for the call does not introduce a deadlock — the monitor
+        # thread either sees the Event via ``wait()`` and exits without
+        # the lock, or acquires the lock after ``restore()`` releases
+        # it and exits via the ``_saved_state is None`` re-check.
         with self._lock:
+            self._stop_smart_duck_monitor()
+
             if self._saved_state is None:
                 return True  # not ducked — no-op success
 
@@ -496,8 +624,17 @@ class VolumeDucker:
         Clamped to [50, 5000] — below 50ms risks starving the audio
         callback on slow backends (macOS osascript); above 5000ms is
         too slow to catch short audio bursts.
+
+        AB-15: the backend's ``min_poll_interval_ms`` floor is
+        re-applied on EVERY call via :meth:`_clamp_poll_interval`.
+        This is the core AB-15 fix: previously the floor was applied
+        only inside :meth:`initialize` (which no-ops after the first
+        dictation), so the 2nd-and-later dictations silently bypassed
+        the floor — causing 10–20 % CPU waste on Linux ``pactl`` /
+        macOS ``osascript`` for the duration of every subsequent
+        dictation.
         """
-        self._smart_duck_poll_ms = max(50, min(5000, int(ms)))
+        self._smart_duck_poll_ms = self._clamp_poll_interval(max(50, min(5000, int(ms))))
 
     # ── Smart-duck background monitor (v2.3) ────────────────────────
 

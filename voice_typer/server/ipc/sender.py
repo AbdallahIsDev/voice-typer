@@ -89,6 +89,17 @@ _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
 _TCP_PENDING_DRAIN_CAP: int = 100
 _TCP_PENDING_BUFFER_CAP: int = 1000
 
+# XE-2-4: hard size cap on a single outbound TCP frame. Matches the WS
+# path's ``_MAX_FRAME_BYTES`` (1 MiB, see ``sidecar_ws.py``) so a buggy
+# handler that returns an enormous dict (e.g. an unbounded history
+# query, a diagnostics export with a full log tail) cannot OOM the
+# client by writing a multi-MB JSON line that the kernel send buffer
+# has to swallow. Pre-fix the TCP path had no cap — the WS path
+# rejected oversized frames at the transport layer (``serve(...,
+# max_size=...)``) but the TCP path's ``tcp_client.write(line + "\n")``
+# would happily block the worker thread on a 100-MB send.
+_TCP_MAX_OUTBOUND_BYTES: int = 1 * 1024 * 1024
+
 
 class OutputMixin:
     """Output / push methods for :class:`IPCServer`.
@@ -179,6 +190,37 @@ class OutputMixin:
             return
 
         if tcp_client is not None:
+            # XE-2-4: cap the outbound TCP frame size before acquiring the
+            # write lock. A buggy handler returning an enormous dict (e.g.
+            # an unbounded history query, a diagnostics export with a full
+            # log tail) would otherwise OOM the client by writing a multi-
+            # MB JSON line that the kernel send buffer has to swallow —
+            # blocking the worker thread on a 100-MB send. The cap matches
+            # the WS path's ``_MAX_FRAME_BYTES`` (1 MiB) so both transports
+            # enforce the same upper bound. The check is BEFORE the
+            # ``_tcp_write_lock`` acquisition so an oversized frame doesn't
+            # serialize behind a slow in-flight write. ``return`` (not
+            # ``continue``) so the undrained ``pending`` snapshot is
+            # re-merged below — same path as the post-write re-merge when
+            # the client write fails.
+            if len(line.encode("utf-8")) > _TCP_MAX_OUTBOUND_BYTES:
+                log.error(
+                    "[IPC] outbound TCP frame exceeds %d bytes — dropping",
+                    _TCP_MAX_OUTBOUND_BYTES,
+                )
+                # CR-79: re-merge the pending snapshot so the dropped
+                # frame's would-be-drained entries survive for the next
+                # reconnect (mirrors the re-merge after a write failure).
+                # The dropped frame itself is NOT re-merged — it would
+                # just be dropped again on the next attempt.
+                if pending:
+                    _pending_cap_drop = _TCP_PENDING_BUFFER_CAP
+                    with self._lock:
+                        self._pending_tcp = pending + self._pending_tcp
+                        if len(self._pending_tcp) > _pending_cap_drop:
+                            _dropped = len(self._pending_tcp) - _pending_cap_drop
+                            del self._pending_tcp[:_dropped]
+                return
             # QUIT-CLEAN-001: if the app is shutting down, skip the TCP
             # write for non-critical events.  Electron closes its end of
             # the socket as soon as it receives the ``quit_app`` event;
@@ -385,15 +427,67 @@ class OutputMixin:
                             older = []
                             recent = list(pending)
                         _drain_failed_at: int | None = None
+                        # AB-37: buffer ALL recent entries to the
+                        # ``_TCPLineIO`` write buffer WITHOUT flushing
+                        # per-entry, then flush ONCE at the end. With
+                        # the old per-entry ``write+flush`` pattern, a
+                        # full drain (100 entries) issued 100 separate
+                        # ``sendall`` syscalls under ``_tcp_write_lock``
+                        # — plus 1 for the current line = 101 syscalls
+                        # per ``_send`` call. The batched-flush pattern
+                        # collapses those 100 drain syscalls into 1,
+                        # reducing the total to 2 (1 for the current
+                        # line above + 1 for the whole drain batch).
+                        #
+                        # The per-entry ``try/except`` is retained for
+                        # backward compatibility with mock-based tests
+                        # that override ``write()`` to raise on the Nth
+                        # call (real ``_TCPLineIO.write`` never raises —
+                        # it just appends to an in-memory list, so the
+                        # per-entry failure path is dead code for the
+                        # real transport; the live failure path is the
+                        # batched ``flush()`` below).
                         for _i, p in enumerate(recent):
                             try:
                                 tcp_client.write(p + "\n")
-                                tcp_client.flush()
                             except Exception:
-                                log.debug("[IPC] client write failed during pending drain")
+                                log.debug("[IPC] client write failed during pending drain (buffer)")
                                 _drain_failed_at = _i
                                 break
+                        if _drain_failed_at is None:
+                            # All recent entries buffered successfully —
+                            # issue ONE ``sendall`` for the whole batch.
+                            # If this raises (real-world failure mode:
+                            # broken pipe / write timeout), treat ALL
+                            # recent entries as undrained: ``sendall``
+                            # may have partially succeeded before raising
+                            # but we cannot tell which entries actually
+                            # reached the wire. Conservative: re-merge
+                            # the whole ``recent`` slice by setting the
+                            # failure index to 0.
+                            try:
+                                tcp_client.flush()
+                            except Exception:
+                                log.debug("[IPC] client write failed during pending drain flush")
+                                _drain_failed_at = 0
                         if _drain_failed_at is not None:
+                            # AB-37: reset the write buffer so any
+                            # partially-buffered entries (written before
+                            # a per-entry failure, or buffered before a
+                            # flush failure) don't leak into the next
+                            # ``_send`` call. The undrained entries are
+                            # re-merged from ``recent[_drain_failed_at:]``
+                            # below — for the per-entry failure case the
+                            # entries at indices ``[0:_drain_failed_at)``
+                            # were buffered but not sent (real
+                            # ``_TCPLineIO.write`` never raises so this
+                            # case is mock-only); for the flush-failure
+                            # case ``_drain_failed_at == 0`` so the slice
+                            # covers ALL of ``recent`` (the whole batch
+                            # is re-merged because sendall may have
+                            # partially succeeded before raising).
+                            with contextlib.suppress(Exception):
+                                tcp_client._reset_write_buffer()
                             # The entries at/after the failure index were
                             # never written; ``older`` was never attempted
                             # either. Re-merge both so they survive.
@@ -561,4 +655,8 @@ __all__ = [
     "_SHUTDOWN_ALLOWLIST",
     "_TCP_PENDING_DRAIN_CAP",
     "_TCP_PENDING_BUFFER_CAP",
+    # XE-2-4: exported so tests can import the constant and assert the
+    # size cap is enforced (mirrors the WS path's ``_MAX_FRAME_BYTES``
+    # export in ``sidecar_ws.py``).
+    "_TCP_MAX_OUTBOUND_BYTES",
 ]

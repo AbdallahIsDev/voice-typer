@@ -116,27 +116,45 @@ class CloudConsentRequiredError(ConsentRequiredError):
     denial.
 
     ``scope`` is a class attribute (always ``"transcribe"`` — every
-    cloud consent denial is a transcribe-scope denial), but
-    ``provider`` is per-instance because the same class is shared
-    across openai / groq / deepgram (the provider value is forwarded
-    from the ``CloudEngine`` instance that raised the error).
+    cloud consent denial is a transcribe-scope denial). ``provider``
+    is also a class attribute (inherited from
+    :class:`ConsentRequiredError`, defaults to ``""``) so any
+    ``getattr(exc, "provider", "")`` read on a bare instance returns
+    a string without ``isinstance`` branching. Subclasses (or
+    instances) should override ``provider`` to surface the specific
+    cloud vendor — the ``__init__`` ``provider`` kwarg sets the
+    instance attribute, shadowing the empty-string class default so
+    each cloud engine (openai / groq / deepgram) can carry its own
+    provider value without a separate subclass per provider.
 
-    The ``provider`` kwarg is accepted in ``__init__`` and stored on
-    the instance, shadowing the empty-string class attribute. This
-    lets each cloud provider get its own ``provider`` value without a
-    separate subclass per provider.
+    XE-14-G: ``__init__`` now accepts the parent's structured fields
+    (``engine_name`` / ``consent_field`` / ``model_id``) as explicit
+    keyword arguments instead of a generic ``**kwargs: object`` +
+    ``# type: ignore[arg-type]`` — type-checkers can verify the
+    forwarding and the ignore comment is no longer needed.
     """
 
     scope = "transcribe"
+    # XE-14-H: explicit class-attribute declaration (mirrors the base
+    # class default of ``""``) documenting that subclasses or instances
+    # should override this to surface the specific cloud vendor.
+    provider: str = ""
 
     def __init__(
         self,
         message: str = "",
         *,
         provider: str = "",
-        **kwargs: object,
+        engine_name: str | None = None,
+        consent_field: str | None = None,
+        model_id: str | None = None,
     ) -> None:
-        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        super().__init__(
+            message,
+            engine_name=engine_name,
+            consent_field=consent_field,
+            model_id=model_id,
+        )
         self.provider = provider
 
 
@@ -255,7 +273,7 @@ class MicrophonePermissionDeniedError(RuntimeError):
         super().__init__(message)
         self.state = state
 
-    def __str__(self) -> str:  # type: ignore[override]
+    def __str__(self) -> str:
         base = super().__str__()
         if self.state:
             return f"{base} (state={self.state})"

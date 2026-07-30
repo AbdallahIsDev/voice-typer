@@ -18,6 +18,7 @@ import json
 import os
 import socket
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server.handlers._log import log
@@ -519,6 +520,27 @@ class TCPTransportMixin:
                 # The legacy ``rate_limiter.allow()`` form (no ``command``
                 # kwarg) is still supported and treats the call as cost 1.
                 msg_type = msg.get("type") if isinstance(msg, dict) else ""
+                # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
+                # the read loop BEFORE ``self._dispatch(msg)`` so the
+                # heartbeat-ack is not delayed by an in-flight long
+                # dispatch (e.g. ``download_model``,
+                # ``transcribe_final``) — Electron's main-process
+                # heartbeat watchdog (see ``client/src/main/index.ts``)
+                # would otherwise fire spuriously during a legitimate
+                # long-running command, restarting the IPC connection
+                # mid-transcription. The inline path mirrors
+                # ``_handle_heartbeat`` exactly: update
+                # ``_last_heartbeat_at`` and write the ``heartbeat_ack``
+                # envelope. Bypassing the rate limiter is safe —
+                # heartbeats are 1 every 5 s (Electron) / 10 s (Tauri),
+                # far below the 200-burst budget.
+                if msg_type == "heartbeat":
+                    self._last_heartbeat_at = time.monotonic()
+                    ack: dict[str, object] = {"type": "heartbeat_ack"}
+                    if isinstance(msg, dict) and "id" in msg:
+                        ack["id"] = msg["id"]
+                    self._send(ack, _client=client)
+                    continue
                 if not rate_limiter.allow(command=msg_type):
                     # SEC-6: ``allow()`` increments the rejected counter
                     # atomically when it returns False — no separate

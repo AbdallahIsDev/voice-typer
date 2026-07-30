@@ -120,6 +120,28 @@ class WindowsNativeHotkey(HotkeyBackend):
         # idle-state syscall rate from ~248k/sec to ~5k/sec.
         self._last_nonmod_check_time: float = 0.0
         self._last_nonmod_pressed: bool = False
+        # AB-35: when True, ``start()`` prefers the event-driven WM_HOTKEY
+        # message loop over the per-keystroke WH_KEYBOARD_LL hook. Set by
+        # ``HotkeyDispatcher`` on the ESC and repaste backends so the
+        # main dictation hotkey is the ONLY backend installing a system-
+        # wide LL hook (reduces per-keystroke system-wide CPU from 3× to
+        # 1×). If RegisterHotKey fails for the ESC/repaste key (some keys
+        # are reserved by the OS or already claimed), the backend falls
+        # back to the LL hook for that single backend — 2 hooks instead
+        # of 3, still an improvement. The main dictation hotkey leaves
+        # this False (default) so it keeps the robust LL-hook-first path.
+        self._prefer_message_loop_first: bool = False
+        # AB-35: when True, ``start()`` prefers the event-driven WM_HOTKEY
+        # message loop over the per-keystroke WH_KEYBOARD_LL hook. Set by
+        # ``HotkeyDispatcher`` on the ESC and repaste backends so the
+        # main dictation hotkey is the ONLY backend installing a system-
+        # wide LL hook (reduces per-keystroke system-wide CPU from 3× to
+        # 1×). If RegisterHotKey fails for the ESC/repaste key (some keys
+        # are reserved by the OS or already claimed), the backend falls
+        # back to the LL hook for that single backend — 2 hooks instead
+        # of 3, still an improvement. The main dictation hotkey leaves
+        # this False (default) so it keeps the robust LL-hook-first path.
+        self._prefer_message_loop_first: bool = False
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -270,7 +292,27 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # async key state and breaks key-up detection). Other simple
                 # non-PTT hotkeys also prefer the hook for robust delivery.
                 simple_key = self._on_release_callback is None and not self._is_modifier_only
-                if simple_key and self._install_low_level_hook(callback):
+                # AB-35: when ``_prefer_message_loop_first`` is set (ESC and
+                # repaste backends), prefer the event-driven WM_HOTKEY
+                # message loop over the per-keystroke LL hook. This reduces
+                # the number of system-wide WH_KEYBOARD_LL hooks from 3
+                # (one per backend) to typically 1 (main dictation only).
+                # We still fall back to the LL hook if RegisterHotKey failed
+                # (some keys are reserved / already claimed), so the worst
+                # case is 2 hooks instead of 3 — still an improvement.
+                prefer_message_loop = self._prefer_message_loop_first and self._registered and not is_caps_lock_hotkey
+                if prefer_message_loop:
+                    # AB-35: WM_HOTKEY message loop — event-driven, ~0% CPU
+                    # while idle (no per-keystroke hook proc).
+                    log.info(
+                        "[HOTKEY] Starting hotkey detection via WM_HOTKEY message loop "
+                        "(prefer_message_loop=True, vk=0x%X, id=%d) — AB-35: skips LL hook",
+                        self._vk,
+                        self._hotkey_id,
+                    )
+                    self._using_polling = False
+                    self._run_message_loop(callback, low_level_hook=False)
+                elif simple_key and self._install_low_level_hook(callback):
                     log.info(
                         "[HOTKEY] Starting hotkey detection via WH_KEYBOARD_LL "
                         "low-level hook (vk=0x%X) — robust ESC/system-key delivery",
@@ -507,6 +549,12 @@ class WindowsNativeHotkey(HotkeyBackend):
             self._ensure_caps_lock_off()
 
         # Iteration counter for periodic caps lock state checks (~200ms cadence).
+        # AB-36: the loop body sleeps ~8ms per iteration (PERF-01/CPU-01), so
+        # a check every 25 iterations fires every 25 × 8ms = 200ms — matching
+        # the documented cadence. Previously this was ``% 200``, which (with
+        # the 8ms sleep) gave 200 × 8ms = 1600ms — an 8× discrepancy with the
+        # comments. The modulus was likely chosen when the sleep was 1ms; the
+        # sleep was later increased to 8ms without updating the modulus.
         _caps_check_iter = 0
 
         # PERF-01 / CPU-01 (c-review): set the Windows timer resolution to 8ms
@@ -527,8 +575,12 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # The reactive suppression on key press can fail due to timing
                 # (OS toggles caps before we can undo it). A periodic ~200ms
                 # check catches any missed toggles and re-silences caps lock.
+                # AB-36: ``% 25`` matches the documented 200ms cadence
+                # (25 iterations × 8ms sleep = 200ms). Previously ``% 200``
+                # delivered 1.6s — see the comment at the ``_caps_check_iter``
+                # declaration above for the root-cause analysis.
                 _caps_check_iter += 1
-                if is_caps_lock_hotkey and _caps_check_iter % 200 == 0 and not self._caps_lock_suppressing:
+                if is_caps_lock_hotkey and _caps_check_iter % 25 == 0 and not self._caps_lock_suppressing:
                     self._ensure_caps_lock_off()
                 # PLAT-020: suppress hotkey triggers during IME composition.
                 # PERF-FIX-1: use the throttled wrapper so we don't make 5

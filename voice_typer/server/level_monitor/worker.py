@@ -36,6 +36,47 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("voice_typer.server.level_monitor")
 
+# ─── UE-24: per-burst level-worker error counter ───────────────────────
+# ``_level_worker_loop`` catches ``Exception`` from ``_process_level_chunk``
+# at DEBUG so a single bad chunk doesn't kill the worker. Previously a
+# sustained failure mode (corrupted RNNoise model, numpy mismatch, filter
+# misconfiguration) was completely silent at default log levels — the
+# level bar would freeze with no WARNING / ERROR breadcrumb. UE-24 mirrors
+# the ``_dropped_level_chunks`` 5-second throttle pattern (which lives on
+# ``_state`` for test-poke compat): ``_level_worker_errors`` accumulates
+# per-chunk failures and is logged + reset every 5s (if >0); if the
+# per-second rate exceeds ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD``, the log
+# escalates from WARNING to ERROR (operator-visible signal that the
+# filter chain is broken and the level bar is effectively frozen).
+#
+# These globals live on ``worker.py`` (not ``_state``) so the disjoint
+# fix for UE-24 stays within ``worker.py``. The worker thread is the
+# ONLY writer; ``int`` / ``float`` read + reset is atomic under
+# CPython's GIL, so no lock is needed (same rationale as
+# ``_dropped_level_chunks``). Tests in ``tests/test_level_monitor*.py``
+# access them via ``worker._level_worker_errors`` etc. (NOT via
+# ``lm._level_worker_errors``, which would require routing through the
+# package's custom ``_LevelMonitorModule`` ``__getattr__``).
+_level_worker_errors: int = 0
+_last_worker_error_log_time: float = 0.0
+_level_worker_error_window_start: float = 0.0
+_LEVEL_WORKER_ERROR_LOG_THROTTLE_SEC: float = 5.0
+_LEVEL_WORKER_ERROR_RATE_THRESHOLD: float = 10.0
+
+
+def _reset_worker_error_state_for_tests() -> None:
+    """Reset the UE-24 per-burst error counter to its post-import defaults.
+
+    Mirrors ``_state.reset_for_tests`` for the worker-error sub-state.
+    Test fixtures call this between tests so a sustained-error test
+    doesn't leak its counter into a later test. Safe to call from any
+    thread (GIL-atomic int/float writes).
+    """
+    global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
+    _level_worker_errors = 0
+    _last_worker_error_log_time = 0.0
+    _level_worker_error_window_start = 0.0
+
 
 def _ensure_level_worker_running() -> None:
     """Start the level worker thread if it isn't already running.
@@ -115,6 +156,11 @@ def _level_worker_loop() -> None:
     (a rare edge case when the audio device underflows or stalls).
     250 ms cuts idle wakeups 5× with no functional change.
     """
+    # UE-24: ``global`` declarations for the per-burst error counter
+    # (defined at module top). Hoisted to the function header for
+    # readability — Python treats ``global`` as function-scoped
+    # regardless of where in the function the statement appears.
+    global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
     while True:
         # Wait for work or stop signal. ER-75: raised from 50 ms to
         # 250 ms — the timeout only governs the missed-wakeup recovery
@@ -139,6 +185,22 @@ def _level_worker_loop() -> None:
                 # Log and continue — a single bad chunk must NOT kill
                 # the worker (otherwise all subsequent level updates are
                 # lost until the next start_monitoring).
+                #
+                # UE-24: previously this branch ONLY logged at DEBUG, so
+                # a sustained failure mode (corrupted RNNoise model,
+                # numpy mismatch, filter misconfiguration) was completely
+                # silent at default log levels — the level bar would
+                # freeze with no operator-visible breadcrumb. We now
+                # also increment ``_level_worker_errors`` (module-level
+                # counter, declared ``global`` at the top of this
+                # function) and surface it via the throttled
+                # WARNING/ERROR block below (mirrors
+                # ``_dropped_level_chunks``). The per-chunk DEBUG log is
+                # retained so a full traceback is still available at
+                # DEBUG level for diagnosis.
+                if _level_worker_error_window_start == 0.0:
+                    _level_worker_error_window_start = time.monotonic()
+                _level_worker_errors += 1
                 log.debug(
                     "[LEVEL-MON] level worker thread error processing chunk",
                     exc_info=True,
@@ -168,6 +230,59 @@ def _level_worker_loop() -> None:
                     "the filter chain cost)",
                     dropped,
                 )
+
+        # UE-24: throttled log of per-chunk processing errors. Mirrors
+        # the ``_dropped_level_chunks`` 5-second throttle pattern above:
+        # the counter is incremented in the drain loop's ``except``
+        # branch when ``_process_level_chunk`` raises; we log it every
+        # 5s (if >0) and reset. The per-second rate (errors / window
+        # elapsed since the first error of this burst) selects WARNING
+        # vs ERROR — a rate above
+        # ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD`` (default 10/sec, i.e.
+        # >60% of chunks failing at the ~16 Hz block rate) escalates to
+        # ERROR so a frozen level bar surfaces at default log levels
+        # instead of being silently swallowed at DEBUG.
+        if _level_worker_errors > 0:
+            now = time.monotonic()
+            if (now - _last_worker_error_log_time) >= _LEVEL_WORKER_ERROR_LOG_THROTTLE_SEC:
+                errors = _level_worker_errors
+                window_start = _level_worker_error_window_start
+                if window_start == 0.0:
+                    # Defensive: errors > 0 implies the drain-loop
+                    # ``except`` branch set this. Fall back to ``now``
+                    # so the rate computation doesn't divide by zero.
+                    window_start = now
+                elapsed = max(now - window_start, 1e-6)
+                # Reset before logging so a concurrent error (the
+                # worker is the only writer; this is GIL-safe) doesn't
+                # double-count into the next window.
+                _level_worker_errors = 0
+                _level_worker_error_window_start = 0.0
+                _last_worker_error_log_time = now
+                rate_per_sec = errors / elapsed
+                threshold = _LEVEL_WORKER_ERROR_RATE_THRESHOLD
+                if rate_per_sec > threshold:
+                    log.error(
+                        "[LEVEL-MON] %d level-worker chunk errors in the "
+                        "last ~%.1fs (%.1f/sec > %.1f/sec threshold; likely "
+                        "a corrupted RNNoise model, numpy version mismatch, "
+                        "or filter misconfiguration — the level bar is "
+                        "frozen until the stream is restarted)",
+                        errors,
+                        elapsed,
+                        rate_per_sec,
+                        threshold,
+                    )
+                else:
+                    log.warning(
+                        "[LEVEL-MON] %d level-worker chunk errors in the "
+                        "last ~%.1fs (%.1f/sec; a single bad chunk must "
+                        "not kill the worker but sustained errors "
+                        "indicate a filter-chain problem)",
+                        errors,
+                        elapsed,
+                        rate_per_sec,
+                    )
 
         # ER-14: idle-timeout auto-stop. If no IPC ``get_level`` poll
         # has been received in ``_state._LEVEL_IDLE_TIMEOUT_SEC``

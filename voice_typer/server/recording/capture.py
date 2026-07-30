@@ -84,6 +84,14 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
 
+# AB-2: how many ring-buffer chunks the audio worker drains between
+# stop-event checks. Without this, the drain loop burns up to 3.2s of
+# solid CPU (64 chunks × ~50ms RNNoise each) before noticing a stop
+# signal, delaying ``stop()`` and orphaning the worker. Checking every
+# 4 chunks bounds the stop latency to ~200ms while keeping the
+# per-iteration ``is_set()`` + GIL-yield overhead negligible.
+_DRAIN_STOP_CHECK_INTERVAL = 4
+
 if TYPE_CHECKING:
     pass
 
@@ -230,6 +238,16 @@ class AudioCallbackDispatcher:
 
             # Drain all available chunks. Each chunk is processed by
             # _process_audio_chunk which does the heavy lifting.
+            #
+            # AB-2: check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
+            # chunks so a stop signal during a long catch-up drain (the ring
+            # buffer holds up to 64 chunks ≈ 1s of audio, each chunk takes
+            # ~50ms in RNNoise → up to 3.2s of solid CPU) is noticed within
+            # ~200ms instead of burning the full drain. On stop we bail out
+            # immediately (sacrificing in-flight audio — acceptable because
+            # ``drain=True`` is best-effort). The ``time.sleep(0)`` yields
+            # the GIL to reduce CPU burn on long drains.
+            _drain_count = 0
             while True:
                 try:
                     chunk_data = recorder._ring_buffer.popleft()
@@ -257,6 +275,11 @@ class AudioCallbackDispatcher:
                         "[RECORDING] Audio worker thread error processing chunk",
                         exc_info=True,
                     )
+                _drain_count += 1
+                if _drain_count % _DRAIN_STOP_CHECK_INTERVAL == 0:
+                    if recorder._worker_stop_event.is_set():
+                        return  # AB-2: bail out early when stop signaled
+                    time.sleep(0)  # yield GIL to reduce CPU burn
 
             # Check for shutdown. We drain the ring buffer fully before
             # exiting so stop() doesn't lose in-flight audio. For the

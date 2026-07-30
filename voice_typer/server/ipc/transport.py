@@ -91,12 +91,53 @@ class _TCPLineIO:
         # BufferedReader pulls the largest chunk the kernel will hand over
         # per ``recv()`` call, minimising syscalls under load.
         self._reader = conn.makefile("r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE)
+        # AB-37: user-space write buffer. ``write()`` appends to this
+        # buffer (a list of bytes chunks — cheaper than BytesIO for
+        # repeated appends because it avoids the copy-on-extend that
+        # BytesIO does when its internal slab is full). ``flush()``
+        # concatenates all buffered chunks into a single ``bytes`` object
+        # and issues ONE ``sendall`` syscall. This lets the caller batch
+        # many small writes (e.g. the reconnect drain loop in
+        # ``sender._send`` which writes up to 100 pending entries) into
+        # a single syscall instead of N. The buffer MUST be flushed
+        # before returning from any public write path that needs the
+        # data on the wire — ``_send`` always calls ``flush()`` after
+        # its batched writes.
+        self._write_buffer: list[bytes] = []
 
     def write(self, text: str) -> None:
-        self.conn.sendall(text.encode("utf-8"))
+        # AB-37: append to the in-memory buffer; ``flush()`` does the
+        # actual ``sendall``. Encoding happens here (once per write) so
+        # the flush path can use ``b"".join`` without re-encoding.
+        self._write_buffer.append(text.encode("utf-8"))
 
     def flush(self) -> None:
-        pass  # sendall is immediate
+        # AB-37: drain the write buffer in a single ``sendall``. If the
+        # buffer is empty, this is a no-op (preserves the previous
+        # ``flush()`` semantics for callers that call ``write`` then
+        # ``flush`` with no intervening buffer). On failure the buffer
+        # is left UNCHANGED — callers that need retry semantics (the
+        # drain loop in ``_send``) can re-call ``flush`` after the
+        # client reconnects. Callers that want drop-on-failure semantics
+        # (the first-write path in ``_send``) can call
+        # ``_reset_write_buffer`` or simply discard this ``_TCPLineIO``
+        # instance (it's about to be closed and replaced on reconnect
+        # anyway).
+        if not self._write_buffer:
+            return
+        batch = b"".join(self._write_buffer)
+        self.conn.sendall(batch)
+        # Only clear the buffer AFTER sendall succeeds — if sendall
+        # raises (timeout / broken pipe), the data is still buffered
+        # and the caller can decide to retry or drop.
+        self._write_buffer.clear()
+
+    def _reset_write_buffer(self) -> None:
+        # AB-37: discard the current write buffer without flushing.
+        # Used by callers that want drop-on-failure semantics (e.g. the
+        # drain-failure path in ``_send`` where partially-buffered
+        # entries must not leak into the next ``_send`` call).
+        self._write_buffer.clear()
 
     def readline(self) -> str:
         """Read one line from the TCP socket.

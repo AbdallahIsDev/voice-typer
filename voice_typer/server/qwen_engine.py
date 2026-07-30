@@ -116,6 +116,27 @@ class QwenEngine:
         with self._lock:
             return self._model is not None
 
+    @staticmethod
+    def _inference_mode_ctx() -> Any:
+        """Return a context manager that wraps torch.inference_mode().
+
+        AB-11: model.transcribe() was previously called WITHOUT an
+        inference-mode context, which meant PyTorch built and retained
+        the autograd graph for every call. For a 30 s chunk on CUDA
+        this roughly DOUBLED activation-memory footprint (increasing
+        OOM risk) and added ~10-30 % inference latency.
+
+        torch.inference_mode() is preferred over torch.no_grad()
+        (lower overhead, recursive). Imports torch lazily so the
+        engine module imports even when torch isn't installed. If
+        torch isn't importable, returns contextlib.nullcontext.
+        """
+        try:
+            import torch
+        except ImportError:
+            return contextlib.nullcontext()
+        return torch.inference_mode()
+
     def _resolve_device(self) -> str:
         """XV-65: Resolve the effective device, honouring ``"auto"``.
 
@@ -389,10 +410,14 @@ class QwenEngine:
             # Non-chunked path (audio <= _QWEN_CHUNK_SECONDS): single call
             # with the existing hallucination check using ``audio_stats``
             # if provided, else computing RMS from the audio array.
-            result = model.transcribe(
-                (audio, sample_rate),
-                language=self.language,
-            )
+            #
+            # AB-11: wrap model.transcribe() in torch.inference_mode()
+            # to skip autograd-graph construction. See _inference_mode_ctx.
+            with self._inference_mode_ctx():
+                result = model.transcribe(
+                    (audio, sample_rate),
+                    language=self.language,
+                )
 
             # result is a list of ASRTranscription objects
             if not result:
@@ -462,10 +487,13 @@ class QwenEngine:
                 len(chunks),
                 len(chunk) / sample_rate,
             )
-            chunk_result = model.transcribe(
-                (chunk, sample_rate),
-                language=self.language,
-            )
+            # AB-11: wrap model.transcribe() in torch.inference_mode()
+            # to skip autograd-graph construction. See _inference_mode_ctx.
+            with self._inference_mode_ctx():
+                chunk_result = model.transcribe(
+                    (chunk, sample_rate),
+                    language=self.language,
+                )
             if not chunk_result:
                 continue
             text = chunk_result[0].text if hasattr(chunk_result[0], "text") else str(chunk_result[0])

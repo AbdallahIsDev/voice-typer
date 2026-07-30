@@ -21,6 +21,8 @@ Falls back to ``torch.hub.load()`` if the local model is missing
 (e.g. development mode without the bundled file, or a fresh git clone).
 """
 
+from __future__ import annotations
+
 import contextlib
 import io
 import logging
@@ -29,9 +31,17 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
+
+# AB-43: hoisted to module level so every ``compute_vad_prob`` call avoids
+# rebuilding the dict on the hot path (16 Hz audio worker). Silero VAD
+# strictly expects 512 samples at 16 kHz (or 256 at 8 kHz); other rates
+# fall back to the 16 kHz default of 512.
+_EXPECTED_SAMPLES: dict[int, int] = {16000: 512, 8000: 256}
 
 # Silero VAD probability threshold — values above this are considered speech.
 # XV-51: this is now a *fallback default* used only when callers don't pass
@@ -222,7 +232,9 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
     else:
         repeats = (shortfall + n - 1) // n
         reflect = np.tile(chunk, repeats)[:shortfall]
-    return np.concatenate([chunk, reflect]).astype(out_dtype)
+    # AB-43: single allocation via the ``dtype=`` kwarg instead of
+    # ``.astype()`` (which would allocate a second array and copy).
+    return np.concatenate([chunk, reflect], dtype=out_dtype)
 
 
 def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float | None:
@@ -281,8 +293,9 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         if audio_tensor.dim() > 1:
             audio_tensor = audio_tensor.squeeze()
 
-        _expected_samples = {16000: 512, 8000: 256}
-        expected = _expected_samples.get(sample_rate, 512)
+        # AB-43: use the module-level ``_EXPECTED_SAMPLES`` constant
+        # instead of rebuilding the dict on every call.
+        expected = _EXPECTED_SAMPLES.get(sample_rate, 512)
         n = audio_tensor.shape[0]
 
         # XV-45: reflect-pad short chunks BEFORE inference (zero-padding
@@ -365,7 +378,14 @@ def is_speech(
     # units (probability vs. linear amplitude) and conflating them
     # would silently change semantics for the rare RMS path. A future
     # refactor could expose this as a separate config field.
-    rms = float(np.sqrt(np.mean(audio_chunk**2)))
+    #
+    # AB-43: use ``np.dot`` on a flat view instead of the
+    # ``np.sqrt(np.mean(audio_chunk**2))`` expression. The old form
+    # allocated a temporary squared array (O(n) memory + a separate
+    # mean reduction pass); ``np.dot`` is a single BLAS sdot call with
+    # no intermediate allocation.
+    flat = audio_chunk.ravel()
+    rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
     return rms > 0.01
 
 

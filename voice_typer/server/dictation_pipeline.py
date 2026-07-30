@@ -41,12 +41,59 @@ _EMPTY_SEGMENTS: list = []
 _NO_TRANSCRIPT_CONFIDENCE: float = 0.0
 
 
+# UE-47: distinct error for the "active ASR backend was never loaded"
+# failure mode. Pre-fix, ``_transcribe`` always returned the empty
+# string when ``transcribe_with_fallback`` produced no text — the
+# downstream ``EmptyCheckStage`` then ran ``_handle_empty_transcription``
+# which shows the ambiguous "No speech detected" toast regardless of
+# whether the user was silent or the model was unloaded. Raising this
+# sentinel from ``_transcribe`` (only when ``active.is_loaded`` is
+# False AND the engine returned empty) bypasses ``EmptyCheckStage``
+# entirely (the exception propagates out of ``TranscribeStage`` and is
+# caught by ``run()``'s generic ``except Exception`` block) so the user
+# sees a friendly "model not loaded" message instead of the misleading
+# "no speech" toast. Subclass of ``RuntimeError`` so existing
+# ``except RuntimeError`` / ``except Exception`` clauses still catch it.
+class BackendNotLoadedError(RuntimeError):
+    """Raised when the active ASR backend is not loaded at transcribe time.
+
+    UE-47: an unloaded backend (``is_loaded is False``) can return ``""``
+    from ``transcribe_with_fallback`` without raising — making the empty-
+    transcription path indistinguishable from genuine silence. This
+    sentinel is raised by ``DictationPipeline._transcribe`` ONLY when
+    ``active.is_loaded`` was False BEFORE the transcribe call AND the
+    engine returned empty output, so the run() generic ``except
+    Exception`` block surfaces a friendly "model not loaded" message
+    instead of falling through to ``_handle_empty_transcription``.
+
+    The ``engine_name`` kwarg captures the backend type for telemetry /
+    IPC ``isinstance`` narrowing — mirrors the pattern used by
+    ``ConsentRequiredError`` in ``asr_errors.py``.
+    """
+
+    def __init__(self, message: str = "", *, engine_name: str | None = None) -> None:
+        super().__init__(message)
+        self.engine_name = engine_name
+
+
 # ERR-005: raw exception messages from ctranslate2 / torch / faster-whisper
 # often leak file paths, CUDA versions, and internal stack details into
 # user-facing tray notifications. Map known exception classes to friendly
 # messages; fall back to a generic message for unknown errors.
 def _friendly_transcription_error(exc: BaseException) -> str:
     """Return a user-friendly message describing a transcription failure."""
+    # UE-47: BackendNotLoadedError has a distinct, friendly message —
+    # do NOT fall through to the generic "model could not be loaded"
+    # branch (which is about download/load-time failures, not an
+    # unloaded backend at transcribe time). The user needs a different
+    # recovery hint: "wait for the model to finish loading" vs.
+    # "check your internet connection".
+    if isinstance(exc, BackendNotLoadedError):
+        return (
+            "The speech model was not loaded when dictation finished. "
+            "Wait for it to finish loading, or open Settings to verify "
+            "the model is available."
+        )
     msg = str(exc).lower()
     name = type(exc).__name__
     # Walk the __cause__ chain — cloud_engines.py wraps errors with
@@ -448,9 +495,47 @@ class DictationPipeline:
                         with _cancelled_lock:
                             _cancelled_set.discard(self._cycle_id)
             try:
-                session = self._app.recording.get_streaming_session()
+                # UE-10 / UE-9-F2 (FT-5 family): use
+                # ``pop_streaming_session()`` (atomic get-and-clear
+                # under the recording controller's
+                # ``_streaming_session_lock``) instead of the racy
+                # get-then-set pair. Pre-fix, between
+                # ``get_streaming_session()`` (lock #1) and
+                # ``set_streaming_session(None)`` (lock #2), a
+                # concurrent ``_start_streaming_session_if_enabled``
+                # could install a NEW session that the subsequent
+                # ``set_streaming_session(None)`` would clobber —
+                # silently killing an active streaming worker thread.
+                # After rapid stop→start (user double-tap hotkey, or
+                # auto-stop Timer immediately followed by hotkey),
+                # the new recording's streaming session was killed
+                # silently and streaming transcriptions stopped
+                # appearing until the next restart.
+                #
+                # ``pop_streaming_session()`` owns the session AND
+                # clears the slot under a SINGLE lock acquisition —
+                # we never write back to the slot. If a new session
+                # is installed concurrently, it lands AFTER our pop
+                # and is preserved. Mirrors the DE-7 path in
+                # ``shutdown_controller._do_cleanup`` and the
+                # ARCH-018 path in
+                # ``recording_controller._cancel_streaming_session``.
+                #
+                # If we popped a non-None session AND the recorder
+                # is no longer recording (i.e. this session belongs
+                # to a dictation cycle that has now ended — not to
+                # a fresh recording that started during the run),
+                # signal its cancel event so the background
+                # streaming worker thread exits cleanly instead of
+                # leaking until the next process shutdown.
+                # ``session.cancel()`` is non-blocking by default
+                # (ARCH-025) — it sets the cancel event and returns
+                # immediately, matching the finally-block's
+                # bounded-latency contract.
+                session = self._app.recording.pop_streaming_session()
                 if session is not None and not self._app.recorder.recording:
-                    self._app.recording.set_streaming_session(None)
+                    with contextlib.suppress(Exception):
+                        session.cancel()
             except Exception:
                 log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
             with contextlib.suppress(Exception):
@@ -554,6 +639,28 @@ class DictationPipeline:
         transcription is often caused by low memory (RAM) or
         insufficient disk space (affecting pagefile/swap).  These
         logs help diagnose the root cause when paired with a crash.
+
+        UE-10-F9 (deferred refactor — spaghetti/monolith detection):
+        This 185-line method is a self-contained resource probe
+        (RAM / disk / GPU) inlined in the pipeline. It has NO
+        dependencies on ``DictationPipeline`` instance state — only
+        module-level imports (``os``, ``pathlib``, ``psutil``,
+        ``torch``) and the module-level ``log`` logger. The full
+        extraction to a dedicated ``resource_probe.py`` module is
+        DEFERRED to the monolith-split phase: the mechanical
+        extraction is to move the body to a
+        ``ResourceProbe.check()`` classmethod (or
+        ``resource_probe.check_resources()`` module function) and
+        call it from ``_check_resources_throttled``. Coordinate
+        with the broader pipeline-decomposition work (the DR-18
+        stage extraction already pulled the *stage execution* into
+        ``dictation_stages.py``; ``_check_resources`` is the next
+        candidate but it's pre-flight, not a stage, so it belongs
+        in a sibling helper module rather than ``dictation_stages``).
+        For now, this method stays inlined — adding the comment so
+        the next maintainer doesn't waste time wondering why a
+        185-line system probe is living inside the dictation
+        pipeline class.
         """
         import os as _os
         from pathlib import Path as _Path
@@ -733,14 +840,61 @@ class DictationPipeline:
         Returns the transcript from the active streaming session (if one
         is open) or the active ASR backend (Whisper / Parakeet / Qwen /
         Cloud) via ``transcribe_with_fallback``.
+
+        UE-10 sibling: the streaming-session slot is now popped
+        atomically via ``pop_streaming_session()`` BEFORE
+        ``session.finalize()`` runs. Pre-fix, the slot was cleared
+        AFTER finalize — an exception in finalize() leaked the stale
+        session reference into the next dictation cycle's _transcribe,
+        which would re-call finalize() on the already-torn-down
+        session and crash. Atomic pop also eliminates the FT-5 family
+        TOCTOU documented in UE-10 (concurrent
+        ``_start_streaming_session_if_enabled`` could install a NEW
+        session between get and set).
+
+        UE-10-F6: ``active`` is captured ONCE at the top and reused
+        for both the transcribe call and the ``device_info`` read
+        below. Pre-fix, a second ``active_transcriber()`` call after
+        the transcribe was both redundant (the backend rarely changes
+        mid-cycle) and racy (a concurrent ``set_active_backend`` could
+        swap the backend between the two calls, so ``device_info``
+        reported the wrong device for the result just produced).
+
+        UE-47: ``backend_was_loaded`` is captured BEFORE the transcribe
+        call. If the engine returns empty AND ``backend_was_loaded`` is
+        False, raise ``BackendNotLoadedError`` — this bypasses
+        ``EmptyCheckStage`` (the exception propagates out of
+        ``TranscribeStage`` and is caught by ``run()``'s generic
+        ``except Exception`` block) so the user sees a friendly
+        "model not loaded" message instead of the ambiguous "No speech
+        detected" toast that ``_handle_empty_transcription`` would
+        produce.
         """
-        session = self._app.recording.get_streaming_session()
+        # UE-10-F6 / UE-47: capture the active transcriber ONCE — the
+        # previous code made a second ``active_transcriber()`` call
+        # after the transcribe to refresh ``device_info`` (redundant +
+        # racy vs. a concurrent ``set_active_backend``). Reuse this
+        # same local for ``device_info`` below. Also capture
+        # ``is_loaded`` BEFORE the transcribe call so the empty-result
+        # path can distinguish "engine returned empty" from "engine was
+        # never loaded" (a backend that is not loaded can return "" from
+        # ``transcribe_with_fallback`` without raising — UE-47).
+        active = self._app.models.active_transcriber()
+        backend_was_loaded = bool(getattr(active, "is_loaded", False))
+
+        # UE-10 sibling: pop_streaming_session() atomically owns the
+        # session AND clears the slot under a SINGLE lock acquisition.
+        # If finalize() raises below, the slot is already clear — the
+        # next dictation cycle starts with a clean slot rather than
+        # re-entering the stale session. We never write back to the
+        # slot (a concurrent _start_streaming_session_if_enabled could
+        # install a NEW session that a set_streaming_session(None) would
+        # clobber — see UE-10).
+        session = self._app.recording.pop_streaming_session()
         if session is not None:
             log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
             text = session.finalize(self._audio)
-            self._app.recording.set_streaming_session(None)
         else:
-            active = self._app.models.active_transcriber()
             # NEW-PERF-010: pass the pre-computed audio stats so the
             # transcription engine doesn't recompute RMS/peak/silence_pct
             # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
@@ -782,7 +936,12 @@ class DictationPipeline:
         with contextlib.suppress(Exception):
             self._app.models.touch_active_model()
 
-        active = self._app.models.active_transcriber()
+        # UE-10-F6: reuse the captured ``active`` local for device_info
+        # instead of calling ``active_transcriber()`` a second time. If
+        # ``active`` is None (backend was unloaded mid-cycle by a
+        # concurrent ``set_active_backend`` / ``change_model``), fall
+        # back to the literal "Parakeet ASR" string — matching the
+        # pre-fix behavior for the ``active is None`` edge case.
         self._device_info = (
             active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
         )
@@ -793,11 +952,19 @@ class DictationPipeline:
         # notification for short recordings — leaving the user with no
         # feedback at all. Surface a single consolidated log line with
         # every signal we have (duration, RMS, backend type, audio
-        # stats, streaming vs batch path) so the empty result is
-        # traceable from the log file. This does NOT change behavior;
-        # it only makes the existing silent-failure path visible to
-        # developers diagnosing the "finish dictation → nothing
-        # transcribed" symptom.
+        # stats, streaming vs batch path, ``is_loaded`` state) so the
+        # empty result is traceable from the log file. This does NOT
+        # change behavior; it only makes the existing silent-failure
+        # path visible to developers diagnosing the "finish dictation
+        # → nothing transcribed" symptom.
+        #
+        # UE-47: include ``backend_is_loaded`` in the warning so
+        # operators can distinguish the three failure modes that all
+        # collapse to empty output: (1) genuine silence, (2) unloaded
+        # backend returned "", (3) cloud provider returned 200 with
+        # empty body. Pre-fix all three were indistinguishable from the
+        # log — the only signal was "backend was empty". The
+        # ``backend_is_loaded`` field makes case (2) traceable.
         if not text:
             backend_name = type(active).__name__ if active is not None else "<none>"
             stats_repr = (
@@ -808,14 +975,43 @@ class DictationPipeline:
             log.warning(
                 "[TRANSCRIBE] Empty transcription result (cycle=%s, "
                 "duration=%.2fs, recorded_rms=%.4f, audio_stats=[%s], "
-                "backend=%s, path=%s) — see _handle_empty_transcription",
+                "backend=%s, backend_is_loaded=%s, path=%s) — see _handle_empty_transcription",
                 self._cycle_id,
                 self._duration,
                 self._recorded_rms,
                 stats_repr,
                 backend_name,
+                backend_was_loaded,
                 "streaming" if session is not None else "batch",
             )
+            # UE-47: if the backend was not loaded when we entered
+            # ``_transcribe``, the empty output is overwhelmingly likely
+            # caused by the unloaded backend (``transcribe_with_fallback``
+            # on an unloaded Whisper/Parakeet/Qwen typically returns ""
+            # without raising). Raise a distinct error so the run()'s
+            # generic ``except Exception`` block surfaces a friendly
+            # "model not loaded" message instead of falling through to
+            # ``_handle_empty_transcription`` (which would show the
+            # ambiguous "No speech detected" toast — same as the user
+            # who said nothing). This is the intended observability
+            # improvement: the user can now distinguish "my mic is
+            # broken" from "the model didn't load" from "I was silent".
+            #
+            # NOTE: this raise bypasses ``EmptyCheckStage`` entirely
+            # because the exception propagates out of ``TranscribeStage``
+            # (which calls ``self._transcribe()``) before
+            # ``EmptyCheckStage`` runs. The run() ``except Exception``
+            # block then surfaces the friendly message via
+            # ``_friendly_transcription_error`` (which has an
+            # isinstance branch for ``BackendNotLoadedError``).
+            if not backend_was_loaded:
+                raise BackendNotLoadedError(
+                    "Active ASR backend is not loaded — "
+                    "transcribe_with_fallback returned empty output. "
+                    "Check that the model finished loading and that no "
+                    "set_active_backend call unloaded it mid-cycle.",
+                    engine_name=backend_name,
+                )
         return text
 
     def _handle_empty_transcription(self) -> None:
@@ -879,6 +1075,36 @@ class DictationPipeline:
                 self._recorded_rms,
             )
             self._app.tray.set_state(AppState.IDLE, "No speech detected")
+            # UE-10-F4 (observability): publish a ``dictation_suppressed``
+            # event so the renderer can show a subtle inline bubble
+            # ("recording too short — try again") instead of giving the
+            # user zero feedback. Pre-fix, this branch silently
+            # swallowed ALL user feedback for short near-silent
+            # recordings — the user saw nothing and had no way to tell
+            # their tap registered. The suppression threshold is NOT
+            # lowered (that's a separate UX decision); we only add an
+            # observability/UX channel for the suppressed branch. The
+            # event payload is intentionally minimal (duration, RMS,
+            # reason) so the renderer can decide whether to show the
+            # bubble based on its own UX rules. Wrapped in
+            # ``contextlib.suppress`` so a broken event bus (or an
+            # unregistered event type under ``VOICE_TYPER_DEBUG_EVENTS=1``)
+            # never aborts the suppression path — the tray state set
+            # above is the source of truth; this event is purely
+            # additive UX feedback.
+            with contextlib.suppress(Exception):
+                from voice_typer.server import event_bus
+
+                event_bus.publish(
+                    {
+                        "type": "dictation_suppressed",
+                        "data": {
+                            "duration": self._duration,
+                            "recorded_rms": self._recorded_rms,
+                            "reason": "short_silence",
+                        },
+                    }
+                )
         elif self._duration < _grace_period and _audio_was_captured:
             # Short recording BUT real audio was captured: the engine
             # returned empty despite picking up a non-trivial signal.

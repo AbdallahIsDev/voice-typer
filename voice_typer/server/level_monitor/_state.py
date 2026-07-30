@@ -51,6 +51,15 @@ import collections
 import threading
 from typing import Any
 
+# UE-12-F15: use the canonical Whisper 16 kHz constant as the default
+# monitor sample rate instead of a hardcoded ``16000`` literal. The
+# pre-refactor ``level_monitor.py`` god-module used ``WHISPER_SAMPLE_RATE``
+# here; the AC-129 package split lost that link and inlined the literal.
+# Re-establishing the import keeps a single source of truth so an
+# intent-level change (e.g. moving to 24 kHz models) propagates here
+# automatically.
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+
 
 class _State:
     """Singleton holding every piece of level_monitor mutable state.
@@ -80,7 +89,7 @@ class _State:
         self._monitor_active: bool = False
         self._monitor_level: float = 0.0  # smoothed RMS (0-1)
         self._monitor_peak: float = 0.0  # smoothed peak (0-1)
-        self._monitor_sample_rate: int = 16000
+        self._monitor_sample_rate: int = WHISPER_SAMPLE_RATE
         self._monitor_mic_id: str | None = None  # device this stream is on
 
         # ── Audio processor for filtering the live level bar ─────────

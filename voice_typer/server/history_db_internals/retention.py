@@ -23,7 +23,7 @@ import contextlib
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -38,15 +38,93 @@ log = logging.getLogger(__name__)
 _RETENTION_BATCH = 100
 
 
+class RetentionResult(int):
+    """XE-9-E: an int subclass exposing the FTS5 rebuild status.
+
+    The value IS the deleted-row count (so existing callers that do
+    ``deleted = apply_retention(...)`` / ``assert deleted == 20`` /
+    ``if deleted > 0:`` work unchanged because ``RetentionResult`` is
+    a real ``int``). It ALSO exposes the FTS5 rebuild outcome so callers
+    that care about the privacy guarantee can detect when the post-sweep
+    FTS5 'rebuild' command failed and dictated text may still be
+    recoverable from ``transcriptions_fts_data``:
+
+    >>> r = apply_retention(db, retention_days=7)
+    >>> r == 250          # int comparison still works
+    True
+    >>> r["deleted"]      # dict-style access
+    250
+    >>> r["fts5_rebuild_ok"]
+    True
+    >>> r.fts5_rebuild_ok  # attribute access
+    True
+
+    The dual nature is deliberate: changing the return type to a plain
+    dict would silently break every existing caller (and 6 tests) that
+    treat the result as an int. Subclassing int preserves the contract
+    while adding the new privacy signal.
+
+    Note: ``int`` subclasses cannot use nonempty ``__slots__`` (Python
+    raises ``TypeError: nonempty __slots__ not supported for subtype
+    of 'int'``), so instances of this class carry a ``__dict__`` for
+    the ``fts5_rebuild_ok`` attribute. The class is constructed rarely
+    (once per ``apply_retention`` call) so the per-instance ``__dict__``
+    overhead is negligible.
+    """
+
+    fts5_rebuild_ok: bool
+
+    def __new__(cls, value: int, fts5_rebuild_ok: bool = True) -> RetentionResult:
+        instance = super().__new__(cls, value)
+        instance.fts5_rebuild_ok = fts5_rebuild_ok
+        return instance
+
+    def __getitem__(self, key: str) -> Any:  # noqa: D401
+        if key == "deleted":
+            return int(self)
+        if key == "fts5_rebuild_ok":
+            return self.fts5_rebuild_ok
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "deleted":
+            return int(self)
+        if key == "fts5_rebuild_ok":
+            return self.fts5_rebuild_ok
+        return default
+
+    def keys(self):
+        return ["deleted", "fts5_rebuild_ok"]
+
+    def __contains__(self, key: object) -> bool:
+        return key in ("deleted", "fts5_rebuild_ok")
+
+    def __repr__(self) -> str:
+        return f"RetentionResult(deleted={int(self)!r}, fts5_rebuild_ok={self.fts5_rebuild_ok!r})"
+
+
 def apply_retention(
     db: HistoryDB,
     retention_days: int = 0,
     max_entries: int = 0,
     retention_count: int = 0,
-) -> int:
+) -> RetentionResult:
     """Apply retention policy: delete old entries.
 
-    Returns the number of deleted entries.
+    Returns a :class:`RetentionResult` (an ``int`` subclass) whose value
+    is the number of deleted entries and whose ``fts5_rebuild_ok``
+    attribute / ``["fts5_rebuild_ok"]`` item reports whether the
+    post-sweep FTS5 ``'rebuild'`` command succeeded.
+
+    XE-9-B: the cutoff is computed in **UTC** (matching
+    ``CURRENT_TIMESTAMP`` semantics) and formatted as
+    ``'%Y-%m-%d %H:%M:%S'`` so the lexicographic string comparison
+    against ``transcriptions.timestamp`` matches the format used by
+    SQLite's own timestamp functions. The previous code used naive
+    ``datetime.now()`` (local time) + ``.isoformat()`` which produced
+    a timezone-offset-suffixed string — on a machine whose local TZ
+    is ahead of UTC, rows up to ``TZ_offset_hours`` newer than the
+    true cutoff were incorrectly deleted.
 
     DEAD-012: retention_count is wired as a fallback for max_entries.
     If max_entries is not set but retention_count is, use it.
@@ -60,6 +138,16 @@ def apply_retention(
     cost (which requires exclusive access and briefly blocks
     readers) for small sweeps while still reclaiming space after
     large purges.
+
+    XE-9-E: if the FTS5 ``'rebuild'`` command fails after a sweep,
+    the failure is no longer silent — it is logged at ``ERROR``
+    level (the privacy guarantee is broken, not merely suboptimal),
+    ``db._fts5_rebuild_failures`` is incremented (observable in
+    diagnostics), and an ``event_bus`` event
+    ``{"type": "history_fts5_rebuild_failed"}`` is published so the
+    renderer can surface a toast. The returned ``RetentionResult``
+    carries ``fts5_rebuild_ok=False`` so programmatic callers can
+    detect the privacy failure and retry / surface their own UI.
     """
     # Local import to avoid a module-load circular dependency:
     # history_db.py imports from history_db_internals at module load
@@ -69,10 +157,15 @@ def apply_retention(
     # DEAD-012: wire retention_count as fallback for max_entries
     effective_max = max_entries or retention_count
     deleted = 0
+    # XE-9-E: tracks whether the FTS5 'rebuild' step succeeded. The
+    # flag is updated inside the writer-thread closure via ``nonlocal``
+    # and surfaced on the returned ``RetentionResult``. Defaults to
+    # True (no rebuild attempted == no privacy failure).
+    fts5_rebuild_ok = True
     try:
 
         def _do_retention(conn: sqlite3.Connection) -> int:
-            nonlocal deleted
+            nonlocal deleted, fts5_rebuild_ok
             cursor = conn.cursor()
 
             # G4-M-05: capture initial count to decide whether
@@ -82,7 +175,21 @@ def apply_retention(
             initial_count = cursor.fetchone()[0]
 
             if retention_days > 0:
-                cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
+                # XE-9-B: compute the cutoff in UTC and format as
+                # ``'%Y-%m-%d %H:%M:%S'`` to exactly match the format
+                # SQLite uses for ``CURRENT_TIMESTAMP``. The previous
+                # code used naive ``datetime.now()`` (local time) and
+                # ``.isoformat()`` (which appends a TZ offset like
+                # ``+02:00``), so the comparison against the
+                # UTC-stamped ``transcriptions.timestamp`` column was
+                # wrong by the local TZ offset — on a machine whose
+                # local TZ is ahead of UTC, rows up to
+                # ``TZ_offset_hours`` newer than the true cutoff were
+                # incorrectly deleted. Using UTC + the bare
+                # ``'%Y-%m-%d %H:%M:%S'`` format (no TZ suffix) makes
+                # the lexicographic ``timestamp < ?`` comparison
+                # apples-to-apples with ``CURRENT_TIMESTAMP``.
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
                 while True:
                     cursor.execute(
                         "DELETE FROM transcriptions WHERE id IN ("
@@ -154,39 +261,103 @@ def apply_retention(
                             "[HISTORY_DB] VACUUM after retention failed: %s",
                             e,
                         )
-                # FR-27: rebuild FTS5 segments after a bulk retention
-                # delete. The DELETE trigger
-                # ``transcriptions_ad_fts`` only marks rowids as
-                # deleted in the FTS5 delete-bitmap; the segment data
-                # in ``transcriptions_fts_data`` survives both the
-                # trigger delete and ``VACUUM`` (VACUUM rebuilds the
-                # main DB file but does NOT rebuild FTS5 shadow
-                # tables). After a large retention sweep, dictated
-                # text remained recoverable from
-                # ``transcriptions_fts_data`` via forensic tools —
-                # defeating G4-M-05 / GDPR Art. 17. The
-                # ``'rebuild'`` command drops all segments and
-                # rebuilds them from the (now-reduced) content
-                # table, so deleted dictated text is no longer
-                # recoverable. Wrapped in a tolerant try/except so
-                # an older DB (pre-V3 migration, no FTS table yet)
-                # doesn't crash the retention path. Only runs when
-                # we actually deleted rows (a no-op retention sweep
-                # has nothing to rebuild and would just churn the
-                # FTS index).
-                try:
-                    cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
-                    conn.commit()
-                    log.info(
-                        "[HISTORY_DB] FTS5 segments rebuilt after retention (deleted %d rows)",
-                        deleted,
-                    )
-                except sqlite3.Error as e:
-                    log.warning(
-                        "[HISTORY_DB] FTS5 'rebuild' after retention failed: %s "
-                        "(FTS5 shadow-table segment data may persist — manual re-index advised)",
-                        e,
-                    )
+                    # FR-27: rebuild FTS5 segments after a bulk retention
+                    # delete. The DELETE trigger
+                    # ``transcriptions_ad_fts`` only marks rowids as
+                    # deleted in the FTS5 delete-bitmap; the segment data
+                    # in ``transcriptions_fts_data`` survives both the
+                    # trigger delete and ``VACUUM`` (VACUUM rebuilds the
+                    # main DB file but does NOT rebuild FTS5 shadow
+                    # tables). After a large retention sweep, dictated
+                    # text remained recoverable from
+                    # ``transcriptions_fts_data`` via forensic tools —
+                    # defeating G4-M-05 / GDPR Art. 17. The
+                    # ``'rebuild'`` command drops all segments and
+                    # rebuilds them from the (now-reduced) content
+                    # table, so deleted dictated text is no longer
+                    # recoverable. Wrapped in a tolerant try/except so
+                    # an older DB (pre-V3 migration, no FTS table yet)
+                    # doesn't crash the retention path. Only runs when
+                    # we actually deleted rows (a no-op retention sweep
+                    # has nothing to rebuild and would just churn the
+                    # FTS index).
+                    #
+                    # AB-25: the rebuild is gated by the SAME ``ratio > 0.20``
+                    # threshold as VACUUM. Below that threshold, the FTS5
+                    # delete-bitmap trigger already hides deleted rows
+                    # from MATCH results — the only thing ``'rebuild'``
+                    # would reclaim is segment data in
+                    # ``transcriptions_fts_data``, which isn't worth an
+                    # O(N) re-index for a handful of deletes (the
+                    # 10-minute periodic-retention tick would otherwise
+                    # burn O(N) on every tick for ~1-row deletes).
+                    # Above the threshold, the rebuild MUST fire to
+                    # preserve the FR-27 privacy guarantee (deleted
+                    # dictated text must not remain recoverable from
+                    # ``transcriptions_fts_data`` via forensic tools
+                    # after a large purge).
+                    try:
+                        cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+                        conn.commit()
+                        log.info(
+                            "[HISTORY_DB] FTS5 segments rebuilt after retention (deleted %d rows, ratio %.0f%%)",
+                            deleted,
+                            ratio * 100,
+                        )
+                    except sqlite3.Error as e:
+                        # XE-9-E: escalate from WARNING to ERROR — the
+                        # GDPR Art. 17 / G4-M-05 privacy guarantee is
+                        # broken (deleted dictated text remains
+                        # recoverable from ``transcriptions_fts_data``
+                        # via forensic tools), not merely "suboptimal".
+                        fts5_rebuild_ok = False
+                        log.error(
+                            "[HISTORY_DB] FTS5 'rebuild' after retention FAILED: %s "
+                            "(FTS5 shadow-table segment data may persist — deleted "
+                            "dictated text remains recoverable; manual re-index advised)",
+                            e,
+                        )
+                        # XE-9-E: observable metric — increment the
+                        # per-instance failure counter so diagnostics /
+                        # IPC ``get_diagnostics`` handlers can surface it
+                        # to the user. ``getattr`` default keeps this
+                        # safe if the HistoryDB instance was constructed
+                        # by an older code path that didn't initialize
+                        # the counter.
+                        try:
+                            current = getattr(db, "_fts5_rebuild_failures", 0)
+                            db._fts5_rebuild_failures = current + 1
+                        except Exception:  # noqa: BLE001 — best-effort metric
+                            log.debug(
+                                "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
+                                exc_info=True,
+                            )
+                        # XE-9-E: best-effort event_bus publication so the
+                        # renderer can show a toast. Wrapped broadly
+                        # because the event_bus import or the publish call
+                        # may fail (e.g. circular import during early
+                        # init); none of those should crash the retention
+                        # path which has already done the chunked DELETEs.
+                        try:
+                            from voice_typer.server import event_bus
+
+                            event_bus.publish(
+                                {
+                                    "type": "history_fts5_rebuild_failed",
+                                    "data": {
+                                        "db_path": str(getattr(db, "db_path", "")),
+                                        "deleted": deleted,
+                                        "error": str(e),
+                                        "source": "apply_retention",
+                                    },
+                                }
+                            )
+                        except Exception as publish_exc:  # noqa: BLE001
+                            log.warning(
+                                "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
+                                "failed (best-effort, retention continues): %s",
+                                publish_exc,
+                            )
 
             if deleted:
                 log.info(
@@ -197,21 +368,39 @@ def apply_retention(
 
         result = db._submit_write(_do_retention, wait=True)
         if result is None:
-            return 0
+            # Writer unavailable — no rebuild was attempted, so the
+            # fts5_rebuild_ok flag (still True) is correct: there is
+            # no privacy failure to report (the deletes never ran).
+            return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
         if result and result > 0:
             # TY-20: invalidate the count cache.
             db._invalidate_history_count_cache()
-        return int(result)
+            # AB-26: invalidate the today-stats cache. apply_retention
+            # deletes rows by age (``retention_days``) or by count
+            # (``max_entries``). An age-based delete CAN drop today's
+            # rows if ``retention_days=0`` (delete everything older
+            # than 0 days = delete everything), and a count-based
+            # delete drops the OLDEST rows first — which would only
+            # affect today's stats if today's rows are the oldest
+            # (unlikely but possible after a DB re-import). Either way
+            # the cache must be invalidated so the next read reflects
+            # the post-retention row set.
+            db._invalidate_today_stats_cache()
+        # XE-9-E: surface the FTS5 rebuild outcome on the returned
+        # ``RetentionResult``. ``int(result)`` would strip the
+        # subclass, so we explicitly construct a new RetentionResult
+        # carrying the (possibly False) fts5_rebuild_ok flag.
+        return RetentionResult(int(result), fts5_rebuild_ok=fts5_rebuild_ok)
     except HistoryDBError:
         log.error("[HISTORY] Writer unavailable for apply_retention")
         # ERR-013: apply_retention is called from a background
         # retention sweep, not from an IPC handler, so it preserves
         # the legacy "return 0 deleted" sentinel. The retention
         # sweep logs the error and moves on.
-        return 0
+        return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
     except Exception as e:
         log.error("[HISTORY] Failed to apply retention: %s", e)
-        return 0
+        return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
 
 
 def schedule_periodic_retention(

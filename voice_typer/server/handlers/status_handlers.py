@@ -1,9 +1,16 @@
-"""Status IPC handler mixin: get_status, get_audio_status, get_model_status,
-get_volume_backend_status, get_rms_level.
+"""Status IPC handler mixin: get_status, get_model_status,
+get_volume_backend_status.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_get_rms_level`` and
+``_handle_get_audio_status`` were REMOVED — both commands were
+dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
+the Tauri migration. The service-layer methods
+``service.get_rms_level`` / ``service.get_audio_status`` still exist
+for internal callers; only the IPC dispatch routes were deleted.
 """
 
 from voice_typer.server.handlers._base import HandlerBase
@@ -13,7 +20,7 @@ from voice_typer.server.platform_utils import is_windows
 
 
 class StatusHandlersMixin(HandlerBase):
-    """Mixin: status-query IPC handlers (get_status / get_audio_status / ...).
+    """Mixin: status-query IPC handlers (get_status / get_model_status / ...).
 
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
@@ -72,20 +79,6 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_status")
         return resp
 
-    def _handle_get_rms_level(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``get_rms_level`` IPC command."""
-        # AUDIO-RMS: return the current RMS level from the recorder.
-        # Allows the Electron UI to show real-time audio level
-        # without depending on the waveform bubble callback.
-        try:
-            result = self.service.get_rms_level()
-            resp["type"] = "rms_level"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "get_rms_level")
-        return resp
-
     def _handle_get_volume_backend_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_volume_backend_status`` IPC command."""
         # Returns the active volume backend's name + capability flags
@@ -98,20 +91,6 @@ class StatusHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_volume_backend_status")
-        return resp
-
-    def _handle_get_audio_status(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``get_audio_status`` IPC command."""
-        # ADR 0007: returns the current audio filter chain status
-        # (filter names, degraded flags, VAD backend, sample rate).
-        # ADR 0008 §3.1: delegates to the service layer so this
-        # handler doesn't tunnel through ``self.service._app._audio_processor``.
-        try:
-            resp["type"] = "audio_status"
-            resp["data"] = self.service.get_audio_status()
-        except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "get_audio_status")
         return resp
 
     def _handle_get_model_status(self, data: dict | None, resp: dict) -> dict | None:

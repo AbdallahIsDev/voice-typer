@@ -48,7 +48,9 @@ import math
 import time
 from typing import Any
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
 

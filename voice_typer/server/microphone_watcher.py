@@ -98,6 +98,14 @@ class MicrophoneDeviceWatcher:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._platform = self._detect_platform()
+        # UE-12-F2: lifecycle lock. Serialises ``start()``/``stop()``
+        # so two concurrent callers can't both pass the idempotency
+        # guard and spawn duplicate polling threads (Linux/Windows) or
+        # duplicate ``CoreAudioMicrophoneWatcher`` instances (macOS).
+        # Mirrors ``VolumeDucker``'s pattern. The watcher thread itself
+        # never acquires this lock, so holding it during ``join()`` is
+        # deadlock-free.
+        self._lock = threading.Lock()
         # Task 15: when on macOS and pyobjc is available, ``start()``
         # delegates to a ``CoreAudioMicrophoneWatcher`` (event-driven,
         # zero idle wakeups). Otherwise this stays ``None`` and the
@@ -105,6 +113,15 @@ class MicrophoneDeviceWatcher:
         # import time, so importing this module never triggers a
         # pyobjc import.
         self._coreaudio_watcher: Any | None = None
+        # UE-12-F14: hooks lock. ``_check_active_mic_lost`` snapshots
+        # ``_active_mic_id``/``_on_active_mic_lost``/
+        # ``_device_id_provider`` together under this lock so a
+        # concurrent ``set_*`` call can't leave it with a torn view
+        # (e.g. the old mic_id paired with a callback just cleared by
+        # a recording-stop). Separate from ``_lock`` so the watcher
+        # thread can run the check without blocking ``start()``/
+        # ``stop()``.
+        self._hooks_lock = threading.Lock()
         # G4-M-41: active-mic-lost detection.  ``RecordingController``
         # registers an ``_on_active_mic_lost`` callback (and the current
         # ``_active_mic_id`` plus a ``_device_id_provider`` callable)
@@ -155,48 +172,56 @@ class MicrophoneDeviceWatcher:
         back to the polling thread if pyobjc is unavailable. The
         CoreAudio import happens here (not at module load) so this
         module stays importable on non-macOS without pyobjc.
+
+        UE-12-F2: the entire body runs under ``self._lock`` so two
+        concurrent ``start()`` callers can't both pass the idempotency
+        guard. The lock is held across ``ca_watcher.start()`` and
+        ``self._thread.start()`` (both fast: lazy import + thread
+        spawn). The watcher thread never acquires ``self._lock``, so
+        holding it here is deadlock-free.
         """
-        if self._thread is not None or self._coreaudio_watcher is not None:
-            return
-        if self._platform not in ("windows", "linux", "macos"):
-            log.debug(
-                "[MIC-WATCHER] Platform %s not supported, falling back to TTL polling",
+        with self._lock:
+            if self._thread is not None or self._coreaudio_watcher is not None:
+                return
+            if self._platform not in ("windows", "linux", "macos"):
+                log.debug(
+                    "[MIC-WATCHER] Platform %s not supported, falling back to TTL polling",
+                    self._platform,
+                )
+                return
+
+            # Task 15: macOS — try the native CoreAudio watcher first.
+            if self._platform == "macos":
+                ca_watcher = self._try_create_coreaudio_watcher()
+                if ca_watcher is not None:
+                    try:
+                        ca_watcher.start()
+                    except Exception:
+                        # The CoreAudio watcher started but failed to
+                        # register its listener — fall back to polling.
+                        log.warning(
+                            "[MIC-WATCHER] CoreAudio watcher start failed, falling back to sounddevice polling",
+                            exc_info=True,
+                        )
+                        self._coreaudio_watcher = None
+                    else:
+                        self._coreaudio_watcher = ca_watcher
+                        log.info("[MIC-WATCHER] Using CoreAudio property-listener watcher (event-driven)")
+                        return
+                # else: pyobjc unavailable — fall through to polling.
+
+            # Fallback: start the polling thread.
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._run,
+                daemon=True,
+                name="mic-device-watcher",
+            )
+            self._thread.start()
+            log.info(
+                "[MIC-WATCHER] Started device-change watcher for %s",
                 self._platform,
             )
-            return
-
-        # Task 15: macOS — try the native CoreAudio watcher first.
-        if self._platform == "macos":
-            ca_watcher = self._try_create_coreaudio_watcher()
-            if ca_watcher is not None:
-                try:
-                    ca_watcher.start()
-                except Exception:
-                    # The CoreAudio watcher started but failed to
-                    # register its listener — fall back to polling.
-                    log.warning(
-                        "[MIC-WATCHER] CoreAudio watcher start failed, falling back to sounddevice polling",
-                        exc_info=True,
-                    )
-                    self._coreaudio_watcher = None
-                else:
-                    self._coreaudio_watcher = ca_watcher
-                    log.info("[MIC-WATCHER] Using CoreAudio property-listener watcher (event-driven)")
-                    return
-            # else: pyobjc unavailable — fall through to polling.
-
-        # Fallback: start the polling thread.
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._run,
-            daemon=True,
-            name="mic-device-watcher",
-        )
-        self._thread.start()
-        log.info(
-            "[MIC-WATCHER] Started device-change watcher for %s",
-            self._platform,
-        )
 
     def _try_create_coreaudio_watcher(self) -> Any | None:
         """Attempt to construct a ``CoreAudioMicrophoneWatcher``.
@@ -256,41 +281,53 @@ class MicrophoneDeviceWatcher:
         Task 15: if the CoreAudio watcher is active (macOS + pyobjc),
         delegates to its ``stop()`` instead of the polling thread's
         stop logic.
-        """
-        # Task 15: stop the CoreAudio watcher first if it's active.
-        ca_watcher = self._coreaudio_watcher
-        if ca_watcher is not None:
-            try:
-                ca_watcher.stop()
-            except Exception:
-                log.warning(
-                    "[MIC-WATCHER] CoreAudio watcher stop failed",
-                    exc_info=True,
-                )
-            self._coreaudio_watcher = None
-            log.info("[MIC-WATCHER] Stopped CoreAudio watcher")
-            return
 
-        if self._thread is None:
-            return
-        self._stop_event.set()
-        # Post a WM_QUIT to wake up a Windows message pump that might
-        # be blocked in GetMessageW. On Linux this is a harmless no-op
-        # because the pump uses _stop_event.wait(timeout).
-        if self._platform == "windows":
-            try:
-                self._post_quit_to_windows()
-            except Exception:
-                # Best-effort — the 2s join timeout below is the
-                # real backstop.
-                log.debug("[MIC-WATCHER] WM_QUIT post failed", exc_info=True)
-        self._thread.join(timeout=2.0)
-        if self._thread.is_alive():
-            log.warning(
-                "[MIC-WATCHER] Watcher thread did not exit within 2s (it is a daemon and will not block process exit)"
-            )
-        self._thread = None
-        log.info("[MIC-WATCHER] Stopped device-change watcher")
+        UE-12-F2: the entire body runs under ``self._lock`` so two
+        concurrent ``stop()`` callers can't both try to join the same
+        thread / call ``CFRunLoopStop`` on the same run loop. The lock
+        is held across the 2 s join — this is safe because the watcher
+        thread never acquires ``self._lock`` (it only touches
+        ``self._hooks_lock`` inside ``_check_active_mic_lost``), and
+        serialising ``stop()`` against a concurrent ``start()``
+        prevents ``_stop_event`` from being cleared by ``start()``
+        before the old thread observes it set.
+        """
+        with self._lock:
+            # Task 15: stop the CoreAudio watcher first if it's active.
+            ca_watcher = self._coreaudio_watcher
+            if ca_watcher is not None:
+                try:
+                    ca_watcher.stop()
+                except Exception:
+                    log.warning(
+                        "[MIC-WATCHER] CoreAudio watcher stop failed",
+                        exc_info=True,
+                    )
+                self._coreaudio_watcher = None
+                log.info("[MIC-WATCHER] Stopped CoreAudio watcher")
+                return
+
+            if self._thread is None:
+                return
+            self._stop_event.set()
+            # Post a WM_QUIT to wake up a Windows message pump that might
+            # be blocked in GetMessageW. On Linux this is a harmless no-op
+            # because the pump uses _stop_event.wait(timeout).
+            if self._platform == "windows":
+                try:
+                    self._post_quit_to_windows()
+                except Exception:
+                    # Best-effort — the 2s join timeout below is the
+                    # real backstop.
+                    log.debug("[MIC-WATCHER] WM_QUIT post failed", exc_info=True)
+            self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                log.warning(
+                    "[MIC-WATCHER] Watcher thread did not exit within 2s "
+                    "(it is a daemon and will not block process exit)"
+                )
+            self._thread = None
+            log.info("[MIC-WATCHER] Stopped device-change watcher")
 
     # ── thread entry point ────────────────────────────────────────────
 
@@ -807,8 +844,13 @@ class MicrophoneDeviceWatcher:
         Passing ``None`` disables the check until the next recording
         starts — the watcher never fires ``_on_active_mic_lost`` while
         no recording is active.
+
+        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        ``_check_active_mic_lost`` can snapshot a consistent view of
+        all three hooks.
         """
-        self._active_mic_id = mic_id
+        with self._hooks_lock:
+            self._active_mic_id = mic_id
 
     def set_on_active_mic_lost(self, callback: Callable[[], None]) -> None:
         """Register the callback to invoke when the active mic disappears.
@@ -823,8 +865,13 @@ class MicrophoneDeviceWatcher:
         The callback is invoked from the watcher thread, so it must be
         thread-safe.  Exceptions raised by the callback are logged and
         swallowed (they must not kill the watcher thread).
+
+        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        ``_check_active_mic_lost`` can snapshot a consistent view of
+        all three hooks.
         """
-        self._on_active_mic_lost = callback
+        with self._hooks_lock:
+            self._on_active_mic_lost = callback
 
     def set_device_id_provider(self, provider: Callable[[], list[Any]]) -> None:
         """Register a callable that returns the current list of mic IDs.
@@ -842,8 +889,13 @@ class MicrophoneDeviceWatcher:
         as the ``mic_id`` passed to :meth:`set_active_mic_id` — the
         watcher uses ``in`` for membership, so IDs must be hashable.
         Exceptions raised by the provider are logged and swallowed.
+
+        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        ``_check_active_mic_lost`` can snapshot a consistent view of
+        all three hooks.
         """
-        self._device_id_provider = provider
+        with self._hooks_lock:
+            self._device_id_provider = provider
 
     def _check_active_mic_lost(self) -> None:
         """Fire ``_on_active_mic_lost`` if the active mic is gone.
@@ -854,26 +906,42 @@ class MicrophoneDeviceWatcher:
         with callers that never register the active-mic-lost hooks
         (e.g. tests that only exercise the device-cache invalidation
         path).
+
+        UE-12-F14: all three hooks are snapshotted together under
+        ``self._hooks_lock`` before any of them is read. Without the
+        snapshot, a concurrent ``set_active_mic_id(None)`` (recording
+        stop) could land between the ``is None`` guard and the
+        ``not in current_ids`` check, leaving us firing
+        ``_on_active_mic_lost`` for a recording that no longer exists
+        — or, conversely, pairing the old mic_id with a callback that
+        was just cleared. The snapshot guarantees the three values
+        are mutually consistent. The lock is released before invoking
+        the provider / callback so a slow provider can't block
+        ``set_*`` registrations.
         """
-        if self._active_mic_id is None or self._on_active_mic_lost is None or self._device_id_provider is None:
+        with self._hooks_lock:
+            active_mic_id = self._active_mic_id
+            on_active_mic_lost = self._on_active_mic_lost
+            device_id_provider = self._device_id_provider
+        if active_mic_id is None or on_active_mic_lost is None or device_id_provider is None:
             return
         try:
-            current_ids = list(self._device_id_provider())
+            current_ids = list(device_id_provider())
         except Exception:
             log.warning(
                 "[MIC-WATCHER] device_id_provider raised; skipping active-mic-lost check this cycle",
                 exc_info=True,
             )
             return
-        if self._active_mic_id not in current_ids:
+        if active_mic_id not in current_ids:
             log.info(
                 "[MIC-WATCHER] Active mic %r no longer in device list "
                 "(%d devices available) — firing on_active_mic_lost",
-                self._active_mic_id,
+                active_mic_id,
                 len(current_ids),
             )
             try:
-                self._on_active_mic_lost()
+                on_active_mic_lost()
             except Exception:
                 log.warning(
                     "[MIC-WATCHER] on_active_mic_lost callback raised",

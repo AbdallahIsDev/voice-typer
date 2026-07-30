@@ -143,6 +143,19 @@ class AsrBackendRegistry:
         try:
             self._disabled_backends = set(persisted)
         except TypeError:
+            # XE-14-F: previously the TypeError was silently swallowed
+            # (the ``except`` block just reset to an empty set with no
+            # log). A misconfigured ``disabled_backends`` (e.g. a string
+            # instead of a list — ``set("whisper")`` produces
+            # ``{"w", "h", "i", "s", "p", "e", "r"}`` rather than
+            # raising) would silently clear the persisted disabled set,
+            # re-enabling a backend the user explicitly disabled. Log
+            # at WARNING so the misconfiguration is visible in
+            # diagnostics exports without crashing the app.
+            log.warning(
+                "[ASR_REGISTRY] config.disabled_backends is not iterable (%r); ignoring persisted disabled set",
+                persisted,
+            )
             self._disabled_backends = set()
         # Backend-disabled subscribers. Pre-fix this was a
         # single ``on_backend_disabled: Any | None = None`` attribute.
@@ -162,6 +175,22 @@ class AsrBackendRegistry:
         # ready backend (so a recovery → re-fallback sequence re-notifies)
         # and in _record_success (primary-backend load success).
         self._last_resort_notified: bool = False
+
+        # UE-48: per-backend "busy" flag. Set when a backend enters
+        # ``transcribe_with_fallback`` (via the registry's wrapper or the
+        # ``busy_context`` context manager), cleared on exit (including
+        # the exception path). Used by
+        # :meth:`ModelManager.ensure_active_engine_loaded` to reject new
+        # dictation requests when the active backend is stuck in a
+        # C-level ctranslate2 call (which can hold GPU + GIL for 5-30
+        # min). The flag is guarded by ``self._lock`` — the transcribe
+        # thread sets it (via the wrapper) and the IPC thread reads it
+        # (via :meth:`is_busy`), so the read/write pair must be
+        # atomic. The set is keyed by backend NAME (not the backend
+        # object) so a backend that was unregistered + re-registered
+        # under the same name (e.g. via ``change_model``) doesn't carry
+        # over a stale busy state.
+        self._busy_backends: set[str] = set()
 
     # Backward-compatible property so existing
     # ``registry.on_backend_disabled = fn`` assignments continue to
@@ -412,10 +441,19 @@ class AsrBackendRegistry:
                 class_name,
             )
             return engine
-        except ImportError:
+        except ImportError as exc:
+            # XE-14-E: previously the ImportError message was dropped
+            # (the log line said "package not installed, unavailable"
+            # with no detail). The ImportError's str() carries the
+            # missing module name (e.g. "No module named 'whisper'")
+            # which is the single piece of information a support
+            # engineer needs to diagnose a missing-dependency ASR
+            # failure. Forward it to the log.
             log.warning(
-                "[ASR_REGISTRY] %s backend package not installed, unavailable",
+                "[ASR_REGISTRY] %s backend package not installed (%s), unavailable",
                 name,
+                exc,
+                exc_info=True,
             )
             return None
         except Exception as exc:
@@ -447,8 +485,24 @@ class AsrBackendRegistry:
         except Exception as exc:
             log.exception("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
             self._record_failure(self.active_name)
-            with contextlib.suppress(Exception):
+            # XE-14-D: previously the unload error was silently
+            # suppressed via ``contextlib.suppress(Exception)``. A
+            # partially-loaded backend that fails to unload leaks GPU
+            # memory / CUDA contexts / file handles — and the silent
+            # suppress meant the leak was invisible in diagnostics
+            # exports. Mirror the load_with_fallback pattern: try /
+            # except / log so the unload failure is visible at WARNING
+            # level without preventing the load_active caller from
+            # receiving the None return.
+            try:
                 backend.unload()
+            except Exception as unload_exc:
+                log.warning(
+                    "[ASR_REGISTRY] failed to unload %s after load failure: %s",
+                    self.active_name,
+                    unload_exc,
+                    exc_info=True,
+                )
             return None
 
     # ── Circuit-breaker helpers ───────────────────────────────────
@@ -671,11 +725,19 @@ class AsrBackendRegistry:
                     try:
                         backend.unload()
                         log.info("[ASR_REGISTRY] unloaded failed backend: %s", name)
-                    except Exception as unload_exc:
-                        log.warning(
-                            "[ASR_REGISTRY] failed to unload %s after load failure: %s",
+                    except Exception:
+                        # XE-14-J: ``log.exception`` (not ``log.warning``
+                        # without ``exc_info``) so the full traceback
+                        # lands in the log — a backend.unload() failure
+                        # usually means a CUDA context tear-down or
+                        # torch-tensor free raised, and the frames are
+                        # essential for diagnosing the leak. Mirrors
+                        # the sibling unload-failure paths in
+                        # ``load_with_fallback`` (whisper fallback) and
+                        # ``unload`` (the public API).
+                        log.exception(
+                            "[ASR_REGISTRY] failed to unload %s after load failure",
                             name,
-                            unload_exc,
                         )
                     # XS-17 (F-09): do NOT unregister the failed primary
                     # backend — keep it in ``_backends`` so subsequent
@@ -742,10 +804,14 @@ class AsrBackendRegistry:
                 try:
                     whisper.unload()
                     log.info("[ASR_REGISTRY] unloaded failed fallback backend: whisper")
-                except Exception as unload_exc:
-                    log.warning(
-                        "[ASR_REGISTRY] failed to unload whisper after load failure: %s",
-                        unload_exc,
+                except Exception:
+                    # XE-14-J: ``log.exception`` (not ``log.warning``
+                    # without ``exc_info``) so the full traceback lands
+                    # in the log. Mirrors the sibling unload-failure
+                    # paths in ``load_with_fallback`` (primary backend)
+                    # and ``unload`` (the public API).
+                    log.exception(
+                        "[ASR_REGISTRY] failed to unload whisper after load failure",
                     )
 
         return None
@@ -763,11 +829,189 @@ class AsrBackendRegistry:
             try:
                 backend.unload()
                 log.info("[ASR_REGISTRY] unloaded backend: %s", target)
-            except Exception as exc:
-                log.warning("[ASR_REGISTRY] failed to unload %s: %s", target, exc)
+            except Exception:
+                # XE-14-J: ``log.exception`` (not ``log.warning`` without
+                # ``exc_info``) so the full traceback lands in the log —
+                # a backend.unload() failure usually means a CUDA
+                # context tear-down or torch-tensor free raised, and
+                # the frames are essential for diagnosing the leak.
+                # Mirrors the sibling unload-failure paths in
+                # ``load_with_fallback`` (primary backend + whisper
+                # fallback).
+                log.exception("[ASR_REGISTRY] failed to unload %s", target)
 
     @property
     def available_backends(self) -> list[str]:
         """Return names of all registered backends."""
         with self._lock:
             return list(self._backends.keys())
+
+    # ── UE-48: per-backend busy flag ──────────────────────────────────
+
+    def is_busy(self, name: str | None = None) -> bool:
+        """UE-48: return True if the named backend (or the active
+        backend when ``name`` is None) is currently inside
+        ``transcribe_with_fallback``.
+
+        Thread-safety: the transcribe thread sets/clears the flag via
+        :meth:`busy_context` or :meth:`transcribe_with_fallback`, and
+        the IPC thread reads it via this method. Both paths acquire
+        ``self._lock`` so the read/write pair is atomic. A ``False``
+        return value is a snapshot — the backend may become busy
+        immediately after the call returns — but callers
+        (e.g. :meth:`ModelManager.ensure_active_engine_loaded`) use it
+        as a defence-in-depth rejection gate, not as a strict
+        mutual-exclusion primitive.
+
+        Args:
+            name: backend name to query. If None, queries the active
+                backend (``self.active_name``). Returns False if the
+                name is unknown or no active backend is configured.
+        """
+        target = name if name is not None else self.active_name
+        if not target:
+            return False
+        with self._lock:
+            return target in self._busy_backends
+
+    def set_busy(self, name: str | None = None) -> None:
+        """UE-48: mark the named backend (or the active backend when
+        ``name`` is None) as busy.
+
+        Callers SHOULD prefer :meth:`busy_context` (or the
+        :meth:`transcribe_with_fallback` wrapper) so the flag is
+        cleared automatically on exit — including the exception path.
+        Manual ``set_busy`` / :meth:`clear_busy` pairs are error-prone
+        (a missed ``clear_busy`` leaves the backend permanently busy,
+        blocking all subsequent dictations).
+
+        Thread-safety: see :meth:`is_busy`.
+        """
+        target = name if name is not None else self.active_name
+        if not target:
+            return
+        with self._lock:
+            self._busy_backends.add(target)
+
+    def clear_busy(self, name: str | None = None) -> None:
+        """UE-48: mark the named backend (or the active backend when
+        ``name`` is None) as not busy.
+
+        Idempotent — calling on a backend that wasn't busy is a
+        no-op. Safe to call from a finally block / context-manager
+        exit even if ``set_busy`` was never called (e.g. the
+        ``busy_context``'s ``__exit__`` always calls this).
+
+        Thread-safety: see :meth:`is_busy`.
+        """
+        target = name if name is not None else self.active_name
+        if not target:
+            return
+        with self._lock:
+            self._busy_backends.discard(target)
+
+    @contextlib.contextmanager
+    def busy_context(self, name: str | None = None):
+        """UE-48: context manager that sets the busy flag on enter and
+        clears it on exit (including the exception path).
+
+        Yields the resolved backend name so callers can pass it to
+        subsequent registry methods without re-resolving.
+
+        Usage::
+
+            with registry.busy_context("parakeet") as backend_name:
+                backend = registry.get(backend_name)
+                text = backend.transcribe_with_fallback(audio, ...)
+
+        Or, equivalently and preferred, use
+        :meth:`transcribe_with_fallback` which wraps the call
+        automatically.
+
+        Thread-safety: ``set_busy`` + ``clear_busy`` are both
+        ``self._lock``-guarded, so the context manager is safe to
+        enter/exit from any thread. The flag is keyed by backend NAME
+        so a backend that was unregistered mid-transcription (e.g. by
+        a concurrent ``change_model``) is still correctly marked
+        not-busy on exit — the name doesn't disappear from
+        ``_busy_backends`` just because the backend object was
+        replaced.
+        """
+        target = name if name is not None else self.active_name
+        if not target:
+            # Nothing to mark busy — yield the empty name and return.
+            yield target
+            return
+        self.set_busy(target)
+        try:
+            yield target
+        finally:
+            self.clear_busy(target)
+
+    def transcribe_with_fallback(
+        self,
+        audio: bytes,
+        *args: object,
+        name: str | None = None,
+        **kwargs: object,
+    ) -> str:
+        """UE-48: wrap the backend's ``transcribe_with_fallback`` call
+        with the busy flag set/clear cycle.
+
+        Callers (e.g. ``dictation_pipeline._transcribe``) SHOULD call
+        ``registry.transcribe_with_fallback(audio, ...)`` instead of
+        ``active.transcribe_with_fallback(audio, ...)`` so the
+        registry's per-backend busy flag is set/cleared atomically and
+        :meth:`ModelManager.ensure_active_engine_loaded` can reject
+        new dictation requests when the active backend is stuck in a
+        C-level ctranslate2 call.
+
+        The ``name`` keyword argument selects the backend to invoke
+        (defaults to the active backend). All other positional and
+        keyword arguments are forwarded to the backend's
+        ``transcribe_with_fallback`` unchanged — this is a transparent
+        wrapper w.r.t. the backend's signature, so callers that
+        already pass ``audio_stats=`` / ``local_engine=`` need no
+        changes.
+
+        Returns the transcript text (possibly empty) on success. If
+        the named backend is not registered, logs a warning and
+        returns an empty string (matching the silent-empty contract
+        of :meth:`get_active`'s last-resort branch).
+
+        Exceptions raised by the backend's
+        ``transcribe_with_fallback`` propagate to the caller after
+        the busy flag is cleared (the ``finally`` block in
+        :meth:`busy_context` ensures the flag never gets stuck set).
+        """
+        target = name if name is not None else self.active_name
+        with self._lock:
+            backend = self._backends.get(target) if target else None
+        if backend is None:
+            log.warning(
+                "[ASR_REGISTRY] transcribe_with_fallback: no backend registered for name=%r — returning empty string",
+                target,
+            )
+            return ""
+        with self.busy_context(target):
+            return backend.transcribe_with_fallback(audio, *args, **kwargs)
+
+    def force_clear_busy(self, name: str | None = None) -> None:
+        """UE-48: alias for :meth:`clear_busy` exposed under a more
+        discoverable name for the watchdog's force-recover path.
+
+        The watchdog (:meth:`RecordingController._force_recover_from_stuck_transcription`)
+        calls :meth:`ModelManager.force_unload_active` after the 2nd
+        force-recovery to tear down the stuck model's GPU
+        resources. ``force_unload_active`` calls this method to clear
+        the busy flag so the next dictation isn't rejected by
+        :meth:`ModelManager.ensure_active_engine_loaded`'s busy-check.
+
+        Kept as a separate public method (rather than just calling
+        ``clear_busy`` directly) so the watchdog call site is
+        self-documenting: ``registry.force_clear_busy(name)`` reads
+        as "force-clear the busy flag because the watchdog decided
+        the backend is unrecoverable", whereas ``clear_busy`` could
+        be misread as a routine cleanup.
+        """
+        self.clear_busy(name)

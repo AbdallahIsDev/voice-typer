@@ -93,6 +93,20 @@ class ModelManager:
         # but previously never actually applied the change. We capture
         # the requested model here and apply it on the next _start_dictation.
         self._pending_model_change: str | None = None
+        # UE-11: sibling to ``_pending_model_change`` — captures a
+        # backend-only change (``set_active_backend``) that was requested
+        # while the user was recording or busy. Mirrors the
+        # ``_pending_model_change`` deferral pattern: the request is
+        # saved (and config is persisted) at IPC time, but the actual
+        # unload/load cycle is deferred to the next
+        # :meth:`apply_pending_model_change` call (invoked from
+        # ``recording_controller.start`` before the new recording
+        # begins). Without this guard, ``set_active_backend``
+        # unconditionally ran the unload phase mid-transcription,
+        # unloading the ctranslate2 model from underneath the in-flight
+        # transcribe thread (crash / heap corruption / stuck thread —
+        # see UE-11 in review.md).
+        self._pending_backend_change: str | None = None
 
         # PERF-015: LRU tracking for loaded models.
         # Maps backend_name → last-access timestamp. When loading a new
@@ -701,64 +715,124 @@ class ModelManager:
                     f"Could not load the speech model.\n{e}\n\nThe app will keep running. Press F2 to retry loading.",
                 )
 
-    def change_model(self, model_size: str) -> None:
-        """Apply a model change for future dictation sessions.
+    def change_model(self, model_size: str) -> dict:
+        """Apply a model change for future dictation sessions (non-blocking).
 
-        Handles Whisper, Parakeet, and Qwen backends.
-        Unloads the old engine and loads the new one immediately (unless
-        currently recording).
+        AB-10: Previously this method blocked the calling IPC worker for
+        5-30s while ``_change_model_load_phase`` ran ``load_active`` (disk
+        + torch import + weight load). Now it spawns a background daemon
+        thread to do the full setattr+unload+load cycle and returns
+        immediately with a "loading" ack. The background thread holds
+        ``_model_change_lock`` for the duration so concurrent
+        ``change_model`` / ``set_active_backend`` calls serialize. On
+        completion the thread publishes an ``asr_backend_ready`` event on
+        the event_bus (mirroring the ``asr_backend_disabled`` pattern).
+
+        Handles Whisper, Parakeet, and Qwen backends. Unloads the old
+        engine and loads the new one immediately (unless currently
+        recording — in which case the change is deferred via
+        ``_pending_model_change``).
 
         ARCH-007: Uses the registry to unload/load instead of having
         three separate branches for parakeet/qwen/whisper.
 
         LOG-001: logs every model change with old/new backend and model size.
 
-        HIGH-20 / MODEL-2: the entire body is guarded by
+        HIGH-20 / MODEL-2: the background thread's body is guarded by
         ``self._model_change_lock`` so two concurrent calls cannot both
-        unload + re-register + reload the same backend.  Previously the
-        registry's ``_backends`` dict had no synchronization — a race
-        between two ``change_model`` calls (or between ``change_model``
-        and ``fallback_to_whisper``) could leave the registry with two
-        engines constructed for the same name, or with the old backend
-        unregistered before the new one finished loading.
+        unload + re-register + reload the same backend.
 
-        CR-77: ``change_model`` mutates ``app.config.asr_backend``
-        / ``model_size`` and calls ``app.config.save()``.  That mutation
-        must be atomic w.r.t. concurrent IPC handlers
-        (``service.apply_config`` / ``set_config`` / onboarding) which
-        all hold ``app._config_mutation_lock`` for the same
-        setattr+save sequence.  Without this lock, a concurrent
-        ``apply_config`` could read ``asr_backend`` mid-write (seeing
-        the new value) but then ``save()`` a config dict that still
-        held the OLD ``model_size`` (because the assignment to
-        ``model_size`` happened between the read and the save in the
-        IPC handler).  We therefore acquire ``_config_mutation_lock``
-        OUTSIDE ``_model_change_lock`` — outer-most first, matching the
-        lock-order contract enforced by ``tests/test_lock_order_contract.py``.
+        CR-77: the background thread acquires ``_config_mutation_lock``
+        for the setattr+save+unload phase. See ``_change_model_blocking``
+        for the lock-order contract.
 
-        ``_model_change_lock`` lives on ModelManager, NOT on
-        VoiceTyperApp, so it is NOT one of the three app-level locks
-        (``_lock`` / ``_config_mutation_lock`` / ``_pending_timers_lock``)
-        governed by the no-nesting contract.  Nesting it inside
-        ``_config_mutation_lock`` is safe and does not create a cycle:
-        ``_model_change_lock`` is never held while ``_config_mutation_lock``
-        is acquired, so there is no A→B / B→A deadlock hazard.
+        Returns
+        -------
+        dict
+            Ack dict shaped ``{"status": "loading", "previous": {...},
+            "pending": {...}}``. Callers that need to wait for the load
+            to complete (e.g. ``apply_pending_model_change``, tests)
+            should call ``_change_model_blocking`` instead.
         """
-        # CR-77: outer = _config_mutation_lock (app-level, governs config
-        # setattr + save); inner = _model_change_lock (ModelManager-level,
-        # guards the unload/reload cycle).  See method docstring.
-
         # TY-11: cancel any pending idle-unload timer before starting
         # the unload/reload cycle — otherwise the timer could fire
         # mid-switch and unload the NEW model.
         self.cancel_idle_unload_timer()
+        old_backend = self._app.config.asr_backend
+        old_model_size = self._app.config.model_size
+        # Determine new backend (mirrors _change_model_setattr_phase
+        # logic) so the ack dict carries the pending backend.
+        if model_size == "parakeet":
+            new_backend = "parakeet"
+        elif model_size == "qwen":
+            new_backend = "qwen"
+        else:
+            new_backend = "whisper"
+        # AB-10: spawn background daemon thread for the full cycle.
+        self._change_model_background(model_size)
+        return {
+            "status": "loading",
+            "previous": {"backend": old_backend, "model_size": old_model_size},
+            "pending": {"backend": new_backend, "model_size": model_size},
+        }
 
-        # ``_config_mutation_lock`` is acquired ONLY for the brief
-        # setattr + save + unload/unregister/clear-field phase. The heavy
-        # engine construction (_ensure_engine — may import torch) and
-        # load (load_active — 5-30s on cold boot) run under
-        # _model_change_lock alone so concurrent IPC set_config calls
-        # aren't blocked for the duration of the model load.
+    def _change_model_background(self, model_size: str) -> None:
+        """AB-10: Spawn a daemon thread to run ``_change_model_blocking``.
+
+        The thread holds ``_model_change_lock`` for the duration of the
+        setattr+unload+load cycle so concurrent ``change_model`` /
+        ``set_active_backend`` calls serialize. On completion the thread
+        publishes an ``asr_backend_ready`` event on the event_bus.
+
+        Mirrors ``start_background_load``'s thread-registration pattern
+        (CR-18) so ``shutdown_all()`` can join the thread during
+        ``quit()``. Best-effort registration — if the registry is missing
+        (e.g. in a stripped-down test fixture) we log and continue; the
+        thread is a daemon and will die on process exit anyway.
+        """
+        thread = threading.Thread(
+            target=self._change_model_blocking,
+            args=(model_size,),
+            name="ModelChange",
+            daemon=True,
+        )
+        thread.start()
+        # CR-18: track the thread centrally so shutdown_all() can
+        # signal-and-join it. Best-effort — re-registering "ModelChange"
+        # overwrites the previous entry (with a warning log); the
+        # previous thread is still a daemon and will be killed on
+        # process exit.
+        try:
+            self._app._thread_registry.register(
+                name="ModelChange",
+                thread=thread,
+                stop_event=None,
+                join_timeout=3.0,
+            )
+        except Exception:
+            log.debug(
+                "[MODEL] Failed to register ModelChange thread with thread_registry",
+                exc_info=True,
+            )
+
+    def _change_model_blocking(self, model_size: str) -> None:
+        """Synchronous model change (for test compat and direct callers).
+
+        AB-10: This is the original ``change_model`` body, preserved as a
+        separate method so callers that need to wait for the load to
+        complete (e.g. ``apply_pending_model_change``, tests) can do so.
+        The IPC handler uses the non-blocking ``change_model`` instead.
+
+        On completion (success or failure), publishes an
+        ``asr_backend_ready`` event on the event_bus so subscribers
+        (renderer, diagnostics aggregator) know the load finished.
+        """
+        # TY-11: cancel any pending idle-unload timer before starting
+        # the unload/reload cycle.
+        self.cancel_idle_unload_timer()
+        # CR-77: outer = _config_mutation_lock (app-level, governs config
+        # setattr + save); inner = _model_change_lock (ModelManager-level,
+        # guards the unload/reload cycle).  See change_model docstring.
         with self._model_change_lock:
             # Phase 1: setattr + save + unload-old under config lock.
             with self._app._config_mutation_lock:
@@ -774,6 +848,11 @@ class ModelManager:
             # Phase 2: construct + load the new engine OUTSIDE the
             # config lock (see above).
             self._change_model_load_phase(new_backend, model_size)
+        # AB-10: publish asr_backend_ready event on completion so the
+        # renderer (and any in-process subscribers) know the load
+        # finished. Published AFTER the lock is released so subscribers
+        # don't block on the lock.
+        self._publish_backend_ready_event(new_backend, model_size)
 
     def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
         """Phase 1a: determine backend, setattr + save config.
@@ -925,8 +1004,14 @@ class ModelManager:
     # Whisper's model selection (which depends on model_size) is
     # preserved across backend switches. For parakeet/qwen, model_size
     # is informational (their engines ignore it).
-    def set_active_backend(self, backend: str) -> None:
-        """Switch the active ASR backend WITHOUT changing ``model_size``.
+    def set_active_backend(self, backend: str) -> dict:
+        """Switch the active ASR backend WITHOUT changing ``model_size`` (non-blocking).
+
+        AB-10: Previously this method blocked the calling IPC worker for
+        5-30s while ``load_active`` ran. Now it spawns a background
+        daemon thread (mirroring ``change_model``'s pattern) and returns
+        immediately with a "loading" ack. On completion the thread
+        publishes an ``asr_backend_ready`` event on the event_bus.
 
         Previously ``Service.set_active_backend`` delegated to
         ``self._app.models.set_active_backend(backend)`` but
@@ -936,26 +1021,156 @@ class ModelManager:
         backend swap never happened. Old backends stayed loaded (GPU
         + RAM) until LRU eviction.
 
-        This implementation mirrors :meth:`change_model`'s
-        unload/reload cycle but skips the ``model_size`` mutation:
-
-        1. Acquire ``_config_mutation_lock`` + ``_model_change_lock``.
-        2. If ``backend == config.asr_backend``, no-op return.
-        3. Unload the OLD backend's engine (if loaded) so its GPU/RAM
-           is released immediately, not via LRU eviction later.
-        4. Set ``config.asr_backend = backend`` and persist via
-           ``config.save()``.
-        5. Pre-construct the new backend via ``_ensure_engine`` (no
-           load yet — just constructs the engine object).
-        6. Release ``_config_mutation_lock`` (see above).
-        7. Load the new backend via ``_registry.load_active`` under
-           ``_model_change_lock`` alone.
+        UE-11: if the user is recording or the transcribe thread holds
+        the busy event (mid-transcription), DEFER — persist config +
+        capture the requested backend in ``_pending_backend_change`` +
+        notify "will change after current recording" + return a
+        "deferred" ack. The actual unload/load cycle runs on the next
+        :meth:`apply_pending_model_change` (called from
+        ``recording_controller.start`` before the new recording begins).
+        Without this guard, the background thread would run the unload
+        phase mid-transcription, unloading the ctranslate2 model from
+        underneath the in-flight transcribe thread (crash / heap
+        corruption / stuck thread — see UE-11 in review.md).
 
         Parameters
         ----------
         backend :
             One of ``"whisper"``, ``"qwen"``, ``"parakeet"``. Any other
             value raises :class:`ValueError`.
+
+        Returns
+        -------
+        dict
+            Ack dict shaped ``{"status": "loading"|"ready"|"deferred",
+            "previous": {...}, "pending": {...}}``. ``status == "ready"``
+            when the backend is already active (fast-path no-op).
+            ``status == "deferred"`` when the change was queued via
+            ``_pending_backend_change`` (UE-11).
+
+        Raises
+        ------
+        ValueError
+            If ``backend`` is not one of ``"whisper"``, ``"qwen"``,
+            ``"parakeet"``. The validation happens synchronously BEFORE
+            any thread spawn so the IPC handler's ``failed_keys``
+            mechanism still catches it.
+        """
+        if backend not in ("whisper", "qwen", "parakeet"):
+            raise ValueError(
+                f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
+            )
+        # TY-11: cancel any pending idle-unload timer before starting
+        # the unload/reload cycle.
+        self.cancel_idle_unload_timer()
+        old_backend = self._app.config.asr_backend
+        old_model_size = self._app.config.model_size
+        # Fast-path no-op: if the backend is already active, don't
+        # spawn a background thread. (The background thread re-checks
+        # this under the lock for race-safety, but the fast path avoids
+        # needless thread churn in the common case.)
+        if old_backend == backend:
+            return {
+                "status": "ready",
+                "previous": {"backend": old_backend, "model_size": old_model_size},
+                "pending": {"backend": backend, "model_size": old_model_size},
+            }
+        # UE-11: busy/recording guard, mirroring ``change_model``'s
+        # ``_change_model_setattr_phase`` deferral pattern. If the user
+        # is recording OR the transcribe thread holds the busy event
+        # (mid-transcription), we MUST NOT run the unload phase —
+        # unloading the ctranslate2 model mid-inference crashes /
+        # corrupts / hangs the transcribe thread. Persist config +
+        # capture the request + notify, then return a "deferred" ack.
+        # The next ``apply_pending_model_change`` (called from
+        # ``recording_controller.start`` before the new recording
+        # begins) re-invokes ``set_active_backend`` when the app is no
+        # longer busy. The check is best-effort outside the lock —
+        # the background thread re-checks under the lock for
+        # race-safety (and re-defers if a recording started between
+        # this check and the lock acquisition).
+        try:
+            is_recording = bool(self._app.recorder.recording)
+            is_busy = not self._app._busy_event.is_set()
+        except Exception:
+            log.debug(
+                "[UE-11] busy/recording check in set_active_backend failed (non-fatal)",
+                exc_info=True,
+            )
+            is_recording = False
+            is_busy = False
+        if is_recording or is_busy:
+            log.info(
+                "[CONFIG] Backend change to %s; applying after active work",
+                backend,
+            )
+            # Persist the new backend so a crash mid-recording doesn't
+            # lose the user's intent (matches ``change_model``'s
+            # setattr-before-deferral pattern).
+            self._app.config.asr_backend = backend
+            if not self._app.config.save():
+                log.warning("[MODEL] config.save() returned False during set_active_backend (deferred)")
+            # Capture the request — ``apply_pending_model_change`` will
+            # re-invoke ``set_active_backend`` when the app is no longer
+            # busy. Because we are not currently recording at that point
+            # and ``_busy_event`` is set (not busy), this deferral
+            # branch is skipped and the full unload/load cycle runs.
+            self._pending_backend_change = backend
+            self._app.tray.notify(
+                APP_NAME,
+                f"Backend will change to {backend} after current recording",
+            )
+            return {
+                "status": "deferred",
+                "previous": {"backend": old_backend, "model_size": old_model_size},
+                "pending": {"backend": backend, "model_size": old_model_size},
+            }
+        # AB-10: spawn background daemon thread for the full cycle.
+        self._set_active_backend_background(backend)
+        return {
+            "status": "loading",
+            "previous": {"backend": old_backend, "model_size": old_model_size},
+            "pending": {"backend": backend, "model_size": old_model_size},
+        }
+
+    def _set_active_backend_background(self, backend: str) -> None:
+        """AB-10: Spawn a daemon thread to run ``_set_active_backend_blocking``.
+
+        Mirrors ``_change_model_background``'s thread-registration pattern.
+        The thread holds ``_model_change_lock`` for the duration so
+        concurrent ``change_model`` / ``set_active_backend`` calls
+        serialize.
+        """
+        thread = threading.Thread(
+            target=self._set_active_backend_blocking,
+            args=(backend,),
+            name="BackendChange",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            self._app._thread_registry.register(
+                name="BackendChange",
+                thread=thread,
+                stop_event=None,
+                join_timeout=3.0,
+            )
+        except Exception:
+            log.debug(
+                "[MODEL] Failed to register BackendChange thread with thread_registry",
+                exc_info=True,
+            )
+
+    def _set_active_backend_blocking(self, backend: str) -> None:
+        """Synchronous backend switch (for test compat and direct callers).
+
+        AB-10: This is the original ``set_active_backend`` body,
+        preserved as a separate method so callers that need to wait for
+        the load to complete (tests) can do so. The IPC handler uses
+        the non-blocking ``set_active_backend`` instead.
+
+        On completion (success or failure), publishes an
+        ``asr_backend_ready`` event on the event_bus.
         """
         if backend not in ("whisper", "qwen", "parakeet"):
             raise ValueError(
@@ -1028,6 +1243,43 @@ class ModelManager:
             except Exception as exc:
                 log.exception("[MODEL] set_active_backend load failed: %s", exc)
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
+        # AB-10: publish asr_backend_ready event on completion so the
+        # renderer (and any in-process subscribers) know the load
+        # finished.
+        self._publish_backend_ready_event(backend, self._app.config.model_size)
+
+    def _publish_backend_ready_event(self, backend: str, model_size: str) -> None:
+        """AB-10: Publish an ``asr_backend_ready`` event on the event_bus.
+
+        Mirrors the ``asr_backend_disabled`` event pattern in
+        ``asr_registry.py``. The event signals to the renderer (and any
+        in-process subscribers) that a backend load has finished — either
+        the user changed models via Settings, or the active backend was
+        switched. The renderer uses this to dismiss the "loading"
+        spinner shown after the IPC ``set_config`` ack.
+
+        The event is published AFTER ``_model_change_lock`` is released
+        so subscribers don't block on the lock. Best-effort — a publish
+        failure is logged at DEBUG and swallowed (the load itself
+        already succeeded; the event is purely informational).
+        """
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "asr_backend_ready",
+                    "data": {
+                        "backend": backend,
+                        "model_size": model_size,
+                    },
+                }
+            )
+        except Exception:
+            log.debug(
+                "[MODEL] Failed to publish asr_backend_ready event",
+                exc_info=True,
+            )
 
     # ERR-003: apply a deferred model change captured during an active
     # recording. Called from _start_dictation before the new recording
@@ -1036,17 +1288,67 @@ class ModelManager:
         """If a model change was deferred during a previous recording,
         re-run change_model now (without the early return) so the new
         backend is actually loaded. Returns True if a change was applied.
+
+        UE-11: also applies a deferred backend-only change
+        (``_pending_backend_change``) captured by
+        :meth:`set_active_backend` while the user was recording/busy.
+        The two pending fields are independent — a single recording
+        could have triggered BOTH a ``change_model`` request (which
+        sets ``_pending_model_change``) AND a ``set_active_backend``
+        request (which sets ``_pending_backend_change``). We apply the
+        model change FIRST (because ``change_model`` re-evaluates the
+        backend from the new ``model_size`` — e.g. model_size="parakeet"
+        implies backend="parakeet") and then the backend change
+        SECOND (so an explicit ``set_active_backend("whisper")``
+        overrides the model-change-implied backend).
+
+        Both pending fields are cleared BEFORE either apply runs so a
+        crash mid-apply doesn't leave a stale request that re-fires on
+        the next recording. The apply methods (``_change_model_blocking``
+        / ``_set_active_backend_blocking``) are idempotent under the
+        not-currently-busy precondition (which holds because
+        ``recording_controller.start`` calls us before recording
+        starts), so a re-invocation from a subsequent recording would
+        be a no-op (the config already reflects the requested state).
         """
+        # ``getattr`` defensive: some test fixtures (and the legacy
+        # ``test_recording_and_audio.py::TestPendingModelChange``)
+        # construct ModelManager via ``__new__`` and only set
+        # ``_pending_model_change`` — they don't know about the new
+        # ``_pending_backend_change`` field added in UE-11. Reading
+        # via ``getattr(..., None)`` preserves their behaviour (no
+        # AttributeError) instead of forcing every test fixture to
+        # set the new field.
         pending = self._pending_model_change
-        if pending is None:
+        pending_backend = getattr(self, "_pending_backend_change", None)
+        if pending is None and pending_backend is None:
             return False
-        log.info("[MODEL] Applying deferred model change to %s", pending)
+        # Clear both BEFORE applying to avoid re-entry on a crash.
+        # See method docstring for the safety argument.
         self._pending_model_change = None
-        # Re-invoke change_model. Because we are not currently recording
-        # and busy_event is set (not busy), the early-return branch is
-        # skipped and the full unload/load cycle runs.
-        self.change_model(pending)
-        return True
+        self._pending_backend_change = None
+        applied = False
+        if pending is not None:
+            log.info("[MODEL] Applying deferred model change to %s", pending)
+            # AB-10: use the BLOCKING variant (not the non-blocking
+            # ``change_model``) because the caller —
+            # ``recording_controller._start_dictation`` — needs the model
+            # fully loaded BEFORE the recorder starts capturing audio. The
+            # non-blocking variant would return immediately and the
+            # recorder would start with the OLD (unloaded) engine.
+            self._change_model_blocking(pending)
+            applied = True
+        if pending_backend is not None:
+            log.info("[MODEL] Applying deferred backend change to %s", pending_backend)
+            # AB-10 + UE-11: use the BLOCKING variant for the same
+            # reason as the model-change branch above. The
+            # preconditions (not recording + not busy) hold because
+            # ``recording_controller.start`` calls us before recording
+            # starts, so the UE-11 deferral branch in
+            # ``set_active_backend`` is skipped.
+            self._set_active_backend_blocking(pending_backend)
+            applied = True
+        return applied
 
     # ── Lazy init for _start_dictation ─────────────────────────────────
 
@@ -1072,10 +1374,60 @@ class ModelManager:
         latency. After reload, ``touch_model`` re-arms the idle-unload
         timer so the cycle can repeat on the next idle period.
 
+        UE-48: if the active backend is currently busy (inside
+        ``transcribe_with_fallback`` on another thread — e.g. a stuck
+        ctranslate2 call that the watchdog hasn't force-recovered yet),
+        REJECT this request and mark a pending dictation so the user's
+        F2 press is honoured after the watchdog recovers. Returning
+        None here causes ``recording_controller.start`` to fall through
+        to the ``fallback_to_whisper`` path, which is the safest
+        fallback — it loads a separate Whisper backend rather than
+        piling up on the stuck backend's ctranslate2 internal lock.
+
         Returns the active transcriber on success, or None if no engine
         could be created. The caller is responsible for checking
         ``is_loaded`` and calling fallback_to_whisper() if needed.
         """
+        # UE-48: busy-flag rejection. The transcribe thread sets the
+        # flag via ``registry.busy_context`` / ``transcribe_with_fallback``
+        # (or, when the pipeline adopts the wrapper, automatically); the
+        # IPC / hotkey thread reads it here. The check is best-effort —
+        # the flag may have been cleared between the read and the
+        # subsequent ``_lazy_init_lock`` acquisition — but it
+        # short-circuits the common case where the previous
+        # transcription is stuck and the user has pressed F2 again. The
+        # ``_pending_dictation`` flag ensures the user's F2 press isn't
+        # lost: the next ``recording_controller.start`` (after the
+        # watchdog recovers) will re-enter this method and the busy
+        # check will pass.
+        #
+        # Strict ``is True`` check (not just truthy): test fixtures that
+        # replace the registry with a ``MagicMock`` get a truthy
+        # MagicMock from ``is_busy()`` by default — a truthy check
+        # would incorrectly reject every dictation in those tests.
+        # The real ``AsrBackendRegistry.is_busy`` returns a real
+        # ``bool``, so the strict check is safe in production.
+        try:
+            active_name = self._app.config.asr_backend
+            if self._registry.is_busy(active_name) is True:
+                log.warning(
+                    "[UE-48] Active backend %s is busy (stuck transcription?) — "
+                    "rejecting ensure_active_engine_loaded and queuing the "
+                    "dictation. The watchdog will force-recover and clear "
+                    "the busy flag via force_unload_active().",
+                    active_name,
+                )
+                # Queue the dictation so the user's F2 press is honoured
+                # after the watchdog recovers (mirrors the
+                # ``_pending_dictation`` semantics in ``load_background``'s
+                # finally block).
+                self._pending_dictation = True
+                return None
+        except Exception:
+            log.debug(
+                "[UE-48] busy-check in ensure_active_engine_loaded failed (non-fatal)",
+                exc_info=True,
+            )
         # TY-11: cancel any pending idle-unload timer — the user is
         # actively dictating so the model must NOT be unloaded mid-
         # dictation. This is the canonical "cancel on activity" path.
@@ -1432,5 +1784,121 @@ class ModelManager:
         except Exception:
             log.debug(
                 "[TY-11] tray.set_state failed (non-fatal)",
+                exc_info=True,
+            )
+
+    # ── UE-48: force-unload the active backend (watchdog escalation) ──
+
+    def force_unload_active(self) -> None:
+        """UE-48: force-unload the active backend + clear its busy flag.
+
+        Called by the watchdog
+        (:meth:`voice_typer.server.recording_controller.RecordingController._force_recover_from_stuck_transcription`)
+        after the 2nd force-recovery to actually tear down the stuck
+        ctranslate2 model's GPU resources. The watchdog itself can't
+        interrupt the C-level ctranslate2 call, but unloading the
+        backend object releases the Python-side reference and (for
+        backends whose ``unload()`` frees CUDA tensors) the VRAM.
+
+        Contract:
+
+        * **Idempotent.** Safe to call multiple times — each call is a
+          no-op if the backend is already unloaded.
+
+        * **Best-effort.** Catches every exception, logs a warning, and
+          NEVER raises. The watchdog calls this from its own
+          force-recover path; a raise here would mask the recovery
+          state reset (``_busy_event.set()``, tray to IDLE) the
+          watchdog has already performed.
+
+        * **Three-layer unload.**
+
+          1. ``registry.unload(active_name)`` — clears the registry's
+             ``_backends[name]`` slot (defence-in-depth so a
+             subsequent ``get_active`` doesn't return a half-torn-down
+             backend).
+          2. ``backend.unload()`` directly on the backend object —
+             bypasses the registry's name lookup in case a concurrent
+             ``change_model`` / ``set_active_backend`` swapped the
+             registered backend out from under us between step 1 and
+             step 2.
+          3. ``release_gpu_memory()`` — releases PyTorch's CUDA caching
+             allocator blocks back to the OS (matches the TY-11
+             idle-unload path's three-layer pattern).
+
+        * **Clears the busy flag.** Calls
+          :meth:`AsrBackendRegistry.force_clear_busy` so the next
+          :meth:`ensure_active_engine_loaded` call isn't rejected by
+          the UE-48 busy-check. Without this, the busy flag would
+          remain set forever (the stuck transcription never returned
+          to clear it) and every subsequent dictation would be
+          rejected + queued.
+
+        * **Does NOT touch ``config.asr_backend``.** The next
+          :meth:`ensure_active_engine_loaded` call (from
+          ``recording_controller.start``) will re-create + re-load
+          the same backend via ``_ensure_engine`` + ``load_active``.
+          The watchdog's contract is "tear down the stuck model so the
+          next dictation can load a fresh one", not "switch to a
+          different backend".
+
+        * **Does NOT call ``tray.set_state``.** The watchdog has
+          already set the tray to ``AppState.IDLE`` with the
+          "recovered" message — we don't want to overwrite that with
+          the TY-11 "Idle — model unloaded" message (which would
+          confuse the user, since the recovery message is more
+          specific).
+        """
+        try:
+            active_name = self._registry.active_name
+        except Exception:
+            active_name = None
+        log.warning(
+            "[UE-48] force_unload_active: tearing down active backend %r "
+            "(watchdog escalation after stuck transcription)",
+            active_name,
+        )
+        # Layer 1: registry.unload (clears _backends[name] slot).
+        try:
+            self._registry.unload(active_name)
+        except Exception:
+            log.warning(
+                "[UE-48] registry.unload(%s) failed (non-fatal)",
+                active_name,
+                exc_info=True,
+            )
+        # Layer 2: backend.unload() directly (bypasses the registry in
+        # case a concurrent change_model / set_active_backend swapped
+        # the registered backend out from under us).
+        try:
+            backend = self._registry.get(active_name)
+            if backend is not None and hasattr(backend, "unload"):
+                backend.unload()
+        except Exception:
+            log.warning(
+                "[UE-48] backend.unload() failed (non-fatal)",
+                exc_info=True,
+            )
+        # Layer 3: release GPU memory (CUDA caching allocator blocks).
+        try:
+            from voice_typer.server.asr_utils import release_gpu_memory
+
+            release_gpu_memory()
+        except Exception:
+            log.debug(
+                "[UE-48] release_gpu_memory() failed (non-fatal)",
+                exc_info=True,
+            )
+        # Clear the busy flag so the next ensure_active_engine_loaded
+        # isn't rejected by the UE-48 busy-check. Without this, the
+        # busy flag would remain set forever (the stuck transcription
+        # never returned to clear it) and every subsequent dictation
+        # would be rejected + queued indefinitely.
+        try:
+            self._registry.force_clear_busy(active_name)
+        except Exception:
+            log.debug(
+                "[UE-48] force_clear_busy(%s) failed (non-fatal)",
+                active_name,
                 exc_info=True,
             )

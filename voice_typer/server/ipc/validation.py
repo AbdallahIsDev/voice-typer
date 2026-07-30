@@ -160,6 +160,17 @@ class ErrorCodes:
     CLOUD_NETWORK_ERROR = "server.cloud_network_error"
     CLOUD_CONFIG_ERROR = "server.cloud_config_error"
     CLOUD_ENGINE_ERROR = "server.cloud_engine_error"
+    # XE-14-C: recording-pipeline exception hierarchy — distinct codes
+    # for resample failures (audio cannot be converted to the target
+    # sample rate) and resample-unavailable (scipy not installed). See
+    # ``voice_typer/server/recording/exceptions.py`` for the typed
+    # exception classes and ``voice_typer/server/handlers/_base.py``
+    # for the isinstance mapping. The renderer surfaces a targeted
+    # "audio pipeline misconfiguration" / "install scipy for better
+    # audio quality" message instead of the generic
+    # ``server.internal_error`` toast.
+    RECORDING_RESAMPLE_FAILED = "server.recording_resample_failed"
+    RECORDING_RESAMPLE_UNAVAILABLE = "server.recording_resample_unavailable"
 
 
 class LegacyErrorCodes:
@@ -588,8 +599,13 @@ def _error_response(resp: dict, message: str, *, code: str = ErrorCodes.HANDLER_
     dict
         The same ``resp`` dict, mutated to be an error envelope.
     """
+    # XE-14-B: derive the legacy alias from the namespaced ``code``.
+    # ``client.foo`` / ``server.foo`` → ``foo``; legacy-form codes are
+    # returned unchanged so the helper is idempotent on inputs that
+    # already lack a namespace prefix.
+    legacy_code = code.split(".", 1)[1] if code.startswith("client.") or code.startswith("server.") else code
     resp["type"] = "error"
-    resp["data"] = {"code": code, "message": message}
+    resp["data"] = {"code": code, "legacy_code": legacy_code, "message": message}
     return resp
 
 
@@ -627,7 +643,17 @@ ResponseEnvelope = dict[str, object]
 CommandHandler = _Callable[[object | None, ResponseEnvelope], ResponseEnvelope | None]
 del _Callable
 
-__all__ = [
+# XE-2-3: previously a SECOND top-level ``__all__ = [...]`` literal
+# appeared here, which SILENTLY REPLACED the first ``__all__`` (the one
+# above that lists ``_validate_dict_payload`` / ``ErrorCodes`` / etc.).
+# Any consumer that did ``from voice_typer.server.ipc.validation import *``
+# only got ``CommandHandler`` + ``ResponseEnvelope`` — every other
+# public name (the validation helper, the error-code registry, the
+# TypedDicts) was silently dropped from the star-import surface, and
+# ``"_validate_dict_payload" in validation.__all__`` returned ``False``.
+# Use ``+=`` so the YJ-1 / YJ-27 additions are APPENDED to the existing
+# export list rather than replacing it.
+__all__ += [
     "CommandHandler",
     "ResponseEnvelope",
 ]

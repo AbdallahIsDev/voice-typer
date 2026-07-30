@@ -1,9 +1,20 @@
-"""System IPC handler mixin: restart_app, quit_app, export_diagnostics,
-check_accessibility, set_tray_locale, show_electron_notification.
+"""System IPC handler mixin: restart_app, quit_app, check_accessibility,
+set_tray_locale, show_electron_notification.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_export_diagnostics`` was REMOVED — the
+Tauri host now handles it via a dedicated Rust command. The Python-side
+``service.export_diagnostics`` still exists for the legacy Electron path
+and is invoked by the Rust bridge; only the IPC dispatch route was
+deleted. ``_handle_check_accessibility`` and
+``_handle_show_electron_notification`` are also absent from
+``_COMMAND_REGISTRY`` and the renderer allowlist, but they are retained
+because tests in ``tests/regressions/``, ``tests/tauri/``, and
+``tests/test_notification_event_name.py`` invoke them directly as the
+reference shape the Rust host mirrors.
 """
 
 import contextlib
@@ -42,7 +53,7 @@ def _has_control_chars(value) -> bool:
 
 
 class SystemHandlersMixin(HandlerBase):
-    """Mixin: system-level IPC handlers (restart / quit / diagnostics / accessibility / ...).
+    """Mixin: system-level IPC handlers (restart / quit / accessibility / ...).
 
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
@@ -93,17 +104,6 @@ class SystemHandlersMixin(HandlerBase):
         except Exception as e:
             log.error("[IPC] quit_app failed: %s", e, exc_info=True)
         return None
-
-    def _handle_export_diagnostics(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``export_diagnostics`` IPC command."""
-        try:
-            result = self.service.export_diagnostics()
-            resp["type"] = "diagnostics_result"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "export_diagnostics")
-        return resp
 
     def _handle_check_accessibility(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``check_accessibility`` IPC command.

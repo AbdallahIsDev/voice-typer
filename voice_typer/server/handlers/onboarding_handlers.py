@@ -1,8 +1,17 @@
-"""Onboarding IPC handler mixin: 13 onboarding_* commands.
+"""Onboarding IPC handler mixin: onboarding_* commands.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_onboarding_get_step``,
+``_handle_onboarding_get_model_catalog``, and
+``_handle_onboarding_request_keyboard_permission`` were REMOVED — the
+renderer no longer invokes them (wizard state is held client-side;
+the renderer uses ``get_model_catalog`` for catalog data; and the
+permission flow now uses ``onboarding_check_permissions`` + a
+Tauri-side invocation). The service-layer methods still exist for
+internal callers; only the IPC dispatch routes were deleted.
 """
 
 from voice_typer.server._secrets import redact_secret, redact_url
@@ -198,17 +207,6 @@ class OnboardingHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_start")
-        return resp
-
-    def _handle_onboarding_get_step(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``onboarding_get_step`` IPC command."""
-        try:
-            result = self.service.onboarding_get_step()
-            resp["type"] = "onboarding_step"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_get_step")
         return resp
 
     def _handle_onboarding_next_step(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
@@ -454,29 +452,6 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_model_options")
         return resp
 
-    def _handle_onboarding_get_model_catalog(
-        self, data: object | None, resp: ResponseEnvelope
-    ) -> ResponseEnvelope | None:
-        """Handle the ``onboarding_get_model_catalog`` IPC command (UX-32).
-
-        Returns the full rich-metadata model catalog (a superset of the
-        curated ``MODEL_OPTIONS`` subset). Does NOT delegate to
-        ``self.service`` — the catalog is pure static metadata from
-        :mod:`voice_typer.server.model_registry`, shared with the Models
-        page's ``get_model_catalog`` IPC via
-        :meth:`OnboardingController.get_model_catalog`.
-        """
-        try:
-            from voice_typer.server.onboarding import OnboardingController
-
-            result = {"models": OnboardingController.get_model_catalog()}
-            resp["type"] = "onboarding_model_catalog"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope.
-            self._respond_with_error(resp, exc, "onboarding_get_model_catalog")
-        return resp
-
     def _handle_onboarding_get_hotkey_presets(
         self, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope | None:
@@ -517,39 +492,6 @@ class OnboardingHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_check_permissions")
-        return resp
-
-    def _handle_onboarding_request_keyboard_permission(
-        self, data: object | None, resp: ResponseEnvelope
-    ) -> ResponseEnvelope | None:
-        """Handle the ``onboarding_request_keyboard_permission`` IPC command.
-
-        Opens the OS permission UI so the user can
-        grant the keyboard-monitoring permission without leaving the
-        wizard. Delegates to
-        :func:`voice_typer.server.permissions.request_keyboard_permission`,
-        which deep-links to System Settings → Accessibility on macOS
-        and runs ``pkexec install_permissions.py`` on Linux.
-
-        NOTE: this handler is intentionally NOT registered in the
-        ``_COMMAND_REGISTRY`` — the renderer's permission flow now uses
-        ``onboarding_check_permissions`` + a Tauri-side invocation, and
-        the TS allowlist dropped this entry. The handler body is
-        retained for the future re-wiring if the renderer's flow
-        changes back.
-        """
-        try:
-            from voice_typer.server.permissions import request_keyboard_permission
-
-            request_keyboard_permission()
-            resp["type"] = "ack"
-            resp["data"] = {"ok": True}
-        except Exception as exc:
-            self._respond_with_error(
-                resp,
-                exc,
-                "onboarding_request_keyboard_permission",
-            )
         return resp
 
     def _handle_onboarding_reset(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:

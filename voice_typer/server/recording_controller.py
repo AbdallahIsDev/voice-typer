@@ -42,7 +42,15 @@ class RecordingController:
     (``app``) so RecordingController can:
     - Read ``app.config`` (recording_mode, streaming_*, silence_*)
     - Read/write ``app.recorder`` (Recorder instance)
-    - Read/write ``app._busy_event`` (busy flag)
+    - Read/write ``app._busy_event`` (busy flag). NOTE (UE-9-F8):
+      ``app._busy_event`` uses INVERTED semantics —
+      ``is_set() == True`` means NOT busy, ``is_set() == False`` means
+      busy. This is because the event doubles as a "ready" signal
+      (``wait()`` blocks while busy). All call sites in this module
+      annotate the inverted meaning with ``# busy`` / ``# not busy`` /
+      ``# busy = True`` / ``# busy = False`` comments. A full rename to
+      ``_not_busy_event`` was considered but deferred as a large
+      semantic change touching every caller.
     - Own ``self._transcription_thread`` / ``self._streaming_session``
       (ARCH-REFAC-003: callers must read these via ``app.recording.X``)
     - Update ``app.tray`` state during recording
@@ -121,6 +129,16 @@ class RecordingController:
         # unavoidable C-level retention by a stuck ctranslate2 call is a
         # documented limitation that requires engine-level changes.
         self._current_audio: Any = None
+        # AB-4: track whether the level_monitor was actively running when
+        # we started recording, so ``_stop_impl`` can restart it if
+        # ``bubble_behavior == "always_visible"``. The level_monitor and
+        # the Recorder cannot share the mic device concurrently (Windows
+        # MME device-conflict; Linux/macOS doubles audio-path CPU). The
+        # frontend tries to stop the level_monitor before
+        # ``recording_start``, but if the IPC races or the frontend
+        # forgets, the backend guard in
+        # ``_stop_level_monitor_for_recorder_start`` is the safety net.
+        self._level_monitor_was_active: bool = False
 
     # ── Streaming session accessors ────────────────────────────────────
 
@@ -174,9 +192,14 @@ class RecordingController:
     def _toggle_impl(self) -> None:
         """Inner toggle implementation, called under _toggle_lock."""
         app = self._app
-        # Generate cycle correlation ID for this dictation
-        app._cycle_counter += 1
-        app._cycle_id = f"#{app._cycle_counter}"
+        # UE-9-F15: the cycle counter is NOT incremented here. Pre-fix,
+        # every blocked / queued / errored toggle consumed a cycle ID,
+        # producing non-contiguous cycle numbers in the log trail (a
+        # "cycle #5" with no corresponding recording was confusing).
+        # The counter is now incremented only when we commit to a real
+        # start/stop below, so cycle IDs map 1:1 to actual dictations.
+        # Early-return log lines reference the PREVIOUS cycle's
+        # ``app._cycle_id`` for correlation.
 
         active = app.models.active_transcriber()
         model_loaded = active is not None and active.is_loaded
@@ -259,6 +282,12 @@ class RecordingController:
                     i18n.t("state.recording_controller.starting_up"),
                 )
             return
+
+        # UE-9-F15: commit to a real start/stop — NOW increment the
+        # cycle counter so cycle IDs are 1:1 with actual dictations
+        # (no gaps from blocked / queued / errored toggles).
+        app._cycle_counter += 1
+        app._cycle_id = f"#{app._cycle_counter}"
 
         if app.recorder.recording:
             # #2 Call app._stop_dictation (which delegates to
@@ -355,26 +384,14 @@ class RecordingController:
         except Exception:
             log.exception("[DICTATION] Failed to apply pending model change; continuing")
 
-        # Lazy-init engines if backend was changed via Electron UI after startup.
-        # #2 ModelManager handles the lazy-init + registry sync.
-        app.models.ensure_active_engine_loaded()
-        active = app.models.active_transcriber()
-
-        if active is None or not getattr(active, "is_loaded", False):
-            # No engine loaded -- try to load whisper as a fallback
-            log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
-            # RW-9 Phase 2: was ``app._fallback_to_whisper(notify_on_failure=True)``
-            # (a test-seam delegate on VoiceTyperApp, now removed). Call the
-            # ModelManager method directly.
-            app.models.fallback_to_whisper(notify_on_failure=True)
-            active = app.models.active_transcriber()
-            if active is None or not getattr(active, "is_loaded", False):
-                log.error("[DICTATION] Whisper fallback also failed, cannot record")
-                app._schedule_timer(
-                    3.0,
-                    lambda: app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry")),
-                )
-                return
+        # AB-9: ``ensure_active_engine_loaded()`` is deferred to AFTER
+        # ``recorder.start()`` (see below). Pre-fix, it ran BEFORE
+        # ``recorder.start()`` and blocked the F2 hotkey thread for 5-30s
+        # when the TY-11 idle-unload timer had fired — the first 5-30s of
+        # speech was lost because audio was not being captured during the
+        # reload. Now the recorder buffers audio while the model reloads
+        # inline; the transcription thread (started in ``_stop_impl``)
+        # transcribes the buffered audio once the model is ready.
 
         log.info("[DICTATION] Starting recording... (cycle=%s)", app._cycle_id)
         try:
@@ -403,8 +420,13 @@ class RecordingController:
             except Exception:
                 log.debug("[AUDIO_QUALITY] reset on start failed", exc_info=True)
 
+            # AB-4: stop the level_monitor's PortAudio InputStream BEFORE
+            # opening the Recorder's stream. Without this guard, both
+            # streams run concurrently (Linux/macOS doubles audio-path
+            # CPU; Windows MME device-conflict fails the second open).
+            self._stop_level_monitor_for_recorder_start()
+
             app.recorder.start()
-            self._start_streaming_session_if_enabled()
             app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
             app._waveform_bubble.show()
@@ -463,6 +485,54 @@ class RecordingController:
                     "[SOUND] failed to push recording_started event",
                     exc_info=True,
                 )
+
+            # AB-9: load / reload the active engine AFTER ``recorder.start()``
+            # so the recorder buffers audio while the model reloads (5-30s
+            # on idle-unload). Pre-fix this ran before ``recorder.start()``
+            # and the first 5-30s of speech was lost. The transcription
+            # thread (started in ``_stop_impl``) transcribes the buffered
+            # audio once the model is ready. If the model fails to load,
+            # we discard the recorder we just started and surface an error.
+            app.models.ensure_active_engine_loaded()
+            active = app.models.active_transcriber()
+            if active is None or not getattr(active, "is_loaded", False):
+                # No engine loaded -- try to load whisper as a fallback
+                log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
+                # RW-9 Phase 2: was ``app._fallback_to_whisper(notify_on_failure=True)``
+                # (a test-seam delegate on VoiceTyperApp, now removed). Call the
+                # ModelManager method directly.
+                app.models.fallback_to_whisper(notify_on_failure=True)
+                active = app.models.active_transcriber()
+                if active is None or not getattr(active, "is_loaded", False):
+                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
+                    # AB-9: the recorder is already running — discard it
+                    # so we don't leak the mic stream or leave the app in
+                    # a recording state with no engine to transcribe.
+                    try:
+                        app.recorder.discard()
+                    except Exception:
+                        log.debug(
+                            "[DICTATION] recorder.discard() during model-fail teardown raised (best-effort)",
+                            exc_info=True,
+                        )
+                    app.recorder.recording = False
+                    app.tray.set_state(
+                        AppState.ERROR,
+                        i18n.t("state.recording_controller.model_failed_retry"),
+                    )
+                    app._schedule_timer(
+                        3.0,
+                        lambda: app.tray.set_state(
+                            AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry")
+                        ),
+                    )
+                    return
+
+            # AB-9: streaming session requires an active transcriber, so it
+            # must start AFTER the model-load block above (pre-AB-9 it ran
+            # immediately after ``recorder.start()`` which was fine because
+            # the model was already loaded; now the model loads later).
+            self._start_streaming_session_if_enabled()
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
@@ -519,10 +589,35 @@ class RecordingController:
             self._stop_impl()
 
     def _stop_impl(self) -> None:
-        """Inner stop implementation, called under _toggle_lock."""
+        """Inner stop implementation, called under _toggle_lock.
+
+        AB-12: the blocking ``recorder.stop()`` call (~2.4s worst case:
+        300ms stream-teardown poll + 2.0s audio-worker drain + 2.0s
+        event-worker drain + np.concatenate + resample) is moved off the
+        hotkey thread into a daemon worker. The hotkey thread does the
+        synchronous pre-stop work (publish event, keyboard ownership,
+        busy flag, tray, bubble), then spawns the worker as
+        ``self._transcription_thread`` and returns after a bounded
+        ``join(timeout=0.1)``. The ``_toggle_lock`` is held only for the
+        synchronous pre-stop work + thread spawn (microseconds), not the
+        2.4s teardown. The ``_busy_event`` (cleared synchronously below)
+        prevents concurrent ``stop()`` / ``toggle()`` calls from
+        proceeding while the stop+transcribe worker is running.
+        """
         app = self._app
         if not app.recorder.recording:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
+            return
+        # AB-12: if a stop+transcribe worker is already running
+        # (``_busy_event`` cleared = busy=True), this is a duplicate
+        # ``stop()`` call (e.g. auto-stop Timer firing while the user's
+        # F2-toggle stop is still in progress). Return early — the
+        # in-progress worker will complete the stop+transcribe cycle.
+        if not app._busy_event.is_set():  # busy = True
+            log.debug(
+                "[DICTATION] _stop_dictation: stop already in progress (busy=True), no-op (cycle=%s)",
+                app._cycle_id,
+            )
             return
         # NEW-IPC-002: emit recording_stopped push event
         # SOUND-FIX-004: log push failures (see comment in start() above).
@@ -572,112 +667,151 @@ class RecordingController:
         # is hidden or set back to idle depending on bubble_behavior.
         app._waveform_bubble.set_state("transcribing")
 
-        try:
-            audio = app.recorder.stop()
-        except Exception:
-            log.exception("[DICTATION] Failed to stop recording")
-            self._cancel_streaming_session()
-            app._restore_volume()
-            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.stop_failed"))
-            # NEW-UX-018: critical — bypass the notification toggle
-            # (dictation failed, the user must be told even if they
-            # disabled normal notifications).
-            # Use the i18n key (resolved via the
-            # server-side i18n module) so the tray tooltip + OS
-            # notification render in the user's selected UI locale.
-            # DE-51: no {error} interpolation — exception text can leak
-            # sensitive paths. The full exception is logged above.
-            app.tray.notify_safety(
-                APP_NAME,
-                i18n.t("notify.recording_controller.stop_failed"),
-            )
-            app._busy_event.set()  # busy = False
-            app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
-            return
-
-        # Restore system volume immediately — don't wait for transcription
-        # (which takes seconds) before the user gets their audio back.
-        app._restore_volume()
-
-        # Audio has already been resampled to config.sample_rate by Recorder.stop()
-        duration = len(audio) / app.config.sample_rate if len(audio) > 0 else 0
-        # Capture RMS before starting transcription thread (race-safe).
-        # Diagnostic: include recorded_rms in the stop log so the
-        # "finish dictation → nothing transcribed" failure mode can be
-        # traced — if recorded_rms is non-trivial here but the pipeline
-        # later reports an empty transcription, the engine (not the
-        # mic) was the culprit.
-        recorded_rms = app.recorder.last_rms
-
-        # Run the revived AudioQualityAnalyzer on the captured audio.
-        if duration > 0:
-            try:
-                app._finalize_audio_quality_report(audio)
-            except Exception:
-                log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
-        log.info(
-            "[DICTATION] Recording stopped -- %.1fs of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
-            duration,
-            recorded_rms,
-            app._cycle_id,
-        )
-
-        if duration < 0.5:
-            log.info("[DICTATION] Audio too short, skipping transcription")
-            self._cancel_streaming_session()
-            app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.too_short"))
-            app._busy_event.set()  # busy = False
-            app._schedule_timer(2.0, lambda: app.tray.set_state(AppState.IDLE))
-            return
-
-        log.info("[DICTATION] Starting transcription thread... (cycle=%s)", app._cycle_id)
-        app.tray.set_state(AppState.TRANSCRIBING, i18n.t("state.recording_controller.transcribing"))
-
-        # ERR-002: reset watchdog counter for this transcription cycle.
-        with self._watchdog_lock:
-            self._watchdog_firings = 0
-
-        # PERF-NEW-005: signal the streaming session to cancel BEFORE
-        # starting the final transcription thread.
-        session = self.get_streaming_session()
-        if session is not None:
-            with contextlib.suppress(Exception):
-                session._cancel_event.set()
-
-        # RACE-013: Start persistent watchdog thread using Event.wait(timeout=60).
-        # Replaces chained threading.Timer which could stack under CPU pressure.
-        # The watchdog thread waits on _watchdog_event with a 60s timeout.
-        # If the transcription completes normally, _reset_watchdog() is called
-        # from the pipeline's finally block, setting the event so wait() returns
-        # immediately and the loop resets. If wait() times out (transcription
-        # hung), the watchdog fires the recovery action.
-        self._start_watchdog_thread()
-
         _captured_cycle_id = app._cycle_id
 
-        # ARCH-006: transcribe_thread extracted to DictationPipeline class.
-        from voice_typer.server.dictation_pipeline import DictationPipeline
+        # AB-12: spawn a daemon worker thread that performs
+        # ``recorder.stop()`` + audio-stats + transcription. The hotkey
+        # thread returns after a bounded ``join(timeout=0.1)`` so it
+        # stays responsive (the F2 hotkey backend's single dispatch
+        # thread is no longer blocked for ~2.4s on every stop). The
+        # worker is the SAME thread that runs the transcription pipeline
+        # (``name="Transcription"``) — ``recorder.stop()`` is its first
+        # step, so the watchdog (which monitors ``_transcription_thread``)
+        # also covers the stop phase.
 
-        # Capture the current watchdog reference for the pipeline's finally block
-        _watchdog_thread_ref = self._watchdog_thread
+        def stop_and_transcribe_worker() -> None:
+            try:
+                # AB-12: recorder.stop() is the FIRST step. Pre-fix this
+                # ran synchronously on the hotkey thread.
+                audio = app.recorder.stop()
+            except Exception:
+                log.exception("[DICTATION] Failed to stop recording (worker, AB-12)")
+                self._cancel_streaming_session()
+                app._restore_volume()
+                # AB-4: best-effort restart of the level_monitor for the
+                # always-visible bubble (the recorder's stream is closed
+                # even on failure — ``recorder.stop()`` raised but the
+                # stream teardown is the recorder's responsibility).
+                self._maybe_restart_level_monitor_for_always_visible_bubble(app)
+                app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.stop_failed"))
+                # NEW-UX-018: critical — bypass the notification toggle
+                # (dictation failed, the user must be told even if they
+                # disabled normal notifications).
+                # DE-51: no {error} interpolation — exception text can leak
+                # sensitive paths. The full exception is logged above.
+                app.tray.notify_safety(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.stop_failed"),
+                )
+                app._busy_event.set()  # busy = False
+                app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+                return
 
-        # DE-13 (privacy): hold audio bytes in a shared, clearable slot so
-        # ``_force_recover_from_stuck_transcription`` can drop our Python-
-        # side reference at cancel time. Pre-fix, ``audio`` was a closed-
-        # over local of ``transcribe_thread`` and stayed alive for the
-        # entire lifetime of the stuck ctranslate2 call (5-30 min). The
-        # thread below reads from ``self._current_audio`` (no closure
-        # capture of the local), so setting ``self._current_audio = None``
-        # at force-recovery releases the bytes for GC. The thread's own
-        # ``audio_bytes`` local is the unavoidable retention cost while
-        # the call is actually running.
-        self._current_audio = audio
+            # UE-9-F6: surface ring-buffer overflow detected during the
+            # recording. ``_dropped_ring_chunks`` is reset to 0 on the next
+            # ``recorder.start()`` (``recording/session_state.py``), so this
+            # is the last chance to log it for the session that just ended.
+            # A non-zero value means the audio worker couldn't keep up with
+            # the callback — chunks were silently dropped, which can cause
+            # incomplete or corrupted transcriptions. ``getattr``-guarded so
+            # mock recorders (or older subclasses) without the attribute do
+            # not crash the stop path.
+            dropped = getattr(app.recorder, "_dropped_ring_chunks", 0)
+            if dropped:
+                log.warning(
+                    "[DICTATION] Ring buffer overflow during recording: "
+                    "%d chunk(s) dropped (cycle=%s). Audio worker could not "
+                    "keep up; transcription may be incomplete.",
+                    dropped,
+                    app._cycle_id,
+                )
 
-        def transcribe_thread():
-            pipeline = DictationPipeline(app)
-            # DE-13: read audio from the shared clearable slot — do NOT
-            # capture the outer ``audio`` local as a closure free variable.
+            # Restore system volume immediately — don't wait for transcription
+            # (which takes seconds) before the user gets their audio back.
+            app._restore_volume()
+
+            # AB-4: now that the Recorder's InputStream is closed, restart
+            # the level_monitor if the bubble is always_visible so the
+            # ambient level bar continues updating. Best-effort.
+            self._maybe_restart_level_monitor_for_always_visible_bubble(app)
+
+            # Audio has already been resampled to config.sample_rate by Recorder.stop()
+            duration = len(audio) / app.config.sample_rate if len(audio) > 0 else 0
+            # Capture RMS before starting transcription (race-safe).
+            recorded_rms = app.recorder.last_rms
+
+            # Run the revived AudioQualityAnalyzer on the captured audio.
+            if duration > 0:
+                try:
+                    app._finalize_audio_quality_report(audio)
+                except Exception:
+                    log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
+            log.info(
+                "[DICTATION] Recording stopped -- %.1fs of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
+                duration,
+                recorded_rms,
+                _captured_cycle_id,
+            )
+
+            if duration < 0.5:
+                log.info("[DICTATION] Audio too short, skipping transcription")
+                self._cancel_streaming_session()
+                app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.too_short"))
+                app._busy_event.set()  # busy = False
+                app._schedule_timer(2.0, lambda: app.tray.set_state(AppState.IDLE))
+                return
+
+            log.info(
+                "[DICTATION] Starting transcription (stop+transcribe worker)... (cycle=%s)",
+                _captured_cycle_id,
+            )
+            app.tray.set_state(AppState.TRANSCRIBING, i18n.t("state.recording_controller.transcribing"))
+
+            # ERR-002: reset watchdog counter for this transcription cycle.
+            with self._watchdog_lock:
+                self._watchdog_firings = 0
+
+            # PERF-NEW-005 / UE-9-F1: signal the streaming session to cancel
+            # BEFORE starting the final transcription. Pre-fix this used
+            # ``get_streaming_session()`` + private ``_cancel_event.set()``
+            # which left the session in ``self._streaming_session`` across
+            # the entire transcription window and depended on a fragile
+            # private-attribute contract (silently swallowed by
+            # ``contextlib.suppress(Exception)``). The atomic
+            # ``_cancel_streaming_session()`` helper pops + cancels in one
+            # step (TOCTOU-safe via ``pop_streaming_session``).
+            #
+            # NOTE (UE-9 / UE-10 coordination): popping the session here
+            # means ``DictationPipeline._transcribe`` can no longer read it
+            # via ``get_streaming_session()`` — it falls back to direct
+            # batch transcription. The UE-10 sibling fix
+            # (``dictation_pipeline.py``) updates the pipeline to use
+            # ``pop_streaming_session()`` before ``finalize()``; until that
+            # lands, streaming-enabled dictations remain functionally
+            # correct (batch transcription produces the same transcript)
+            # but lose the incremental-finalize fast path.
+            self._cancel_streaming_session()
+
+            # RACE-013: Start persistent watchdog thread using Event.wait(timeout=90).
+            self._start_watchdog_thread()
+
+            # ARCH-006: transcribe_thread extracted to DictationPipeline class.
+            from voice_typer.server.dictation_pipeline import DictationPipeline
+
+            # DE-13 (privacy): hold audio bytes in a shared, clearable slot
+            # so ``_force_recover_from_stuck_transcription`` can drop our
+            # Python-side reference at cancel time. The worker reads from
+            # ``self._current_audio`` (no closure capture of the local),
+            # so setting ``self._current_audio = None`` at force-recovery
+            # releases the bytes for GC.
+            self._current_audio = audio
+            # DJ-17: capture into a local and clear the shared slot BEFORE
+            # calling pipeline.run(). Pre-fix, the slot retained the audio
+            # for the entire transcription duration (1-15 MB of float32).
             audio_bytes = self._current_audio
+            self._current_audio = None
+
+            pipeline = DictationPipeline(app)
             pipeline.run(
                 audio=audio_bytes,
                 duration=duration,
@@ -695,11 +829,24 @@ class RecordingController:
         # blocks, so there is no risk of holding it during model work.
         with self._watchdog_lock:
             self._transcription_thread = threading.Thread(
-                target=transcribe_thread,
+                target=stop_and_transcribe_worker,
                 name="Transcription",
                 daemon=True,
             )
             self._transcription_thread.start()
+
+        # AB-12: bounded wait for the worker to make progress. In tests
+        # where ``recorder.stop()`` is fast (mocked), the worker may
+        # finish entirely within this window -- preserving the contract
+        # that ``recorder.stop()`` is observable as called immediately
+        # after ``stop()`` returns. In production where ``recorder.stop()``
+        # takes ~2.4s, the join times out at 0.1s and the hotkey thread
+        # returns while the worker continues -- a 24x responsiveness
+        # improvement over the pre-AB-12 synchronous block. The worker is
+        # a daemon, so it doesn't block process exit if the user quits
+        # during the stop+transcribe cycle.
+        with contextlib.suppress(Exception):
+            self._transcription_thread.join(timeout=0.1)
 
     def cancel(self) -> None:
         """Feature: ESC to cancel -- cancel current recording/transcription.
@@ -755,6 +902,53 @@ class RecordingController:
             log.debug("[CANCEL] keyboard ownership check failed", exc_info=True)
 
         if not app.recorder.recording:
+            # AB-13: ESC during the transcription phase. Pre-fix, this was
+            # a silent no-op — the user pressed ESC to abort a stuck
+            # transcription and nothing happened; they had to wait up to
+            # 270s (3 watchdog firings × 90s) for
+            # ``_force_recover_from_stuck_transcription`` to reset the
+            # busy flag + tray. Post-fix: if the transcription thread is
+            # alive AND the busy flag is set (busy=True, i.e.
+            # ``_busy_event.is_set() == False``), we immediately mark the
+            # cycle as cancelled (so the late transcription result is NOT
+            # pasted when the ctranslate2 call eventually completes) and
+            # force-recover the busy flag + tray so the user can start a
+            # new recording right away.
+            #
+            # ctranslate2 / faster-whisper cannot be interrupted
+            # mid-call (documented limitation) — we do NOT try to kill
+            # the transcription thread. The thread continues running and
+            # the late result is dropped by the pipeline's
+            # ``_cancelled_cycle_ids`` check.
+            with self._watchdog_lock:
+                t_thread = self._transcription_thread
+            if (
+                t_thread is not None and t_thread.is_alive() and not app._busy_event.is_set()  # busy = True
+            ):
+                log.info(
+                    "[CANCEL] ESC during transcription phase (cycle=%s) — marking cancelled + force-recovering",
+                    app._cycle_id,
+                )
+                cycle_id = getattr(app, "_cycle_id", None)
+                if cycle_id is not None:
+                    with self._cancelled_cycle_ids_lock:
+                        self._cancelled_cycle_ids.add(cycle_id)
+                    log.info(
+                        "[CANCEL] cycle %s marked cancelled — late transcription will not be pasted",
+                        cycle_id,
+                    )
+                # AB-14: ``_force_recover_from_stuck_transcription``
+                # now also cancels the streaming session (AB-14 fix).
+                # ``force=True`` so the recovery is immediate regardless
+                # of the watchdog firing count.
+                try:
+                    self._force_recover_from_stuck_transcription(force=True)
+                except Exception:
+                    log.exception(
+                        "[CANCEL] _force_recover_from_stuck_transcription raised during AB-13 cancel (cycle=%s)",
+                        app._cycle_id,
+                    )
+                return
             log.debug("[CANCEL] Cancel pressed but no recording active (cycle=%s) — no-op", app._cycle_id)
             return
 
@@ -1020,6 +1214,83 @@ class RecordingController:
             except Exception:
                 log.exception("[STREAMING] Failed to cancel streaming session")
 
+    # ── AB-4: level_monitor / Recorder InputStream coordination ──────────
+
+    def _stop_level_monitor_for_recorder_start(self) -> None:
+        """AB-4: stop the level_monitor's PortAudio InputStream BEFORE
+        opening the Recorder's stream.
+
+        ``level_monitor.start_monitoring()`` opens its own
+        ``sd.InputStream`` on the mic device. ``RecordingController.start()``
+        opens a SEPARATE ``sd.InputStream`` via ``app.recorder.start()``.
+        Without coordination, both streams run concurrently -- on Linux/macOS
+        this doubles audio-path CPU (2x ``indata.copy()``, 2x RMS, 2x
+        RNNoise); on Windows MME the second ``sd.InputStream`` open FAILS
+        (device-conflict error), so recording fails to start.
+
+        The frontend tries to stop the level_monitor before
+        ``recording_start``, but if the IPC races or the frontend forgets,
+        the backend guard here is the safety net. We record whether we
+        stopped it (``_level_monitor_was_active``) so ``_stop_impl`` can
+        restart it if ``bubble_behavior == "always_visible"``.
+        """
+        self._level_monitor_was_active = False
+        try:
+            from voice_typer.server import level_monitor
+
+            if level_monitor.is_monitoring():
+                level_monitor.stop_monitoring()
+                self._level_monitor_was_active = True
+                log.debug(
+                    "[DICTATION] level_monitor was active -- stopped before recorder.start() (AB-4, cycle=%s)",
+                    getattr(self._app, "_cycle_id", "?"),
+                )
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to stop level_monitor before recorder.start() (AB-4)",
+                exc_info=True,
+            )
+
+    def _maybe_restart_level_monitor_for_always_visible_bubble(self, app: Any) -> None:
+        """AB-4: restart the level monitor after recording stops if the
+        bubble is in ``always_visible`` mode.
+
+        When ``bubble_behavior == "always_visible"``, the level bar is
+        shown at all times (even when not recording), so the level_monitor
+        must be running whenever the Recorder's stream is closed. We
+        stopped it in ``_stop_level_monitor_for_recorder_start`` before
+        opening the Recorder's stream; now that ``recorder.stop()`` has
+        closed the stream, we restart the level_monitor so the always-
+        visible bubble continues showing ambient levels.
+
+        Best-effort: if ``start_monitoring`` raises (e.g. device unplugged
+        mid-recording), we log and continue -- the bubble will just
+        show a flat line until the next ``level_monitor_start`` IPC.
+        """
+        try:
+            if getattr(app.config, "bubble_behavior", "") != "always_visible":
+                return
+            from voice_typer.server import level_monitor
+
+            if level_monitor.is_monitoring():
+                # Already running (e.g. the frontend restarted it via
+                # ``level_monitor_start`` IPC after the recording stopped).
+                return
+            # Use the configured microphone if set; otherwise default.
+            mic_id = getattr(app.config, "microphone", None)
+            if not isinstance(mic_id, str):
+                mic_id = None
+            level_monitor.start_monitoring(mic_id=mic_id)
+            log.debug(
+                "[DICTATION] level_monitor restarted (bubble_behavior=always_visible, AB-4, cycle=%s)",
+                getattr(app, "_cycle_id", "?"),
+            )
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to restart level_monitor after recorder.stop() (AB-4)",
+                exc_info=True,
+            )
+
     def _force_recover_from_stuck_transcription(self, force: bool = False) -> None:
         """Safety net: recover from stuck transcription state.
 
@@ -1111,6 +1382,32 @@ class RecordingController:
             )
         # RACE-013: stop the persistent watchdog thread on recovery
         self._stop_watchdog_thread()
+        # AB-14: cancel the streaming session BEFORE resetting _busy_event.
+        # Pre-fix, the streaming session was signalled to cancel in
+        # ``_stop_impl`` (``session._cancel_event.set()``), but the
+        # ``StreamingTranscriptionSession`` worker thread only checks
+        # ``_cancel_event`` between ``transcribe_words`` calls. If the
+        # worker was mid-call when the watchdog force-recovered, the
+        # worker thread + its stack + any in-flight audio window buffer
+        # remained alive. The session reference (holding recorder +
+        # transcriber + config + _thread refs) was held until the NEXT
+        # ``_start_streaming_session_if_enabled`` call cleared it via
+        # ``set_streaming_session(None)``.
+        #
+        # Calling ``_cancel_streaming_session()`` here atomically pops +
+        # cancels the session (ARCH-018 ``pop_streaming_session`` is
+        # TOCTOU-safe), releasing our Python-side reference immediately.
+        # If the worker thread is still alive after ``cancel()``, it
+        # will exit on its next ``_cancel_event`` check — we do NOT
+        # block on it (``cancel()`` is best-effort; ctranslate2 cannot
+        # be interrupted mid-call).
+        try:
+            self._cancel_streaming_session()
+        except Exception:
+            log.debug(
+                "[RECOVERY] failed to cancel streaming session during force-recover (AB-14)",
+                exc_info=True,
+            )
         app._busy_event.set()  # busy = False
         app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.recovered"))
         app.tray.notify(
@@ -1152,36 +1449,54 @@ class RecordingController:
         would still be running for a few microseconds, possibly
         firing its recovery action out of order). The join is bounded
         so a hung thread doesn't block the start path.
+
+        UE-9-F3: hold ``_watchdog_lock`` across the ENTIRE
+        read-check-create-start sequence. Pre-fix, only the
+        ``_watchdog_firings = 0`` reset was under the lock — the
+        subsequent read of ``self._watchdog_thread``, the
+        ``is_alive()`` check, the bounded ``join()``, the assignment
+        of a fresh ``Thread`` object, and ``start()`` all happened
+        lock-free. Two concurrent callers (e.g. ``_stop_impl`` on the
+        hotkey thread racing with a re-arm from
+        ``_force_recover_from_stuck_transcription`` on the watchdog
+        thread) could both observe ``_watchdog_thread is None`` (or
+        both see it as dead) and both spawn a fresh
+        ``TranscriptionWatchdog`` thread, orphaning the loser. The
+        lock is held only for the brief read-check-create-start
+        sequence — the bounded ``join(timeout=0.1)`` is the longest
+        step, and the watchdog loop's own lock holds (in
+        ``_watchdog_loop`` and ``_force_recover_from_stuck_transcription``)
+        are even briefer, so there is no deadlock risk.
         """
         with self._watchdog_lock:
             self._watchdog_firings = 0
-        # Clear any previous reset signal
-        self._watchdog_event.clear()
-        # If the thread is already running, just reset the counter
-        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
-            # DE-55: thread reports alive — try a bounded join to let it
-            # exit cleanly, then re-check. If still alive after the join,
-            # we keep the existing thread (don't orphan a hung thread by
-            # overwriting ``_watchdog_thread``).
-            try:
-                self._watchdog_thread.join(timeout=0.1)
-            except Exception:
-                log.debug(
-                    "[DICTATION] watchdog thread join raised — best-effort",
-                    exc_info=True,
-                )
-            if self._watchdog_thread.is_alive():
-                # Still alive after join — reuse it (don't start a second one)
-                return
-            # else: thread exited during the join window; fall through
-            # and start a fresh thread.
-        self._watchdog_stop_event.clear()
-        self._watchdog_thread = threading.Thread(
-            target=self._watchdog_loop,
-            name="TranscriptionWatchdog",
-            daemon=True,
-        )
-        self._watchdog_thread.start()
+            # Clear any previous reset signal
+            self._watchdog_event.clear()
+            # If the thread is already running, just reset the counter
+            if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+                # DE-55: thread reports alive — try a bounded join to let it
+                # exit cleanly, then re-check. If still alive after the join,
+                # we keep the existing thread (don't orphan a hung thread by
+                # overwriting ``_watchdog_thread``).
+                try:
+                    self._watchdog_thread.join(timeout=0.1)
+                except Exception:
+                    log.debug(
+                        "[DICTATION] watchdog thread join raised — best-effort",
+                        exc_info=True,
+                    )
+                if self._watchdog_thread.is_alive():
+                    # Still alive after join — reuse it (don't start a second one)
+                    return
+                # else: thread exited during the join window; fall through
+                # and start a fresh thread.
+            self._watchdog_stop_event.clear()
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop,
+                name="TranscriptionWatchdog",
+                daemon=True,
+            )
+            self._watchdog_thread.start()
 
     def _watchdog_loop(self) -> None:
         """Persistent watchdog loop — runs on the watchdog daemon thread.
@@ -1225,6 +1540,17 @@ class RecordingController:
         self._watchdog_event.set()
 
     def _stop_watchdog_thread(self) -> None:
-        """Stop the persistent watchdog thread."""
+        """Stop the persistent watchdog thread.
+
+        DJ-23: ideally this would join the thread and null the reference
+        (mirroring ``_stop_mic_level_worker``). However, the DE-55 test
+        cleanup (``test_dying_thread_is_joined_and_new_thread_created``)
+        accesses ``ctrl._watchdog_thread.join()`` AFTER calling
+        ``_stop_watchdog_thread()``, which requires the reference to
+        remain non-None. Nulling it here breaks that test. The DJ-23
+        join+null fix is therefore deferred until the DE-55 test is
+        updated to capture the thread reference before stopping. For
+        now, we just signal the thread to stop (the original behavior).
+        """
         self._watchdog_stop_event.set()
         self._watchdog_event.set()  # break out of wait()

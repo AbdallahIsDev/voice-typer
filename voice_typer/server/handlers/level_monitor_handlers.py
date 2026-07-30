@@ -1,8 +1,14 @@
-"""Level-monitor IPC handler mixin: 3 level_monitor_* commands.
+"""Level-monitor IPC handler mixin: 2 level_monitor_* commands.
 
 ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
+
+UE-15 (2026-07-30): ``_handle_level_monitor_status`` was REMOVED —
+the renderer subscribes to the ``level_monitor_level`` push event
+instead of polling a status endpoint. The service-layer method
+``service.level_monitor_status`` still exists for internal callers;
+only the IPC dispatch route was deleted.
 """
 
 from voice_typer.server.asr_errors import ConsentRequiredError
@@ -11,7 +17,7 @@ from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
 class LevelMonitorHandlersMixin(HandlerBase):
-    """Mixin: level-monitor IPC handlers (start / stop / status).
+    """Mixin: level-monitor IPC handlers (start / stop).
 
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
@@ -96,15 +102,4 @@ class LevelMonitorHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "level_monitor_stop")
-        return resp
-
-    def _handle_level_monitor_status(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``level_monitor_status`` IPC command."""
-        try:
-            result = self.service.level_monitor_status()
-            resp["type"] = "level_monitor_status"
-            resp["data"] = result
-        except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "level_monitor_status")
         return resp
