@@ -591,6 +591,44 @@ def store_secret(provider: str, value: str) -> bool:
         _set_last_store_outcome("deleted", None, provider=provider)
         return True
 
+    # DE-23: defensive type guard for truthy non-string values. The
+    # IPC layer validates ``value`` is a string before calling here,
+    # but a buggy caller or a hand-edited config can leak a non-string
+    # truthy value (e.g. int ``12345`` from an old config that stored
+    # api_key as int, or a dict / list from a corrupted config.json).
+    # Without this guard, ``len(value)`` in the ``except Exception``
+    # branch below would raise ``TypeError`` (e.g. ``len(12345)``)
+    # which propagates up through the IPC handler thread and crashes
+    # the save.
+    #
+    # Coerce int/float (excluding bool, which is a subclass of int in
+    # Python) to str — backward compat with old configs that stored
+    # api_key as an int. Reject other non-string truthy types (dict,
+    # list) with a warning + ``plaintext`` outcome (the secret is NOT
+    # written — the caller must fix the config).
+    if not isinstance(value, str):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            log.warning(
+                "[CREDENTIAL_STORE] DE-23: store_secret received non-string value"
+                " for provider=%s (type=%s) — coercing to str",
+                provider,
+                type(value).__name__,
+            )
+            value = str(value)
+        else:
+            log.warning(
+                "[CREDENTIAL_STORE] DE-23: store_secret received non-string value"
+                " for provider=%s (type=%s) — rejecting",
+                provider,
+                type(value).__name__,
+            )
+            _set_last_store_outcome(
+                "plaintext",
+                f"non-string value type {type(value).__name__}",
+                provider=provider,
+            )
+            return False
+
     try:
         if not is_keyring_available():
             raise RuntimeError("keyring backend not available")

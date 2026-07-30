@@ -50,12 +50,20 @@ from voice_typer.server.config_internals.paths import (  # noqa: F401 — backwa
     _CONFIG_LOCK_TIMEOUT_SECONDS,
     _acquire_config_lock,
     _config_dir,
-    _is_path_within,
     _migrate_from_legacy,
     _reset_config_dir_cache,
+    _validate_systemroot,
+)
+
+# S5-CR-28: path-safety helpers are re-exported via the dedicated
+# ``config_path_safety`` module so future contributors can grep for
+# path-traversal guards in one place. The function bodies currently
+# live in ``config_internals.paths`` (FZ-S4 / DT-24 partial split);
+# ``config_path_safety`` is the canonical import path going forward.
+from voice_typer.server.config_path_safety import (  # noqa: F401 — backward-compat re-export
+    _is_path_within,
     _validate_import_path,
     _validate_path_safety,
-    _validate_systemroot,
 )
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
 
@@ -1184,6 +1192,44 @@ class Config:
             if credential_store.is_keyring_available():
                 for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
                     value = data.get(field_name, "")
+                    # DE-23: defensive type guard for non-string api_key
+                    # values. ``asdict(self)`` reflects whatever the
+                    # in-memory Config instance carries — normally a
+                    # str (the dataclass field type) but a buggy IPC
+                    # caller or a monkeypatched test instance could
+                    # set a non-string value, which would crash here
+                    # with AttributeError on ``.startswith()`` (and
+                    # propagate up through ``Config.save``'s outer
+                    # ``except Exception``, logging a warning and
+                    # aborting the entire save).
+                    #
+                    # Coerce int/float (excluding bool, which is a
+                    # subclass of int in Python) to str — backward
+                    # compat with old configs that stored api_key as
+                    # an int. Skip other non-string truthy types
+                    # (dict, list) with a warning so the save can
+                    # proceed for the remaining providers.
+                    if not isinstance(value, str):
+                        if not value:
+                            # Falsy (None, 0, [], {}, "") — nothing
+                            # to route to credential_store.
+                            continue
+                        if isinstance(value, (int, float)) and not isinstance(value, bool):
+                            log.warning(
+                                "[CONFIG] DE-23: %s field has non-string value (type=%s) — coercing to str",
+                                field_name,
+                                type(value).__name__,
+                            )
+                            value = str(value)
+                            data[field_name] = value
+                        else:
+                            log.warning(
+                                "[CONFIG] DE-23: %s field has non-string value (type=%s)"
+                                " — skipping credential_store routing",
+                                field_name,
+                                type(value).__name__,
+                            )
+                            continue
                     if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
                         credential_store.store_secret(provider, value)
                         data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
