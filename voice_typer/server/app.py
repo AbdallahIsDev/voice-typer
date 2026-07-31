@@ -51,7 +51,14 @@ from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
-# CQ-029: use centralized platform helpers instead of raw sys.platform checks
+# CQ-029: use centralized platform helpers instead of raw sys.platform checks.
+# signal_handlers.install_win32_console_handler and various tests monkeypatch
+# voice_typer.server.app.is_windows — keep the re-export so they keep working.
+from voice_typer.server.platform_utils import (  # noqa: F401
+    is_linux,
+    is_macos,
+    is_windows,
+)
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
@@ -326,9 +333,15 @@ class VoiceTyperApp:
         # repaste hotkey backend's callback, and tests calling
         # ``app.undo_last()`` / ``app.repaste_last()`` directly keep
         # working unchanged.
-        from voice_typer.server.app_undo import UndoRepasteController
-
-        self.undo: UndoRepasteController = UndoRepasteController(self)
+        #
+        # Construction of ``UndoRepasteController`` is deferred to first
+        # access via the ``undo`` @property below. The eager construction
+        # that used to live here paid the ``app_undo`` import + class init
+        # on every cold start, even when the user never invokes undo /
+        # repaste (the only entry points are the tray menu items and the
+        # repaste hotkey). The lazy property transparently constructs on
+        # first access.
+        self._undo_backing: Any = None
 
         # RW-9 Phase 7: audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
@@ -336,9 +349,17 @@ class VoiceTyperApp:
         # ``service.apply_config_side_effects`` (-> _rebuild_audio_processor),
         # and ``RecordingController.stop`` (-> _finalize_audio_quality_report)
         # all keep working unchanged.
-        from voice_typer.server.audio_quality_controller import AudioQualityController
-
-        self.audio_quality: AudioQualityController = AudioQualityController(self)
+        #
+        # Construction of ``AudioQualityController`` is deferred to first
+        # access via the ``audio_quality`` @property below. The eager
+        # construction that used to live here paid the
+        # ``audio_quality_controller`` import (which eagerly imports
+        # numpy) on every cold start. The lazy property transparently
+        # constructs on first access; the per-chunk quality callback
+        # wired above (``self._audio_processor.set_quality_callback(
+        # self._on_audio_quality_chunk)``) delegates through the property
+        # so the first chunk triggers construction.
+        self._audio_quality_backing: Any = None
 
         # S2-CR-24: config-editor controller extracted to a focused
         # ``controllers/`` package. It holds a reference to the owning
@@ -459,21 +480,27 @@ class VoiceTyperApp:
         # prevent speaker output from bleeding into the microphone.
         # Crash recovery persists the pre-duck volume so a crash
         # doesn't leave the system stuck at a low volume.
-        # Use _config_dir() so the crash-recovery file lives alongside
-        # the rest of the user's voice-typer state (and tests can
-        # monkeypatch _config_dir to point at a tmp_path).
-        self._duck_crash_recovery = DuckCrashRecovery(config_dir=_config_dir())
+        #
+        # Construction of ``DuckCrashRecovery`` and ``VolumeDucker`` is
+        # deferred to first access via the ``_duck_crash_recovery`` /
+        # ``_volume_ducker`` @properties below. The eager construction
+        # that used to live here paid the ``duck_crash_recovery`` +
+        # ``volume_ducker`` imports + class init on every cold start,
+        # even when the user has ``volume_duck_enabled=False`` and never
+        # triggers a duck. The lazy properties transparently construct
+        # on first access (e.g. when ``VolumeController._duck_volume``
+        # runs at the start of the first dictation).
+        self._duck_crash_recovery_backing: Any = None
         # RW-9 Phase 7: VolumeController owns duck/restore side effects.
-        # Constructed BEFORE _volume_ducker because the ducker's
-        # on_crash_restore callback is bound to self._on_volume_crash_restore,
-        # which delegates to self.volume.
+        # Kept eager because it's just a back-reference holder
+        # (``self._app = app``) and the ``_on_volume_crash_restore``
+        # callback wired into ``VolumeDucker`` delegates to it —
+        # constructing it lazily would save nothing (the class is
+        # trivial) and would complicate the callback wiring.
         from voice_typer.server.volume_controller import VolumeController
 
         self.volume: VolumeController = VolumeController(self)
-        self._volume_ducker = VolumeDucker(
-            crash_recovery=self._duck_crash_recovery,
-            on_crash_restore=self._on_volume_crash_restore,
-        )
+        self._volume_ducker_backing: Any = None
         # NOTE: AudioQualityAnalyzer is now instantiated earlier in
         # __init__ (next to AudioProcessor) and wired to the processor's
         # per-chunk quality callback.  See self._audio_quality /
@@ -502,38 +529,33 @@ class VoiceTyperApp:
         # initializing it to ``None`` here means pyrefly sees the
         # attribute exists on every instance, satisfying the protocol.
         self._ipc_server: Any | None = None
-        # AB-30: ``TemplateManager`` and ``VocabularyManager``
-        # construction deferred to first access via the
-        # ``_template_manager`` / ``_vocabulary_manager`` @properties
-        # below. The eager construction that used to live here read
-        # ``templates.json`` / ``vocabulary.json`` off disk on every
-        # cold start (hundreds of ms on a slow disk), even when the
-        # user never uses templates / vocabulary. The lazy properties
-        # transparently construct on first access (e.g. via the
-        # dictation_pipeline's existing fallback path or directly).
-        # The backings start as ``None``; the property's getter handles
-        # construction (and the setter is used by tests that inject
-        # mocks via ``app._template_manager = MagicMock()``).
+        # ``TemplateManager`` and ``VocabularyManager`` construction is
+        # deferred to first access via the ``_template_manager`` /
+        # ``_vocabulary_manager`` @properties below. The eager
+        # construction that used to live here read ``templates.json`` /
+        # ``vocabulary.json`` off disk on every cold start (hundreds of
+        # ms on a slow disk), even when the user never uses templates /
+        # vocabulary.
+        #
+        # The properties AUTO-CONSTRUCT on first access (APP-8: failure
+        # is logged at WARNING with ``exc_info=True`` and the backing is
+        # left ``None`` to retry on next access). The ``is None``
+        # fallback paths in ``service/template.py`` and
+        # ``dictation_pipeline.py`` therefore see a cached instance on
+        # success, or ``None`` on failure — their fallback construction
+        # still works unchanged.
         self._template_manager_backing: Any = None
         self._vocabulary_manager_backing: Any = None
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
 
-    # ─── AB-30: Lazy @property accessors ───────────────────────────────
-    #
-    # Each of these five subsystems used to be constructed eagerly in
-    # ``__init__`` (TemplateManager / VocabularyManager read JSON off
-    # disk; ClipboardManager / WaveformBubble / WaveformBubbleWiring
-    # import their dependencies + start threads). The lazy @property
-    # accessors below defer construction to first access so the
-    # per-cold-start cost is paid only when the subsystem is actually
-    # used.
+    # ─── Lazy @property accessors ─────────────────────────────────────
     #
     # Each property has both a getter (constructs on first access if
     # the backing is None) and a setter (stores directly into the
-    # backing). The setter exists so existing tests that inject mocks
-    # via ``app.<attr> = MagicMock()`` keep working transparently —
-    # assignment bypasses the lazy construction.
+    # backing so existing tests that inject mocks via
+    # ``app.<attr> = MagicMock()`` keep working transparently —
+    # assignment bypasses the lazy construction).
     #
     # Construction failures (e.g. a corrupt ``templates.json``) are
     # logged at WARNING level with ``exc_info=True`` (mirrors the
@@ -543,6 +565,11 @@ class VoiceTyperApp:
 
     @property
     def _template_manager(self):
+        # APP-8: auto-construct on first access; construction failure is
+        # logged at WARNING with exc_info=True and the backing is left
+        # as None (retry on next access). The service/template.py and
+        # dictation_pipeline.py ``is None`` fallbacks therefore still
+        # see a cached instance on success or None on failure.
         backing = self._template_manager_backing
         if backing is None:
             try:
@@ -561,6 +588,11 @@ class VoiceTyperApp:
 
     @property
     def _vocabulary_manager(self):
+        # APP-8: auto-construct on first access; construction failure is
+        # logged at WARNING with exc_info=True and the backing is left
+        # as None (retry on next access). The dictation_pipeline.py
+        # ``is None`` fallback therefore still sees a cached instance on
+        # success or None on failure.
         backing = self._vocabulary_manager_backing
         if backing is None:
             try:
@@ -616,6 +648,90 @@ class VoiceTyperApp:
     @waveform_wiring.setter
     def waveform_wiring(self, value) -> None:
         self._waveform_wiring_backing = value
+
+    # ─── Lazy controller / volume-subsystem properties ────────────────
+    #
+    # ``undo`` (UndoRepasteController), ``audio_quality``
+    # (AudioQualityController), ``_duck_crash_recovery``
+    # (DuckCrashRecovery), and ``_volume_ducker`` (VolumeDucker) used
+    # to be constructed eagerly in ``__init__``. They are now
+    # auto-constructing lazy properties — the first access triggers
+    # construction and caches the instance in the backing attribute.
+    # Tests that inject mocks via ``app.<attr> = MagicMock()`` use the
+    # setter, which bypasses the lazy construction.
+
+    @property
+    def undo(self):
+        backing = self._undo_backing
+        if backing is None:
+            try:
+                from voice_typer.server.app_undo import UndoRepasteController
+
+                backing = UndoRepasteController(self)
+            except Exception:
+                log.warning("[INIT] UndoRepasteController lazy-init failed", exc_info=True)
+                return None
+            self._undo_backing = backing
+        return backing
+
+    @undo.setter
+    def undo(self, value) -> None:
+        self._undo_backing = value
+
+    @property
+    def audio_quality(self):
+        backing = self._audio_quality_backing
+        if backing is None:
+            try:
+                from voice_typer.server.audio_quality_controller import (
+                    AudioQualityController,
+                )
+
+                backing = AudioQualityController(self)
+            except Exception:
+                log.warning("[INIT] AudioQualityController lazy-init failed", exc_info=True)
+                return None
+            self._audio_quality_backing = backing
+        return backing
+
+    @audio_quality.setter
+    def audio_quality(self, value) -> None:
+        self._audio_quality_backing = value
+
+    @property
+    def _duck_crash_recovery(self):
+        backing = self._duck_crash_recovery_backing
+        if backing is None:
+            try:
+                backing = DuckCrashRecovery(config_dir=_config_dir())
+            except Exception:
+                log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
+                return None
+            self._duck_crash_recovery_backing = backing
+        return backing
+
+    @_duck_crash_recovery.setter
+    def _duck_crash_recovery(self, value) -> None:
+        self._duck_crash_recovery_backing = value
+
+    @property
+    def _volume_ducker(self):
+        backing = self._volume_ducker_backing
+        if backing is None:
+            try:
+                backing = VolumeDucker(
+                    crash_recovery=self._duck_crash_recovery,
+                    on_crash_restore=self._on_volume_crash_restore,
+                )
+            except Exception:
+                log.warning("[INIT] VolumeDucker lazy-init failed", exc_info=True)
+                return None
+            self._volume_ducker_backing = backing
+        return backing
+
+    @_volume_ducker.setter
+    def _volume_ducker(self, value) -> None:
+        self._volume_ducker_backing = value
 
     # ─── Volume Ducking ────────────────────────────────────────────────
 

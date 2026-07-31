@@ -249,6 +249,56 @@ def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
+# ── Resolver wrappers for the snapshot tuple ───────────────────────────
+#
+# publish() iterates a tuple of "resolvers" — zero-argument callables
+# that return the live subscriber callback (or None if the subscriber
+# was GC'd since the snapshot was taken). Three resolver kinds exist,
+# one per subscriber bucket in _SubscriberSet:
+#
+#   * weakref.WeakMethod       — for Python bound methods (_weak_py).
+#     WeakMethod is already a zero-arg callable returning the bound
+#     method or None, so it is used directly as the resolver.
+#   * _StrongResolver           — for plain functions / lambdas (_strong)
+#     and C-level bound methods that can't be weakly referenced
+#     (_strong_c). Wraps the strong callback; __call__ always returns
+#     it (never None — strong refs don't die).
+#   * _CWeakResolver            — for C-level bound methods (_weak_c).
+#     Wraps a (weakref.ref, name) pair; __call__ returns
+#     getattr(weakref(), name, None) or None.
+#
+# The snapshot holds NO strong references to bound methods (only to
+# plain functions, which are module-level and never GC'd). This
+# preserves the PVT-031 leak-prevention semantics.
+
+
+class _StrongResolver:
+    """Resolver that always returns the wrapped strong-ref callable."""
+
+    __slots__ = ("_fn",)
+
+    def __init__(self, fn):
+        self._fn = fn
+
+    def __call__(self):
+        return self._fn
+
+
+class _CWeakResolver:
+    """Resolver for C-level bound methods stored via weakref.ref."""
+
+    __slots__ = ("_ref", "_name")
+
+    def __init__(self, ref, name):
+        self._ref = ref
+        self._name = name
+
+    def __call__(self):
+        obj = self._ref()
+        if obj is None:
+            return None
+        return getattr(obj, self._name, None)
+
 
 class _SubscriberSet:
     """A set-like container for event-bus subscribers (PVT-031).
@@ -281,6 +331,11 @@ class _SubscriberSet:
         # weakly referenceable (e.g. list, tuple). Same keying as
         # _weak_c so discard finds entries regardless of bucket.
         self._strong_c: dict[tuple[int, str], typing.Callable[[dict], None]] = {}
+        # Snapshot tuple of resolvers (WeakMethod / _StrongResolver /
+        # _CWeakResolver). Rebuilt atomically on every mutation under
+        # the lock. publish() reads this tuple WITHOUT acquiring the
+        # lock (tuple read is GIL-atomic).
+        self._snapshot: tuple = ()
 
     @staticmethod
     def _classify(callback: typing.Any) -> str:
@@ -317,6 +372,7 @@ class _SubscriberSet:
                 self._weak_c[key] = (ref, callback.__name__)
         else:
             self._strong.add(callback)
+        self._rebuild_snapshot()
 
     def discard(self, callback: typing.Callable[[dict], None]) -> None:
         kind = self._classify(callback)
@@ -328,16 +384,28 @@ class _SubscriberSet:
             self._strong_c.pop(key, None)
         else:
             self._strong.discard(callback)
+        self._rebuild_snapshot()
 
     def clear(self) -> None:
         self._strong.clear()
         self._weak_py.clear()
         self._weak_c.clear()
         self._strong_c.clear()
+        self._snapshot = ()
 
     def update(self, items: typing.Iterable[typing.Callable[[dict], None]]) -> None:
         for item in items:
             self.add(item)
+
+    def _rebuild_snapshot(self) -> None:
+        """Rebuild the resolver snapshot from the current subscriber buckets."""
+        resolvers = []
+        resolvers.extend(_StrongResolver(fn) for fn in self._strong)
+        resolvers.extend(self._weak_py.values())
+        for ref, name in list(self._weak_c.values()):
+            resolvers.append(_CWeakResolver(ref, name))
+        resolvers.extend(_StrongResolver(fn) for fn in self._strong_c.values())
+        self._snapshot = tuple(resolvers)
 
     def __iter__(self) -> typing.Iterator[typing.Callable[[dict], None]]:
         live: list[typing.Callable[[dict], None]] = list(self._strong)
@@ -505,21 +573,20 @@ def unsubscribe(callback: typing.Callable[[dict], None] | None) -> None:
         _subscribers.discard(callback)
 
 
-def _deliver(event: dict, fns: list[typing.Callable[[dict], None]]) -> bool:
-    """Deliver *event* to every callback in *fns* (no lock held).
+def _deliver(event, resolvers):
+    """Deliver *event* to every callback resolved from *resolvers*.
 
-    GT-3: subscriber exceptions are logged at WARNING (with
-    ``exc_info=True``) on the FIRST occurrence per subscriber, then at
-    DEBUG (no ``exc_info``) on subsequent occurrences via
-    :func:`log_rate_limited`.  Production file handlers run at INFO so
-    the first failure surfaces; rate-limiting prevents a persistently
-    broken subscriber from flooding the log.  Other subscribers still
-    receive the event.
+    *resolvers* is a sequence of zero-argument callables (WeakMethod /
+    _StrongResolver / _CWeakResolver). Each returns the live callback
+    or None if the subscriber was GC'd. Dead resolvers are skipped.
     """
     delivered = False
-    for fn in fns:
+    for resolver in resolvers:
+        cb = resolver()
+        if cb is None:
+            continue
         try:
-            fn(event)
+            cb(event)
             delivered = True
         except Exception:
             log_rate_limited(
@@ -527,12 +594,12 @@ def _deliver(event: dict, fns: list[typing.Callable[[dict], None]]) -> bool:
                 logging.WARNING,
                 "[event_bus] subscriber raised",
                 exc_info=True,
-                key=f"subscriber:{_subscriber_key(fn)}",
+                key=f"subscriber:{_subscriber_key(cb)}",
             )
     return delivered
 
 
-def _deliver_deferred(event: dict, fns: list[typing.Callable[[dict], None]]) -> None:
+def _deliver_deferred(event, resolvers):
     """Deliver *event* on the deferred-executor thread, then decrement
     the in-flight counter (PVT-031).
 
@@ -545,7 +612,7 @@ def _deliver_deferred(event: dict, fns: list[typing.Callable[[dict], None]]) -> 
     """
     global _deferred_in_flight
     try:
-        _deliver(event, fns)
+        _deliver(event, resolvers)
     finally:
         with _deferred_in_flight_lock:
             _deferred_in_flight = max(0, _deferred_in_flight - 1)
@@ -622,9 +689,8 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             "Add it to EVENT_TYPES in event_bus.py AND to the Rust "
             "ALLOWED_EVENT_TYPES allowlist in src-tauri/src/sidecar/ws.rs."
         )
-    with _lock:
-        fns = list(_subscribers)
-    if not fns:
+    snapshot = _subscribers._snapshot
+    if not snapshot:
         return False
     # PERF-2: defer fan-out when called from an RT thread.
     # ZR-20: also defer when the caller explicitly opts in via
@@ -658,15 +724,15 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             )
             return True
         try:
-            _get_deferred_executor().submit(_deliver_deferred, event, fns)
+            _get_deferred_executor().submit(_deliver_deferred, event, snapshot)
         except RuntimeError:
             # Executor was shut down (process exit); fall back to sync.
             # Undo the in-flight increment so the counter doesn't leak.
             with _deferred_in_flight_lock:
                 _deferred_in_flight = max(0, _deferred_in_flight - 1)
-            return _deliver(event, fns)
+            return _deliver(event, snapshot)
         return True
-    return _deliver(event, fns)
+    return _deliver(event, snapshot)
 
 
 def publish_sync(event: dict) -> bool:
