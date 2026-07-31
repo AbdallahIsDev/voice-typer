@@ -155,6 +155,13 @@ _BATCH_INSERT_MIN = 1
 # TY-20: TTL (seconds) for the get_history_count cache.
 _HISTORY_COUNT_CACHE_TTL_S = 60.0
 
+# Interval (seconds) at which the periodic read-conn prune daemon
+# walks ``_all_read_connections`` and closes connections whose owning
+# thread has exited. Defined at module level (not as a class
+# attribute) so tests can monkeypatch ``history_db._READ_CONN_PRUNE_INTERVAL_S``
+# and have the prune thread pick up the new value on the next restart.
+_READ_CONN_PRUNE_INTERVAL_S: float = 60.0
+
 # AB-26: TTL (seconds) for the ``get_today_stats`` cache.
 #
 # ``get_today_stats`` runs an aggregating scan
@@ -309,9 +316,7 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
                 0o600,
             )
-            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(
-                dst_fd, "wb", closefd=False
-            ) as f_dst:
+            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(dst_fd, "wb", closefd=False) as f_dst:
                 shutil.copyfileobj(f_src, f_dst)
                 f_dst.flush()
                 os.fsync(f_dst.fileno())
@@ -329,15 +334,11 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
         # fsync.
         for p in (src, dst):
             try:
-                attrs = (
-                    getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
-                )
+                attrs = getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
             except (AttributeError, OSError):
                 attrs = 0
             if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                raise OSError(
-                    f"FR-8: refusing to follow reparse point during copy: {p}"
-                )
+                raise OSError(f"FR-8: refusing to follow reparse point during copy: {p}")
         with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
             shutil.copyfileobj(f_src, f_dst)
             f_dst.flush()
@@ -376,9 +377,7 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
                 0o600,
             )
-            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(
-                dst_fd, "wb", closefd=False
-            ) as f_dst:
+            with os.fdopen(src_fd, "rb", closefd=False) as f_src, os.fdopen(dst_fd, "wb", closefd=False) as f_dst:
                 shutil.copyfileobj(f_src, f_dst)
                 f_dst.flush()
                 os.fsync(f_dst.fileno())
@@ -396,15 +395,11 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
         # fsync.
         for p in (src, dst):
             try:
-                attrs = (
-                    getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
-                )
+                attrs = getattr(os.lstat(str(p)), "st_file_attributes", 0) or 0
             except (AttributeError, OSError):
                 attrs = 0
             if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                raise OSError(
-                    f"FR-8: refusing to follow reparse point during copy: {p}"
-                )
+                raise OSError(f"FR-8: refusing to follow reparse point during copy: {p}")
         with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
             shutil.copyfileobj(f_src, f_dst)
             f_dst.flush()
@@ -656,14 +651,12 @@ class HistoryDB:
             self._start_periodic_read_conn_prune()
 
     # ──────────────────────────────────────────────────────────────
-    # Periodic read-conn prune (DJ-19)
+    # Periodic read-conn prune
     # ──────────────────────────────────────────────────────────────
 
-    _READ_CONN_PRUNE_INTERVAL_S: float = 60.0
-
-    def _start_periodic_read_conn_prune(self) -> None:
-        """DJ-19: start a daemon thread that periodically prunes dead
-        read connections from ``_all_read_connections``.
+    def _start_read_conn_prune_thread(self) -> None:
+        """Start a daemon thread that periodically prunes dead read
+        connections from ``_all_read_connections``.
 
         Pre-fix, ``_prune_dead_read_connections_locked`` only fired when
         a NEW connection was created on a thread that didn't already
@@ -674,13 +667,16 @@ class HistoryDB:
         ``_get_read_conn`` call from a fresh thread.
 
         The periodic prune walks the list every
-        ``_READ_CONN_PRUNE_INTERVAL_S`` (60s) and closes connections
-        whose owning thread has exited. This bounds the leak window to
-        60s regardless of new-thread read-conn churn.
+        ``_READ_CONN_PRUNE_INTERVAL_S`` (60s, module-level so tests can
+        monkeypatch it) and closes connections whose owning thread has
+        exited. This bounds the leak window to 60s regardless of
+        new-thread read-conn churn.
 
         Idempotent — if a prune thread is already running, the call is
         a no-op. Tests can shorten the interval by patching
-        ``_READ_CONN_PRUNE_INTERVAL_S``.
+        ``history_db._READ_CONN_PRUNE_INTERVAL_S`` and then calling
+        ``_stop_read_conn_prune_thread()`` / ``_start_read_conn_prune_thread()``
+        to restart the worker so it picks up the new value.
         """
         if self._read_conn_prune_thread is not None and self._read_conn_prune_thread.is_alive():
             return
@@ -692,8 +688,21 @@ class HistoryDB:
         )
         self._read_conn_prune_thread.start()
 
-    def _stop_periodic_read_conn_prune(self) -> None:
-        """DJ-19: stop the periodic prune daemon (called by close())."""
+    # Back-compat alias for the previous name (kept so external code
+    # and any in-flight branches that referenced the verbose name keep
+    # working). New callers should use ``_start_read_conn_prune_thread``.
+    _start_periodic_read_conn_prune = _start_read_conn_prune_thread
+
+    def _stop_read_conn_prune_thread(self) -> None:
+        """Stop the periodic prune daemon (called by close()).
+
+        Signals the stop event, joins the worker thread (so it has
+        fully exited before we return — prevents a race where close()
+        closes a connection the prune worker is about to walk), and
+        clears the ``_read_conn_prune_thread`` /
+        ``_read_conn_prune_stop_event`` attributes so callers can
+        observe that pruning has stopped.
+        """
         evt = self._read_conn_prune_stop_event
         thread = self._read_conn_prune_thread
         if evt is not None:
@@ -703,13 +712,26 @@ class HistoryDB:
         self._read_conn_prune_thread = None
         self._read_conn_prune_stop_event = None
 
+    # Back-compat alias for the previous name.
+    _stop_periodic_read_conn_prune = _stop_read_conn_prune_thread
+
     def _periodic_read_conn_prune_loop(self) -> None:
-        """DJ-19: the periodic prune loop body. Runs on a daemon thread."""
+        """The periodic prune loop body. Runs on a daemon thread.
+
+        Reads ``_READ_CONN_PRUNE_INTERVAL_S`` from the MODULE namespace
+        (not the class) on each iteration so tests can patch
+        ``history_db._READ_CONN_PRUNE_INTERVAL_S`` and have the change
+        take effect without restarting the worker — although the
+        existing tests restart the worker anyway for determinism.
+        """
         evt = self._read_conn_prune_stop_event
         if evt is None:
             return
-        interval = self._READ_CONN_PRUNE_INTERVAL_S
         while not evt.is_set():
+            # Re-read the interval each iteration so a test patching
+            # ``history_db._READ_CONN_PRUNE_INTERVAL_S`` is honored
+            # without requiring a worker restart.
+            interval = _READ_CONN_PRUNE_INTERVAL_S
             # Wait for the interval or the stop signal, whichever first.
             if evt.wait(timeout=interval):
                 return
@@ -718,7 +740,7 @@ class HistoryDB:
                     self._prune_dead_read_connections_locked()
             except Exception:
                 log.debug(
-                    "[HISTORY_DB] DJ-19 periodic read-conn prune failed (non-fatal)",
+                    "[HISTORY_DB] periodic read-conn prune failed (non-fatal)",
                     exc_info=True,
                 )
 
@@ -1867,9 +1889,7 @@ class HistoryDB:
                 err,
             )
             if wait:
-                raise HistoryDBError(
-                    f"HistoryDB writer is unavailable: {err}"
-                )
+                raise HistoryDBError(f"HistoryDB writer is unavailable: {err}")
             return None
         future: concurrent.futures.Future | None = None
         if wait:
@@ -1984,6 +2004,13 @@ class HistoryDB:
         # and exits without trying to call apply_retention (which
         # would no-op on a shutdown DB but would still log noise).
         self._stop_periodic_retention()
+        # Stop the periodic read-conn prune daemon before tearing down
+        # connections — otherwise the worker could walk _all_read_connections
+        # mid-tear-down and trip over a half-closed connection. Also
+        # clears the thread / event attributes so callers observing
+        # ``_read_conn_prune_thread is None`` after ``close()`` see the
+        # quiesced state.
+        self._stop_read_conn_prune_thread()
         if self._shutdown.is_set():
             # Already closed — just make sure read conns are gone.
             with self._connections_lock:
@@ -2210,9 +2237,7 @@ class HistoryDB:
                     # error must not break the row delete (which
                     # already committed).
                     try:
-                        cursor.execute(
-                            "INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')"
-                        )
+                        cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
                         conn.commit()
                     except sqlite3.Error as rebuild_exc:
                         log.warning(
@@ -2228,9 +2253,7 @@ class HistoryDB:
                         # chronic FTS5 rebuild failures (mirrors the
                         # retention.py / clear_all pattern).
                         with contextlib.suppress(Exception):
-                            self._fts5_rebuild_failures = (
-                                getattr(self, "_fts5_rebuild_failures", 0) + 1
-                            )
+                            self._fts5_rebuild_failures = getattr(self, "_fts5_rebuild_failures", 0) + 1
                     return True
 
             result = self._submit_write(_do_delete, wait=True)
