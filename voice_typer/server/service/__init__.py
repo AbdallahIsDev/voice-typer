@@ -165,10 +165,28 @@ class VoiceTyperService(
         # ``.is_set()`` raised AttributeError.
         self._download_cancel_events: dict[str, threading.Event] = {}
         self._download_cancel_lock = threading.Lock()
+        # Initialise ``_active_download_id`` to ``None`` so
+        # :meth:`ModelMixin.cancel_model_download` can safely read it
+        # before any download has been registered. Previously this was
+        # left unset, causing an ``AttributeError`` on the first
+        # ``cancel_model_download`` call (covered by
+        # ``tests/test_history_and_models.py::TestCancelModelDownloadMechanism``).
+        # The ClassVar on :class:`ServiceMixinBase` declares the type
+        # as ``str | None``; this initial assignment binds the runtime
+        # value to match.
+        self._active_download_id: str | None = None
         # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status.
         self._model_status_cache: dict[str, object] | None = None
         self._model_status_cache_ts: float = 0.0
         self._model_status_cache_lock = threading.Lock()
+        # ``_onboarding`` holds the live :class:`OnboardingController`
+        # between :meth:`OnboardingMixin.onboarding_start` and
+        # :meth:`OnboardingMixin.onboarding_apply`. Initialise to
+        # ``None`` so the ``getattr(self, "_onboarding", None)``
+        # defensive reads in ``service/onboarding.py`` resolve to a
+        # typed value (and so the ClassVar annotation on
+        # :class:`ServiceMixinBase` is honoured at runtime).
+        self._onboarding = None
         # XV-5: ``_microphones_cache`` initialised to ``None``.
         MicrophoneTestMixin.__init__(self)
 

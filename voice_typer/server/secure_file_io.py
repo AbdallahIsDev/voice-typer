@@ -28,7 +28,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from voice_typer.server.platform_utils import is_windows
 
@@ -458,7 +458,24 @@ def _chmod_owner_only(path: Path) -> None:
         )
 
 
-class PersistedJSON:
+# Generic type parameter for :class:`PersistedJSON`.
+#
+# The default value passed to ``__init__`` is intentionally typed as
+# ``Any`` (not ``T``) so legacy callers that pass ``default=None`` and
+# later ``.save(some_dict)`` keep type-checking clean (they get the
+# pre-generic ``Any`` behaviour). New callers can opt INTO type safety
+# by explicitly parameterising the class — e.g.
+# ``PersistedJSON[dict[str, Any]](path, default={})`` — after which
+# both :meth:`load` and :meth:`save` are statically checked against
+# ``dict[str, Any]``. The two existing call sites
+# (:class:`VocabularyManager`, :class:`TemplateManager`) currently do
+# not parameterise; parameterising them is a mechanical follow-up that
+# is out of scope for this change because those modules are owned by
+# another agent's area.
+T = TypeVar("T")
+
+
+class PersistedJSON(Generic[T]):
     """Atomic-write + single-slot ``.bak`` + corrupt-quarantine + 0o600 perms.
 
     A higher-level helper that bundles the three-pronged safe-persistence
@@ -492,6 +509,29 @@ class PersistedJSON:
     ``TemplateManager``, etc.).  The caller is responsible for calling
     :meth:`load` and :meth:`save` at the right points and for
     interpreting the returned default.
+
+    Generic type parameter ``T``:
+        The class is parameterised by ``T`` so callers can opt into
+        static type-checking on the JSON round-trip. The default value
+        is intentionally typed as ``Any`` so legacy callers that pass
+        ``default=None`` and later ``.save(some_dict)`` keep
+        type-checking clean (they get the pre-generic ``Any`` behaviour
+        — ``T`` is left unconstrained and resolves to ``Unknown``).
+        Callers that want type safety parameterise explicitly:
+
+        >>> from voice_typer.server.secure_file_io import PersistedJSON
+        >>> store: PersistedJSON[dict[str, object]] = PersistedJSON(
+        ...     path, default={},
+        ... )
+        >>> data: dict[str, object] = store.load()
+        >>> store.save({"key": "value"})
+
+        Without parameterisation, ``load()`` returns ``T = Unknown``
+        (effectively ``Any``) and ``save(data)`` accepts anything —
+        identical to the pre-generic behaviour. The two existing call
+        sites (``VocabularyManager``, ``TemplateManager``) do not
+        parameterise yet; parameterising them is a mechanical
+        follow-up out of scope for this change.
     """
 
     def __init__(self, path: Path, *, default: Any = None) -> None:
@@ -516,7 +556,7 @@ class PersistedJSON:
     def default(self) -> Any:
         return self._default
 
-    def load(self) -> Any:
+    def load(self) -> T:
         """Load JSON.  On parse failure, quarantine the corrupt file and
         return the configured default.
 
@@ -535,13 +575,18 @@ class PersistedJSON:
         ``.bak`` is a single-slot snapshot written on every save (when
         content differs). If the ``.bak`` loads successfully, log a
         warning and return the recovered data.
+
+        Returns ``T`` so callers that parameterise the class get a
+        statically-typed value back; unparameterised callers get
+        ``T = Unknown`` (effectively ``Any`` — preserves the
+        pre-generic behaviour).
         """
         if not self._path.exists():
             # XE-8-B: main file missing — try .bak before returning default.
             recovered = self._try_load_bak()
             if recovered is not None:
-                return recovered
-            return self._default
+                return recovered  # type: ignore[return-value]
+            return self._default  # type: ignore[return-value]
         try:
             raw = _secure_read_text(self._path, encoding="utf-8")
             result = json.loads(raw)
@@ -550,7 +595,7 @@ class PersistedJSON:
             # changed. Cache the actual UTF-8 bytes (not just the length)
             # so a content-equality check is sufficient on the next save.
             self._last_written_bytes = raw.encode("utf-8")
-            return result
+            return result  # type: ignore[return-value]
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.warning(
                 "[PERSISTED_JSON] Failed to load %s: %s — quarantining corrupt file and returning default",
@@ -561,8 +606,8 @@ class PersistedJSON:
             # XE-8-B: try .bak recovery after quarantining the corrupt main.
             recovered = self._try_load_bak()
             if recovered is not None:
-                return recovered
-            return self._default
+                return recovered  # type: ignore[return-value]
+            return self._default  # type: ignore[return-value]
 
     def _try_load_bak(self) -> Any | None:
         """XE-8-B: attempt to load from the .bak file. Returns None if .bak
@@ -642,16 +687,20 @@ class PersistedJSON:
                 move_exc,
             )
 
-    def save(self, data: Any, *, durability: bool = True) -> None:
+    def save(self, data: T, *, durability: bool = True) -> None:
         """Atomic save.  Creates ``.bak`` before overwrite.  Sets 0o600 perms.
 
         Parameters
         ----------
-        data : Any
+        data : T
             JSON-serialisable payload.  ``json.dumps(data, indent=2,
             ensure_ascii=False)`` is used so non-ASCII characters
             survive the round-trip (mirrors ``vocabulary.py`` and
             ``templates.py`` which both pass ``ensure_ascii=False``).
+            Typed as ``T`` so callers that parameterise the class get
+            static type-checking on the saved shape; unparameterised
+            callers pass ``T = Unknown`` (accepts anything —
+            pre-generic behaviour).
         durability : bool
             XE-8-A (High) / DJ-52: when ``True`` (default), the write
             uses the full ``_secure_atomic_write`` path with ``fsync``

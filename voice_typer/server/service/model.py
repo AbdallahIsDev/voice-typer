@@ -634,7 +634,7 @@ class ModelMixin(ServiceMixinBase):
         log.info("[SERVICE] Model download resume requested")
         return {"resumed": True}
 
-    def _require_huggingface_consent(self, model_name: str) -> dict | None:
+    def _require_huggingface_consent(self, model_name: str) -> DownloadOutcome | None:
         """CR-11: Gate IPC-triggered HuggingFace downloads on explicit consent.
 
         Mirrors the consent gate in
@@ -647,14 +647,21 @@ class ModelMixin(ServiceMixinBase):
         specifically designed to gate (NEW-PRIV-005).
 
         Returns ``None`` when consent has been given — the caller
-        proceeds with the download.  Returns a failure dict AND
-        publishes a ``consent_required`` event when consent is missing;
-        the renderer is responsible for showing the consent dialog and
-        retrying the download after the user accepts.
+        proceeds with the download.  Returns a :data:`DownloadOutcome`
+        failure dict AND publishes a ``consent_required`` event when
+        consent is missing; the renderer is responsible for showing
+        the consent dialog and retrying the download after the user
+        accepts.
 
         Defensive: ``self._app.config`` may be ``None`` in degenerate
         paths (test stubs, benchmark harness).  Treat missing config
         as NOT consented — safe default per GDPR Art. 6/13.
+
+        Returns a :data:`DownloadOutcome` (TypedDict) so the caller's
+        ``return consent_err`` line type-checks without
+        ``# type: ignore[return-value]``. The returned dict's runtime
+        shape is preserved verbatim (``success``, ``error``,
+        ``consent_required``, ``model``).
         """
         from voice_typer.server import event_bus
 
@@ -841,7 +848,7 @@ class ModelMixin(ServiceMixinBase):
         # interaction from the IPC path.
         consent_err = self._require_huggingface_consent(model_name)
         if consent_err is not None:
-            return consent_err  # type: ignore[return-value]
+            return consent_err
         log.info(
             "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
             model_name,
@@ -1115,7 +1122,7 @@ class ModelMixin(ServiceMixinBase):
         # interaction from the IPC path.
         consent_err = self._require_huggingface_consent(model_name)
         if consent_err is not None:
-            return consent_err  # type: ignore[return-value]
+            return consent_err
         log.info(
             "[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)",
             model_name,
