@@ -18,6 +18,11 @@
  *           `canShareStats({todayCount, totalCount})` (not
  *           `data.todayCount > 0`) so users with historical
  *           transcriptions but no today dictations can still share.
+ *   - DJ-93 Dashboard share-image capture container's inline `style`
+ *           literal is hoisted to a module-level constant so the object
+ *           identity is stable across renders (a fresh inline object
+ *           on every render would break `React.memo` on the share-image
+ *           subtree).
  *
  * Static-source-check strategy
  * ----------------------------
@@ -288,5 +293,75 @@ describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount >
 		// read elsewhere — but the specific gating expression
 		// `data.todayCount > 0 && (` is gone.)
 		expect(DASHBOARD_SRC).not.toMatch(/data\.todayCount\s*>\s*0\s*&&\s*\(/);
+	});
+});
+
+// ── DJ-93 ─────────────────────────────────────────────────────────────
+
+describe("DJ-93: Dashboard share-image container style hoisted to module-level constant", () => {
+	it("Dashboard.tsx declares a module-level CSSProperties constant for the share-image capture container", () => {
+		// The fix hoists the previously-inline `style={{ position: "absolute",
+		// top: 0, left: 0, zIndex: -100, pointerEvents: "none" }}` literal
+		// to a module-level `SHARE_IMAGE_CAPTURE_STYLE` constant typed as
+		// `CSSProperties`. The static values never change between renders,
+		// so a single module-level instance is correct — and crucially,
+		// the stable object identity lets a future `React.memo` on the
+		// share-image subtree short-circuit re-renders when the stats
+		// haven't changed.
+		//
+		// The `CSSProperties` type import from "react" is also pinned so
+		// a future refactor that drops the type annotation (and thus
+		// weakens the contract) fails this test.
+		expect(DASHBOARD_SRC).toMatch(
+			/import\s+type\s+\{\s*CSSProperties\s*\}\s+from\s*"react"/,
+		);
+		expect(DASHBOARD_SRC).toMatch(
+			/const\s+SHARE_IMAGE_CAPTURE_STYLE\s*:\s*CSSProperties\s*=/,
+		);
+	});
+
+	it("share-image capture container style values are present in the hoisted constant", () => {
+		// Pin the four style values that the share-image capture target
+		// depends on: position:absolute (off-screen positioning),
+		// top:0 + left:0 (anchor to top-left), zIndex:-100 (behind
+		// everything else), pointerEvents:none (invisible to mouse).
+		// The values are checked inside the constant declaration block
+		// (between `SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {` and the
+		// closing `}`), not anywhere else in the file — so a future
+		// refactor that accidentally moves a value out of the constant
+		// (e.g. back into an inline literal) fails this test.
+		const constStart = DASHBOARD_SRC.indexOf("SHARE_IMAGE_CAPTURE_STYLE");
+		expect(constStart).toBeGreaterThan(-1);
+		const constBlockEnd = DASHBOARD_SRC.indexOf("};", constStart);
+		expect(constBlockEnd).toBeGreaterThan(constStart);
+		const constBlock = DASHBOARD_SRC.slice(constStart, constBlockEnd + 2);
+		expect(constBlock).toMatch(/position:\s*"absolute"/);
+		expect(constBlock).toMatch(/top:\s*0/);
+		expect(constBlock).toMatch(/left:\s*0/);
+		expect(constBlock).toMatch(/zIndex:\s*-100/);
+		expect(constBlock).toMatch(/pointerEvents:\s*"none"/);
+	});
+
+	it("share-image capture container references the hoisted constant via style={SHARE_IMAGE_CAPTURE_STYLE}", () => {
+		// The JSX uses `style={SHARE_IMAGE_CAPTURE_STYLE}` (a single
+		// identifier reference) instead of the previous inline
+		// `style={{ position: "absolute", ... }}` literal. The
+		// identifier reference gives a stable object identity across
+		// renders (the constant is created once at module load); the
+		// inline literal created a fresh object on every render.
+		expect(DASHBOARD_SRC).toMatch(/style=\{SHARE_IMAGE_CAPTURE_STYLE\}/);
+		// The old inline `style={{ position: "absolute", ... }}` literal
+		// is gone — the `position: "absolute"` value now appears ONLY in
+		// the module-level constant declaration (covered by the previous
+		// test). A stray inline `position: "absolute"` outside the
+		// constant block would indicate a regression.
+		const constStart = DASHBOARD_SRC.indexOf("SHARE_IMAGE_CAPTURE_STYLE");
+		const constBlockEnd = DASHBOARD_SRC.indexOf("};", constStart);
+		const beforeConst = DASHBOARD_SRC.slice(0, constStart);
+		const afterConst = DASHBOARD_SRC.slice(constBlockEnd + 2);
+		// No inline `position: "absolute"` literal outside the constant
+		// block (would indicate a second copy that should also be hoisted).
+		expect(beforeConst).not.toMatch(/position:\s*"absolute"/);
+		expect(afterConst).not.toMatch(/position:\s*"absolute"/);
 	});
 });

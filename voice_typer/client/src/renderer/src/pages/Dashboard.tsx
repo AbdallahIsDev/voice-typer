@@ -15,6 +15,7 @@ import {
 	Time02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { CSSProperties } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
@@ -34,6 +35,25 @@ import { compactNumber, formatDuration } from "@/lib/format";
 import { DashboardSkeleton } from "./dashboard/components/DashboardSkeleton";
 import { SevenDayActivityChart } from "./dashboard/components/SevenDayActivityChart";
 import { useDashboardData } from "./dashboard/hooks/useDashboardData";
+
+// Hidden share-image capture target container style.
+//
+// Hoisted to a module-level constant so the object identity is stable
+// across renders — a fresh inline `style={{...}}` literal on every
+// render breaks `React.memo` on the share-image subtree (each render
+// produces a new object reference, forcing a re-render even when the
+// underlying stats haven't changed). The container is position:absolute
+// + zIndex:-100 + pointerEvents:none so it's painted off-screen for
+// html-to-image capture but never visible or interactive to the user.
+// The values are static (no render-time computation), so a single
+// module-level instance is correct for all Dashboard renders.
+const SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {
+	position: "absolute",
+	top: 0,
+	left: 0,
+	zIndex: -100,
+	pointerEvents: "none",
+};
 
 // EC-FIX-14: DashboardPage obtains `navigate` via useNavigation directly.
 export default function DashboardPage() {
@@ -161,17 +181,7 @@ export default function DashboardPage() {
 			)}
 
 			{/* Hidden share-image capture target (no clipPath — EXPORT-FIX). */}
-			<div
-				ref={imageRef}
-				aria-hidden
-				style={{
-					position: "absolute",
-					top: 0,
-					left: 0,
-					zIndex: -100,
-					pointerEvents: "none",
-				}}
-			>
+			<div ref={imageRef} aria-hidden style={SHARE_IMAGE_CAPTURE_STYLE}>
 				{data && configRaw && (
 					<StatsShareImage
 						stats={computeShareStats(

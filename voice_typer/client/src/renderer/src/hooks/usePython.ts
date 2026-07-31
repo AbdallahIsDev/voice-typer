@@ -118,7 +118,11 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 // forgetfulness the first time a renderer subscribes to the new
 // event (the warning fires for unknown types — including ones added
 // to the TS union but not yet to this set).
-const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
+// UE-39: exported so the parity test
+// (`__tests__/usePython-known-event-types-parity.test.ts`) can assert
+// the runtime set matches the compile-time `PythonPushEvent["type"]`
+// union. Not part of the public hook API — only consumed by tests.
+export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"status_change",
 	"error",
 	"transcription_final",
@@ -296,6 +300,163 @@ export function useBridgeReady(): boolean {
 		getBridgeReadySnapshot,
 		getBridgeReadyServerSnapshot,
 	);
+}
+
+// ─── Shared event dispatcher (DJ-89) ────────────────────────────────
+//
+// Previously each `usePythonEvent` call subscribed to `api.onEvent`
+// directly, creating N subscriptions for N callers. On Tauri, each
+// subscription registers 4 Tauri event listeners (the main
+// `python-event` channel + 3 supervisor relay channels in
+// `python-namespace.ts`), so N callers created 4N Tauri listeners —
+// and every event triggered all 4N callbacks only to be filtered
+// down to the (typically 1) matching caller by the
+// `if (event.type === type)` check. On Electron each subscription
+// adds one `ipcRenderer.on(PythonChannels.event, ...)` listener, so
+// N callers created N IPC listeners with the same fan-out waste.
+//
+// The dispatcher subscribes to `api.onEvent` exactly ONCE per
+// `window.python` instance and fan-outs to per-type subscribers
+// stored in a `Map<type, Set<entry>>`. This collapses the
+// N-listener multiplication: N callers share 1 subscription (4
+// Tauri listeners / 1 Electron IPC listener).
+//
+// The dispatcher is module-level (singleton). It is lazily set up
+// when the first subscriber registers (after the bridge is ready)
+// and torn down when the last subscriber unsubscribes — so a test
+// that mounts + unmounts a single hook leaves no dangling
+// subscription for the next test. If `window.python` is replaced
+// (e.g. test `afterEach` deletes and re-sets it), `ensureDispatcher`
+// detects the instance change and re-subscribes.
+
+type EventHandler = (
+	data?: Record<string, unknown>,
+) => (() => void) | undefined;
+
+interface DispatcherEntry {
+	// () => handlerRef.current — indirection so the dispatcher
+	// always invokes the latest handler identity without
+	// re-subscribing on every render.
+	getHandler: () => EventHandler;
+	// Per-entry cleanup slot. Holds the cleanup function returned
+	// by the most recent handler invocation. The dispatcher
+	// invokes it before the NEXT matching event's handler runs
+	// (cancelling in-flight async work) and `unsubscribe` invokes
+	// it on teardown (releasing resources).
+	cleanupRef: { current: (() => void) | undefined };
+}
+
+const typeSubscribers: Map<string, Set<DispatcherEntry>> = new Map();
+let dispatcherState: {
+	api: NonNullable<typeof window.python>;
+	unsubscribe: () => void;
+} | null = null;
+
+function dispatchEvent(event: {
+	type: string;
+	data?: Record<string, unknown>;
+}): void {
+	const set = typeSubscribers.get(event.type);
+	if (!set || set.size === 0) return;
+	// Snapshot the set so a handler that unsubscribes itself (or
+	// subscribes a new entry for the same type) during iteration
+	// doesn't corrupt the iteration.
+	const entries = Array.from(set);
+	for (const entry of entries) {
+		// Invoke the previous cleanup BEFORE the next handler so
+		// concurrent invocations compose correctly (e.g. stale
+		// `reloadHotkey` chains are cancelled before a new one
+		// starts).
+		if (typeof entry.cleanupRef.current === "function") {
+			const fn = entry.cleanupRef.current;
+			entry.cleanupRef.current = undefined;
+			try {
+				fn();
+			} catch (err) {
+				console.error("usePythonEvent cleanup threw:", err);
+			}
+		}
+		try {
+			entry.cleanupRef.current = entry.getHandler()(event.data);
+		} catch (err) {
+			// XZ-R16-05: a throwing handler must not escape
+			// into the dispatch loop. Log and reset so the
+			// next event starts from a clean slate.
+			console.error("usePythonEvent handler threw:", err);
+			entry.cleanupRef.current = undefined;
+		}
+	}
+}
+
+function ensureDispatcher(): void {
+	const api = window.python;
+	if (!api) return;
+	// Same instance → already subscribed.
+	if (dispatcherState && dispatcherState.api === api) return;
+	// Different instance (e.g. test `afterEach` deleted and re-set
+	// `window.python`) → tear down the stale subscription and
+	// re-subscribe to the new one.
+	if (dispatcherState) {
+		try {
+			dispatcherState.unsubscribe();
+		} catch (err) {
+			console.warn("[usePython] dispatcher teardown failed:", err);
+		}
+		dispatcherState = null;
+	}
+	const unsubscribe = api.onEvent((event) => {
+		dispatchEvent(event as { type: string; data?: Record<string, unknown> });
+	});
+	dispatcherState = { api, unsubscribe };
+}
+
+function subscribeToEventType(
+	type: string,
+	getHandler: () => EventHandler,
+): () => void {
+	let set = typeSubscribers.get(type);
+	if (!set) {
+		set = new Set();
+		typeSubscribers.set(type, set);
+	}
+	const entry: DispatcherEntry = {
+		getHandler,
+		cleanupRef: { current: undefined },
+	};
+	set.add(entry);
+	ensureDispatcher();
+	return () => {
+		const currentSet = typeSubscribers.get(type);
+		if (currentSet) {
+			currentSet.delete(entry);
+			if (currentSet.size === 0) {
+				typeSubscribers.delete(type);
+			}
+		}
+		// Invoke the most recent cleanup so the handler can
+		// release resources on unsubscribe (unmount / type
+		// change / bridge going away).
+		if (typeof entry.cleanupRef.current === "function") {
+			const fn = entry.cleanupRef.current;
+			entry.cleanupRef.current = undefined;
+			try {
+				fn();
+			} catch (err) {
+				console.error("usePythonEvent cleanup threw:", err);
+			}
+		}
+		// If no subscribers remain, tear down the dispatcher
+		// subscription so we don't hold a dangling listener
+		// (e.g. after the last component unmounts).
+		if (typeSubscribers.size === 0 && dispatcherState) {
+			try {
+				dispatcherState.unsubscribe();
+			} catch (err) {
+				console.warn("[usePython] dispatcher teardown failed:", err);
+			}
+			dispatcherState = null;
+		}
+	};
 }
 
 /**
@@ -579,76 +740,33 @@ export function usePythonEvent(
 		const api = window.python;
 		if (!api) return; // defensive double-check (bridgeReady mirrors window.python presence)
 
-		// PVT-G5-019: capture the most recent handler-returned cleanup
-		// function so we can invoke it before the next matching event's
-		// handler runs (cancelling any in-flight async work from the
-		// previous invocation) and on unsubscribe (releasing resources
-		// acquired by the most recent invocation).
-		let currentCleanup: (() => void) | undefined | undefined;
-
-		const runCleanup = () => {
-			if (typeof currentCleanup !== "function") return;
-			const fn = currentCleanup;
-			currentCleanup = undefined;
-			try {
-				fn();
-			} catch (err) {
-				// A throwing cleanup must not break subsequent
-				// event delivery — log and continue.
-				console.error("usePythonEvent cleanup threw:", err);
-			}
-		};
-
-		const unsubscribe = api.onEvent((event) => {
-			if (event.type === type) {
-				// Invoke the previous cleanup BEFORE the next
-				// handler so concurrent invocations compose
-				// correctly (e.g. stale `reloadHotkey` chains
-				// are cancelled before a new one starts).
-				runCleanup();
-				// `PythonPushEvent` is a discriminated union
-				// where some members carry no `data` field at
-				// all (e.g. `RecordingStartedEvent`). The
-				// handler signature accepts
-				// `Record<string, unknown> | undefined`, so we
-				// safely widen via a cast — at runtime events
-				// without `data` simply yield `undefined`,
-				// matching the prior `EventCallback`-based
-				// behaviour.
-				//
-				// XZ-R16-05: wrap the user-supplied handler in
-				// try/catch so a throwing handler doesn't escape
-				// into the Tauri/Electron dispatch loop. Previously
-				// an exception in `handlerRef.current(...)` would
-				// bubble up through `api.onEvent`'s callback into
-				// the underlying event-listener dispatch (Tauri's
-				// `listen` invoker or Electron's IPC dispatcher),
-				// which either re-throws (Electron → unhandled
-				// exception in the renderer) or swallows with a
-				// generic warning (Tauri). Worse, the assignment to
-				// `currentCleanup` never ran, so the stale cleanup
-				// from the PREVIOUS event persisted — the next
-				// event's `runCleanup()` would call the wrong
-				// (stale) cleanup function. We log the error and
-				// reset `currentCleanup` to `undefined` so the next
-				// event starts from a clean slate.
-				try {
-					currentCleanup = handlerRef.current(
-						(event as { data?: Record<string, unknown> }).data,
-					);
-				} catch (err) {
-					console.error("usePythonEvent handler threw:", err);
-					currentCleanup = undefined;
-				}
-			}
-		});
+		// DJ-89: register with the module-level dispatcher instead
+		// of subscribing to `api.onEvent` directly. The dispatcher
+		// holds a SINGLE `api.onEvent` subscription shared across
+		// all `usePythonEvent` callers and fan-outs to per-type
+		// subscribers via a `Map<type, Set<entry>>`. This
+		// eliminates the N-listener multiplication: previously N
+		// callers created N subscriptions (4N Tauri event
+		// listeners on Tauri), and every event triggered all N
+		// callbacks only to be filtered by the
+		// `if (event.type === type)` check. Now N callers share
+		// 1 subscription and the Map lookup is O(1) per event.
+		//
+		// The dispatcher preserves all existing semantics:
+		//   - PVT-G5-019: the cleanup returned by the previous
+		//     handler invocation is run BEFORE the next matching
+		//     event's handler (cancelling in-flight async work)
+		//     and on unsubscribe (releasing resources). This is
+		//     now stored in `entry.cleanupRef` rather than a
+		//     local `currentCleanup` variable.
+		//   - XZ-R16-05: a throwing handler is caught and logged
+		//     so it doesn't escape into the dispatch loop.
+		//   - The handler identity is mirrored via `handlerRef`
+		//     so callers can pass inline closures without
+		//     re-subscribing on every render.
+		const unsubscribe = subscribeToEventType(type, () => handlerRef.current);
 
 		return () => {
-			// On unsubscribe (unmount / type change / bridge going
-			// away), invoke the most recent cleanup so the handler
-			// can release its resources (e.g. flip its own
-			// `cancelled` flag).
-			runCleanup();
 			unsubscribe();
 		};
 		// `bridgeReady` is included so the effect re-subscribes when
