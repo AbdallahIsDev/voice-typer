@@ -21,7 +21,11 @@ import { state } from "../state";
 import { createWindows } from "../windows";
 import { broadcastToMainWindow } from "../windows/main-window";
 import { handleMessage } from "./handle-message";
-import { sendToPython } from "./send-to-python";
+import {
+	_flushPendingOutbound,
+	_resetPendingOutbound,
+	sendToPython,
+} from "./send-to-python";
 
 // PVT-G5-038: startup timeout. If Python doesn't connect within 60s
 // of the first tryConnect(), show a clear error dialog and quit.
@@ -183,6 +187,21 @@ export function tcpConnect(port: number): void {
 				});
 			}
 			state._hadConnectedBefore = true;
+			// Flush any idempotent commands that were queued while
+			// the socket was null (transient-disconnect replay queue
+			// — see ``send-to-python.ts``'s ``_pendingOutbound``).
+			// The queue is drained in FIFO order; each entry is
+			// re-sent via ``sendToPython`` (which now has a non-null
+			// ``state.tcpSocket``) and the new promise's resolution
+			// is forwarded to the original caller's ``resolve`` /
+			// ``reject``.
+			//
+			// Safe to call when the queue is empty (no-op). Errors
+			// from a re-sent entry (e.g. allowlist drift, rate limit,
+			// MAX_PENDING_REQUESTS cap) surface to the original
+			// caller's ``reject`` — the flush loop does not swallow
+			// them.
+			_flushPendingOutbound();
 			// RW-10: start the heartbeat interval now that the
 			// backend is connected.  Send an immediate heartbeat
 			// so the backend's watchdog arms quickly (otherwise
@@ -332,6 +351,22 @@ export function tcpConnect(port: number): void {
 				for (const [id, entry] of state.pendingRequests) {
 					state.pendingRequests.delete(id);
 					entry.reject(closeErr);
+				}
+				// Transient-disconnect replay queue:
+				// when ``state._relaunching`` is true the
+				// process is about to exit — queued
+				// idempotent commands would never be
+				// flushed (no reconnect will happen), so
+				// reject them with the same "Application
+				// is restarting" error so the caller's
+				// promise settles. When ``_relaunching``
+				// is false, the queue is PRESERVED so it
+				// can be flushed on the next successful
+				// reconnect (the whole point of the
+				// queue — see ``send-to-python.ts``'s
+				// ``_pendingOutbound``).
+				if (state._relaunching) {
+					_resetPendingOutbound("Application is restarting");
 				}
 			}
 			// If a newer retry generation is active, stop retrying.

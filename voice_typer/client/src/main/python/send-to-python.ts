@@ -26,6 +26,124 @@ import {
 } from "../state";
 
 /**
+ * Outbound replay queue for transient TCP disconnects.
+ *
+ * When ``state.tcpSocket`` is null AND the app has connected before
+ * (``state._hadConnectedBefore === true`` — i.e. a transient blip, not
+ * initial startup), idempotent commands are pushed here instead of
+ * being rejected outright. On reconnect, ``_flushPendingOutbound``
+ * drains the queue in FIFO order, re-invoking ``sendToPython`` for
+ * each entry and forwarding the new promise's resolution to the
+ * original caller's ``resolve`` / ``reject``.
+ *
+ * Non-idempotent commands (e.g. ``toggle_dictation``) are still
+ * rejected immediately when the socket is null — replaying them after
+ * a disconnect risks double-execution (the Python side may have
+ * already processed the original write before the socket dropped, so
+ * replaying would start/stop a second recording).
+ *
+ * The queue is bounded to ``_MAX_PENDING_OUTBOUND`` entries. When the
+ * bound is hit, the NEW idempotent request is rejected with the same
+ * "Python backend is not connected" error rather than dropping a
+ * queued entry — the oldest queued entries are the most likely to
+ * still be relevant (they were queued first and have been waiting
+ * longest), so we preserve them and shed load at the new edge.
+ *
+ * Design notes:
+ *   - The queue is a module-level array (mirrors the existing
+ *     ``_rendererCallTimestamps`` Map pattern). It is NOT stored on
+ *     ``state`` because the field would have to be declared on
+ *     ``MainState`` (in ``state.ts``, outside this module's
+ *     ownership) and the queue has no readers outside this file +
+ *     ``tcp-connect.ts``.
+ *   - ``_hadConnectedBefore`` is the gate: during initial startup
+ *     (before the first successful TCP connect) the queue is bypassed
+ *     so the user still sees the "Python backend is not connected"
+ *     error for premature clicks. After the first connect, transient
+ *     disconnects queue idempotent commands so the user's click is
+ *     not lost.
+ */
+interface PendingOutboundEntry {
+	msg: Record<string, unknown>;
+	resolve: (value: unknown) => void;
+	reject: (reason: unknown) => void;
+	ts: number;
+}
+
+const _IDEMPOTENT_COMMANDS: ReadonlySet<string> = new Set<string>([
+	"get_config",
+	"get_status",
+	"heartbeat",
+	"set_config",
+]);
+
+const _MAX_PENDING_OUTBOUND = 16;
+
+const _pendingOutbound: PendingOutboundEntry[] = [];
+
+/**
+ * Drain the outbound replay queue in FIFO order, re-sending each
+ * entry via ``sendToPython`` (which now has a non-null
+ * ``state.tcpSocket``). The new promise's resolution is forwarded
+ * to the original caller's ``resolve`` / ``reject`` so the queued
+ * call behaves exactly as if it had been sent immediately.
+ *
+ * Called from ``tcp-connect.ts`` immediately after
+ * ``state.tcpSocket = client`` is set on a successful reconnect.
+ * Safe to call when the queue is empty (no-op).
+ *
+ * If a re-sent entry is rejected (e.g. allowlist drift, rate limit,
+ * MAX_PENDING_REQUESTS cap), the original caller's ``reject`` is
+ * invoked with the same error — the queue does not swallow failures.
+ */
+export function _flushPendingOutbound(): void {
+	if (_pendingOutbound.length === 0) {
+		return;
+	}
+	// Drain into a local first so re-entrant sendToPython calls
+	// (which themselves might queue if the socket drops again
+	// mid-flush) append to a fresh queue rather than mutating the
+	// array we're iterating.
+	const drained = _pendingOutbound.splice(0, _pendingOutbound.length);
+	for (const entry of drained) {
+		// Forward the new promise's result to the original caller.
+		// Use .then(fulfill, reject) so the original resolve/reject
+		// is invoked exactly once.
+		sendToPython(entry.msg, null).then(entry.resolve, entry.reject);
+	}
+}
+
+/**
+ * Reject every queued entry with the given reason. Called from
+ * ``tcp-connect.ts``'s close handler when ``state._relaunching`` is
+ * true (the process is about to exit — queued calls would never be
+ * flushed) and from tests for isolation.
+ *
+ * Exported with the ``_`` prefix matching the existing
+ * ``_resetIpcBackpressure`` convention so production callers in
+ * ``stop-python.ts`` / ``relaunch-app.ts`` can opt to clear the
+ * queue on teardown. The current close-handler call site covers the
+ * relaunch case; an explicit ``stopPython`` call would clear the
+ * queue via the close handler as well (stopPython triggers a socket
+ * close).
+ */
+export function _resetPendingOutbound(reason: string): void {
+	while (_pendingOutbound.length > 0) {
+		const entry = _pendingOutbound.shift();
+		if (!entry) break;
+		entry.reject(new Error(reason));
+	}
+}
+
+/**
+ * Test-only accessor for the queue length. Underscore-prefixed to
+ * signal "internal/test-only" — mirrors the existing
+ * ``_LONG_RUNNING_COMMANDS_FOR_TEST`` convention.
+ */
+export const _pendingOutboundLengthForTest = (): number =>
+	_pendingOutbound.length;
+
+/**
  * Per-renderer sliding-window rate limiter. Keyed by the
  * Electron `WebContents.id` so each renderer window gets its own
  * budget. A renderer that fires `python-call` faster than
@@ -174,6 +292,41 @@ export function sendToPython(
 ): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		if (!state.tcpSocket) {
+			// Transient-disconnect replay queue: if we've connected
+			// before AND the command is idempotent AND the queue has
+			// room, capture the request for flush-on-reconnect instead
+			// of rejecting it. This eliminates the "flaky button" feel
+			// where a brief TCP blip (sleep/resume, Wi-Fi flap, GC
+			// pause on the Python side) causes a user click to fail
+			// even though the reconnect happens milliseconds later.
+			//
+			// ``_hadConnectedBefore`` gates this so the initial-startup
+			// UX is preserved: before the first successful TCP connect,
+			// the user sees the "Python backend is not connected" error
+			// for premature clicks (the dashboard is already showing a
+			// "Connecting..." indicator).
+			//
+			// Non-idempotent commands (toggle_dictation, undo_last,
+			// history mutations, etc.) are NEVER queued — the Python
+			// side may have already processed the original write before
+			// the socket dropped, so replaying would double-execute
+			// (start/stop a second recording, undo twice, etc.).
+			// Reject immediately so the caller sees a clear error and
+			// can decide to retry manually.
+			const cmd0 = String(msg?.type ?? "").trim();
+			if (
+				state._hadConnectedBefore === true &&
+				_IDEMPOTENT_COMMANDS.has(cmd0) &&
+				_pendingOutbound.length < _MAX_PENDING_OUTBOUND
+			) {
+				_pendingOutbound.push({
+					msg,
+					resolve,
+					reject,
+					ts: Date.now(),
+				});
+				return;
+			}
 			reject(new Error("Python backend is not connected"));
 			return;
 		}
