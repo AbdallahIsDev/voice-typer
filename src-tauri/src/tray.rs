@@ -222,7 +222,14 @@ fn is_focus_main_window_event(event: &TrayIconEvent) -> bool {
 /// Create the tray icon, attach the initial empty menu, set tooltip +
 /// icon, and wire menu-click + left-click handlers. Also subscribes to
 /// the `tray_menu` event to rebuild the menu on demand.
-pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
+///
+/// Visibility: `pub(crate)` — the only caller is `main.rs` at app
+/// startup. Demoted from `pub` (which would expose the symbol on the
+/// crate's public surface) because no external crate links against
+/// `voice-typer` (it's a binary crate, not a library), and a tighter
+/// visibility surfaces unintended cross-module couplings at compile
+/// time rather than letting them slip through as silent API growth.
+pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let icon = app.default_window_icon().cloned();
     let menu = empty_menu(app)?;
 

@@ -722,8 +722,12 @@ fn try_match_flag_or_bare_key(rest: &str, input: &str, pos: usize) -> Option<(us
     // No `\b` required before `--` (Python's _FLAG_VALUE_PATTERN has none).
     if let Some(after_dashes) = rest.strip_prefix("--") {
         for &kw in SECRET_KEYWORDS {
+            // Compare bytes (not str slices) to avoid UTF-8 panic when
+            // ``kw.len()`` lands inside a multi-byte char in ``after_dashes``.
+            // The redaction engine runs inside the panic hook, so a
+            // str-slice panic here would be self-reinforcing.
             if after_dashes.len() >= kw.len()
-                && after_dashes[..kw.len()].eq_ignore_ascii_case(kw)
+                && after_dashes.as_bytes()[..kw.len()].eq_ignore_ascii_case(kw.as_bytes())
             {
                 let after_kw = &after_dashes[kw.len()..];
                 // Delimiter: `=` (equals form) or one-or-more whitespace
@@ -765,8 +769,13 @@ fn try_match_flag_or_bare_key(rest: &str, input: &str, pos: usize) -> Option<(us
         return None;
     }
     for &kw in SECRET_KEYWORDS {
+        // Compare bytes (not str slices) to avoid UTF-8 panic when
+        // ``kw.len()`` lands inside a multi-byte char in ``rest``.
+        // The redaction engine runs inside the panic hook, so a
+        // str-slice panic here would be self-reinforcing
+        // (panic → log::error! → redact_pii → panic → abort).
         if rest.len() >= kw.len() + 1
-            && rest[..kw.len()].eq_ignore_ascii_case(kw)
+            && rest.as_bytes()[..kw.len()].eq_ignore_ascii_case(kw.as_bytes())
             && rest.as_bytes()[kw.len()] == b'='
         {
             let value_rest = &rest[kw.len() + 1..];

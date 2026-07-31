@@ -131,7 +131,14 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
 }
 
 /// One-time, idempotent, SAFE migration from Electron userData to Tauri config_dir.
-pub fn migrate_electron_userdata(_app: &tauri::AppHandle) {
+///
+/// Visibility: `pub(crate)` — the only caller is `main.rs` at app
+/// startup. Demoted from `pub` (which would expose the symbol on the
+/// crate's public surface) because no external crate links against
+/// `voice-typer` (it's a binary crate, not a library), and a tighter
+/// visibility surfaces unintended cross-module couplings at compile
+/// time rather than letting them slip through as silent API growth.
+pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
     // GT-E3-4: `app` was only used to call `platform::paths::config_dir(app)`;
     // now that `config_dir()` takes no args, the param is unused. Kept in
     // the signature for forward-compat (a future migration might need
@@ -554,12 +561,25 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
 // best-effort cleaned up so we don't leak `.history.db.tmp.migrate`
 // files in the user's config dir.
 
-// Re-export for backward compat: `sidecar/supervisor.rs` still imports
-// `atomic_write_bytes` from `crate::migrate`. The implementation has
-// been moved to `crate::util` (it's a generic fs-write helper with no
-// migration-specific logic). Once `supervisor.rs` is updated to import
-// from `crate::util` directly, this re-export can be removed.
-pub(crate) use crate::util::atomic_write_bytes;
+// The stale `pub(crate) use crate::util::atomic_write_bytes;` re-export
+// that previously lived here has been removed. `sidecar/supervisor.rs`
+// now imports `atomic_write_bytes` directly from `crate::util` (see
+// `use crate::util::{... atomic_write_bytes ...}` at the top of
+// `supervisor.rs`), so the re-export was dead — it existed only for
+// backward compat with a caller that had already been migrated.
+//
+// The two `atomic_copy*` helpers below call `atomic_write_bytes` via
+// the bare unqualified name resolved through the private module-local
+// `use crate::util::atomic_write_bytes;` import added just below
+// (NOT a re-export — nothing outside `migrate.rs` can reach
+// `atomic_write_bytes` through `crate::migrate::atomic_write_bytes`
+// any more).
+
+// Local convenience import so the `atomic_copy` / `atomic_copy_file`
+// helpers below can call `atomic_write_bytes(dst, &bytes)` without
+// qualifying it as `crate::util::atomic_write_bytes(...)` at every
+// call site.
+use crate::util::atomic_write_bytes;
 
 /// M-65: atomically copy `src` to `dst` by reading src into memory
 /// then writing via `atomic_write_bytes`. Suitable for small-to-
@@ -1197,6 +1217,33 @@ mod tests {
         assert!(
             !bogus_dir.join(".migrated-from-electron").exists(),
             "no sentinel must be left behind"
+        );
+    }
+
+    /// Verify the private ``use crate::util::atomic_write_bytes;``
+    /// import resolves correctly inside this module by exercising
+    /// ``atomic_copy`` (which calls ``atomic_write_bytes`` via that
+    /// import). The stale ``pub(crate) use`` re-export was deleted;
+    /// this test guards against an accidental future regression where
+    /// someone removes the local ``use`` import without re-adding the
+    /// qualification at every call site (which would silently break
+    /// the migration's atomic copy path).
+    #[test]
+    fn atomic_copy_uses_local_atomic_write_bytes_import() {
+        let _scratch = ScratchDir::new("atomic-copy-import");
+        let root = _scratch.path().to_path_buf();
+        let src = root.join("src.bin");
+        let dst = root.join("dst.bin");
+        std::fs::write(&src, b"hello-migrate").unwrap();
+
+        atomic_copy(&src, &dst).expect("atomic_copy must succeed");
+
+        let written = std::fs::read(&dst).expect("dst must exist after copy");
+        assert_eq!(written, b"hello-migrate");
+        assert_eq!(
+            std::fs::read(&src).expect("src must be unchanged"),
+            b"hello-migrate",
+            "atomic_copy must NOT mutate the source file"
         );
     }
 }

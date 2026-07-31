@@ -38,7 +38,16 @@
 /// `voice-typer` (see `platform::paths::config_dir`) for directory
 /// names. The brand name happens to be a valid directory name on most
 /// filesystems, but the canonical on-disk identifier is the slug.
-pub const APP_NAME: &str = "Voice Typer";
+///
+/// Visibility: `pub(crate)` — every caller lives inside this crate
+/// (`tray.rs::TRAY_TOOLTIP`, `tray.rs::empty_menu`'s placeholder
+/// label, `sidecar/supervisor.rs`'s restart prompt). Demoted from
+/// `pub` (which would expose the constant on the crate's public
+/// surface) because no external crate links against `voice-typer`
+/// (it's a binary crate, not a library), and a tighter visibility
+/// surfaces unintended cross-module couplings at compile time rather
+/// than letting them slip through as silent API growth.
+pub(crate) const APP_NAME: &str = "Voice Typer";
 
 #[cfg(test)]
 mod tests {

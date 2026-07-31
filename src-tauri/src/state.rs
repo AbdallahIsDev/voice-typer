@@ -155,30 +155,26 @@ impl SidecarHandle {
     /// syscall) in `spawn_blocking` so we don't stall a Tokio worker
     /// thread for the duration of the kill-walk. `taskkill /T` on a
     /// large tree or `pgrep` under load can take >1s.
+    ///
+    /// The deprecated `state::kill_process_tree` shim that used to
+    /// forward to `crate::platform::process::kill_process_tree` has
+    /// been removed; this method (and the four `spawn.rs` cleanup
+    /// callers) now invoke the platform module path directly. The
+    /// implementation (platform shell-out + recursive `pgrep -P` /
+    /// `taskkill /T` walk) lives in `crate::platform::process`
+    /// alongside the related `register_kill_on_parent_exit` helper.
     pub(crate) async fn kill_tree(self) -> std::io::Result<()> {
         if let Some(pid) = self.pid() {
             // PVT-047: spawn_blocking so the blocking
             // `std::process::Command::status()` calls inside
             // `kill_process_tree` don't stall a Tokio worker thread.
             let _ = tauri::async_runtime::spawn_blocking(move || {
-                kill_process_tree(pid);
+                crate::platform::process::kill_process_tree(pid);
             })
             .await;
         }
         self.kill().await
     }
-}
-
-/// Deprecated: use `crate::platform::process::kill_process_tree` directly.
-///
-/// Kept as a thin wrapper because external callers (e.g. `sidecar/spawn.rs`'s
-/// spawn-timeout cleanup paths) reference `crate::state::kill_process_tree`.
-/// New code should call the platform module path directly. The actual
-/// implementation (platform shell-out + recursive `pgrep -P` / `taskkill /T`
-/// walk) lives in `crate::platform::process::kill_process_tree` alongside the
-/// related `register_kill_on_parent_exit` helper.
-pub(crate) fn kill_process_tree(pid: u32) {
-    crate::platform::process::kill_process_tree(pid)
 }
 
 pub(crate) struct SidecarState {

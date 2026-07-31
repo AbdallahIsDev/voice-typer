@@ -353,7 +353,7 @@ pub(crate) async fn spawn_sidecar_release(
                         // `state.rs:148`.
                         let pid = child.pid();
                         let _ = tauri::async_runtime::spawn_blocking(
-                            move || crate::state::kill_process_tree(pid),
+                            move || crate::platform::process::kill_process_tree(pid),
                         )
                         .await;
                         if let Err(kill_err) = child.kill() {
@@ -385,7 +385,7 @@ pub(crate) async fn spawn_sidecar_release(
                         // comment in the Terminated arm above.
                         let pid = child.pid();
                         let _ = tauri::async_runtime::spawn_blocking(
-                            move || crate::state::kill_process_tree(pid),
+                            move || crate::platform::process::kill_process_tree(pid),
                         )
                         .await;
                         if let Err(kill_err) = child.kill() {
@@ -434,7 +434,7 @@ pub(crate) async fn spawn_sidecar_release(
     // 200ms `std::thread::sleep` inside `kill_process_tree` must not
     // stall a Tokio worker thread.
     let _ = tauri::async_runtime::spawn_blocking(move || {
-        crate::state::kill_process_tree(pid)
+        crate::platform::process::kill_process_tree(pid)
     })
     .await;
     // G4-M-61: log the kill error for visibility (mirrors the dev-mode
@@ -621,7 +621,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         // release-path Terminated arm above. Mirrors the
         // `SidecarHandle::kill_tree` pattern in `state.rs:148`.
         let _ = tauri::async_runtime::spawn_blocking(move || {
-            crate::state::kill_process_tree(pid)
+            crate::platform::process::kill_process_tree(pid)
         })
         .await;
     }
