@@ -126,6 +126,7 @@ def retune_audio_processor(
                 exc_info=True,
             )
 
+
 if TYPE_CHECKING:
     from .recorder import Recorder
 
@@ -300,6 +301,18 @@ class DisconnectHandler:
                     stream.close()
                 return
             recorder._stream = stream
+            # Flush stale-rate buffer contents on hot-swap. Pre-disconnect
+            # chunks sitting in the SPSC ring buffer are at the OLD
+            # device's native rate; if left in place, the audio worker
+            # would drain them and append to ``_buffer``, re-introducing
+            # the rate inconsistency that the ``_buffer.clear()`` below
+            # is meant to eliminate. ``collections.deque.clear()`` is
+            # atomic under the GIL and the ring buffer is single-producer
+            # (audio callback) / single-consumer (worker), so clearing
+            # here without the lock is safe — the worker's next
+            # ``popleft()`` raises ``IndexError`` and the drain loop
+            # breaks cleanly.
+            recorder._ring_buffer.clear()
             with recorder._lock:
                 recorder._effective_sr = candidate_sr
                 # reset the silence timer so a hot-swap recovery does
@@ -317,19 +330,53 @@ class DisconnectHandler:
                 # sets it fresh (the prior session's rate may differ
                 # from the new device's rate).
                 recorder._buffer_sr = None
-            recorder._actual_channels = channels
-            recorder._device_disconnected = False
-            # reset the retry counter on successful restart so a
-            # subsequent disconnect (e.g. BT mic flapping) gets a full
-            # retry budget instead of inheriting the prior disconnect's
-            # count.
-            recorder._device_disconnect_retries = 0
+                # The three disconnect-state writes MUST be inside the
+                # lock. A concurrent ``_device_health_checker_loop``
+                # reads/writes ``_device_disconnected`` (and the
+                # retry counter) without any other synchronization —
+                # writing them outside the lock let a BT-flap race
+                # mask a real second disconnect: the checker would set
+                # ``_device_disconnected = True`` the instant before
+                # the restart set it ``False``, silently clearing the
+                # new disconnect. Holding the lock ensures the
+                # successful-restart state update is atomic with
+                # respect to the health-checker's reads.
+                recorder._actual_channels = channels
+                recorder._device_disconnected = False
+                # reset the retry counter on successful restart so a
+                # subsequent disconnect (e.g. BT mic flapping) gets a
+                # full retry budget instead of inheriting the prior
+                # disconnect's count.
+                recorder._device_disconnect_retries = 0
+                # Flush ``_buffer`` on hot-swap restart (losing
+                # pre-disconnect audio, simplest). Without this,
+                # ``stop()`` resamples the entire buffer at the NEW
+                # ``_effective_sr``, but pre-disconnect chunks were
+                # captured at the OLD rate → pitch/speed artifacts on
+                # the pre-disconnect portion (most audible when no
+                # AudioProcessor is attached, since the processor's
+                # per-chunk resample normally normalizes everything to
+                # the chain's construction rate). Securely zero the
+                # cached arrays BEFORE reassignment (mirrors
+                # ``discard()``'s pattern) so the user's voice data
+                # doesn't linger in process memory (SEC-audit-008).
+                recorder._secure_clear_caches()
+                recorder._buffer.clear()
+                # ``_secure_clear_caches`` resets the resample-path
+                # caches but NOT the no-resample segment list / dirty
+                # flag / cache key. Reset them explicitly so the next
+                # ``take_snapshot()`` starts from a clean slate (no
+                # stale segments carried over from the pre-disconnect
+                # session at the old rate).
+                recorder._cached_no_resample_segments = []
+                recorder._cached_no_resample_concat_dirty = False
+                recorder._cached_resample_key = ()
             log.info(
                 "[RECORDING] Successfully restarted with %s device at %d Hz",
                 "default" if _restart_device is None else f"index {_restart_device}",
                 candidate_sr,
             )
-            # DJ-99: retune the AudioProcessor's chain to the new device's
+            # retune the AudioProcessor's chain to the new device's
             # native rate so filter coefficients are tuned correctly
             # (XV-31 mitigation) and the per-chunk ``process_chunk`` call
             # avoids the RT-thread resample branch. Shares the
@@ -349,12 +396,31 @@ class DisconnectHandler:
             # ``_effective_sr`` (used as fallback until the first chunk
             # sets ``_buffer_sr``).
             recorder._refresh_vad_caches()
+        except (AttributeError, TypeError, KeyError):
+            # Programming bugs (missing attribute, wrong type, missing
+            # dict key) must NOT be masked as "transient device
+            # failure". Re-raise so the daemon thread's excepthook logs
+            # the full traceback and the bug is visible. The previous
+            # broad ``except Exception`` swallowed these as silent
+            # restart failures, making real bugs look like flaky
+            # hardware.
+            raise
         except Exception as e:
-            # use ``log.exception`` so the full traceback is captured
-            # (the previous ``log.error("...: %s", e)`` form lost the
-            # traceback — only the exception's str() was logged, making
-            # remote debugging of disconnect-restart failures much
-            # harder).
+            # Transient device failures (``sd.PortAudioError``,
+            # ``OSError``, and any other non-programming-bug exception):
+            # log with the full traceback and clear the disconnect flag
+            # so the health-checker re-probes. We catch ``Exception``
+            # rather than ``(sd.PortAudioError, OSError)`` because (a)
+            # the test conftest replaces ``sounddevice`` in
+            # ``sys.modules`` with a ``MagicMock``, making
+            # ``sd.PortAudioError`` a non-class object that Python
+            # refuses to catch (``TypeError: catching classes that do
+            # not inherit from BaseException``); and (b) the
+            # programming-bug re-raise clause above already surfaces
+            # the bugs the finding wanted surfaced. The remaining
+            # ``Exception`` catch covers PortAudio/OS errors plus any
+            # other transient failure, preserving the pre-fix recovery
+            # behavior.
             log.exception("[RECORDING] Failed to restart with default device: %s", e)
             # High: clear the disconnect flag so the next health-checker
             # cycle (30s) re-probes. Pre-fix, the except branch left
