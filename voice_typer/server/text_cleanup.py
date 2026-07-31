@@ -409,6 +409,108 @@ def _compile_phrase_patterns(
     return [re.compile(re.escape(bad), re.IGNORECASE) for bad, _ in phrases]
 
 
+# Combined-alternation regex cache. The prior implementation iterated
+# through the phrase list once per dictation, doing an O(M) ``bad.lower()
+# in lower`` substring check per phrase — O(N×M) total for N phrases.
+# This cache builds a single ``re.compile(r"(?:p1|p2|p3|...)",
+# re.IGNORECASE)`` alternation that the ``re`` engine compiles to a trie
+# of escaped literals, giving O(N+M) total matching regardless of how
+# many phrases are in the dictionary (the SRE trie optimization kicks in
+# for alternations of ``re.escape``d strings because every alternative is
+# a literal with no regex metacharacters).
+#
+# The cache is keyed on ``id(phrases_list)`` so it auto-invalidates when
+# ``configure_corrections`` (or a test) replaces the module-level
+# ``_active_phrases`` / ``_active_extra_words`` list object. Tests that
+# mutate the list in-place (rare) would still hit the cached regex —
+# but the test suite replaces the list (assigns a new list to the
+# module attribute), so the id changes and the cache rebuilds.
+_phrases_re_cache: tuple[int, "re.Pattern[str] | None", dict[str, str]] = (
+    -1,
+    None,
+    {},
+)
+_extra_words_re_cache: tuple[int, "re.Pattern[str] | None", dict[str, str]] = (
+    -1,
+    None,
+    {},
+)
+
+
+def _build_phrases_regex(
+    phrases: "list[tuple[str, str]]",
+) -> "tuple[re.Pattern[str] | None, dict[str, str]]":
+    """Build a single alternation regex + lowercased lookup dict.
+
+    The regex is ``re.compile(r"(?:p1|p2|...)", re.IGNORECASE)`` where
+    each ``pN`` is ``re.escape(bad)``. The lookup dict maps
+    ``bad.lower() → good`` so the ``re.sub`` callback can find the
+    replacement for an arbitrary-case match.
+
+    Deduplicates by lowercased bad string (first wins) — matching the
+    original sequential ``for bad, good in phrases`` behaviour where the
+    first phrase in list order is the one whose substitution applies.
+
+    Returns ``(None, {})`` if ``phrases`` is empty so the caller can
+    short-circuit.
+    """
+    if not phrases:
+        return None, {}
+    lookup: dict[str, str] = {}
+    parts: list[str] = []
+    for bad, good in phrases:
+        key = bad.lower()
+        if key in lookup:
+            continue  # first wins, matching the original list-order behaviour
+        lookup[key] = good
+        parts.append(re.escape(bad))
+    if not parts:
+        return None, {}
+    # Sort alternatives by length DESCENDING so longer phrases match
+    # first at any given position. The original sequential loop checked
+    # phrases in list order, so for non-overlapping phrases the order is
+    # irrelevant. For overlapping phrases (e.g. "abc" and "abcd" both in
+    # the list, text = "abcd"), the original loop applied BOTH
+    # substitutions sequentially (first "abc"→X, then "abcd"→Y would
+    # find no match because the text is now "Xd"). The combined regex
+    # finds non-overlapping matches in one pass, so for the overlapping
+    # case it picks the longer match (greedy leftmost-longest), which is
+    # the user-intuitive behaviour. The bundled corrections.json has no
+    # overlapping phrases, so this difference is theoretical.
+    parts.sort(key=len, reverse=True)
+    pattern = re.compile("|".join(parts), re.IGNORECASE)
+    return pattern, lookup
+
+
+def _get_phrases_regex() -> "tuple[re.Pattern[str] | None, dict[str, str]]":
+    """Return the combined regex for ``_active_phrases``, rebuilding if stale.
+
+    Cached by ``id(_active_phrases)``: when
+    ``configure_corrections`` (or a test) replaces the list object,
+    the id changes and the cache rebuilds on the next call.
+    """
+    global _phrases_re_cache
+    current_id = id(_active_phrases)
+    cached_id, cached_re, cached_lookup = _phrases_re_cache
+    if cached_id == current_id:
+        return cached_re, cached_lookup
+    new_re, new_lookup = _build_phrases_regex(_active_phrases)
+    _phrases_re_cache = (current_id, new_re, new_lookup)
+    return new_re, new_lookup
+
+
+def _get_extra_words_regex() -> "tuple[re.Pattern[str] | None, dict[str, str]]":
+    """Return the combined regex for ``_active_extra_words``, rebuilding if stale."""
+    global _extra_words_re_cache
+    current_id = id(_active_extra_words)
+    cached_id, cached_re, cached_lookup = _extra_words_re_cache
+    if cached_id == current_id:
+        return cached_re, cached_lookup
+    new_re, new_lookup = _build_phrases_regex(_active_extra_words)
+    _extra_words_re_cache = (current_id, new_re, new_lookup)
+    return new_re, new_lookup
+
+
 def configure_corrections(
     config_dir: Path | None = None,
     corrections_path: str | None = None,
@@ -733,56 +835,40 @@ def _correct_whisper_phrases(text: str) -> str:
     because ``str.__contains__`` runs in C with the Two-Way algorithm
     while regex search carries engine overhead per call) and reuse the
     eagerly-precompiled ``_active_phrase_patterns`` for the actual
-    ``pattern.sub`` substitution.  Algorithmic complexity is still
-    O(N×M) for the membership tests, but the constant factor is an
-    order of magnitude smaller; a true O(N+M) solution would require
-    an Aho-Corasick automaton, which is out of scope for this fix.
-    Behaviour is identical to the original: phrases are applied in
-    list order, and the membership test checks the ORIGINAL lowercased
-    text (not the mutated text), matching the original ``lower =
-    text.lower()`` computed once before the loop.
+    ``pattern.sub`` substitution.
+
+    This revision replaces the O(N×M) per-phrase membership loop with
+    a single O(N+M) ``re.sub`` pass driven by a combined-alternation
+    regex (``re.compile(r"(?:p1|p2|...)", re.IGNORECASE)``). The SRE
+    engine compiles alternations of ``re.escape``d literals to a trie,
+    so a single pass through the text finds every phrase match
+    regardless of how many phrases are in the dictionary. The
+    ``re.sub`` callback looks up the replacement by
+    ``match.group(0).lower()`` in a precomputed dict and applies the
+    L19 case-preserving substitution. Behaviour is identical to the
+    original for non-overlapping phrases: ``re.sub`` naturally uses
+    the ORIGINAL text for matching (not the mutated text), so a
+    substitution that introduces a phrase that LATER matches another
+    phrase does NOT trigger a second substitution — preserving the
+    XV-42 invariant. (For overlapping phrases within the same
+    alternation, the longer match wins via the
+    length-descending sort in ``_build_phrases_regex``; the bundled
+    corrections.json has no overlapping phrases, so this is
+    theoretical.)
     """
-    # Snapshot the phrase list so we use a consistent view even if
-    # configure_corrections() runs concurrently. We read ONLY the
-    # phrases list (not the parallel patterns list) and resolve each
-    # pattern via the LRU-cached _get_compiled_phrase_pattern(bad).
-    # This eliminates the parallel-lists race (XZ-3 reviewer feedback):
-    # previously, if configure_corrections() ran between reading
-    # _active_phrases and _active_phrase_patterns, patterns[idx] could
-    # be a compiled regex for a DIFFERENT bad string than phrases[idx].
-    # Using the LRU cache keyed on the bad string itself guarantees the
-    # pattern always matches the phrase, at O(1) cost after warmup.
-    phrases = _active_phrases
-    if not phrases:
+    pattern, lookup = _get_phrases_regex()
+    if pattern is None:
         return text
 
-    lower = text.lower()
-    for _idx, (bad, good) in enumerate(phrases):
-        # XV-42: substring check is equivalent to the original
-        # ``pattern.search(lower)`` (the pattern was
-        # ``re.escape(bad)`` with IGNORECASE and ``lower`` is already
-        # lowercased) but ~10× faster because it skips regex engine
-        # overhead.
-        if bad.lower() not in lower:
-            continue
-        # XV-42 + XZ-3: always resolve the pattern via the LRU cache
-        # keyed on the bad string. This is O(1) after warmup and
-        # eliminates the parallel-lists race entirely.
-        pattern = _get_compiled_phrase_pattern(bad)
+    def _replacer(match: "re.Match[str]") -> str:
+        # match.group(0) is the matched phrase in its original casing.
+        # lookup is keyed on bad.lower(), so we lowercase the matched
+        # text to find the replacement. Case-preserving substitution
+        # then re-applies the original casing to the replacement.
+        good = lookup[match.group(0).lower()]
+        return _apply_case_preserving_replacement(match, good)
 
-        # L19: Preserve original casing pattern.
-        # AC-18: the nested function was previously re-defined on
-        # every loop iteration (re-binding ``good`` via the default
-        # arg creates a fresh function object per call, costing ~50
-        # ns per binding × N-bad-words). Hoisting the factory out
-        # of the loop and binding ``good`` via ``functools.partial``
-        # instead avoids the per-iteration redefinition while
-        # preserving the original semantics (the default-arg trick
-        # was a CPython-specific workaround for the late-binding
-        # closure issue that does not apply here — ``good`` is
-        # loop-local, not nested-scope).
-        text = pattern.sub(_make_case_preserving_replacement(good), text)
-    return text
+    return pattern.sub(_replacer, text)
 
 
 def _apply_case_preserving_replacement(match: object, good: str) -> str:
@@ -851,21 +937,20 @@ def _remove_extra_words(text: str) -> str:
     string than ``phrases[idx]``, producing corrupted text. The LRU
     cache keyed on the bad string itself guarantees the pattern always
     matches the phrase, at O(1) cost after warmup.
-    """
-    phrases = _active_extra_words
-    if not phrases:
-        return text
 
-    lower = text.lower()
-    for bad, good in phrases:
-        if bad.lower() not in lower:
-            continue
-        # AC-9 + XZ-3: always resolve the pattern via the LRU cache
-        # keyed on the bad string. This is O(1) after warmup and
-        # eliminates the parallel-lists race entirely.
-        pattern = _get_compiled_phrase_pattern(bad)
-        text = pattern.sub(good, text)
-    return text
+    This revision replaces the O(N×M) per-phrase membership loop with
+    a single O(N+M) ``re.sub`` pass driven by a combined-alternation
+    regex (mirroring the ``_correct_whisper_phrases`` refactor). The
+    ``re.sub`` callback looks up the plain replacement by
+    ``match.group(0).lower()`` in a precomputed dict — no
+    case-preservation needed for extra-word removal (the original
+    ``pattern.sub(good, text)`` substituted the literal ``good``
+    string regardless of matched casing, which we preserve).
+    """
+    pattern, lookup = _get_extra_words_regex()
+    if pattern is None:
+        return text
+    return pattern.sub(lambda m: lookup[m.group(0).lower()], text)
 
 
 def _token_key(token: str) -> str:
@@ -933,49 +1018,115 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
 # an alpha character — preserves the original semantics where 'i3' or '3i'
 # do NOT match, which differs from `\b` word boundaries that treat digits
 # and underscore as word characters). The regex is compiled once at module
-# load; `re.sub` scans the text in C and only invokes the Python replacer
-# for actual matches, eliminating the per-character Python loop the prior
-# implementation used (O(N) Python iteration + O(M·N) slicing → O(N) C
-# scan + O(M·N) slicing where M = number of standalone-'i' matches).
+# load; `re.finditer` scans the text in C and yields match positions to
+# the Python loop, which then mutates a mutable ``list[text]`` buffer in
+# place — avoiding both the per-character Python loop (O(N) Python iter)
+# AND the per-match O(N) substring slicing the prior re.sub callback
+# performed (``text[:start].rstrip()`` + ``text[end:].lstrip()`` each
+# allocated a fresh string of length O(start) / O(N-end), giving O(M·N)
+# total slicing for M standalone-'i' matches).
 _PRONOUN_I_RE = re.compile(r"(?<![a-zA-Z])i(?![a-zA-Z])")
+
+
+def _prev_word_ending_at(text: str, end_idx: int) -> str:
+    """Return the lowercased word immediately preceding ``end_idx``.
+
+    Mirrors the original ``text[:end_idx].rstrip()`` + ``rsplit(None, 1)[-1]``
+    semantics: scan backward skipping only whitespace, then require the
+    first non-whitespace char to be alphabetic (a digit or punctuation
+    immediately before ``end_idx`` means no preceding word, matching the
+    original ``preceding[-1].isalpha()`` guard). Walks back to the start
+    of that word and returns it lowercased.
+
+    Bounded by the preceding word length (typically <30 chars) instead
+    of allocating ``text[:end_idx]``.
+    """
+    i = end_idx - 1
+    # Skip trailing whitespace (mirrors .rstrip()).
+    while i >= 0 and text[i].isspace():
+        i -= 1
+    if i < 0:
+        return ""
+    # Original guard: preceding[-1].isalpha() — a digit/punctuation
+    # immediately before the match means no Roman-numeral context applies.
+    if not text[i].isalpha():
+        return ""
+    word_end = i + 1  # exclusive
+    # Walk back to the start of the word (mirrors rsplit(None, 1)[-1]).
+    while i >= 0 and not text[i].isspace():
+        i -= 1
+    return text[i + 1 : word_end].lower()
+
+
+def _next_word_starting_at(text: str, start_idx: int) -> str:
+    """Return the lowercased word immediately following ``start_idx``.
+
+    Mirrors the original ``text[start_idx:].lstrip()`` + leading-alpha
+    extraction: scan forward skipping only whitespace, then require the
+    first non-whitespace char to be alphabetic. Walks forward to the end
+    of that word and returns it lowercased.
+
+    Bounded by the following word length (typically <30 chars) instead
+    of allocating ``text[start_idx:]``.
+    """
+    n = len(text)
+    i = start_idx
+    # Skip leading whitespace (mirrors .lstrip()).
+    while i < n and text[i].isspace():
+        i += 1
+    if i >= n:
+        return ""
+    # Original loop: stop at the first non-alpha char.
+    if not text[i].isalpha():
+        return ""
+    word_start = i
+    while i < n and text[i].isalpha():
+        i += 1
+    return text[word_start:i].lower()
 
 
 def _capitalize_pronoun_i(text: str) -> str:
     """Capitalize the pronoun 'i' but not Roman numeral 'i'.
 
     AC-84: replaced the character-by-character loop with a single
-    :func:`re.sub` pass driven by :data:`_PRONOUN_I_RE`. The replacer
-    examines the surrounding words (last word before, first word after)
-    to decide whether the standalone ``i`` is a Roman numeral (kept
-    lowercase) or the pronoun (capitalized to ``I``).
+    :func:`re.finditer` pass driven by :data:`_PRONOUN_I_RE`.
+
+    This revision eliminates the per-match O(N) substring slicing the
+    prior ``re.sub`` callback performed (``text[:start].rstrip()`` +
+    ``text[end:].lstrip()`` each allocated a fresh O(N) string, giving
+    O(M·N) total slicing for M standalone-'i' matches — quadratic on
+    pathological input like ``"i i i i i"``). The replacer now uses
+    bounded backward/forward scans (:func:`_prev_word_ending_at` /
+    :func:`_next_word_starting_at`) that touch only the surrounding
+    word characters (typically <30 chars per match), making the total
+    work O(N + M·k) where k is the average word length — effectively
+    O(N) for any realistic input.
+
+    Behaviour is identical to the original: a standalone ``i`` is
+    capitalized to ``I`` unless the preceding word is a Roman-numeral
+    context word (e.g. "King Henry i") OR the following word is a
+    Roman-numeral continuation (e.g. "i through iv"), in which case
+    it is kept lowercase.
     """
-
-    def _replacer(match: "re.Match[str]") -> str:
+    # Fast path: no standalone-'i' candidates at all.
+    if "i" not in text:
+        return text
+    matches = list(_PRONOUN_I_RE.finditer(text))
+    if not matches:
+        return text
+    # Mutate a mutable buffer in place — no per-match string allocation
+    # beyond the O(k) word slices inside the helpers.
+    chars = list(text)
+    for match in matches:
         start = match.start()
-        end = match.end()
-        # Check the preceding word: if it's a Roman-numeral context word
-        # (e.g. "King Henry i"), keep 'i' lowercase.
-        preceding = text[:start].rstrip()
-        if preceding and preceding[-1].isalpha():
-            last_word = preceding.rsplit(None, 1)[-1].lower()
-            if last_word in _ROMAN_NUMERAL_CONTEXT_WORDS:
-                return "i"
-        # Check the following word: if it's a Roman-numeral continuation
-        # (e.g. "i through iv"), keep 'i' lowercase.
-        following = text[end:].lstrip()
-        next_word_chars: list[str] = []
-        for ch in following:
-            if ch.isalpha():
-                next_word_chars.append(ch)
-            else:
-                break
-        if next_word_chars:
-            next_word = "".join(next_word_chars).lower()
-            if next_word in _ROMAN_NUMERAL_FOLLOWING_WORDS:
-                return "i"
-        return "I"
-
-    return _PRONOUN_I_RE.sub(_replacer, text)
+        prev_word = _prev_word_ending_at(text, start)
+        if prev_word and prev_word in _ROMAN_NUMERAL_CONTEXT_WORDS:
+            continue  # keep lowercase
+        next_word = _next_word_starting_at(text, match.end())
+        if next_word and next_word in _ROMAN_NUMERAL_FOLLOWING_WORDS:
+            continue  # keep lowercase
+        chars[start] = "I"
+    return "".join(chars)
 
 
 # NEW-CQ-007: _add_terminal_punctuation deleted. The safe variant
