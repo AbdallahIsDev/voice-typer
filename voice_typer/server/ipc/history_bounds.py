@@ -47,15 +47,22 @@ alone never tripped.  The cap matches the ``limit`` cap pattern.
 # config.json redaction path). The PATTERN-based denylist below is the
 # authoritative defense-in-depth: a new secret field that matches a
 # pattern is redacted EVEN IF no one remembers to add it here.
-_SECRET_CONFIG_FIELDS = frozenset(
-    {
-        "cloud_api_key",
-        "openai_api_key",
-        "groq_api_key",
-        "deepgram_api_key",
-        "llm_api_key",
-    }
-)
+#
+# This is now an ALIAS IMPORT from
+# :mod:`voice_typer.server.config_sanitizer` (the canonical home,
+# structurally derived from
+# ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()``). Previously
+# this was a SECOND divergent copy of the same 5-field frozenset — a
+# hand-maintained literal that could silently drift out of sync with
+# the canonical set if a contributor added a new provider to
+# ``PROVIDER_TO_CONFIG_FIELD`` without updating this literal. The
+# canonical set is the single source of truth; the alias here keeps
+# the existing ``from voice_typer.server.ipc.history_bounds import
+# _SECRET_CONFIG_FIELDS`` import path (used by ``crash_recovery.py``,
+# ``ipc_server.py``, ``ipc/__init__.py``, and the DE-33 regression
+# tests) working unchanged while guaranteeing the two names refer to
+# the SAME frozenset object.
+from voice_typer.server.config_sanitizer import _SECRET_CONFIG_FIELDS  # noqa: F401
 
 # DE-33: pattern-based secret-field denylist (defense-in-depth).
 #

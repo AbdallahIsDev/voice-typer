@@ -85,6 +85,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -401,6 +402,33 @@ _plaintext_config_cache: dict[str, tuple[int, dict]] = {}
 # get_keyring_status() returns a consistent snapshot without re-probing.
 _keyring_reason_cache: str | None = None
 
+# Monotonic time (seconds) of the most recent keyring probe.
+# ``None`` means "never probed". Used by :func:`is_keyring_available`
+# to decide whether a stale "unavailable" cache should be re-probed
+# (a backend that appears mid-session — e.g. the user starts
+# ``gnome-keyring-daemon`` while the app is running — should be
+# picked up without requiring an app restart).
+_keyring_last_probe_time: float | None = None
+
+# Minimum seconds between two on-demand re-probes when the cache says
+# "unavailable". The interval bounds the cost of re-probing (each probe
+# touches D-Bus / Keychain / Credential Manager and may take up to
+# :data:`_KEYRING_TIMEOUT_SECONDS` on a hung backend). 300 s (5 min) is
+# short enough that a backend started mid-session is picked up within a
+# typical user interaction, and long enough that a tight ``load_secret``
+# loop (e.g. ``Config.load`` iterating 5 providers at startup) doesn't
+# re-probe 5 times in a row. ``store_secret`` and ``load_secret`` both
+# check :func:`is_keyring_available`, so each provider lookup benefits
+# from a fresh probe if the interval has elapsed.
+_KEYRING_REPROBE_INTERVAL_S: float = 300.0
+
+# Serializes re-probes so two concurrent ``load_secret`` calls (e.g.
+# multi-threaded IPC) don't each fire a probe. The lock is held only
+# for the probe itself; the cache read/write is brief. Distinct from
+# :data:`_plaintext_config_cache` (no shared state) and from
+# ``config.json.lock`` (different resource).
+_keyring_probe_lock = threading.Lock()
+
 
 def _probe_keyring() -> tuple[bool, str | None, str | None]:
     """Probe the keyring library and return ``(available, backend_name, reason)``.
@@ -423,6 +451,17 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
     exception text. The reason is surfaced to the renderer via
     :func:`get_keyring_status` and written to logs, so it must not
     contain anything the user wouldn't want in a tooltip.
+
+    Re-probe policy: :func:`is_keyring_available` caches the probe
+    result. A *positive* result (backend available) is cached for the
+    process lifetime — a working backend doesn't suddenly disappear.
+    A *negative* result (backend unavailable) is cached only for
+    :data:`_KEYRING_REPROBE_INTERVAL_S` seconds; the next call after
+    that interval re-invokes this function. This picks up a backend
+    that appears mid-session (e.g. ``gnome-keyring-daemon`` started
+    after the app, Keychain unlocked on macOS) without requiring an
+    app restart. The rate-limit prevents a tight ``load_secret`` loop
+    (5 providers at startup) from firing 5 probes back-to-back.
     """
     try:
         import keyring  # type: ignore[import-not-found]
@@ -466,12 +505,53 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
 def is_keyring_available() -> bool:
     """Return True if a usable keyring backend is installed.
 
-    The result is cached for the lifetime of the process (a backend
-    won't appear mid-run). Tests that need to force re-probing can
-    call :func:`_reset_keyring_cache`.
+    Caching policy (re-probe on demand):
+
+    - When the cache says **available** (True), the result is cached
+      for the lifetime of the process — a once-working backend doesn't
+      suddenly break (and if it does, the per-call
+      :func:`_run_keyring_call` timeout catches the failure and falls
+      through to the plaintext fallback on the read/write path).
+    - When the cache says **unavailable** (False), the result is
+      cached only until :data:`_KEYRING_REPROBE_INTERVAL_S` seconds
+      have elapsed since the last probe. After that interval, the
+      NEXT call to :func:`is_keyring_available` (typically from
+      :func:`store_secret` or :func:`load_secret`) re-probes. This
+      picks up a backend that appears mid-session (e.g. the user
+      starts ``gnome-keyring-daemon`` while the app is running, or
+      unlocks the Keychain on macOS) without requiring an app
+      restart. The re-probe is rate-limited so a tight
+      ``load_secret`` loop (5 providers at startup) doesn't fire 5
+      probes back-to-back; the first one repopulates the cache and
+      the next 4 use it.
+    - Tests that need to force re-probing can call
+      :func:`_reset_keyring_cache` (which also clears the probe
+      timestamp).
     """
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache
-    if _keyring_available_cache is None:
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
+    # Fast path: cache is populated AND either (a) the backend is
+    # available (cached for process lifetime) or (b) the unavailable
+    # result is still within the re-probe interval. Both branches
+    # skip the probe entirely.
+    if _keyring_available_cache is True:
+        return True
+    if _keyring_available_cache is False and _keyring_last_probe_time is not None:
+        elapsed = time.monotonic() - _keyring_last_probe_time
+        if elapsed < _KEYRING_REPROBE_INTERVAL_S:
+            return False
+    # Slow path: probe (or re-probe). Serialize so two concurrent
+    # ``load_secret`` calls don't each fire a probe.
+    with _keyring_probe_lock:
+        # Re-check under the lock — another thread may have probed
+        # while we were waiting for the lock.
+        if _keyring_available_cache is True:
+            return True
+        if (
+            _keyring_available_cache is False
+            and _keyring_last_probe_time is not None
+            and (time.monotonic() - _keyring_last_probe_time) < _KEYRING_REPROBE_INTERVAL_S
+        ):
+            return False
         available, backend_name, reason = _probe_keyring()
         _keyring_available_cache = available
         # Cache the backend name AND the reason so get_keyring_status()
@@ -480,15 +560,23 @@ def is_keyring_available() -> bool:
         # be slow or have side effects on some platforms).
         _keyring_backend_name_cache = backend_name
         _keyring_reason_cache = reason
+        _keyring_last_probe_time = time.monotonic()
     return _keyring_available_cache
 
 
 def _reset_keyring_cache() -> None:
-    """Test-only: clear the cached keyring availability result."""
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache
+    """Test-only: clear the cached keyring availability result.
+
+    Also clears the probe timestamp so the next
+    :func:`is_keyring_available` call re-probes unconditionally
+    (otherwise the re-probe interval gate would skip the probe even
+    after the cache is cleared).
+    """
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
     _keyring_available_cache = None
     _keyring_backend_name_cache = None
     _keyring_reason_cache = None
+    _keyring_last_probe_time = None
 
 
 def _clear_plaintext_config_cache() -> None:
