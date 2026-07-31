@@ -430,6 +430,46 @@ def _make_dispatch(server: IPCServer):
         # MagicMock test double it overrides the auto-vivified child.
         server._ws_dispatch_pool = ws_dispatch_pool  # type: ignore[attr-defined]
 
+    # DJ-9: explicit ``threading.Event`` coordination between the WS
+    # dispatch path and ``ShutdownController._do_cleanup``. The pool's
+    # ``shutdown(wait=True)`` only guarantees that the
+    # ``ThreadPoolExecutor``'s worker queue has drained — it does NOT
+    # guarantee that the per-dispatch coroutine body has finished its DB
+    # write (the Future resolves on ``server._dispatch`` return, but the
+    # WS ``dispatch`` coroutine may still be in its ``await
+    # loop.run_in_executor`` unwind / result-serialisation tail when the
+    # pool reports drained). That tail can race
+    # ``_teardown_history_db`` / ``_teardown_crash_recovery`` in
+    # ``_do_cleanup``, silently losing the user's final
+    # transcription_final DB write.
+    #
+    # ``_ws_drained_event`` is SET when no dispatch is in-flight (the
+    # initial state — no dispatch has started yet, so the drain is
+    # trivially complete). ``_ws_inflight_count`` is the number of
+    # dispatches currently between the entry point and the exit of the
+    # ``dispatch`` coroutine body. ``_ws_inflight_lock`` guards the
+    # count + Event mutation pair so two concurrent dispatches cannot
+    # race the count into a wrong value or miss the Event-set on the
+    # last exit.
+    #
+    # Lazy creation (mirrors the ``_ws_dispatch_pool`` pattern above):
+    # the WS path may never be entered if the server runs in TCP /
+    # standalone mode, so we attach the Event / lock / count to the
+    # server only on first dispatch.
+    import threading as _threading
+
+    ws_drained_event = getattr(server, "_ws_drained_event", None)
+    if ws_drained_event is None:
+        ws_drained_event = _threading.Event()
+        ws_drained_event.set()  # initially drained — count is 0
+        server._ws_drained_event = ws_drained_event  # type: ignore[attr-defined]
+    ws_inflight_lock = getattr(server, "_ws_inflight_lock", None)
+    if ws_inflight_lock is None:
+        ws_inflight_lock = _threading.Lock()
+        server._ws_inflight_lock = ws_inflight_lock  # type: ignore[attr-defined]
+    if getattr(server, "_ws_inflight_count", None) is None:
+        server._ws_inflight_count = 0  # type: ignore[attr-defined]
+
     async def dispatch(msg: dict, websocket) -> dict | None:
         msg_type = msg.get("type")
         if not isinstance(msg_type, str):
@@ -506,6 +546,20 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
+        # DJ-9: mark this dispatch as in-flight + clear the drain Event
+        # so ``ShutdownController._do_cleanup`` knows to wait for us
+        # before tearing down the DB / recorder / crash-recovery
+        # subsystems. The increment-then-clear pair is under
+        # ``_ws_inflight_lock`` so two concurrent dispatches cannot
+        # interleave as ``inc → inc → clear → clear`` (both would clear
+        # the Event, then the first exit would set it prematurely while
+        # the second dispatch is still running — a TOCTOU on the count).
+        # The lock is held for the minimum work needed (increment +
+        # Event.clear); the dispatch body itself runs without the lock.
+        with ws_inflight_lock:
+            server._ws_inflight_count = server._ws_inflight_count + 1  # type: ignore[attr-defined]
+            ws_drained_event.clear()
+
         # Dispatch on the worker thread pool so a slow handler
         # (e.g. download_model) doesn't block the WS reader.
         loop = asyncio.get_running_loop()
@@ -537,10 +591,27 @@ def _make_dispatch(server: IPCServer):
             # so this is a backward-compatible migration. EC-FIX-2
             # applies the same migration to the TCP path's
             # ``internal_error`` emissions.
-            return {
+            return_error = {
                 "type": "error",
                 "data": {"code": "server.internal_error", "message": "internal error"},
             }
+        else:
+            return_error = None
+        finally:
+            # DJ-9: decrement the in-flight count and re-set the drain
+            # Event when the count drops to zero. The ``finally`` block
+            # guarantees the Event is set even if ``run_in_executor``
+            # raised (the in-flight count MUST be consistent with the
+            # actual dispatch state, otherwise ``_do_cleanup`` would
+            # wait on an Event that never fires — a deadlock).
+            with ws_inflight_lock:
+                server._ws_inflight_count = server._ws_inflight_count - 1  # type: ignore[attr-defined]
+                if server._ws_inflight_count <= 0:  # type: ignore[attr-defined]
+                    server._ws_inflight_count = 0  # type: ignore[attr-defined]
+                    ws_drained_event.set()
+
+        if return_error is not None:
+            return return_error
 
         # _dispatch returns None for fire-and-forget commands (e.g.
         # restart_app, which sends its own response). Don't send a
@@ -645,62 +716,37 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         sem.release()
 
 
-async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer) -> None:
-    """Auth + read/dispatch loop body (XZ-IPC-003 extraction)."""
-    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
+    """XZ-R18-06: enforce single-authenticated-connection invariant.
 
-    if not await _authenticate(websocket):
-        # EC-11 (cross-transport parity): mirror the TCP path's
-        # ``auth_failed`` error frame (ipc_server.py:~L925) BEFORE
-        # closing the WS with code 1008. Pre-EC-FIX-3 the WS path
-        # closed with 1008 and sent NO error frame, so the Rust host
-        # (src-tauri/src/sidecar/ws.rs) and the Electron client had to
-        # treat the close as an opaque auth failure with no envelope
-        # detail. Now both transports emit the same
-        # ``{"type":"error","data":{"code":"auth_failed",...}}`` frame
-        # before closing — clients can branch on the error code without
-        # sniffing the close reason. Wrapped in ``contextlib.suppress``
-        # because the socket may already be half-closed (e.g. the
-        # client RST'd after sending the bad token); the close call
-        # below is the authoritative teardown.
-        with contextlib.suppress(Exception):
-            await websocket.send(
-                json.dumps(
-                    {
-                        "type": "error",
-                        "data": {
-                            "code": "auth_failed",
-                            "message": "authentication failed",
-                        },
-                    }
-                )
-            )
-        with contextlib.suppress(Exception):
-            await websocket.close(code=1008, reason="auth failed")
-        return
+    The host (Rust / Electron) uses respawn rather than reconnect —
+    a second authenticated WS implies a protocol bug (stale socket
+    in the host's connect loop, a race between supervisor respawn
+    and the old sidecar's accept loop, etc.). Both connections
+    would have separate outbound queues + writer tasks + event_bus
+    subscribers, causing duplicate event delivery (every
+    ``event_bus.publish`` reaches both writers). The cleaner fix is
+    to REJECT the new connection with 1008 ("Policy Violation") so
+    the existing authenticated connection continues uninterrupted.
+    The host's reconnect logic treats 1008 as a fatal-sidecar signal
+    and respawns, which is the correct response to a duplicate-auth
+    protocol bug. The previous connection is cleared from
+    ``server._active_ws_connection`` in the ``finally`` block of
+    :func:`_handle_connection_inner` (only if it still points at THIS
+    socket — a race-safe compare).
 
-    # XZ-R18-06: enforce single-authenticated-connection invariant.
-    # The host (Rust / Electron) uses respawn rather than reconnect —
-    # a second authenticated WS implies a protocol bug (stale socket
-    # in the host's connect loop, a race between supervisor respawn
-    # and the old sidecar's accept loop, etc.). Both connections
-    # would have separate outbound queues + writer tasks + event_bus
-    # subscribers, causing duplicate event delivery (every
-    # ``event_bus.publish`` reaches both writers). The cleaner fix is
-    # to REJECT the new connection with 1008 ("Policy Violation") so
-    # the existing authenticated connection continues uninterrupted.
-    # The host's reconnect logic treats 1008 as a fatal-sidecar signal
-    # and respawns, which is the correct response to a duplicate-auth
-    # protocol bug. The previous connection is cleared from
-    # ``server._active_ws_connection`` in the ``finally`` block below
-    # (only if it still points at THIS socket — a race-safe compare).
-    #
-    # Defensive: ``server`` may be a ``MagicMock`` in tests, where
-    # ``getattr(server, "_active_ws_connection", None)`` auto-vivifies
-    # a child MagicMock (which would falsely trip the duplicate
-    # check). The ``is_closed`` probe below treats a non-bool
-    # ``.closed`` attribute (or any error reading it) as "closed" so
-    # the invariant is enforced only against a REAL open websocket.
+    Defensive: ``server`` may be a ``MagicMock`` in tests, where
+    ``getattr(server, "_active_ws_connection", None)`` auto-vivifies
+    a child MagicMock (which would falsely trip the duplicate
+    check). The ``is_closed`` probe below treats a non-bool
+    ``.closed`` attribute (or any error reading it) as "closed" so
+    the invariant is enforced only against a REAL open websocket.
+
+    Returns ``True`` if the connection should proceed (no duplicate,
+    and the active-connection slot was claimed). Returns ``False`` if
+    the connection was rejected (duplicate_connection frame sent +
+    socket closed) — the caller MUST return immediately.
+    """
     with server._lock:
         existing = getattr(server, "_active_ws_connection", None)
     is_existing_open = False
@@ -731,37 +777,42 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
             )
         with contextlib.suppress(Exception):
             await websocket.close(code=1008, reason="duplicate connection")
-        return
+        return False
     # Mark this as the active connection. Cleared in the ``finally``
-    # block below (only if it still points at THIS socket — a concurrent
-    # rejection path may have already swapped it).
+    # block of ``_handle_connection_inner`` (only if it still points at
+    # THIS socket — a concurrent rejection path may have already
+    # swapped it).
     with server._lock:
         server._active_ws_connection = websocket
+    return True
 
-    # ADR-0020 round-2 fix: emit `ready` on the first authenticated
-    # connection. The Tauri host waits for this event before hydrating
-    # the UI (mirrors the Electron path's `ready` push at
-    # ipc_server.py:1899). Using event_bus.publish (not server.push)
-    # because the WS writer task subscribes to event_bus — server.push
-    # would go to the TCP path's _tcp_client which is None in WS mode.
-    #
-    # CR-4: the flag is per-instance (``server._ready_emitted``), not
-    # module-level, so each fresh ``IPCServer`` starts with the flag
-    # False and emits `ready` on its first connection. This was
-    # previously a module-level global which leaked state between test
-    # runs that reused the same module. The flag is set under
-    # ``server._lock``-free atomic read-then-write — single WS server
-    # task, so the race is theoretical, but the worst case is a
-    # duplicate `ready` event which the host tolerates.
-    #
-    # CR-83: the read-then-write is now guarded by ``server._lock``
-    # (an RLock defined on IPCServer at __init__). Two concurrent
-    # first-time authentications would otherwise both see
-    # ``_ready_emitted == False`` and both publish ``ready``. The host
-    # tolerates duplicates, but the duplicate broadcast is wasted work
-    # and a minor protocol smell. The lock is also used elsewhere on
-    # the server (e.g. _send / push), so this re-uses an existing
-    # primitive rather than adding a new one.
+
+def _emit_ready_if_first(server: IPCServer) -> None:
+    """ADR-0020 round-2: emit ``ready`` on the first authenticated
+    connection for this ``IPCServer`` instance.
+
+    The Tauri host waits for this event before hydrating the UI
+    (mirrors the Electron path's ``ready`` push at
+    ``ipc_server.py:1899``). Using ``event_bus.publish`` (not
+    ``server.push``) because the WS writer task subscribes to
+    event_bus — ``server.push`` would go to the TCP path's
+    ``_tcp_client`` which is ``None`` in WS mode.
+
+    CR-4: the flag is per-instance (``server._ready_emitted``), not
+    module-level, so each fresh ``IPCServer`` starts with the flag
+    ``False`` and emits ``ready`` on its first connection. This was
+    previously a module-level global which leaked state between test
+    runs that reused the same module.
+
+    CR-83: the read-then-write is guarded by ``server._lock`` (an
+    ``RLock`` defined on ``IPCServer`` at ``__init__``). Two
+    concurrent first-time authentications would otherwise both see
+    ``_ready_emitted == False`` and both publish ``ready``. The host
+    tolerates duplicates, but the duplicate broadcast is wasted work
+    and a minor protocol smell. The lock is also used elsewhere on
+    the server (e.g. ``_send`` / ``push``), so this re-uses an
+    existing primitive rather than adding a new one.
+    """
     with server._lock:
         if getattr(server, "_ready_emitted", False):
             already_emitted = True
@@ -774,39 +825,59 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
         event_bus.publish({"type": "ready"})
 
-    # CR-79 / CR-37 / CR-30 / CR-4: ``_push_to_ws`` is registered as an
-    # event_bus subscriber (sync API). It is invoked from WHATEVER
-    # thread ``event_bus.publish`` runs on — typically a domain thread
-    # (tray, transcription, dictation_pipeline, audio-worker, IPC
-    # dispatch workers) that is NOT the asyncio loop thread.
-    # ``asyncio.Queue`` is documented as NOT thread-safe; the GIL makes
-    # immediate deque ops atomic but the ``_getters``/``_putters``
-    # future-scheduling path can miss wakeups. Capture the running loop
-    # ONCE here (EC-FIX-3 cleanup: previously re-captured three times
-    # at L550/L560/L570 with a dead ``_ws_loop`` local — all redundant
-    # since the loop is identical for the lifetime of this connection)
-    # and close over it in ``_push_to_ws`` so the sync subscriber can
-    # route all queue mutations through ``loop.call_soon_threadsafe``
-    # (which is the documented way to bridge a sync caller to an
-    # asyncio primitive from a non-loop thread).
-    #
-    # The previous ``server._ws_loop = loop`` write was removed — it
-    # had zero production readers (the per-connection closure-captured
-    # ``loop`` below is the only source of truth used by
-    # ``_push_to_ws``), and writing it without ``server._lock``
-    # created a race-on-write hazard for any future diagnostic reader.
-    # The WS path runs ONE accept loop on ONE asyncio event loop, so
-    # all connections share the same loop; if a future refactor
-    # permits multiple loops, the closure-captured ``loop`` remains
-    # the per-connection source of truth.
-    loop = asyncio.get_running_loop()
 
-    # Subscribe server.push (which forwards event_bus.publish) to
-    # this WS so server-initiated events flow back to the host.
-    # The TCP path installs a single _tcp_client and writes to it
-    # under self._lock; the WS path uses a per-connection asyncio
-    # Queue + a writer task so we don't block the dispatch loop.
-    outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
+def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outbound: asyncio.Queue) -> object:
+    """CR-79 / CR-37 / CR-30 / CR-4: register ``_push_to_ws`` as an
+    ``event_bus`` subscriber (sync API) and emit the initial
+    ``state_changed`` snapshot.
+
+    ``_push_to_ws`` is invoked from WHATEVER thread
+    ``event_bus.publish`` runs on — typically a domain thread (tray,
+    transcription, dictation_pipeline, audio-worker, IPC dispatch
+    workers) that is NOT the asyncio loop thread. ``asyncio.Queue``
+    is documented as NOT thread-safe; the GIL makes immediate deque
+    ops atomic but the ``_getters``/``_putters`` future-scheduling
+    path can miss wakeups. The captured ``loop`` (captured ONCE here
+    — EC-FIX-3 cleanup: previously re-captured three times with a
+    dead ``_ws_loop`` local) is closed over in ``_push_to_ws`` so the
+    sync subscriber can route all queue mutations through
+    ``loop.call_soon_threadsafe`` (the documented way to bridge a
+    sync caller to an asyncio primitive from a non-loop thread).
+
+    The previous ``server._ws_loop = loop`` write was removed — it
+    had zero production readers (the per-connection closure-captured
+    ``loop`` is the only source of truth used by ``_push_to_ws``),
+    and writing it without ``server._lock`` created a race-on-write
+    hazard for any future diagnostic reader. The WS path runs ONE
+    accept loop on ONE asyncio event loop, so all connections share
+    the same loop; if a future refactor permits multiple loops, the
+    closure-captured ``loop`` remains the per-connection source of
+    truth.
+
+    EC-FIX-3 (EC-11 / ERR-017 parity): after subscribing, emit a
+    ``state_changed`` snapshot on EVERY authenticated connection
+    (not just the first ``ready``). This mirrors the TCP path's
+    connect-time snapshot at ``ipc_server.py:_handle_tcp_connection``
+    (~L1003-1017) so a WS reconnect after a transient drop
+    immediately re-hydrates the renderer's tray state badge instead
+    of leaving it stale until the next state transition. Placement:
+    published AFTER ``_push_to_ws`` is registered so the event flows
+    through the WS writer task's outbound queue to the host. The
+    ``ready`` emit (in :func:`_emit_ready_if_first`) is intentionally
+    published BEFORE ``_push_to_ws`` is registered (per ADR-0020
+    round-2) and is delivered via ``server.push`` → ``_pending_tcp``
+    flush; ``state_changed`` is published here so it is GUARANTEED to
+    reach the WS client on every auth.
+
+    Defensive: the tray may not be initialized yet on the very first
+    connection (the app boots the IPC server before the tray icon is
+    constructed). ``getattr(..., None)`` + the ``is not None`` guard
+    skip the emit in that case — the host will pick up the next state
+    transition via the normal ``status_change`` hook.
+
+    Returns the ``_push_to_ws`` subscriber callable so the caller can
+    ``event_bus.unsubscribe`` it in the connection ``finally`` block.
+    """
 
     def _push_to_ws(event: dict) -> None:
         """Subscriber for event_bus.publish — enqueues for the writer task.
@@ -849,28 +920,6 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
 
     event_bus.subscribe(_push_to_ws)
 
-    # EC-FIX-3 (EC-11 / ERR-017 parity): emit a ``state_changed``
-    # snapshot on EVERY authenticated connection (not just the first
-    # ``ready``). This mirrors the TCP path's connect-time snapshot at
-    # ``ipc_server.py:_handle_tcp_connection`` (~L1003-1017) so a WS
-    # reconnect after a transient drop immediately re-hydrates the
-    # renderer's tray state badge instead of leaving it stale until
-    # the next state transition.
-    #
-    # Placement: this is published AFTER ``_push_to_ws`` is registered
-    # as an event_bus subscriber (L624 above) so the event flows
-    # through the WS writer task's outbound queue to the host. The
-    # ``ready`` emit at L527 is intentionally published BEFORE
-    # ``_push_to_ws`` is registered (per ADR-0020 round-2 — see the
-    # comment block above) and is delivered via ``server.push`` →
-    # ``_pending_tcp`` flush; ``state_changed`` is published here so
-    # it is GUARANTEED to reach the WS client on every auth.
-    #
-    # Defensive: the tray may not be initialized yet on the very first
-    # connection (the app boots the IPC server before the tray icon is
-    # constructed). ``getattr(..., None)`` + the ``is not None`` guard
-    # skip the emit in that case — the host will pick up the next
-    # state transition via the normal ``status_change`` hook.
     try:
         current_state = getattr(server.app.tray, "_state", None)
         current_msg = getattr(server.app.tray, "_message", "")
@@ -889,6 +938,18 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
             "[SIDECAR-WS] failed to emit initial state_changed on connect",
             exc_info=True,
         )
+
+    return _push_to_ws
+
+
+def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
+    """Create the per-connection writer task that drains the outbound
+    queue and writes each event as a WS frame.
+
+    The TCP path installs a single ``_tcp_client`` and writes to it
+    under ``self._lock``; the WS path uses a per-connection asyncio
+    Queue + a writer task so we don't block the dispatch loop.
+    """
 
     async def _writer() -> None:
         """Drain the outbound queue and write each event as a WS frame."""
@@ -939,116 +1000,167 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         except asyncio.CancelledError:
             return
 
-    writer_task = asyncio.create_task(_writer(), name="sidecar-ws-writer")
+    return asyncio.create_task(_writer(), name="sidecar-ws-writer")
+
+
+async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
+    """Read/dispatch loop body (UE-29 extraction from
+    ``_handle_connection_inner``).
+
+    Reads inbound WS frames, validates JSON, and dispatches each frame
+    via the ``dispatch`` coroutine. The heartbeat fast-path
+    (XE-2-1) is handled INLINE before awaiting ``dispatch()`` so the
+    heartbeat-ack is not delayed by an in-flight long dispatch.
+
+    NOTE: the inbound frame-size cap is enforced by the ``websockets``
+    library itself via ``serve(..., max_size=...)`` in :func:`run` —
+    the library rejects oversized frames at the transport layer with a
+    1009 close. We do NOT re-check here (it would be dead code; the
+    frame never arrives if it exceeds ``max_size``).
+
+    Raises ``ConnectionClosedOK`` / ``ConnectionClosedError`` on WS
+    close (the caller distinguishes clean vs abnormal close for
+    log-level selection). Any other exception is propagated to the
+    caller's catch-all.
+    """
+    async for raw in websocket:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            # Namespaced form (canonical) +
+                            # legacy alias.
+                            "code": "client.invalid_payload",
+                            "legacy_code": "invalid_payload",
+                            "message": "invalid JSON",
+                        },
+                    }
+                )
+            )
+            continue
+
+        if not isinstance(msg, dict):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            # Namespaced form (canonical) +
+                            # legacy alias.
+                            "code": "client.invalid_payload",
+                            "legacy_code": "invalid_payload",
+                            "message": "frame must be an object",
+                        },
+                    }
+                )
+            )
+            continue
+
+        # The frame may carry an optional "id" for request/response
+        # correlation (ADR-0020 §7 — the host's dispatch() command
+        # assigns a per-request id). Echo it back on the response.
+        request_id = msg.get("id")
+        # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
+        # the read loop BEFORE awaiting ``dispatch()`` so the
+        # heartbeat-ack is not delayed by an in-flight long
+        # dispatch (e.g. ``download_model``, ``transcribe``) running
+        # on the dispatch pool. The Rust host's liveness probe
+        # (3 consecutive misses ≥30s → respawn, see ADR-0018 /
+        # ADR-0020 §10) would otherwise fire spuriously during a
+        # legitimate long-running command — restarting the sidecar
+        # mid-download and forcing the user to retry. Bypassing the
+        # dispatch pool keeps the heartbeat-ack latency at the
+        # ``websocket.send()`` round-trip (~1 ms loopback) instead
+        # of the dispatch-pool queue depth.
+        if msg.get("type") == "heartbeat":
+            # Mirror ``_handle_heartbeat``'s update of
+            # ``_last_heartbeat_at`` so the Python-side heartbeat
+            # watchdog (if installed) sees fresh liveness.
+            with contextlib.suppress(AttributeError):
+                server._last_heartbeat_at = time.monotonic()
+            ack: dict[str, object] = {"type": "heartbeat_ack"}
+            if request_id is not None:
+                ack["id"] = request_id
+            try:
+                await websocket.send(json.dumps(ack))
+            except Exception:
+                log.warning("[SIDECAR-WS] heartbeat ack send failed", exc_info=True)
+                break
+            continue
+        result = await dispatch(msg, websocket)
+        if result is not None:
+            if request_id is not None and isinstance(result, dict):
+                result = {**result, "id": request_id}
+            try:
+                await websocket.send(json.dumps(result, ensure_ascii=False))
+            except Exception:
+                log.warning("[SIDECAR-WS] response send failed", exc_info=True)
+                break
+
+
+async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer) -> None:
+    """Auth + read/dispatch loop body (XZ-IPC-003 extraction).
+
+    UE-29: refactored from a ~375-line monolith into a ~30-line
+    coordinator that delegates to named helpers (:func:`_check_duplicate_auth`,
+    :func:`_emit_ready_if_first`, :func:`_install_subscriber`,
+    :func:`_start_writer`, :func:`_read_loop`). Each helper owns one
+    concern; the orchestrator only sequences them + owns the
+    connection-lifecycle ``try/except/finally`` that guarantees
+    subscriber unsubscribe + writer-task cancel + active-connection
+    slot clear on every exit path.
+    """
+    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+
+    if not await _authenticate(websocket):
+        # EC-11 (cross-transport parity): mirror the TCP path's
+        # ``auth_failed`` error frame BEFORE closing the WS with 1008.
+        # Wrapped in ``contextlib.suppress`` because the socket may
+        # already be half-closed; the close call is authoritative.
+        with contextlib.suppress(Exception):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            "code": "auth_failed",
+                            "message": "authentication failed",
+                        },
+                    }
+                )
+            )
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1008, reason="auth failed")
+        return
+
+    if not await _check_duplicate_auth(websocket, server, peer):
+        return
+
+    _emit_ready_if_first(server)
+
+    loop = asyncio.get_running_loop()
+    outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
+    _push_to_ws = _install_subscriber(server, loop, outbound)
+    writer_task = _start_writer(websocket, outbound)
+
+    from voice_typer.server import event_bus
 
     try:
-        async for raw in websocket:
-            if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
-            # NOTE: the inbound frame-size cap is enforced by the
-            # `websockets` library itself via `serve(..., max_size=...)`
-            # in run() below — the library rejects oversized frames at
-            # the transport layer with a 1009 close. We do NOT re-check
-            # here (it would be dead code; the frame never arrives if
-            # it exceeds max_size).
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await websocket.send(
-                    json.dumps(
-                        {
-                            "type": "error",
-                            "data": {
-                                # Namespaced form (canonical) +
-                                # legacy alias.
-                                "code": "client.invalid_payload",
-                                "legacy_code": "invalid_payload",
-                                "message": "invalid JSON",
-                            },
-                        }
-                    )
-                )
-                continue
-
-            if not isinstance(msg, dict):
-                await websocket.send(
-                    json.dumps(
-                        {
-                            "type": "error",
-                            "data": {
-                                # Namespaced form (canonical) +
-                                # legacy alias.
-                                "code": "client.invalid_payload",
-                                "legacy_code": "invalid_payload",
-                                "message": "frame must be an object",
-                            },
-                        }
-                    )
-                )
-                continue
-
-            # The frame may carry an optional "id" for request/response
-            # correlation (ADR-0020 §7 — the host's dispatch() command
-            # assigns a per-request id). Echo it back on the response.
-            request_id = msg.get("id")
-            # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
-            # the read loop BEFORE awaiting ``dispatch()`` so the
-            # heartbeat-ack is not delayed by an in-flight long
-            # dispatch (e.g. ``download_model``, ``transcribe``) running
-            # on the dispatch pool. The Rust host's liveness probe
-            # (3 consecutive misses ≥30s → respawn, see ADR-0018 /
-            # ADR-0020 §10) would otherwise fire spuriously during a
-            # legitimate long-running command — restarting the sidecar
-            # mid-download and forcing the user to retry. Bypassing the
-            # dispatch pool keeps the heartbeat-ack latency at the
-            # ``websocket.send()`` round-trip (~1 ms loopback) instead
-            # of the dispatch-pool queue depth.
-            if msg.get("type") == "heartbeat":
-                # Mirror ``_handle_heartbeat``'s update of
-                # ``_last_heartbeat_at`` so the Python-side heartbeat
-                # watchdog (if installed) sees fresh liveness.
-                with contextlib.suppress(AttributeError):
-                    server._last_heartbeat_at = time.monotonic()
-                ack: dict[str, object] = {"type": "heartbeat_ack"}
-                if request_id is not None:
-                    ack["id"] = request_id
-                try:
-                    await websocket.send(json.dumps(ack))
-                except Exception:
-                    log.warning("[SIDECAR-WS] heartbeat ack send failed", exc_info=True)
-                    break
-                continue
-            result = await dispatch(msg, websocket)
-            if result is not None:
-                if request_id is not None and isinstance(result, dict):
-                    result = {**result, "id": request_id}
-                try:
-                    await websocket.send(json.dumps(result, ensure_ascii=False))
-                except Exception:
-                    log.warning("[SIDECAR-WS] response send failed", exc_info=True)
-                    break
+        await _read_loop(websocket, server, dispatch)
     except ConnectionClosedOK:
-        # Clean WebSocket close (1000/1001 normal close) — log
-        # at DEBUG. Previously the broad ``except Exception:`` below
-        # caught this and logged at INFO with ``exc_info=True``,
-        # polluting the rotating log with tracebacks for the NORMAL
-        # disconnect path (every client that closes cleanly produced
-        # an INFO-level traceback entry).
+        # Clean WebSocket close (1000/1001 normal close) — log at DEBUG.
         log.debug("[SIDECAR-WS] client disconnected cleanly")
     except ConnectionClosedError as exc:
-        # Abnormal WebSocket close (1006 protocol error, 1011
-        # server error, etc.) — log at DEBUG. This is still an
-        # expected close path (the host may close with a non-1000
-        # code during shutdown); the WARNING-level catch-all below is
-        # reserved for genuinely UNEXPECTED errors.
+        # Abnormal WebSocket close (1006 / 1011, etc.) — log at DEBUG.
         log.debug("[SIDECAR-WS] connection closed with error: %s", exc)
     except Exception:
-        # Genuinely unexpected error from the WS dispatch
-        # loop. Log at WARNING (not INFO) with ``exc_info=True`` so
-        # the traceback lands in the log for diagnosis, but reserve
-        # INFO for the ``finally:`` "connection closed" message below
-        # so the rotating log stays readable (clean disconnects no
-        # longer produce traceback-laden INFO records).
+        # Genuinely unexpected error — log at WARNING with traceback.
         log.warning("[SIDECAR-WS] connection ended unexpectedly", exc_info=True)
     finally:
         event_bus.unsubscribe(_push_to_ws)
@@ -1056,23 +1168,11 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         with contextlib.suppress(asyncio.CancelledError):
             await writer_task
         # XZ-R18-06: clear the active-connection slot ONLY if it still
-        # points at THIS socket. A subsequent auth may have already
-        # replaced it (e.g. test scenarios that re-enter
-        # ``_handle_connection`` on the same server instance) — clearing
-        # unconditionally would clobber the new connection's marker and
-        # re-open the duplicate-auth window the slot exists to prevent.
-        # The compare-and-clear runs under ``server._lock`` so a
-        # concurrent auth in another asyncio task can't race the read +
-        # write (single event loop = no true parallelism, but the lock
-        # documents the invariant and future-proofs against a
-        # multi-loop refactor).
+        # points at THIS socket — a concurrent auth may have already
+        # replaced it. Compare-and-clear under ``server._lock``.
         with server._lock:
             if getattr(server, "_active_ws_connection", None) is websocket:
                 server._active_ws_connection = None
-        # INFO reserved for this single "connection closed"
-        # message so the rotating log shows one line per WS
-        # connection lifecycle (clean OR abnormal), making it easy
-        # to grep for connection counts.
         log.info("[SIDECAR-WS] connection closed (peer=%s)", peer)
 
 

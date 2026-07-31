@@ -333,6 +333,47 @@ class ShutdownController:
                 join_thread.join(timeout=5.0)
                 if join_thread.is_alive():
                     log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
+
+                # DJ-9: explicit ``threading.Event`` coordination between
+                # the WS dispatch path and ``_do_cleanup``. The pool's
+                # ``shutdown(wait=True)`` only guarantees that the
+                # ``ThreadPoolExecutor`` has drained its worker queue — it
+                # does NOT guarantee that the per-dispatch coroutine body
+                # has finished its DB write (the Future resolves on
+                # ``server._dispatch`` return, but the WS ``dispatch``
+                # coroutine may still be in its ``await loop.run_in_executor``
+                # unwind / result-serialisation tail when the pool reports
+                # drained). That tail can race ``_teardown_history_db`` /
+                # ``_teardown_crash_recovery`` below, silently losing the
+                # user's final transcription_final DB write.
+                #
+                # ``sidecar_ws._make_dispatch`` clears ``_ws_drained_event``
+                # on entry to each dispatch and sets it when the in-flight
+                # count drops to zero (after the dispatch body fully
+                # returns — including the post-Future unwind). We wait on
+                # that Event here, bounded by 2s, BEFORE allowing the
+                # parallel teardown batch to proceed. The 2s budget is
+                # separate from the 5s pool-shutdown join above; the total
+                # worst-case WS-drain budget is 7s, well within the per-
+                # subsystem 10s parallel-batch deadline.
+                #
+                # If the Event wait times out, we log and proceed (the
+                # in-flight handler is on its own — at best it finishes
+                # after the DB is closed and silently fails, at worst the
+                # OS force-kill reaps it; either way _do_cleanup must not
+                # block indefinitely on a single stuck handler).
+                ws_drained_event = getattr(ipc_server, "_ws_drained_event", None)
+                if ws_drained_event is not None:
+                    drained = ws_drained_event.wait(timeout=2.0)
+                    if not drained:
+                        in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
+                        log.warning(
+                            "[SHUTDOWN] DJ-9: WS dispatch drain Event did not "
+                            "fire in 2s — %s in-flight handler(s) may race DB "
+                            "teardown; proceeding with cleanup (the in-flight "
+                            "write may silently fail)",
+                            in_flight,
+                        )
         except Exception:
             log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
 
@@ -446,73 +487,97 @@ class ShutdownController:
         :func:`voice_typer.server.signal_handlers.win32_console_handler`;
         the cross-file change to route logoff/shutdown to this method
         instead of ``controller.quit()`` is tracked under XZ-R17-06.
+
+        UE-1: this method ends with ``os._exit(0)`` — bypassing atexit
+        handlers is correct here because (a) the OS is force-killing us
+        within ~5s, so orderly atexit cleanup would race the OS deadline
+        and lose, and (b) the critical cleanup above has already run (or
+        a prior call already ran it via the ``_cleanup_done`` guard). The
+        ``os._exit(0)`` MUST fire even when ``_cleanup_done`` was already
+        True on entry — the Win32 console-control callback must NOT
+        return ``True`` to the OS without exiting, otherwise the OS will
+        re-evaluate us with a CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT
+        escalation. Tests that invoke this method directly MUST monkey-
+        patch ``os._exit`` (see ``tests/test_shutdown_xz_r17_fixes.py``'s
+        autouse ``_stub_os_exit`` fixture).
         """
         app = self._app
         with self._quit_lock:
-            if getattr(app, "_cleanup_done", False):
-                return
-            app._cleanup_done = True
+            already_done = bool(getattr(app, "_cleanup_done", False))
+            if not already_done:
+                app._cleanup_done = True
 
-        log.warning(
-            "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
-            "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
-        )
+        if not already_done:
+            log.warning(
+                "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
+                "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
+            )
 
-        # 1. crash_recovery.flush()
-        try:
-            if app._crash_recovery is not None:
-                app._crash_recovery.flush(timeout=1.0)
-        except Exception:
-            log.debug("[SHUTDOWN] fast-path crash_recovery.flush failed", exc_info=True)
+            # 1. crash_recovery.flush()
+            try:
+                if app._crash_recovery is not None:
+                    app._crash_recovery.flush(timeout=1.0)
+            except Exception:
+                log.debug("[SHUTDOWN] fast-path crash_recovery.flush failed", exc_info=True)
 
-        # 2. history_db.flush()
-        try:
-            if app.history_db is not None:
-                _run_with_timeout(
-                    "history_db.flush (fast-path)",
-                    app.history_db.flush,
-                    timeout=1.0,
-                )
-        except Exception:
-            log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
+            # 2. history_db.flush()
+            try:
+                if app.history_db is not None:
+                    _run_with_timeout(
+                        "history_db.flush (fast-path)",
+                        app.history_db.flush,
+                        timeout=1.0,
+                    )
+            except Exception:
+                log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
 
-        # 3. recorder.stop() — release the PortAudio stream.
-        try:
-            if app.recorder is not None and app.recorder.recording:
-                _stop_result = _run_with_timeout(
-                    "recorder.stop (fast-path)",
-                    app.recorder.stop,
-                    timeout=1.0,
-                )
-                if _stop_result is TIMEOUT:
-                    with contextlib.suppress(Exception):
-                        app.recorder._force_closed = True
-                    log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
-        except Exception:
-            log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
+            # 3. recorder.stop() — release the PortAudio stream.
+            try:
+                if app.recorder is not None and app.recorder.recording:
+                    _stop_result = _run_with_timeout(
+                        "recorder.stop (fast-path)",
+                        app.recorder.stop,
+                        timeout=1.0,
+                    )
+                    if _stop_result is TIMEOUT:
+                        with contextlib.suppress(Exception):
+                            app.recorder._force_closed = True
+                        log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
+            except Exception:
+                log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
 
-        # 4. _clear_backend_pid_file()
-        try:
-            from voice_typer.server import app as _app_module
+            # 4. _clear_backend_pid_file()
+            try:
+                from voice_typer.server import app as _app_module
 
-            _app_module._clear_backend_pid_file()
-        except Exception:
-            log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
+                _app_module._clear_backend_pid_file()
+            except Exception:
+                log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
 
-        # 5. Win32 mutex CloseHandle / POSIX flock release.
-        try:
-            if hasattr(app, "_mutex_handle") and app._mutex_handle:
-                if is_windows():
-                    import ctypes
+            # 5. Win32 mutex CloseHandle / POSIX flock release.
+            try:
+                if hasattr(app, "_mutex_handle") and app._mutex_handle:
+                    if is_windows():
+                        import ctypes
 
-                    ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
-                else:
-                    app._mutex_handle.release()
-                app._mutex_handle = None
-        except Exception:
-            log.debug("[SHUTDOWN] fast-path mutex release failed", exc_info=True)
+                        ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
+                    else:
+                        app._mutex_handle.release()
+                    app._mutex_handle = None
+            except Exception:
+                log.debug("[SHUTDOWN] fast-path mutex release failed", exc_info=True)
 
-        log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
+            log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
+
+        # UE-1: bypass atexit — the OS is killing us (Windows logoff/shutdown
+        # gives ~5s). Orderly atexit cleanup would race the OS force-kill and
+        # lose. Safe because we've already run critical cleanup above (or a
+        # prior call did, via the ``_cleanup_done`` idempotency guard). The
+        # ``os._exit(0)`` MUST fire even on a no-op second invocation so the
+        # Win32 callback does not return ``True`` to the OS without exiting.
+        # ``os._exit`` is async-signal-safe per POSIX, which is the correct
+        # primitive for a console-control callback context.
+        os._exit(0)
 
     # ─── XV-7 parallel teardown helpers ──────────────────────────────
     # ─── XV-7 parallel teardown helpers ──────────────────────────────
@@ -865,6 +930,22 @@ class ShutdownController:
         ``_recorder_force_closed`` flag, giving a happens-before
         guarantee even though both helpers run concurrently in the
         parallel batch.
+
+        UE-2: ``sd.stop()`` is the non-blocking signal that asks every
+        active PortAudio stream to stop; ``sd.wait()`` is the bounded
+        drain that blocks until each stream has actually closed. Both
+        are wrapped via :func:`_run_with_timeout` so the cleanup thread
+        is never blocked indefinitely. The ``_run_with_timeout`` return
+        value is checked against :data:`TIMEOUT` — if either call times
+        out (the ``wait()`` case is the dangerous one because
+        PortAudio's stream-close handshake can deadlock on backends
+        like WASAPI where the audio callback holds the stream lock),
+        we log at ERROR and force-abort every active stream via
+        :meth:`_abort_sounddevice_streams` (which calls
+        ``stream.abort()`` on each — ``abort()`` is documented to
+        "terminate the stream immediately", bypassing the orderly
+        stop handshake and releasing the PortAudio resources the
+        deadlock was holding).
         """
         # Wait for recorder teardown to complete (it sets
         # _recorder_force_closed). Bound the wait at 9.5s so the outer
@@ -882,13 +963,87 @@ class ShutdownController:
         try:
             import sounddevice as sd
 
-            _run_with_timeout(
+            # UE-2: ``sd.stop()`` is the non-blocking signal; wrap it
+            # so a wedged PortAudio backend (e.g. WASAPI stream lock
+            # held by a leaked callback) cannot block the cleanup
+            # thread indefinitely. If the call times out, force-abort
+            # every active stream — ``abort()`` bypasses the orderly
+            # stop handshake and breaks the deadlock.
+            _stop_result = _run_with_timeout(
                 "sounddevice.stop",
                 sd.stop,
-                timeout=5.0,
+                timeout=3.0,
             )
+            if _stop_result is TIMEOUT:
+                log.error(
+                    "[SHUTDOWN] UE-2: sd.stop() did not return within 3s — "
+                    "PortAudio may be deadlocked (stream lock held by a "
+                    "leaked callback on backends like WASAPI); force-"
+                    "aborting active streams to release resources"
+                )
+                self._abort_sounddevice_streams(sd)
+                return
+
+            # UE-2: ``sd.wait()`` blocks until every active stream has
+            # actually drained. PortAudio's stream-close handshake can
+            # deadlock on backends where the audio callback holds the
+            # stream lock; without a bounded wait, this would block
+            # shutdown indefinitely. Wrap it; on timeout, log at ERROR
+            # and force-abort the streams (the wait() return value is
+            # checked explicitly against TIMEOUT).
+            _wait_result = _run_with_timeout(
+                "sounddevice.wait",
+                sd.wait,
+                timeout=2.0,
+            )
+            if _wait_result is TIMEOUT:
+                log.error(
+                    "[SHUTDOWN] UE-2: sd.wait() did not return within 2s — "
+                    "PortAudio stream(s) did not drain (potential deadlock "
+                    "on backends like WASAPI); force-aborting active "
+                    "streams to release the audio device"
+                )
+                self._abort_sounddevice_streams(sd)
         except Exception:
-            log.debug("[CLEANUP] sd.stop() failed", exc_info=True)
+            log.debug("[CLEANUP] sd.stop()/wait() failed", exc_info=True)
+
+    def _abort_sounddevice_streams(self, sd_module) -> None:
+        """UE-2: force-abort every active sounddevice stream.
+
+        ``sounddevice._streams`` is the module-level registry of active
+        ``sd.Stream`` / ``sd.InputStream`` / ``sd.OutputStream`` instances
+        that ``sd.stop()`` and ``sd.wait()`` operate on. When the
+        orderly drain times out (a PortAudio deadlock — the audio
+        callback is holding the stream lock and the close handshake
+        cannot complete), iterate a snapshot of the registry and call
+        ``stream.abort()`` on each.
+
+        ``Stream.abort()`` is documented as "Terminate the stream
+        immediately" — it sets the stream's ``_CallbackFlags`` and
+        invokes ``Pa_AbortStream`` under the hood, which closes the
+        stream without waiting for in-flight audio callbacks to drain.
+        This breaks the deadlock by releasing the PortAudio resources
+        the leaked callback was holding, so the audio device is
+        available for the next process launch (without this, the next
+        launch fails with "Device unavailable" because the OS still
+        sees the stream as in-use).
+
+        Best-effort: per-stream failures are suppressed
+        (``contextlib.suppress(Exception)``) so one bad stream does
+        not prevent the abort of the others. The ``_streams`` list is
+        snapshotted before iteration to avoid mutation-during-iteration
+        if ``abort()`` removes the stream from the registry.
+        """
+        try:
+            streams = [s for s in getattr(sd_module, "_streams", []) if s is not None]
+            for stream in streams:
+                with contextlib.suppress(Exception):
+                    stream.abort()
+        except Exception:
+            log.debug(
+                "[SHUTDOWN] UE-2: _abort_sounddevice_streams fallback failed",
+                exc_info=True,
+            )
 
     def _teardown_electron(self) -> None:
         """XV-7 / DE-53: terminate the Electron subprocess.
