@@ -91,7 +91,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # ``sys.modules[_CANONICAL] = sys.modules["__main__"]`` registration
 # hack to keep lazy imports (in providers.py / sidecar_ws.py / app.py /
 # __main__.py) resolving to the same object.  The names are re-exported
-# here (``# noqa: F401``) so existing
+# here (``# noqa: F401`` in backtick comments) so existing
 # ``from voice_typer.server.ipc_server import log`` /
 # ``... import _push_event_now`` callers keep working unchanged.
 # UE-32: ``_READONLY_COMMANDS`` previously lived in ``ipc._helpers``;
@@ -134,7 +134,7 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # split made the three-layers-must-agree parity contract harder to
 # reason about.  The extraction is behavior-preserving — same dict,
 # same keys, same values.  The names are re-exported here
-# (``# noqa: F401``) so existing
+# (``# noqa: F401`` in backtick comments) so existing
 # ``from voice_typer.server.ipc_server import _COMMAND_REGISTRY`` /
 # ``... import _READONLY_COMMANDS`` /
 # ``... import _PYTHON_ONLY_COMMANDS`` callers keep working unchanged.
@@ -298,8 +298,11 @@ from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMi
 # are re-exported here so existing ``from voice_typer.server.ipc_server import
 # _SHUTDOWN_ALLOWLIST`` callers (tests/test_ipc_send_shutdown_allowlist.py,
 # tests/test_zr43_zr70_constants.py) keep working unchanged.
-from voice_typer.server.ipc.sender import (  # noqa: E402
+from voice_typer.server.ipc.sender import (  # noqa: E402, F401
     OutputMixin,
+    _SHUTDOWN_ALLOWLIST,
+    _TCP_PENDING_BUFFER_CAP,
+    _TCP_PENDING_DRAIN_CAP,
 )
 from voice_typer.server.ipc.transport_tcp import TCPTransportMixin  # noqa: E402
 
@@ -422,12 +425,8 @@ class IPCServer(
             # DeviceManager (tests) doesn't fail.
             try:
                 recorder_devices = getattr(app.recorder, "_devices", None)
-                if recorder_devices is not None and hasattr(
-                    recorder_devices, "set_service_cache_invalidator"
-                ):
-                    recorder_devices.set_service_cache_invalidator(
-                        lambda: self.service.refresh_microphones(force=True)
-                    )
+                if recorder_devices is not None and hasattr(recorder_devices, "set_service_cache_invalidator"):
+                    recorder_devices.set_service_cache_invalidator(lambda: self.service.refresh_microphones(force=True))
             except Exception:
                 log.debug(
                     "[IPC] failed to wire DJ-68 service-layer cache invalidator",
@@ -1912,7 +1911,6 @@ def main() -> None:
     # EC-8: the argparse setup + validation + env-var side effects are
     # extracted to ``parse_ipc_args()`` above so ``main()`` no longer
     # mixes CLI parsing with app construction / transport dispatch.
-    import os
 
     from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
 

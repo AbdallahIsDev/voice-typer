@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 from voice_typer.server.ipc.transport import _TCPLineIO
+from voice_typer.server.ipc.validation import ErrorCodes
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 # ─── DR-21 (S1-CR-78): IPC wire protocol versioning ──────────────────
@@ -42,11 +43,15 @@ from voice_typer.server.keyboard_ownership import keyboard_ownership
 # compatible — new senders opt in by sending ``"protocol_version": 1``
 # and get a structured rejection on mismatch.
 IPC_PROTOCOL_VERSION: int = 1
-# DR-21: error code emitted on the version-mismatch path. Lives here
-# (not in ipc/validation.py::ErrorCodes) to keep the change confined to
-# one file in this slice; a future cross-language parity test should
-# register it in the central ErrorCodes registry.
-PROTOCOL_VERSION_MISMATCH_CODE = "server.protocol_version_mismatch"
+# DR-21: error code emitted on the version-mismatch path. Registered in
+# the central ``ErrorCodes`` registry (``ipc/validation.py``) so the
+# renderer's TS ``ErrorCodes`` union and the cross-language parity test
+# can verify all three language constants agree. The module-level alias
+# is kept for backward-compat with existing tests that import
+# ``PROTOCOL_VERSION_MISMATCH_CODE`` directly (see
+# ``tests/test_dr21_protocol_version.py``); new code should reference
+# ``ErrorCodes.PROTOCOL_VERSION_MISMATCH`` instead.
+PROTOCOL_VERSION_MISMATCH_CODE = ErrorCodes.PROTOCOL_VERSION_MISMATCH
 
 
 class TCPTransportMixin:
@@ -357,8 +362,7 @@ class TCPTransportMixin:
                     and auth_msg.get("protocol_version") != IPC_PROTOCOL_VERSION
                 ):
                     log.warning(
-                        "[TCP] auth rejected — protocol_version mismatch "
-                        "(client sent %r, server expects %r)",
+                        "[TCP] auth rejected — protocol_version mismatch (client sent %r, server expects %r)",
                         auth_msg.get("protocol_version"),
                         IPC_PROTOCOL_VERSION,
                     )
@@ -368,15 +372,13 @@ class TCPTransportMixin:
                                 {
                                     "type": "error",
                                     "data": {
-                                        "code": PROTOCOL_VERSION_MISMATCH_CODE,
+                                        "code": ErrorCodes.PROTOCOL_VERSION_MISMATCH,
                                         "message": (
                                             f"protocol version mismatch: client sent "
                                             f"{auth_msg.get('protocol_version')!r}, "
                                             f"server requires {IPC_PROTOCOL_VERSION}"
                                         ),
-                                        "client_protocol_version": auth_msg.get(
-                                            "protocol_version"
-                                        ),
+                                        "client_protocol_version": auth_msg.get("protocol_version"),
                                         "server_protocol_version": IPC_PROTOCOL_VERSION,
                                     },
                                 }

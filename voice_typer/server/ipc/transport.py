@@ -139,6 +139,38 @@ class _TCPLineIO:
         # entries must not leak into the next ``_send`` call).
         self._write_buffer.clear()
 
+    def write_raw(self, text: str) -> None:
+        """Write ``text`` directly to the socket in a SINGLE ``sendall``.
+
+        Bypasses the in-memory ``_write_buffer`` entirely — the text is
+        encoded and handed to ``conn.sendall`` in one call. Use this when
+        the caller has ALREADY concatenated a batch of lines into a single
+        string and wants exactly one kernel transition regardless of how
+        many logical lines the batch contains.
+
+        Ordering: if the buffer is non-empty when ``write_raw`` is called,
+        the buffered data is flushed FIRST (one ``sendall``) so the
+        stream stays in publish order. The common case (buffer empty)
+        issues exactly one ``sendall``. The rare case (buffer non-empty)
+        issues two — the same count as ``write(text); flush()`` but
+        without the per-``write`` list-append overhead.
+
+        Failure semantics mirror ``flush``: if ``sendall`` raises, the
+        raw text is NOT retried and NOT buffered — the caller is
+        responsible for treating the connection as dead (the ``_send``
+        drain path does this via its ``except`` block). The buffer, if
+        any was flushed before the raw send, is cleared on success.
+        """
+        if self._write_buffer:
+            # Preserve publish order: flush buffered data first so the
+            # raw text follows it on the wire. This is the rare case
+            # (most callers either use write+flush OR write_raw, not
+            # both in the same cycle).
+            batch = b"".join(self._write_buffer)
+            self.conn.sendall(batch)
+            self._write_buffer.clear()
+        self.conn.sendall(text.encode("utf-8"))
+
     def readline(self) -> str:
         """Read one line from the TCP socket.
 

@@ -304,7 +304,7 @@ def test_send_suppresses_non_allowlisted_push_when_shutting_down() -> None:
     server = _make_send_test_server()
     # Set up a real socketpair so we can detect whether the write
     # happened (we'll check that the reader sees NOTHING).
-    srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv, cli = socket.socketpair()
     try:
         from voice_typer.server.ipc_server import _TCPLineIO
 
@@ -335,7 +335,7 @@ def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
     STILL be delivered — the TCP write must happen.
     """
     server = _make_send_test_server()
-    srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv, cli = socket.socketpair()
     try:
         from voice_typer.server.ipc_server import _TCPLineIO
 
@@ -374,7 +374,7 @@ def test_send_delivers_non_allowlisted_push_when_not_shutting_down() -> None:
     delivered (the suppression gate short-circuits).
     """
     server = _make_send_test_server()
-    srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv, cli = socket.socketpair()
     try:
         from voice_typer.server.ipc_server import _TCPLineIO
 

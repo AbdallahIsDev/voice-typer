@@ -541,28 +541,60 @@ export type PythonPushEvent =
 // `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/Electron host at
 // spawn (ADR-0020 §3). On mismatch the socket is closed immediately.
 //
-// PVT-G5-063 (Medium): there is currently NO `protocol_version` field
-// on the auth frame or any other IPC message — version-skew detection
-// is post-hoc only (`code:"unknown_command"` / `disallowed_command`).
-// The agreed-upon forward shape is::
+// DR-21 (S1-CR-78): the auth frame now carries an OPTIONAL
+// `protocol_version` integer. The Python TCP receiver
+// (`voice_typer/server/ipc/transport_tcp.py`) and the Rust host
+// (`src-tauri/src/sidecar/ws.rs`) both pin the current constant
+// below; a mismatch is rejected BEFORE the token check with a
+// structured `server.protocol_version_mismatch` error envelope so a
+// stale client gets a clear error instead of an opaque `auth_failed`.
+// Bump on any wire-incompatible change to the auth frame shape or
+// any command's request/response schema.
 //
-//     {
-//       "type": "auth",
-//       "token": "<session-token>",
-//       "protocol_version": 1
-//     }
+// Cross-language parity: the same integer is defined in:
+//   - Python: `voice_typer/server/ipc/transport_tcp.py:IPC_PROTOCOL_VERSION`
+//   - Python: `voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION`
+//   - Rust:   `src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION`
+//   - TS:     `IPC_PROTOCOL_VERSION` (this file)
+// The cross-language parity test in
+// `tests/test_dr21_cross_language_parity.py` asserts they all agree.
+export const IPC_PROTOCOL_VERSION = 1;
+
+// The auth frame shape on the wire. The Rust host constructs this
+// frame (`src-tauri/src/sidecar/ws.rs:queue_auth_and_store_ws_tx`);
+// the Python TCP / WS receivers parse and validate it
+// (`voice_typer/server/ipc/transport_tcp.py:_handle_tcp_connection`
+// and `voice_typer/server/sidecar_ws.py:_authenticate`).
 //
-// Both Python (the server) and Rust/Electron (the client) should reject
-// mismatched versions with a clear `code:"protocol_version_mismatch"`
-// error BEFORE the auth token is even checked, so a stale client
-// talking to a newer server gets a structured error instead of an
-// opaque auth failure.
+// `protocol_version` is OPTIONAL: legacy senders that omit it
+// continue to function (the receiver's validate-if-present check
+// skips to the token check). New senders SHOULD include the field so
+// version skew surfaces at handshake time with a structured error.
+export interface AuthFrame {
+	type: "auth";
+	token: string;
+	protocol_version?: number;
+}
+
+// Error envelope emitted on the version-mismatch path. Emitted by
+// `voice_typer/server/ipc/transport_tcp.py:_handle_tcp_connection`
+// when an inbound auth frame carries an explicit `protocol_version`
+// that does not match `IPC_PROTOCOL_VERSION`. The check runs BEFORE
+// the token check so a stale client gets a structured rejection
+// instead of an opaque `auth_failed`.
 //
-// This is documented here (not exported as a separate `AuthFrame`
-// type) because no current renderer code constructs or parses auth
-// frames — that responsibility lives entirely in the Electron main
-// process (`voice_typer/client/src/main/python/tcp-connect.ts`) and
-// the Rust host (`src-tauri/src/sidecar/ws.rs`). When the
-// `protocol_version` field IS added to the wire, export an `AuthFrame`
-// interface here and type-annotate the auth-frame constructor in
-// `tcp-connect.ts` so future contributors get compile-time help.
+// Note: `code` is a string literal here (NOT the `ErrorCodes` union
+// from `./enums.ts`) because the renderer does not branch on this
+// specific code today — it surfaces as a generic auth-failure toast.
+// Adding it to the `ErrorCodes` union in `./enums.ts` is tracked as
+// a separate cross-language parity task (the file is owned by another
+// sub-agent's slice).
+export interface ProtocolVersionMismatchError {
+	type: "error";
+	data: {
+		code: "server.protocol_version_mismatch";
+		message: string;
+		client_protocol_version: number;
+		server_protocol_version: number;
+	};
+}
