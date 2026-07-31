@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
+import { log } from "./logging";
 import { showMainWindow } from "./windows";
 
 /**
@@ -41,7 +42,7 @@ export function computeConfigDir(): string {
 		// ignore — fs.existsSync may throw on permission denied or
 		// if the homedir is unreachable. Fall through to the
 		// platform-appropriate default path below.
-		console.warn("[single_instance] legacy config dir probe failed:", e);
+		log.warn("[single_instance] legacy config dir probe failed:", e);
 	}
 	if (process.platform === "win32") {
 		return path.join(process.env.APPDATA || os.homedir(), "voice-typer");
@@ -78,7 +79,7 @@ export function writeElectronPidFile(): void {
 		// on the next launch; a missing file just means a future launch
 		// can't auto-recover from a hard crash (it will fall back to
 		// exiting as a duplicate instance).
-		console.warn("[single_instance] writeElectronPidFile failed:", e);
+		log.warn("[single_instance] writeElectronPidFile failed:", e);
 	}
 }
 
@@ -89,7 +90,7 @@ export function clearElectronPidFile(): void {
 		// best-effort: file may already be gone (race with another
 		// process) or the FS may be read-only. Non-fatal — a leftover
 		// PID file just means the next launch does stale-lock detection.
-		console.warn("[single_instance] clearElectronPidFile failed:", e);
+		log.warn("[single_instance] clearElectronPidFile failed:", e);
 	}
 }
 
@@ -167,7 +168,7 @@ export function readStaleElectronPid(): number | null {
 			// an unrelated process, treat the lock as stale so we
 			// don't lock out the unrelated process.
 			if (!isPidVoiceTyper(pid)) {
-				console.warn(
+				log.warn(
 					`[single_instance] PID ${pid} is alive but is not Voice Typer ` +
 						"(PID reuse) — treating lock as stale",
 				);
@@ -207,7 +208,7 @@ export function acquireSingleInstanceLock(): void {
 	if (!gotTheLock) {
 		const stalePid = readStaleElectronPid();
 		if (stalePid !== null) {
-			console.warn(
+			log.warn(
 				`[STARTUP] single-instance lock held by dead PID ${stalePid} — ` +
 					"clearing stale PID file and retrying",
 			);
@@ -230,23 +231,20 @@ export function acquireSingleInstanceLock(): void {
 					const singletonLock = path.join(userDataPath, "SingletonLock");
 					if (fs.existsSync(singletonLock)) {
 						fs.unlinkSync(singletonLock);
-						console.warn(
+						log.warn(
 							`[single_instance] deleted stale Linux SingletonLock symlink at ${singletonLock}`,
 						);
 					}
 				} catch (e) {
 					/* best-effort — the retry below will fail if the lock is still held */
-					console.warn(
-						"[single_instance] Linux SingletonLock cleanup failed:",
-						e,
-					);
+					log.warn("[single_instance] Linux SingletonLock cleanup failed:", e);
 				}
 			}
 			try {
 				app.releaseSingleInstanceLock();
 			} catch (e) {
 				/* ignore — Electron may reject if we never held the lock */
-				console.warn("[single_instance] releaseSingleInstanceLock failed:", e);
+				log.warn("[single_instance] releaseSingleInstanceLock failed:", e);
 			}
 			gotTheLock = app.requestSingleInstanceLock();
 			// AC-120: log the result of the retry so operators can see
@@ -256,7 +254,7 @@ export function acquireSingleInstanceLock(): void {
 			// or continued (primary). A retry that failed but didn't exit
 			// (e.g. because VT_FOCUS_ONLY was not set) would silently run
 			// as a "ghost" instance with no lock.
-			console.warn(
+			log.warn(
 				`[single_instance] retry requestSingleInstanceLock() returned ${gotTheLock}`,
 			);
 		}

@@ -113,6 +113,37 @@ export function rotateIfNeeded(
  *
  * AB-40 (perms cache): fs.chmodSync is skipped if the per-path
  * "perms verified" flag is set. Eliminates 30 sync chmods/sec churn.
+ *
+ * ── Throughput vs. crash-safety trade-off (intentional design) ──
+ *
+ * This function uses `fs.appendFileSync` (open + write + close per
+ * call) rather than a persistent `fs.createWriteStream(path, { flags:
+ * 'a' })` held in a module-level Map. The write-stream approach would
+ * eliminate the per-call open/close syscall overhead (the stream
+ * buffers in memory and flushes in the background), but it regresses
+ * crash durability: bytes buffered in the stream's internal WriteStream
+ * buffer are LOST on a hard process crash (SIGKILL, segfault, OOM-kill)
+ * because the kernel never receives them. `appendFileSync` is
+ * synchronous — when the call returns, the bytes are in the kernel's
+ * page cache (and will reach disk on the next fsync / kernel flush).
+ * For a diagnostic log whose last few lines are the MOST valuable
+ * lines precisely when the process is about to crash (the crash
+ * traceback, the "shutting down" breadcrumb, the final IPC error),
+ * losing them to a background flush is unacceptable.
+ *
+ * The open/close overhead is ~50-100µs per call on a warm SSD. At the
+ * 60 Hz `bubble_level` hot path the deferred-executor (PERF-2) already
+ * serializes fan-out through a single worker thread, so the main /
+ * RT threads never see this cost — only the executor does, and it has
+ * ample headroom (60 calls/sec × 100µs = 6ms/sec = 0.6% of one core).
+ * The write-stream alternative was therefore rejected as a
+ * crash-safety regression for a negligible perf gain on a non-RT path.
+ *
+ * If a future hot path ever needs >1000 writes/sec to the SAME file
+ * from a non-deferred thread, revisit this decision — a per-path
+ * WriteStream with an explicit `end()`-on-exit flush hook would then
+ * be worth the complexity. Until then, synchronous append is the
+ * correct trade.
  */
 export function appendLogLine(
 	filePath: string,

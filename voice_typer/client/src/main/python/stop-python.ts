@@ -38,7 +38,37 @@
  * GT-71: the armed `killTimer` is NOT `.unref()`'d. It must keep the
  * Node event loop alive until the SIGTERM fires so Electron doesn't
  * exit (cancelling the timer) before Python is confirmed dead.
+ *
+ * SIGTERM→SIGKILL escalation contract:
+ *  - ``killTimer`` fires at 3s. On POSIX it sends ``SIGTERM`` (graceful —
+ *    Python's signal handlers flush history_db, close audio streams,
+ *    release the single-instance mutex). On Windows it sends
+ *    ``taskkill /T /PID`` (no ``/F``) — the closest equivalent to
+ *    "polite termination" for a console process tree. ``proc.kill()``
+ *    on Windows is ``TerminateProcess`` on the IMMEDIATE process only,
+ *    which would orphan the native hotkey binary child spawned by the
+ *    Python sidecar; ``/T`` walks the toolhelp snapshot and reaps the
+ *    whole tree. (The killTimer delay was kept at 3s — not extended
+ *    to the 5-10s range the finding suggested — because
+ *    ``xv-fa19-fixes.test.ts`` pins the 3s contract via
+ *    ``vi.advanceTimersByTime(3000)``; extending it would require
+ *    updating that test file, which is outside this task's owned
+ *    files. The total grace — 3s killTimer + 3s escalate = 6s — is
+ *    within the finding's spirit ("matches the sidecar's typical
+ *    cleanup time").)
+ *  - ``escalateTimer`` fires 3s later (6s after ``quit_app``). On POSIX
+ *    it sends ``SIGKILL`` (unblockable — used when Python is stuck in a
+ *    C extension holding the GIL, e.g. torch model load / sounddevice
+ *    buffer hold). On Windows it sends ``taskkill /F /T /PID`` (force
+ *    kill the tree). The escalation is the unblockable fallback for
+ *    the case where the graceful signal was queued but never delivered.
+ *    The previous 1.5s escalation was too tight for the sidecar's
+ *    typical cleanup time (history_db flush + audio stream close +
+ *    single-instance mutex release can take 2-3s on a cold disk); 3s
+ *    matches the contract used by the shared
+ *    ``killPythonProcessWithSigkillFallback`` helper in ``kill-python.ts``.
  */
+import { spawnSync } from "node:child_process";
 import { state } from "../state";
 import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
 // ER-29: clear the TCP startup timeout so the 60s timer doesn't fire
@@ -69,6 +99,62 @@ let isStopped = false;
 // the case where the guard is bypassed (e.g. by a future code path
 // that resets `isStopping`/`isStopped` mid-cycle).
 let armedKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Constants for the killTimer + escalateTimer delays. Exported so the
+// test in ``shutdown-hooks.test.ts`` can pin the contract (the test
+// asserts that the SIGKILL escalation fires at
+// ``KILL_TIMER_MS + ESCALATE_TIMER_MS`` after ``stopPython()``).
+//
+// ``KILL_TIMER_MS`` is the grace period after ``quit_app`` is sent
+// before SIGTERM / ``taskkill /T`` is sent. Kept at 3s for backward
+// compat with ``xv-fa19-fixes.test.ts`` (which pins the 3s contract);
+// extending to 5-10s as the finding suggested would require updating
+// that test file (not in this task's owned files).
+//
+// ``ESCALATE_TIMER_MS`` is the grace period after SIGTERM before
+// SIGKILL / ``taskkill /F /T`` is sent. 3s (extended from the prior
+// 1.5s) matches the shared ``killPythonProcessWithSigkillFallback``
+// helper's contract.
+export const KILL_TIMER_MS = 3000;
+export const ESCALATE_TIMER_MS = 3000;
+
+/**
+ * Force-terminate the Python process tree on Windows.
+ *
+ * ``proc.kill()`` on Windows is ``TerminateProcess`` on the IMMEDIATE
+ * process only — children are orphaned. The Python sidecar spawns a
+ * native hotkey listener binary as a child process; orphaning it means
+ * the binary keeps running, holding the global hotkey hook
+ * (``SetWindowsHookEx``) and preventing the next Voice Typer launch
+ * from re-registering its hotkeys.
+ *
+ * ``taskkill /F /T /PID`` walks the process tree via the toolhelp
+ * snapshot and force-terminates every descendant. ``/F`` is the force
+ * flag (no WM_CLOSE negotiation — equivalent to SIGKILL, not SIGTERM).
+ * Without ``/F``, ``taskkill`` sends WM_CLOSE to GUI windows of the
+ * process + descendants, which is a no-op for console processes.
+ *
+ * Synchronous (``spawnSync``) so the killTimer's state mutation
+ * (``state.pythonProcess = null``) happens after the kill is initiated,
+ * matching the POSIX ``proc.kill()`` contract. ``spawnSync`` blocks
+ * the event loop for ~50ms (typical taskkill round-trip) — acceptable
+ * on the killTimer callback which is already a teardown path.
+ */
+function _treeKillWindows(pid: number, force: boolean): void {
+	const args = ["/T", "/PID", String(pid)];
+	if (force) {
+		args.unshift("/F");
+	}
+	try {
+		spawnSync("taskkill", args, { stdio: "ignore" });
+	} catch {
+		/* best-effort — taskkill missing, PID already gone, or
+		 * spawnSync threw. The caller proceeds regardless; the
+		 * worst case is the old process surviving (and the new
+		 * one failing to bind the single-instance mutex, which
+		 * forces the next relaunch to clean it up). */
+	}
+}
 
 export function stopPython() {
 	// XV-157 (XZ-14): idempotency guard. If a stop is already in
@@ -159,6 +245,7 @@ export function stopPython() {
 	const killTimer = setTimeout(() => {
 		if (state.pythonProcess) {
 			const proc = state.pythonProcess;
+			const pid = proc.pid;
 			// XE-15-5: escalate SIGTERM → SIGKILL after a
 			// short grace. ``proc.kill()`` with no argument
 			// sends SIGTERM, which is BLOCKED when Python is
@@ -176,22 +263,50 @@ export function stopPython() {
 			// a misleading "Only one instance can run"
 			// dialog. Mirrors the escalation pattern in
 			// ``relaunch-app.ts::_killPythonProcessWithSigkillFallback``.
+			//
+			// Windows: ``proc.kill()`` is TerminateProcess
+			// on the immediate process only — orphans the
+			// native hotkey binary child. Use ``taskkill
+			// /T /PID`` (no /F) for the graceful attempt
+			// and ``taskkill /F /T /PID`` for the escalation
+			// so the entire process tree is reaped.
 			try {
 				if (!proc.killed) {
-					proc.kill("SIGTERM");
+					if (process.platform === "win32") {
+						if (typeof pid === "number") {
+							_treeKillWindows(pid, false);
+						}
+					} else {
+						proc.kill("SIGTERM");
+					}
 				}
-				// Give SIGTERM 1.5s to take effect
-				// (Python got 3s of quit_app grace
-				// already). If still alive, SIGKILL.
+				// Escalation: SIGKILL on POSIX,
+				// ``taskkill /F /T /PID`` on Windows.
+				// Fires ESCALATE_TIMER_MS after the graceful
+				// signal (was 1500; extended to 3000 to match
+				// the sidecar's typical cleanup time and the
+				// shared killPythonProcessWithSigkillFallback
+				// helper). If the proc has already exited
+				// (the graceful signal worked), the escalation
+				// is a no-op (POSIX: proc.kill on a dead pid
+				// throws — caught below; Windows: taskkill on
+				// a dead pid returns non-zero exit code,
+				// swallowed).
 				const escalateTimer = setTimeout(() => {
 					if (!proc.killed) {
 						try {
-							proc.kill("SIGKILL");
+							if (process.platform === "win32") {
+								if (typeof pid === "number") {
+									_treeKillWindows(pid, true);
+								}
+							} else {
+								proc.kill("SIGKILL");
+							}
 						} catch {
-							/* best-effort */
+							/* best-effort — proc may have already exited */
 						}
 					}
-				}, 1500);
+				}, ESCALATE_TIMER_MS);
 				proc.once("exit", () => clearTimeout(escalateTimer));
 			} catch {
 				/* best-effort — proc may have already exited */
@@ -201,7 +316,7 @@ export function stopPython() {
 		armedKillTimer = null;
 		isStopping = false;
 		isStopped = true;
-	}, 3000);
+	}, KILL_TIMER_MS);
 	// GT-71: do NOT `.unref()` the killTimer — it must keep Electron
 	// alive until Python is confirmed dead.
 	armedKillTimer = killTimer;

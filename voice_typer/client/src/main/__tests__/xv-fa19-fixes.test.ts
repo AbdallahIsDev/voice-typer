@@ -205,6 +205,12 @@ describe("XV-154: logging.ts file-size cache", () => {
 	let tmpDir: string;
 	let statSpy: ReturnType<typeof vi.spyOn>;
 
+	// AB-40 defers rotateIfNeeded via setImmediate, so rotation
+	// effects (rename, cache clear, stat) land on the next event-loop
+	// tick — tests must flush pending immediates before asserting.
+	const flushRotation = () =>
+		new Promise<void>((resolve) => setImmediate(resolve));
+
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "xv154-test-"));
 		// Stat the real fs (no mock) — we want to count how many
@@ -230,9 +236,11 @@ describe("XV-154: logging.ts file-size cache", () => {
 		// leaves the cache empty, so the second call would stat again).
 		fs.writeFileSync(logPath, "");
 
-		// First append: cache miss → stat (file exists, 0 bytes) →
-		// cache set → append → cache bump.
+		// First append: cache miss → deferred rotate stats the
+		// file (12 bytes ≤ max) → cache set → no rotation.
 		appendLogLine(logPath, "first line\n", 1024 * 1024);
+		// Flush the deferred rotateIfNeeded so its statSync lands.
+		await flushRotation();
 		const callsAfterFirst = statSpy.mock.calls.filter(
 			(c: unknown[]) => c[0] === logPath,
 		).length;
@@ -260,22 +268,31 @@ describe("XV-154: logging.ts file-size cache", () => {
 		// triggers a rotation.
 		fs.writeFileSync(logPath, "x".repeat(2048));
 
-		// First append: cache miss → stat (sees 2048 > 1024) →
-		// rotate (rename to .1, cache cleared) → append → bump
-		// (but cache was cleared by rotation, so no bump).
+		// First append: cache miss → deferred rotate stats the
+		// file (2048 > 1024) → rotate (rename to .1, cache
+		// cleared). The line that triggered the rotation lands in
+		// the file BEFORE the deferred rotate runs (append first,
+		// rotate on the next tick), so it is rotated away with the
+		// old content — the active file is re-created by the next
+		// append.
 		appendLogLine(logPath, "trigger rotation\n", 1024);
 
-		// Active file should now contain only the new line.
-		expect(fs.existsSync(logPath)).toBe(true);
+		// Flush the deferred rotateIfNeeded so the rename lands.
+		await flushRotation();
+
+		// The backup .1 now holds the pre-rotation content (plus
+		// the triggering line); the active file does not exist
+		// until the next append re-creates it.
 		expect(fs.existsSync(`${logPath}.1`)).toBe(true);
-		expect(fs.readFileSync(logPath, "utf-8")).toBe("trigger rotation\n");
 
 		// After rotation, the cache was cleared. The appendLogLine
 		// call above tried to bump the cache but prevSize was null
 		// (cleared by rotation), so no cache entry exists. Re-seed
-		// the cache by calling appendLogLine once more — this stat
-		// populates the cache for the next call.
+		// the cache by calling appendLogLine once more — its
+		// deferred rotate stats the fresh file and populates the
+		// cache for the next call.
 		appendLogLine(logPath, "seed cache\n", 1024);
+		await flushRotation();
 		const callsBefore = statSpy.mock.calls.filter(
 			(c: unknown[]) => c[0] === logPath,
 		).length;
@@ -430,12 +447,14 @@ class MockChildProcess extends EventEmitter {
 describe("XV-157: stopPython idempotency guard", () => {
 	let stopPython: () => void;
 	let mockProc: MockChildProcess;
+	let originalPlatform: string;
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
 		vi.useFakeTimers();
 		Object.assign(mockState, makeMockState());
 		vi.resetModules();
+		originalPlatform = process.platform;
 		const mod = await import("../python/stop-python");
 		stopPython = mod.stopPython;
 		mockProc = new MockChildProcess();
@@ -444,6 +463,11 @@ describe("XV-157: stopPython idempotency guard", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+		// Restore process.platform in case a test stubbed it.
+		Object.defineProperty(process, "platform", {
+			value: originalPlatform,
+			configurable: true,
+		});
 	});
 
 	it("first call sends quit_app and arms a killTimer", () => {
@@ -575,6 +599,14 @@ describe("XV-157: stopPython idempotency guard", () => {
 	it("XZ-14: after killTimer fires, isStopped latches and subsequent calls are no-ops", () => {
 		stopPython();
 		expect(sendToPythonMock).toHaveBeenCalledTimes(1);
+		// Stub the platform so the POSIX branch (proc.kill) runs
+		// on any host — the win32 branch uses taskkill (covered in
+		// shutdown-hooks.test.ts) and would otherwise neither call
+		// mockProc.kill nor be assertable here.
+		Object.defineProperty(process, "platform", {
+			value: "linux",
+			configurable: true,
+		});
 		// Advance fake timers past the 3s killTimer window.
 		vi.advanceTimersByTime(3000);
 		// killTimer should have fired, killing the process.

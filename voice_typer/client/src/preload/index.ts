@@ -23,7 +23,21 @@ contextBridge.exposeInMainWorld(
 
 if (!isBubble) {
 	contextBridge.exposeInMainWorld("python", {
-		call: (msg: Record<string, unknown>) =>
+		// UE-39: tighten the `call` parameter to match the
+		// `PythonBridge` contract in `types/ipc/bridge.ts`:
+		//   `call: (msg: { type: string; data?: Record<string, unknown> }) => Promise<unknown>`
+		// The previous `Record<string, unknown>` annotation was
+		// wider than the bridge contract — it accepted any
+		// object (including ones with no `type` field), so a
+		// renderer bug that called `python.call({})` or
+		// `python.call({ foo: "bar" })` would slip through TS
+		// and produce a runtime `"<unknown>"` command in the
+		// main-process handler (which then forwarded a
+		// malformed request to the Python backend). The
+		// tightened type makes a missing/non-string `type` a
+		// compile-time error at every call site that uses the
+		// declared `PythonBridge` type.
+		call: (msg: { type: string; data?: Record<string, unknown> }) =>
 			ipcRenderer.invoke(PythonChannels.call, msg),
 		onEvent: (callback: (msg: Record<string, unknown>) => void) => {
 			const handler = (_event: Electron.IpcRendererEvent, msg: unknown) =>

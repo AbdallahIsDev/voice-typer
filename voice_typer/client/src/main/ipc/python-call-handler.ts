@@ -66,10 +66,42 @@ export function registerPythonCallHandler(): void {
 	ipcMain.handle(
 		PythonChannels.call,
 		async (event, msg: Record<string, unknown>): Promise<unknown> => {
-			const cmd =
-				msg && typeof msg === "object" && "type" in msg
-					? String((msg as { type: unknown }).type)
-					: "<unknown>";
+			// UE-39: runtime reject for malformed requests. The
+			// preload's `python.call` is now typed
+			// `{ type: string; data?: Record<string, unknown> }`
+			// (matching the `PythonBridge` contract), so a
+			// well-typed renderer cannot send a request without a
+			// string `type`. But the `ipcMain.handle` listener
+			// receives `msg` as `any` (Electron's IPC boundary
+			// erases TS types), and a buggy/mock caller, a
+			// tampered devtools `invoke` from the console, or a
+			// future preload refactor could still ship a
+			// `{}` / `{ type: 42 }` / `null` payload. Previously
+			// the handler coerced any value to `"<unknown>"` and
+			// forwarded it to the Python backend — which then
+			// returned `unknown_command` after a full TCP
+			// round-trip. Rejecting early with a structured
+			// error envelope (`_code: "command_failed"`) gives
+			// the caller an immediate, specific failure without
+			// wasting a backend round-trip.
+			if (
+				msg === null ||
+				typeof msg !== "object" ||
+				typeof (msg as { type?: unknown }).type !== "string"
+			) {
+				const code: PythonCallErrorCode = "command_failed";
+				logger.warn("python-call rejected", {
+					cmd: "<invalid>",
+					code,
+					reason: "missing or non-string 'type' field",
+				});
+				return {
+					_error: `${ERROR_MESSAGES[code]} (missing or non-string 'type' field)`,
+					_code: code,
+				};
+			}
+
+			const cmd = (msg as { type: string }).type;
 
 			if (!state.tcpSocket) {
 				if (state.pythonExitedEarly) {

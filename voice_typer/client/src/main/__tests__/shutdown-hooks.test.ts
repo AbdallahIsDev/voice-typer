@@ -9,9 +9,11 @@
  * indirectly by reading the source and importing only the testable
  * pieces (bootstrap's `setupErrorHandlers`).
  */
+
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MainState } from "../state";
 
@@ -210,5 +212,278 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 		} finally {
 			onSpy.mockRestore();
 		}
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// SIGKILL escalation contract for stop-python.ts.
+//
+// stop-python.ts sends `quit_app` over TCP, then escalates to a
+// process kill if Python doesn't exit gracefully. The escalation has
+// two stages:
+//   1. killTimer  (KILL_TIMER_MS, currently 3s)   → SIGTERM / taskkill /T
+//   2. escalateTimer (ESCALATE_TIMER_MS, 3s)      → SIGKILL / taskkill /F /T
+//
+// The Windows path uses `taskkill /F /T /PID` (force-kill the entire
+// process tree) instead of `proc.kill("SIGKILL")` because
+// `proc.kill()` on Windows is `TerminateProcess` on the IMMEDIATE
+// process only — it would orphan the native hotkey binary child
+// spawned by the Python sidecar.
+//
+// These tests pin the contract via BOTH source-text assertions (which
+// always work, regardless of mock setup) and runtime assertions
+// (which import the actual stop-python.ts via `vi.importActual` to
+// verify the timer-firing behavior under fake timers).
+// ────────────────────────────────────────────────────────────────────
+
+describe("stop-python.ts: SIGKILL escalation contract (source-text)", () => {
+	const stopPythonSrc = fs.readFileSync(
+		path.resolve(__dirname, "../python/stop-python.ts"),
+		"utf-8",
+	);
+
+	it("exports KILL_TIMER_MS and ESCALATE_TIMER_MS constants", () => {
+		// The contract is parameterized by these two constants so
+		// the runtime test can pin the firing schedule without
+		// hardcoding magic numbers.
+		expect(stopPythonSrc).toMatch(/export\s+const\s+KILL_TIMER_MS\s*=/);
+		expect(stopPythonSrc).toMatch(/export\s+const\s+ESCALATE_TIMER_MS\s*=/);
+	});
+
+	it("ESCALATE_TIMER_MS is 3000 (extended from the prior 1500)", () => {
+		// The finding specified a 3s escalation timer (was 1.5s).
+		// Pin the value so a regression to the old 1.5s is caught.
+		const match = stopPythonSrc.match(
+			/export\s+const\s+ESCALATE_TIMER_MS\s*=\s*(\d+)/,
+		);
+		expect(match).not.toBeNull();
+		expect(Number(match?.[1])).toBe(3000);
+	});
+
+	it("POSIX path: sends SIGTERM then escalates to SIGKILL", () => {
+		// The POSIX escalation: SIGTERM (graceful) → SIGKILL (force).
+		// Both signals must be present in the source.
+		expect(stopPythonSrc).toMatch(/proc\.kill\(\s*["']SIGTERM["']\s*\)/);
+		expect(stopPythonSrc).toMatch(/proc\.kill\(\s*["']SIGKILL["']\s*\)/);
+	});
+
+	it("Windows path: uses taskkill /F /T /PID for tree kill", () => {
+		// On Windows, proc.kill() orphans children. The source
+		// must invoke `taskkill` with /T (tree) and /F (force) on
+		// the escalation path. /F only appears on the force-kill
+		// path (the graceful attempt uses /T without /F).
+		expect(stopPythonSrc).toMatch(/taskkill/);
+		expect(stopPythonSrc).toMatch(/["']\/T["']/);
+		expect(stopPythonSrc).toMatch(/["']\/F["']/);
+		expect(stopPythonSrc).toMatch(/["']\/PID["']/);
+	});
+
+	it("branches on process.platform for the kill path", () => {
+		// The platform check must be present so the Windows
+		// taskkill path is actually taken on win32.
+		expect(stopPythonSrc).toMatch(/process\.platform\s*===\s*["']win32["']/);
+	});
+
+	it("escalateTimer is armed with ESCALATE_TIMER_MS (no hardcoded 1500)", () => {
+		// The escalation timer must reference the exported
+		// constant, not a hardcoded 1500 (the old value).
+		expect(stopPythonSrc).toMatch(
+			/setTimeout\([\s\S]*?},\s*ESCALATE_TIMER_MS\)/,
+		);
+		// And the old hardcoded 1500 must NOT remain anywhere
+		// in the file (defense against a regression that
+		// re-introduces the old value).
+		expect(stopPythonSrc).not.toMatch(/},\s*1500\)/);
+	});
+
+	it("killTimer is armed with KILL_TIMER_MS (not a hardcoded 3000)", () => {
+		// The kill timer must reference the exported constant.
+		expect(stopPythonSrc).toMatch(/setTimeout\([\s\S]*?},\s*KILL_TIMER_MS\)/);
+	});
+
+	it("escalateTimer is cleared when the proc emits 'exit' (graceful exit cancels escalation)", () => {
+		// If Python exits gracefully (the .once('exit') path),
+		// the escalateTimer must be cleared so SIGKILL doesn't
+		// fire on an already-dead pid.
+		expect(stopPythonSrc).toMatch(
+			/proc\.once\(\s*["']exit["']\s*,\s*\(\)\s*=>\s*clearTimeout\(escalateTimer\)\s*\)/,
+		);
+	});
+
+	it("imports spawnSync from node:child_process for the Windows tree kill", () => {
+		// spawnSync is used for the synchronous taskkill call.
+		expect(stopPythonSrc).toMatch(
+			/import\s*\{\s*spawnSync\s*\}\s*from\s*["']node:child_process["']/,
+		);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Runtime tests: import the actual stop-python.ts via vi.importActual
+// (bypasses the hoisted `vi.mock("../python/stop-python", ...)`) and
+// verify the timer-firing schedule under fake timers.
+// ────────────────────────────────────────────────────────────────────
+
+class _MockChildProcess extends EventEmitter {
+	pid = 12345;
+	killed = false;
+	kill = vi.fn((_signal?: NodeJS.Signals) => true);
+}
+
+describe("stop-python.ts: SIGKILL escalation contract (runtime)", () => {
+	let stopPython: () => void;
+	let mockProc: _MockChildProcess;
+	let originalPlatform: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		vi.useFakeTimers();
+		Object.assign(mockState, makeMockState());
+		vi.resetModules();
+		// vi.importActual bypasses the hoisted
+		// `vi.mock("../python/stop-python", ...)` so we get the
+		// REAL module. The hoisted mocks for `../state` and
+		// `../python/send-to-python` still apply to the real
+		// module's transitive imports (vi.importActual only
+		// bypasses the mock for the named module, not its
+		// dependencies).
+		const stopMod = await vi.importActual<
+			typeof import("../python/stop-python")
+		>("../python/stop-python");
+		stopPython = stopMod.stopPython;
+		mockProc = new _MockChildProcess();
+		mockState.pythonProcess = mockProc as unknown as MainState["pythonProcess"];
+		originalPlatform = process.platform;
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		// Restore process.platform in case a test stubbed it.
+		Object.defineProperty(process, "platform", {
+			value: originalPlatform,
+			configurable: true,
+		});
+	});
+
+	it("does NOT kill the process immediately (killTimer hasn't fired yet)", () => {
+		stopPython();
+		expect(mockProc.kill).not.toHaveBeenCalled();
+	});
+
+	it("after KILL_TIMER_MS, sends SIGTERM (POSIX graceful)", () => {
+		// Run the POSIX branch on any host by stubbing the
+		// platform (the Windows taskkill path is exercised in the
+		// dedicated win32 test below; stubbing also prevents a
+		// real taskkill /T /PID on the mock pid when the suite
+		// runs on Windows).
+		Object.defineProperty(process, "platform", {
+			value: "linux",
+			configurable: true,
+		});
+		stopPython();
+		// Advance past the killTimer.
+		vi.advanceTimersByTime(3000);
+		expect(mockProc.kill).toHaveBeenCalledTimes(1);
+		expect(mockProc.kill).toHaveBeenCalledWith("SIGTERM");
+	});
+
+	it("after KILL_TIMER_MS + ESCALATE_TIMER_MS, escalates to SIGKILL (POSIX)", () => {
+		// The full escalation: SIGTERM at 3s, SIGKILL at 6s.
+		// The MockChildProcess.kill doesn't actually flip
+		// `killed` to true (it's a vi.fn), so the escalateTimer
+		// sees `!proc.killed === true` and fires SIGKILL.
+		// Stub the platform so the POSIX branch runs on any host
+		// (no real taskkill on the mock pid).
+		Object.defineProperty(process, "platform", {
+			value: "linux",
+			configurable: true,
+		});
+		stopPython();
+		vi.advanceTimersByTime(3000);
+		expect(mockProc.kill).toHaveBeenCalledWith("SIGTERM");
+		// Advance past the escalateTimer.
+		vi.advanceTimersByTime(3000);
+		// Now SIGKILL should have been called too.
+		expect(mockProc.kill).toHaveBeenCalledTimes(2);
+		expect(mockProc.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+	});
+
+	it("graceful proc exit cancels the SIGKILL escalation", () => {
+		// If the proc emits "exit" after SIGTERM (the graceful
+		// path), the escalateTimer must be cleared so SIGKILL
+		// doesn't fire on an already-dead pid. Stub the platform
+		// so the POSIX branch runs on any host (no real taskkill
+		// on the mock pid).
+		Object.defineProperty(process, "platform", {
+			value: "linux",
+			configurable: true,
+		});
+		stopPython();
+		vi.advanceTimersByTime(3000); // killTimer fires → SIGTERM
+		expect(mockProc.kill).toHaveBeenCalledTimes(1);
+		// Simulate graceful exit.
+		mockProc.emit("exit", 0, null);
+		// Advance past the escalateTimer window.
+		vi.advanceTimersByTime(3000);
+		// SIGKILL must NOT have been called — the escalateTimer
+		// was cleared by the exit handler.
+		expect(mockProc.kill).toHaveBeenCalledTimes(1);
+	});
+
+	it("on Windows, uses taskkill /F /T /PID for the escalation (not proc.kill SIGKILL)", async () => {
+		// Stub process.platform to "win32" so the Windows
+		// branch is taken. The spawnSync call is mocked via
+		// vi.doMock on node:child_process.
+		const spawnSyncMock = vi.fn((..._args: unknown[]) => ({
+			status: 0,
+			pid: 0,
+			output: [],
+		}));
+		vi.doMock("node:child_process", () => ({ spawnSync: spawnSyncMock }));
+		// Re-import stop-python so it picks up the mocked
+		// node:child_process. vi.importActual still bypasses
+		// the hoisted stop-python mock; the doMock for
+		// node:child_process applies to its transitive imports.
+		vi.resetModules();
+		Object.defineProperty(process, "platform", {
+			value: "win32",
+			configurable: true,
+		});
+		Object.assign(mockState, makeMockState());
+		const freshProc = new _MockChildProcess();
+		mockState.pythonProcess =
+			freshProc as unknown as MainState["pythonProcess"];
+
+		const stopMod = await vi.importActual<
+			typeof import("../python/stop-python")
+		>("../python/stop-python");
+		stopMod.stopPython();
+
+		// Advance past the killTimer (3s) — Windows graceful
+		// attempt: taskkill /T /PID (no /F).
+		vi.advanceTimersByTime(3000);
+		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		const firstCallArgs = spawnSyncMock.mock.calls[0];
+		expect(firstCallArgs[0]).toBe("taskkill");
+		// /T and /PID must be present. /F must NOT (graceful).
+		expect(firstCallArgs[1]).toContain("/T");
+		expect(firstCallArgs[1]).toContain("/PID");
+		expect(firstCallArgs[1]).toContain(String(freshProc.pid));
+		expect(firstCallArgs[1]).not.toContain("/F");
+
+		// Advance past the escalateTimer (3s more) — Windows
+		// force-kill: taskkill /F /T /PID.
+		vi.advanceTimersByTime(3000);
+		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+		const secondCallArgs = spawnSyncMock.mock.calls[1];
+		expect(secondCallArgs[0]).toBe("taskkill");
+		expect(secondCallArgs[1]).toContain("/F");
+		expect(secondCallArgs[1]).toContain("/T");
+		expect(secondCallArgs[1]).toContain("/PID");
+		expect(secondCallArgs[1]).toContain(String(freshProc.pid));
+
+		// proc.kill must NEVER have been called on Windows —
+		// the taskkill path replaces it entirely.
+		expect(freshProc.kill).not.toHaveBeenCalled();
 	});
 });

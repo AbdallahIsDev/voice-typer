@@ -284,8 +284,18 @@ export function registerWindowHandlers(): void {
 	//
 	// Payload shapes accepted (matches the existing
 	// `i18n-set-locale-handler.test.ts` contract):
-	//   - bare string: "ar"
-	//   - object: { locale: "ar" }
+	//   - bare string: "ar"  ← canonical production path; the only
+	//     shape the preload (`setLocale: (locale: string) =>
+	//     ipcRenderer.invoke(I18nChannels.setLocale, locale)`)
+	//     ever sends.
+	//   - object: { locale: "ar" }  ← legacy/test-contract shape.
+	//     UE-39 audit: no production caller sends this form (the
+	//     preload always passes a bare string). The branch is kept
+	//     because the `i18n-set-locale-handler.test.ts` test suite
+	//     (outside this agent's file ownership) explicitly asserts
+	//     both shapes are accepted. Deleting it would break that
+	//     test contract; tightening the contract requires
+	//     coordinating with the test file's owner.
 	// Empty / null / non-string payloads return `{ ok: false, error:
 	// "empty locale" }` so the renderer's `.catch(() => {})` swallow
 	// doesn't fire — the push is best-effort.
