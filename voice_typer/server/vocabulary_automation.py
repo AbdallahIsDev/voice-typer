@@ -537,6 +537,16 @@ class VocabularyAutomation:
         suggestion is marked as ``applied`` and removed from the
         pending queue.
 
+        Atomicity: the check (``applied or dismissed``), the side
+        effect (``_vm.add_entry``), and the mutation
+        (``suggestion.applied = True`` + ``_pending`` rebuild) all
+        happen under ``self._lock``.  Without this, two concurrent
+        callers (e.g. an auto-apply pass racing with a manual apply
+        from the IPC handler) could both pass the ``applied`` check
+        before either set the flag, both call ``_vm.add_entry``, and
+        produce duplicate ``misspellings`` entries (or, with a
+        list-based category, duplicate list items).
+
         Parameters
         ----------
         suggestion : CorrectionSuggestion
@@ -544,11 +554,32 @@ class VocabularyAutomation:
             by :meth:`analyze_transcription` (or constructed with
             matching fields).
         """
+        with self._lock:
+            self._apply_suggestion_locked(suggestion)
+
+    def _apply_suggestion_locked(self, suggestion: CorrectionSuggestion) -> bool:
+        """Apply a suggestion assuming ``self._lock`` is held by the caller.
+
+        Returns ``True`` if the suggestion was newly applied (the
+        ``add_entry`` side effect ran and the ``applied`` flag flipped
+        from False to True), ``False`` if it was already applied /
+        dismissed / failed to persist.  Callers that increment an
+        ``applied_count`` should use the return value rather than
+        assuming success.
+
+        The lock-held contract lets ``auto_apply_high_confidence_suggestions``
+        iterate the pending list and apply each qualifying suggestion
+        in one atomic pass — without re-acquiring the lock per item
+        (which would re-introduce the check-and-apply race between
+        iterations).
+        """
         if suggestion.applied or suggestion.dismissed:
-            return
+            return False
         try:
             # Add to misspellings — that's the most appropriate
             # category for "the ASR said X, the correct word is Y".
+            # ``_vm.add_entry`` acquires its OWN (different) lock, so
+            # holding ``self._lock`` here cannot deadlock.
             self._vm.add_entry(
                 "misspellings",
                 suggestion.original,
@@ -561,10 +592,10 @@ class VocabularyAutomation:
                 suggestion.corrected,
                 exc_info=True,
             )
-            return
+            return False
         suggestion.applied = True
-        with self._lock:
-            self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
+        self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
+        return True
 
     def get_pending_suggestions(self) -> list[CorrectionSuggestion]:
         """Return the suggestions not yet applied or dismissed.
@@ -581,14 +612,34 @@ class VocabularyAutomation:
         The suggestion is removed from the pending queue.  It is NOT
         added to the vocabulary.
 
+        Atomicity: the mutation (``suggestion.dismissed = True``) and
+        the ``_pending`` rebuild both happen under ``self._lock`` so a
+        racing apply / dismiss cannot both succeed on the same
+        suggestion.  (Without the lock, two callers could both set
+        ``dismissed``/``applied`` to True, leaving the suggestion in
+        an inconsistent state and double-removing it from the
+        pending list — harmless for the list, but the ``applied``
+        side effect would still have run.)
+
         Parameters
         ----------
         suggestion : CorrectionSuggestion
             The suggestion to dismiss.
         """
-        suggestion.dismissed = True
         with self._lock:
-            self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
+            self._dismiss_suggestion_locked(suggestion)
+
+    def _dismiss_suggestion_locked(self, suggestion: CorrectionSuggestion) -> bool:
+        """Dismiss a suggestion assuming ``self._lock`` is held by the caller.
+
+        Returns ``True`` if the suggestion was newly dismissed,
+        ``False`` if it was already applied or dismissed.
+        """
+        if suggestion.applied or suggestion.dismissed:
+            return False
+        suggestion.dismissed = True
+        self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
+        return True
 
     def auto_apply_high_confidence_suggestions(
         self,
@@ -608,6 +659,15 @@ class VocabularyAutomation:
         confidence word that's one edit away from a vocabulary
         entry is almost certainly a typo.
 
+        Atomicity: the entire pass (snapshot + per-suggestion check +
+        apply) runs under ``self._lock`` so a concurrent manual
+        ``apply_suggestion`` / ``dismiss_suggestion`` cannot race
+        with this loop and double-apply the same suggestion.  The
+        pre-fix code released the lock between the snapshot and the
+        apply, which let two callers both pass the
+        ``suggestion.applied`` check before either set the flag —
+        producing duplicate ``misspellings`` entries.
+
         Parameters
         ----------
         threshold : float
@@ -619,20 +679,25 @@ class VocabularyAutomation:
             Number of suggestions auto-applied.
         """
         applied_count = 0
-        # Snapshot under the lock to avoid mutating while iterating.
         with self._lock:
+            # Iterate over a snapshot of ``_pending`` because
+            # ``_apply_suggestion_locked`` rebuilds ``_pending`` after
+            # each successful apply.  The snapshot is consistent
+            # because we hold the lock for the whole pass.
             pending_snapshot = list(self._pending)
-
-        for suggestion in pending_snapshot:
-            if suggestion.applied or suggestion.dismissed:
-                continue
-            if suggestion.confidence >= threshold and suggestion.corrected != suggestion.original:
-                # Only auto-apply if we actually have a proposed
-                # correction different from the original.  Suggestions
-                # where ``corrected == original`` (no Levenshtein
-                # match found) require user input.
-                self.apply_suggestion(suggestion)
-                applied_count += 1
+            for suggestion in pending_snapshot:
+                if suggestion.applied or suggestion.dismissed:
+                    continue
+                if (
+                    suggestion.confidence >= threshold
+                    and suggestion.corrected != suggestion.original
+                    and self._apply_suggestion_locked(suggestion)
+                ):
+                    # Only auto-apply if we actually have a proposed
+                    # correction different from the original.  Suggestions
+                    # where ``corrected == original`` (no Levenshtein
+                    # match found) require user input.
+                    applied_count += 1
 
         if applied_count > 0:
             log.info(
