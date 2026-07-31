@@ -83,6 +83,34 @@ _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 # The model.safetensors file is ~2.4 GB on disk.
 _PARAKERT_WEIGHTS_MB = 2400
 
+
+class _AbortStoppingCriteria:
+    """``transformers.StoppingCriteria`` that stops generation when an
+    abort event is set.
+
+    Used by ``ParakeetEngine._transcribe_segment`` /
+    ``_transcribe_batch`` to wire the dictation pipeline's cancel path
+    (ESC / watchdog) into ``model.generate()``. ``transformers`` calls
+    each criterion's ``__call__`` between generated tokens; returning
+    ``True`` stops generation early so the inference thread is
+    unblocked in bounded time instead of decoding the full sequence.
+
+    Implemented as a duck-typed class (NOT a subclass of
+    ``transformers.StoppingCriteria``) so the module imports cleanly
+    even when ``transformers`` is not installed (the optional-deps
+    pattern used throughout this module). ``model.generate`` only
+    requires the ``__call__`` method — it does not isinstance-check
+    against ``StoppingCriteria``.
+    """
+
+    def __init__(self, abort_event: threading.Event) -> None:
+        self._abort_event = abort_event
+
+    def __call__(self, input_ids: Any, scores: Any, **kwargs: Any) -> bool:  # noqa: D401
+        """Return True if generation should stop (abort signalled)."""
+        return self._abort_event.is_set()
+
+
 # SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
 # ``_model_integrity`` module so ``parakeet_engine`` and ``asr_setup``
 # can never drift out of sync.  See ``_model_integrity.py`` for the
@@ -213,6 +241,19 @@ class ParakeetEngine:
         # concurrent transcribe() doesn't dereference a freed model.
         self._active_inference = 0
         self._inference_cond = threading.Condition(self._lock)
+        # Abort token shared by the dictation pipeline's cancel path
+        # and the ``model.generate()`` call in ``_transcribe_segment``
+        # / ``_transcribe_batch``. ``request_abort()`` sets the event;
+        # the ``_AbortStoppingCriteria`` (passed as ``stopping_criteria``
+        # to ``generate()``) checks it between generated tokens and
+        # returns True to stop generation early. ``clear_abort()`` is
+        # called by the pipeline at the start of each transcription
+        # cycle so a stale abort from the previous cycle does NOT
+        # suppress the next one. The chunk-iteration loop in
+        # ``_transcribe_chunks_batched`` also checks the event between
+        # chunks so a long audio split into 13 chunks stops after the
+        # current chunk rather than decoding all remaining ones.
+        self._abort_event = threading.Event()
         self._ensure_hf_env()
 
     @classmethod
@@ -366,6 +407,29 @@ class ParakeetEngine:
     def is_loaded(self) -> bool:
         with self._lock:
             return self._model is not None and self._processor is not None
+
+    def request_abort(self) -> None:
+        """Signal an in-flight ``model.generate()`` to stop early.
+
+        Sets ``_abort_event``; the ``_AbortStoppingCriteria`` passed
+        to ``model.generate()`` checks the event between generated
+        tokens and returns True to stop generation. Also causes the
+        chunk-iteration loop in ``_transcribe_chunks_batched`` to break
+        out after the current chunk completes. Bounded latency instead
+        of waiting for the full audio to decode — frees compute for
+        the next dictation cycle.
+        """
+        self._abort_event.set()
+
+    def clear_abort(self) -> None:
+        """Clear the abort token at the start of a fresh transcription cycle.
+
+        Called by the dictation pipeline before each transcribe so a
+        stale abort from the previous cycle (e.g. the user hit ESC,
+        aborted, then started a new recording) does NOT suppress the
+        new transcription.
+        """
+        self._abort_event.clear()
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
         """Download (if needed) and load the Parakeet model.
@@ -745,10 +809,19 @@ class ParakeetEngine:
         #
         # AB-11: wrap generate() in torch.inference_mode() to skip
         # autograd-graph construction. See _inference_mode_ctx.
+        #
+        # Abort wiring: ``_AbortStoppingCriteria`` is checked between
+        # generated tokens by ``transformers``. When the dictation
+        # pipeline's cancel path (ESC / watchdog) sets
+        # ``self._abort_event``, the next token-step returns True and
+        # ``generate()`` stops early — bounded latency instead of
+        # decoding the full sequence. ``generate()`` accepts a list of
+        # stopping criteria; we pass ours as the sole entry.
         with self._inference_mode_ctx():
             output = self._model.generate(
                 **inputs,
                 return_dict_in_generate=True,
+                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
             )
         text = self._processor.decode(
             output.sequences,
@@ -825,6 +898,21 @@ class ParakeetEngine:
         if self._INFERENCE_BATCH_SIZE <= 1 or len(chunks) == 1:
             results: list[str] = []
             for i, chunk in enumerate(chunks):
+                # Check the abort token BETWEEN chunks. The
+                # ``_transcribe_segment`` call below already wires the
+                # abort event into ``model.generate()`` via
+                # ``_AbortStoppingCriteria`` (so the current chunk's
+                # token stream stops early); this check skips any
+                # REMAINING chunks after the current one returns, so a
+                # 13-chunk long-form dictation stops after the current
+                # chunk rather than decoding all remaining ones.
+                if self._abort_event.is_set():
+                    log.info(
+                        "[PARAKEET] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
+                        i,
+                        len(chunks),
+                    )
+                    break
                 log.info(
                     "[PARAKEET] Transcribing chunk %d/%d (%.1fs)",
                     i + 1,
@@ -839,6 +927,14 @@ class ParakeetEngine:
         results = []
         i = 0
         while i < len(chunks):
+            # Same abort check as the sequential branch — see above.
+            if self._abort_event.is_set():
+                log.info(
+                    "[PARAKEET] Abort requested — stopping batched chunk loop early (completed %d/%d chunks)",
+                    i,
+                    len(chunks),
+                )
+                break
             batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
             i += len(batch)
             log.info(
@@ -882,10 +978,13 @@ class ParakeetEngine:
         inputs.to(device=self._model.device, dtype=self._model.dtype)
         # AB-11: wrap generate() in torch.inference_mode() to skip
         # autograd-graph construction. See _inference_mode_ctx.
+        # Abort wiring: same ``_AbortStoppingCriteria`` as the
+        # single-segment path — see ``_transcribe_segment``.
         with self._inference_mode_ctx():
             output = self._model.generate(
                 **inputs,
                 return_dict_in_generate=True,
+                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
             )
         decoded = self._processor.decode(
             output.sequences,

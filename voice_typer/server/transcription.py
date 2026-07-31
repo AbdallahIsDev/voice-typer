@@ -263,6 +263,19 @@ class TranscriptionEngine:
         self._requested_device: str | None = device  # defer CUDA detection to load()
         self._device = "cpu"
         self._compute_type = "int8"
+        # Abort token shared by the dictation pipeline's cancel path
+        # and the segment-iteration loop in ``_transcribe_unlocked``.
+        # ``request_abort()`` sets the event from any thread (typically
+        # the watchdog / ESC cancel path via the pipeline's abort
+        # watcher); the segment loop checks it between iterations and
+        # breaks out early, returning the partial text collected so far.
+        # ``clear_abort()`` is called by the pipeline at the start of
+        # each transcription cycle so a stale abort from the previous
+        # cycle does NOT suppress the next one. The event is also
+        # signaled to ctranslate2 via ``interrupt()`` when available
+        # (ctranslate2 >= 4.x) so a mid-segment ``model.transcribe()``
+        # call returns promptly instead of running to completion.
+        self._abort_event = threading.Event()
         # NEW-PRIV-005: store a reference to the app's Config dataclass
         # so the HuggingFace-consent check in _pre_download_model can
         # read ``huggingface_consent`` without crashing.  Previously
@@ -318,6 +331,44 @@ class TranscriptionEngine:
     def is_loaded(self) -> bool:
         """Return True if the model has been loaded successfully."""
         return self._model is not None
+
+    def request_abort(self) -> None:
+        """Signal an in-flight transcription to abort as soon as possible.
+
+        Sets the ``_abort_event`` checked between segment iterations in
+        ``_transcribe_unlocked``. Also best-effort calls
+        ``ctranslate2.Translator.interrupt()`` (ctranslate2 >= 4.x)
+        via the wrapped ``WhisperModel.model`` attribute so a
+        mid-segment ``model.transcribe()`` call returns promptly
+        instead of running to completion. If the interrupt API is
+        unavailable (older ctranslate2 / mock model), only the
+        between-segments check fires — the current segment finishes
+        but no further segments are produced. Either way, the
+        transcription thread is unblocked in bounded time, freeing
+        compute for the next dictation cycle.
+        """
+        self._abort_event.set()
+        # Best-effort ctranslate2 interrupt. ``WhisperModel.model`` is
+        # the underlying ctranslate2 ``Whisper`` translator; ctranslate2
+        # >= 4.x exposes ``interrupt()`` on it. Mocked models in tests
+        # may not have the attribute — guard with ``hasattr`` so the
+        # abort path never raises.
+        try:
+            inner = getattr(self._model, "model", None)
+            if inner is not None and hasattr(inner, "interrupt"):
+                inner.interrupt()
+        except Exception:
+            log.debug("[TRANSCRIBE] ctranslate2 interrupt() failed (non-fatal)", exc_info=True)
+
+    def clear_abort(self) -> None:
+        """Clear the abort token at the start of a fresh transcription cycle.
+
+        Called by the dictation pipeline before each transcribe so a
+        stale abort from the previous cycle (e.g. the user hit ESC,
+        aborted, then started a new recording) does NOT suppress the
+        new transcription.
+        """
+        self._abort_event.clear()
 
     @property
     def device_info(self) -> str:
@@ -900,10 +951,7 @@ class TranscriptionEngine:
         # attribute access + import lookups added ~1ms of pure overhead
         # before any actual regex work. Hoisting computes the flag once
         # and reuses the imported function for every segment.
-        _log_transcriptions_flag = (
-            self.config is not None
-            and getattr(self.config, "log_transcriptions", False)
-        )
+        _log_transcriptions_flag = self.config is not None and getattr(self.config, "log_transcriptions", False)
         _redact_pii = None
         if _log_transcriptions_flag:
             try:
@@ -911,6 +959,22 @@ class TranscriptionEngine:
             except Exception:
                 _redact_pii = None
         for seg in segments:
+            # Check the abort token BETWEEN segment iterations. The
+            # ``segments`` generator yields one segment at a time, with
+            # each ``next()`` call driving a ctranslate2 decoding step
+            # (typically 0.5-3s per segment). Checking here lets the
+            # ESC / watchdog cancel path break out of the loop within
+            # one segment of being signalled — bounded latency instead
+            # of waiting for the full audio to decode. ``request_abort()``
+            # also best-effort calls ``ctranslate2.Translator.interrupt()``
+            # so the CURRENT segment's C-level call returns promptly.
+            if self._abort_event.is_set():
+                log.info(
+                    "[TRANSCRIBE] Abort requested — stopping segment loop early (completed %d segments, %d text parts)",
+                    segment_count,
+                    len(text_parts),
+                )
+                break
             segment_count += 1
             start = seg.start or 0.0
             end = seg.end or start

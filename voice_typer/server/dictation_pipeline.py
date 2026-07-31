@@ -14,6 +14,7 @@ history_db, etc. — a full dependency injection refactor is deferred
 
 import contextlib
 import logging
+import threading
 import time
 import typing
 from typing import Any
@@ -184,6 +185,110 @@ def _timed_stage(timings: dict[str, float], name: str) -> typing.Iterator[None]:
         timings[name] = (time.perf_counter() - t0) * 1000
 
 
+class _AbortWatcher:
+    """Lightweight daemon thread that bridges the recording controller's
+    cancel set to the active ASR engine's abort API.
+
+    The recording controller's cancel path (ESC hotkey, watchdog
+    force-recover) adds the current ``cycle_id`` to
+    ``recording._cancelled_cycle_ids`` under
+    ``_cancelled_cycle_ids_lock``. Pre-fix, that was the END of the
+    abort story — the transcription thread kept running ctranslate2 /
+    transformers / cloud-HTTP inference to completion (potentially
+    10-30s for Whisper, 30s+ for cloud), then the late result was
+    dropped by the pipeline's ``CancellationGuard`` before paste.
+
+    This watcher polls ``_cancelled_cycle_ids`` every 100ms while
+    inference is running; when the cycle appears in the set, it calls
+    ``engine.request_abort()`` which sets the engine's ``_abort_event``
+    so:
+
+      * **Whisper** (``transcription.py``) — the segment loop breaks
+        early on the next iteration; ``ctranslate2.Translator.interrupt()``
+        is also best-effort called to unblock the current C-level call.
+      * **Parakeet** (``parakeet_engine.py``) — the
+        ``_AbortStoppingCriteria`` returns True on the next generated
+        token, so ``model.generate()`` returns early. Long-audio chunk
+        loops also break after the current chunk.
+      * **Cloud** (``cloud_engines.py``) — the retry loop checks the
+        event at the top of each iteration and bails out instead of
+        issuing another 10s HTTP call.
+
+    Polling is used (rather than a callback / condition variable)
+    because the cancel path lives in ``recording_controller.py`` (a
+    module this pipeline does not own) and the cancelled-set is the
+    existing coordination point. 100ms granularity is a deliberate
+    trade-off: short enough that the user perceives near-instant
+    compute release, long enough that the polling overhead (one lock
+    acquire + set lookup, ~1us) is negligible vs. the inference cost
+    per iteration (~0.5-3s for Whisper, ~1-2s for Parakeet, ~1-2s for
+    cloud). The watcher is a daemon thread so it never blocks process
+    exit.
+
+    Lifetime: started in ``DictationPipeline._transcribe`` before the
+    transcribe call, stopped (via ``stop()``) in a ``finally`` block
+    after the call returns or raises. The stop method sets the
+    watcher's own stop event and joins with a 1s timeout — if the
+    watcher is mid-poll it exits within 100ms; the 1s ceiling is
+    defense-in-depth.
+    """
+
+    _POLL_INTERVAL_SECONDS: float = 0.1
+
+    def __init__(self, app: Any, cycle_id: str, engine: Any) -> None:
+        self._app = app
+        self._cycle_id = cycle_id
+        self._engine = engine
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._abort_signalled: bool = False
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._run,
+            name="DictationAbortWatcher",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._POLL_INTERVAL_SECONDS):
+            try:
+                recording = getattr(self._app, "recording", None)
+                if recording is None:
+                    continue
+                cancelled_set = getattr(recording, "_cancelled_cycle_ids", None)
+                cancelled_lock = getattr(recording, "_cancelled_cycle_ids_lock", None)
+                if cancelled_set is None or cancelled_lock is None:
+                    continue
+                with cancelled_lock:
+                    is_cancelled = self._cycle_id in cancelled_set
+                if is_cancelled:
+                    log.info(
+                        "[PIPELINE] abort watcher detected cancel for cycle %s — signalling engine.request_abort()",
+                        self._cycle_id,
+                    )
+                    try:
+                        self._engine.request_abort()
+                    except Exception:
+                        log.debug(
+                            "[PIPELINE] engine.request_abort() raised (non-fatal)",
+                            exc_info=True,
+                        )
+                    self._abort_signalled = True
+                    return
+            except Exception:
+                log.debug(
+                    "[PIPELINE] abort watcher poll failed (non-fatal)",
+                    exc_info=True,
+                )
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+
+
 class DictationPipeline:
     """Transcription pipeline — one method per step.
 
@@ -239,6 +344,57 @@ class DictationPipeline:
         from voice_typer.server.dictation_stages import build_default_stages
 
         self._stages: list = build_default_stages()
+
+    def request_abort(self) -> None:
+        """Signal the active ASR backend to abort in-flight inference.
+
+        Public entry point for external callers (e.g. the recording
+        controller's ESC cancel path / the watchdog's force-recover
+        path) to request that the current ``transcribe_with_fallback``
+        call return as soon as possible. Delegates to the active
+        engine's ``request_abort()`` which sets an ``_abort_event``
+        consumed by:
+
+          * ``TranscriptionEngine._transcribe_unlocked`` — breaks the
+            segment loop and best-effort calls
+            ``ctranslate2.Translator.interrupt()``.
+          * ``ParakeetEngine._transcribe_segment`` /
+            ``_transcribe_batch`` — the ``_AbortStoppingCriteria``
+            returns True on the next generated token, stopping
+            ``model.generate()``.
+          * ``CloudEngine._send_openai_compatible`` /
+            ``_send_deepgram`` — the retry loop checks the event at
+            the top of each iteration and bails out.
+
+        The internal ``_AbortWatcher`` (started in ``_transcribe``)
+        already calls this method when ``recording._cancelled_cycle_ids``
+        contains the current cycle, so external callers that already
+        add to that set do NOT need to also call this method — the
+        watcher will pick it up within 100ms. This method is the
+        direct, lower-latency path for callers that want to skip the
+        polling delay (e.g. the watchdog's force-recover path, which
+        has already decided the cycle is unrecoverable).
+
+        Best-effort: catches every exception so a broken engine never
+        propagates a failure to the caller. The abort token is a
+        ``threading.Event`` — even if ``request_abort()`` raises, the
+        engine's existing inference loop will continue (just without
+        the early-exit signal). The caller's recovery path (e.g. the
+        watchdog's ``_busy_event.set()``) is independent.
+        """
+        try:
+            active = self._app.models.active_transcriber()
+        except Exception:
+            log.debug("[PIPELINE] request_abort: could not read active transcriber", exc_info=True)
+            return
+        if active is None:
+            return
+        if not hasattr(active, "request_abort"):
+            return
+        try:
+            active.request_abort()
+        except Exception:
+            log.debug("[PIPELINE] request_abort: engine.request_abort() raised (non-fatal)", exc_info=True)
 
     def run(
         self,
@@ -882,52 +1038,76 @@ class DictationPipeline:
         active = self._app.models.active_transcriber()
         backend_was_loaded = bool(getattr(active, "is_loaded", False))
 
-        # UE-10 sibling: pop_streaming_session() atomically owns the
-        # session AND clears the slot under a SINGLE lock acquisition.
-        # If finalize() raises below, the slot is already clear — the
-        # next dictation cycle starts with a clean slot rather than
-        # re-entering the stale session. We never write back to the
-        # slot (a concurrent _start_streaming_session_if_enabled could
-        # install a NEW session that a set_streaming_session(None) would
-        # clobber — see UE-10).
-        session = self._app.recording.pop_streaming_session()
-        if session is not None:
-            log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
-            text = session.finalize(self._audio)
-        else:
-            # NEW-PERF-010: pass the pre-computed audio stats so the
-            # transcription engine doesn't recompute RMS/peak/silence_pct
-            # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
-            # memory per dictation).
+        # Clear any stale abort from a previous cycle before starting
+        # inference. ``clear_abort()`` is a no-op on engines that
+        # don't expose the abort API (e.g. a test stub); the
+        # ``hasattr`` guard makes this safe. After clearing, install
+        # an ``_AbortWatcher`` that polls ``recording._cancelled_cycle_ids``
+        # every 100ms and calls ``active.request_abort()`` when the
+        # cycle is cancelled. The watcher bridges the recording
+        # controller's cancel path (ESC / watchdog) to the engine's
+        # abort API so inference actually stops instead of running to
+        # completion while the late result is dropped by the paste
+        # guard. The watcher is stopped in the ``finally`` block below.
+        abort_watcher: _AbortWatcher | None = None
+        if active is not None and hasattr(active, "clear_abort"):
+            with contextlib.suppress(Exception):
+                active.clear_abort()
+            if hasattr(active, "request_abort"):
+                abort_watcher = _AbortWatcher(self._app, self._cycle_id, active)
+                abort_watcher.start()
 
-            # a-review Finding 8: previously this call was wrapped in a
-            # broad ``try/except TypeError`` to handle backends that
-            # didn't yet accept ``audio_stats``. That catch was too
-            # broad — a ``TypeError`` raised inside the function body
-            # (``None.lower()``, bad indexing, etc.) was also caught
-            # and the retry either failed the same way (confusing
-            # trace) or masked the original bug. All four backends
-            # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
-            # as a keyword argument, so the fallback is no longer
-            # needed.
+        try:
+            # UE-10 sibling: pop_streaming_session() atomically owns the
+            # session AND clears the slot under a SINGLE lock acquisition.
+            # If finalize() raises below, the slot is already clear — the
+            # next dictation cycle starts with a clean slot rather than
+            # re-entering the stale session. We never write back to the
+            # slot (a concurrent _start_streaming_session_if_enabled could
+            # install a NEW session that a set_streaming_session(None) would
+            # clobber — see UE-10).
+            session = self._app.recording.pop_streaming_session()
+            if session is not None:
+                log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
+                text = session.finalize(self._audio)
+            else:
+                # NEW-PERF-010: pass the pre-computed audio stats so the
+                # transcription engine doesn't recompute RMS/peak/silence_pct
+                # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
+                # memory per dictation).
 
-            # When the active backend is a CloudEngine, look
-            # up the local whisper engine from the model registry and
-            # pass it as ``local_engine=``.  This makes the cloud→local
-            # fallback path actually fire when the cloud provider is
-            # unreachable — previously the ``local_engine=`` parameter
-            # existed but NO caller passed it, so the fallback was dead
-            # code (transcription failed outright when the cloud was
-            # down).  When the active backend is already a local engine
-            # (Whisper/Parakeet/Qwen), ``local_engine`` is left as None.
-            local_engine = None
-            if isinstance(active, CloudEngine):
-                local_engine = _lookup_local_whisper(self._app)
-            text = active.transcribe_with_fallback(
-                self._audio,
-                audio_stats=self._audio_stats,
-                local_engine=local_engine,
-            )
+                # a-review Finding 8: previously this call was wrapped in a
+                # broad ``try/except TypeError`` to handle backends that
+                # didn't yet accept ``audio_stats``. That catch was too
+                # broad — a ``TypeError`` raised inside the function body
+                # (``None.lower()``, bad indexing, etc.) was also caught
+                # and the retry either failed the same way (confusing
+                # trace) or masked the original bug. All four backends
+                # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
+                # as a keyword argument, so the fallback is no longer
+                # needed.
+
+                # When the active backend is a CloudEngine, look
+                # up the local whisper engine from the model registry and
+                # pass it as ``local_engine=``.  This makes the cloud→local
+                # fallback path actually fire when the cloud provider is
+                # unreachable — previously the ``local_engine=`` parameter
+                # existed but NO caller passed it, so the fallback was dead
+                # code (transcription failed outright when the cloud was
+                # down).  When the active backend is already a local engine
+                # (Whisper/Parakeet/Qwen), ``local_engine`` is left as None.
+                local_engine = None
+                if isinstance(active, CloudEngine):
+                    local_engine = _lookup_local_whisper(self._app)
+                text = active.transcribe_with_fallback(
+                    self._audio,
+                    audio_stats=self._audio_stats,
+                    local_engine=local_engine,
+                )
+        finally:
+            if abort_watcher is not None:
+                with contextlib.suppress(Exception):
+                    abort_watcher.stop()
 
         # PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend
         # so it isn't evicted as least-recently-used after a successful

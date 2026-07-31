@@ -296,6 +296,14 @@ class CloudEngine:
     the IPC layer can surface a consent dialog to the renderer.
     """
 
+    # Per-request timeout for cloud HTTP calls. Reduced from 30s to 10s
+    # so a single stuck request cannot block the transcription thread for
+    # up to 35s (30s request + retry backoff). 10s is already ~5x a typical
+    # Whisper-API response (~1-2s); the 3-attempt retry loop provides
+    # resilience against transient failures without each individual call
+    # holding the thread hostage.
+    _REQUEST_TIMEOUT_SECONDS: float = 10.0
+
     def __init__(
         self,
         provider: str,
@@ -333,6 +341,19 @@ class CloudEngine:
         # and the original cloud error is re-raised.
         self._local_engine_factory = local_engine_factory
 
+        # Abort token shared by the dictation pipeline's cancel path
+        # and the retry loop below. ``request_abort()`` sets the event
+        # from any thread (typically the watchdog / ESC cancel path);
+        # ``_send_openai_compatible`` / ``_send_deepgram`` check it at
+        # the top of each retry iteration and short-circuit out instead
+        # of issuing another 10s HTTP call. ``clear_abort()`` is called
+        # by the pipeline at the start of each transcription cycle so
+        # a stale abort from the previous cycle does NOT suppress the
+        # next one. The event is also checked by ``transcribe`` itself
+        # before the first request so a pre-set abort (e.g.ESC hit
+        # during audio finalization) skips the network call entirely.
+        self._abort_event = threading.Event()
+
     # ── TranscriberProtocol ──────────────────────────────────────────
 
     @property
@@ -347,6 +368,31 @@ class CloudEngine:
         if progress_callback:
             progress_callback("Cloud engine ready")
         self._loaded = True
+
+    def request_abort(self) -> None:
+        """Signal the in-flight HTTP request + retry loop to abort.
+
+        Called from the dictation pipeline's abort watcher (which
+        monitors ``recording._cancelled_cycle_ids``) when the user
+        hits ESC or the watchdog force-recovers a stuck cloud call.
+        Sets a ``threading.Event`` that the retry loop checks at the
+        top of each iteration. The current HTTP request cannot be
+        interrupted from Python (the thread is blocked in C-level
+        ``recv``), but with the per-request timeout reduced to 10s
+        the worst-case latency before the abort takes effect is now
+        bounded to ~10s + retry backoff, down from ~30s + backoff.
+        """
+        self._abort_event.set()
+
+    def clear_abort(self) -> None:
+        """Clear the abort token at the start of a fresh transcription cycle.
+
+        Called by the dictation pipeline before each transcribe so a
+        stale abort from the previous cycle (e.g. the user hit ESC,
+        aborted, then started a new recording) does NOT suppress the
+        new transcription.
+        """
+        self._abort_event.clear()
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe audio via cloud API.
@@ -373,6 +419,14 @@ class CloudEngine:
             # revoked between save and transcribe.
             raise CloudConfigError("Cloud engine not configured (missing API key)")
         if len(audio) == 0:
+            return ""
+        # Honor a pre-set abort (e.g. ESC hit during audio finalization,
+        # before the cloud call started). Skip the network round-trip
+        # entirely — return empty so the pipeline's empty-check path
+        # runs instead of waiting 10s for a request the user already
+        # cancelled.
+        if self._abort_event.is_set():
+            log.info("[CLOUD] %s transcribe skipped — abort requested before first request", self.provider)
             return ""
         return self._send_request(audio)
 
@@ -555,6 +609,19 @@ class CloudEngine:
         max_retries = 3
         retried_429 = False
         for attempt in range(max_retries):
+            # Check the abort token BEFORE each (potentially 10s) HTTP
+            # call. If the user hit ESC or the watchdog force-recovered
+            # during a previous attempt's backoff sleep, bail out
+            # immediately rather than issuing another request that the
+            # user has already cancelled.
+            if self._abort_event.is_set():
+                log.info(
+                    "[CLOUD] %s abort requested — skipping retry %d/%d",
+                    self.provider,
+                    attempt + 1,
+                    max_retries,
+                )
+                raise CloudEngineError(f"{self.provider} transcription aborted by user")
             body = self._build_multipart_body(wav_bytes, filename, boundary)
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -566,7 +633,7 @@ class CloudEngine:
             }
             req = Request(self.api_url, data=body, headers=headers, method="POST")
             try:
-                with _opener.open(req, timeout=30) as resp:
+                with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
                     # SEC-030: cap response body at 50 MB to prevent
                     # a malicious or buggy server from exhausting RAM.
                     # Whisper / Groq / Deepgram responses are <100 KB
@@ -727,8 +794,17 @@ class CloudEngine:
         max_retries = 3
         retried_429 = False
         for attempt in range(max_retries):
+            # Same abort-token check as the OpenAI-compatible path —
+            # see ``_send_openai_compatible`` for the rationale.
+            if self._abort_event.is_set():
+                log.info(
+                    "[CLOUD] Deepgram abort requested — skipping retry %d/%d",
+                    attempt + 1,
+                    max_retries,
+                )
+                raise CloudEngineError("Deepgram transcription aborted by user")
             try:
-                with _opener.open(req, timeout=30) as resp:
+                with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
                     # SEC-030: cap response body at 50 MB.
                     raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
                     result = json.loads(raw.decode("utf-8"))
