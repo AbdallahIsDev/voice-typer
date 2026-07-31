@@ -190,93 +190,6 @@ def request_keyboard_permission(
         schedule_permission_retry(on_granted)
 
 
-def request_keyboard_permission_result(
-    on_granted: Callable[[], None] | None = None,
-) -> dict:
-    """PVT-057 — IPC-friendly wrapper around :func:`request_keyboard_permission`.
-
-    The onboarding renderer calls this via the
-    ``onboarding_request_keyboard_permission`` IPC handler when the user
-    clicks "Grant permission" in the Permissions step. Returns a result
-    dict so the renderer can surface success/failure (e.g. "pkexec not
-    found — open a terminal and run sudo …") without a follow-up
-    ``onboarding_check_permissions`` round-trip.
-
-    Returns
-    -------
-    dict
-        ``{"requested": bool, "platform": str, "error": str | None,
-        "instructions": str | None}`` where:
-
-        - ``requested``: True if the OS permission UI was launched
-          (macOS) or the pkexec/gksu/kdesu helper was spawned (Linux).
-          False on Windows (no-op) or unknown platforms.
-        - ``platform``: ``"windows"`` / ``"macos"`` / ``"linux"`` /
-          ``"unknown"``.
-        - ``error``: ``None`` on success, or a short string explaining
-          why the request couldn't be issued (e.g. "pkexec not found").
-        - ``instructions``: optional human-readable next-step hint
-          (e.g. "Run: sudo python3 …/install_permissions.py").
-    """
-    try:
-        if is_macos():
-            _open_macos_accessibility_settings()
-            platform_name = "macos"
-            requested = True
-            error = None
-            instructions = None
-        elif is_linux():
-            # _open_linux_pkexec_prompt logs an error if no GUI sudo
-            # helper is available — detect that case by checking
-            # shutil.which ourselves so we can return a useful error.
-            install_script = _find_linux_install_script()
-            if install_script is None:
-                platform_name = "linux"
-                requested = False
-                error = "install_permissions.py not found"
-                instructions = "Reinstall Voice Typer or run scripts/linux/install_permissions.py as root manually."
-            elif not (shutil.which("pkexec") or shutil.which("gksu") or shutil.which("kdesu")):
-                platform_name = "linux"
-                requested = False
-                error = "No GUI sudo helper found (pkexec/gksu/kdesu)"
-                instructions = f"Open a terminal and run: sudo {sys.executable} {install_script}"
-            else:
-                _open_linux_pkexec_prompt()
-                platform_name = "linux"
-                requested = True
-                error = None
-                instructions = (
-                    "A polkit password prompt should appear. After granting, "
-                    "log out and back in for the group change to take effect."
-                )
-        elif is_windows():
-            platform_name = "windows"
-            requested = False  # no-op — no permission needed
-            error = None
-            instructions = None
-        else:
-            platform_name = "unknown"
-            requested = False
-            error = "Unsupported platform"
-            instructions = None
-
-        if on_granted is not None and requested:
-            schedule_permission_retry(on_granted)
-    except Exception as exc:
-        log.exception("[PERMISSION] request_keyboard_permission_result failed")
-        platform_name = "macos" if is_macos() else "linux" if is_linux() else "windows" if is_windows() else "unknown"
-        requested = False
-        error = str(exc)
-        instructions = None
-
-    return {
-        "requested": requested,
-        "platform": platform_name,
-        "error": error,
-        "instructions": instructions,
-    }
-
-
 # ─── Permission retry mechanism ────────────────────────────────────────────
 
 # Default: retry every 60 seconds, up to 5 times. These match the design
@@ -531,137 +444,6 @@ def check_permissions_payload() -> dict:
         "needed": needed,
         "instructions": instructions,
         "microphone": mic_state.value,
-    }
-
-
-# ─── Native listener probe (PVT-008) ──────────────────────────────────────
-
-
-def probe_native_listener(
-    hotkey_str: str,
-    timeout_seconds: float = 3.0,
-) -> dict:
-    """PVT-008 — briefly start the native key listener and report if it
-    captures any key event.
-
-    The onboarding "Test hotkey" button previously gave a false-positive
-    success because it only probed the renderer's ``keydown`` handler —
-    which fires even when the native backend can't see the key (e.g.
-    macOS Accessibility denied, or Linux ``input`` group missing). This
-    function probes the *actual native backend* by:
-
-    1. Creating a native backend for ``hotkey_str`` via
-       :func:`voice_typer.server.native_hotkeys.create_native_backend`.
-    2. Starting it with a callback that sets a ``captured`` flag.
-    3. Waiting up to ``timeout_seconds`` for the flag to flip.
-    4. Stopping the backend cleanly (SIGTERM + reap).
-
-    If the backend emits an ``ERROR:`` line (e.g. "Accessibility
-    permission required"), the probe returns ``{"captured": False,
-    "error": <message>}`` so the renderer can show the real reason
-    instead of "✓ Test passed".
-
-    Parameters
-    ----------
-    hotkey_str:
-        The hotkey spec to register (e.g. ``"<caps_lock>"``). The user
-        should press this key during the probe window.
-    timeout_seconds:
-        How long to wait for a key event before declaring failure.
-        Default 3 s — long enough for a human to press the key, short
-        enough not to stall the wizard.
-
-    Returns
-    -------
-    dict
-        ``{"captured": bool, "error": str | None, "binary_available": bool,
-        "platform": str}``. The renderer uses ``captured`` to set the
-        success/failure UI, ``error`` to explain failures, and
-        ``binary_available`` to distinguish "binary missing" (install
-        issue) from "binary present but permission denied" (OS issue).
-    """
-    platform_name = "macos" if is_macos() else "windows" if is_windows() else "linux" if is_linux() else "unknown"
-    try:
-        from voice_typer.server.native_hotkeys import (
-            create_native_backend,
-            is_native_backend_available,
-        )
-    except Exception as exc:
-        log.exception("[PERMISSION] probe_native_listener: native_hotkeys import failed")
-        return {
-            "captured": False,
-            "error": f"native_hotkeys module unavailable: {exc}",
-            "binary_available": False,
-            "platform": platform_name,
-        }
-
-    if not is_native_backend_available():
-        return {
-            "captured": False,
-            "error": "Native key-listener binary not found or checksum mismatch.",
-            "binary_available": False,
-            "platform": platform_name,
-        }
-
-    backend = create_native_backend(hotkey_str)
-    if backend is None:
-        return {
-            "captured": False,
-            "error": f"Unsupported platform for native backend: {platform_name}",
-            "binary_available": True,
-            "platform": platform_name,
-        }
-
-    captured_flag = threading.Event()
-    error_holder: list[str] = []
-
-    def _on_press() -> None:
-        captured_flag.set()
-
-    def _on_error(message: str) -> None:
-        error_holder.append(message)
-        captured_flag.set()  # unblock the wait so we don't stall
-
-    # Wire the error callback so ERROR: lines (e.g. "Accessibility
-    # permission required") are surfaced instead of timing out.
-    backend._on_error_callback = _on_error  # type: ignore[attr-defined]
-
-    try:
-        backend.start(_on_press)
-    except Exception as exc:
-        log.warning("[PERMISSION] probe_native_listener: start failed: %s", exc)
-        return {
-            "captured": False,
-            "error": str(exc),
-            "binary_available": True,
-            "platform": platform_name,
-        }
-
-    try:
-        captured_flag.wait(timeout=timeout_seconds)
-    finally:
-        with contextlib.suppress(Exception):
-            backend.stop()
-
-    if error_holder:
-        return {
-            "captured": False,
-            "error": error_holder[0],
-            "binary_available": True,
-            "platform": platform_name,
-        }
-    if captured_flag.is_set():
-        return {
-            "captured": True,
-            "error": None,
-            "binary_available": True,
-            "platform": platform_name,
-        }
-    return {
-        "captured": False,
-        "error": (f"Timed out after {timeout_seconds:.1f}s — press the hotkey ({hotkey_str}) during the test window."),
-        "binary_available": True,
-        "platform": platform_name,
     }
 
 
@@ -1240,17 +1022,22 @@ def request_microphone_permission_result(
 ) -> dict:
     """DE-5 - IPC-friendly wrapper around :func:`request_microphone_permission`.
 
-    Mirrors :func:`request_keyboard_permission_result` but for the
-    microphone. Returns a result dict so the renderer can surface
-    success/failure without a follow-up ``onboarding_check_permissions``
-    round-trip.
+    Returns a result dict so the renderer can surface success/failure
+    without a follow-up ``onboarding_check_permissions`` round-trip.
 
     Returns
     -------
     dict
         ``{"requested": bool, "platform": str, "error": str | None,
-        "instructions": str | None}`` - see
-        :func:`request_keyboard_permission_result` for field semantics.
+        "instructions": str | None}`` where:
+
+        - ``requested``: True if the OS permission UI was launched
+          (macOS). False on Windows/Linux (no-op) or unknown platforms.
+        - ``platform``: ``"windows"`` / ``"macos"`` / ``"linux"`` /
+          ``"unknown"``.
+        - ``error``: ``None`` on success, or a short string explaining
+          why the request couldn't be issued.
+        - ``instructions``: optional human-readable next-step hint.
     """
     try:
         if is_macos():

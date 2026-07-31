@@ -69,20 +69,6 @@ class HotkeyDispatcher:
         # ESC-cancel signaling. See _on_esc_release for the consumer side.
         self._esc_pending_capture_exit_event: threading.Event = threading.Event()
 
-    # ── Backend accessors (for back-compat with tests that read them) ──
-
-    @property
-    def hotkey_backend(self) -> HotkeyBackend | None:
-        return self._hotkey_backend
-
-    @property
-    def esc_backend(self) -> HotkeyBackend | None:
-        return self._esc_backend
-
-    @property
-    def repaste_backend(self) -> HotkeyBackend | None:
-        return self._repaste_backend
-
     # ── Registration ───────────────────────────────────────────────────
 
     def register(self) -> bool:
