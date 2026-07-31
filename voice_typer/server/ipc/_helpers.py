@@ -1,4 +1,4 @@
-"""S1-CR-66: shared IPC server helpers split out of ``ipc_server.py``.
+"""shared IPC server helpers split out of ``ipc_server.py``.
 
 This module exists to break the ``sys.modules`` registration hack that
 ``ipc_server.py`` historically used to survive being loaded as
@@ -81,7 +81,7 @@ from voice_typer.server import event_bus
 # regardless of which alias the caller used.
 log = logging.getLogger("voice_typer.server.ipc_server")
 
-# GT-25: read-only IPC commands whose handlers do NOT mutate shared
+# read-only IPC commands whose handlers do NOT mutate shared
 # app/service state. These bypass the per-server ``_dispatch_lock`` so a
 # long-running state-mutating handler (e.g. ``download_model``) does not
 # block a quick status poll from a second authenticated connection. The
@@ -100,21 +100,21 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
 def _push_event_now(msg: dict) -> bool:
     """Push a raw event to ALL active IPC servers, if any are wired.
 
-    B-1: thin shim over ``event_bus.publish``.  Domain code should
-    call ``event_bus.publish`` directly; this function is preserved
-    so existing lazy imports (``from voice_typer.server.ipc_server
-    import _push_event_now``) continue to work after the S1-CR-66
-    refactor that moved its definition into ``ipc._helpers``.
+        Thin shim over ``event_bus.publish``.  Domain code should
+        call ``event_bus.publish`` directly; this function is preserved
+        so existing lazy imports (``from voice_typer.server.ipc_server
+    import _push_event_now``) continue to work after the
+        refactor that moved its definition into ``ipc._helpers``.
 
-    Returns True if at least one server accepted the event, False if
-    no server is active.  Safe to call from any thread; never raises.
+        Returns True if at least one server accepted the event, False if
+        no server is active.  Safe to call from any thread; never raises.
 
-    NEW-IPC-013: previously pushed to a single global callable.  When
-    two IPCServer instances existed in the same process (tests +
-    production), the second start() would stomp the first's push fn,
-    and the first's stop() would clear the global entirely — leaving
-    the second server unable to push.  We now fan out to ALL servers
-    in the registry so both receive the event.
+    previously pushed to a single global callable.  When
+        two IPCServer instances existed in the same process (tests +
+        production), the second start() would stomp the first's push fn,
+        and the first's stop() would clear the global entirely — leaving
+        the second server unable to push.  We now fan out to ALL servers
+        in the registry so both receive the event.
     """
     return event_bus.publish(msg)
 

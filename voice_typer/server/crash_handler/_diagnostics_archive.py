@@ -49,37 +49,37 @@ log = logging.getLogger(__name__)
 def _compute_crash_header() -> bytes:
     """Build the static header block for ``crash_diagnostics.<PID>.txt``.
 
-    Called once at ``set_crash_handler_config_dir()`` time so the VEH
-    callback can write the header as a preamble without any heap
-    allocations (the bytes are already encoded and cached in
-    ``_crash_header_bytes``).
+        Called once at ``set_crash_handler_config_dir()`` time so the VEH
+        callback can write the header as a preamble without any heap
+        allocations (the bytes are already encoded and cached in
+        ``_crash_header_bytes``).
 
-    The header carries enough static context for a support engineer to
-    triage a silent SEH crash without asking the user to run
-    ``--status`` manually:
-      - App version (from ``voice_typer.__version__``)
-      - OS / platform build (``platform.platform()`` + ``platform.version()``)
-      - Windows version (``sys.getwindowsversion()`` on Windows only —
-        includes the OS build number, service pack, and suite mask in
-        a single struct that the Windows kernel exposes directly, which
-        is more precise than ``platform.release()`` for triaging SEH
-        crashes tied to a specific Windows patch level)
-      - Python version (``sys.version``)
-      - Loaded-module snapshot (top-level package names from
-        ``sys.modules``, capped to keep the file size reasonable)
-      - Reproduction hint pointing the user at the diagnostics-export
-        CLI so the support engineer can request a full bundle without
-        a second round-trip (S1-CR-136)
+        The header carries enough static context for a support engineer to
+        triage a silent SEH crash without asking the user to run
+        ``--status`` manually:
+          - App version (from ``voice_typer.__version__``)
+          - OS / platform build (``platform.platform()`` + ``platform.version()``)
+          - Windows version (``sys.getwindowsversion()`` on Windows only —
+            includes the OS build number, service pack, and suite mask in
+            a single struct that the Windows kernel exposes directly, which
+            is more precise than ``platform.release()`` for triaging SEH
+            crashes tied to a specific Windows patch level)
+          - Python version (``sys.version``)
+          - Loaded-module snapshot (top-level package names from
+            ``sys.modules``, capped to keep the file size reasonable)
+          - Reproduction hint pointing the user at the diagnostics-export
+            CLI so the support engineer can request a full bundle without
+    a second round-trip ()
 
-    All assembly is best-effort: any failure (e.g. ``voice_typer`` not
-    yet importable during early bootstrap) is swallowed and the
-    corresponding field is replaced with ``<unknown>`` so the header
-    is always emitted.
+        All assembly is best-effort: any failure (e.g. ``voice_typer`` not
+        yet importable during early bootstrap) is swallowed and the
+        corresponding field is replaced with ``<unknown>`` so the header
+        is always emitted.
 
-    Returns
-    -------
-    bytes
-        UTF-8 encoded header terminated with a trailing CRLF.
+        Returns
+        -------
+        bytes
+            UTF-8 encoded header terminated with a trailing CRLF.
     """
     lines: list[str] = ["=== VOICE-TYPER CRASH DIAGNOSTICS HEADER ==="]
     try:
@@ -94,7 +94,7 @@ def _compute_crash_header() -> bytes:
         lines.append(f"OS build: {platform.version()}")
     except Exception:
         lines.append("OS: <unknown>")
-    # S1-CR-136: on Windows, ``sys.getwindowsversion()`` returns a tuple
+    # on Windows, ``sys.getwindowsversion()`` returns a tuple
     # namedtuple with (major, minor, build, platform, service_pack,
     # service_pack_major, service_pack_minor, suite_mask, product_type)
     # — this is the OS-reported build number that ``platform.release()``
@@ -123,10 +123,10 @@ def _compute_crash_header() -> bytes:
             top_level.append(top)
             if len(top_level) >= _HEADER_MAX_MODULES:
                 break
-        # GT-7: ALWAYS include the project's own top-level package
+        # ALWAYS include the project's own top-level package
         # (``voice_typer``) in the snapshot, even if it falls beyond
         # the ``_HEADER_MAX_MODULES`` cap. The cap exists to bound
-        # PII / install-fingerprint exposure (YJ-47); the project's
+        # PII / install-fingerprint exposure (); the project's
         # own package name is the same across installs and is the
         # single most relevant entry for debugging a crash — without
         # it, a support engineer reading the header can't even
@@ -142,7 +142,7 @@ def _compute_crash_header() -> bytes:
             lines.append(f"  {m}")
     except Exception:
         lines.append("Loaded modules: <unknown>")
-    # S1-CR-136: reproduction hint so the user / support engineer knows
+    # reproduction hint so the user / support engineer knows
     # how to capture the full diagnostic bundle (logs, config, crash
     # archive, OS / Python / app version snapshot) for a bug report
     # without a second round-trip.  Inline in the header (rather than
@@ -195,7 +195,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
     try:
         resolved = Path(config_dir).resolve()
         _ch._PID = os.getpid()
-        # YJ-47: write the VEH crash file DIRECTLY into the
+        # write the VEH crash file DIRECTLY into the
         # ``<config_dir>/crash_diagnostics_archive/`` subdir instead
         # of the config_dir root. Pre-fix, the file sat in the config_dir
         # root between the crash (T0) and the next startup (T1),
@@ -236,7 +236,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # the pre-fix behavior).
         with contextlib.suppress(Exception):
             _ch._crash_header_bytes = _compute_crash_header()
-        # AB-33: refresh the cached ASR backend at config-dir cache
+        # refresh the cached ASR backend at config-dir cache
         # time so the excepthook can read it without disk I/O on the
         # crashing thread. Best-effort — a refresh failure leaves the
         # cache untouched (the excepthook falls back to ``"<unknown>"``).
@@ -298,19 +298,19 @@ def _archive_crash_file(file_path: Path, config_dir: Path) -> Path | None:
 def _mark_file_reported(file_path: Path) -> None:
     """Create a sidecar marker next to ``file_path``.
 
-    YJ-47: VEH-written crash files land DIRECTLY in the archive subdir
-    (no longer in the config_dir root). ``report_pending_crash`` scans
-    the archive subdir to surface them to the user — but without a
-    marker, the same file would be re-surfaced on every startup.
+    VEH-written crash files land DIRECTLY in the archive subdir
+        (no longer in the config_dir root). ``report_pending_crash`` scans
+        the archive subdir to surface them to the user — but without a
+        marker, the same file would be re-surfaced on every startup.
 
-    The marker is an empty file named ``<filename>.reported`` sitting
-    next to the crash file. On the next scan, the sidecar's existence
-    causes the file to be skipped (already-reported).
+        The marker is an empty file named ``<filename>.reported`` sitting
+        next to the crash file. On the next scan, the sidecar's existence
+        causes the file to be skipped (already-reported).
 
-    Best-effort: a marker-creation failure (e.g. read-only archive
-    dir) is logged at debug and swallowed — the worst case is the
-    crash file gets re-reported on the next startup, which is annoying
-    but not unsafe.
+        Best-effort: a marker-creation failure (e.g. read-only archive
+        dir) is logged at debug and swallowed — the worst case is the
+        crash file gets re-reported on the next startup, which is annoying
+        but not unsafe.
     """
     sidecar = file_path.with_name(file_path.name + _REPORTED_SIDECAR_SUFFIX)
     try:
@@ -393,41 +393,41 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
 def report_pending_crash(config_dir: Path) -> str | None:
     """Check for leftover crash diagnostics from a previous session.
 
-    Scans the config directory for:
-      * ``crash_diagnostics.*.txt`` files written by the VEH callback
-        when a previous process crashed silently (heap corruption,
-        access violation, etc.).
-      * ``python_crash.*.txt`` marker files written by
-        ``_crash_excepthook`` when an unhandled Python exception
-        terminated the previous process.
+        Scans the config directory for:
+          * ``crash_diagnostics.*.txt`` files written by the VEH callback
+            when a previous process crashed silently (heap corruption,
+            access violation, etc.).
+          * ``python_crash.*.txt`` marker files written by
+            ``_crash_excepthook`` when an unhandled Python exception
+            terminated the previous process.
 
-    YJ-47: VEH now writes crash files DIRECTLY to
-    ``<config_dir>/crash_diagnostics_archive/`` (no longer to the
-    config_dir root). This function scans BOTH the config_dir root
-    (for legacy files left by a pre-fix version) AND the archive
-    subdir (for new VEH-written files).
+    VEH now writes crash files DIRECTLY to
+        ``<config_dir>/crash_diagnostics_archive/`` (no longer to the
+        config_dir root). This function scans BOTH the config_dir root
+        (for legacy files left by a pre-fix version) AND the archive
+        subdir (for new VEH-written files).
 
-    If any are found:
-      1. FR-100: logs a single-line WARNING header ("Previous session
-         crashed! ...") so operators see the crash signal in the
-         WARN-filtered production log; logs the full crash content at
-         DEBUG (visible when ``VOICE_TYPER_DEBUG=1``); logs the
-         human-readable summary at INFO. Pre-FR-100 the full content
-         was logged line-by-line at WARNING (50+ records per crash),
-         drowning real warnings.
-      2. Moves the file to ``<config_dir>/crash_diagnostics_archive/``
-         instead of deleting it, so the diagnostic bundle can include it
-         later. (Files already in the archive stay there.)
-      3. Creates a ``<filename>.reported`` sidecar marker next to the
-         archived file so the next startup doesn't re-surface it.
-      4. Returns a human-readable summary for the caller to surface
-         (e.g., as a tray notification).
+        If any are found:
+    1. : logs a single-line WARNING header ("Previous session
+             crashed! ...") so operators see the crash signal in the
+             WARN-filtered production log; logs the full crash content at
+             DEBUG (visible when ``VOICE_TYPER_DEBUG=1``); logs the
+    human-readable summary at INFO. Pre- the full content
+             was logged line-by-line at WARNING (50+ records per crash),
+             drowning real warnings.
+          2. Moves the file to ``<config_dir>/crash_diagnostics_archive/``
+             instead of deleting it, so the diagnostic bundle can include it
+             later. (Files already in the archive stay there.)
+          3. Creates a ``<filename>.reported`` sidecar marker next to the
+             archived file so the next startup doesn't re-surface it.
+          4. Returns a human-readable summary for the caller to surface
+             (e.g., as a tray notification).
 
-    After processing, applies the sweep (30-day mtime cutoff + keep last
-    10) to the config_dir root as a safety net for files left behind by
-    failed moves or older versions.
+        After processing, applies the sweep (30-day mtime cutoff + keep last
+        10) to the config_dir root as a safety net for files left behind by
+        failed moves or older versions.
 
-    Returns ``None`` if no unreported crash diagnostics were found.
+        Returns ``None`` if no unreported crash diagnostics were found.
     """
     # The file pattern uses the process PID from the previous run, so we
     # can't predict the exact filename.  Globbing is done via pathlib.
@@ -441,7 +441,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
         # notification.
         crash_files = sorted(diagnostics_dir.glob("crash_diagnostics.*.txt"))
         python_crash_files = sorted(diagnostics_dir.glob("python_crash.*.txt"))
-        # YJ-47: also scan the archive subdir — VEH now writes directly
+        # also scan the archive subdir — VEH now writes directly
         # there, so legacy root-scanning alone misses all new crashes.
         archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_ARCHIVE
         if archive_dir.is_dir():
@@ -475,11 +475,11 @@ def report_pending_crash(config_dir: Path) -> str | None:
     def _summarize_crash_file(crash_file: Path, *, already_archived: bool) -> None:
         """Surface one ``crash_diagnostics`` file's content + archive it.
 
-        YJ-47: if ``already_archived`` is True (file came from the
-        archive subdir), don't try to archive it again — just create
-        a ``.reported`` sidecar so the next scan skips it. If False
-        (file came from the config_dir root), archive it (existing
-        behavior) and create the sidecar next to the moved file.
+        if ``already_archived`` is True (file came from the
+                archive subdir), don't try to archive it again — just create
+                a ``.reported`` sidecar so the next scan skips it. If False
+                (file came from the config_dir root), archive it (existing
+                behavior) and create the sidecar next to the moved file.
         """
         try:
             content = crash_file.read_text(encoding="utf-8").strip()
@@ -489,16 +489,16 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     crash_file.name,
                 )
                 return
-            # FR-100: log the crash header at WARNING (1 line — visible
+            # log the crash header at WARNING (1 line — visible
             # in the WARN-filtered production log so operators see that
             # a previous session crashed), then log the full crash
             # content at DEBUG (visible only when VOICE_TYPER_DEBUG=1).
-            # Pre-FR-100 the full content was logged line-by-line at
+            # Pre- the full content was logged line-by-line at
             # WARNING (50+ records per crash), polluting the WARN
             # filter and drowning real warnings.
             log.warning("[CRASH] === Previous session crashed! Diagnostics follow ===")
             log.debug("[CRASH] Full crash diagnostics content for %s:\n%s", crash_file.name, content)
-            # UE-2-F3: replace the 13-clause if/elif chain (which
+            # replace the 13-clause if/elif chain (which
             # duplicated the code → message mapping that already lived
             # in ``_constants._CODE_TO_INFO`` / ``_CODE_TO_USER_SUMMARY``)
             # with a single table-driven lookup. Drift between the VEH
@@ -556,7 +556,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
             # directory path.
             log.warning("[CRASH] Failed to read diagnostics file %s: %s", crash_file.name, exc)
         finally:
-            # YJ-47: archive root-level files (existing behavior); for
+            # archive root-level files (existing behavior); for
             # archive-subdir files, just create the reported-sidecar
             # marker (they're already in the right place). Both paths
             # end with the file having a sidecar marker so the next
@@ -577,11 +577,11 @@ def report_pending_crash(config_dir: Path) -> str | None:
             if target is not None:
                 _mark_file_reported(target)
 
-    # Process root-level files first (legacy location, pre-YJ-47).
+    # Process root-level files first (legacy location, pre-).
     for crash_file in crash_files:
         _summarize_crash_file(crash_file, already_archived=False)
 
-    # YJ-47: then process archive-subdir files (new VEH write path).
+    # then process archive-subdir files (new VEH write path).
     for crash_file in archived_crash_files:
         _summarize_crash_file(crash_file, already_archived=True)
 
@@ -597,9 +597,9 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     py_crash_file.name,
                 )
                 return
-            # FR-100: same demotion pattern as the VEH-crash path —
+            # same demotion pattern as the VEH-crash path —
             # WARNING header (1 line) + DEBUG full content (visible only
-            # when VOICE_TYPER_DEBUG=1). Pre-FR-100 each line of the
+            # when VOICE_TYPER_DEBUG=1). Pre- each line of the
             # python_crash marker was logged at WARNING, polluting the
             # WARN filter and drowning real warnings.
             log.warning("[CRASH] === Previous session crashed (Python exception)! ===")
@@ -615,7 +615,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
                     key, _, value = line.partition("=")
                     fields[key.strip()] = value.strip()
             exc_type = fields.get("exc_type", "UnknownException")
-            # XE-7-2: drop ``exc_value`` from the user-facing summary
+            # drop ``exc_value`` from the user-facing summary
             # entirely. Pre-fix, the (redacted) ``exc_value`` was
             # interpolated into the summary string at INFO level, which
             # shipped dictated speech and any PII-shaped text that
@@ -667,7 +667,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
         return None
 
     summary = "\n".join(summary_parts)
-    # S1-CR-136: append a "Next steps" hint so the tray notification
+    # append a "Next steps" hint so the tray notification
     # (which embeds ``crash_summary`` verbatim — see
     # ``startup_sequence._do_startup`` → ``app.tray.notify_safety(...)``)
     # tells the user exactly how to capture a full diagnostic bundle
@@ -681,7 +681,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     summary = summary + (
         "\nNext steps: run `python scripts/diagnostics.py export` to collect a full diagnostic bundle for a bug report."
     )
-    # XE-7-2: demote the summary log line from INFO to DEBUG so the
+    # demote the summary log line from INFO to DEBUG so the
     # reduced (exc_value-less) summary only ships in the bundle when
     # ``VOICE_TYPER_DEBUG=1``. Pre-fix the summary was logged at INFO,
     # which meant even the reduced (exc_type + thread + timestamp only)

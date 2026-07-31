@@ -1,4 +1,4 @@
-"""Qwen3-ASR-1.7B transcription engine — optional backend alongside Whisper.
+"""Qwen3- transcription engine — optional backend alongside Whisper.
 
 This module is entirely self-contained.  If the ``qwen-asr`` package is not
 installed, import still succeeds — the engine simply won't be loadable.
@@ -53,12 +53,12 @@ _QWEN_ALLOWED_BASENAMES = {
     "vocab.txt",
 }
 
-# RW-T1: Qwen3-ASR is Whisper-based and natively handles 30 s segments.
+# Qwen3-ASR is Whisper-based and natively handles 30 s segments.
 # Longer recordings are split into overlapping chunks for safety
 # (memory, attention matrix size, and to bound per-call latency).
 # 3 s overlap provides boundary context.
 #
-# PVT-019: Despite earlier comments claiming Whisper-style models
+# Despite earlier comments claiming Whisper-style models
 # "do not re-transcribe overlap text", real-world Qwen3-ASR runs DO
 # duplicate a few words at chunk boundaries (the 3 s overlap is
 # transcribed by both the previous and the current chunk). We dedup
@@ -66,7 +66,7 @@ _QWEN_ALLOWED_BASENAMES = {
 # head and removing the matching prefix (see ``_dedup_overlap``).
 _QWEN_CHUNK_SECONDS = 30
 _QWEN_CHUNK_OVERLAP_SECONDS = 3
-# PVT-019: word-count heuristic for overlap dedup at chunk boundaries.
+# word-count heuristic for overlap dedup at chunk boundaries.
 # N=3 balances false negatives (small N → more duplicates slip through)
 # against false positives (large N → legitimate repetition stripped).
 # At ~3 words/sec English speech, a 3 s audio overlap can produce up
@@ -77,7 +77,7 @@ _QWEN_OVERLAP_DEDUP_WORDS = 3
 
 
 class QwenEngine:
-    """Wraps Qwen3-ASR-1.7B model loading and transcription.
+    """Wraps Qwen3- model loading and transcription.
 
     Provides the same ``transcribe(audio) -> str`` interface as
     ``TranscriptionEngine`` so the app can swap backends transparently.
@@ -120,16 +120,16 @@ class QwenEngine:
     def _inference_mode_ctx() -> Any:
         """Return a context manager that wraps torch.inference_mode().
 
-        AB-11: model.transcribe() was previously called WITHOUT an
-        inference-mode context, which meant PyTorch built and retained
-        the autograd graph for every call. For a 30 s chunk on CUDA
-        this roughly DOUBLED activation-memory footprint (increasing
-        OOM risk) and added ~10-30 % inference latency.
+        model.transcribe() was previously called WITHOUT an
+                inference-mode context, which meant PyTorch built and retained
+                the autograd graph for every call. For a 30 s chunk on CUDA
+                this roughly DOUBLED activation-memory footprint (increasing
+                OOM risk) and added ~10-30 % inference latency.
 
-        torch.inference_mode() is preferred over torch.no_grad()
-        (lower overhead, recursive). Imports torch lazily so the
-        engine module imports even when torch isn't installed. If
-        torch isn't importable, returns contextlib.nullcontext.
+                torch.inference_mode() is preferred over torch.no_grad()
+                (lower overhead, recursive). Imports torch lazily so the
+                engine module imports even when torch isn't installed. If
+                torch isn't importable, returns contextlib.nullcontext.
         """
         try:
             import torch
@@ -138,23 +138,23 @@ class QwenEngine:
         return torch.inference_mode()
 
     def _resolve_device(self) -> str:
-        """XV-65: Resolve the effective device, honouring ``"auto"``.
+        """Resolve the effective device, honouring ``"auto"``.
 
-        Mirrors ``TranscriptionEngine._resolve_device``
-        (transcription.py:447-480) but adapted to Qwen's ``torch``-based
-        model wrapper:
+                Mirrors ``TranscriptionEngine._resolve_device``
+                (transcription.py:447-480) but adapted to Qwen's ``torch``-based
+                model wrapper:
 
-        - ``"auto"`` → ``"cuda"`` if ``torch.cuda.is_available()`` else
-          ``"cpu"``.
-        - ``"cuda"`` / ``"cpu"`` → returned as-is (explicit device wins).
+                - ``"auto"`` → ``"cuda"`` if ``torch.cuda.is_available()`` else
+                  ``"cpu"``.
+                - ``"cuda"`` / ``"cpu"`` → returned as-is (explicit device wins).
 
-        ``self.device`` is NOT mutated here — the caller (``load()``)
-        updates it after a successful ``.to("cuda")`` so a failed CUDA
-        init doesn't leave a stale ``"cuda"`` value that would make
-        ``transcribe_with_fallback``'s CUDA-error branch unreachable
-        (the original XV-65 bug).
+                ``self.device`` is NOT mutated here — the caller (``load()``)
+                updates it after a successful ``.to("cuda")`` so a failed CUDA
+                init doesn't leave a stale ``"cuda"`` value that would make
+                ``transcribe_with_fallback``'s CUDA-error branch unreachable
+        (the original  bug).
 
-        Returns the resolved device string.
+                Returns the resolved device string.
         """
         if self.device == "auto":
             try:
@@ -192,15 +192,15 @@ class QwenEngine:
                 )
                 return False
 
-            # SEC-audit-007 / G4-H-33 (Session 7 — Group 4): SHA-256
+            # SEC-audit-007 /  (Session 7 — Group 4): SHA-256
             # manifest verification of model directory contents before
             # calling from_pretrained().  We now delegate to the shared
             # ``security.verify_model_integrity()`` instead of the
             # divergent local ``_verify_qwen_model_hashes`` helper.
             #
-            # Root cause of G4-H-33: ``security.verify_model_integrity``
+            # Root cause of : ``security.verify_model_integrity``
             # hard-fails for local models with an empty ``pinned_files``
-            # dict (NF-R18-9 — a local model has no upstream SHA pin,
+            # dict ( — a local model has no upstream SHA pin,
             # so the empty-files soft-pass would let a tampered
             # directory load unchecked).  But ``qwen_engine.py``'s own
             # ``_verify_qwen_model_hashes`` SOFT-PASSED on empty
@@ -211,7 +211,7 @@ class QwenEngine:
             #
             # The fix: delete the divergent helper and call
             # ``security.verify_model_integrity(model_path, "qwen")``
-            # directly so the NF-R18-9 hard-fail is honoured.  When
+            # directly so the  hard-fail is honoured.  When
             # ``model_hashes.json``'s ``"qwen"`` entry has empty
             # ``files`` (the default ship state), ``load()`` returns
             # False — operators MUST populate the ``files`` dict with
@@ -244,7 +244,7 @@ class QwenEngine:
             try:
                 if not is_windows():
                     # POSIX: open with O_NOFOLLOW to refuse symlinks.
-                    # XZ-EH-016 (this session): restructure to avoid a
+                    # (this session): restructure to avoid a
                     # fragile double-close. ``os.fdopen`` takes
                     # ownership of ``fd`` — once it succeeds, the file
                     # object's ``__exit__`` closes ``fd``. The pre-fix
@@ -300,7 +300,7 @@ class QwenEngine:
                     self.model_path,
                     self.device,
                 )
-                # PW-4: time from_pretrained() to measure prewarm
+                # time from_pretrained() to measure prewarm
                 # cache-hit effectiveness.
                 _t0 = time.perf_counter()
                 self._model = qwen_asr.Qwen3ASRModel.from_pretrained(
@@ -309,11 +309,11 @@ class QwenEngine:
                 _load_elapsed = time.perf_counter() - _t0
                 _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
 
-                # XV-65: Actually move the model to the resolved device.
+                # Actually move the model to the resolved device.
                 # Previously ``load()`` stored ``self.device`` but never
                 # applied it — ``from_pretrained()`` was called with no
                 # ``device=`` kwarg and no ``.to(self.device)`` call, so
-                # Qwen3-ASR-1.7B ran entirely on CPU regardless of GPU
+                # Qwen3- ran entirely on CPU regardless of GPU
                 # config (5-10× slower inference). ``self.device`` was
                 # also never updated from ``"auto"`` to a concrete value,
                 # making ``transcribe_with_fallback``'s ``if self.device
@@ -365,27 +365,27 @@ class QwenEngine:
     def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
-        RACE-032: The lock is only held for state checks/updates.
-        GPU inference runs outside the lock so is_loaded / unload /
-        load don't block for the multi-second duration of the call.
-        ``_inference_event`` is set during inference so is_loaded
-        can still report correctly.
+                RACE-032: The lock is only held for state checks/updates.
+                GPU inference runs outside the lock so is_loaded / unload /
+                load don't block for the multi-second duration of the call.
+                ``_inference_event`` is set during inference so is_loaded
+                can still report correctly.
 
-        PERF-STATS: ``audio_stats`` is an optional pre-computed
-        ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
-        When provided, the engine skips its own RMS computation in
-        hallucination detection.  Note: ``audio_stats`` is only
-        meaningful for the non-chunked path (audio <=
-        ``_QWEN_CHUNK_SECONDS``); chunked audio computes per-chunk
-        RMS inline.
+                PERF-STATS: ``audio_stats`` is an optional pre-computed
+                ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
+                When provided, the engine skips its own RMS computation in
+                hallucination detection.  Note: ``audio_stats`` is only
+                meaningful for the non-chunked path (audio <=
+                ``_QWEN_CHUNK_SECONDS``); chunked audio computes per-chunk
+                RMS inline.
 
-        RW-T1: For audio longer than ``_QWEN_CHUNK_SECONDS`` (30 s),
-        split into overlapping chunks (30 s chunk + 3 s overlap) and
-        merge results with simple concatenation.  Previously the
-        entire multi-minute audio array was passed in one
-        ``model.transcribe()`` call, risking OOM or silent
-        truncation.  Each chunk's text is run through the shared
-        hallucination filter using that chunk's own RMS.
+        For audio longer than ``_QWEN_CHUNK_SECONDS`` (30 s),
+                split into overlapping chunks (30 s chunk + 3 s overlap) and
+                merge results with simple concatenation.  Previously the
+                entire multi-minute audio array was passed in one
+                ``model.transcribe()`` call, risking OOM or silent
+                truncation.  Each chunk's text is run through the shared
+                hallucination filter using that chunk's own RMS.
         """
         with self._lock:
             if self._model is None:
@@ -402,7 +402,7 @@ class QwenEngine:
             duration = len(audio) / sample_rate
 
             if duration > _QWEN_CHUNK_SECONDS:
-                # RW-T1: chunk long audio to bound per-call latency and
+                # chunk long audio to bound per-call latency and
                 # GPU memory.  ``audio_stats`` describes the whole-audio
                 # RMS, so per-chunk RMS is computed inline in the helper.
                 return self._transcribe_chunked(model, audio, sample_rate)
@@ -411,7 +411,7 @@ class QwenEngine:
             # with the existing hallucination check using ``audio_stats``
             # if provided, else computing RMS from the audio array.
             #
-            # AB-11: wrap model.transcribe() in torch.inference_mode()
+            # wrap model.transcribe() in torch.inference_mode()
             # to skip autograd-graph construction. See _inference_mode_ctx.
             with self._inference_mode_ctx():
                 result = model.transcribe(
@@ -453,18 +453,18 @@ class QwenEngine:
         audio: np.ndarray,
         sample_rate: int,
     ) -> str:
-        """RW-T1: transcribe long audio by splitting into overlapping chunks.
+        """transcribe long audio by splitting into overlapping chunks.
 
-        Each chunk's text is run through the shared hallucination filter
-        using that chunk's own RMS (``audio_stats`` from the caller is
-        NOT used here — it describes the whole-audio RMS, not per-chunk).
+                Each chunk's text is run through the shared hallucination filter
+                using that chunk's own RMS (``audio_stats`` from the caller is
+                NOT used here — it describes the whole-audio RMS, not per-chunk).
 
-        PVT-019: Because consecutive chunks share a 3 s overlap
-        (``_QWEN_CHUNK_OVERLAP_SECONDS``), the overlap region is
-        transcribed by both chunks. We dedup the boundary by comparing
-        the previous chunk's tail against the current chunk's head and
-        removing the matching prefix (see ``_dedup_overlap``). Surviving
-        chunk texts are then joined with simple concatenation.
+        Because consecutive chunks share a 3 s overlap
+                (``_QWEN_CHUNK_OVERLAP_SECONDS``), the overlap region is
+                transcribed by both chunks. We dedup the boundary by comparing
+                the previous chunk's tail against the current chunk's head and
+                removing the matching prefix (see ``_dedup_overlap``). Surviving
+                chunk texts are then joined with simple concatenation.
         """
         duration = len(audio) / sample_rate
         log.info("[QWEN] Splitting %.1fs audio into chunks", duration)
@@ -474,7 +474,7 @@ class QwenEngine:
             _QWEN_CHUNK_OVERLAP_SECONDS,
         )
         results: list[str] = []
-        # PVT-019: track the previous chunk's appended text so the
+        # track the previous chunk's appended text so the
         # current chunk's head can be deduped against it. Only updated
         # when a chunk's text is actually appended (hallucination-
         # rejected or empty chunks do NOT advance prev_text — their
@@ -487,7 +487,7 @@ class QwenEngine:
                 len(chunks),
                 len(chunk) / sample_rate,
             )
-            # AB-11: wrap model.transcribe() in torch.inference_mode()
+            # wrap model.transcribe() in torch.inference_mode()
             # to skip autograd-graph construction. See _inference_mode_ctx.
             with self._inference_mode_ctx():
                 chunk_result = model.transcribe(
@@ -511,7 +511,7 @@ class QwenEngine:
                     log_transcriptions=False,
                 )
                 continue  # skip this chunk's text, don't append
-            # PVT-019: remove duplicate words at the overlap boundary.
+            # remove duplicate words at the overlap boundary.
             # Only dedup against a non-empty predecessor; the first
             # chunk has no predecessor and is appended verbatim.
             if prev_text:
@@ -544,7 +544,7 @@ class QwenEngine:
         curr_text: str,
         n: int = _QWEN_OVERLAP_DEDUP_WORDS,
     ) -> str:
-        """PVT-019: Remove duplicate words at chunk overlap boundaries.
+        """Remove duplicate words at chunk overlap boundaries.
 
         When audio is split into overlapping chunks, the overlap region
         is transcribed twice. If the last ``k`` words of ``prev_text``
@@ -654,16 +654,16 @@ class QwenEngine:
     ) -> str:
         """Transcribe with GPU→CPU fallback on CUDA errors.
 
-        ERR-008: Previously this method just delegated to ``transcribe``
-        with no fallback at all, despite the name. If a CUDA error
-        occurred the caller received the raw exception. We now detect
-        CUDA errors and retry on CPU, mirroring the parakeet engine's
-        behavior. Non-CUDA errors are re-raised so the caller can
-        surface them via ERR-005's friendly-error path.
+        Previously this method just delegated to ``transcribe``
+                with no fallback at all, despite the name. If a CUDA error
+                occurred the caller received the raw exception. We now detect
+                CUDA errors and retry on CPU, mirroring the parakeet engine's
+                behavior. Non-CUDA errors are re-raised so the caller can
+        surface them via 's friendly-error path.
 
-        PERF-STATS: ``audio_stats`` is an optional pre-computed
-        ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
-        When provided, the engine skips its own RMS computation.
+                PERF-STATS: ``audio_stats`` is an optional pre-computed
+                ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
+                When provided, the engine skips its own RMS computation.
         """
         try:
             return self.transcribe(audio, audio_stats=audio_stats)
@@ -673,7 +673,7 @@ class QwenEngine:
                 "cuda" in err_str or "cublas" in err_str or "cudnn" in err_str or "out of memory" in err_str
             ):
                 log.warning("[QWEN] CUDA error, retrying on CPU: %s", exc)
-                # TASK-14: initialize ``original_device`` BEFORE the try
+                # initialize ``original_device`` BEFORE the try
                 # block so that the ``except`` handler below can always
                 # restore it. Without this, if the assignment of
                 # ``self.device = "cpu"`` raised, ``original_device``
@@ -698,12 +698,12 @@ class QwenEngine:
     def unload(self) -> None:
         """Free model memory.
 
-        NEW-MEM-001: also release PyTorch's CUDA caching allocator
-        blocks via ``release_gpu_memory()`` so a subsequent backend
-        switch can use the freed VRAM.
+        also release PyTorch's CUDA caching allocator
+                blocks via ``release_gpu_memory()`` so a subsequent backend
+                switch can use the freed VRAM.
 
-        RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
-        is_loaded / transcribe for 10-100ms.
+                RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
+                is_loaded / transcribe for 10-100ms.
         """
         import gc
 
@@ -713,7 +713,7 @@ class QwenEngine:
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
         gc.collect()
-        # NEW-MEM-001: release CUDA cached blocks.
+        # release CUDA cached blocks.
         release_gpu_memory()
         log.info("[QWEN] Model unloaded")
 
@@ -721,11 +721,11 @@ class QwenEngine:
     def device_info(self) -> str:
         """Return device info string.
 
-        XV-65: uses the resolved device so ``"auto"`` is reflected as
-        the concrete ``"cuda"`` / ``"cpu"`` after ``load()`` (or, before
-        load, by probing ``torch.cuda.is_available()``). Previously this
-        returned the literal string ``"qwen/auto"`` when the engine was
-        configured with ``device="auto"``.
+        uses the resolved device so ``"auto"`` is reflected as
+                the concrete ``"cuda"`` / ``"cpu"`` after ``load()`` (or, before
+                load, by probing ``torch.cuda.is_available()``). Previously this
+                returned the literal string ``"qwen/auto"`` when the engine was
+                configured with ``device="auto"``.
         """
         return f"qwen/{self._resolve_device()}"
 
@@ -773,24 +773,24 @@ def _validate_qwen_model_dir(model_path: str) -> bool:
 
 
 def _verify_qwen_model_hashes(model_path: str) -> bool:
-    """DELETED in G4-H-33 (Session 7 — Group 4).
+    """DELETED in  (Session 7 — Group 4).
 
-    Previously this was a divergent SHA-256 manifest verifier that
-    SOFT-PASSED on empty ``pinned_files`` — but
-    ``security.verify_model_integrity`` hard-fails in that case
-    (NF-R18-9).  The soft-pass made the security module's hard-fail
-    branch dead code for the Qwen path, so a tampered local Qwen model
-    directory would load with NO content hash verification.
+        Previously this was a divergent SHA-256 manifest verifier that
+        SOFT-PASSED on empty ``pinned_files`` — but
+        ``security.verify_model_integrity`` hard-fails in that case
+    ().  The soft-pass made the security module's hard-fail
+        branch dead code for the Qwen path, so a tampered local Qwen model
+        directory would load with NO content hash verification.
 
-    The fix in G4-H-33 deletes this helper and replaces its call site
-    in ``QwenEngine.load()`` with a direct call to
-    ``voice_typer.server.security.verify_model_integrity(model_path,
-    "qwen")``, so the NF-R18-9 hard-fail is honoured.
+    The fix in  deletes this helper and replaces its call site
+        in ``QwenEngine.load()`` with a direct call to
+        ``voice_typer.server.security.verify_model_integrity(model_path,
+    "qwen")``, so the  hard-fail is honoured.
 
-    This stub is retained only so third-party imports (e.g. old tests
-    in sibling repos that haven't been updated yet) get a clear
-    ``RuntimeError`` instead of a silent ``NameError``.  New code MUST
-    use ``security.verify_model_integrity`` directly.
+        This stub is retained only so third-party imports (e.g. old tests
+        in sibling repos that haven't been updated yet) get a clear
+        ``RuntimeError`` instead of a silent ``NameError``.  New code MUST
+        use ``security.verify_model_integrity`` directly.
     """
     raise RuntimeError(
         "_verify_qwen_model_hashes was deleted in G4-H-33 — "

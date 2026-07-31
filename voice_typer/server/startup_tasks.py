@@ -9,7 +9,7 @@ etc. — exactly the same attributes the original ``self.*`` references
 resolved to.
 
 The original delegate methods on ``VoiceTyperApp`` were removed during the
-RW-9 god-class decomposition; callers (and tests) now invoke these
+god-class decomposition; callers (and tests) now invoke these
 functions directly (e.g.
 ``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``).
 
@@ -38,7 +38,7 @@ from voice_typer.server.server_platform import create_launcher_shortcut
 log = logging.getLogger(__name__)
 
 
-# PERF-FIX-2: cache the macOS ApplicationServices framework handle at
+# PERF-: cache the macOS ApplicationServices framework handle at
 # module level instead of re-loading it every 60s in
 # ``_check_accessibility``. ``ctypes.cdll.LoadLibrary`` is not free
 # (it calls dlopen + resolves symbols), and the handle is safe to
@@ -55,37 +55,37 @@ _APP_SERVICES_LIB_LOADED: bool = False
 def sync_autostart(app: AppProtocol) -> dict:
     """Ensure ``config.autostart`` matches the actual platform autostart state.
 
-    PVT-060: returns a result dict ``{"registered": bool, "error": str | None}``
-    so the caller (``ConfigApplier.apply_config_side_effects``) can
-    propagate the autostart status to the ``set_config`` IPC response.
-    The renderer reads ``autostart_status.registered`` /
-    ``autostart_status.error`` to surface "Autostart registration
-    failed: <reason>" instead of silently failing.
+    returns a result dict ``{"registered": bool, "error": str | None}``
+        so the caller (``ConfigApplier.apply_config_side_effects``) can
+        propagate the autostart status to the ``set_config`` IPC response.
+        The renderer reads ``autostart_status.registered`` /
+        ``autostart_status.error`` to surface "Autostart registration
+        failed: <reason>" instead of silently failing.
 
-    The dict shape matches :func:`voice_typer.server.server_platform
-    .enable_autostart_ex` so the renderer can use the same field names
-    whether the status came from a config-change sync or a direct
-    ``enable_autostart`` IPC call.
+        The dict shape matches :func:`voice_typer.server.server_platform
+        .enable_autostart_ex` so the renderer can use the same field names
+        whether the status came from a config-change sync or a direct
+        ``enable_autostart`` IPC call.
 
-    Note: this function still calls the bool-returning
-    ``app.enable_autostart`` / ``app.disable_autostart`` (not the rich
-    ``enable_autostart_ex``) so existing tests that monkeypatch
-    ``voice_typer.server.app.enable_autostart`` continue to take
-    effect. The error string is therefore only populated when the
-    bool function raises (defensive — the production ``enable_autostart``
-    catches exceptions internally and returns False, so ``error`` will
-    typically be ``None`` even on failure). A future refactor that
-    routes through ``enable_autostart_ex`` directly will populate
-    ``error`` with the real failure reason.
+        Note: this function still calls the bool-returning
+        ``app.enable_autostart`` / ``app.disable_autostart`` (not the rich
+        ``enable_autostart_ex``) so existing tests that monkeypatch
+        ``voice_typer.server.app.enable_autostart`` continue to take
+        effect. The error string is therefore only populated when the
+        bool function raises (defensive — the production ``enable_autostart``
+        catches exceptions internally and returns False, so ``error`` will
+        typically be ``None`` even on failure). A future refactor that
+        routes through ``enable_autostart_ex`` directly will populate
+        ``error`` with the real failure reason.
     """
     # Look up the platform helpers from the app module at call time so
     # tests that monkeypatch voice_typer.server.app.{is_autostart_enabled,
     # enable_autostart, disable_autostart} still take effect.
     from voice_typer.server import app as _app_module
 
-    # ER-73(a): track the post-sync ACTUAL OS-level autostart state so the
+    # (a): track the post-sync ACTUAL OS-level autostart state so the
     # caller can pass it straight to ``tray.set_autostart_enabled(...)`` without
-    # re-invoking ``is_autostart_enabled()``. The pre-ER-73 startup path
+    # re-invoking ``is_autostart_enabled()``. The pre- startup path
     # called ``is_autostart_enabled()`` twice back-to-back on the startup hot
     # path (once inside sync_autostart, once immediately after in
     # startup_sequence) — both calls hit the same platform helper (Win32
@@ -99,12 +99,12 @@ def sync_autostart(app: AppProtocol) -> dict:
         if app.config.autostart and not actual:
             log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
             registered = _app_module.enable_autostart()
-            # PVT-060: capture the post-enable state. enable_autostart()
+            # capture the post-enable state. enable_autostart()
             # returns True on success; on failure (exception caught
             # internally) it returns False — we surface that as
             # registered=False, error=None (the error is logged inside
             # enable_autostart_ex).
-            # ER-73(a): ``actual_post_sync`` is True iff the enable succeeded
+            # (a): ``actual_post_sync`` is True iff the enable succeeded
             # (registered is True); on failure the OS state is unchanged
             # (still False, the value we read at the top of this branch).
             result = {
@@ -119,7 +119,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             # autostart entry now in the desired state?". After a
             # successful disable, the entry is NO LONGER registered,
             # so ``registered = removed`` (True if disable succeeded).
-            # ER-73(a): ``actual_post_sync`` is the post-disable OS state —
+            # (a): ``actual_post_sync`` is the post-disable OS state —
             # False iff the disable succeeded (removed is True); on failure
             # the OS state is unchanged (still True, the value we read at
             # the top of this branch).
@@ -130,7 +130,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             }
         else:
             # Already in sync — report the current state.
-            # ER-73(a): ``actual_post_sync`` mirrors the unchanged OS state.
+            # (a): ``actual_post_sync`` mirrors the unchanged OS state.
             result = {
                 "registered": bool(actual),
                 "error": None,
@@ -138,7 +138,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             }
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
-        # ER-73(a): on failure we don't know the post-sync OS state — leave
+        # (a): on failure we don't know the post-sync OS state — leave
         # ``actual_post_sync`` as False (the conservative default). Callers
         # that need a definitive read can still call ``is_autostart_enabled()``
         # explicitly, but the startup path treats this as "autostart is off"
@@ -151,23 +151,23 @@ def sync_autostart(app: AppProtocol) -> dict:
 def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
     """Ensure the OS prewarm scheduled task matches the user's fast_startup setting.
 
-    PW-3: when ``app.config.fast_startup`` is False, the prewarm task is
-    UNREGISTERED so the OS scheduler doesn't fire a process that exits
-    immediately with EXIT_DISABLED. When True (the default), the task is
-    registered as before.
+    when ``app.config.fast_startup`` is False, the prewarm task is
+        UNREGISTERED so the OS scheduler doesn't fire a process that exits
+        immediately with EXIT_DISABLED. When True (the default), the task is
+        registered as before.
 
-    Falls back gracefully if the platform doesn't support scheduled
-    tasks (non-Windows).
+        Falls back gracefully if the platform doesn't support scheduled
+        tasks (non-Windows).
 
-    RACE-020: accepts an optional shutdown_event so the task can
-    abort early if the app is quitting during startup.
+        RACE-020: accepts an optional shutdown_event so the task can
+        abort early if the app is quitting during startup.
 
-    PVT-060/PW-3: returns a result dict
-    ``{"registered": bool, "error": str | None}`` so the caller
-    (``ConfigApplier.apply_config_side_effects``) can propagate the
-    prewarm status to the ``set_config`` IPC response. The renderer
-    reads ``prewarm_status.registered`` / ``prewarm_status.error`` to
-    surface "Prewarm task registration failed: <reason>".
+    returns a result dict
+        ``{"registered": bool, "error": str | None}`` so the caller
+        (``ConfigApplier.apply_config_side_effects``) can propagate the
+        prewarm status to the ``set_config`` IPC response. The renderer
+        reads ``prewarm_status.registered`` / ``prewarm_status.error`` to
+        surface "Prewarm task registration failed: <reason>".
     """
     if not task_scheduler.is_supported():
         # Non-Windows platforms don't have a prewarm scheduled task —
@@ -187,7 +187,7 @@ def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None =
                 task_scheduler.register_prewarm_task()
                 registered = True
         else:
-            # PW-3: user disabled prewarm — unregister the OS task so
+            # user disabled prewarm — unregister the OS task so
             # it stops firing silently. Idempotent: if not registered,
             # unregister is a no-op.
             if registered:
@@ -297,38 +297,38 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
 
 
 def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
-    """PLAT-009: Periodically re-check macOS Accessibility permission.
+    """Periodically re-check macOS Accessibility permission.
 
-    Runs on macOS only. Every 60 seconds, re-invokes
-    ``AXIsProcessTrusted()`` and fires ``tray.notify_safety`` only
-    on state transitions (granted→revoked or revoked→granted) so
-    the user isn't spammed with repeated notifications.
+        Runs on macOS only. Every 60 seconds, re-invokes
+        ``AXIsProcessTrusted()`` and fires ``tray.notify_safety`` only
+        on state transitions (granted→revoked or revoked→granted) so
+        the user isn't spammed with repeated notifications.
 
-    Pre-fix: accessibility was checked once at startup. If the user
-    granted permission after startup, the app never recovered until
-    restart. With this pulse, the app detects the change within 60s.
+        Pre-fix: accessibility was checked once at startup. If the user
+        granted permission after startup, the app never recovered until
+        restart. With this pulse, the app detects the change within 60s.
 
-    PERF-FIX-2: two allocation patterns were cleaned up:
+    PERF-: two allocation patterns were cleaned up:
 
-    - ``threading.Event().wait(1.0)`` in the 60-iteration sleep loop
-      previously allocated a fresh ``Event`` object every second. We
-      now create a single ``Event`` once and reuse it for the lifetime
-      of the pulse thread.
-    - ``ctypes.cdll.LoadLibrary(".../ApplicationServices")`` was called
-      every 60s in ``_check_accessibility``. The handle is now cached
-      at module level (``_APP_SERVICES_LIB``) and reused for the
-      lifetime of the process — ``dlopen`` is idempotent on an already-
-      loaded framework but still does a symbol-table lookup, which is
-      wasted work on a 60s heartbeat.
+        - ``threading.Event().wait(1.0)`` in the 60-iteration sleep loop
+          previously allocated a fresh ``Event`` object every second. We
+          now create a single ``Event`` once and reuse it for the lifetime
+          of the pulse thread.
+        - ``ctypes.cdll.LoadLibrary(".../ApplicationServices")`` was called
+          every 60s in ``_check_accessibility``. The handle is now cached
+          at module level (``_APP_SERVICES_LIB``) and reused for the
+          lifetime of the process — ``dlopen`` is idempotent on an already-
+          loaded framework but still does a symbol-table lookup, which is
+          wasted work on a 60s heartbeat.
     """
 
     def _check_accessibility() -> bool:
         """Return True if Accessibility permission is granted.
 
-        PERF-FIX-2: uses the module-level cached ApplicationServices
-        handle. The first call loads the framework; subsequent calls
-        reuse the cached handle. A permanent load failure leaves the
-        cache as ``None`` and this function returns False (fail safe).
+        PERF-: uses the module-level cached ApplicationServices
+                handle. The first call loads the framework; subsequent calls
+                reuse the cached handle. A permanent load failure leaves the
+                cache as ``None`` and this function returns False (fail safe).
         """
         global _APP_SERVICES_LIB, _APP_SERVICES_LIB_LOADED
         if not _APP_SERVICES_LIB_LOADED:
@@ -350,14 +350,14 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             return False  # fail safe (assume not granted)
 
     def _pulse_loop(stop_event: threading.Event) -> None:
-        # PERF-FIX-2: allocate ONE Event for the lifetime of the pulse
+        # PERF-: allocate ONE Event for the lifetime of the pulse
         # thread and reuse it. The previous code called
         # ``threading.Event().wait(1.0)`` in a 60-iteration loop, which
         # allocated a fresh Event object (and its underlying condition
         # variable + lock) every second — ~3.6k allocations/hour per
         # pulse thread.
         #
-        # PERF-25 / TY-16: the loop now also watches ``stop_event``
+        # PERF-25: the loop now also watches ``stop_event``
         # (registered with ``app._thread_registry``) so ``shutdown_all()``
         # can signal an early exit instead of waiting up to 60s for the
         # next ``app._shutting_down`` poll. ``stop_event.set()`` from
@@ -369,11 +369,11 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
         # wakes immediately on ``stop_event.set()`` — the 1s slicing was
         # redundant and caused 60 kernel thread wakeups per minute for
         # the lifetime of the app (~2.4-12 Wh/day wasted on battery per
-        # the TY-16 finding). The defensive ``app._shutting_down`` check
+        # the  finding). The defensive ``app._shutting_down`` check
         # is kept for callers that don't go through the registry.
         last_state = initial_state
         while not app._shutting_down:
-            # TY-16: single 60s wait — ``stop_event.set()`` from
+            # single 60s wait — ``stop_event.set()`` from
             # ``shutdown_all()`` wakes the thread immediately on
             # shutdown; the 60s timeout only governs the
             # AXIsProcessTrusted() recheck interval. ``stop_event.wait``
@@ -430,7 +430,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             log.debug("[STARTUP] could not register A11yPulse with ThreadRegistry", exc_info=True)
 
 
-# ─── Onboarding reset (PVT-012 / re-run setup wizard) ─────────────────────
+# Onboarding reset ( / re-run setup wizard) ─────────────────────
 
 
 def reset_onboarding_complete(
@@ -438,7 +438,7 @@ def reset_onboarding_complete(
     *,
     app: object | None = None,
 ) -> dict:
-    """PVT-012 — delete the ``.onboarding_complete`` marker so the wizard
+    """delete the ``.onboarding_complete`` marker so the wizard
     re-runs on next launch.
 
     This is the backend primitive for the "Re-run setup wizard"

@@ -4,19 +4,11 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
-# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
-# the audio worker thread). Module-top import under try/except so the
-# module still loads when scipy is missing (tests with mock filters).
-try:
-    from scipy.signal import lfilter
-except ImportError:  # pragma: no cover — scipy is a hard dep in prod
-    lfilter = None  # type: ignore[assignment]
-
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter
+np = lazy_module("numpy")
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter, _get_lfilter  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +61,7 @@ class NotchFilter(AudioFilter):
             w0 = freq / nyq
             q = 30.0  # narrow notch (~3Hz wide)
             b, a = iirnotch(w0, q)
-            # PVT-011: cast to float32 once at init (see highpass.py for rationale)
+            # cast to float32 once at init (see highpass.py for rationale)
             b = b.astype(np.float32)
             a = a.astype(np.float32)
             zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
@@ -85,21 +77,21 @@ class NotchFilter(AudioFilter):
 
         b, a, zi = self._state
         original_shape = audio.shape
-        # PVT-011: process in float32 (coefficients are float32 from init)
+        # process in float32 (coefficients are float32 from init)
         flat = np.ravel(audio).astype(np.float32, copy=False)
-        filtered, zi = lfilter(b, a, flat, zi=zi)
+        filtered, zi = _get_lfilter()(b, a, flat, zi=zi)
         self._state = (b, a, zi)
         return filtered.reshape(original_shape)
 
     def reset(self) -> None:
         if self._state is not None:
             b, a, zi = self._state
-            # G4-L-05: zero the existing IIR state in place (mirrors
+            # zero the existing IIR state in place (mirrors
             # HighPassFilter.reset).  The notch filter's carry state is
             # small (1 sample) but still encodes a residual of the
             # previous audio, so zero it for symmetry with the highpass
             # path and the same SEC-audit-008 guarantee.
-            # XV-39: reuse the just-zeroed array instead of allocating a
+            # reuse the just-zeroed array instead of allocating a
             # fresh ``np.zeros(...)`` block on every reset() — same
             # rationale as HighPassFilter.reset.
             if zi.size > 0:

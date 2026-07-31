@@ -53,11 +53,11 @@ ADR-0019's rate limiter
 (:class:`voice_typer.server.ipc_server._RateLimiter`) is applied on
 every incoming WS frame, mirroring the TCP path. A client that
 exceeds 200 burst / 600 sustained (10s window, per
-RELIABILITY-006-FIX-10) gets ``{"type":"error","code":
+RELIABILITY-006-) gets ``{"type":"error","code":
 "rate_limited","data":{"message":"rate limit exceeded; backing
 off"}}`` and the connection stays open.
 
-CR-11: the limiter is shared across ALL WS connections to this server
+the limiter is shared across ALL WS connections to this server
 process (looked up via ``_get_rate_limiter(server)``), so a local
 attacker can no longer reset the 200-message burst budget by dropping
 the WS and reconnecting.
@@ -112,7 +112,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
 
-# DT-11: import the canonical loopback host constant from _paths.py
+# import the canonical loopback host constant from _paths.py
 # (was a local `_LOOPBACK_HOST = "127.0.0.1"` literal duplicated across
 # _http_safety.py, _secrets.py, and this module). Aliased to the
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
@@ -129,7 +129,15 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # AFTER the first client authenticates, so the Tauri host receives it
 # over the WS and can hydrate the UI.
 #
-# CR-4: this flag USED to be a module-level global (`_ready_emitted`).
+# `ready` is emitted AFTER `_install_subscriber` registers the WS
+# subscriber (`_push_to_ws`) on `event_bus`. Pre- the emit ran
+# BEFORE the subscriber was registered, so the event was published to
+# an empty subscriber set (modulo other transports) and the WS writer
+# task never received it — the Tauri host never got `ready` over the WS
+# on first connection and the UI stayed un-hydrated. See
+# `_handle_connection_inner` for the ordered call sites.
+#
+# this flag USED to be a module-level global (`_ready_emitted`).
 # That was correct for production (one ready event per process), but
 # never reset between test runs that import the module once and call
 # `run()` multiple times with different IPCServer instances — so the
@@ -145,7 +153,7 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # IPC to the LAN. Fail the launch if the configured bind is not
 # loopback.
 #
-# DT-11: ``_LOOPBACK_HOST`` is now imported from ``_paths.py`` (see
+# ``_LOOPBACK_HOST`` is now imported from ``_paths.py`` (see
 # the import statement near the top of this module) so the same
 # constant is shared with ``_http_safety.py`` and ``_secrets.py``.
 
@@ -156,7 +164,7 @@ _MAX_FRAME_BYTES = 1 * 1024 * 1024
 
 # Auth frame timeout (seconds). A client that connects but never
 # sends the auth frame must not hold the connection indefinitely —
-# matches the TCP path's 5-second auth timeout (PR-3-FIX-1).
+# matches the TCP path's 5-second auth timeout ().
 #
 # DEDUP TRACKING: the TCP path has a local
 # ``_tcp_auth_timeout_seconds = 5.0`` in
@@ -164,10 +172,10 @@ _MAX_FRAME_BYTES = 1 * 1024 * 1024
 # The two transports MUST agree on the auth-deadline budget — if one
 # is changed, the other MUST be updated to match.  A future refactor
 # could extract this constant to a shared ``ipc/auth.py`` module
-# (see S2-CR-1).
+# (see ).
 _AUTH_TIMEOUT_SECONDS = 5.0
 
-# XZ-IPC-003: concurrent-connection limit (DoS protection).
+# concurrent-connection limit (DoS protection).
 _MAX_WS_CONNECTIONS = 16
 
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
@@ -175,7 +183,7 @@ _MAX_WS_CONNECTIONS = 16
 # and exit within this window; if it doesn't, the host force-kills
 # the process tree via kill_children.
 #
-# DT-54: the previous ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0`` constant
+# the previous ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0`` constant
 # was dead code — referenced nowhere in this module and misleadingly
 # suggested Python enforces the timeout. The Rust host's
 # ``SHUTDOWN_ACK_TIMEOUT_MS = 2000`` (in ``src-tauri/src/util.rs``)
@@ -184,7 +192,7 @@ _MAX_WS_CONNECTIONS = 16
 # ``src-tauri/src/util.rs::SHUTDOWN_ACK_TIMEOUT_MS`` for the canonical
 # value.
 
-# S2-CR-72 (SA-6): Tauri sidecar handshake protocol-version constant.
+# Tauri sidecar handshake protocol-version constant.
 #
 # The sidecar emits ``"protocol": PROTOCOL_VERSION`` in its
 # ``server_started`` JSON line so the Rust host can detect version
@@ -193,8 +201,8 @@ _MAX_WS_CONNECTIONS = 16
 # partial failures (some commands work, others return
 # ``unknown_command``, push events have unexpected ``type`` values).
 #
-# The Rust host's ``EXPECTED_PROTOCOL`` constant in
-# ``src-tauri/src/sidecar/spawn.rs`` MUST match this value. Bump this
+# The Rust host's ``EXPECTED_PROTOCOL_VERSION`` constant in
+# ``src-tauri/src/sidecar/ws.rs`` MUST match this value. Bump this
 # integer whenever the ``_COMMAND_REGISTRY`` (in
 # ``voice_typer/server/ipc_server.py``) adds/removes/renames a
 # command OR the push-event ``type`` vocabulary changes — both are
@@ -202,7 +210,7 @@ _MAX_WS_CONNECTIONS = 16
 # and never reused.
 #
 # History:
-#   - 1 (SA-6, this run): initial protocol-version negotiation. The
+#   - 1 (, this run): initial protocol-version negotiation. The
 #     pre-negotiation sidecar emitted only ``{"event":"server_started",
 #     "port":<n>}``; old hosts that don't yet parse the ``protocol``
 #     field continue to function (the field is additive).
@@ -245,11 +253,11 @@ def _emit_server_started(port: int, protocol: int | None = None) -> None:
     file log. The host blocks reading stdout until it parses this
     JSON, then opens a WS client to ws://127.0.0.1:<port>.
 
-    S2-CR-72 (SA-6): when ``protocol`` is not ``None``, the payload
+    when ``protocol`` is not ``None``, the payload
     additionally includes ``"protocol": <int>`` so the Rust host can
     detect version skew at handshake time. The Rust host's
-    ``EXPECTED_PROTOCOL`` constant in
-    ``src-tauri/src/sidecar/spawn.rs`` MUST match
+    ``EXPECTED_PROTOCOL_VERSION`` constant in
+    ``src-tauri/src/sidecar/ws.rs`` MUST match
     :data:`PROTOCOL_VERSION`; on mismatch, the host logs a clear
     ``protocol_mismatch`` error and refuses to spawn. Callers in this
     module always pass :data:`PROTOCOL_VERSION`; the ``None`` default
@@ -280,7 +288,7 @@ async def _authenticate(websocket) -> bool:
 
     Returns ``True`` if authenticated, ``False`` if rejected.
 
-    DEDUP (S2-CR-1)
+    DEDUP ()
     ----------------
     This function mirrors the TCP auth handshake in
     ``ipc/transport_tcp.py::_handle_tcp_connection`` (the
@@ -299,7 +307,7 @@ async def _authenticate(websocket) -> bool:
     ``asyncio.wait_for`` vs ``_TCPLineIO.readline()`` +
     ``conn.settimeout``).  Bug fixes to the validation contract MUST
     be applied to BOTH call sites.  A future extraction to a shared
-    ``ipc/auth.py`` helper is tracked under S2-CR-1.
+    ``ipc/auth.py`` helper is tracked under
     """
     expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
     if not expected_token:
@@ -339,7 +347,7 @@ async def _authenticate(websocket) -> bool:
         log.warning("[SIDECAR-WS] auth token mismatch — rejecting")
         return False
 
-    # S1-CR-78: detect host/sidecar protocol-version skew at handshake
+    # detect host/sidecar protocol-version skew at handshake
     # time. The Rust host (src-tauri/src/sidecar/ws.rs) now includes a
     # `protocol_version` integer in its auth frame. The field is
     # additive — older hosts that don't yet send it continue to function
@@ -349,7 +357,7 @@ async def _authenticate(websocket) -> bool:
     # the connection on mismatch because a misconfigured host should
     # still be able to authenticate (the version negotiation is
     # defense-in-depth, not a security gate). The TCP transport's
-    # parallel check lives in ipc/transport_tcp.py (DR-21).
+    # parallel check lives in ipc/transport_tcp.py ().
     host_protocol = first.get("protocol_version")
     if host_protocol is not None:
         try:
@@ -379,17 +387,17 @@ def _make_dispatch(server: IPCServer):
     so the 61-command registry + _validate_dict_payload + every
     handler mixin is exercised unchanged (ADR-0020 §2).
     """
-    # ADR-0019 + CR-11: per-process rate limiter. Reuse the same private
+    # ADR-0019 + : per-process rate limiter. Reuse the same private
     # _RateLimiter class the TCP path uses (ipc_server.py:215) so the
     # burst/sustained semantics are identical — 200 burst, 600 sustained
-    # over a 10s window (RELIABILITY-006-FIX-10).
+    # over a 10s window (RELIABILITY-006-).
     #
-    # CR-11: the limiter is looked up lazily via _get_rate_limiter(server)
+    # the limiter is looked up lazily via _get_rate_limiter(server)
     # so it is shared across ALL WS connections to this server process.
     # A local attacker can no longer reset the 200-message burst budget
     # by dropping the WS and reconnecting — the 10s sliding window
     # continues to evict old timestamps across reconnects.
-    # G4-H-30: dedicated ThreadPoolExecutor for WS dispatch so
+    # dedicated ThreadPoolExecutor for WS dispatch so
     # ``_do_cleanup`` can drain / cancel in-flight dispatch requests
     # BEFORE tearing down the recorder / history DB / crash-recovery
     # writer. Previously ``loop.run_in_executor(None, server._dispatch,
@@ -398,7 +406,7 @@ def _make_dispatch(server: IPCServer):
     # (e.g. ``download_model``) would race teardown, half-flush the
     # history DB, and leak a partially-written crash-recovery snapshot.
     #
-    # DEDUP (S2-CR-1): the rate-limiter import is intentionally from
+    # DEDUP (): the rate-limiter import is intentionally from
     # ``ipc_server`` (NOT from the leaf ``voice_typer.server.ipc.rate_limiter``).
     # ``_get_rate_limiter`` is defined LOCALLY in ``ipc_server.py`` (not
     # just re-exported) so it resolves ``_RateLimiter`` against
@@ -430,7 +438,7 @@ def _make_dispatch(server: IPCServer):
         # MagicMock test double it overrides the auto-vivified child.
         server._ws_dispatch_pool = ws_dispatch_pool  # type: ignore[attr-defined]
 
-    # DJ-9: explicit ``threading.Event`` coordination between the WS
+    # explicit ``threading.Event`` coordination between the WS
     # dispatch path and ``ShutdownController._do_cleanup``. The pool's
     # ``shutdown(wait=True)`` only guarantees that the
     # ``ThreadPoolExecutor``'s worker queue has drained — it does NOT
@@ -486,7 +494,7 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
-        # G4-H-30: cooperative shutdown gate. Once ``app._shutting_down``
+        # cooperative shutdown gate. Once ``app._shutting_down``
         # is True (set by ``ShutdownController.quit()`` before
         # ``_do_cleanup()`` runs), reject every new dispatch request
         # with a structured ``server.shutting_down`` error code so the
@@ -496,9 +504,9 @@ def _make_dispatch(server: IPCServer):
         # ``shutdown`` message itself is exempt — the host sends it to
         # TRIGGER shutdown, and it is now handled by the shared
         # ``_COMMAND_REGISTRY`` entry ``"shutdown": "_handle_shutdown"``
-        # (registered in ipc_server.py by EC-FIX-2) which delegates to
+        # (registered in ipc_server.py by ) which delegates to
         # ``service.quit()`` — the SAME path the TCP ``quit_app``
-        # command uses. Pre-EC-FIX-3 the WS path special-cased
+        # command uses. Pre- the WS path special-cased
         # ``shutdown`` here and called ``server.app.quit()`` directly,
         # bypassing the service layer (so any future shutdown
         # side-effect added to ``service.quit()`` silently wouldn't run
@@ -514,23 +522,23 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
-        # ADR-0019 + CR-11 rate limit check. Look up the shared limiter
+        # ADR-0019 +  rate limit check. Look up the shared limiter
         # on every call (cheap — dict-style getattr) so all WS frames to
         # this server share the same sliding-window budget. _RateLimiter
         # .allow() returns a bool (no retry-after); the host backs off
         # via backoff on repeated rate-limit hits.
         rate_limiter = _get_rate_limiter(server)
         #
-        # G4-M-09: pass ``command=msg_type`` so the per-command cost map
+        # pass ``command=msg_type`` so the per-command cost map
         # (``COMMAND_COSTS``) is applied — e.g. ``download_model``
         # consumes 50 of the 200 burst units, so a buggy client can fire
         # at most 4 expensive commands per second before the 5th is
         # rejected. Cheap commands (``heartbeat``, ``get_status``) keep
-        # the pre-G4-M-09 cost-1 behavior. The legacy
+        # the pre- cost-1 behavior. The legacy
         # ``rate_limiter.allow()`` form (no ``command`` kwarg) is still
         # supported and treats the call as cost 1.
         if not rate_limiter.allow(command=msg_type):
-            # SEC-6: allow() already increments _rejected atomically when
+            # allow() already increments _rejected atomically when
             # it returns False — the separate .reject() call was removed
             # to eliminate the benign race where two threads could both
             # observe the same deque state, both decide to reject, and
@@ -546,7 +554,7 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
-        # DJ-9: mark this dispatch as in-flight + clear the drain Event
+        # mark this dispatch as in-flight + clear the drain Event
         # so ``ShutdownController._do_cleanup`` knows to wait for us
         # before tearing down the DB / recorder / crash-recovery
         # subsystems. The increment-then-clear pair is under
@@ -564,7 +572,7 @@ def _make_dispatch(server: IPCServer):
         # (e.g. download_model) doesn't block the WS reader.
         loop = asyncio.get_running_loop()
         try:
-            # G4-H-30: use the dedicated ``_ws_dispatch_pool`` (not the
+            # use the dedicated ``_ws_dispatch_pool`` (not the
             # asyncio default executor) so ``ShutdownController._do_cleanup``
             # can ``pool.shutdown(wait=False, cancel_futures=True)`` to
             # drain / cancel in-flight handlers before recorder / history
@@ -572,10 +580,10 @@ def _make_dispatch(server: IPCServer):
             result = await loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg)
         except Exception:
             log.exception("[SIDECAR-WS] _dispatch raised")
-            # IPC-5 (2026-07-18): the error envelope now matches the
+            #  (2026-07-18): the error envelope now matches the
             # TCP path (``ipc_server._handle_tcp_connection``'s
-            # ERR-018 block) verbatim — same ``code`` AND same
-            # ``message`` ("internal error"). Pre-IPC-5 the WS path
+            #  block) verbatim — same ``code`` AND same
+            # ``message`` ("internal error"). Pre- the WS path
             # used the message "dispatch raised" while TCP used
             # "internal error"; both messages were generic (neither
             # leaked ``str(exception)``) but the divergence meant a
@@ -583,12 +591,12 @@ def _make_dispatch(server: IPCServer):
             # The contract: ``{"type":"error","data":{"code":
             # "server.internal_error","message":"internal error"}}``.
             #
-            # EC-FIX-3 (EC-10): the ``code`` was migrated from the
+            #  (): the ``code`` was migrated from the
             # legacy ``"internal_error"`` to the namespaced
             # ``"server.internal_error"`` form (matching the
             # ``ERROR_CODES`` registry in ``ipc/validation.py``). The
             # renderer accepts both forms (legacy treated as alias),
-            # so this is a backward-compatible migration. EC-FIX-2
+            # so this is a backward-compatible migration.
             # applies the same migration to the TCP path's
             # ``internal_error`` emissions.
             return_error = {
@@ -598,7 +606,7 @@ def _make_dispatch(server: IPCServer):
         else:
             return_error = None
         finally:
-            # DJ-9: decrement the in-flight count and re-set the drain
+            # decrement the in-flight count and re-set the drain
             # Event when the count drops to zero. The ``finally`` block
             # guarantees the Event is set even if ``run_in_executor``
             # raised (the in-flight count MUST be consistent with the
@@ -624,7 +632,7 @@ def _make_dispatch(server: IPCServer):
 def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
     """Drop-oldest enqueue — MUST run on the event-loop thread.
 
-    CR-4: ``_push_to_ws`` is an ``event_bus`` subscriber, so it is
+    ``_push_to_ws`` is an ``event_bus`` subscriber, so it is
     invoked from whatever thread called ``event_bus.publish()``. The
     publishers are non-event-loop threads: transcription, hotkey, tray,
     IPC dispatch workers (``_dispatch`` runs via
@@ -669,7 +677,7 @@ def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
 
 
 def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
-    """XZ-IPC-003: lazily create / return the per-server connection semaphore."""
+    """lazily create / return the per-server connection semaphore."""
     sem = getattr(server, "_ws_connection_semaphore", None)
     if not isinstance(sem, asyncio.Semaphore):
         sem = asyncio.Semaphore(_MAX_WS_CONNECTIONS)
@@ -681,7 +689,7 @@ def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
 async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     """Per-connection WS handler: auth + read/dispatch loop.
 
-    XZ-IPC-003: enforces a concurrent-connection cap via a per-server
+    enforces a concurrent-connection cap via a per-server
     asyncio.Semaphore BEFORE delegating to _handle_connection_inner.
     """
     peer = websocket.remote_address
@@ -717,7 +725,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
 
 
 async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
-    """XZ-R18-06: enforce single-authenticated-connection invariant.
+    """enforce single-authenticated-connection invariant.
 
     The host (Rust / Electron) uses respawn rather than reconnect —
     a second authenticated WS implies a protocol bug (stale socket
@@ -798,13 +806,22 @@ def _emit_ready_if_first(server: IPCServer) -> None:
     event_bus — ``server.push`` would go to the TCP path's
     ``_tcp_client`` which is ``None`` in WS mode.
 
-    CR-4: the flag is per-instance (``server._ready_emitted``), not
+    the caller (:func:`_handle_connection_inner`) MUST call
+    :func:`_install_subscriber` BEFORE this function so the WS
+    subscriber (``_push_to_ws``) is registered on ``event_bus`` when
+    ``publish({"type": "ready"})`` runs. Pre- the order was
+    reversed and the ``ready`` event was published to an empty
+    subscriber set (modulo other transports), so the WS writer task
+    never received it and the Tauri host never got ``ready`` over
+    the WS on first connection.
+
+    the flag is per-instance (``server._ready_emitted``), not
     module-level, so each fresh ``IPCServer`` starts with the flag
     ``False`` and emits ``ready`` on its first connection. This was
     previously a module-level global which leaked state between test
     runs that reused the same module.
 
-    CR-83: the read-then-write is guarded by ``server._lock`` (an
+    the read-then-write is guarded by ``server._lock`` (an
     ``RLock`` defined on ``IPCServer`` at ``__init__``). Two
     concurrent first-time authentications would otherwise both see
     ``_ready_emitted == False`` and both publish ``ready``. The host
@@ -827,7 +844,7 @@ def _emit_ready_if_first(server: IPCServer) -> None:
 
 
 def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outbound: asyncio.Queue) -> object:
-    """CR-79 / CR-37 / CR-30 / CR-4: register ``_push_to_ws`` as an
+    """register ``_push_to_ws`` as an
     ``event_bus`` subscriber (sync API) and emit the initial
     ``state_changed`` snapshot.
 
@@ -838,7 +855,7 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
     is documented as NOT thread-safe; the GIL makes immediate deque
     ops atomic but the ``_getters``/``_putters`` future-scheduling
     path can miss wakeups. The captured ``loop`` (captured ONCE here
-    — EC-FIX-3 cleanup: previously re-captured three times with a
+    —  cleanup: previously re-captured three times with a
     dead ``_ws_loop`` local) is closed over in ``_push_to_ws`` so the
     sync subscriber can route all queue mutations through
     ``loop.call_soon_threadsafe`` (the documented way to bridge a
@@ -854,7 +871,7 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
     closure-captured ``loop`` remains the per-connection source of
     truth.
 
-    EC-FIX-3 (EC-11 / ERR-017 parity): after subscribing, emit a
+     ( /  parity): after subscribing, emit a
     ``state_changed`` snapshot on EVERY authenticated connection
     (not just the first ``ready``). This mirrors the TCP path's
     connect-time snapshot at ``ipc_server.py:_handle_tcp_connection``
@@ -863,11 +880,12 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
     of leaving it stale until the next state transition. Placement:
     published AFTER ``_push_to_ws`` is registered so the event flows
     through the WS writer task's outbound queue to the host. The
-    ``ready`` emit (in :func:`_emit_ready_if_first`) is intentionally
-    published BEFORE ``_push_to_ws`` is registered (per ADR-0020
-    round-2) and is delivered via ``server.push`` → ``_pending_tcp``
-    flush; ``state_changed`` is published here so it is GUARANTEED to
-    reach the WS client on every auth.
+    ``ready`` emit (in :func:`_emit_ready_if_first`) is now ALSO
+    published AFTER ``_push_to_ws`` is registered (per the  fix
+    in :func:`_handle_connection_inner`) so it flows through the WS
+    outbound queue to the host on the first authenticated connection;
+    ``state_changed`` is published here so it is GUARANTEED to reach
+    the WS client on every auth.
 
     Defensive: the tray may not be initialized yet on the very first
     connection (the app boots the IPC server before the tray icon is
@@ -882,7 +900,7 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
     def _push_to_ws(event: dict) -> None:
         """Subscriber for event_bus.publish — enqueues for the writer task.
 
-        CR-4 / PVT-G5-002: this subscriber is invoked synchronously in the
+         this subscriber is invoked synchronously in the
         publisher's thread (``event_bus._deliver`` calls ``fn(event)``
         directly, modulo the RT-thread deferred path). Because the
         publisher is typically a non-event-loop thread, we MUST NOT
@@ -895,7 +913,7 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
         drop-oldest dance (``full`` / ``get_nowait`` / ``put_nowait``)
         lives in ``_enqueue_safe`` and runs entirely on the loop thread.
 
-        PVT-028: removed the pre-marshaling queue-overflow check and
+        removed the pre-marshaling queue-overflow check and
         the ``put_nowait`` fallback. They touched the asyncio.Queue from
         the publisher's thread — exactly the corruption ``_enqueue_safe``
         was created to prevent. ``_enqueue_safe`` already does the
@@ -960,7 +978,7 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                     return
                 try:
                     raw = json.dumps(event, ensure_ascii=False)
-                    # AB-38: use ``len(raw)`` (char count) instead of
+                    # use ``len(raw)`` (char count) instead of
                     # ``len(raw.encode("utf-8"))`` (byte count) for the
                     # size check. Previously every outbound frame was
                     # UTF-8 encoded TWICE: once here to compute the byte
@@ -1004,12 +1022,12 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
 
 
 async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
-    """Read/dispatch loop body (UE-29 extraction from
+    """Read/dispatch loop body ( extraction from
     ``_handle_connection_inner``).
 
     Reads inbound WS frames, validates JSON, and dispatches each frame
     via the ``dispatch`` coroutine. The heartbeat fast-path
-    (XE-2-1) is handled INLINE before awaiting ``dispatch()`` so the
+    () is handled INLINE before awaiting ``dispatch()`` so the
     heartbeat-ack is not delayed by an in-flight long dispatch.
 
     NOTE: the inbound frame-size cap is enforced by the ``websockets``
@@ -1066,7 +1084,7 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         # correlation (ADR-0020 §7 — the host's dispatch() command
         # assigns a per-request id). Echo it back on the response.
         request_id = msg.get("id")
-        # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
+        # heartbeat fast-path. Handle heartbeat INLINE in
         # the read loop BEFORE awaiting ``dispatch()`` so the
         # heartbeat-ack is not delayed by an in-flight long
         # dispatch (e.g. ``download_model``, ``transcribe``) running
@@ -1105,9 +1123,9 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
 
 
 async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer) -> None:
-    """Auth + read/dispatch loop body (XZ-IPC-003 extraction).
+    """Auth + read/dispatch loop body ( extraction).
 
-    UE-29: refactored from a ~375-line monolith into a ~30-line
+    refactored from a ~375-line monolith into a ~30-line
     coordinator that delegates to named helpers (:func:`_check_duplicate_auth`,
     :func:`_emit_ready_if_first`, :func:`_install_subscriber`,
     :func:`_start_writer`, :func:`_read_loop`). Each helper owns one
@@ -1119,7 +1137,7 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
     if not await _authenticate(websocket):
-        # EC-11 (cross-transport parity): mirror the TCP path's
+        # mirror the TCP path's
         # ``auth_failed`` error frame BEFORE closing the WS with 1008.
         # Wrapped in ``contextlib.suppress`` because the socket may
         # already be half-closed; the close call is authoritative.
@@ -1142,11 +1160,16 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     if not await _check_duplicate_auth(websocket, server, peer):
         return
 
-    _emit_ready_if_first(server)
-
     loop = asyncio.get_running_loop()
     outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
+    # ``_install_subscriber`` MUST run BEFORE ``_emit_ready_if_first``
+    # so the WS subscriber (``_push_to_ws``) is registered on ``event_bus``
+    # before the ``ready`` event is published. Pre- the reversed order
+    # published to a subscriber set without ``_push_to_ws``, so the WS
+    # outbound queue never received ``ready`` and the Tauri host never got
+    # it over the WS on first connection (UI stayed un-hydrated).
     _push_to_ws = _install_subscriber(server, loop, outbound)
+    _emit_ready_if_first(server)
     writer_task = _start_writer(websocket, outbound)
 
     from voice_typer.server import event_bus
@@ -1167,7 +1190,7 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         writer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await writer_task
-        # XZ-R18-06: clear the active-connection slot ONLY if it still
+        # clear the active-connection slot ONLY if it still
         # points at THIS socket — a concurrent auth may have already
         # replaced it. Compare-and-clear under ``server._lock``.
         with server._lock:

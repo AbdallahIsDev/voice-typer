@@ -2,7 +2,7 @@
 
 This module is the canonical import path for path-traversal / path-
 containment validation used by :mod:`voice_typer.server.config`.
-Finding S5-CR-28 identified ``config.py`` (2,698 LOC) as mixing 5
+Finding  identified ``config.py`` (2,698 LOC) as mixing 5
 module-level concerns; the path-safety helpers are one of those
 concerns and belong in their own named module so future contributors
 can grep for ``config_path_safety`` and find every path-traversal
@@ -12,11 +12,11 @@ Rationale for the re-export shape
 ---------------------------------
 The function *bodies* currently live in
 :mod:`voice_typer.server.config_internals.paths` (they were moved
-there during the FZ-S4 / DT-24 partial split that extracted
+there during the  /  partial split that extracted
 ``config_internals.{paths,migrations}`` out of ``config.py``).
 ``config_internals.paths`` is a mixed module that bundles
 path-safety + config-dir resolution + cross-process lock +
-SystemRoot validation — the S5-CR-28 finding's complaint is exactly
+SystemRoot validation — the  finding's complaint is exactly
 that these concerns are not yet separated into dedicated modules.
 
 This module (``config_path_safety.py``) provides the *named* home

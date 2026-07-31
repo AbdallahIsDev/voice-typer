@@ -1,6 +1,6 @@
 """Configuration management with platform-aware storage."""
 
-# ARCH-REFAC-001: validators extracted to config_validators.py
+# validators extracted to config_validators.py
 # ──────────────────────────────────────────────────────────────────────────
 # This module previously contained both the config-loading code (JSON
 # parsing, schema migration, atomic writes, the ``Config`` dataclass)
@@ -20,7 +20,7 @@
 # ``Config.load()`` consults it during schema migration.
 # ──────────────────────────────────────────────────────────────────────────
 
-# DT-20 sunset policy: cross-reference tags (ARCH-/CR-/G4-/H12/SEC-/RW-/GT-/
+#  sunset policy: cross-reference tags (ARCH-/CR-/G4-/H12/SEC-/RW-/GT-
 # DE-/PVT-/XV-/XZ-) are historical rationale for fix-waves that landed in
 # prior sessions. They are intentionally retained as a defensive trace of
 # WHY a line exists, but future contributors SHOULD NOT add new tag-style
@@ -34,6 +34,7 @@ import logging
 import os
 import threading
 import time
+import types
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -55,10 +56,10 @@ from voice_typer.server.config_internals.paths import (  # noqa: F401 — backwa
     _validate_systemroot,
 )
 
-# S5-CR-28: path-safety helpers are re-exported via the dedicated
+# path-safety helpers are re-exported via the dedicated
 # ``config_path_safety`` module so future contributors can grep for
 # path-traversal guards in one place. The function bodies currently
-# live in ``config_internals.paths`` (FZ-S4 / DT-24 partial split);
+# live in ``config_internals.paths`` ( /  partial split);
 # ``config_path_safety`` is the canonical import path going forward.
 from voice_typer.server.config_path_safety import (  # noqa: F401 — backward-compat re-export
     _is_path_within,
@@ -89,14 +90,14 @@ from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compa
     _secure_read_text,
 )
 
-# DT-11: canonical default for the clipboard restore delay (ms).
+# canonical default for the clipboard restore delay (ms).
 # Previously duplicated as the literal `150` in three places:
 # this dataclass field default, `ClipboardManager.__init__`, and
 # `ClipboardManager.refresh_config` (twice). Other modules now import
 # this constant instead of repeating the literal.
 DEFAULT_CLIPBOARD_RESTORE_DELAY_MS: int = 150
 
-# DR-33: canonical default hotkey. Previously the literal ``"<caps_lock>"``
+# canonical default hotkey. Previously the literal ``"<caps_lock>"``
 # was duplicated in `_default_hotkey_for_platform`, `hotkey_dispatcher.register`,
 # `onboarding.OnboardingController.selected_hotkey` (3 sites), and the TS
 # renderer's `HOTKEY_DEFAULT`. Centralising it here means the parity test
@@ -105,12 +106,12 @@ DEFAULT_CLIPBOARD_RESTORE_DELAY_MS: int = 150
 # ``client/src/renderer/src/pages/onboarding/lib/constants.ts``.
 DEFAULT_HOTKEY: str = "<caps_lock>"
 
-# DR-37: canonical bounds + default for ``max_recording_time_seconds``.
+# canonical bounds + default for ``max_recording_time_seconds``.
 # Defined in ``config_validators.py`` (the import-safe leaf module) and
 # re-imported below so this module + the IPC validator share a single
 # source of truth. Previously:
 #   - The IPC validator in ``config_validators.py`` accepted ``lo=30`` (a
-#     typo from XZ-14-09 that lowered the bound from 300 without also
+#     typo from  that lowered the bound from 300 without also
 #     updating the post-load clamp in ``_coerce_max_recording_time``).
 #   - ``_coerce_max_recording_time`` reset out-of-range / invalid values
 #     to the literal ``900`` in 3 places.
@@ -126,7 +127,7 @@ from voice_typer.server.config_validators import (  # noqa: E402
     MAX_RECORDING_TIME_SECONDS_MIN,
 )
 
-# XE-11-4: canonical lower bounds for the streaming-overlap / -guard
+# canonical lower bounds for the streaming-overlap / -guard
 # seconds. Defined locally in config.py (NOT in config_validators.py —
 # that's F1's territory) so the load-time clamp has a named constant
 # instead of an inlined literal. Pre-fix, the IPC validator
@@ -177,7 +178,7 @@ def _default_hotkey_for_platform() -> str:
     return DEFAULT_HOTKEY
 
 
-# S1-CR-43: enumerates the user-data files / subdirs that live under
+# enumerates the user-data files / subdirs that live under
 # ``_config_dir()`` and should be removed on a "purge" uninstall. The
 # list is sourced from the ``_config_dir()`` docstring + the actual
 # files created by ``Config.save()`` / ``history_db`` / ``logging_setup``
@@ -213,7 +214,7 @@ _USER_DATA_DIRS: tuple[str, ...] = (
 
 
 def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
-    """S1-CR-43: remove all user-data files / subdirs created by Voice Typer.
+    """remove all user-data files / subdirs created by Voice Typer.
 
     Intended to be called from uninstall scripts (Linux ``prerm --purge``,
     Windows NSIS uninstaller hook, macOS ``Uninstall Voice Typer.app``
@@ -287,13 +288,13 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
     # ``config.json.pre-migration-v<N>.bak``,
     # ``config.json.corrupt-<ts>``.
     #
-    # XE-6-3 (Medium): also sweep ``history.db.pre-migration-v*`` —
+    # also sweep ``history.db.pre-migration-v*`` —
     # ``HistoryDB._backup_before_migration`` creates a byte-for-byte
     # copy of the full history DB before schema migration, containing
-    # all dictated text in plaintext. Pre-XE-6-3 this file survived
+    # all dictated text in plaintext. Pre- this file survived
     # ``purge_user_data`` (the loop only matched ``history.db.corrupt-*``)
     # — a GDPR Art. 17 gap mirroring the ``history.db.corrupt-*`` issue
-    # fixed by XZ-SEC-03.
+    # fixed by
     if base.exists():
         for entry in base.iterdir():
             name = entry.name
@@ -439,12 +440,12 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
     return {"deleted": deleted, "failed": failed}
 
 
-# DT-11: deferred imports for shared canonical constants.
+# deferred imports for shared canonical constants.
 # ``_config_dir`` is now imported at the very top of this module (from
 # ``voice_typer.server.config_internals.paths``), so the historical
 # circular-import constraint (config → _paths → config) no longer
 # applies — these imports could in principle move to the top of the
-# file.  They are kept here purely to minimize the diff of the FZ-S4
+# file.  They are kept here purely to minimize the diff of the
 # split; ``volume_ducker.py`` is grouped alongside for symmetry (it
 # has no dependency on ``config`` either way).
 from voice_typer.server._paths import DEFAULT_LLM_API_URL, DEFAULT_LLM_MODEL  # noqa: E402
@@ -452,7 +453,7 @@ from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS  # noqa
 
 
 def _legacy_voice_typer_dir() -> Path:
-    """RW-7: canonical ``~/.voice-typer`` path used by the legacy migration
+    """canonical ``~/.voice-typer`` path used by the legacy migration
     probe in :func:`_config_dir`.
 
     The actual probe runs in
@@ -461,7 +462,7 @@ def _legacy_voice_typer_dir() -> Path:
     ``test_config_py_still_has_legacy_migration_probe`` regression guard
     (which scans ``config.py`` for the literal
     ``Path.home() / ".voice-typer"`` pattern) continues to pass after
-    the FZ-S4 split.  :func:`_config_dir` calls this helper via the
+    the  split.  :func:`_config_dir` calls this helper via the
     lazy-import shim
     :func:`voice_typer.server.config_internals.paths._get_legacy_voice_typer_dir`
     to avoid a circular module-load.
@@ -470,7 +471,7 @@ def _legacy_voice_typer_dir() -> Path:
 
 
 def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
-    """XZ-CFG-11: prune oldest backup files in ``directory`` whose name
+    """prune oldest backup files in ``directory`` whose name
     starts with ``prefix``, keeping only the ``keep`` newest.
 
     Best-effort: filesystem errors during stat / unlink of individual
@@ -519,7 +520,7 @@ class Config:
     # ``asdict()`` only serializes declared dataclass fields, the
     # attribute is excluded from ``config.json`` automatically.
 
-    # RW-01: marks that plaintext API keys in config.json have been
+    # marks that plaintext API keys in config.json have been
     # migrated to the OS keychain (via credential_store). When False
     # (or absent, for legacy config files), Config.load() calls
     # ``credential_store.migrate_secrets_to_keyring()`` once to move
@@ -561,14 +562,14 @@ class Config:
     # Behavior
     autostart: bool = True
     paste_on_stop: bool = True
-    # NEW-MISMATCH-001: client-side field now has a server counterpart
+    # client-side field now has a server counterpart
     unsafe_paste_on_unknown_focus: bool = False  # paste even when focus detection fails
     show_notifications: bool = True
-    # PLAT-013: warn when pasting into an elevated process from non-elevated
+    # warn when pasting into an elevated process from non-elevated
     warn_elevated_paste: bool = True
-    # PLAT-014: warn when pasting into a password field
+    # warn when pasting into a password field
     warn_password_paste: bool = True
-    # PW-3: Master toggle for the OS-level prewarm scheduled task.
+    # Master toggle for the OS-level prewarm scheduled task.
     # Defaults ON so existing users keep fast cold-boot behaviour.
     # When False, the prewarm task is unregistered at startup and the
     # prewarm entrypoint exits early with EXIT_DISABLED. The "Run
@@ -577,7 +578,7 @@ class Config:
     fast_startup: bool = True
 
     # ASR backend selection
-    # PVT-G5-067: ``Literal[...]`` instead of bare ``str`` so static
+    # ``Literal[...]`` instead of bare ``str`` so static
     # checkers catch typos and the IPC validator can cross-check the
     # allowed values against the type annotation.  ``Literal`` is a
     # subtype of ``str``, so existing string assignments and JSON
@@ -586,7 +587,7 @@ class Config:
     qwen_model_path: str | None = None  # local path to Qwen3-ASR weights
     parakeet_model_path: str | None = None  # local override for Parakeet weights (None = HF cache)
 
-    # XZ-CFG-01: list of ASR backend names the registry's circuit breaker
+    # list of ASR backend names the registry's circuit breaker
     # has disabled after repeated load failures. The registry
     # (``asr_registry.AsrBackendRegistry``) self-manages this list via
     # ``_persist_disabled``. Persisted to ``config.json`` so disabled
@@ -606,7 +607,7 @@ class Config:
     # Logging
     log_transcriptions: bool = False
 
-    # SEC-012: Clipboard security settings.
+    # Clipboard security settings.
     # ADR-0010 §8.2: removed ``clipboard_clear_delay_seconds`` (dead —
     # was only read by the now-deleted ``schedule_clipboard_clear``).
     # Added ``clipboard_restore_delay_ms`` (now actually consulted in
@@ -624,7 +625,7 @@ class Config:
     push_to_talk_hotkey: str = ""  # Separate hotkey for PTT (empty = same as toggle)
 
     # ESC to cancel at any stage
-    # NEW-UX-020: Esc-to-cancel defaults ON so users can cancel a
+    # Esc-to-cancel defaults ON so users can cancel a
     # recording they started by mistake.  Previously OFF and hidden in
     # Settings, so the only way to cancel was to wait for silence
     # auto-stop or toggle the hotkey again.
@@ -634,7 +635,7 @@ class Config:
     repaste_hotkey: str = "<ctrl>+<alt>+v"  # Hotkey for repasting last
 
     # Auto-punctuation (runs AFTER template matching)
-    # NEW-UX-010: Auto-punctuation defaults ON.  The #1 voice-typing
+    # Auto-punctuation defaults ON.  The #1 voice-typing
     # complaint is missing punctuation.  This feature adds periods,
     # commas, and capitalization automatically.  Previously OFF and
     # undocumented in-app.
@@ -669,7 +670,7 @@ class Config:
     # turning it back on doesn't bypass the consent dialog).
     llm_polish_consent: bool = False
 
-    # NEW-PRIV-005: explicit consent that model weights are downloaded
+    # explicit consent that model weights are downloaded
     # from HuggingFace on first use.  The download reveals the user's
     # IP to a US-headquartered third party — GDPR Art. 13/44 require
     # disclosure + consent for this.  When False, the first model
@@ -677,7 +678,7 @@ class Config:
     # user accepts does the download proceed.
     huggingface_consent: bool = False
 
-    # NEW-PRIV-006: explicit per-provider consent for cloud ASR.
+    # explicit per-provider consent for cloud ASR.
     # Storing an API key alone is NOT consent — the user must
     # explicitly agree that audio will be sent to that provider.
     # Each provider has its own flag so consent is granular.
@@ -685,13 +686,13 @@ class Config:
     cloud_groq_consent: bool = False
     cloud_deepgram_consent: bool = False
 
-    # NEW-PRIV-009: explicit consent that voice recordings (which may
+    # explicit consent that voice recordings (which may
     # constitute biometric data under BIPA / GDPR Art. 9) are
     # processed locally for transcription.  Required for compliance
     # in jurisdictions that classify voice as biometric.
     voice_biometric_consent: bool = False
 
-    # NEW-UX-029: play a short audio cue when recording starts/stops.
+    # play a short audio cue when recording starts/stops.
     # Many users (especially blind users) prefer an auditory signal
     # instead of (or in addition to) the visual indicator.  Default
     # ON — most users benefit from the audible start/stop cue; those
@@ -728,7 +729,7 @@ class Config:
     bubble_position: Literal["top", "bottom"] = "bottom"
 
     # Bubble behavior: show on record, or always visible
-    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    # ``Literal[...]`` for static-type narrowing.
     bubble_behavior: Literal["show_on_record", "always_visible"] = "show_on_record"
 
     # Whether the bubble can be dragged by the user
@@ -737,18 +738,18 @@ class Config:
     # Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
     bubble_show_on_startup: bool = True
 
-    # UX-10: when in `always_visible` mode, show a mic button next to the
+    # when in `always_visible` mode, show a mic button next to the
     # waveform that toggles dictation on click. Default ON — primary
-    # remediation for UX-10 (the always-visible bubble was non-interactive).
+    # remediation for  (the always-visible bubble was non-interactive).
     bubble_click_to_toggle: bool = True
 
-    # UX-10: explicit mic-button visibility toggle (independent of
+    # explicit mic-button visibility toggle (independent of
     # bubble_click_to_toggle). Default ON. When OFF, the bubble stays
     # non-interactive even in always_visible mode (original behaviour).
     bubble_mic_button: bool = True
 
     # History database
-    # FR-28: master toggle for whether dictated text is persisted to the
+    # master toggle for whether dictated text is persisted to the
     # history SQLite DB. When False, dictation_pipeline._store_result
     # skips the ``add_transcription`` call entirely — nothing is written
     # to disk for the current session. Defaults True to preserve the
@@ -765,21 +766,21 @@ class Config:
 
     # Onboarding
     onboarding_completed: bool = False
-    # ERR-010: marks that onboarding was force-completed after repeated
+    # marks that onboarding was force-completed after repeated
     # setup failures so the app remains usable. Lets the UI show a
     # "configure manually" hint instead of looping the wizard.
     onboarding_failed: bool = False
 
     # Tray icon left-click behavior
-    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    # ``Literal[...]`` for static-type narrowing.
     tray_left_click_action: Literal["open_app", "toggle_dictation"] = "open_app"
 
-    # UX-008: Theme mode (system/light/dark)
-    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    # Theme mode (system/light/dark)
+    # ``Literal[...]`` for static-type narrowing.
     theme_mode: Literal["system", "light", "dark"] = "system"
     # Theme preset — a built-in colour scheme applied on top of the
     # current theme_mode. "default" means no overrides.
-    # PVT-G5-067: ``Literal[...]`` enumerates the built-in presets.
+    # ``Literal[...]`` enumerates the built-in presets.
     theme_preset: Literal[
         "default",
         "amoled",
@@ -796,11 +797,11 @@ class Config:
     ] = "default"
     # User-customised theme colours (only used when theme_preset == "custom").
     # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
-    # GT-D1-6: parameterised the bare ``dict`` annotation so static checkers
+    # parameterised the bare ``dict`` annotation so static checkers
     # can verify the nested structure that the renderer writes.
     custom_theme: dict[str, dict[str, str]] | None = None
 
-    # UX-036: Accessibility
+    # Accessibility
     text_size: int = 14
 
     # Wayland hotkey fallback warning
@@ -809,20 +810,20 @@ class Config:
     # Silent mic disconnection (H12)
     silence_warning_seconds: float = 20.0
     stop_on_silence_seconds: float = 60.0
-    # RW-0 / SIMPLIFY-001: single explicit field replaces the previous 3-field split
+    #  SIMPLIFY-001: single explicit field replaces the previous 3-field split
     # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
     # max_recording_time_seconds=0). The old GPU/CPU auto-selection was invisible
     # to users and the "0 = automatic" convention was user-hostile. Now the field
     # is always a concrete value with min 300 (5 min) / max 3600 (60 min).
     max_recording_time_seconds: int = 900  # 15 minutes
 
-    # NOTE: dead_air_timeout (float) was REMOVED in RW-0.
+    # NOTE: dead_air_timeout (float) was REMOVED in
     # It was redundant with stop_on_silence_seconds — both called the same
     # on_silence_auto_stop callback. Auto-stop already resets on every speech
     # detection, so the "only after speech" condition dead air added was
     # unnecessary. Do NOT re-add. See RecordingSettingsSection.tsx comment.
 
-    # GT-58: silence_rms_threshold / silence_peak_threshold were REMOVED
+    # silence_rms_threshold / silence_peak_threshold were REMOVED
     # from the Config dataclass — they were declared, validated, and
     # persisted, but never read by any runtime code path (ADR 0007 §4.3).
     # Existing config.json files that still carry these keys are silently
@@ -847,15 +848,15 @@ class Config:
     # (matches typical "stepped away from keyboard" cadence and keeps
     # cold-reload latency — 2-5 s warm, 5-15 s cold — off the critical
     # path of the next dictation).
-    # DJ-44: default bumped from 0 (disabled) to 30 minutes. The TY-11
+    # default bumped from 0 (disabled) to 30 minutes. The
     # idle-unload path arms a threading.Timer that calls
     # release_gpu_memory() after the configured idle period. On laptops
     # this frees GPU/CPU memory during long no-dictation periods (the
     # common case for a tray app). Users who need always-loaded behavior
     # (e.g. always-on desktop) can set this back to 0.
-    model_idle_unload_minutes: int = 30
+    model_idle_unload_minutes: int = 15
 
-    # AUDIO-013: VAD configuration for the recording callback.
+    # VAD configuration for the recording callback.
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
     # Falls back to RMS if Silero is unavailable.
     use_silero_vad: bool = True  # ADR 0007: was False, now True (torch available)
@@ -875,7 +876,7 @@ class Config:
 
     # ADR 0007 §5.2: normalize_audio and normalize_target_peak REMOVED.
     # Replaced by the Compressor filter in the audio filter chain.
-    # GT-58: the dataclass fields themselves were removed — they were
+    # the dataclass fields themselves were removed — they were
     # declared, validated, and persisted, but never read at runtime (the
     # Compressor filter supersedes them entirely). Existing config.json
     # files that still carry these keys are silently scrubbed by the v3
@@ -885,7 +886,7 @@ class Config:
     # Reduces system volume during dictation to prevent speaker output
     # from bleeding into the microphone.
     #
-    # UX-2: the Settings UI was simplified to just two controls:
+    # the Settings UI was simplified to just two controls:
     #   1. Auto Duck Volume (on/off)
     #   2. Duck Level (0–50%)
     # The remaining fields are internal (not exposed in the UI) and have
@@ -894,20 +895,20 @@ class Config:
     # power users who edit config.json directly.
     volume_duck_enabled: bool = True
     volume_duck_level: float = 0.20  # 0.0–1.0 perceptual-linear (20% duck)
-    # UX-2 / GT-58: ``volume_duck_per_session`` REMOVED from the Config
+    #  ``volume_duck_per_session`` REMOVED from the Config
     # dataclass — ducking now always applies to the master volume
     # cross-platform. Existing config.json files that still carry the key
     # are silently scrubbed by the v3 schema migration. Do NOT re-add.
-    # UX-2: fade duration is now a fixed 200ms default (was 150ms).
+    # fade duration is now a fixed 200ms default (was 150ms).
     # Not exposed in the UI. Power users can override in config.json.
     volume_duck_fade_ms: int = 200  # 0–1000, 0 = instant
-    # UX-2 / GT-58: ``volume_duck_smart`` REMOVED from the Config dataclass —
+    #  ``volume_duck_smart`` REMOVED from the Config dataclass —
     # smart duck is now ALWAYS ON when ``volume_duck_enabled`` is True.
     # Existing config.json files that still carry the key are silently
     # scrubbed by the v3 schema migration. Do NOT re-add.
-    # UX-2: smart-duck poll interval is now a fixed 500ms default.
+    # smart-duck poll interval is now a fixed 500ms default.
     # Not exposed in the UI. Power users can override in config.json.
-    # DT-11: the canonical default lives in
+    # the canonical default lives in
     # ``volume_ducker._DEFAULT_SMART_DUCK_POLL_MS``; imported here so
     # the dataclass default and the ``VolumeDucker`` constructor stay
     # in sync.
@@ -923,7 +924,7 @@ class Config:
     # The preset is applied at startup (Config.load) and on explicit
     # set_config. See voice_typer/server/audio_presets.py for the
     # single source of truth.
-    # PVT-G5-067: ``Literal[...]`` includes legacy values
+    # ``Literal[...]`` includes legacy values
     # ("recommended", "none") so a stale config.json loaded BEFORE
     # the v2 migration renames them is still statically typed; the
     # migration then rewrites them to "auto"/"off".
@@ -943,7 +944,7 @@ class Config:
     # by audio_chain_builder.build_chain(). Chain order:
     #   HighPass → NoiseSuppressor → NoiseGate → Equalizer → Compressor → Limiter
     #
-    # GT-58 / ADR 0009: ``noise_filter_enabled`` and
+    #  ADR 0009: ``noise_filter_enabled`` and
     # ``noise_filter_post_capture`` are RUNTIME switches, NOT deprecated.
     # They are actively read by ``level_monitor.py`` and synced by
     # ``config_applier.py`` (which sets ``noise_filter_enabled =
@@ -954,7 +955,7 @@ class Config:
     noise_filter_highpass: bool = True
     noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
     noise_filter_gate: bool = True
-    # GT-58: ``noise_filter_gate_threshold`` REMOVED from the Config
+    # ``noise_filter_gate_threshold`` REMOVED from the Config
     # dataclass — replaced by the open/close threshold pair below per
     # ADR 0007. Existing config.json files that still carry the key are
     # silently scrubbed by the v3 schema migration. Do NOT re-add.
@@ -964,7 +965,7 @@ class Config:
 
     # ADR 0007 §5.1: New filter chain fields
     # Noise suppressor backend selection.
-    # PVT-G5-067: ``Literal[...]`` matches ``NOISE_SUPPRESSION_METHODS``
+    # ``Literal[...]`` matches ``NOISE_SUPPRESSION_METHODS``
     # in ``config_validators.py`` (the authoritative allowlist). The
     # historical ``"speex"`` option was never implemented — there is
     # no speex backend in ``audio_filters/noise_suppressor.py`` — and
@@ -976,7 +977,7 @@ class Config:
     noise_filter_gate_close_threshold_db: float = -32.0
     noise_filter_gate_attack_ms: float = 25.0
     noise_filter_gate_release_ms: float = 150.0
-    # ER-10: when True, gate samples the first ~500ms of audio to estimate
+    # when True, gate samples the first ~500ms of audio to estimate
     # the ambient noise floor and derives open/close thresholds from it.
     noise_filter_gate_adaptive: bool = False
 
@@ -1053,7 +1054,7 @@ class Config:
         # machinery — Config is not frozen, but this is forward-
         # compatible if it ever is.
         object.__setattr__(self, "last_load_warnings", None)
-        # ER-53: cache the bytes of the last successfully-persisted
+        # cache the bytes of the last successfully-persisted
         # config.json. The next ``save()`` call compares its in-memory
         # serialized content against this cache; if they match, the
         # entire backup block (which reads ``config.json`` from disk
@@ -1064,7 +1065,7 @@ class Config:
         # ``get_config``-style calls that round-trip through ``save``).
         object.__setattr__(self, "_last_saved_bytes", None)
 
-    # CR-25: class-level reference to an in-process mutation lock.
+    # class-level reference to an in-process mutation lock.
     # When set (via :meth:`set_mutation_lock`), :meth:`save` acquires
     # this lock around the actual save work (:meth:`_save_unlocked`)
     # so two threads concurrently mutating and saving the Config
@@ -1081,7 +1082,7 @@ class Config:
     _mutation_lock: ClassVar[Any] = None
 
     def set_mutation_lock(self, lock: "threading.RLock | None") -> None:
-        """CR-25: register an in-process mutation lock for ``save()``.
+        """register an in-process mutation lock for ``save()``.
 
         ``VoiceTyperApp`` owns a ``self._config_mutation_lock =
         threading.RLock()`` that ``service.apply_config`` and
@@ -1111,7 +1112,7 @@ class Config:
 
         Returns True on success, False on failure. Errors are logged but not raised.
 
-        SEC-007: on POSIX, restricts file permissions to 0o600
+        on POSIX, restricts file permissions to 0o600
         (owner-read/write only) and directory permissions to 0o700.
         Without this, default umask leaves config.json world-readable
         (0o644), leaking API keys and other settings to any
@@ -1119,23 +1120,23 @@ class Config:
         are not affected by os.chmod, but the config dir is already
         under %APPDATA% which is per-user).
 
-        NEW-SEC-008: uses os.open with O_NOFOLLOW on POSIX to prevent
+        uses os.open with O_NOFOLLOW on POSIX to prevent
         symlink TOCTOU attacks. A local attacker who pre-creates
         config.json as a symlink to ~/.bashrc would previously have
         their target overwritten via os.replace. O_NOFOLLOW refuses to
         follow symlinks on open, so the write fails instead.
 
-        RW-01: API key fields are routed through ``credential_store``
+        API key fields are routed through ``credential_store``
         before serialization. When a usable keyring backend is
         available, the secret is stored in the OS keychain and the
         on-disk field is replaced with a ``"keyring://<provider>"``
         reference token (so config.json contains no plaintext secrets).
         When keyring is unavailable, the plaintext value is written to
         config.json (with ``0o600`` perms via ``_secure_atomic_write``)
-        — preserving the pre-RW-01 behavior so users on headless
+        — preserving the pre- behavior so users on headless
         Linux without ``gnome-keyring-daemon`` aren't blocked.
 
-        CR-25: when a mutation lock has been registered via
+        when a mutation lock has been registered via
         :meth:`set_mutation_lock`, this method acquires it (reentrant
         ``RLock``) around the actual save work so concurrent
         read-modify-save cycles from different threads produce a
@@ -1155,7 +1156,7 @@ class Config:
             log.error("[CONFIG] Failed to save config: %s", e)
             return False
         except (TypeError, ValueError) as e:
-            # XZ-R10-06: ``json.dumps`` (called inside
+            # ``json.dumps`` (called inside
             # :meth:`_save_unlocked` via ``asdict(self)``) can raise
             # ``TypeError`` when a field holds a non-JSON-serializable
             # value (e.g. a ``set`` / ``datetime`` / custom object
@@ -1176,7 +1177,7 @@ class Config:
             return False
 
     def _save_with_mutation_lock(self) -> bool:
-        """CR-25: acquire the mutation lock (if set) and delegate to
+        """acquire the mutation lock (if set) and delegate to
         :meth:`_save_unlocked`.
 
         Assumes the cross-process file lock is already held (caller
@@ -1195,12 +1196,12 @@ class Config:
         """Body of :meth:`save` -- assumes the cross-process lock AND
         the in-process mutation lock (if set) are held.
 
-        G4-H-09: best-effort single-slot backup of the existing
+        best-effort single-slot backup of the existing
         config.json BEFORE we overwrite it.  The backup preserves
         the EXACT bytes that were on disk (byte-for-byte) so the user
         can manually recover dropped fields after a downgrade save.
 
-        ER-53: when the in-memory serialized content matches the
+        when the in-memory serialized content matches the
         previously-persisted bytes (``_last_saved_bytes``), the entire
         backup block is skipped — no ``Path.read_bytes`` call, no
         ``config.json.bak`` write, no ``os.chmod``.  This is the common
@@ -1216,14 +1217,14 @@ class Config:
                 log.warning("[CONFIG] Failed to chmod config dir: %s", e)
         config_file = path / "config.json"
         data = asdict(self)
-        # RW-01: route API key fields through credential_store.
+        # route API key fields through credential_store.
         try:
             from voice_typer.server import credential_store
 
             if credential_store.is_keyring_available():
                 for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
                     value = data.get(field_name, "")
-                    # DE-23: defensive type guard for non-string api_key
+                    # defensive type guard for non-string api_key
                     # values. ``asdict(self)`` reflects whatever the
                     # in-memory Config instance carries — normally a
                     # str (the dataclass field type) but a buggy IPC
@@ -1262,7 +1263,7 @@ class Config:
                             )
                             continue
                     if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
-                        # XE-3-1 (Critical): pass ``_caller_holds_config_lock=True``
+                        # pass ``_caller_holds_config_lock=True``
                         # so ``store_secret`` → ``_write_plaintext_fallback`` does
                         # NOT re-acquire ``config.json.lock`` (which would deadlock
                         # — fcntl.flock is per-open-file-description on Linux, so a
@@ -1276,10 +1277,24 @@ class Config:
                         # We're inside ``_save_unlocked`` (caller
                         # :meth:`save` acquired the lock at line ~1118 via
                         # ``with _acquire_config_lock():``), so the lock IS held.
-                        credential_store.store_secret(provider, value, _caller_holds_config_lock=True)
-                        data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
+                        # Check the return value: store_secret returns False when
+                        # keyring was probed "available" but set_password transiently
+                        # fails and falls back to _write_plaintext_fallback. In that
+                        # case, leave data[field_name] as the plaintext value so the
+                        # final _secure_atomic_write below persists it in one write —
+                        # simultaneously (a) eliminating redundant per-provider
+                        # read-modify-write cycles and (b) preserving the secret on
+                        # disk (previously the reference token overwrite caused silent
+                        # API-key data loss when keyring flaked mid-save).
+                        stored_to_keyring = credential_store.store_secret(
+                            provider, value, _caller_holds_config_lock=True
+                        )
+                        if stored_to_keyring:
+                            data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
+                        # else: leave data[field_name] as the plaintext value —
+                        # the final _secure_atomic_write will persist it.
         except Exception as e:
-            # DE-28: log only the exception TYPE (not the message) —
+            # log only the exception TYPE (not the message) —
             # credential_store exceptions can echo the secret value
             # being stored, which would leak into log files.
             log.warning(
@@ -1289,15 +1304,15 @@ class Config:
         content = json.dumps(data, indent=2)
         content_bytes = content.encode("utf-8")
 
-        # ER-53: short-circuit the entire backup block when the new
+        # short-circuit the entire backup block when the new
         # content matches the previously-persisted bytes. The cached
         # bytes are only updated after a successful write below, so a
         # previous failed save (or a fresh Config() that has never
         # saved) falls through to the full backup path.
         if self._last_saved_bytes != content_bytes and config_file.exists():
-            # G4-H-09: best-effort backup before overwrite.
+            # best-effort backup before overwrite.
             try:
-                # FR-24: read the existing config.json via
+                # read the existing config.json via
                 # ``_secure_read_text`` (O_NOFOLLOW + inode re-verify)
                 # instead of ``config_file.read_bytes()`` which calls
                 # ``open()`` internally and FOLLOWS SYMLINKS. A local
@@ -1308,12 +1323,12 @@ class Config:
                 # uses ``os.replace`` which replaces the SYMLINK itself
                 # (safe), so the actual config.json write is fine — but
                 # the .bak was already poisoned. This mirrors the
-                # XZ-R10-02 fix prescribed for the .bak WRITE.
+                #  fix prescribed for the .bak WRITE.
                 existing_text = _secure_read_text(config_file)
                 existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
                     bak_path = path / "config.json.bak"
-                    # FR-24 (cont.): also route the .bak WRITE through
+                    #  (cont.): also route the .bak WRITE through
                     # ``_secure_atomic_write`` so the destination path
                     # is created with O_NOFOLLOW (no symlink-following
                     # on the destination either) + fsync + 0o600 perms.
@@ -1334,7 +1349,7 @@ class Config:
                 )
 
         _secure_atomic_write(config_file, content)
-        # ER-53: record the bytes we just persisted so the next
+        # record the bytes we just persisted so the next
         # identical save can short-circuit the backup block above.
         # Updated only AFTER a successful write — a failed write
         # leaves the cache stale, which forces the next save through
@@ -1342,7 +1357,7 @@ class Config:
         object.__setattr__(self, "_last_saved_bytes", content_bytes)
         return True
 
-    # CR-25 back-compat alias: the original pre-refactor name was
+    #  back-compat alias: the original pre-refactor name was
     # ``_save_locked`` (referring to the cross-process file lock).
     # Kept as an alias so any external callers / tests that still
     # reference the old name continue to work.
@@ -1367,12 +1382,12 @@ class Config:
         across the IPC boundary.  ``save()`` already logs the full
         error message on the server side.
 
-        CR-97 wiring: ``apply_config`` (in ``config_applier.py``) and
+         wiring: ``apply_config`` (in ``config_applier.py``) and
         ``reset_config_to_defaults`` (in ``service/config_service.py``)
         both call ``save_strict()`` so a silent disk failure is
         surfaced as an IPC error rather than a successful-but-empty
         ack. The "follow-up task" note in earlier revisions of this
-        docstring is now stale (XZ-R10-14).
+        docstring is now stale ().
         """
         ok = self.save()
         if not ok:
@@ -1382,7 +1397,7 @@ class Config:
     def load(cls) -> "Config":
         """Load config from disk, or return defaults.
 
-        RW-9: failure-mode enumeration.  The previous implementation
+        failure-mode enumeration.  The previous implementation
         caught ``Exception`` and silently returned defaults — that hid
         genuine bugs (e.g. ``KeyError`` from a missing ``data[key]``
         access, or ``AttributeError`` from an unexpected ``None``) and
@@ -1437,7 +1452,7 @@ class Config:
 
             # M3: Schema versioning and migration
             loaded_version = data.get("schema_version", 0)
-            # G4-M-15: track whether any migration ran.
+            # track whether any migration ran.
             migrations_ran = False
             # SCHEMA-2 (MED-J): if the on-disk schema_version is
             # NEWER than this build supports, log a warning so the
@@ -1456,7 +1471,7 @@ class Config:
                     _CURRENT_SCHEMA_VERSION,
                 )
                 final_schema_version = loaded_version
-                # S5-CR-38: versioned backup BEFORE the in-memory data
+                # versioned backup BEFORE the in-memory data
                 # (with higher-version fields filtered out) gets written
                 # back to disk by the next Config.save(). See
                 # ``_backup_before_downgrade`` for the full rationale.
@@ -1474,7 +1489,7 @@ class Config:
             cls._validate_corrections_path(data)
             cls._validate_privacy_consents(data)
 
-            # RW-01: credential_store integration.
+            # credential_store integration.
             # 1. If secrets haven't been migrated yet, run the
             #    one-time migration (plaintext → keyring). This
             #    modifies config.json on disk but NOT our in-memory
@@ -1499,9 +1514,9 @@ class Config:
                             "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
                             migrated_count,
                         )
-                    # FR-1: re-read the on-disk ``secrets_migrated`` flag
+                    # re-read the on-disk ``secrets_migrated`` flag
                     # AFTER ``migrate_secrets_to_keyring`` returns so we
-                    # pick up the XZ-SEC-04 deferral state. The migrate
+                    # pick up the  deferral state. The migrate
                     # function modifies ``config.json`` on disk but does
                     # NOT touch the in-memory ``data`` dict — so the
                     # in-memory dict is stale w.r.t. the on-disk flag.
@@ -1513,11 +1528,11 @@ class Config:
                     # ``asdict(self)``) persists ``secrets_migrated=True``
                     # to disk, the next launch sees True and skips
                     # migration entirely, and the plaintext API key
-                    # stays in config.json forever — defeating the RW-01
+                    # stays in config.json forever — defeating the
                     # encryption-at-rest goal. Re-reading the on-disk
                     # state is the authoritative way to know whether
                     # migration actually completed (option (b) of the
-                    # FR-1 fix prescription).
+                    #  fix prescription).
                     try:
                         on_disk_text = _secure_read_text(config_file)
                         on_disk_data = json.loads(on_disk_text)
@@ -1572,7 +1587,7 @@ class Config:
             except Exception as e:
                 # Don't let credential_store issues break config
                 # load — fall through with whatever values we have.
-                # DE-28: log only the exception TYPE (not the message) —
+                # log only the exception TYPE (not the message) —
                 # credential_store exceptions can echo the secret value
                 # being loaded, which would leak into log files.
                 log.warning(
@@ -1584,7 +1599,7 @@ class Config:
             # H1: Validate non-numeric fields before construction
             data = cls._validate_non_numeric_fields(data)
 
-            # G4-H-13: validate hotkeys against the reserved-shortcut
+            # validate hotkeys against the reserved-shortcut
             # denylist (mirrors the IPC set_config validation).
             # Config.load() previously bypassed this check -- a
             # stale or hand-edited config with "hotkey": "<ctrl>+<c>"
@@ -1614,7 +1629,7 @@ class Config:
                     )
                     data[hotkey_field] = default_hotkey
 
-            # DE-29: validate ``custom_theme`` on load (mirrors the IPC
+            # validate ``custom_theme`` on load (mirrors the IPC
             # set_config validation via ``_make_custom_theme_validator``).
             # Previously, a hand-edited or corrupt ``custom_theme`` dict
             # loaded without validation, causing schema drift between IPC
@@ -1633,7 +1648,7 @@ class Config:
                     )
                     data["custom_theme"] = None
 
-            # NEW-CQ-016: extract load warnings before construction
+            # extract load warnings before construction
             # (cls(**data) would fail on the _load_warnings key)
             load_warnings = data.pop("_load_warnings", [])
 
@@ -1644,7 +1659,7 @@ class Config:
             # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
             # toggles on every load.
             #
-            # XE-11-8: pre-fix the failure was swallowed at DEBUG. A
+            # pre-fix the failure was swallowed at DEBUG. A
             # preset-application failure means the user's audio filter
             # chain doesn't match their preset selection (e.g. a stale
             # preset name from a downgrade, or a preset module import
@@ -1668,7 +1683,7 @@ class Config:
                     f"apply_preset({instance.audio_preset!r}) on load failed: {type(preset_exc).__name__}: {preset_exc}"
                 )
 
-            # XZ-CFG-04: invoke the full-config validator
+            # invoke the full-config validator
             # (``validate_config``) so a hand-edited or migrated
             # config.json with out-of-range values (e.g. a stale
             # ``noise_suppression_method="speex"`` from before the
@@ -1690,12 +1705,12 @@ class Config:
             except Exception:
                 log.debug("[CONFIG] validate_config on load failed", exc_info=True)
 
-            # G4-M-15: persist the bumped schema_version eagerly so
+            # persist the bumped schema_version eagerly so
             # the next launch doesn't re-run the same migrations
             # (and re-trigger any bugs in a migrator that already
             # raised).  The save() is best-effort.
             #
-            # XE-11-7: pre-fix, the return value of ``instance.save()``
+            # pre-fix, the return value of ``instance.save()``
             # was silently discarded. A failed post-migration save
             # (e.g. read-only filesystem, disk full, permission denied
             # after a sudo-installed package upgrade) means the bumped
@@ -1729,21 +1744,21 @@ class Config:
 
             return instance
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-            # RW-9: enumerated failure modes -- see the docstring.
+            # enumerated failure modes -- see the docstring.
             log.warning(
                 "[CONFIG] %s loading config %s: %s. Using defaults.",
                 type(e).__name__,
                 config_file,
                 e,
             )
-            # G4-H-10: best-effort move the corrupt config aside so
+            # best-effort move the corrupt config aside so
             # the user can recover their settings manually from the
             # .corrupt-<timestamp> backup.  Without this, the next
             # Config.save() would atomically overwrite the corrupt
             # file with defaults, destroying any chance of forensic
             # recovery.  Path.replace is atomic.  Best-effort.
             try:
-                # XZ-R10-10: the previous ``int(time.time())`` suffix
+                # the previous ``int(time.time())`` suffix
                 # had 1-second resolution — two corrupt loads in the
                 # same second (e.g. the renderer triggers a quick
                 # config reload + the backend independently tries to
@@ -1799,7 +1814,7 @@ class Config:
         # symlink-TOCTOU attacks when reading config.json
         raw_text = _secure_read_text(config_file)
         parsed = json.loads(raw_text)
-        # RW-9: a valid JSON scalar (null/true/42/"x"/[]) is
+        # a valid JSON scalar (null/true/42/"x"/[]) is
         # not a valid config — raise TypeError with a clear
         # message so the failure mode is visible in the WARNING
         # log below (and matches the caught tuple).  Without
@@ -1813,11 +1828,11 @@ class Config:
     def _filter_unknown_keys(cls, parsed: dict, config_file) -> dict:
         """Filter unknown keys from ``parsed``; log a WARNING for each dropped key.
 
-        Extracted verbatim from ``load()``. G4-M-14: log a WARNING
+        Extracted verbatim from ``load()``. : log a WARNING
         if the on-disk config contains keys this build doesn't recognize.
         These keys are silently dropped by the filter.
         """
-        # G4-M-14: log a WARNING if the on-disk config contains
+        # log a WARNING if the on-disk config contains
         # keys this build doesn't recognize.  These keys are
         # silently dropped by the filter below.
         unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
@@ -1841,8 +1856,8 @@ class Config:
 
         Thin delegate to the module-level
         :func:`voice_typer.server.config_internals.migrations._run_migrations`
-        (extracted in FZ-S4 / DT-24).  See that function for the full
-        XZ-14-16 fail-soft semantics (do NOT bump schema_version on
+        (extracted in  / ).  See that function for the full
+         fail-soft semantics (do NOT bump schema_version on
         migrator exception; leave it at ``last_successful_version`` so
         the failed migration re-runs on next launch).
         """
@@ -1850,9 +1865,9 @@ class Config:
 
     @classmethod
     def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
-        """G4-CR-07: best-effort backup of ``config.json`` BEFORE any migration runs.
+        """best-effort backup of ``config.json`` BEFORE any migration runs.
 
-        XZ-R10-03 / XZ-CFG-11: the previous implementation used
+         the previous implementation used
         ``shutil.copy2`` which (a) follows symlinks on both SOURCE and
         DEST (a local attacker who replaces config.json with a symlink
         to ~/.bashrc between loads gets ~/.bashrc content copied into
@@ -1867,7 +1882,7 @@ class Config:
         must NOT modify the on-disk file mid-load (only ``os.replace``
         is used on the .bak destination, not on config.json itself).
 
-        XZ-CFG-11: the previous filename
+        the previous filename
         ``config.json.pre-migration-v{loaded_version}.bak`` had no
         timestamp, so a downgrade-then-upgrade cycle silently
         overwrote the first backup. The filename now embeds a Unix
@@ -1892,7 +1907,7 @@ class Config:
             except (OSError, ValueError) as e:
                 # OSError covers filesystem errors; ValueError covers
                 # the SEC-002 inode-changed-during-read guard (symlink
-                # TOCTOU detection). DE-27: backup failure must be
+                # TOCTOU detection). : backup failure must be
                 # visible at WARNING so operators notice (the backup
                 # is the ONLY recovery mechanism if a migrator
                 # corrupts the config). DEBUG is usually off in
@@ -1903,7 +1918,7 @@ class Config:
                     e,
                 )
                 return
-            # XZ-CFG-11: cap retained pre-migration backups to 3 (oldest
+            # cap retained pre-migration backups to 3 (oldest
             # pruned). Match the prefix ``config.json.pre-migration-v``
             # so versioned-downgrade backups (``config.json.v<N>.bak``)
             # and fail-migration backups
@@ -1929,7 +1944,7 @@ class Config:
         loaded_version: Any,
         data: dict[str, Any],
     ) -> None:
-        """S5-CR-38: best-effort versioned backup when an older build loads a
+        """best-effort versioned backup when an older build loads a
         newer-version config.
 
         Called from :meth:`load` ONLY when ``loaded_version >
@@ -1946,7 +1961,7 @@ class Config:
         fields) to a timestamped ``config.json.v{loaded_version}-{ts}-{pid}-{ns}.bak``
         so two backup events never collide.
 
-        XE-10-1 (High): previously the filename was single-slot
+        previously the filename was single-slot
         ``config.json.v{loaded_version}.bak`` (no timestamp/PID) and
         ``_backup_before_downgrade`` was called UNCONDITIONALLY on every
         load meeting the version condition. After the first downgrade
@@ -1974,7 +1989,7 @@ class Config:
         """
         if not isinstance(loaded_version, int):
             return
-        # XE-10-1: embed schema version + epoch seconds + PID +
+        # embed schema version + epoch seconds + PID +
         # sub-second nanoseconds in the filename so two backup events
         # never collide (even within the same second from different
         # processes — e.g. two app instances launched in parallel
@@ -1983,11 +1998,8 @@ class Config:
         ts_sec = int(time.time())
         pid = os.getpid()
         ts_ns = time.time_ns() % 1_000_000
-        versioned_bak = (
-            config_file.parent
-            / f"config.json.v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
-        )
-        # FR-23: use the secure read/write helpers (O_NOFOLLOW + atomic
+        versioned_bak = config_file.parent / f"config.json.v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
+        # use the secure read/write helpers (O_NOFOLLOW + atomic
         # os.replace + fsync + 0o600) instead of ``shutil.copy2``.
         # ``shutil.copy2`` is (a) non-atomic (file-by-file copy — an
         # interrupted copy leaves a partial .bak that gives a false
@@ -1996,7 +2008,7 @@ class Config:
         # symlink to ~/.bashrc between the user's downgrade-launch and
         # the copy2 call gets ~/.bashrc content copied into the .bak —
         # info disclosure via the .bak file), (c) no fsync (the .bak
-        # may not be durable across power loss). Mirrors the XZ-R10-03
+        # may not be durable across power loss). Mirrors the
         # fix prescribed for ``_backup_before_migration``.
         try:
             raw_text = _secure_read_text(config_file)
@@ -2033,13 +2045,13 @@ class Config:
                 f"saving will irrecoverably lose the higher-version fields."
             )
             return
-        # XE-10-1: cap retained versioned-downgrade backups to 3
+        # cap retained versioned-downgrade backups to 3
         # (oldest pruned) so the directory doesn't grow unbounded
         # across many version bumps + restart cycles. Mirrors the
         # ``_backup_before_migration`` prune call. The prefix
         # ``config.json.v`` matches BOTH the old single-slot
         # ``config.json.v<N>.bak`` (kept for backward-compat with
-        # existing on-disk backups from pre-XE-10-1 builds) AND the new
+        # existing on-disk backups from pre- builds) AND the new
         # timestamped ``config.json.v<N>-<ts>-<pid>-<ns>.bak``.
         try:
             _prune_kept_backups(
@@ -2064,7 +2076,7 @@ class Config:
         its default rather than aborting the entire load (which would
         discard every other valid field too).
 
-        NEW-CQ-017: enforce streaming config invariants so the
+        enforce streaming config invariants so the
         AudioWindowPlanner doesn't run forever or produce overlapping
         windows that never advance:
 
@@ -2080,7 +2092,7 @@ class Config:
         # aborting the entire load (which would discard every
         # other valid field too).
         #
-        # XE-11-4: pre-fix the clamp used ``max(value, 3.0)`` /
+        # pre-fix the clamp used ``max(value, 3.0)`` /
         # ``max(value, 1.5)`` which SILENTLY raised sub-minimum values
         # to the floor. That created a split-brain with the IPC
         # validator (``config_validators.py:1191-1192`` — F1's
@@ -2119,7 +2131,7 @@ class Config:
             if _left_overlap_raw < STREAMING_LEFT_OVERLAP_SECONDS_MIN:
                 log.warning(
                     "[CONFIG] streaming_left_overlap_seconds=%.3f below minimum %.1f; "
-                    "resetting to %.1f (XE-11-4: was silently clamped pre-fix)",
+                    "resetting to %.1f (was silently clamped pre-fix)",
                     _left_overlap_raw,
                     STREAMING_LEFT_OVERLAP_SECONDS_MIN,
                     STREAMING_LEFT_OVERLAP_SECONDS_MIN,
@@ -2151,7 +2163,7 @@ class Config:
             if _right_guard_raw < STREAMING_RIGHT_GUARD_SECONDS_MIN:
                 log.warning(
                     "[CONFIG] streaming_right_guard_seconds=%.3f below minimum %.1f; "
-                    "resetting to %.1f (XE-11-4: was silently clamped pre-fix)",
+                    "resetting to %.1f (was silently clamped pre-fix)",
                     _right_guard_raw,
                     STREAMING_RIGHT_GUARD_SECONDS_MIN,
                     STREAMING_RIGHT_GUARD_SECONDS_MIN,
@@ -2163,7 +2175,7 @@ class Config:
                 )
                 _right_guard_raw = STREAMING_RIGHT_GUARD_SECONDS_MIN
             data["streaming_right_guard_seconds"] = _right_guard_raw
-        # NEW-CQ-017: enforce streaming config invariants so the
+        # enforce streaming config invariants so the
         # AudioWindowPlanner doesn't run forever or produce
         # overlapping windows that never advance.
         # - step < chunk: otherwise the planner skips untranscribed
@@ -2222,7 +2234,7 @@ class Config:
         VALID-1 (MED-K): also wraps the ``int()`` coercion so a
         non-numeric value resets only this field, not the whole config.
 
-        DR-37: the bounds + default are now sourced from the module-level
+        the bounds + default are now sourced from the module-level
         constants ``MAX_RECORDING_TIME_SECONDS_MIN`` / ``_MAX`` /
         ``_DEFAULT`` so the IPC validator (``config_validators.py``) and
         this clamp share a single source of truth.
@@ -2255,7 +2267,7 @@ class Config:
         ``model_size`` is not in the allowlist (e.g. a stale entry from
         a previous build), reset to ``"small.en"`` (the default).
 
-        XE-11-6: the reset is now logged at WARNING and appended to
+        the reset is now logged at WARNING and appended to
         ``data["_load_warnings"]`` so the renderer can surface a
         "your config was corrected" notice via
         ``instance.last_load_warnings``. Pre-fix, the reset was silent
@@ -2292,7 +2304,7 @@ class Config:
         dir or ``$HF_HOME``). Resets to ``None`` if the path doesn't
         exist, isn't a directory, or escapes the safe dirs.
 
-        XE-11-1 (Medium): pre-fix, a non-``str`` value (e.g.
+        pre-fix, a non-``str`` value (e.g.
         ``qwen_model_path: 123`` or ``qwen_model_path: ["/tmp"]`` in a
         hand-edited config.json) crashed ``Path(qwen_path)`` with
         ``TypeError`` — which propagated up through ``Config.load()``'s
@@ -2303,7 +2315,7 @@ class Config:
         values are reset to ``None`` with a logged WARNING + a
         ``_load_warnings`` entry, and the rest of the load proceeds.
 
-        XE-11-6: every reset site (non-str, missing dir, unsafe dir)
+        every reset site (non-str, missing dir, unsafe dir)
         now appends to ``data["_load_warnings"]`` so the renderer
         surfaces a "your config was corrected" notice via
         ``instance.last_load_warnings``.
@@ -2311,7 +2323,7 @@ class Config:
         # Validate qwen_model_path: must be an existing directory if set
         qwen_path = data.get("qwen_model_path")
         if qwen_path is not None:
-            # XE-11-1: guard against non-str values that would crash
+            # guard against non-str values that would crash
             # ``Path(qwen_path)`` and reset the ENTIRE config.
             if not isinstance(qwen_path, str):
                 log.warning(
@@ -2368,21 +2380,21 @@ class Config:
         user-writable locations where the user has explicitly chosen to
         store data.
 
-        XE-11-1 (Medium): pre-fix, a non-``str`` value (e.g.
+        pre-fix, a non-``str`` value (e.g.
         ``corrections_path: 42``) crashed ``Path(corrections)`` with
         ``TypeError`` — propagated up through ``Config.load()``'s outer
         ``except`` (catches ``TypeError``), reset the ENTIRE config to
         defaults, and moved config.json aside as corrupt. The fix adds
         an ``isinstance(corrections, str)`` guard at the top.
 
-        XE-11-6: every reset site (non-str, missing file, unsafe dir)
+        every reset site (non-str, missing file, unsafe dir)
         now appends to ``data["_load_warnings"]`` so the renderer
         surfaces the correction via ``instance.last_load_warnings``.
         """
         # Validate corrections_path: must be an existing file if set
         corrections = data.get("corrections_path")
         if corrections is not None:
-            # XE-11-1: guard against non-str values that would crash
+            # guard against non-str values that would crash
             # ``Path(corrections)`` and reset the ENTIRE config.
             if not isinstance(corrections, str):
                 log.warning(
@@ -2428,7 +2440,7 @@ class Config:
 
     @classmethod
     def _validate_privacy_consents(cls, data: dict[str, Any]) -> None:
-        """SEC-009: warn the user about privacy implications when ``log_transcriptions`` is enabled.
+        """warn the user about privacy implications when ``log_transcriptions`` is enabled.
 
         Extracted verbatim from ``load()``. Transcription text
         may contain sensitive personal information (names, addresses,
@@ -2470,7 +2482,21 @@ class Config:
                 continue
             ann = hints[name]
             # Unwrap Optional[T] / T | None → T
-            if typing.get_origin(ann) is typing.Union:
+            #
+            # both ``typing.Union`` (the
+            # ``Optional[T]`` / ``Union[T, None]`` spelling) AND
+            # ``types.UnionType`` (the PEP 604 ``T | None`` spelling)
+            # must be unwrapped. ``typing.get_origin(str | None)``
+            # returns ``types.UnionType`` — NOT ``typing.Union`` — so
+            # the pre-fix ``is typing.Union`` check left every PEP 604
+            # ``T | None`` field (microphone, qwen_model_path,
+            # parakeet_model_path, corrections_path, custom_theme) in
+            # the registry as the union type itself. The downstream
+            # ``_validate_non_numeric_fields`` else-branch then
+            # ``continue``d on ``types.UnionType`` and silently
+            # skipped these fields, letting a hand-edited
+            # ``"microphone": 123`` pass through without warning.
+            if typing.get_origin(ann) in (typing.Union, types.UnionType):
                 args = [a for a in typing.get_args(ann) if a is not type(None)]
                 if len(args) == 1:
                     ann = args[0]
@@ -2481,7 +2507,7 @@ class Config:
             registry[name] = ann
         return registry
 
-    # ── S2-CR-44: shared coercion helpers ───────────────────────────────
+    # ── : shared coercion helpers ───────────────────────────────
     #
     # The original ``_validate_non_numeric_fields`` had 4 near-identical
     # branches (bool / str / int / float) that each duplicated the same
@@ -2496,7 +2522,7 @@ class Config:
     # them if a future variant needs different warning formatting
     # (e.g. structured logging).
 
-    # XE-11-11 (Low): the set of Config dataclass field names that
+    # the set of Config dataclass field names that
     # hold secret material (API keys / tokens). Used by
     # :meth:`_warn_and_reset` to redact ``val`` before logging so a
     # malformed-on-disk api_key value doesn't get echoed into log
@@ -2525,7 +2551,7 @@ class Config:
 
     @classmethod
     def _secret_field_names(cls) -> frozenset[str]:
-        """XE-11-11: return the set of Config field names holding secrets.
+        """return the set of Config field names holding secrets.
 
         Lazily imports ``credential_store.PROVIDER_TO_CONFIG_FIELD``
         (the canonical provider→field map) so the secret-field list
@@ -2556,7 +2582,7 @@ class Config:
     ) -> Any:
         """Reset ``field_name`` to its default value with a logged warning.
 
-        S2-CR-44: extracts the duplicated 5-line pattern
+        extracts the duplicated 5-line pattern
         ``msg = ...; log.warning(...); warnings.append(...);
         data[field_name] = getattr(defaults, field_name)`` that
         appeared 4 times in the original
@@ -2590,7 +2616,7 @@ class Config:
             this back to ``data[field_name]``).
         """
         default_val = getattr(defaults, field_name)
-        # XE-11-11 (Low): redact ``val`` for secret fields so a
+        # redact ``val`` for secret fields so a
         # malformed-on-disk api_key value (e.g. ``"openai_api_key": 123``
         # — an int instead of a str, which would trigger
         # ``_warn_and_reset`` via the str-validation branch) doesn't
@@ -2622,7 +2648,7 @@ class Config:
     ) -> Any:
         """Record a coercion warning and return the coerced value.
 
-        S2-CR-44: extracts the duplicated 4-line pattern
+        extracts the duplicated 4-line pattern
         ``msg = ...; log.warning(...); warnings.append(...);
         data[field_name] = coerced`` that appeared in the int and
         float branches of ``_validate_non_numeric_fields``.
@@ -2651,7 +2677,7 @@ class Config:
             ``data[field_name]``).
         """
         msg = f"Config field '{field_name}' {reason} {val!r}, coerced to {coerced!r}"
-        # XE-11-11 (Low): mirror the redaction in ``_warn_and_reset``
+        # mirror the redaction in ``_warn_and_reset``
         # for secret fields. ``_warn_and_coerce`` is reached when the
         # on-disk value is coercible (e.g. ``"openai_api_key": 123``
         # coerced to ``"123"``) — the original int value would be
@@ -2668,14 +2694,14 @@ class Config:
     def _validate_non_numeric_fields(cls: type["Config"], data: dict[str, Any]) -> dict[str, Any]:
         """Validate and coerce bool / str / int / float fields in loaded config data.
 
-        NEW-CQ-016: collects warnings in ``data['_load_warnings']`` so
+        collects warnings in ``data['_load_warnings']`` so
         the caller (load()) can surface them via the
         ``last_load_warnings`` instance attribute (SCHEMA-1 / MED-I:
         no longer a dataclass field — see :meth:`__post_init__`).
         Previously warnings were only logged; the user had no way to
         know their config was corrected.
 
-        NEW-DUP-005: this is NOT a duplicate of the type coercion that
+        this is NOT a duplicate of the type coercion that
         ``cls(**data)`` would do.  Python dataclasses do NOT coerce
         ``1`` → ``True`` or ``"true"`` → ``True`` — they store the raw
         value as-is, which would then fail downstream type checks
@@ -2698,7 +2724,7 @@ class Config:
         sentinel is meaningful (no microphone / no Qwen path / no
         Parakeet override).
 
-        XE-11-9 (Low): pre-fix the validator SKIPPED complex types
+        pre-fix the validator SKIPPED complex types
         (``list[str]``, ``dict[str, ...]``) — only bool/str/int/float
         had explicit branches, and any other annotation fell through
         the loop body without validation. That meant a hand-edited
@@ -2716,9 +2742,26 @@ class Config:
 
         warnings: list[str] = []
         # str | None fields where None is a meaningful sentinel
-        # (no microphone / no Qwen path / no Parakeet override). The
-        # str-validation branch allows None for these fields.
-        optional_str_fields = {"parakeet_model_path", "qwen_model_path", "microphone"}
+        # (no microphone / no Qwen path / no Parakeet override / no
+        # corrections file). The str-validation branch allows None for
+        # these fields.
+        #
+        # ``corrections_path`` is also a ``str | None``
+        # PEP 604 field. Pre-fix it never reached this branch (the
+        # registry left it as the un-unwrapped ``str | None`` alias,
+        # and the else-branch skipped it via ``types.UnionType``
+        # ``continue``). Now that ``_derive_field_type_registry``
+        # unwraps PEP 604 unions to ``str``, the str branch sees
+        # ``corrections_path`` and must allow None (the default) —
+        # without this entry, a None value (e.g. after the dedicated
+        # ``_validate_corrections_path`` resets a bad value to None)
+        # would spuriously trip the "had non-string value" reset.
+        optional_str_fields = {
+            "parakeet_model_path",
+            "qwen_model_path",
+            "microphone",
+            "corrections_path",
+        }
         registry = cls._derive_field_type_registry()
         defaults = cls()
 
@@ -2861,7 +2904,7 @@ class Config:
                 )
 
             else:
-                # XE-11-9 (Low): generic branch for complex container
+                # generic branch for complex container
                 # types (``list[str]``, ``dict[str, ...]``, ``tuple[...]``,
                 # etc.) that the four primitive branches above don't
                 # cover. ``expected_type`` here is a ``typing`` generic
@@ -2878,8 +2921,17 @@ class Config:
                 # the IPC allowlist). If ``val`` is a different type
                 # (e.g. a string where a list was expected), reset to
                 # the dataclass default and warn.
-                import types as _types
-
+                #
+                # ``_derive_field_type_registry`` now
+                # unwraps both ``typing.Union`` AND ``types.UnionType``
+                # to a single non-None arg, so a PEP 604 ``T | None``
+                # field arrives here as ``T`` (e.g. ``dict[str, ...]``)
+                # rather than the union alias. The Union / UnionType
+                # continue guards below are kept as defensive code for
+                # any future annotation shape that yields a multi-arg
+                # union the registry doesn't unwrap (e.g.
+                # ``str | int | None`` — two non-None args, left
+                # as-is by the registry's single-arg unwrap filter).
                 container_origin = typing.get_origin(expected_type)
                 # Skip Union / Optional (``str | None``) annotations —
                 # these are handled by the primitive branches above
@@ -2889,12 +2941,7 @@ class Config:
                 # first union member type is best left to the
                 # downstream per-field validators (attempting to
                 # ``isinstance(val, typing.Union)`` raises TypeError).
-                # Also skip ``types.UnionType`` (the PEP 604 syntax
-                # ``str | None``) which ``_derive_field_type_registry``
-                # doesn't currently unwrap — leaving it as-is here
-                # preserves the pre-XE-11-9 behavior of skipping
-                # these annotations.
-                if container_origin is typing.Union or container_origin is _types.UnionType:
+                if container_origin is typing.Union or container_origin is types.UnionType:
                     continue
                 if container_origin is None:
                     # Bare type annotation without subscription (e.g.
@@ -2924,9 +2971,9 @@ class Config:
                     reason=f"had non-{container_origin.__name__} value",
                 )
 
-        # NEW-CQ-016: stash warnings so load() can surface them
+        # stash warnings so load() can surface them
         # via the ``last_load_warnings`` instance attribute.
-        # S5-CR-38: APPEND to any existing ``_load_warnings`` rather
+        # APPEND to any existing ``_load_warnings`` rather
         # than overwriting — earlier load() stages (e.g.
         # ``_backup_before_downgrade``) may already have populated
         # the list with non-blocking notices (e.g. "config schema is
@@ -2946,8 +2993,8 @@ class Config:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# ARCH-REFAC-001: validator block moved to ``config_validators.py``.
-# RW-06: the wildcard ``from voice_typer.server.config_validators import *``
+# validator block moved to ``config_validators.py``.
+# the wildcard ``from voice_typer.server.config_validators import *``
 # re-exported every symbol listed in ``config_validators.__all__``.  Wildcard
 # imports make it impossible for static analysis (ruff F403, pyrefly) to
 # distinguish genuinely-unused re-exports from genuinely-used ones, and they

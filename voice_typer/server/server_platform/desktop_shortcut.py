@@ -1,6 +1,6 @@
 """Windows desktop shortcut (.lnk) creation.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements:
 
   - :func:`_generate_icon_ico` — render the logo PNG to a .ico file
@@ -102,7 +102,7 @@ def _generate_icon_ico() -> Path | None:
         log.info("[STARTUP] Shortcut icon saved: %s", ico_path)
         return ico_path
     except OSError as e:
-        # CR-76: include the destination .ico path so operators can tell
+        # include the destination .ico path so operators can tell
         # which file the icon save attempted to write when it failed
         # (APPDATA path, custom install path, etc.) without having to
         # cross-reference the earlier "Shortcut icon saved" info line.
@@ -234,7 +234,7 @@ def _create_lnk_shortcut(
     except ImportError:
         log.debug("[STARTUP] win32com unavailable — trying PowerShell fallback")
     except OSError as e:
-        # CR-76: include both the destination .lnk path AND the target
+        # include both the destination .lnk path AND the target
         # executable so operators can tell which shortcut + which
         # underlying executable the win32com COM call failed on without
         # having to grep adjacent log lines for the lnk path / target.
@@ -248,7 +248,7 @@ def _create_lnk_shortcut(
 
     # 2) PowerShell fallback — pass the script directly via `-Command`
     # to avoid the temp-file TOCTOU window that the previous
-    # ``-File <tmp>`` invocation opened (XZ-R6-AS-08). The script is
+    # ``-File <tmp>`` invocation opened (). The script is
     # already string-built by ``_build_powershell_lnk_script`` (which
     # single-quotes every user-supplied value via ``_ps_single_quote``,
     # so PowerShell metacharacters cannot break out of the string
@@ -272,7 +272,7 @@ def _create_lnk_shortcut(
             description=description,
         )
 
-        # XZ-R6-AS-08: pass the script via ``-Command`` instead of
+        # pass the script via ``-Command`` instead of
         # writing it to a temp .ps1 file and invoking ``-File <tmp>``.
         # The temp-file path opened a TOCTOU window between the write
         # and the powershell read: a local attacker with write access
@@ -292,7 +292,7 @@ def _create_lnk_shortcut(
         log.info("[STARTUP] .lnk created via PowerShell fallback: %s", lnk_path)
         return True
     except Exception as e:
-        # CR-76: include the lnk path + target so operators can tell
+        # include the lnk path + target so operators can tell
         # which shortcut + which underlying executable the PowerShell
         # fallback failed on without having to grep adjacent log lines.
         log.warning(
@@ -356,7 +356,7 @@ def create_launcher_shortcut() -> Path | None:
             log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
             primary_path = lnk_desktop
         else:
-            # CR-76: include the operation inputs (target + destination)
+            # include the operation inputs (target + destination)
             # so operators can tell which path / launcher failed without
             # having to dig through the rest of the startup log.
             log.warning(

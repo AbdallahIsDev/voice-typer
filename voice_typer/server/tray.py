@@ -5,18 +5,18 @@ Restart / Quit. Left-click + "Open App" launches (or focuses) the
 Electron app; all settings / history / templates live in the Electron
 window only.
 
-CQ-004 / module-split history — each concern lives in its own module;
+ module-split history — each concern lives in its own module;
 ``TrayIcon`` below is a thin orchestrator of one-line delegates:
-  - menu building → ``tray_menu.py`` (#13 / DT-FIX-9)
-  - types → ``tray_types.py`` (ARCH-003)
-  - icon rendering → ``tray_icon.py`` (ARCH-003)
-  - i18n → ``tray_i18n.py`` (TRAY-008)
+  - menu building → ``tray_menu.py`` (#13 / )
+  - types → ``tray_types.py`` ()
+  - icon rendering → ``tray_icon.py`` ()
+  - i18n → ``tray_i18n.py`` ()
   - Wayland SNI detection → ``tray_wayland_detect.py``
   - elapsed-recording timer → ``tray_elapsed_timer.py``
-  - window management → ``tray_window.py`` (DT-FIX-9 / DT-FIX-9b)
-  - notifications → ``tray_notifications.py`` (DT-FIX-9 / DT-FIX-9b)
+  - window management → ``tray_window.py`` ( / )
+  - notifications → ``tray_notifications.py`` ( / )
 
-DT-FIX-9b (Phase 4.5 spaghetti split, DT-27): DT-FIX-9 extracted the
+ (Phase 4.5 spaghetti split, ):  extracted the
 window-management + notification methods to ``tray_window.py`` and
 ``tray_notifications.py``; this pass trims the verbose docstrings so the
 class is a thin orchestrator (target ≤600 lines). Every public + private
@@ -100,15 +100,15 @@ class TrayIcon:
         self._controller = controller
         self._config = config  # reference to live Config object
         self._icon: pystray.Icon | None = None
-        self._tray_unavailable: bool = False  # ARCH-045: pystray.Icon() OSError
-        # PVT-G5-001: tray-unavailable run() blocks on this Event.
+        self._tray_unavailable: bool = False  # pystray.Icon() OSError
+        # tray-unavailable run() blocks on this Event.
         self._run_event: threading.Event = threading.Event()
         self._state = AppState.IDLE
         self._message = ""
         self._notifications_enabled = True
-        self._microphones: list[dict] = []  # UX-2: mics submenu cache
-        self._recording_started_at: float | None = None  # UX-11
-        self._elapsed_timer: threading.Timer | None = None  # UX-11
+        self._microphones: list[dict] = []  # mics submenu cache
+        self._recording_started_at: float | None = None  #
+        self._elapsed_timer: threading.Timer | None = None  #
         self._elapsed_timer_helper = ElapsedTimer(
             tick_callback=self._on_elapsed_tick,
             is_active=lambda: self._state == AppState.RECORDING,
@@ -120,14 +120,30 @@ class TrayIcon:
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
         self._queue_lock = threading.Lock()
+        # Protects ``_cached_menu`` / ``_menu_cache_valid`` /
+        # ``_microphones`` (read+written by ``build_menu_for_tray`` on the
+        # pystray thread and by ``invalidate_menu_cache`` from background
+        # threads). On Windows, ``pystray.Icon._update_menu()`` calls
+        # ``DestroyMenu`` / ``CreatePopupMenu`` — not guaranteed
+        # thread-safe — so the lock serializes the rebuild.
+        self._menu_lock = threading.Lock()
+        # Protects ``self._icon`` access in ``_apply_state`` +
+        # ``stop()``. Between ``self._icon.stop()`` returning and
+        # ``self._icon = None`` executing, a concurrent ``_apply_state``
+        # can read ``self._icon`` as non-None and then call
+        # ``self._icon.icon = ...`` on a torn-down Icon — the documented
+        # WinError 1402 trigger. RLock (not Lock) because ``_apply_state``
+        # may re-enter through ``_compute_tooltip`` and any future
+        # callback path that re-enters the icon's setter.
+        self._icon_lock = threading.RLock()
         self._bg_work_fn: Callable | None = None
         self._bg_thread: threading.Thread | None = None
         self._hotkey: str = getattr(config, "hotkey", "<f2>") or "<f2>"
         self._cached_menu = None  # P4 #30: menu cache
         self._menu_cache_valid = False
-        # AB-16 / DJ-36: cache-skip — skip ``_make_icon`` redraw when
+        # cache-skip — skip ``_make_icon`` redraw when
         # ``state == _last_applied_state``. The 1s elapsed-recording tick
-        # (UX-11) calls ``_apply_state`` every second; pre-AB-16 this
+        # () calls ``_apply_state`` every second; pre- this
         # re-malloc'd a fresh PIL image + pystray icon handle on every
         # tick (and tickled the WinError 1402 stale-handle bug on Windows).
         # The tooltip (``self._icon.title``) is still updated unconditionally
@@ -144,10 +160,10 @@ class TrayIcon:
     def set_state(self, state: AppState, message: str = "") -> None:
         """Update tray icon state and tooltip.
 
-        PERF-005: only invalidate the menu cache on TRANSCRIBING ⇄
+        only invalidate the menu cache on TRANSCRIBING ⇄
         non-TRANSCRIBING (Force Cancel visibility flips); RECORDING ⇄
-        IDLE only changes the icon. UX-11: RECORDING ⇄ IDLE start/stop
-        the elapsed timer (ER-54: monotonic clock). ADR-0020 §6.5: push
+        IDLE only changes the icon. : RECORDING ⇄ IDLE start/stop
+        the elapsed timer (: monotonic clock). ADR-0020 §6.5: push
         icon+tooltip to Tauri; on TRANSCRIBING change also push the menu.
         """
         prev_state = self._state
@@ -172,7 +188,7 @@ class TrayIcon:
             self._maybe_publish_tray_menu()
 
     def set_microphones(self, mics: list[dict] | None) -> None:
-        """Cache the mic device list + invalidate the menu cache (UX-2).
+        """Cache the mic device list + invalidate the menu cache ().
 
         None/empty normalized to []. ADR-0020 §6.5: push to Tauri.
         """
@@ -199,11 +215,11 @@ class TrayIcon:
 
     @staticmethod
     def _is_linux_wayland_without_sni() -> bool:
-        """NEW-XPLAT-002: detect Linux Wayland without StatusNotifierItem."""
+        """detect Linux Wayland without StatusNotifierItem."""
         return is_linux_wayland_without_sni()
 
     def refresh_config(self, config) -> None:
-        """Replace the cached Config reference and rebuild the menu (ARCH-043)."""
+        """Replace the cached Config reference and rebuild the menu ()."""
         self._config = config
         self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
         self._menu_cache_valid = False
@@ -234,9 +250,9 @@ class TrayIcon:
         """Create the tray icon and start background work (non-blocking).
 
         Three early-return paths skip tray creation but still launch
-        bg_work on a daemon thread: PVT-G5-001 ``VOICE_TYPER_NO_TRAY=1``
-        env var; NEW-XPLAT-002 Linux Wayland without StatusNotifierItem
-        (pystray GTK backend would hang on icon.run()); ARCH-045
+        bg_work on a daemon thread:  ``VOICE_TYPER_NO_TRAY=1``
+        env var;  Linux Wayland without StatusNotifierItem
+        (pystray GTK backend would hang on icon.run());
         pystray.Icon() raised OSError. On all three ``_tray_unavailable``
         is set True and run() blocks on ``_run_event``. SK-b: subscribe
         to parakeet_cpu_fallback BEFORE the early-return paths.
@@ -248,11 +264,21 @@ class TrayIcon:
 
             _event_bus.subscribe(self._on_parakeet_cpu_fallback)
         except Exception:
-            log.debug("[TRAY] could not subscribe to parakeet_cpu_fallback", exc_info=True)
+            # Promote DEBUG → WARNING. The SK-b CPU-fallback
+            # notification is safety-critical (alerts the user that a
+            # model swap to CPU mode happened); silently swallowing the
+            # subscribe failure at DEBUG hid cases where event_bus was
+            # mis-imported or the handler signature drifted, leaving
+            # users with no fallback alert.
+            log.warning(
+                "[TRAY] could not subscribe to parakeet_cpu_fallback — "
+                "CPU-fallback alerts will NOT be surfaced (SK-b degraded)",
+                exc_info=True,
+            )
 
         import os
 
-        # PVT-G5-001: explicit opt-out via env var.
+        # explicit opt-out via env var.
         if os.environ.get("VOICE_TYPER_NO_TRAY") == "1":
             log.info(
                 "[TRAY] VOICE_TYPER_NO_TRAY=1 set — skipping tray icon creation. "
@@ -260,12 +286,10 @@ class TrayIcon:
             )
             self._icon = None
             self._tray_unavailable = True
-            if self._bg_work_fn:
-                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
-                self._bg_thread.start()
+            self._launch_bg_work()  # shared launch helper
             return
 
-        # NEW-XPLAT-002: Linux Wayland without StatusNotifierItem.
+        # Linux Wayland without StatusNotifierItem.
         if self._is_linux_wayland_without_sni():
             log.warning(
                 "[TRAY] Linux Wayland session without StatusNotifierItem detected "
@@ -274,9 +298,7 @@ class TrayIcon:
             )
             self._icon = None
             self._tray_unavailable = True
-            if self._bg_work_fn:
-                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
-                self._bg_thread.start()
+            self._launch_bg_work()  # shared launch helper
             return
 
         menu = pystray.Menu(self._build_menu)
@@ -284,14 +306,14 @@ class TrayIcon:
             self._icon = pystray.Icon(
                 name="voice-typer",
                 icon=_make_icon(AppState.IDLE),
-                # PLAT-010: title is both tooltip AND a11y name.
+                # title is both tooltip AND a11y name.
                 title=_("app_name"),
                 menu=menu,
             )
         except TypeError as e:
             raise RuntimeError(f"Failed to create tray icon (pystray Menu construction error): {e}") from e
         except OSError as e:
-            # ARCH-045: headless / Windows Server / no-explorer sessions.
+            # headless / Windows Server / no-explorer sessions.
             log.warning(
                 "[TRAY] Could not create system tray icon (no tray available?). "
                 "Hotkey and IPC server will continue to work, but tray menu "
@@ -300,21 +322,34 @@ class TrayIcon:
             )
             self._icon = None
             self._tray_unavailable = True
-            if self._bg_work_fn:
-                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
-                self._bg_thread.start()
+            self._launch_bg_work()  # shared launch helper
             return
 
-        if self._bg_work_fn:
-            self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
-            self._bg_thread.start()
+        self._launch_bg_work()  # shared launch helper
 
         log.info("[TRAY] Tray icon created, background work started")
+
+    def _launch_bg_work(self) -> None:
+        """Launch ``self._bg_work_fn`` on a daemon thread.
+
+        Extracted from 4 near-duplicate ``if self._bg_work_fn:
+        threading.Thread(...).start()`` blocks in ``start()``
+        ( ``VOICE_TYPER_NO_TRAY=1``,  Wayland-
+        without-SNI,  pystray ``OSError``, and the normal
+        start path) so the launch shape (daemon thread + store on
+        ``self._bg_thread``) lives in one place. No-op when
+        ``_bg_work_fn`` is None (preserves the ``if self._bg_work_fn:``
+        guards previously inlined at each call site).
+        """
+        if not self._bg_work_fn:
+            return
+        self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
+        self._bg_thread.start()
 
     def run(self) -> None:
         """Block the main thread with pystray's event loop.
 
-        PVT-G5-001: when the tray is unavailable, block on ``_run_event``
+        when the tray is unavailable, block on ``_run_event``
         (set by stop()) instead of raising. RuntimeError is retained only
         when start() was never called (programming error). On the
         unavailable path, drain pending queues every 60s (state is
@@ -349,15 +384,28 @@ class TrayIcon:
     def stop(self) -> None:
         """Stop the tray icon and exit the event loop (idempotent).
 
-        PVT-G5-001: release ``_run_event``. SK-b: unsubscribe
+        release ``_run_event``. SK-b: unsubscribe
         parakeet_cpu_fallback (set.discard — safe if never registered).
+
+        ``self._icon.stop()`` + ``self._icon = None`` are
+        serialized by ``self._icon_lock`` so a concurrent
+        ``_apply_state`` (e.g. from the 1s elapsed-recording tick or a
+        state-change IPC) cannot read ``self._icon`` as non-None
+        between ``stop()`` returning and the ``= None`` assignment
+        landing — the documented WinError 1402 (torn-down Icon) race.
+        ``_icon_lock`` is an RLock so a re-entrant callback from within
+        ``Icon.stop()`` (if any backend ever invokes one) cannot
+        self-deadlock.
         """
-        if self._icon:
-            self._icon.stop()
-            self._icon = None
-        self._cancel_elapsed_timer()  # UX-11
-        self._run_event.set()  # PVT-G5-001
-        # AB-16 / DJ-36: clear the icon-state cache so a restarted tray
+        # Hold the lock across the teardown pair so _apply_state's
+        # re-check inside the lock is the authoritative guard.
+        with self._icon_lock:
+            if self._icon:
+                self._icon.stop()
+                self._icon = None
+        self._cancel_elapsed_timer()  #
+        self._run_event.set()  #
+        # clear the icon-state cache so a restarted tray
         # redraws the icon on the first ``_apply_state`` (no stale cache).
         self._last_applied_state = None
 
@@ -375,7 +423,7 @@ class TrayIcon:
     def notify(self, title: str, message: str) -> None:
         """Show a notification if notifications are enabled (delegate).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_notifications.notify. This
+         delegates to tray_notifications.notify. This
         body does NOT publish via the event bus (that path lives in the
         show_electron_notification IPC handler); the actual toast call
         ``self._icon.notify(message, title)`` lives in
@@ -388,7 +436,7 @@ class TrayIcon:
     def notify_safety(self, title: str, message: str) -> None:
         """Show a notification that bypasses the toggle (safety-critical).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_notifications.notify_safety.
+        delegates to tray_notifications.notify_safety.
         """
         from voice_typer.server.tray_notifications import (
             notify_safety as _notify_safety,
@@ -399,7 +447,7 @@ class TrayIcon:
     def _do_notify(self, title: str, message: str) -> None:
         """Send a notification through the icon (delegate).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_notifications.do_notify,
+         delegates to tray_notifications.do_notify,
         which calls ``self._icon.notify(message, title)`` (pystray's
         native toast path — WinRT ToastNotification on Win10+).
         """
@@ -428,14 +476,14 @@ class TrayIcon:
             title += f" — {state.value}"
         if self._cpu_fallback_active:  # SK-b
             title += " (CPU fallback)"
-        if state == AppState.RECORDING and self._recording_started_at is not None:  # UX-11
-            elapsed = time.monotonic() - self._recording_started_at  # ER-54
+        if state == AppState.RECORDING and self._recording_started_at is not None:  #
+            elapsed = time.monotonic() - self._recording_started_at  #
             title += f" ({self._format_elapsed(elapsed)})"
-        if self._config:  # TRAY-022: model name
+        if self._config:  # model name
             model = getattr(self._config, "model_size", "")
             if model:
                 title += f" [{model}]"
-        hotkey = self._display_hotkey()  # TRAY-022: hotkey
+        hotkey = self._display_hotkey()  # hotkey
         if hotkey:
             title += f" ({hotkey})"
         return title
@@ -460,63 +508,74 @@ class TrayIcon:
     def _apply_state(self, state: AppState, message: str) -> None:
         """Apply state to the live icon (safe from any thread).
 
-        AB-16 / DJ-36: skip the ``_make_icon`` redraw when
+         skip the ``_make_icon`` redraw when
         ``state == self._last_applied_state`` — the icon PNG depends only
         on ``state``, not on the ``message`` / elapsed time. The 1s
-        elapsed-recording tick (UX-11) re-enters here every second; the
+        elapsed-recording tick () re-enters here every second; the
         cache-skip avoids re-malloc'ing a fresh PIL image + pystray icon
         handle on every tick (and avoids tickling the WinError 1402
-        stale-handle bug — CR-16 / GT-E1-8). The tooltip assignment is
+        stale-handle bug —  / ). The tooltip assignment is
         UNCONDITIONAL so the elapsed ``mm:ss`` stays live.
+
+        The entire body is serialized by ``self._icon_lock`` so
+        that a concurrent ``stop()`` cannot tear down ``self._icon``
+        (``self._icon.stop()`` then ``self._icon = None``) between this
+        method's ``if not self._icon: return`` check and the subsequent
+        ``self._icon.icon = ...`` / ``self._icon.title = ...`` writes.
+        Without the lock, the gap was the documented WinError 1402
+        trigger (writing to a torn-down Icon). The caller's
+        ``if self._icon:`` check (e.g. in ``set_state``) is racy on its
+        own — the re-check inside the lock is the authoritative guard.
         """
-        if not self._icon:
-            return
-        # AB-16 / DJ-36: only redraw the icon on a state CHANGE.
-        if state != self._last_applied_state:
-            try:
-                self._icon.icon = _make_icon(state)
-            except OSError as exc:
-                # CR-16 / GT-E1-8: pystray Windows DestroyIcon stale-handle
-                # bug (WinError 1402) during rapid icon updates — clear the
-                # private _icon_handle so pystray re-creates it next call
-                # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
-                #
-                # S2-CR-71: if a future pystray release (0.20+) removes or
-                # renames the private ``_icon_handle`` attribute, the
-                # workaround becomes a silent no-op — the OSError is
-                # still raised on every icon update but the workaround
-                # can't fire, so WinError 1402 resurfaces for users with
-                # no diagnostic surface. Log a WARNING in that case so
-                # the silent workaround failure shows up in diagnostics
-                # (the regression test
-                # ``tests/test_pystray_icon_handle_regression.py`` guards
-                # this exact attribute via ``hasattr(pystray.Icon,
-                # "_icon_handle")``).
-                if hasattr(self._icon, "_icon_handle"):
-                    self._icon._icon_handle = None
-                else:
-                    log.warning(
-                        "[TRAY] pystray.Icon no longer exposes the private "
-                        "`_icon_handle` attribute — DestroyIcon workaround "
-                        "disabled (OSError: %r). The tray will keep running "
-                        "but rapid icon updates on Windows may hit WinError "
-                        "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
-                        "private attribute access with a public "
-                        "`reset_icon_handle()` API when upstream exposes "
-                        "it, and bump pystray to the release that ships it.",
-                        exc,
-                    )
-            self._last_applied_state = state
-        # Tooltip is UNCONDITIONAL — elapsed mm:ss must stay live on the
-        # 1s recording tick even when the icon was skipped.
-        self._icon.title = self._compute_tooltip(state, message)
+        with self._icon_lock:
+            if not self._icon:
+                return
+            # only redraw the icon on a state CHANGE.
+            if state != self._last_applied_state:
+                try:
+                    self._icon.icon = _make_icon(state)
+                except OSError as exc:
+                    # pystray Windows DestroyIcon stale-handle
+                    # bug (WinError 1402) during rapid icon updates — clear the
+                    # private _icon_handle so pystray re-creates it next call
+                    # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
+                    #
+                    # if a future pystray release (0.20+) removes or
+                    # renames the private ``_icon_handle`` attribute, the
+                    # workaround becomes a silent no-op — the OSError is
+                    # still raised on every icon update but the workaround
+                    # can't fire, so WinError 1402 resurfaces for users with
+                    # no diagnostic surface. Log a WARNING in that case so
+                    # the silent workaround failure shows up in diagnostics
+                    # (the regression test
+                    # ``tests/test_pystray_icon_handle_regression.py`` guards
+                    # this exact attribute via ``hasattr(pystray.Icon,
+                    # "_icon_handle")``).
+                    if hasattr(self._icon, "_icon_handle"):
+                        self._icon._icon_handle = None
+                    else:
+                        log.warning(
+                            "[TRAY] pystray.Icon no longer exposes the private "
+                            "`_icon_handle` attribute — DestroyIcon workaround "
+                            "disabled (OSError: %r). The tray will keep running "
+                            "but rapid icon updates on Windows may hit WinError "
+                            "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
+                            "private attribute access with a public "
+                            "`reset_icon_handle()` API when upstream exposes "
+                            "it, and bump pystray to the release that ships it.",
+                            exc,
+                        )
+                self._last_applied_state = state
+            # Tooltip is UNCONDITIONAL — elapsed mm:ss must stay live on the
+            # 1s recording tick even when the icon was skipped.
+            self._icon.title = self._compute_tooltip(state, message)
 
     def _drain_pending(self) -> None:
         """Drain pending state/notification queues (tray-unavailable run path).
 
         Called from run() every 60s; state already published to Tauri.
 
-        AC-54: the previous implementation silently dropped queued
+        the previous implementation silently dropped queued
         notifications on the tray-unavailable path (Linux Wayland
         without SNI / Windows-Server headless / ``VOICE_TYPER_NO_TRAY=1``
         / pystray.Icon() OSError fallback). The 60s drain was a no-op
@@ -532,10 +591,22 @@ class TrayIcon:
            for the notification after-the-fact.
         2. Publishes a ``tray_fallback_notification`` event via the
            event bus so the Electron renderer can surface the
-           notification as a toast (it already subscribes to
-           ``tray_state`` for icon updates — adding a
-           ``tray_fallback_notification`` channel is a single line
-           in the renderer's `useAppStore`).
+           notification as a toast. CROSS-LAYER GATE: the
+           ACTUAL gate is the Tauri host's ``ALLOWED_EVENT_TYPES``
+           slice at ``src-tauri/src/sidecar/ws.rs:80-150`` — the
+           Tauri WS reader silently DROPS any inbound frame whose
+           ``type`` is not in that slice (logged at
+           ``[WS-READER] dropping unknown event type:``). Adding a
+           ``tray_fallback_notification`` listener in the renderer
+           ALONE is insufficient; the event name MUST also be added
+           to the Rust ``ALLOWED_EVENT_TYPES`` slice (tracked in
+           ). Until that ws.rs edit lands, this fallback
+           surfaces only via the WARNING log above (fail-soft, not
+           fail-silent). The test
+           ``tests/test_tray_fallback_notification_allowlist.py``
+           pins the published event-name literal so a future rename
+           on the Python side without a matching ws.rs allowlist
+           update is caught at CI time.
         3. Clears the queue (the dropped notification has been
            preserved via logs + Tauri channel — it cannot be lost).
 
@@ -570,7 +641,7 @@ class TrayIcon:
                     }
                 )
 
-    # ─── UX-11 (FIX-10): elapsed-recording timer ──────────────────────
+    # ─── (): elapsed-recording timer ──────────────────────
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
@@ -579,7 +650,7 @@ class TrayIcon:
         return ElapsedTimer.format_elapsed(seconds)
 
     def _on_elapsed_tick(self) -> None:
-        """UX-11: refresh tooltip with latest elapsed time (1s tick while
+        """refresh tooltip with latest elapsed time (1s tick while
         RECORDING). Re-applies state to pystray Icon + publishes to Tauri."""
         if self._icon is not None:
             self._apply_state(self._state, self._message)
@@ -620,7 +691,7 @@ class TrayIcon:
     def _open_page(self, path: str) -> None:
         """Publish a navigate event so the renderer opens path (delegate).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_window.open_page. Tests
+         delegates to tray_window.open_page. Tests
         that monkeypatch.setattr(tray, "_open_page", fake) keep working."""
         from voice_typer.server.tray_window import open_page
 
@@ -629,7 +700,7 @@ class TrayIcon:
     def _open_models_page(self) -> None:
         """Open Electron window + navigate to /models (delegate).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_window.open_models_page,
+         delegates to tray_window.open_models_page,
         which calls self._open_page('/models') so patch keeps working."""
         from voice_typer.server.tray_window import open_models_page
 
@@ -638,7 +709,7 @@ class TrayIcon:
     def _confirm_quit_while_recording(self) -> None:
         """Quit immediately, regardless of recording state (delegate).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to
+         delegates to
         tray_window.confirm_quit_while_recording."""
         from voice_typer.server.tray_window import (
             confirm_quit_while_recording,
@@ -657,7 +728,7 @@ class TrayIcon:
     def _build_menu(self) -> tuple:
         """Build the tray menu (Models + Microphones submenus + shortcuts).
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_menu.build_menu_for_tray.
+         delegates to tray_menu.build_menu_for_tray.
         Lambdas consult self.* at CALL TIME so patches keep working."""
         from voice_typer.server.tray_menu import build_menu_for_tray
 
@@ -671,7 +742,7 @@ class TrayIcon:
         return maybe_publish_tray_menu(self)
 
     def _build_microphones_submenu(self) -> list:
-        """Build the Microphones ▸ submenu (UX-2) — delegate."""
+        """Build the Microphones ▸ submenu () — delegate."""
         from voice_typer.server.tray_menu import build_microphones_submenu
 
         return build_microphones_submenu(self)
@@ -679,9 +750,9 @@ class TrayIcon:
     def _build_models_submenu(self) -> list:
         """Build a list of model MenuItems — cached models + More models link.
 
-        DT-FIX-9 / DT-FIX-9b: delegates to tray_menu.build_models_submenu,
+         delegates to tray_menu.build_models_submenu,
         which calls tray_models.build_models_menu_items for the actual
-        MenuItem construction (ARCH-037: in-memory Config, not re-parsed).
+        MenuItem construction (: in-memory Config, not re-parsed).
         """
         from voice_typer.server.tray_menu import build_models_submenu
 
@@ -697,5 +768,5 @@ class TrayIcon:
     # alias for backwards compat with code calling TrayIcon._wrap(fn).
     _wrap = staticmethod(wrap_callback)
 
-    # G4-M-57: TRAY-015 periodic update checker removed (dead code, broken
+    # periodic update checker removed (dead code, broken
     # toggle, phoned home to GitHub). If reintroduced: default OFF, consent dialog, dedicated module.

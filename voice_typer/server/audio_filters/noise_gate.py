@@ -7,7 +7,7 @@ remains a Python loop because its state transitions are inherently
 sequential, but it now operates on the pre-computed ``level`` array --
 no per-sample ``abs()`` or peak-hold bookkeeping in the loop body.
 
-ER-10: when ``adaptive=True`` is passed to the constructor, the gate
+when ``adaptive=True`` is passed to the constructor, the gate
 samples the first ``_ADAPTIVE_CALIBRATION_MS`` of audio after each
 ``reset()`` / construction to estimate the ambient noise floor (RMS),
 then derives ``open_threshold = noise_floor + 6dB`` and
@@ -22,10 +22,12 @@ from __future__ import annotations
 import logging
 import math
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import (
+np = lazy_module("numpy")
+
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import (  # noqa: E402
     AudioFilter,
     db_to_mul,
     mul_to_db,
@@ -33,7 +35,7 @@ from voice_typer.server.audio_filters.base import (
 
 log = logging.getLogger(__name__)
 
-# ER-10: adaptive calibration constants
+# adaptive calibration constants
 _ADAPTIVE_CALIBRATION_MS: float = 500.0
 _ADAPTIVE_OPEN_OFFSET_DB: float = 6.0
 _ADAPTIVE_CLOSE_OFFSET_DB: float = 0.0
@@ -83,7 +85,7 @@ class NoiseGate(AudioFilter):
         else:
             self._decay_rate = 0.001
 
-        # ER-10: adaptive-calibration state
+        # adaptive-calibration state
         self._calibration_target = int(self._sample_rate * _ADAPTIVE_CALIBRATION_MS / 1000.0)
         self._calibration_sumsq: float = 0.0
         self._calibration_count: int = 0
@@ -92,7 +94,7 @@ class NoiseGate(AudioFilter):
             self._calibrated = True
 
     def _consume_calibration_chunk(self, samples: np.ndarray) -> None:
-        """ER-10: accumulate samples toward the noise-floor estimate."""
+        """accumulate samples toward the noise-floor estimate."""
         remaining = self._calibration_target - self._calibration_count
         if remaining <= 0:
             return
@@ -137,7 +139,7 @@ class NoiseGate(AudioFilter):
             return audio
         dt = 1.0 / sample_rate
 
-        # ER-10: if adaptive calibration in progress, accumulate and return
+        # if adaptive calibration in progress, accumulate and return
         # input unchanged (gate stays OPEN during calibration).
         if not self._calibrated:
             self._consume_calibration_chunk(samples)
@@ -214,7 +216,7 @@ class NoiseGate(AudioFilter):
         self._attenuation = 1.0
         self._level = 0.0
         self._held_time = 0.0
-        # ER-10: re-arm adaptive calibration so a mic change re-measures
+        # re-arm adaptive calibration so a mic change re-measures
         # the noise floor. Restore initial thresholds for calibration window.
         if self._adaptive:
             self._open_threshold = self._initial_open_threshold

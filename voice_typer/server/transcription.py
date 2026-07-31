@@ -42,7 +42,7 @@ from voice_typer.server.platform_utils import is_windows
 
 np = lazy_module("numpy")
 
-# EC-FIX-8: shared ASR helpers now live in ``asr_utils`` (canonical source).
+# shared ASR helpers now live in ``asr_utils`` (canonical source).
 # The re-exports below preserve backward compatibility with tests and
 # service.py that import these names from ``transcription``.
 
@@ -72,7 +72,7 @@ class TranscriberProtocol(Protocol):
     @property
     def loaded_via(self) -> str: ...
 
-    # AC-78: ``transcribe_words`` was missing from the protocol even
+    # ``transcribe_words`` was missing from the protocol even
     # though ``streaming.py:601, 668`` calls ``self.transcriber.transcribe_words(...)``
     # and ``recording_controller.py:871`` does a ``hasattr`` check
     # for it. Adding the method to the protocol means:
@@ -92,13 +92,13 @@ class TranscriberProtocol(Protocol):
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...
 
 
-# DR-32: re-exported from ``voice_typer.server._audio_constants`` for
+# re-exported from ``voice_typer.server._audio_constants`` for
 # back-compat with callers (and tests) that read this module attribute.
 # ``_WHISPER_SAMPLE_RATE`` is the canonical Whisper 16 kHz input rate.
 _nvidia_dll_path_handles: list[object] = []
 
 
-# EC-FIX-8: ``_MODEL_SIZE_MB`` + ``_DISK_SPACE_MARGIN_MB``,
+# ``_MODEL_SIZE_MB`` + ``_DISK_SPACE_MARGIN_MB``,
 # ``release_gpu_memory()``, ``_download_with_retry()``,
 # ``_check_disk_space_for_download()``, and
 # ``cleanup_hf_cache_dir()`` (formerly ``_cleanup_failed_whisper_cache``)
@@ -110,7 +110,7 @@ _nvidia_dll_path_handles: list[object] = []
 def _free_nvidia_dll_path_handles() -> None:
     """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``.
 
-    PERF-NEW-020: ``os.add_dll_directory`` returns a handle that holds
+    PERF- ``os.add_dll_directory`` returns a handle that holds
     a reference to the OS-level DLL directory entry. Previously these
     handles were stored in ``_nvidia_dll_path_handles`` and never freed,
     so the process held phantom DLL directory refs even after the model
@@ -276,7 +276,7 @@ class TranscriptionEngine:
         # (ctranslate2 >= 4.x) so a mid-segment ``model.transcribe()``
         # call returns promptly instead of running to completion.
         self._abort_event = threading.Event()
-        # NEW-PRIV-005: store a reference to the app's Config dataclass
+        # store a reference to the app's Config dataclass
         # so the HuggingFace-consent check in _pre_download_model can
         # read ``huggingface_consent`` without crashing.  Previously
         # ``self.config`` was never assigned in __init__, but the
@@ -295,7 +295,7 @@ class TranscriptionEngine:
     def _resolve_device(self, device: str) -> tuple[str, str]:
         """Auto-detect best device and compute type.
 
-        ERR-016: previously the CUDA-detection try/except used bare
+        previously the CUDA-detection try/except used bare
         ``Exception``, hiding real setup errors (driver mismatch,
         missing DLLs). Narrowed to ``(OSError, RuntimeError,
         ImportError)`` so genuine bugs propagate.
@@ -414,7 +414,7 @@ class TranscriptionEngine:
     def _load_model_outside_lock(self, progress_callback=None):
         """Load model outside the lock so downloads don't block other threads.
 
-        ARCH-014: extracted the common load logic into
+        extracted the common load logic into
         ``_load_transcriber_impl(acquire_lock)`` so this method and
         ``_reload_under_lock`` share one code path.
         """
@@ -441,7 +441,7 @@ class TranscriptionEngine:
         """Shared model-load body used by both _load_model_outside_lock
         and _reload_under_lock.
 
-        ARCH-014: previously two near-identical 30-line bodies that
+        previously two near-identical 30-line bodies that
         differed only in lock acquisition. Now a single method with
         an ``acquire_lock`` flag.
 
@@ -465,7 +465,7 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback(f"{verb} model '{model_size}'...")
-                # PW-4: time WhisperModel construction to measure
+                # time WhisperModel construction to measure
                 # prewarm cache-hit effectiveness.
                 _t0 = time.perf_counter()
                 model = WhisperModel(
@@ -541,7 +541,7 @@ class TranscriptionEngine:
     def _reload_under_lock(self):
         """Reload the model while already holding the lock (for GPU fallback).
 
-        ARCH-014: now delegates to ``_load_transcriber_impl`` with
+        now delegates to ``_load_transcriber_impl`` with
         ``acquire_lock=False`` instead of duplicating the load body.
         """
         chain = self._build_fallback_chain()
@@ -557,7 +557,7 @@ class TranscriptionEngine:
         can't be loaded, catches the error at startup and falls back to
         CPU immediately instead of failing mid-recording.
         """
-        # RW-6 (pyrefly): ``self._model`` is declared ``self._model = None``
+        #  (pyrefly): ``self._model`` is declared ``self._model = None``
         # in __init__ and only assigned a real model instance inside the
         # load path. The sole caller (line ~554) only invokes us after a
         # successful load, but pyrefly cannot prove that contract across
@@ -616,7 +616,7 @@ class TranscriptionEngine:
                 log.warning(
                     "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — falling back to CPU immediately",
                 )
-                # NF-R17-1: wrap the null-and-reload sequence in
+                # wrap the null-and-reload sequence in
                 # ``with self._lock:`` so a concurrent ``transcribe()`` from
                 # another thread can't observe ``self._model = None`` (or
                 # worse, a half-loaded model mid-reload). Pre-fix, the probe
@@ -630,7 +630,7 @@ class TranscriptionEngine:
                         import gc
 
                         gc.collect()
-                        # NEW-MEM-001: release PyTorch's cached CUDA blocks
+                        # release PyTorch's cached CUDA blocks
                         # so the next backend (or CPU reload) can use them.
                         release_gpu_memory()
                     except Exception:
@@ -685,7 +685,7 @@ class TranscriptionEngine:
         This ensures the user sees download progress before WhisperModel blocks
         on the download internally.
 
-        PERF-NEW-009: previously this blocked the calling thread, adding
+        PERF- previously this blocked the calling thread, adding
         2-15s of cold-start latency before model loading could begin.
         We now check the cache first (fast path); if the model is
         already cached, we return immediately so load can proceed. If
@@ -694,7 +694,7 @@ class TranscriptionEngine:
         without measurable benefit (WhisperModel.__init__ needs the
         files anyway).
 
-        NEW-PRIV-005: HuggingFace downloads reveal the user's IP to a
+        HuggingFace downloads reveal the user's IP to a
         US-headquartered third party.  We check the
         ``huggingface_consent`` config flag before downloading; if
         consent hasn't been given, we raise a ConsentRequiredError so
@@ -776,7 +776,7 @@ class TranscriptionEngine:
             except Exception:
                 log.debug("[MODEL] HF cache probe failed — will attempt download", exc_info=True)
 
-            # NEW-PRIV-005: require explicit consent before downloading
+            # require explicit consent before downloading
             # from HuggingFace.  The cache check above is local-only
             # and doesn't need consent; the actual download does.
 
@@ -799,7 +799,7 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback("HuggingFace consent required before downloading model.")
-                # EC-FIX-8 (EC-B4): raise ``ConsentRequiredError`` instead of
+                #  (): raise ``ConsentRequiredError`` instead of
                 # silently returning, mirroring ``parakeet_engine.load`` and
                 # ``cloud_engines.CloudEngine.transcribe``.  The IPC layer
                 # ``isinstance``-checks for this type to surface a consent
@@ -824,10 +824,10 @@ class TranscriptionEngine:
             if progress_callback:
                 progress_callback(f"Downloading model '{model_size}' (varies by size)...")
 
-            # PROD-005: check disk space before downloading
+            # check disk space before downloading
             _check_disk_space_for_download(repo_id, model_size)
 
-            # PROD-004: download with retry and exponential backoff
+            # download with retry and exponential backoff
             local_dir = _download_with_retry(
                 snapshot_download,
                 repo_id=repo_id,
@@ -835,7 +835,7 @@ class TranscriptionEngine:
                 allow_patterns=_whisper_allow_patterns,
                 resume_download=True,
             )
-            # PROD-006: Verify model integrity after download.  Parakeet
+            # Verify model integrity after download.  Parakeet
             # and Qwen both verify (see asr_setup.py:316); Whisper
             # previously skipped this check, leaving it vulnerable to a
             # tampered or truncated download.  On failure we log + raise
@@ -853,7 +853,7 @@ class TranscriptionEngine:
                 # Cache cleanup on verify failure: remove
                 # the offending cache dir so the next load doesn't
                 # re-discover the tampered snapshot.
-                # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
+                # delegate to the canonical ``cleanup_hf_cache_dir``
                 # in ``asr_utils`` (formerly ``_cleanup_failed_whisper_cache``
                 # in this module).
                 cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
@@ -862,13 +862,13 @@ class TranscriptionEngine:
         except ImportError:
             log.debug("[MODEL] huggingface_hub not available, skipping pre-download")
         except ConsentRequiredError:
-            # EC-FIX-8 (EC-B4): re-raise ``ConsentRequiredError`` so it
+            #  (): re-raise ``ConsentRequiredError`` so it
             # propagates to the IPC layer — do NOT let the broad
             # ``except Exception`` below swallow it (which would turn a
             # user-actionable consent dialog into a silent warning log).
             raise
         except RuntimeError:
-            # S1-CR-19: re-raise integrity-check failures (raised at
+            # re-raise integrity-check failures (raised at
             # line 760 above) so WhisperModel does NOT silently load
             # the bad files on the current launch. The cache dir was
             # already cleaned (line 759), so the next launch will
@@ -880,7 +880,7 @@ class TranscriptionEngine:
     def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
-        NEW-PERF-010: ``audio_stats`` is an optional pre-computed
+        ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own stats computation
         (saves 1-3 ms + 3× 1.9 MB transient memory per dictation).
@@ -897,7 +897,7 @@ class TranscriptionEngine:
 
         # Log audio statistics for diagnostics
         duration = len(audio) / _WHISPER_SAMPLE_RATE
-        # NEW-PERF-010: reuse pre-computed stats when provided (avoids
+        # reuse pre-computed stats when provided (avoids
         # 1-3 ms + 3× 1.9 MB transient memory per dictation).
         if audio_stats is not None:
             rms, peak, silence_pct = audio_stats
@@ -941,7 +941,7 @@ class TranscriptionEngine:
         last_segment_end = None
         avg_logprobs = []
         no_speech_probs = []
-        # DJ-16: hoist the per-segment ``log_transcriptions`` flag and
+        # hoist the per-segment ``log_transcriptions`` flag and
         # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
         # ``getattr(self.config, 'log_transcriptions', False)`` ran once
         # per segment and the ``from voice_typer.server.security import
@@ -989,7 +989,7 @@ class TranscriptionEngine:
                 no_speech_probs.append(float(no_speech_prob))
             if seg.text.strip():
                 text_parts.append(seg.text.strip())
-                # SEC-009 / XS-20: gate the per-segment DEBUG log by
+                # SEC-009: gate the per-segment DEBUG log by
                 # ``log_transcriptions`` and apply ``redact_pii`` when
                 # enabled. Pre-fix, raw segment text was logged whenever
                 # DEBUG logging was active (e.g. in diagnostics zips,
@@ -1009,7 +1009,7 @@ class TranscriptionEngine:
                     try:
                         _safe_seg_text = _redact_pii(_seg_text)
                     except Exception:
-                        # PVT-G5-091: fall back to truncation only if the
+                        # fall back to truncation only if the
                         # redaction engine itself errors (defensive — the
                         # redact_pii helper has its own try/except but a
                         # import failure / regex bug should not crash the
@@ -1086,7 +1086,7 @@ class TranscriptionEngine:
         If the first attempt fails with a CUDA/cuBLAS/runtime error and
         the model was loaded on GPU, reload on CPU and retry once.
 
-        NEW-PERF-010: ``audio_stats`` is an optional pre-computed
+        ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own stats computation.
         """
@@ -1121,7 +1121,7 @@ class TranscriptionEngine:
             )
             # Tear down GPU model, reload on CPU
             # M9: Explicitly free GPU memory before reload
-            # NEW-MEM-001: also call torch.cuda.empty_cache() so the
+            # also call torch.cuda.empty_cache() so the
             # cached CUDA blocks are released back to the OS, not just
             # held for reuse by a different (non-Whisper) backend.
             # RACE-023: gc.collect() moved OUTSIDE the lock to avoid
@@ -1137,7 +1137,7 @@ class TranscriptionEngine:
             # and the caller's `with self._lock:` block exits).
             # We store a flag so the caller can do the cleanup.
             self._pending_gc_collect = True
-            # NEW-PERF-010: pass through the pre-computed stats to the
+            # pass through the pre-computed stats to the
             # CPU retry as well.
             return self._transcribe_unlocked(audio, audio_stats=audio_stats)
 
@@ -1173,7 +1173,7 @@ class TranscriptionEngine:
                 first_err,
             )
             # M9: Explicitly free GPU memory before reload
-            # NEW-MEM-001: also release CUDA cached blocks.
+            # also release CUDA cached blocks.
             # RACE-023: gc.collect() deferred outside the lock.
             release_gpu_memory()
             with contextlib.suppress(Exception):
@@ -1211,7 +1211,26 @@ class TranscriptionEngine:
         )
 
         words = []
+        segment_count = 0
         for seg in segments:
+            # Check the abort token BETWEEN segment iterations,
+            # mirroring the batch path (``_transcribe_unlocked`` above).
+            # ``segments`` is a generator that yields one segment at a
+            # time, with each ``next()`` call driving a ctranslate2
+            # decoding step. Without this check, an ESC / watchdog
+            # cancel during streaming word-timestamp transcription would
+            # only take effect after the full audio finished decoding —
+            # unbounded latency instead of within-one-segment latency.
+            if self._abort_event.is_set():
+                log.info(
+                    "[TRANSCRIBE] Abort requested — stopping streaming "
+                    "words segment loop early (completed %d segments, "
+                    "%d words)",
+                    segment_count,
+                    len(words),
+                )
+                break
+            segment_count += 1
             for word in getattr(seg, "words", None) or []:
                 text = (word.word or "").strip()
                 if not text:
@@ -1228,7 +1247,7 @@ class TranscriptionEngine:
         return words
 
     def _is_gpu_runtime_error(self, exc: Exception) -> bool:
-        """ERR-015: detect GPU/CUDA runtime errors via class hierarchy +
+        """detect GPU/CUDA runtime errors via class hierarchy +
         attribute checks first, falling back to substring matching
         only for wrapped/re-raised errors. Previously the substring
         list was the primary check, misclassifying new error classes
@@ -1315,11 +1334,11 @@ class TranscriptionEngine:
     def unload(self) -> None:
         """Free model memory.
 
-        PERF-NEW-020: also release DLL directory handles opened by
+        PERF- also release DLL directory handles opened by
         ``_configure_nvidia_dll_paths`` so the process doesn't hold
         phantom DLL refs after the model is unloaded.
 
-        NEW-MEM-001: also call ``torch.cuda.empty_cache()`` so the
+        also call ``torch.cuda.empty_cache()`` so the
         PyTorch caching allocator releases freed CUDA blocks back to
         the OS.  Without this, switching backends (Whisper → Parakeet
         → Whisper) accumulates cached blocks and OOMs on RTX 3060/4060
@@ -1334,9 +1353,9 @@ class TranscriptionEngine:
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
         gc.collect()
-        # NEW-MEM-001: release CUDA cached blocks.
+        # release CUDA cached blocks.
         release_gpu_memory()
-        # PERF-NEW-020: release DLL directory handles outside the lock
+        # PERF- release DLL directory handles outside the lock
         # (they don't touch self._model state).
         try:
             _free_nvidia_dll_path_handles()
@@ -1347,7 +1366,7 @@ class TranscriptionEngine:
 def _format_optional_mean(values: list[float]) -> str:
     """Format a list of floats as a 2-decimal mean, or 'n/a' if empty.
 
-    ARCH-039: small helper kept as-is because it has two call sites
+    small helper kept as-is because it has two call sites
     (line 523/524) and inlining would duplicate the empty-list check.
     Marked LOW priority in the audit — keeping for readability.
     """

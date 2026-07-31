@@ -1,11 +1,11 @@
-"""Diagnostic bundle export (DR-27 extraction).
+"""Diagnostic bundle export ( extraction).
 
 Extracted verbatim from :meth:`CrashRecovery.create_diagnostic_bundle`
 so the ``crash_recovery.py`` module can focus on its core concern
 (storing / flushing / replaying transcription recovery entries). The
 diagnostic bundle is a separate concern — it reads from many subsystems
 (config, prewarm, system info, archive) and writes a redacted zip for
-support tickets (PROD-010).
+support tickets ().
 
 The function takes the owning :class:`CrashRecovery` instance (``recovery``)
 as an explicit argument because the bundle body needs three things from
@@ -45,22 +45,22 @@ log = logging.getLogger(__name__)
 
 
 def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
-    """PROD-010: Create a diagnostic bundle zip file.
+    """Create a diagnostic bundle zip file.
 
-    Collects:
-      - voice-typer.log
-      - config.json (redacted — API keys removed)
-      - System info (platform, Python version, GPU info)
-      - Model info (loaded model, device)
-      - Crash recovery entries (metadata only — no transcription text,
-        per CR-39)
-      - Prewarm health + sentinel + PID file contents
-      - Archived ``crash_diagnostics_archive/*`` files
+        Collects:
+          - voice-typer.log
+          - config.json (redacted — API keys removed)
+          - System info (platform, Python version, GPU info)
+          - Model info (loaded model, device)
+          - Crash recovery entries (metadata only — no transcription text,
+    per )
+          - Prewarm health + sentinel + PID file contents
+          - Archived ``crash_diagnostics_archive/*`` files
 
-    Returns the path to the created zip file, or ``None`` on failure.
+        Returns the path to the created zip file, or ``None`` on failure.
 
-    Behavior is preserved verbatim from the original
-    :meth:`CrashRecovery.create_diagnostic_bundle` body (DR-27).
+        Behavior is preserved verbatim from the original
+    meth:`CrashRecovery.create_diagnostic_bundle` body ().
     """
     import zipfile
     from datetime import datetime
@@ -86,7 +86,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
     # visible). The atomic rename ensures the final path only ever
     # exists as a complete, valid zip.
     #
-    # UE-5-F6: the tmp file is created via ``tempfile.mkstemp`` (NOT
+    # the tmp file is created via ``tempfile.mkstemp`` (NOT
     # the pre-fix fixed name ``bundle_path.with_suffix(".zip.tmp")``).
     # The fixed name collided on ``O_EXCL`` if two exports ran
     # concurrently (e.g. a user-triggered export from Settings →
@@ -106,7 +106,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
     tmp_bundle_path = Path(tmp_name)
     # ``owned_fd`` tracks ownership of the raw fd. ``-1`` means "fd
     # is now owned by the file object (or already closed); do NOT
-    # call ``os.close`` on it again" — mirrors the FR-50 pattern in
+    # call ``os.close`` on it again" — mirrors the  pattern in
     # ``secure_file_io._secure_atomic_write`` to avoid a double-close
     # if ``os.fdopen`` itself raises.
     owned_fd = fd
@@ -125,11 +125,11 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # cfg_dict)`` that bypassed structured redaction) would
                 # ship in the bug-report zip. Now we read the log, run
                 # each line through the unified :func:`redact_for_export`
-                # pipeline (UE-5-F4 — same helper used by the archived
+                # pipeline ( — same helper used by the archived
                 # crash-dump path and ``ipc_diagnostics``), and write
                 # the redacted bytes into the zip. ``redact_for_export``
                 # passes ``aggressive=True`` to :func:`redact_secret`
-                # (UE-5-F7) so bare short secrets are caught too.
+                # () so bare short secrets are caught too.
                 log_path = config_dir / "voice-typer.log"
                 if log_path.exists():
                     try:
@@ -144,7 +144,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                             "".join(redacted_lines),
                         )
                     except Exception:
-                        # UE-5-F8: pre-fix this branch was wrapped in a
+                        # pre-fix this branch was wrapped in a
                         # ``contextlib.suppress(Exception)`` that
                         # silently swallowed ALL failures (including
                         # redaction failures) at DEBUG level — making
@@ -159,7 +159,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         # Defense in depth: if redaction fails, skip
                         # the log entirely rather than shipping raw
                         # content — the same policy as the archived
-                        # crash-dump path (UE-5-F1).
+                        # crash-dump path ().
                         log.warning(
                             "[CRASH-RECOVERY] failed to redact "
                             "voice-typer.log for diagnostic bundle; "
@@ -244,7 +244,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 sys_info.append(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', '<unset>')}")
                 sys_info.append(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY', '<unset>')}")
                 # Audio devices — hostapi + name + max_input_channels +
-                # default_samplerate only. UE-5-F9: device names ARE
+                # default_samplerate only. : device names ARE
                 # redacted via ``redact_pii`` before being written —
                 # device names like "John's AirPods Pro" can carry a
                 # user-identifying name, and Bluetooth device names
@@ -264,7 +264,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         if not isinstance(dev, dict):
                             continue
                         hostapi = dev.get("hostapi", "?")
-                        # UE-5-F9: redact the device name via
+                        # redact the device name via
                         # ``redact_pii`` so any PII embedded in it
                         # (emails, phones, SSNs, CCs) is masked. We
                         # use ``redact_pii`` (NOT the aggressive
@@ -303,7 +303,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # TAURI_SIDECAR env flag — distinguishes the bundled
                 # sidecar process from a standalone Python invocation.
                 sys_info.append(f"TAURI_SIDECAR: {os.environ.get('TAURI_SIDECAR', '<unset>')}")
-                # UE-5-F3: VOICE_TYPER_* env-var values are piped
+                # VOICE_TYPER_* env-var values are piped
                 # through ``redact_secret(value, aggressive=True)``
                 # before being written into the bundle. Pre-fix they
                 # were written verbatim under the assumption that the
@@ -325,7 +325,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 for key in sorted(os.environ):
                     if key.startswith("VOICE_TYPER_"):
                         value = os.environ[key]
-                        # XE-7-3: redact home-directory prefix from
+                        # redact home-directory prefix from
                         # path-bearing env vars (e.g.
                         # ``VOICE_TYPER_CONFIG_DIR=/home/alice/.voice-typer``,
                         # ``VOICE_TYPER_NATIVE_DIR``,
@@ -372,7 +372,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         sys_info.append(f"CUDA version: {torch.version.cuda}")
                         sys_info.append(f"GPU: {torch.cuda.get_device_name(0)}")
                         _gpu_props = torch.cuda.get_device_properties(0)
-                        # TASK-14: ``_CudaDeviceProperties`` is
+                        # ``_CudaDeviceProperties`` is
                         # created dynamically by torch
                         # (``_dummy_type`` when CUDA is not compiled
                         # in), so its attribute surface is invisible
@@ -411,7 +411,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     pass
 
                 # ─── 5. Crash recovery entries (METADATA ONLY) ───────
-                # CR-39 fix: previously this dumped the full
+                # fix: previously this dumped the full
                 # self._entries list (which contains the user's
                 # dictated transcribed text) into the diagnostic zip.
                 # Users sharing diagnostic bundles for bug reports
@@ -443,7 +443,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # Bundles the full prewarm status + sentinel/PID file
                 # contents so support engineers can diagnose prewarm
                 # issues without asking the user to run --status
-                # manually. UE-5-F2: the ``sentinel_path`` /
+                # manually. : the ``sentinel_path``
                 # ``pid_file_path`` fields are piped through
                 # ``_redact_home_path`` so the user's home directory
                 # prefix is replaced with ``~`` (the raw paths like
@@ -458,7 +458,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                     )
 
                     prewarm_data = get_prewarm_status()
-                    # UE-5-F2: redact home-directory prefix from the
+                    # redact home-directory prefix from the
                     # filesystem paths so the OS username doesn't
                     # leak via the path prefix.
                     prewarm_data["sentinel_path"] = _redact_home_path(str(_sentinel_path()))
@@ -508,7 +508,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # a ``crash_diagnostics_archive/`` prefix in the zip
                 # so support engineers can locate it easily.
                 #
-                # UE-5-F1: archived files are REDACTED line-by-line
+                # archived files are REDACTED line-by-line
                 # via ``redact_for_export`` (the same pipeline as the
                 # live ``voice-typer.log``) before being written into
                 # the zip. Pre-fix, ``zf.write(str(archived_file),
@@ -525,7 +525,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 #
                 # On redaction failure (e.g. archive file unreadable,
                 # redactor raises), the file is SKIPPED — defense in
-                # depth, mirroring the live-log skip policy (UE-5-F8).
+                # depth, mirroring the live-log skip policy ().
                 archive_dir = config_dir / "crash_diagnostics_archive"
                 if archive_dir.is_dir():
                     from voice_typer.server._secrets import redact_for_export
@@ -543,13 +543,13 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                                 "".join(redacted_lines),
                             )
                         except Exception:
-                            # UE-5-F1: skip on redaction failure
+                            # skip on redaction failure
                             # (defense in depth). Never ship the raw
                             # archived file — a single un-redacted
                             # crash dump can leak every secret-bearing
                             # traceback from prior sessions. The skip
                             # is logged at WARNING (matching the
-                            # live-log skip policy from UE-5-F8) so
+                            # live-log skip policy from ) so
                             # the operator can see *which* archived
                             # file couldn't be redacted.
                             log.warning(
@@ -574,7 +574,7 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
         # for atomicity (POSIX rename(2) is atomic; Windows
         # ReplaceFile is too on NTFS).
         os.replace(str(tmp_bundle_path), str(bundle_path))
-        # UE-5-F2: redact the home-directory prefix from the bundle
+        # redact the home-directory prefix from the bundle
         # path in the log message so the OS username doesn't leak
         # via the path (the returned ``str(bundle_path)`` is NOT
         # redacted — callers like the IPC handler display it to the

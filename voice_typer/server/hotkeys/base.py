@@ -2,7 +2,7 @@
 
 Provides the abstract :class:`HotkeyBackend` interface that every backend
 implements.  Split out from the original ``hotkeys.py`` god-file in
-Phase 4.5 (ARCH-045) — see ``hotkeys/__init__.py`` for the package-level
+Phase 4.5 () — see ``hotkeys/__init__.py`` for the package-level
 re-export surface that preserves the legacy ``voice_typer.server.hotkeys``
 import path.
 """
@@ -59,7 +59,9 @@ class HotkeyBackend(ABC):
         Default no-op — backends that don't emit tray notifications
         (e.g. :class:`PynputHotkey`, :class:`WaylandHotkey`) silently
         ignore the call. Backends that do (e.g.
-        :class:`WindowsNativeHotkey`) override it to store ``tray`` on
+        :class:`WindowsNativeHotkey`, mediated on the dispatcher side by
+        :class:`_NativeBackendAdapter`) override it (or have the adapter
+        propagate the reference via ``set_tray``) to store ``tray`` on
         ``self._tray`` for later ``tray.notify(...)`` calls.
         """
 
@@ -71,7 +73,7 @@ class HotkeyBackend(ABC):
     def is_alive(self) -> bool:
         """Return True if the listener thread is running."""
 
-    # NEW-DEAD-009: ``diagnose`` was previously @abstractmethod, forcing
+    # ``diagnose`` was previously @abstractmethod, forcing
     # every subclass to implement a debug string even though only test
     # callers invoke it.  We provide a default no-op implementation so
     # new backends (e.g. a future macOS or Linux native backend) don't

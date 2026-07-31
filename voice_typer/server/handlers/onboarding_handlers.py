@@ -1,10 +1,10 @@
 """Onboarding IPC handler mixin: onboarding_* commands.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-UE-15 (2026-07-30): ``_handle_onboarding_get_step``,
+(2026-07-30): ``_handle_onboarding_get_step``,
 ``_handle_onboarding_get_model_catalog``, and
 ``_handle_onboarding_request_keyboard_permission`` were REMOVED — the
 renderer no longer invokes them (wizard state is held client-side;
@@ -25,52 +25,52 @@ from voice_typer.server.ipc.validation import (
 
 
 def _redact_service_error(result: dict) -> dict:
-    """XZ-EH-002: redact a service-returned ``{"error": str(exc)}`` dict
-    in place + return it, so exception strings never reach the renderer.
+    """redact a service-returned ``{"error": str(exc)}`` dict
+        in place + return it, so exception strings never reach the renderer.
 
-    The five onboarding ``set_*`` / ``skip`` / ``apply`` handlers
-    historically delegated the ack-vs-error decision to whether the
-    service's return dict contained an ``"error"`` key, and passed the
-    dict straight through to the renderer. ``service.py:1452-1453``
-    returns ``{"error": str(exc)}`` unredacted — so an exception
-    message containing a secret (API key in a cloud-config validation
-    error, a file path under the user's home dir, a CUDA error string
-    with internal module names) would be exfiltrated to the renderer
-    (and to ``voice-typer.log`` if the renderer logged it).
+        The five onboarding ``set_*`` / ``skip`` / ``apply`` handlers
+        historically delegated the ack-vs-error decision to whether the
+        service's return dict contained an ``"error"`` key, and passed the
+        dict straight through to the renderer. ``service.py:1452-1453``
+        returns ``{"error": str(exc)}`` unredacted — so an exception
+        message containing a secret (API key in a cloud-config validation
+        error, a file path under the user's home dir, a CUDA error string
+        with internal module names) would be exfiltrated to the renderer
+        (and to ``voice-typer.log`` if the renderer logged it).
 
-    The proper fix (per the finding's "Change service methods to
-    ``raise``" recommendation) is to migrate the service to raising
-    typed exceptions so the handler's CR-20 catch-all
-    (:meth:`HandlerBase._respond_with_error`) fires and emits the
-    generic ``internal error`` envelope. That migration is
-    cross-file work in ``voice_typer/server/service.py`` (owned by
-    another agent).
+        The proper fix (per the finding's "Change service methods to
+        ``raise``" recommendation) is to migrate the service to raising
+    typed exceptions so the handler's  catch-all
+        (:meth:`HandlerBase._respond_with_error`) fires and emits the
+        generic ``internal error`` envelope. That migration is
+        cross-file work in ``voice_typer/server/service.py`` (owned by
+        another agent).
 
-    This helper is the minimum handler-side mitigation: when the
-    service returns a dict with a string-valued ``"error"`` key, we
-    apply :func:`redact_secret` (strips ``Bearer ...``, ``sk-...``,
-    ``gsk_...``, long bare alphanumeric runs, ``--token=...`` flag
-    forms, etc.) AND :func:`redact_url` (strips user-info from URLs,
-    replaces query-string API-key params) to the error string before
-    storing it in ``resp["data"]``. The handler also logs the
-    redacted error at ERROR server-side so operators have a
-    breadcrumb (the unredacted message never leaves the process —
-    :func:`redact_secret` / :func:`redact_url` are pure regex
-    transformations with no I/O, and the unredacted ``str(exc)`` is
-    dropped after redaction).
+        This helper is the minimum handler-side mitigation: when the
+        service returns a dict with a string-valued ``"error"`` key, we
+        apply :func:`redact_secret` (strips ``Bearer ...``, ``sk-...``,
+        ``gsk_...``, long bare alphanumeric runs, ``--token=...`` flag
+        forms, etc.) AND :func:`redact_url` (strips user-info from URLs,
+        replaces query-string API-key params) to the error string before
+        storing it in ``resp["data"]``. The handler also logs the
+        redacted error at ERROR server-side so operators have a
+        breadcrumb (the unredacted message never leaves the process —
+        :func:`redact_secret` / :func:`redact_url` are pure regex
+        transformations with no I/O, and the unredacted ``str(exc)`` is
+        dropped after redaction).
 
-    Parameters
-    ----------
-    result : dict
-        The service-returned dict. Mutated in place: if it contains a
-        string-valued ``"error"`` key, that value is replaced with its
-        redacted form.
+        Parameters
+        ----------
+        result : dict
+            The service-returned dict. Mutated in place: if it contains a
+            string-valued ``"error"`` key, that value is replaced with its
+            redacted form.
 
-    Returns
-    -------
-    dict
-        The same ``result`` dict (returned so callers can write
-        ``resp["data"] = _redact_service_error(result)`` as a one-liner).
+        Returns
+        -------
+        dict
+            The same ``result`` dict (returned so callers can write
+            ``resp["data"] = _redact_service_error(result)`` as a one-liner).
     """
     err = result.get("error")
     if isinstance(err, str) and err:
@@ -81,60 +81,60 @@ def _redact_service_error(result: dict) -> dict:
 class OnboardingHandlersMixin(HandlerBase):
     """Mixin: onboarding-wizard IPC handlers (onboarding_start / onboarding_apply / ...).
 
-    CR-20: this mixin is one of the four "representative" handlers
-    migrated to :meth:`HandlerBase._respond_with_error` for the
-    catch-all ``except Exception`` path. See
-        ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    this mixin is one of the four "representative" handlers
+        migrated to :meth:`HandlerBase._respond_with_error` for the
+        catch-all ``except Exception`` path. See
+            ``voice_typer/server/handlers/_base.py`` for the migration plan.
 
-    Five of the onboarding handlers
-    (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
-    ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
-    delegate the ack-vs-error decision to whether the service's return
-    dict contains an ``"error"`` key::
+        Five of the onboarding handlers
+        (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
+        ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
+        delegate the ack-vs-error decision to whether the service's return
+        dict contains an ``"error"`` key::
 
-        resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if "error" not in result else "error"
 
-    This is an implicit contract between the handler and the service
-    layer. ``ServiceProtocol`` (in ``voice_typer/server/providers.py``)
-    documents it: ``service.onboarding_set_*`` / ``service.onboarding_skip``
-    / ``service.onboarding_apply`` return ``{"error": "<message>"}`` on
-    failure and ``{...}`` (no ``"error"`` key) on success. If the
-    service ever renames ``"error"`` to ``"code"`` or stops including
-    ``"error"`` on failure, the handler will silently report ``ack``
-    for failures. The contract is documented inline at each call site
-    below; a future refactor should switch the service to raising
-    exceptions on failure (preferred) so the catch-all
-    ``except Exception`` envelope covers the failure path uniformly.
+        This is an implicit contract between the handler and the service
+        layer. ``ServiceProtocol`` (in ``voice_typer/server/providers.py``)
+        documents it: ``service.onboarding_set_*`` / ``service.onboarding_skip``
+        / ``service.onboarding_apply`` return ``{"error": "<message>"}`` on
+        failure and ``{...}`` (no ``"error"`` key) on success. If the
+        service ever renames ``"error"`` to ``"code"`` or stops including
+        ``"error"`` on failure, the handler will silently report ``ack``
+        for failures. The contract is documented inline at each call site
+        below; a future refactor should switch the service to raising
+        exceptions on failure (preferred) so the catch-all
+        ``except Exception`` envelope covers the failure path uniformly.
 
-    DE-40: when the service returns an ``{"error": ...}`` dict, the
-    handler additionally logs a WARNING with the command name and the
-    error string. Previously the failure surfaced only via the IPC
-    response envelope (``resp["type"] = "error"``) — server-side logs
-    were silent, so an operator investigating a hung wizard had no
-    breadcrumb tying the renderer's error toast back to the service
-    call that produced it.
+    when the service returns an ``{"error": ...}`` dict, the
+        handler additionally logs a WARNING with the command name and the
+        error string. Previously the failure surfaced only via the IPC
+        response envelope (``resp["type"] = "error"``) — server-side logs
+        were silent, so an operator investigating a hung wizard had no
+        breadcrumb tying the renderer's error toast back to the service
+        call that produced it.
 
-    DE-39: ``_handle_onboarding_start`` queries
-    :meth:`service.onboarding_is_first_run` first and refuses to
-    re-run the wizard after completion unless the caller passes
-    ``{"force": true}`` in the data payload. This prevents a stale
-    renderer (e.g. after a config reset) from re-launching the wizard
-    over an already-completed onboarding state and surprising the user
-    with a 6-step flow they thought was done.
+    ``_handle_onboarding_start`` queries
+        :meth:`service.onboarding_is_first_run` first and refuses to
+        re-run the wizard after completion unless the caller passes
+        ``{"force": true}`` in the data payload. This prevents a stale
+        renderer (e.g. after a config reset) from re-launching the wizard
+        over an already-completed onboarding state and surprising the user
+        with a 6-step flow they thought was done.
 
-    DE-41: ``_handle_onboarding_start``'s ``mark_started()`` failure
-    is logged at WARNING with ``exc_info=True`` instead of being
-    swallowed by ``except Exception: pass``. Rationale: a
-    missing ``.onboarding_started`` marker lets ``startup_sequence``'s
-    auto-heal clobber an in-progress wizard on next restart — that's
-    a real correctness risk, not "non-critical" as the prior comment
-    claimed.
+    ``_handle_onboarding_start``'s ``mark_started()`` failure
+        is logged at WARNING with ``exc_info=True`` instead of being
+        swallowed by ``except Exception: pass``. Rationale: a
+        missing ``.onboarding_started`` marker lets ``startup_sequence``'s
+        auto-heal clobber an in-progress wizard on next restart — that's
+        a real correctness risk, not "non-critical" as the prior comment
+        claimed.
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
     # inherited from :class:`HandlerMixinBase` — no per-mixin
     # re-declaration needed (the duplicate block removed here was one
-    # of four that the R4-F3 centralization refactor missed).
+    # of four that the  centralization refactor missed).
 
     def _handle_onboarding_is_first_run(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_is_first_run`` IPC command."""
@@ -143,34 +143,34 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_first_run"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "onboarding_is_first_run")
         return resp
 
     def _handle_onboarding_start(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_start`` IPC command.
 
-        Also writes the ``.onboarding_started`` marker so
-        ``startup_sequence.py``'s auto-heal logic can distinguish a
-        genuine in-progress first-run wizard from a stale state. See
-        :meth:`OnboardingController.mark_started` for the full rationale.
+                Also writes the ``.onboarding_started`` marker so
+                ``startup_sequence.py``'s auto-heal logic can distinguish a
+                genuine in-progress first-run wizard from a stale state. See
+                :meth:`OnboardingController.mark_started` for the full rationale.
 
-        DE-39: before delegating to the service, query
-        :meth:`service.onboarding_is_first_run` and refuse to re-run
-        the wizard after completion unless the caller passes
-        ``{"force": true}`` in the data payload. Without this guard,
-        a stale renderer (or any caller that forgets the
-        ``onboarding_reset`` step) can re-launch the 6-step wizard
-        over an already-completed onboarding state.
+        before delegating to the service, query
+                :meth:`service.onboarding_is_first_run` and refuse to re-run
+                the wizard after completion unless the caller passes
+                ``{"force": true}`` in the data payload. Without this guard,
+                a stale renderer (or any caller that forgets the
+                ``onboarding_reset`` step) can re-launch the 6-step wizard
+                over an already-completed onboarding state.
 
-        DE-41: the ``mark_started()`` marker write is logged at WARNING
-        with ``exc_info=True`` on failure (was silently swallowed).
-        Rationale: a missing marker lets ``startup_sequence``'s
-        auto-heal clobber an in-progress wizard on next restart —
-        "non-critical" was wrong; this is a real correctness risk.
+        the ``mark_started()`` marker write is logged at WARNING
+                with ``exc_info=True`` on failure (was silently swallowed).
+                Rationale: a missing marker lets ``startup_sequence``'s
+                auto-heal clobber an in-progress wizard on next restart —
+                "non-critical" was wrong; this is a real correctness risk.
         """
         try:
-            # DE-39: re-run guard. ``data`` may be a non-dict (e.g. None
+            # re-run guard. ``data`` may be a non-dict (e.g. None
             # from a renderer that sends no payload) — coerce safely
             # before reading ``force``.
             data_dict = data if isinstance(data, dict) else {}
@@ -194,7 +194,7 @@ class OnboardingHandlersMixin(HandlerBase):
 
                 OnboardingController().mark_started()
             except Exception:
-                # DE-41: was ``pass``. Promoted to WARNING + exc_info so
+                # was ``pass``. Promoted to WARNING + exc_info so
                 # operators see when the auto-heal gate is left
                 # unprotected — a missing marker is the precondition for
                 # the auto-heal-clobbers-in-progress-wizard bug.
@@ -205,7 +205,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_step"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_start")
         return resp
 
@@ -216,7 +216,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_step"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_next_step")
         return resp
 
@@ -227,19 +227,19 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_step"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_prev_step")
         return resp
 
     def _handle_onboarding_set_microphone(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_microphone`` IPC command.
 
-        CR-64: ``mic_id`` is allowed to be ``None`` (no microphone
-        detected case). The renderer sends ``mic_id: null`` when no
-        microphones are present, so the validator accepts both ``str``
-        and ``NoneType``. The ``OnboardingController.set_microphone``
-        stores ``None`` verbatim, which :meth:`apply_settings` then
-        skips writing to the config (preserving the default).
+        ``mic_id`` is allowed to be ``None`` (no microphone
+                detected case). The renderer sends ``mic_id: null`` when no
+                microphones are present, so the validator accepts both ``str``
+                and ``NoneType``. The ``OnboardingController.set_microphone``
+                stores ``None`` verbatim, which :meth:`apply_settings` then
+                skips writing to the config (preserving the default).
         """
         try:
             validated, error = _validate_dict_payload(
@@ -261,10 +261,10 @@ class OnboardingHandlersMixin(HandlerBase):
             # The handler delegates the ack-vs-error decision to that
             # key. See the class docstring for the full contract.
             #
-            # DE-40: log the service-returned error at WARNING so the
+            # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb (the IPC envelope
             # alone is invisible to operators reading voice-typer.log).
-            # XZ-EH-002: redact the error string before forwarding to
+            # redact the error string before forwarding to
             # the renderer so exception messages containing secrets
             # (API keys, file paths) are not exfiltrated.
             if "error" in result:
@@ -276,7 +276,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_set_microphone")
         return resp
 
@@ -305,9 +305,9 @@ class OnboardingHandlersMixin(HandlerBase):
             # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
             #
-            # DE-40: log the service-returned error at WARNING so the
+            # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
-            # XZ-EH-002: redact the error string before forwarding.
+            # redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_set_hotkey: service returned error: %s",
@@ -317,7 +317,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_set_hotkey")
         return resp
 
@@ -339,9 +339,9 @@ class OnboardingHandlersMixin(HandlerBase):
             # not available) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
             #
-            # DE-40: log the service-returned error at WARNING so the
+            # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
-            # XZ-EH-002: redact the error string before forwarding.
+            # redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_set_model: service returned error: %s",
@@ -351,7 +351,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_set_model")
         return resp
 
@@ -364,9 +364,9 @@ class OnboardingHandlersMixin(HandlerBase):
             # ``"error"`` key) on success. See the class docstring for
             # the full contract.
             #
-            # DE-40: log the service-returned error at WARNING so the
+            # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
-            # XZ-EH-002: redact the error string before forwarding.
+            # redact the error string before forwarding.
             if "error" in result:
                 log.warning(
                     "[IPC] onboarding_skip: service returned error: %s",
@@ -376,7 +376,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_skip")
         return resp
 
@@ -389,13 +389,13 @@ class OnboardingHandlersMixin(HandlerBase):
             # error) and ``{...}`` (no ``"error"`` key) on success. See
             # the class docstring for the full contract.
             #
-            # DE-40: log the service-returned error at WARNING so the
+            # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb. ``onboarding_apply``
             # is the most consequential of the five (it writes
             # config.json + re-registers the hotkey); a silent failure
             # here is the worst-case "wizard says done but nothing
             # actually saved" bug, so the breadcrumb is essential.
-            # XZ-EH-002: redact the error string before forwarding to
+            # redact the error string before forwarding to
             # the renderer. ``onboarding_apply`` failures are the most
             # likely to leak sensitive context (config-write errors
             # can include ``str(exc)`` from the underlying
@@ -410,7 +410,7 @@ class OnboardingHandlersMixin(HandlerBase):
                     "[IPC] onboarding_apply: service returned error: %s",
                     result.get("error"),
                 )
-                # XZ-EH-002: also log at ERROR with the same redacted
+                # also log at ERROR with the same redacted
                 # form so the failure is visible in the ERROR-level
                 # log filter operators commonly tail.
                 redacted_result = _redact_service_error(dict(result))
@@ -422,7 +422,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_apply")
         return resp
 
@@ -435,7 +435,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_microphones"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_get_microphones")
         return resp
 
@@ -448,7 +448,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_models"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_get_model_options")
         return resp
 
@@ -461,14 +461,14 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_hotkey_presets"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_get_hotkey_presets")
         return resp
 
     def _handle_onboarding_check_permissions(
         self, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope | None:
-        """Handle the ``onboarding_check_permissions`` IPC command (UX-4 / UX-27).
+        """Handle the ``onboarding_check_permissions`` IPC command ( / ).
 
         Returns the platform-conditional permission state so the
         Permissions step can render the right setup walkthrough
@@ -490,7 +490,7 @@ class OnboardingHandlersMixin(HandlerBase):
             resp["type"] = "onboarding_permissions"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_check_permissions")
         return resp
 

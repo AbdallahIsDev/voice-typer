@@ -31,11 +31,11 @@ from voice_typer.server import crash_handler as _crash_handler
 # (PEP 563) and does NOT trigger the eager import we just eliminated.
 from voice_typer.server._lazy_import import lazy_module
 
-# SEC-001: restart token functions moved to voice_typer.server.security
+# restart token functions moved to voice_typer.server.security
 # COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
 # which imports _PIIRedactionFilter from app. The class lives in
 # voice_typer.server.security as PIIRedactionFilter (no underscore).
-# RW-00: Win32 SECURITY_ATTRIBUTES builder extracted to a focused,
+# Win32 SECURITY_ATTRIBUTES builder extracted to a focused,
 # security-reviewable module.  Re-exported here so existing callers
 # (and tests that grep app.py source for the symbol name) keep working.
 from voice_typer.server._security_attributes import (  # noqa: F401
@@ -51,7 +51,7 @@ from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
-# CQ-029: use centralized platform helpers instead of raw sys.platform checks.
+# use centralized platform helpers instead of raw sys.platform checks.
 # signal_handlers.install_win32_console_handler and various tests monkeypatch
 # voice_typer.server.app.is_windows — keep the re-export so they keep working.
 from voice_typer.server.platform_utils import (  # noqa: F401
@@ -62,7 +62,7 @@ from voice_typer.server.platform_utils import (  # noqa: F401
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
-# XR-63: autostart + microphone helpers are re-exported from server_platform so
+# autostart + microphone helpers are re-exported from server_platform so
 # voice_typer.server.settings_controller and voice_typer.server.startup_tasks
 # can import them dynamically via ``voice_typer.server.app``, and so tests
 # that monkeypatch ``voice_typer.server.app.{is_autostart_enabled,...}``
@@ -93,7 +93,7 @@ from voice_typer.server.waveform import WaveformBubble
 np = lazy_module("numpy")
 
 if TYPE_CHECKING:
-    # TASK-14: imported only for type annotations on ``_template_manager``
+    # imported only for type annotations on ``_template_manager``
     # and ``_vocabulary_manager`` (declared Optional so the eager-init
     # ``= None`` fallback in __init__ type-checks).  The runtime imports
     # remain inside the try/except in __init__ so a missing optional
@@ -107,7 +107,7 @@ log = logging.getLogger(__name__)
 # Re-exported here so callers (voice_typer.server.ipc_server.main,
 # voice_typer.server.prewarm.run) and tests that monkeypatch
 # voice_typer.server.app._setup_logging keep working unchanged.
-# PLAT-021: _setup_logging calls warn_if_in_container() (from
+# _setup_logging calls warn_if_in_container() (from
 # voice_typer.server.container_detect) at startup to detect container
 # environments and warn about unavailable features. The call lives in
 # logging_setup.py now but the source-string assertion in
@@ -127,7 +127,7 @@ class VoiceTyperApp:
     """The main application."""
 
     def __init__(self):
-        # DE-48: catch unexpected exceptions from Config.load() (e.g.
+        # catch unexpected exceptions from Config.load() (e.g.
         # KeyError from a data[...] access without a default, or
         # AttributeError from a None dereference during schema
         # migration).  Log at ERROR with exc_info=True, fall back to
@@ -153,7 +153,7 @@ class VoiceTyperApp:
         self._thread_registry = ThreadRegistry()
 
         # Install Python-level excepthook for unhandled Python exceptions.
-        # APP-9 (F-07): wrapped in try/except so an excepthook-install
+        #  (F-07): wrapped in try/except so an excepthook-install
         # failure (e.g. a missing Win32 API on an unsupported build, or
         # a sys.excepthook assignment that raises on a restricted
         # interpreter) does not abort VoiceTyperApp construction. The
@@ -163,7 +163,7 @@ class VoiceTyperApp:
         # production log, and continue with init.
         try:
             _crash_handler.install_python_excepthook()
-            # FR-14: install the threading excepthook so unhandled
+            # install the threading excepthook so unhandled
             # exceptions in daemon threads (A11yPulse, ModelLoad,
             # heartbeat_loop, crash-recovery-saver, history-retention,
             # bubble-level-pusher, shutdown-watchdog, prewarm) produce
@@ -220,7 +220,7 @@ class VoiceTyperApp:
         self.recording: RecordingController = RecordingController(self)
         # Item 1: wire xrun threshold callback for tray notification
         self.recorder.on_xrun_threshold = self.recording.on_xrun_threshold
-        # DJ-57: eagerly preload + warm the Silero VAD model on a
+        # eagerly preload + warm the Silero VAD model on a
         # background thread so the first recording's first audio chunk
         # does not stall on torch.jit.load (~150-600ms cold load). The
         # model load previously happened lazily inside compute_vad_prob
@@ -237,14 +237,14 @@ class VoiceTyperApp:
         # Previously VoiceTyperApp owned the AsrBackendRegistry + three
         # engine fields + ~500 LOC of load/fallback/change logic. Now
         # ModelManager owns all of that; app.py accesses it via
-        # `self.models`. (ARCH-REFAC-003: the @property delegates that
+        # `self.models`. (: the @property delegates that
         # used to mirror `self.transcriber` / `self._qwen_engine` /
         # `self._asr_registry` / etc. on VoiceTyperApp have been
         # removed — callers now use `self.models.<field>` directly.)
         from voice_typer.server.model_manager import ModelManager
 
         self.models: ModelManager = ModelManager(self)
-        # AB-30: the eager ``self.models._ensure_engine("qwen")`` call
+        # the eager ``self.models._ensure_engine("qwen")`` call
         # that used to live here was a synchronous multi-second load
         # (qwen model weights off disk) on every cold start when the
         # user had asr_backend='qwen' configured. The background load
@@ -255,7 +255,7 @@ class VoiceTyperApp:
         # was both expensive AND redundant. Removed here; the bg load
         # path covers it.
 
-        # AB-30: ``ClipboardManager`` construction deferred to first
+        # ``ClipboardManager`` construction deferred to first
         # access via the ``clipboard`` @property below. The eager
         # construction was a small but non-trivial cost (import + class
         # init) paid on every cold start even when the user never
@@ -268,7 +268,7 @@ class VoiceTyperApp:
             config=self.config,
         )
 
-        # DE-48: if Config.load() failed earlier, surface a tray
+        # if Config.load() failed earlier, surface a tray
         # notification so the user knows their settings were reset to
         # defaults.  Wrapped in try/except so a tray.backend failure
         # (e.g. notification daemon not ready) doesn't crash init.
@@ -281,7 +281,7 @@ class VoiceTyperApp:
             except Exception:
                 log.debug("[INIT] tray.notify for config load failure failed", exc_info=True)
 
-        # RW-9 Phase 6: settings side-effects (autostart, notifications,
+        #  Phase 6: settings side-effects (autostart, notifications,
         # microphone selection) extracted to SettingsController. The app
         # keeps thin delegate methods (``_toggle_autostart``,
         # ``_set_autostart``, ``_set_notifications``, ``_select_microphone``)
@@ -293,7 +293,7 @@ class VoiceTyperApp:
 
         self.settings: SettingsController = SettingsController(self)
 
-        # RW-9 Phase 7: shutdown / cleanup lifecycle (quit, _do_cleanup,
+        #  Phase 7: shutdown / cleanup lifecycle (quit, _do_cleanup,
         # _atexit_*, signal handlers, Win32 console handler) extracted to
         # ShutdownController. The app keeps thin delegate methods so
         # ``app.start()``'s ``atexit.register`` calls, tray menu callbacks
@@ -306,12 +306,12 @@ class VoiceTyperApp:
         )
 
         self.shutdown: ShutdownController = ShutdownController(self)
-        # GT-43: stash the watchdog timeout on the instance so
+        # stash the watchdog timeout on the instance so
         # restart_app()'s non-main-thread branch can arm the watchdog
         # without re-importing the constant.
         self._shutdown_watchdog_timeout_s: float = SHUTDOWN_WATCHDOG_TIMEOUT_S
 
-        # DT-25 (Phase 4.5 spaghetti split): restart / quit /
+        #  (Phase 4.5 spaghetti split): restart / quit
         # relaunch-ack lifecycle extracted to LifecycleController. The
         # app keeps thin delegate methods (``restart_app``,
         # ``_wait_for_relaunch_ack``, ``quit_app``) so tray menu
@@ -327,7 +327,7 @@ class VoiceTyperApp:
 
         self.lifecycle: LifecycleController = LifecycleController(self)
 
-        # DT-25: undo / repaste side effects extracted to
+        # undo / repaste side effects extracted to
         # UndoRepasteController. The app keeps thin delegate methods
         # (``undo_last``, ``repaste_last``) so tray menu callbacks, the
         # repaste hotkey backend's callback, and tests calling
@@ -343,7 +343,7 @@ class VoiceTyperApp:
         # first access.
         self._undo_backing: Any = None
 
-        # RW-9 Phase 7: audio-quality side-effects extracted to
+        #  Phase 7: audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
         # ``self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)``,
         # ``service.apply_config_side_effects`` (-> _rebuild_audio_processor),
@@ -361,7 +361,7 @@ class VoiceTyperApp:
         # so the first chunk triggers construction.
         self._audio_quality_backing: Any = None
 
-        # S2-CR-24: config-editor controller extracted to a focused
+        # config-editor controller extracted to a focused
         # ``controllers/`` package. It holds a reference to the owning
         # app and exposes a small surface for one concern. The app keeps
         # a thin delegate method (``_open_config_file``) so tray menu
@@ -369,7 +369,7 @@ class VoiceTyperApp:
         # directly keep working unchanged. The extracted class lives in
         # :mod:`voice_typer.server.controllers`.
         #
-        # DR-24: the parallel delegator controllers (``UndoController``
+        # the parallel delegator controllers (``UndoController``
         # and ``RepasteController`` in ``controllers/``) were deleted —
         # they were 1-line wrappers around ``self.undo.undo_last()`` /
         # ``self.undo.repaste_last()`` (the canonical
@@ -384,7 +384,7 @@ class VoiceTyperApp:
 
         # #2 Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
-        # register/restart logic. (ARCH-REFAC-003: the @property
+        # register/restart logic. (: the @property
         # delegates that used to mirror the 3 legacy fields
         # (_hotkey_backend, _esc_backend, _repaste_backend) on
         # VoiceTyperApp have been removed — callers now use
@@ -393,7 +393,7 @@ class VoiceTyperApp:
 
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
         # #2 _streaming_session and _transcription_thread now
-        # live in RecordingController. (ARCH-REFAC-003: the @property
+        # live in RecordingController. (: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
         # removed — callers now use `self.recording.<field>` directly,
         # or `self.recording.get_streaming_session()` /
@@ -402,7 +402,7 @@ class VoiceTyperApp:
         self._busy_event = threading.Event()
         self._busy_event.set()  # SET = not busy
         self._lock = threading.Lock()
-        # RACE-011: serialize Config mutations between concurrent IPC
+        # serialize Config mutations between concurrent IPC
         # set_config handlers (multiple IPC server threads). Without
         # this lock, two simultaneous set_config calls can interleave
         # attribute writes and produce a torn config state — e.g. half
@@ -415,17 +415,37 @@ class VoiceTyperApp:
         # path still requires serialization.
         self._config_mutation_lock = threading.RLock()
 
+        # wire the in-process mutation lock into the
+        # ``Config`` instance so every ``config.save()`` call site
+        # (~15 production callers: settings_controller,
+        # hotkey_dispatcher, model_manager, recorder._persist_mic,
+        # startup_sequence, service.apply_config, onboarding_apply,
+        # etc.) automatically acquires it via
+        # :meth:`Config._save_with_mutation_lock`. Previously
+        # ``set_mutation_lock`` was defined on Config (config.py:1083)
+        # but never called in production, so only the IPC ``set_config``
+        # path that manually acquired the lock was serialized — every
+        # other ``save()`` ran unlocked, allowing a background
+        # mic-fallback save to interleave with an in-flight
+        # ``apply_config`` and persist a torn snapshot. The lock is an
+        # ``RLock`` so nested acquisition from the same thread (e.g.
+        # ``apply_config`` calls ``save()`` which itself re-enters) is
+        # safe. MUST run AFTER both ``self.config`` (set at line ~137)
+        # and ``self._config_mutation_lock`` (set just above) exist —
+        # order matters, the lock has to be created before it is shared.
+        self.config.set_mutation_lock(self._config_mutation_lock)
+
         # #2 _model_load_attempted / _model_load_thread /
-        # _pending_dictation now live in ModelManager. (ARCH-REFAC-003:
+        # _pending_dictation now live in ModelManager. (:
         # the @property delegates that used to mirror them on
         # VoiceTyperApp have been removed — callers now use
         # `self.models.<field>` directly.)
         self._shutting_down = False  # True once quit() starts
-        # RACE-020: threading.Event version of _shutting_down so executor
+        # threading.Event version of _shutting_down so executor
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
         self._shutting_down_event = threading.Event()
-        # PYREFLY-TASK-16: counter incremented by startup_sequence.py
+        # PYREFLY- counter incremented by startup_sequence.py
         # when the onboarding check persistently fails (see
         # startup_sequence.py:140-149). Declared here so pyrefly
         # recognizes it as a class attribute rather than an ad-hoc
@@ -433,7 +453,7 @@ class VoiceTyperApp:
         # uses getattr-with-default as a defensive read but always
         # assigns before incrementing.
         self._onboarding_fail_count: int = 0
-        # RW-3: idempotency guard for _do_cleanup(). Set to True once
+        # idempotency guard for _do_cleanup(). Set to True once
         # the shared cleanup body has run, so a second call (e.g. from
         # _atexit_cleanup after quit() already ran) is a no-op. This
         # is the safety that lets quit(), restart_app(), and
@@ -446,13 +466,13 @@ class VoiceTyperApp:
         # failed).  Tracked here so quit() can terminate the subprocess
         # explicitly during shutdown.
         self._electron_pid: int | None = None
-        # ESC-FIX-001: flag gating the global ESC cancel hotkey.  Set to
+        # ESC- flag gating the global ESC cancel hotkey.  Set to
         # True by the ""set_esc_cancel_paused"" IPC handler when the
         # frontend HotkeyPicker enters capture mode, so the backend's
         # ESC polling callback doesn't fire while the user is assigning
         # a custom hotkey in the Settings UI.
         self._esc_cancel_paused: bool = False
-        # RW-9 Phase 7: timer lifecycle extracted to TimerCoordinator.
+        #  Phase 7: timer lifecycle extracted to TimerCoordinator.
         # The three state attributes (_pending_timers / _pending_timers_lock
         # / _timer_generation) now live on TimerCoordinator; VoiceTyperApp
         # keeps thin delegate methods (_schedule_timer / _cancel_pending_timers)
@@ -491,7 +511,7 @@ class VoiceTyperApp:
         # on first access (e.g. when ``VolumeController._duck_volume``
         # runs at the start of the first dictation).
         self._duck_crash_recovery_backing: Any = None
-        # RW-9 Phase 7: VolumeController owns duck/restore side effects.
+        #  Phase 7: VolumeController owns duck/restore side effects.
         # Kept eager because it's just a back-reference holder
         # (``self._app = app``) and the ``_on_volume_crash_restore``
         # callback wired into ``VolumeDucker`` delegates to it —
@@ -505,7 +525,7 @@ class VoiceTyperApp:
         # __init__ (next to AudioProcessor) and wired to the processor's
         # per-chunk quality callback.  See self._audio_quality /
         # self._on_audio_quality_chunk / _finalize_audio_quality_report.
-        # AB-30: ``WaveformBubble`` and ``WaveformBubbleWiring``
+        # ``WaveformBubble`` and ``WaveformBubbleWiring``
         # construction deferred to first access via the
         # ``_waveform_bubble`` / ``waveform_wiring`` @properties below.
         # The eager construction + immediate ``_wire_waveform_bubble()``
@@ -522,7 +542,7 @@ class VoiceTyperApp:
         self._waveform_bubble_backing: Any = None
         self._waveform_wiring_backing: Any = None
         self._last_transcription: str = ""  # For repaste
-        # TASK-14: declare ``_ipc_server`` upfront so VoiceTyperApp
+        # declare ``_ipc_server`` upfront so VoiceTyperApp
         # satisfies the ``AppProtocol`` structural type checked by
         # ``providers.build_ipc_server``.  The attribute is set later
         # by ``IPCServer.start()`` (``self.app._ipc_server = self``);
@@ -537,7 +557,7 @@ class VoiceTyperApp:
         # ms on a slow disk), even when the user never uses templates /
         # vocabulary.
         #
-        # The properties AUTO-CONSTRUCT on first access (APP-8: failure
+        # The properties AUTO-CONSTRUCT on first access (: failure
         # is logged at WARNING with ``exc_info=True`` and the backing is
         # left ``None`` to retry on next access). The ``is None``
         # fallback paths in ``service/template.py`` and
@@ -559,13 +579,13 @@ class VoiceTyperApp:
     #
     # Construction failures (e.g. a corrupt ``templates.json``) are
     # logged at WARNING level with ``exc_info=True`` (mirrors the
-    # pre-AB-30 eager-init failure-logging contract) and the backing
+    # pre- eager-init failure-logging contract) and the backing
     # is left as ``None`` so the next access retries (mirrors the
     # dictation_pipeline.py lazy-fallback retry semantics).
 
     @property
     def _template_manager(self):
-        # APP-8: auto-construct on first access; construction failure is
+        # auto-construct on first access; construction failure is
         # logged at WARNING with exc_info=True and the backing is left
         # as None (retry on next access). The service/template.py and
         # dictation_pipeline.py ``is None`` fallbacks therefore still
@@ -588,7 +608,7 @@ class VoiceTyperApp:
 
     @property
     def _vocabulary_manager(self):
-        # APP-8: auto-construct on first access; construction failure is
+        # auto-construct on first access; construction failure is
         # logged at WARNING with exc_info=True and the backing is left
         # as None (retry on next access). The dictation_pipeline.py
         # ``is None`` fallback therefore still sees a cached instance on
@@ -736,20 +756,20 @@ class VoiceTyperApp:
     # ─── Volume Ducking ────────────────────────────────────────────────
 
     def _on_volume_crash_restore(self, state) -> None:
-        """RW-9 Phase 7: delegate to VolumeController."""
+        """Phase 7: delegate to VolumeController."""
         self.volume._on_volume_crash_restore(state)
 
     def _duck_volume(self) -> None:
-        """RW-9 Phase 7: delegate to VolumeController."""
+        """Phase 7: delegate to VolumeController."""
         self.volume._duck_volume()
 
     def _restore_volume(self, fade_ms: int | None = None) -> None:
-        """RW-9 Phase 7: delegate to VolumeController."""
+        """Phase 7: delegate to VolumeController."""
         self.volume._restore_volume(fade_ms=fade_ms)
 
     # ─── #2 ASR backend delegates to ModelManager ───────────
     #
-    # ARCH-REFAC-003: removed @property delegates (transcriber,
+    # removed @property delegates (transcriber,
     # _qwen_engine, _parakeet_engine, _asr_registry, _model_load_thread,
     # _model_load_attempted, _pending_dictation) — callers now use
     # ``self.models.<field>`` directly (e.g. ``self.models.transcriber``,
@@ -757,33 +777,33 @@ class VoiceTyperApp:
     #
     # The actual logic lives in voice_typer/server/model_manager.py.
 
-    # ARCH-REFAC-003: removed @property delegates (_transcription_thread,
+    # removed @property delegates (_transcription_thread,
     # _streaming_session) — callers now use self.recording._transcription_thread
     # and self.recording._streaming_session (or the get/set_streaming_session
     # methods) directly.
 
-    # ARCH-REFAC-003: removed @property delegates (_hotkey_backend,
+    # removed @property delegates (_hotkey_backend,
     # _esc_backend, _repaste_backend) — callers now use
     # self.hotkeys._hotkey_backend / self.hotkeys._esc_backend /
     # self.hotkeys._repaste_backend directly.
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
-    # RW-9 Phase 7: logic moved to TimerCoordinator. VoiceTyperApp keeps
+    #  Phase 7: logic moved to TimerCoordinator. VoiceTyperApp keeps
     # thin delegates so existing callers (and tests that monkeypatch
     # app._schedule_timer / app._cancel_pending_timers) keep working.
 
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
-        """RW-9 Phase 7: delegate to TimerCoordinator."""
+        """Phase 7: delegate to TimerCoordinator."""
         return self.timers._schedule_timer(delay, func)
 
     def _cancel_pending_timers(self):
-        """RW-9 Phase 7: delegate to TimerCoordinator."""
+        """Phase 7: delegate to TimerCoordinator."""
         return self.timers._cancel_pending_timers()
 
     # ─── Waveform Bubble (IPC push) ───────────────────────────────────
 
     def _wire_waveform_bubble(self) -> None:
-        """RW-9 Phase 7: delegate to WaveformBubbleWiring.
+        """Phase 7: delegate to WaveformBubbleWiring.
 
         The bubble itself is a frameless, always-on-top ``BrowserWindow``
         owned by the Electron main process.  We just emit push events;
@@ -797,7 +817,7 @@ class VoiceTyperApp:
     # ─── Startup ───────────────────────────────────────────────────────
 
     def _preload_vad_model(self) -> None:
-        """DJ-57: spawn a background thread to eagerly load + warm the
+        """spawn a background thread to eagerly load + warm the
         Silero VAD model so the first recording's first audio chunk
         does not stall on ``torch.jit.load`` (~150-600ms cold load).
 
@@ -832,7 +852,7 @@ class VoiceTyperApp:
         # Queue "Loading" state before the event loop starts
         self.tray.set_state(AppState.LOADING, "Starting...")
 
-        # AB-30: wire the waveform bubble now (on the main thread, before
+        # wire the waveform bubble now (on the main thread, before
         # the bg ``_do_startup`` thread runs). The wiring used to happen
         # eagerly in ``__init__``; the lazy ``_waveform_bubble`` /
         # ``waveform_wiring`` properties defer the actual construction
@@ -850,13 +870,13 @@ class VoiceTyperApp:
         # On Windows: install a console control handler
         self._install_win32_console_handler()
 
-        # PROD-003: POSIX signal handlers for graceful shutdown
+        # POSIX signal handlers for graceful shutdown
         self._install_signal_handlers()
 
         # Register atexit handler to log any unexpected process exit
         atexit.register(self._atexit_log)
 
-        # RACE-016: Register atexit handlers for critical cleanup paths
+        # Register atexit handlers for critical cleanup paths
         # instead of relying solely on daemon thread finally blocks.
         # Daemon threads can be killed at any time by the interpreter
         # without running their finally blocks, so cleanup that MUST
@@ -871,7 +891,7 @@ class VoiceTyperApp:
     def _do_startup(self) -> None:
         """Background work: sync autostart, load mics, load model, register hotkey.
 
-        RW-9 Phase 5: the body of this method (~340 lines) was extracted
+         Phase 5: the body of this method (~340 lines) was extracted
         into :class:`voice_typer.server.startup_sequence.StartupSequence`
         to reduce the god-class size of ``VoiceTyperApp``.  The phase
         ordering, RACE-020 shutdown gates, parallel executor semantics,
@@ -901,17 +921,17 @@ class VoiceTyperApp:
         self.recording.start()
 
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
-        """RW-9 Phase 7: delegate to AudioQualityController."""
+        """Phase 7: delegate to AudioQualityController."""
         return self.audio_quality._on_audio_quality_chunk(rms, peak)
 
     def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
-        """RW-9 Phase 7: delegate to AudioQualityController."""
+        """Phase 7: delegate to AudioQualityController."""
         return self.audio_quality._rebuild_audio_processor(force_sr=force_sr)
 
     def _finalize_audio_quality_report(self, audio: Any) -> None:
-        """RW-9 Phase 7: delegate to AudioQualityController.
+        """Phase 7: delegate to AudioQualityController.
 
-        AB-29: parameter annotated as ``Any`` (not ``np.ndarray``) so the
+        parameter annotated as ``Any`` (not ``np.ndarray``) so the
         annotation does NOT depend on ``from __future__ import annotations``
         staying in place.
         """
@@ -920,7 +940,7 @@ class VoiceTyperApp:
     def _stop_dictation(self):
         """Stop recording and transcribe in background.
 
-        SOUND-FIX-005 (Round 0): this method is now a thin delegate to
+        SOUND- (Round 0): this method is now a thin delegate to
         ``RecordingController.stop()``. Previously it was a 125-line
         duplicate of ``RecordingController.stop()`` that was missing
         three critical side effects:
@@ -953,7 +973,7 @@ class VoiceTyperApp:
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
-        DR-24: delegates directly to the canonical ``UndoRepasteController``
+        delegates directly to the canonical ``UndoRepasteController``
         (``self.undo``) — the thin ``RepasteController`` wrapper in
         ``controllers/`` was deleted as a parallel-system delegator.
         Behaviour preserved verbatim — only the call chain shortened.
@@ -961,9 +981,9 @@ class VoiceTyperApp:
         return self.undo.repaste_last()
 
     def undo_last(self) -> None:
-        """UX-003: Undo last transcription by sending backspace keystrokes.
+        """Undo last transcription by sending backspace keystrokes.
 
-        DR-24: delegates directly to the canonical ``UndoRepasteController``
+        delegates directly to the canonical ``UndoRepasteController``
         (``self.undo``) — the thin ``UndoController`` wrapper in
         ``controllers/`` was deleted as a parallel-system delegator.
         Behaviour preserved verbatim — only the call chain shortened.
@@ -973,7 +993,7 @@ class VoiceTyperApp:
     def push_bubble_config(self, config: Any) -> None:
         """Push a config-changed event to the waveform bubble renderer.
 
-        DR-51 (S5-CR-26): replaces the private ``getattr(self,
+         (): replaces the private ``getattr(self,
         "_waveform_bubble", None)`` access that lived inline in
         :mod:`voice_typer.server.handlers.config_handlers`'s
         ``apply_config`` side-effect path. The handler now calls this
@@ -996,7 +1016,7 @@ class VoiceTyperApp:
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
 
-        ESC-FIX-001: while the frontend HotkeyPicker is in hotkey capture
+        ESC- while the frontend HotkeyPicker is in hotkey capture
         mode, the ESC cancel is a no-op — the frontend owns the Escape key
         while capturing.
 
@@ -1026,7 +1046,7 @@ class VoiceTyperApp:
     def _set_autostart(self, enabled: bool):
         """Set autostart from the advanced settings window or tray toggle.
 
-        RW-9 Phase 6: body extracted to
+         Phase 6: body extracted to
         :meth:`voice_typer.server.settings_controller.SettingsController.set_autostart`.
         Behaviour preserved verbatim — only the class boundary moved.
         """
@@ -1035,7 +1055,7 @@ class VoiceTyperApp:
     def _set_notifications(self, enabled: bool):
         """Set notification behavior from the settings window.
 
-        RW-9 Phase 6: body extracted to
+         Phase 6: body extracted to
         :meth:`voice_typer.server.settings_controller.SettingsController.set_notifications`.
         """
         self.settings.set_notifications(enabled)
@@ -1043,7 +1063,7 @@ class VoiceTyperApp:
     def _select_microphone(self, mic_name: str | None):
         """Handle microphone selection from tray menu.
 
-        RW-9 Phase 6: body extracted to
+         Phase 6: body extracted to
         :meth:`voice_typer.server.settings_controller.SettingsController.select_microphone`.
         """
         self.settings.select_microphone(mic_name)
@@ -1051,7 +1071,7 @@ class VoiceTyperApp:
     def _open_config_file(self):
         """Open the config file in the user's default editor.
 
-        S2-CR-24: body extracted to
+        body extracted to
         :class:`voice_typer.server.controllers.config_editor_launcher.ConfigEditorLauncher`.
         Behaviour preserved verbatim — only the class boundary moved.
         """
@@ -1065,13 +1085,13 @@ class VoiceTyperApp:
 
     @property
     def active_microphone_id(self) -> str | None:
-        """AC-53: TrayController protocol — return the currently selected
+        """TrayController protocol — return the currently selected
         microphone ID from ``config.microphone`` (None = system default)."""
         mic = getattr(self.config, "microphone", None)
         return str(mic) if mic else None
 
     def refresh_microphones(self) -> None:
-        """AC-53: TrayController protocol — re-enumerate microphones
+        """TrayController protocol — re-enumerate microphones
         and refresh the tray menu by delegating to startup_tasks."""
         from voice_typer.server import startup_tasks
 
@@ -1083,14 +1103,14 @@ class VoiceTyperApp:
     def change_model(self, model_size: str) -> None:
         """TrayController protocol: change transcription model.
 
-        RW-6 (pyrefly): parameter renamed from ``model`` to
+         (pyrefly): parameter renamed from ``model`` to
         ``model_size`` to match :class:`voice_typer.server.providers.AppProtocol`'s
         ``change_model(self, model_size: str)`` signature. Pyrefly
         enforces parameter-name matching for Protocol members (a call
         like ``app.change_model(model_size="large")`` must be valid on
         any AppProtocol implementation), so the names must agree.
 
-        RW-9 Phase 2: the ``_change_model`` delegate has been removed;
+         Phase 2: the ``_change_model`` delegate has been removed;
         this method now calls ``self.models.change_model`` directly.
         """
         self.models.change_model(model_size)
@@ -1098,17 +1118,17 @@ class VoiceTyperApp:
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
 
-        DT-25 (Phase 4.5): body extracted to
+         (Phase 4.5): body extracted to
         :meth:`voice_typer.server.app_lifecycle.LifecycleController.quit_app`.
         Behaviour preserved verbatim — only the class boundary moved.
 
         Preserved invariants (now in the controller):
         - RELIABILITY-001: cleanup runs via ``self.quit()`` (the
           audited ``SystemExit`` path) — never ``os._exit(0)``.
-        - APP-10 / DE-49: ``event_bus.publish({"type": "quit_app"})``
+        - ``event_bus.publish({"type": "quit_app"})``
           runs BEFORE the ``if self._shutting_down:`` re-entry guard
           so a double-quit still pushes the event. (Historically the
-          guard was the plain ``if self._shutting_down:`` form; DE-49
+          guard was the plain ``if self._shutting_down:`` form;
           migrated to the threading.Event version
           ``if self._shutting_down_event.is_set():`` for cross-thread
           memory ordering.)
@@ -1118,24 +1138,24 @@ class VoiceTyperApp:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        DT-25 (Phase 4.5): body extracted to
+         (Phase 4.5): body extracted to
         :meth:`voice_typer.server.app_lifecycle.LifecycleController.restart_app`.
 
         Preserved invariants (now in the controller):
-        - APP-2: ``log.info("[RESTART] Restarting %s...", APP_NAME)``.
-        - DE-47: ``try:`` wraps ``self.config.save()`` so an unexpected
+        - ``log.info("[RESTART] Restarting %s...", APP_NAME)``.
+        - ``try:`` wraps ``self.config.save()`` so an unexpected
           raise (e.g. RecursionError from a cyclic dataclass) does not
           abort the restart — the ``except Exception:`` block logs
           ``log.warning("config.save() raised", exc_info=True)``.
-        - APP-11: the redundant ``_restore_volume(fade_ms=0)`` call
+        - the redundant ``_restore_volume(fade_ms=0)`` call
           was removed — ``_do_cleanup`` (now reached via
           ``self.lifecycle.restart_app`` -> ``self._do_cleanup``) handles
           the restore via the shared ShutdownController body.
-        - RW-3 / HIGH-36 / GT-43: ``self._thread_registry.shutdown_all()``
+        - ``self._thread_registry.shutdown_all()``
           -> ``self._do_cleanup()`` -> main-thread ``sys.exit(0)`` (or
-          non-main-thread GT-43 watchdog fallback).
+          non-main-thread  watchdog fallback).
         """
-        # APP-1 / DE-49: re-entry guard (must be the first executable
+        #  re-entry guard (must be the first executable
         # statement — see
         # tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method).
         # The rest of the body lives in LifecycleController.restart_app;
@@ -1147,7 +1167,7 @@ class VoiceTyperApp:
         return self.lifecycle.restart_app()
 
     def _wait_for_relaunch_ack(self, timeout: float) -> bool:
-        """DT-25 (Phase 4.5): delegate to LifecycleController.
+        """(Phase 4.5): delegate to LifecycleController.
 
         Body extracted to
         :meth:`voice_typer.server.app_lifecycle.LifecycleController._wait_for_relaunch_ack`.
@@ -1155,7 +1175,7 @@ class VoiceTyperApp:
         """
         return self.lifecycle._wait_for_relaunch_ack(timeout)
 
-    # DEAD-008: the following 6 TrayController protocol methods were
+    # the following 6 TrayController protocol methods were
     # removed because no IPC route, tray menu item, or UI invoked them:
     #   - toggle_autostart (use _toggle_autostart directly)
     #   - create_desktop_shortcut
@@ -1168,7 +1188,7 @@ class VoiceTyperApp:
     # ─── Shutdown ──────────────────────────────────────────────────────
 
     def _do_cleanup(self) -> None:
-        """RW-9 Phase 7: delegate to ShutdownController.
+        """Phase 7: delegate to ShutdownController.
 
         The shared, idempotent cleanup body lives in
         ``shutdown_controller.py``. The delegate indirection lets
@@ -1181,27 +1201,27 @@ class VoiceTyperApp:
         return self.shutdown._do_cleanup()
 
     def quit(self):
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown.quit()
 
     def _atexit_log(self) -> None:
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown._atexit_log()
 
     def _atexit_cleanup(self) -> None:
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown._atexit_cleanup()
 
     def _install_signal_handlers(self):
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown._install_signal_handlers()
 
     def _install_win32_console_handler(self):
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown._install_win32_console_handler()
 
     def _win32_console_handler(self, ctrl_type):
-        """RW-9 Phase 7: delegate to ShutdownController."""
+        """Phase 7: delegate to ShutdownController."""
         return self.shutdown._win32_console_handler(ctrl_type)
 
 
@@ -1212,10 +1232,10 @@ class VoiceTyperApp:
 # `_read_stale_backend_pid` / `_backend_pid_file` keep working (test_app.py,
 # test_app_cleanup.py, test_electron_launcher.py, test_feature_hardening_regressions.py,
 # test_waveform_bubble.py). Source-level tests that inspect app.py for the
-# mutex name "Local\\VoiceTyperSingleInstance" (PLAT-040 / SEC-001) and
+# mutex name "Local\\VoiceTyperSingleInstance" ( / SEC-001) and
 # _create_restrictive_security_attributes continue to see those symbols here
 # via the import below + the comment in this block.
-# DEAD-013: _another_voice_typer_alive() was deleted; the Win32 named
+# _another_voice_typer_alive() was deleted; the Win32 named
 # mutex (VoiceTyperSingleInstance) already proves a duplicate exists when
 # error_already_exists is returned — the scan had zero decision power.
 from voice_typer.server.single_instance import (  # noqa: E402,F401
@@ -1232,12 +1252,12 @@ from voice_typer.server.single_instance import (  # noqa: E402,F401
 def main() -> None:
     """Entry point for the ``voice-typer`` console script (pyproject).
 
-    ERR-IPC-001 (fix): the ``VoiceTyperApp.main()`` line was accidentally deleted
+     (fix): the ``VoiceTyperApp.main()`` line was accidentally deleted
     in a prior refactor. pyproject.toml now points to
     ``voice_typer.server.ipc_server:main`` as the canonical entry point;
     this function is kept as a thin re-export for backward compat.
     """
-    # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
+    # Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
     try:
         import faulthandler
@@ -1248,7 +1268,7 @@ def main() -> None:
 
     from voice_typer.server.ipc_server import main as ipc_main
 
-    # DE-50: wrap in try/except so a backend crash logs at ERROR with
+    # wrap in try/except so a backend crash logs at ERROR with
     # the full traceback and the process exits with code 1 (rather than
     # propagating to the console-script wrapper with no structured log).
     try:
@@ -1266,7 +1286,7 @@ def main() -> None:
 # _systemroot_notepad_path keep working unchanged (test_api_doc_accuracy.py,
 # test_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
 # is intentionally NOT used — _systemroot_notepad_path validates the path
-# via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / XPLAT-01).
+# via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / ).
 from voice_typer.server.platform_launch import (  # noqa: E402,F401
     _systemroot_notepad_path,
     _windows_close_process_handle,

@@ -1,6 +1,6 @@
 """Volume-backend factory.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Contains the
 single :func:`get_volume_backend` factory that selects the appropriate
 :class:`voice_typer.server.volume_backend_base.VolumeBackend` for the
@@ -46,26 +46,26 @@ log = logging.getLogger(__name__)
 def get_volume_backend() -> VolumeBackend | None:
     """Return the appropriate :class:`VolumeBackend` for this platform.
 
-    Returns ``None`` if the platform is not supported (no backend class
-    exists).  The returned backend is **not yet initialised** — the
-    caller must call ``initialize()`` to verify that native libraries
-    are available.
+        Returns ``None`` if the platform is not supported (no backend class
+        exists).  The returned backend is **not yet initialised** — the
+        caller must call ``initialize()`` to verify that native libraries
+        are available.
 
-    RW-6 (pyrefly): return type tightened from ``Optional[object]`` to
-    ``Optional[VolumeBackend]``. All three concrete backends
-    (``WinVolumeBackend``, ``MacVolumeBackend``, ``LinuxVolumeBackend``)
-    inherit from :class:`voice_typer.server.volume_backend_base.VolumeBackend`,
-    so the looser ``object`` annotation was both inaccurate and the
-    root cause of the ``bad-assignment`` downstream in
-    :mod:`voice_typer.server.volume_ducker` (``self._backend`` is typed
-    ``VolumeBackend | None``). ``VolumeBackend`` is imported under
-    ``TYPE_CHECKING`` to avoid a circular import at runtime — the
-    concrete backend classes already import it themselves.
+    (pyrefly): return type tightened from ``Optional[object]`` to
+        ``Optional[VolumeBackend]``. All three concrete backends
+        (``WinVolumeBackend``, ``MacVolumeBackend``, ``LinuxVolumeBackend``)
+        inherit from :class:`voice_typer.server.volume_backend_base.VolumeBackend`,
+        so the looser ``object`` annotation was both inaccurate and the
+        root cause of the ``bad-assignment`` downstream in
+        :mod:`voice_typer.server.volume_ducker` (``self._backend`` is typed
+        ``VolumeBackend | None``). ``VolumeBackend`` is imported under
+        ``TYPE_CHECKING`` to avoid a circular import at runtime — the
+        concrete backend classes already import it themselves.
 
-    Selection:
-      - ``win32``  → :class:`WinVolumeBackend` (pycaw)
-      - ``darwin`` → :class:`MacVolumeBackend` (CoreAudio / osascript)
-      - ``linux``  → :class:`LinuxVolumeBackend` (pactl → wpctl → amixer)
+        Selection:
+          - ``win32``  → :class:`WinVolumeBackend` (pycaw)
+          - ``darwin`` → :class:`MacVolumeBackend` (CoreAudio / osascript)
+          - ``linux``  → :class:`LinuxVolumeBackend` (pactl → wpctl → amixer)
     """
     try:
         if _pkg.SYSTEM == "win32":

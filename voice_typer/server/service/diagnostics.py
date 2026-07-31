@@ -1,10 +1,10 @@
 """Diagnostics domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(DT-26 / Phase 4.5 spaghetti split). Owns the support-bundle export
+( / Phase 4.5 spaghetti split). Owns the support-bundle export
 that doesn't belong to a single domain mixin:
 
-* :meth:`DiagnosticsMixin.export_diagnostics` — PROD-010 diagnostic
+* :meth:`DiagnosticsMixin.export_diagnostics` —  diagnostic
   bundle (redacted PII, suitable for attaching to a support ticket).
 
 This is intentionally a SEPARATE mixin from :class:`PrivacyMixin`
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 
 class DiagnosticsMixin(ServiceMixinBase):
-    """Support-bundle export (PROD-010).
+    """Support-bundle export ().
 
     Wraps :class:`CrashRecovery.create_diagnostic_bundle` and
     redacts any exception text via :func:`redact_secret` /
@@ -39,17 +39,17 @@ class DiagnosticsMixin(ServiceMixinBase):
     key or endpoint URL.
     """
 
-    # ── PROD-010: Export diagnostics ─────────────────────────────────
+    # Export diagnostics ─────────────────────────────────
 
     def export_diagnostics(self) -> dict:
-        """PROD-010: Create a diagnostic bundle for support.
+        """Create a diagnostic bundle for support.
 
-        Delegates to :func:`voice_typer.server.diagnostics_export.create_diagnostic_bundle`
-        (DR-27 — the bundle-building body was extracted out of
-        :class:`CrashRecovery` so that module can focus on its core
-        recovery-entry storage concern). Returns
-        ``{"success": bool, "path": str}`` on success or
-        ``{"success": False, "message": str}`` on failure.
+                Delegates to :func:`voice_typer.server.diagnostics_export.create_diagnostic_bundle`
+        ( — the bundle-building body was extracted out of
+                :class:`CrashRecovery` so that module can focus on its core
+                recovery-entry storage concern). Returns
+                ``{"success": bool, "path": str}`` on success or
+                ``{"success": False, "message": str}`` on failure.
         """
         try:
             # Use ``getattr`` instead of direct attribute access so the
@@ -64,7 +64,7 @@ class DiagnosticsMixin(ServiceMixinBase):
                 from voice_typer.server.crash_recovery import CrashRecovery
 
                 recovery = CrashRecovery()
-            # DR-27: call the diagnostics_export module directly instead
+            # call the diagnostics_export module directly instead
             # of going through the ``CrashRecovery.create_diagnostic_bundle``
             # delegate. Same observable behavior — the delegate on
             # ``CrashRecovery`` is preserved for back-compat with other

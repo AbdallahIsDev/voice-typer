@@ -1,6 +1,6 @@
 """Retention sweep + periodic scheduling helpers.
 
-Extracted from the once-monolithic ``history_db.py`` (DT-23 split). The
+Extracted from the once-monolithic ``history_db.py`` ( split). The
 functions in this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
 instead of ``self`` — they read/write the instance's attributes (the
@@ -39,7 +39,7 @@ _RETENTION_BATCH = 100
 
 
 class RetentionResult(int):
-    """XE-9-E: an int subclass exposing the FTS5 rebuild status.
+    """an int subclass exposing the FTS5 rebuild status.
 
     The value IS the deleted-row count (so existing callers that do
     ``deleted = apply_retention(...)`` / ``assert deleted == 20`` /
@@ -111,53 +111,53 @@ def apply_retention(
 ) -> RetentionResult:
     """Apply retention policy: delete old entries.
 
-    Returns a :class:`RetentionResult` (an ``int`` subclass) whose value
-    is the number of deleted entries and whose ``fts5_rebuild_ok``
-    attribute / ``["fts5_rebuild_ok"]`` item reports whether the
-    post-sweep FTS5 ``'rebuild'`` command succeeded.
+        Returns a :class:`RetentionResult` (an ``int`` subclass) whose value
+        is the number of deleted entries and whose ``fts5_rebuild_ok``
+        attribute / ``["fts5_rebuild_ok"]`` item reports whether the
+        post-sweep FTS5 ``'rebuild'`` command succeeded.
 
-    XE-9-B: the cutoff is computed in **UTC** (matching
-    ``CURRENT_TIMESTAMP`` semantics) and formatted as
-    ``'%Y-%m-%d %H:%M:%S'`` so the lexicographic string comparison
-    against ``transcriptions.timestamp`` matches the format used by
-    SQLite's own timestamp functions. The previous code used naive
-    ``datetime.now()`` (local time) + ``.isoformat()`` which produced
-    a timezone-offset-suffixed string — on a machine whose local TZ
-    is ahead of UTC, rows up to ``TZ_offset_hours`` newer than the
-    true cutoff were incorrectly deleted.
+    the cutoff is computed in **UTC** (matching
+        ``CURRENT_TIMESTAMP`` semantics) and formatted as
+        ``'%Y-%m-%d %H:%M:%S'`` so the lexicographic string comparison
+        against ``transcriptions.timestamp`` matches the format used by
+        SQLite's own timestamp functions. The previous code used naive
+        ``datetime.now()`` (local time) + ``.isoformat()`` which produced
+        a timezone-offset-suffixed string — on a machine whose local TZ
+        is ahead of UTC, rows up to ``TZ_offset_hours`` newer than the
+        true cutoff were incorrectly deleted.
 
-    DEAD-012: retention_count is wired as a fallback for max_entries.
-    If max_entries is not set but retention_count is, use it.
+    retention_count is wired as a fallback for max_entries.
+        If max_entries is not set but retention_count is, use it.
 
-    IMPL-A: runs inside the writer thread. Chunked deletes (100
-    rows per batch, commit per batch) prevent the WAL from growing
-    unboundedly and let external readers see progress.
+        IMPL-A: runs inside the writer thread. Chunked deletes (100
+        rows per batch, commit per batch) prevent the WAL from growing
+        unboundedly and let external readers see progress.
 
-    G4-M-05: after the retention sweep, ``VACUUM`` runs only if
-    more than 20% of rows were deleted — this avoids the VACUUM
-    cost (which requires exclusive access and briefly blocks
-    readers) for small sweeps while still reclaiming space after
-    large purges.
+    after the retention sweep, ``VACUUM`` runs only if
+        more than 20% of rows were deleted — this avoids the VACUUM
+        cost (which requires exclusive access and briefly blocks
+        readers) for small sweeps while still reclaiming space after
+        large purges.
 
-    XE-9-E: if the FTS5 ``'rebuild'`` command fails after a sweep,
-    the failure is no longer silent — it is logged at ``ERROR``
-    level (the privacy guarantee is broken, not merely suboptimal),
-    ``db._fts5_rebuild_failures`` is incremented (observable in
-    diagnostics), and an ``event_bus`` event
-    ``{"type": "history_fts5_rebuild_failed"}`` is published so the
-    renderer can surface a toast. The returned ``RetentionResult``
-    carries ``fts5_rebuild_ok=False`` so programmatic callers can
-    detect the privacy failure and retry / surface their own UI.
+    if the FTS5 ``'rebuild'`` command fails after a sweep,
+        the failure is no longer silent — it is logged at ``ERROR``
+        level (the privacy guarantee is broken, not merely suboptimal),
+        ``db._fts5_rebuild_failures`` is incremented (observable in
+        diagnostics), and an ``event_bus`` event
+        ``{"type": "history_fts5_rebuild_failed"}`` is published so the
+        renderer can surface a toast. The returned ``RetentionResult``
+        carries ``fts5_rebuild_ok=False`` so programmatic callers can
+        detect the privacy failure and retry / surface their own UI.
     """
     # Local import to avoid a module-load circular dependency:
     # history_db.py imports from history_db_internals at module load
     # time, so we defer the HistoryDBError import until first call.
     from voice_typer.server.history_db import HistoryDBError
 
-    # DEAD-012: wire retention_count as fallback for max_entries
+    # wire retention_count as fallback for max_entries
     effective_max = max_entries or retention_count
     deleted = 0
-    # XE-9-E: tracks whether the FTS5 'rebuild' step succeeded. The
+    # tracks whether the FTS5 'rebuild' step succeeded. The
     # flag is updated inside the writer-thread closure via ``nonlocal``
     # and surfaced on the returned ``RetentionResult``. Defaults to
     # True (no rebuild attempted == no privacy failure).
@@ -168,14 +168,14 @@ def apply_retention(
             nonlocal deleted, fts5_rebuild_ok
             cursor = conn.cursor()
 
-            # G4-M-05: capture initial count to decide whether
+            # capture initial count to decide whether
             # to VACUUM. Computed before any deletes so the
             # ratio reflects the true scope of the sweep.
             cursor.execute("SELECT COUNT(*) FROM transcriptions")
             initial_count = cursor.fetchone()[0]
 
             if retention_days > 0:
-                # XE-9-B: compute the cutoff in UTC and format as
+                # compute the cutoff in UTC and format as
                 # ``'%Y-%m-%d %H:%M:%S'`` to exactly match the format
                 # SQLite uses for ``CURRENT_TIMESTAMP``. The previous
                 # code used naive ``datetime.now()`` (local time) and
@@ -241,7 +241,7 @@ def apply_retention(
             # DELETE with 0 rows still auto-opened a transaction).
             conn.commit()
 
-            # G4-M-05: VACUUM only if >20% of rows were deleted.
+            # VACUUM only if >20% of rows were deleted.
             # This avoids the VACUUM cost for small sweeps (e.g.
             # daily retention that deletes a handful of rows)
             # while still reclaiming space after large purges.
@@ -261,7 +261,7 @@ def apply_retention(
                             "[HISTORY_DB] VACUUM after retention failed: %s",
                             e,
                         )
-                    # FR-27: rebuild FTS5 segments after a bulk retention
+                    # rebuild FTS5 segments after a bulk retention
                     # delete. The DELETE trigger
                     # ``transcriptions_ad_fts`` only marks rowids as
                     # deleted in the FTS5 delete-bitmap; the segment data
@@ -271,7 +271,7 @@ def apply_retention(
                     # tables). After a large retention sweep, dictated
                     # text remained recoverable from
                     # ``transcriptions_fts_data`` via forensic tools —
-                    # defeating G4-M-05 / GDPR Art. 17. The
+                    # defeating  / GDPR Art. 17. The
                     # ``'rebuild'`` command drops all segments and
                     # rebuilds them from the (now-reduced) content
                     # table, so deleted dictated text is no longer
@@ -282,7 +282,7 @@ def apply_retention(
                     # has nothing to rebuild and would just churn the
                     # FTS index).
                     #
-                    # AB-25: the rebuild is gated by the SAME ``ratio > 0.20``
+                    # the rebuild is gated by the SAME ``ratio > 0.20``
                     # threshold as VACUUM. Below that threshold, the FTS5
                     # delete-bitmap trigger already hides deleted rows
                     # from MATCH results — the only thing ``'rebuild'``
@@ -292,7 +292,7 @@ def apply_retention(
                     # 10-minute periodic-retention tick would otherwise
                     # burn O(N) on every tick for ~1-row deletes).
                     # Above the threshold, the rebuild MUST fire to
-                    # preserve the FR-27 privacy guarantee (deleted
+                    # preserve the  privacy guarantee (deleted
                     # dictated text must not remain recoverable from
                     # ``transcriptions_fts_data`` via forensic tools
                     # after a large purge).
@@ -305,8 +305,8 @@ def apply_retention(
                             ratio * 100,
                         )
                     except sqlite3.Error as e:
-                        # XE-9-E: escalate from WARNING to ERROR — the
-                        # GDPR Art. 17 / G4-M-05 privacy guarantee is
+                        # escalate from WARNING to ERROR — the
+                        # GDPR Art. 17 /  privacy guarantee is
                         # broken (deleted dictated text remains
                         # recoverable from ``transcriptions_fts_data``
                         # via forensic tools), not merely "suboptimal".
@@ -317,7 +317,7 @@ def apply_retention(
                             "dictated text remains recoverable; manual re-index advised)",
                             e,
                         )
-                        # XE-9-E: observable metric — increment the
+                        # observable metric — increment the
                         # per-instance failure counter so diagnostics /
                         # IPC ``get_diagnostics`` handlers can surface it
                         # to the user. ``getattr`` default keeps this
@@ -332,7 +332,7 @@ def apply_retention(
                                 "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
                                 exc_info=True,
                             )
-                        # XE-9-E: best-effort event_bus publication so the
+                        # best-effort event_bus publication so the
                         # renderer can show a toast. Wrapped broadly
                         # because the event_bus import or the publish call
                         # may fail (e.g. circular import during early
@@ -373,9 +373,9 @@ def apply_retention(
             # no privacy failure to report (the deletes never ran).
             return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
         if result and result > 0:
-            # TY-20: invalidate the count cache.
+            # invalidate the count cache.
             db._invalidate_history_count_cache()
-            # AB-26: invalidate the today-stats cache. apply_retention
+            # invalidate the today-stats cache. apply_retention
             # deletes rows by age (``retention_days``) or by count
             # (``max_entries``). An age-based delete CAN drop today's
             # rows if ``retention_days=0`` (delete everything older
@@ -386,14 +386,14 @@ def apply_retention(
             # the cache must be invalidated so the next read reflects
             # the post-retention row set.
             db._invalidate_today_stats_cache()
-        # XE-9-E: surface the FTS5 rebuild outcome on the returned
+        # surface the FTS5 rebuild outcome on the returned
         # ``RetentionResult``. ``int(result)`` would strip the
         # subclass, so we explicitly construct a new RetentionResult
         # carrying the (possibly False) fts5_rebuild_ok flag.
         return RetentionResult(int(result), fts5_rebuild_ok=fts5_rebuild_ok)
     except HistoryDBError:
         log.error("[HISTORY] Writer unavailable for apply_retention")
-        # ERR-013: apply_retention is called from a background
+        # apply_retention is called from a background
         # retention sweep, not from an IPC handler, so it preserves
         # the legacy "return 0 deleted" sentinel. The retention
         # sweep logs the error and moves on.
@@ -412,69 +412,69 @@ def schedule_periodic_retention(
     max_entries: int = 0,
     retention_count: int = 0,
 ) -> None:
-    """ER-36: spawn a daemon thread that periodically calls ``apply_retention``.
+    """spawn a daemon thread that periodically calls ``apply_retention``.
 
-    Before this method existed, ``apply_retention`` only ran once
-    at startup (from ``startup_sequence._apply_retention_bg``). On
-    a long dictation session (8h at ~1 transcription/minute ≈ 480
-    new rows), the DB grew monotonically because the next
-    ``apply_retention`` (and the conditional ``VACUUM`` that
-    reclaims disk space) only fired on the NEXT app launch.
+        Before this method existed, ``apply_retention`` only ran once
+        at startup (from ``startup_sequence._apply_retention_bg``). On
+        a long dictation session (8h at ~1 transcription/minute ≈ 480
+        new rows), the DB grew monotonically because the next
+        ``apply_retention`` (and the conditional ``VACUUM`` that
+        reclaims disk space) only fired on the NEXT app launch.
 
-    This method spawns a daemon thread that loops:
+        This method spawns a daemon thread that loops:
 
-    1. ``db._retention_stop_event.wait(timeout=interval_s)`` —
-       blocks for ``interval_s`` seconds (or until stop is signaled).
-    2. If the stop event fired (close() was called), exit.
-    3. Try to acquire ``db._retention_lock`` non-blocking. If a
-       previous retention is still running (e.g. a multi-batch
-       ``VACUUM`` on a huge DB took longer than ``interval_s``),
-       skip this tick and wait for the next one. This is the
-       re-entrancy guard required by ER-36.
-    4. Resolve retention parameters from ``app.config`` if ``app``
-       is provided (preferred — picks up config changes the user
-       made at runtime), else use the keyword arguments.
-    5. Call ``db.apply_retention(...)`` inside the lock.
+        1. ``db._retention_stop_event.wait(timeout=interval_s)`` —
+           blocks for ``interval_s`` seconds (or until stop is signaled).
+        2. If the stop event fired (close() was called), exit.
+        3. Try to acquire ``db._retention_lock`` non-blocking. If a
+           previous retention is still running (e.g. a multi-batch
+           ``VACUUM`` on a huge DB took longer than ``interval_s``),
+           skip this tick and wait for the next one. This is the
+    re-entrancy guard required by
+        4. Resolve retention parameters from ``app.config`` if ``app``
+           is provided (preferred — picks up config changes the user
+           made at runtime), else use the keyword arguments.
+        5. Call ``db.apply_retention(...)`` inside the lock.
 
-    The thread is registered with ``app._thread_registry`` (when
-    available) so the central shutdown coordinator can signal +
-    join it. ``close()`` also signals the local stop event and
-    joins with a 2s timeout as a fallback (so the thread exits
-    even if the app has no ThreadRegistry).
+        The thread is registered with ``app._thread_registry`` (when
+        available) so the central shutdown coordinator can signal +
+        join it. ``close()`` also signals the local stop event and
+        joins with a 2s timeout as a fallback (so the thread exits
+        even if the app has no ThreadRegistry).
 
-    Parameters
-    ----------
-    interval_s : float
-        Seconds between retention sweeps. Default 600s (10 min) —
-        matches the ER-36 recommendation. The first sweep fires
-        after ``interval_s`` seconds (NOT immediately), because
-        ``startup_sequence`` already runs ``apply_retention`` once
-        at startup; running it again immediately would duplicate
-        that work.
-    app : object, optional
-        The ``VoiceTyperApp`` instance. Used to look up
-        ``app.config.history_retention_days``,
-        ``app.config.history_max_entries``,
-        ``app.config.history_retention_count``, and
-        ``app._thread_registry``. If ``None``, the keyword
-        arguments below are used as static defaults.
-    retention_days, max_entries, retention_count : int
-        Static fallback values used when ``app`` is None or when
-        ``app.config`` doesn't expose the corresponding attribute.
-        Default 0 (no retention — caller must supply real values
-        either via ``app`` or via these keyword args).
+        Parameters
+        ----------
+        interval_s : float
+            Seconds between retention sweeps. Default 600s (10 min) —
+    matches the  recommendation. The first sweep fires
+            after ``interval_s`` seconds (NOT immediately), because
+            ``startup_sequence`` already runs ``apply_retention`` once
+            at startup; running it again immediately would duplicate
+            that work.
+        app : object, optional
+            The ``VoiceTyperApp`` instance. Used to look up
+            ``app.config.history_retention_days``,
+            ``app.config.history_max_entries``,
+            ``app.config.history_retention_count``, and
+            ``app._thread_registry``. If ``None``, the keyword
+            arguments below are used as static defaults.
+        retention_days, max_entries, retention_count : int
+            Static fallback values used when ``app`` is None or when
+            ``app.config`` doesn't expose the corresponding attribute.
+            Default 0 (no retention — caller must supply real values
+            either via ``app`` or via these keyword args).
 
-    Notes
-    -----
-    Calling this method while a periodic retention is already
-    running stops the previous thread (signals + joins) before
-    spawning the new one. This makes the method idempotent and
-    safe to call from ``startup_sequence`` even if the app
-    restarts in place (e.g. after a config reload).
+        Notes
+        -----
+        Calling this method while a periodic retention is already
+        running stops the previous thread (signals + joins) before
+        spawning the new one. This makes the method idempotent and
+        safe to call from ``startup_sequence`` even if the app
+        restarts in place (e.g. after a config reload).
 
-    The actual wiring (calling this method from
-    ``startup_sequence``) is owned by ER-FIX-F; this method just
-    exposes the API.
+        The actual wiring (calling this method from
+        ``startup_sequence``) is owned by ER-FIX-F; this method just
+        exposes the API.
     """
     # Stop any existing periodic retention thread before spawning a
     # new one — idempotent re-scheduling.
@@ -484,7 +484,7 @@ def schedule_periodic_retention(
     db._retention_stop_event = stop_event
 
     def _periodic_retention_loop() -> None:
-        """ER-36: inner loop — wait, skip-if-busy, run, repeat."""
+        """inner loop — wait, skip-if-busy, run, repeat."""
         while not stop_event.wait(timeout=interval_s):
             if db._shutdown.is_set() or stop_event.is_set():
                 break
@@ -561,7 +561,7 @@ def schedule_periodic_retention(
 
 
 def stop_periodic_retention(db: HistoryDB) -> None:
-    """ER-36: signal the periodic retention thread to stop and join it.
+    """signal the periodic retention thread to stop and join it.
 
     Called by :meth:`HistoryDB.close` and by
     :meth:`HistoryDB.schedule_periodic_retention` (to support

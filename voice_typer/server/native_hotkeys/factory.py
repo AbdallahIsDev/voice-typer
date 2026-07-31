@@ -1,5 +1,5 @@
 """Factory functions :func:`create_native_backend` and
-:func:`is_native_backend_available`. CR-46: adds checksum verification.
+func:`is_native_backend_available`. : adds checksum verification.
 """
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
@@ -24,7 +24,7 @@ def is_linux() -> bool:
 
 
 def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:
-    """Create a native subprocess backend. CR-46: verifies SHA-256 first."""
+    """Create a native subprocess backend. : verifies SHA-256 first."""
     binary = get_native_binary_path()
     if binary is None:
         return None
@@ -40,7 +40,7 @@ def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:
 
 
 def is_native_backend_available() -> bool:
-    """CR-46: available = discoverable AND checksum-verified."""
+    """available = discoverable AND checksum-verified."""
     binary = get_native_binary_path()
     if binary is None:
         return False

@@ -197,7 +197,7 @@ def _vectored_handler_impl(exception_pointers) -> int:
     # callbacks (which the OS may deliver as the exception dispatcher
     # unwinds) return early so we don't corrupt or duplicate the file.
     #
-    # UE-2-F2: the rate-limit check + write + flag-set is now wrapped
+    # The rate-limit check + write + flag-set is now wrapped
     # in a compare-and-set via ``_ch._crash_write_lock``. Pre-fix,
     # two concurrent VEH callbacks (e.g. cascading access violations on
     # two threads) could BOTH pass the ``_crash_written`` check before
@@ -224,7 +224,7 @@ def _vectored_handler_impl(exception_pointers) -> int:
         if _ch._crash_written:
             return EXCEPTION_CONTINUE_SEARCH
 
-        # UE-2-F8: wrap kernel32 resolution in try/except — a failure
+        # Wrap kernel32 resolution in try/except — a failure
         # here (e.g. kernel32 function not found, or a non-Windows test
         # mock that didn't wire up all the function pointers) must not
         # propagate out of the VEH callback. Pre-fix, an exception
@@ -240,7 +240,7 @@ def _vectored_handler_impl(exception_pointers) -> int:
 
         # Build the crash message in the pre-allocated buffer using ONLY
         # bytearray slice assignment (no heap allocations).
-        # UE-2-F9: ``_crash_msg_buf`` now lives on the facade (alongside
+        # ``_crash_msg_buf`` now lives on the facade (alongside
         # the other mutable runtime state) — access via ``_ch.`` so
         # test mutations on ``crash_handler._crash_msg_buf`` propagate.
         buf = _ch._crash_msg_buf
@@ -297,7 +297,7 @@ def _vectored_handler_impl(exception_pointers) -> int:
         pos += 2
 
         # Friendly name
-        # AC-88: replaced the 13-clause ``if exc_code == STATUS_X: name =
+        # replaced the 13-clause ``if exc_code == STATUS_X: name =
         # _NAME_X`` ``elif`` chain with a single dict lookup into
         # ``_CODE_TO_INFO`` (the unified code → (name_bytes, summary_str)
         # table in ``_constants.py``). Drift eliminated: adding a new code
@@ -428,7 +428,7 @@ def _write_to_file(path_str: str, data: bytes | bytearray) -> None:
             None,
         ):
             write_ok = written.value == len(data)
-    except Exception:
+    except Exception:  # noqa: BLE001 — VEH crash-handler write path; logging here could recurse during heap corruption
         pass
     finally:
         with contextlib.suppress(Exception):

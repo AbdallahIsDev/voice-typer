@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """Logging setup + early-exit guards for the prewarm pipeline.
 
-Phase 4.5 / ARCH-045 — this module holds the four guard helpers that
+Phase 4.5 /  — this module holds the four guard helpers that
 ``run()`` (in :mod:`.pipeline`) calls before doing any real work:
 
 - :func:`_setup_logging` — wire up the prewarm log file.
@@ -42,55 +42,55 @@ log = logging.getLogger("voice_typer.server.prewarm")
 def _setup_logging(*, debug: bool = False) -> None:
     """Minimal logging — prewarm runs detached, so log to the app log file.
 
-    Uses the shared :func:`log.setup_logging` so the format is
-    consistent with the main app.  Avoids importing app.py to keep
-    prewarm's cold-start cost minimal.
+        Uses the shared :func:`log.setup_logging` so the format is
+        consistent with the main app.  Avoids importing app.py to keep
+        prewarm's cold-start cost minimal.
 
-    Also writes to a dedicated ``prewarm.log`` (next to ``voice-typer.log``)
-    that contains only ``[PREWARM]`` messages via a logger-name filter.
-    The button in the About page opens this file so users can inspect
-    prewarm behaviour without scrolling through the main log.
+        Also writes to a dedicated ``prewarm.log`` (next to ``voice-typer.log``)
+        that contains only ``[PREWARM]`` messages via a logger-name filter.
+        The button in the About page opens this file so users can inspect
+        prewarm behaviour without scrolling through the main log.
 
-    Prewarm messages still flow to the shared ``voice-typer.log`` as well
-    (via the handler added by ``log.setup_logging``), so the main log
-    remains the complete record.
+        Prewarm messages still flow to the shared ``voice-typer.log`` as well
+        (via the handler added by ``log.setup_logging``), so the main log
+        remains the complete record.
 
-    Parameters
-    ----------
-    debug:
-        G4-M-29: when ``True``, the prewarm handler emits DEBUG-level
-        records (matches the main handler's ``debug`` gating).  When
-        ``False`` (default), sits at INFO so production runs do not
-        flood ``prewarm.log`` with high-frequency model-warming traces.
+        Parameters
+        ----------
+        debug:
+    when ``True``, the prewarm handler emits DEBUG-level
+            records (matches the main handler's ``debug`` gating).  When
+            ``False`` (default), sits at INFO so production runs do not
+            flood ``prewarm.log`` with high-frequency model-warming traces.
     """
     from voice_typer.server import _paths
     from voice_typer.server.log import setup_logging as _setup_logging_shared
 
-    # RW-7: use the platform-aware config dir helper instead of the
+    # use the platform-aware config dir helper instead of the
     # previous hardcoded Path.home() / ".voice-typer".
     log_dir = _paths.config_dir()
-    # G4-H-07: tighten the process umask while creating prewarm.log so
+    # tighten the process umask while creating prewarm.log so
     # it is world-unreadable on POSIX (mirrors the main setup_logging
     # umask wrap).  Restored in ``finally`` so the change does not leak.
     _old_umask = os.umask(0o077)
     try:
-        # XE-19-1 (Critical) / DJ-49: pass process_name="prewarm" so the shared
+        # (Critical): pass process_name="prewarm" so the shared
         # setup_logging routes to voice-typer-prewarm.log (separate from the
         # main voice-typer.log). This eliminates the multi-process log race
-        # (DJ-49) and the double-logging (DJ-45). The separate prewarm.log
+        # () and the double-logging (). The separate prewarm.log
         # handler below is kept for backwards compatibility but is now redundant
         # — the shared handler already writes to voice-typer-prewarm.log with
         # the same _SecureRotatingFileHandler (post-rotation chmod, inter-process
         # rotation lock) guarantees.
         _setup_logging_shared(log_dir, debug=debug, process_name="prewarm")
-        # G4-H-07: chmod the config dir 0o700 on POSIX so co-located
+        # chmod the config dir 0o700 on POSIX so co-located
         # users cannot read it (best-effort — silently no-op on Windows).
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(log_dir, 0o700)
 
         prewarm_log = log_dir / "prewarm.log"
-        # CR-42 fix: align prewarm.log handler with the main voice-typer.log
+        # fix: align prewarm.log handler with the main voice-typer.log
         # handler's filtering and rotation policy. Previously this handler
         # used a plain Formatter (no session_id for cross-process correlation),
         # 1 MB × 2 rotation (vs main's 5 MB × 5 per ADR-0020 §11), and was
@@ -113,7 +113,7 @@ def _setup_logging(*, debug: bool = False) -> None:
             encoding="utf-8",
             errors="backslashreplace",
         )
-        # G4-H-07: lock down prewarm.log (0o600 — only the owning user
+        # lock down prewarm.log (0o600 — only the owning user
         # can read it).  Best-effort on POSIX; silently no-op on Windows
         # where the umask already enforced 0o600 at creation time.
         if os.name == "posix":
@@ -124,13 +124,13 @@ def _setup_logging(*, debug: bool = False) -> None:
         prewarm_handler.addFilter(_SessionFilter())
         prewarm_handler.addFilter(PIIRedactionFilter())
         prewarm_handler.addFilter(_BubbleLevelExclusionFilter())
-        # G4-M-29: gate the prewarm handler on the ``debug`` flag so
+        # gate the prewarm handler on the ``debug`` flag so
         # production runs do not flood prewarm.log with DEBUG noise from
         # the model-warming pipeline (was hardcoded DEBUG).
         prewarm_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         logging.getLogger("voice_typer").addHandler(prewarm_handler)
     except Exception as _setup_exc:
-        # G4-M-30: replace the bare ``logging.basicConfig`` fallback
+        # replace the bare ``logging.basicConfig`` fallback
         # (which used a divergent format string and had no PII
         # redaction) with a minimal ``_FileFormatter``-using
         # ``StreamHandler`` that also carries ``PIIRedactionFilter``.
@@ -171,15 +171,15 @@ def _setup_logging(*, debug: bool = False) -> None:
 def _fast_startup_enabled() -> bool:
     """Return whether the user has enabled the prewarm scheduled task.
 
-    PW-3: reads ``Config.fast_startup`` (defaults to True). When False,
-    the prewarm entrypoint exits early with :data:`EXIT_DISABLED` so the
-    OS scheduled task fires but does nothing — keeping the startup
-    contract simple (the task always exists; whether it does work is
-    controlled by the config flag).
+    reads ``Config.fast_startup`` (defaults to True). When False,
+        the prewarm entrypoint exits early with :data:`EXIT_DISABLED` so the
+        OS scheduled task fires but does nothing — keeping the startup
+        contract simple (the task always exists; whether it does work is
+        controlled by the config flag).
 
-    On any read error (corrupt config, missing file, etc.) we fall back
-    to True so a broken config never silently disables prewarm for
-    users who rely on it. The error is logged for diagnosis.
+        On any read error (corrupt config, missing file, etc.) we fall back
+        to True so a broken config never silently disables prewarm for
+        users who rely on it. The error is logged for diagnosis.
     """
     try:
         from voice_typer.server.config import Config
@@ -232,7 +232,7 @@ def _free_ram_mb() -> int | None:
     return None
 
 
-# ER-15: battery guard. Prewarming reads ~4.5 GB of torch+transformers
+# battery guard. Prewarming reads ~4.5 GB of torch+transformers
 # package files + ~2.4 GB of Parakeet weights off disk — ~2-3 Wh per run.
 # On a laptop booted on battery at < 60% charge, that drain is perceptible
 # (a user who reboots/registers 3-4×/day on battery wastes ~10 Wh/day).
@@ -245,22 +245,22 @@ _BATTERY_LOW_CHARGE_THRESHOLD_PERCENT = 60
 def _on_battery_and_low_charge() -> bool:
     """Return True iff the host is on battery AND charge < 60%.
 
-    ER-15: skip prewarm with EXIT_ON_BATTERY when this returns True.
-    Returns False (don't skip) in any of these cases:
-      - The host is plugged in (``power_plugged is True``).
-      - The host is on battery but charge >= 60% (enough headroom to
-        absorb the ~2-3 Wh prewarm drain without materially shortening
-        the user's session).
-      - The host has no battery (desktop / server / VM —
-        ``sensors_battery()`` returns None).
-      - ``psutil`` is not installed (legacy fallback — don't block
-        prewarm on a missing optional dependency).
-      - ``psutil.sensors_battery()`` raises (some platforms / VMs
-        expose a broken ACPI battery interface).
+    skip prewarm with EXIT_ON_BATTERY when this returns True.
+        Returns False (don't skip) in any of these cases:
+          - The host is plugged in (``power_plugged is True``).
+          - The host is on battery but charge >= 60% (enough headroom to
+            absorb the ~2-3 Wh prewarm drain without materially shortening
+            the user's session).
+          - The host has no battery (desktop / server / VM —
+            ``sensors_battery()`` returns None).
+          - ``psutil`` is not installed (legacy fallback — don't block
+            prewarm on a missing optional dependency).
+          - ``psutil.sensors_battery()`` raises (some platforms / VMs
+            expose a broken ACPI battery interface).
 
-    The threshold (60%) and the (unplugged + low-charge) conjunction
-    are pinned by ``tests/test_prewarm_er_fix_e2.py`` — see
-    ``TestOnBatteryAndLowCharge``.
+        The threshold (60%) and the (unplugged + low-charge) conjunction
+        are pinned by ``tests/test_prewarm_er_fix_e2.py`` — see
+        ``TestOnBatteryAndLowCharge``.
     """
     try:
         import psutil  # type: ignore[import-untyped]
@@ -326,7 +326,7 @@ def _lower_io_priority() -> None:
         # IOPRIO_WHO_PROCESS=1, IOPRIO_CLASS_IDLE=3,
         # IOPRIO_PRIO_VALUE(class, level) = (class << 13) | level
         #
-        # XPLAT-04: architecture-aware syscall number lookup. The
+        # architecture-aware syscall number lookup. The
         # ioprio_set syscall number varies by architecture:
         #   x86_64      : 251
         #   aarch64     : 314
@@ -340,7 +340,7 @@ def _lower_io_priority() -> None:
             try:
                 import ctypes
 
-                # XPLAT-04: lookup syscall number by architecture
+                # lookup syscall number by architecture
                 _machine_to_ioprio_set = {
                     "x86_64": 251,
                     "amd64": 251,
@@ -400,7 +400,7 @@ def _lower_io_priority() -> None:
                         )
             except Exception as e:
                 log.debug("[PREWARM] Linux: ioprio_set failed: %s", e)
-        # AB-19: lower I/O priority on macOS via setiopolicy_np.
+        # lower I/O priority on macOS via setiopolicy_np.
         # macOS does NOT support ioprio_set; instead libSystem exposes
         # setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS,
         # IOPOL_DISK_THROTTLE) which schedules this process's disk I/O

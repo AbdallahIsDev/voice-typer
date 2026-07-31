@@ -1,6 +1,6 @@
 """Tray types: AppState enum and TrayController protocol.
 
-ARCH-003: extracted from tray.py to separate the type definitions
+extracted from tray.py to separate the type definitions
 from the icon rendering and menu logic.  This allows tests to import
 AppState without pulling in pystray/PIL.
 """
@@ -28,7 +28,7 @@ class TrayController(Protocol):
 
     recording: "RecordingController"
 
-    # CR-144: build_tray_menu_model reads controller._microphones via getattr.
+    # build_tray_menu_model reads controller._microphones via getattr.
     # Promote to the Protocol so pyrefly verifies VoiceTyperApp exposes it.
     microphones: list[dict]
 
@@ -40,7 +40,7 @@ class TrayController(Protocol):
     def repaste_last(self) -> None: ...
     def undo_last(self) -> None: ...
 
-    # AC-53: Tauri-side ``maybe_publish_tray_menu`` consumes these two
+    # Tauri-side ``maybe_publish_tray_menu`` consumes these two
     # members to mark the active mic in the Microphones submenu and to
     # wire the "Refresh mics" menu item. Previously the call sites used
     # ``getattr(controller, "active_microphone_id", None)`` /

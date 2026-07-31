@@ -1,6 +1,6 @@
 """VoiceTyperService: service layer between IPC and domain logic.
 
-ARCH-005: previously ipc_server.py directly called VoiceTyperApp
+previously ipc_server.py directly called VoiceTyperApp
 methods (26 call sites).  This service layer provides a clean
 boundary so a second transport (CLI, gRPC, REST) can be added
 without duplicating app glue.
@@ -8,7 +8,7 @@ without duplicating app glue.
 The service is a thin facade — it delegates to the app but provides
 a stable interface that doesn't leak VoiceTyperApp's internal API.
 
-ARCH-005 (split): the original 2,116-line god class has been split
+ (split): the original 2,116-line god class has been split
 into eight domain mixins plus this module. This module owns ONLY
 ``VoiceTyperService.__init__``, the ``restart`` / ``quit`` lifecycle
 methods, and the ``StatusResponse`` / ``ForceCancelResult``
@@ -21,7 +21,7 @@ is preserved verbatim, and resolves via MRO to the mixin copy (which
 is the single source of truth — no method or constant is duplicated
 on this class).
 
-RACE-008: the model-download daemon thread (in
+the model-download daemon thread (in
 :meth:`ModelMixin.download_model`, ``voice_typer/server/service/model.py``)
 spawns a daemon thread whose only side-effect is writing to the HF
 cache dir — no critical cleanup. On force-kill the partial download is
@@ -32,7 +32,6 @@ that introspects ``inspect.getsource(service)`` still finds it.)
 """
 
 import logging
-import threading
 from typing import TYPE_CHECKING, TypedDict
 
 from voice_typer.server.branding import APP_NAME
@@ -61,7 +60,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# ── PVT-G5-066: TypedDicts for the most critical ``dict`` returns ──
+# ── : TypedDicts for the most critical ``dict`` returns ──
 # These replace bare ``dict`` annotations so static type checkers (and
 # IDE autocomplete) can verify the shape of the response payloads that
 # flow from the service layer to the IPC layer (and ultimately to the
@@ -79,7 +78,7 @@ class StatusResponse(TypedDict):
     loaded_via: str
 
 
-# DT-49: the four ``DownloadXxx`` TypedDicts + ``DownloadResult`` union
+# the four ``DownloadXxx`` TypedDicts + ``DownloadResult`` union
 # were removed because ``download_model`` returns plain ``dict`` literals
 # (service/model.py:1073,1079,1081 + the consent_required return) that
 # happen to have the right keys — not TypedDict instances. Pyrefly
@@ -119,7 +118,7 @@ class VoiceTyperService(
     interface.  The IPC server (or any future transport) calls these
     methods instead of touching the app directly.
 
-    ARCH-005 (split): all domain methods live on the composed mixins
+     (split): all domain methods live on the composed mixins
     (``HistoryMixin``, ``ModelMixin``, ``OnboardingMixin``,
     ``MicrophoneTestMixin``, ``VocabularyMixin``, ``TemplateMixin``,
     ``StatusMixin``, ``DictationMixin``, ``PrivacyMixin``,
@@ -132,15 +131,15 @@ class VoiceTyperService(
 
     def __init__(self, app: "AppProtocol") -> None:
         self._app = app
-        # PVT-21 / CR-18: delegate config side-effects + apply_config to
-        # the extracted ConfigApplier (CR-61 to_filter_dict + CR-97
+        #  delegate config side-effects + apply_config to
+        # the extracted ConfigApplier ( to_filter_dict +
         # save_strict()). The previous inline copies were never wired up.
         # ConfigApplier is the single owner of the config-mutation lock
-        # acquisition + rollback logic (G4-L-20/G4-H-12/G4-L-24) so the
+        # acquisition + rollback logic (//) so the
         # regression test ``tests/regressions/concurrency_test.py`` can
         # introspect ``ConfigApplier.apply_config`` for the lock.
         self._config_applier = ConfigApplier(self)
-        # AC-67: delegate state initialisation to the owning mixins
+        # delegate state initialisation to the owning mixins
         # (instead of having the base class own state for 3 separate
         # concerns — ModelMixin's download-cancel + model-status-cache
         # state, MicrophoneTestMixin's microphones-cache state). Each
@@ -154,31 +153,17 @@ class VoiceTyperService(
         # equivalent: the state ends up on the same instance via the
         # same MRO.
         #
-        # HIGH-8 / SERVICE-1: per-download cancellation events guarded by
-        # a lock, so concurrent ``download_model`` IPC calls (via the
-        # ThreadPoolExecutor) don't overwrite each other's event. The
-        # previous single-instance attribute meant the second call's
-        # ``self._download_cancel_event = threading.Event()`` clobbered
-        # the first call's reference; the first call's polling loop then
-        # polled the wrong event, and when the second call finished and
-        # set the attribute to ``None`` the first call's
-        # ``.is_set()`` raised AttributeError.
-        self._download_cancel_events: dict[str, threading.Event] = {}
-        self._download_cancel_lock = threading.Lock()
-        # Initialise ``_active_download_id`` to ``None`` so
-        # :meth:`ModelMixin.cancel_model_download` can safely read it
-        # before any download has been registered. Previously this was
-        # left unset, causing an ``AttributeError`` on the first
-        # ``cancel_model_download`` call (covered by
-        # ``tests/test_history_and_models.py::TestCancelModelDownloadMechanism``).
-        # The ClassVar on :class:`ServiceMixinBase` declares the type
-        # as ``str | None``; this initial assignment binds the runtime
-        # value to match.
-        self._active_download_id: str | None = None
-        # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status.
-        self._model_status_cache: dict[str, object] | None = None
-        self._model_status_cache_ts: float = 0.0
-        self._model_status_cache_lock = threading.Lock()
+        # the  fix was previously applied
+        # INCONSISTENTLY — only ``MicrophoneTestMixin`` got its own
+        # ``__init__`` extraction. ``ModelMixin``'s six state fields
+        # (``_download_cancel_events``, ``_download_cancel_lock``,
+        # ``_active_download_id``, ``_model_status_cache``,
+        # ``_model_status_cache_ts``, ``_model_status_cache_lock``)
+        # were still being initialised inline here. They are now owned
+        # by ``ModelMixin.__init__`` so each mixin is the single source
+        # of truth for its own state — mirroring the
+        # ``MicrophoneTestMixin`` pattern.
+        ModelMixin.__init__(self)
         # ``_onboarding`` holds the live :class:`OnboardingController`
         # between :meth:`OnboardingMixin.onboarding_start` and
         # :meth:`OnboardingMixin.onboarding_apply`. Initialise to
@@ -187,10 +172,10 @@ class VoiceTyperService(
         # typed value (and so the ClassVar annotation on
         # :class:`ServiceMixinBase` is honoured at runtime).
         self._onboarding = None
-        # XV-5: ``_microphones_cache`` initialised to ``None``.
+        # ``_microphones_cache`` initialised to ``None``.
         MicrophoneTestMixin.__init__(self)
 
-    # PVT-G5-024 (High, partial): ``set_config`` and ``save_config``
+    #  (High, partial): ``set_config`` and ``save_config``
     # were REMOVED from this service layer.
     #
     # Rationale:
@@ -201,7 +186,7 @@ class VoiceTyperService(
     #     delegates to ``service.apply_config`` (NOT this method).
     #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
     #     production callers; the IPC ``save_config`` command was
-    #     removed in ERR-IPC-003.  ``Config.save()`` is now invoked
+    #     removed in   ``Config.save()`` is now invoked
     #     inside ``service.apply_config`` under the config-mutation
     #     lock so disk writes can't race.
     #
@@ -228,7 +213,7 @@ class VoiceTyperService(
         """Quit the application."""
         self._app.quit_app()
 
-    # ── Config side effects (ARCH-005) ──────────────────────────
+    # ── Config side effects () ──────────────────────────
 
 
 __all__ = [

@@ -1,6 +1,6 @@
 """Platform utilities — centralized platform detection.
 
-CQ-029: Replaces scattered sys.platform checks with centralized functions.
+Replaces scattered sys.platform checks with centralized functions.
 Import these instead of writing `if sys.platform == "win32":` directly.
 
 Usage:
@@ -31,16 +31,16 @@ def is_linux() -> bool:
 def is_wayland_session() -> bool:
     """Return True if running under a Wayland session (Linux/macOS only).
 
-    NF-R9-4: replaces four inconsistent Wayland-session detectors that
-    were scattered across ``tray.py``, ``clipboard_snapshot.py`` and
-    ``startup_sequence.py``. The case-insensitive ``XDG_SESSION_TYPE``
-    check matches ``wayland``, ``Wayland`` and ``WAYLAND``. The
-    ``WAYLAND_DISPLAY`` fallback catches compositors that set the env
-    var without setting ``XDG_SESSION_TYPE`` (e.g. some wlroots setups
-    launched from a TTY).
+    replaces four inconsistent Wayland-session detectors that
+        were scattered across ``tray.py``, ``clipboard_snapshot.py`` and
+        ``startup_sequence.py``. The case-insensitive ``XDG_SESSION_TYPE``
+        check matches ``wayland``, ``Wayland`` and ``WAYLAND``. The
+        ``WAYLAND_DISPLAY`` fallback catches compositors that set the env
+        var without setting ``XDG_SESSION_TYPE`` (e.g. some wlroots setups
+        launched from a TTY).
 
-    Returns ``False`` on Windows (which can never be Wayland) and on
-    non-Linux/macOS platforms where the Wayland protocol isn't a thing.
+        Returns ``False`` on Windows (which can never be Wayland) and on
+        non-Linux/macOS platforms where the Wayland protocol isn't a thing.
     """
     if sys.platform not in ("linux", "darwin"):
         return False  # Windows can't be Wayland
@@ -115,10 +115,10 @@ def _set_windows_process_metadata(app_name: str) -> None:
         try:
             shell32 = ctypes.windll.shell32
             shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [wintypes.LPCWSTR]
-            # TASK-14: ``wintypes.HRESULT`` is only present in the
+            # ``wintypes.HRESULT`` is only present in the
             # typeshed stub when ``sys.version_info >= (3, 14)``.
             shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(wintypes, "HRESULT", wintypes.LONG)
-            # BRAND-FIX-001: use just the app name (no "abdallahisdev." prefix)
+            # BRAND-: use just the app name (no "abdallahisdev." prefix)
             # so Windows notifications show "VoiceTyper" as the title instead
             # of "abdallahisdev.VoiceTyper".  Matches the Electron side's
             # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
@@ -130,7 +130,7 @@ def _set_windows_process_metadata(app_name: str) -> None:
         pass  # Best-effort — ctypes or kernel32/shell32 may not be available
 
 
-# PLAT-008: Environment variable validation lives in ``app.py::_validate_env_vars``.
+# Environment variable validation lives in ``app.py::_validate_env_vars``.
 # A previous schema-driven implementation (``validate_env_vars`` +
 # ``_init_env_var_schema`` + ``_ENV_VAR_SCHEMA``) lived here but was
 # never called from any production code path — it was dead code that
@@ -138,4 +138,4 @@ def _set_windows_process_metadata(app_name: str) -> None:
 # removed to eliminate the parallel-systems maintenance hazard (Q5:
 # parallel systems; Q10: not clean). The inline ``_validate_env_vars``
 # in ``app.py`` is the single source of truth for env-var validation.
-# See FORENSIC_REVIEW_COMPLETE.md → PLAT-008.
+# See FORENSIC_REVIEW_COMPLETE.md →

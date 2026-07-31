@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """HF cache probing + file-warming primitives.
 
-Phase 4.5 / ARCH-045 — this module holds the helpers that locate the
+Phase 4.5 /  — this module holds the helpers that locate the
 HuggingFace cache, probe which model files are resident, and read bytes
 into the OS standby cache without importing the packages they belong to:
 
@@ -62,7 +62,7 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # disk I/O.  ``.py`` is excluded on purpose: when a ``.pyc`` is present
 # CPython never reads the ``.py`` at import time, so warming the source
 # file wastes disk bandwidth and standby-cache space.
-# ER-51: added ``.dylib`` (macOS dynamic libraries — equivalent to
+# added ``.dylib`` (macOS dynamic libraries — equivalent to
 # ``.so`` on Linux and ``.dll`` on Windows; without it, a macOS
 # prewarm run would skip every native extension in a package like
 # ``torch`` / ``numpy`` / ``cv2``). ``.json`` / ``.txt`` are retained
@@ -70,7 +70,7 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # tokenizer configs / vocab files at import time.
 _WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll", ".dylib", ".json", ".txt"})
 
-# ER-51: directory names whose contents NEVER contribute to import-time
+# directory names whose contents NEVER contribute to import-time
 # disk I/O. Skipping these avoids paging in:
 #   - ``tests`` / ``test``: bundled test suites (pytest discovers them
 #     via ``__init__`` + ``conftest`` walks, not via package import).
@@ -146,7 +146,7 @@ def _warm_package_files(pkg_name: str) -> int:
     total = 0
     t0 = time.perf_counter()
     for root in roots:
-        # XV-15: iterate rglob directly — sorted() would force a full
+        # iterate rglob directly — sorted() would force a full
         # directory walk into memory before the first read, doubling
         # peak RSS for large packages (torch has ~40k files).
         for path in root.rglob("*"):
@@ -154,7 +154,7 @@ def _warm_package_files(pkg_name: str) -> int:
                 continue
             if path.suffix not in _WARM_PACKAGE_SUFFIXES:
                 continue
-            # ER-51: skip files whose path crosses a skipped directory
+            # skip files whose path crosses a skipped directory
             # (``tests/``, ``docs/``, ``__pycache__``, ``*.dist-info``,
             # ``*.egg-info``). ``rglob`` does not prune directories, so
             # we filter on the relative path parts here. The cost is
@@ -185,7 +185,7 @@ def _warm_package_files(pkg_name: str) -> int:
 
 @lru_cache(maxsize=1)
 def _cached_active_config():
-    """Return the active ``Config`` instance, cached per prewarm run (XV-19).
+    """Return the active ``Config`` instance, cached per prewarm run ().
 
     ``_warm_imports`` and ``_active_model_cache_dirs`` previously each
     called ``Config.load()`` independently, doubling the prewarm
@@ -219,7 +219,7 @@ def _warm_imports() -> None:
     stack, but we warm its *files* rather than importing it, so prewarm
     finishes in seconds and the app executes torch exactly once, later.
     """
-    # XV-19: share a single cached Config.load() result with
+    # share a single cached Config.load() result with
     # ``_active_model_cache_dirs`` so a prewarm run parses the config
     # file at most once instead of twice.
     cfg = _cached_active_config()
@@ -248,7 +248,7 @@ def _warm_imports() -> None:
             active_backend,
         )
 
-    # PVT-022: Page in faster_whisper + ctranslate2 bytes WITHOUT executing
+    # Page in faster_whisper + ctranslate2 bytes WITHOUT executing
     # them. Previously this did `import faster_whisper` which executes the
     # module (and its ctranslate2 C++ dependency) — 1-3s of CPU for C++
     # static init that the prewarm process pays and then throws away
@@ -256,7 +256,7 @@ def _warm_imports() -> None:
     # `_warm_package_files` pages in the file bytes via sequential reads,
     # matching the torch/transformers approach used above.
     #
-    # ER-52: gate the warming on either (a) the active backend being
+    # gate the warming on either (a) the active backend being
     # ``whisper`` (the only backend that uses faster_whisper /
     # ctranslate2 at runtime), OR (b) the Whisper tiny.en fallback
     # cache dir being present on disk. The fallback path is checked
@@ -298,43 +298,43 @@ def _warm_imports() -> None:
 def _resolve_hf_cache_dir() -> Path:
     """Resolve the HF cache directory, robust to pre-session execution.
 
-    XV-19: wrapped with ``@lru_cache(maxsize=1)`` so a single prewarm
-    run resolves the directory at most once. Previously the function was
-    called from both ``_find_parakeet_weights`` and
-    ``_active_model_cache_dirs`` (and indirectly via ``_config_root()``
-    / ``_sentinel_path()`` / ``_pid_file_path()``), each call re-running
-    the env-var / registry / getpwuid fallback chain and re-stat'ing
-    the filesystem. The directory does not change during a prewarm
-    process's lifetime, so caching is safe. Tests clear the cache via
-    ``cache_clear()`` in the autouse fixture.
+    wrapped with ``@lru_cache(maxsize=1)`` so a single prewarm
+        run resolves the directory at most once. Previously the function was
+        called from both ``_find_parakeet_weights`` and
+        ``_active_model_cache_dirs`` (and indirectly via ``_config_root()``
+        / ``_sentinel_path()`` / ``_pid_file_path()``), each call re-running
+        the env-var / registry / getpwuid fallback chain and re-stat'ing
+        the filesystem. The directory does not change during a prewarm
+        process's lifetime, so caching is safe. Tests clear the cache via
+        ``cache_clear()`` in the autouse fixture.
 
-    ADR-0009 Issue 1: at BootTrigger time, the user session may not be
-    fully initialized. ``Path.home()`` relies on ``%USERPROFILE%``
-    (Windows) / ``$HOME`` (POSIX), which may not be set yet. Fall back to
-    platform-specific resolution so prewarm can find the cache even when
-    fired before any user logs in.
+        ADR-0009 Issue 1: at BootTrigger time, the user session may not be
+        fully initialized. ``Path.home()`` relies on ``%USERPROFILE%``
+        (Windows) / ``$HOME`` (POSIX), which may not be set yet. Fall back to
+        platform-specific resolution so prewarm can find the cache even when
+        fired before any user logs in.
 
-    Resolution order:
-      1. ``config._config_dir() / "huggingface"`` — the canonical app
-         config path. Used by every other module, respects the
-         monkey-patch hook tests rely on, and centralizes the
-         ``Path.home() / ".voice-typer"`` convention. ONLY accepted if
-         the result is an absolute path (review fix C2: a relative path
-         like ``~/.voice-typer`` from an unexpanded ``~`` indicates env
-         vars are missing, so we fall through to the fallbacks).
-      2. Environment variable (``USERPROFILE`` on Windows, ``HOME`` on
-         POSIX) — set during normal sessions and LogonTrigger firings.
-         Used when ``_config_dir()`` itself fails or returns a relative
-         path.
-      3. Windows registry ``Volatile Environment\\USERPROFILE`` — set by
-         Winlogon at session creation; readable from BootTrigger context
-         because the registering user's hive is already mounted.
-      4. POSIX ``pwd.getpwuid(os.getuid())`` — reads /etc/passwd; works
-         from LaunchDaemon context where ``$HOME`` is not inherited.
+        Resolution order:
+          1. ``config._config_dir() / "huggingface"`` — the canonical app
+             config path. Used by every other module, respects the
+             monkey-patch hook tests rely on, and centralizes the
+             ``Path.home() / ".voice-typer"`` convention. ONLY accepted if
+             the result is an absolute path (review fix C2: a relative path
+             like ``~/.voice-typer`` from an unexpanded ``~`` indicates env
+             vars are missing, so we fall through to the fallbacks).
+          2. Environment variable (``USERPROFILE`` on Windows, ``HOME`` on
+             POSIX) — set during normal sessions and LogonTrigger firings.
+             Used when ``_config_dir()`` itself fails or returns a relative
+             path.
+          3. Windows registry ``Volatile Environment\\USERPROFILE`` — set by
+             Winlogon at session creation; readable from BootTrigger context
+             because the registering user's hive is already mounted.
+          4. POSIX ``pwd.getpwuid(os.getuid())`` — reads /etc/passwd; works
+             from LaunchDaemon context where ``$HOME`` is not inherited.
 
-    Returns the ``~/.voice-typer/huggingface`` directory. The directory
-    may not exist (first-ever run, no model downloaded yet); callers must
-    check ``.exists()`` before walking.
+        Returns the ``~/.voice-typer/huggingface`` directory. The directory
+        may not exist (first-ever run, no model downloaded yet); callers must
+        check ``.exists()`` before walking.
     """
     # Primary path: the canonical app config dir. This is what every
     # other module uses, and it's the path tests monkey-patch.
@@ -406,7 +406,7 @@ def _resolve_hf_cache_dir() -> Path:
         try:
             import pwd
 
-            # PYREFLY-TASK-16: Windows false positive. This whole block
+            # PYREFLY-: Windows false positive. This whole block
             # is guarded by ``is_linux() or is_macos()`` above, so on
             # Windows the body never executes (the guard short-circuits
             # to False before ``import pwd`` even runs). However pyrefly
@@ -434,9 +434,9 @@ def _resolve_hf_cache_dir() -> Path:
     # Path.home() — which may itself be wrong, but it's the best we can do.
     if primary_candidate is not None:
         return primary_candidate
-    # RW-7: delegate to _paths.legacy_hf_cache_dir() so the literal
+    # delegate to _paths.legacy_hf_cache_dir() so the literal
     # Path.home() / ".voice-typer" lives in one canonical place (and
-    # the RW-7 regression test can allow it there rather than here).
+    # the  regression test can allow it there rather than here).
     from voice_typer.server import _paths
 
     return _paths.legacy_hf_cache_dir()
@@ -473,22 +473,22 @@ def _find_parakeet_weights() -> Path | None:
 def _active_model_cache_dirs() -> list[Path]:
     """STARTUP-4: Return HF cache dirs for the active model + declared fallback.
 
-    Walks the HF cache only for the model directories that the app would
-    actually use at runtime:
-      - The active backend's model (parakeet / qwen / whisper-<model_size>)
-      - The Whisper fallback (tiny.en) that AsrBackendRegistry falls
-        back to when the active backend fails to load.
+        Walks the HF cache only for the model directories that the app would
+        actually use at runtime:
+          - The active backend's model (parakeet / qwen / whisper-<model_size>)
+          - The Whisper fallback (tiny.en) that AsrBackendRegistry falls
+            back to when the active backend fails to load.
 
-    Previously this walked ALL models--* dirs in the cache, warming ~2.1 GB
-    of inactive Whisper variants when the active backend was parakeet.
+        Previously this walked ALL models--* dirs in the cache, warming ~2.1 GB
+        of inactive Whisper variants when the active backend was parakeet.
 
-    ADR-0009 Issue 1: uses ``_resolve_hf_cache_dir()`` instead of
-    ``_config_dir()`` so the lookup still works when prewarm is fired by
-    the BootTrigger before the user session is fully initialized.
+        ADR-0009 Issue 1: uses ``_resolve_hf_cache_dir()`` instead of
+        ``_config_dir()`` so the lookup still works when prewarm is fired by
+        the BootTrigger before the user session is fully initialized.
 
-    XV-19: ``Config.load()`` is shared with ``_warm_imports`` via
-    ``_cached_active_config()`` so a single prewarm run parses the
-    config file at most once.
+    ``Config.load()`` is shared with ``_warm_imports`` via
+        ``_cached_active_config()`` so a single prewarm run parses the
+        config file at most once.
     """
     dirs: list[Path] = []
     cfg = _cached_active_config()
@@ -570,7 +570,7 @@ def _warm_file(path: Path) -> int:
             # object on the next loop iteration's read assignment, so
             # no explicit cleanup is needed here.
     rate = (read / (1024 * 1024)) / max(time.perf_counter() - t0, 1e-6)
-    # XV-14: per-file log demoted to DEBUG. Large packages (torch,
+    # per-file log demoted to DEBUG. Large packages (torch,
     # transformers) contain tens of thousands of files; an INFO line
     # per file floods ``prewarm.log`` and drowns out the per-package
     # summary. Operators who need per-file detail can enable DEBUG

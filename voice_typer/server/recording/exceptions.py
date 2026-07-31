@@ -1,12 +1,12 @@
 """Exception types raised by the recording pipeline.
 
-Phase 4.5 / ARCH-045 — extracted from the original ``recording.py``
+Phase 4.5 /  — extracted from the original ``recording.py``
 god-module.  Both exception classes are re-exported from
 ``voice_typer.server.recording`` (the package ``__init__.py``) so
 existing imports ``from voice_typer.server.recording import
 ResampleError, ResampleUnavailable`` keep working unchanged.
 
-XE-14-C: the two resample exceptions now share a common
+the two resample exceptions now share a common
 :class:`RecordingError` base (itself a ``RuntimeError`` subclass) so
 the IPC handler ``_respond_with_error`` isinstance ladder can map the
 whole recording-pipeline family to dedicated IPC error codes (see
@@ -22,7 +22,7 @@ sample-rate pair that triggered the failure (useful for the renderer's
 
 
 class RecordingError(RuntimeError):
-    """Base for recording-pipeline exceptions (XE-14-C).
+    """Base for recording-pipeline exceptions ().
 
     Subclasses (:class:`ResampleError`,
     :class:`ResampleUnavailableError`) carry the semantic category
@@ -68,31 +68,31 @@ class RecordingError(RuntimeError):
 class ResampleError(RecordingError):
     """Raised when audio cannot be resampled to the target sample rate.
 
-    ERR-001: Previously the resample fallback returned the native-rate
-    audio silently, which produced garbage transcriptions because the
-    streaming path assumed the configured sample rate. Callers must
-    catch this exception and decide how to handle the failure (skip
-    the chunk, abort the dictation, or notify the user).
+    Previously the resample fallback returned the native-rate
+        audio silently, which produced garbage transcriptions because the
+        streaming path assumed the configured sample rate. Callers must
+        catch this exception and decide how to handle the failure (skip
+        the chunk, abort the dictation, or notify the user).
 
-    XE-14-C: now inherits from :class:`RecordingError` (rather than
-    directly from ``RuntimeError``) so the IPC handler
-    ``_respond_with_error`` isinstance ladder can map the whole
-    recording-pipeline family to a dedicated IPC error code.
+    now inherits from :class:`RecordingError` (rather than
+        directly from ``RuntimeError``) so the IPC handler
+        ``_respond_with_error`` isinstance ladder can map the whole
+        recording-pipeline family to a dedicated IPC error code.
     """
 
 
 class ResampleUnavailableError(RecordingError):
     """Raised when scipy.signal.resample_poly is unavailable.
 
-    ARCH-033: the 3-tier fallback (scipy → linear interp → native)
-    previously failed silently at each tier. We now raise this typed
-    exception at the scipy tier so the caller knows the high-quality
-    path is unavailable and can decide whether to use linear interp.
+    the 3-tier fallback (scipy → linear interp → native)
+        previously failed silently at each tier. We now raise this typed
+        exception at the scipy tier so the caller knows the high-quality
+        path is unavailable and can decide whether to use linear interp.
 
-    XE-14-C: now inherits from :class:`RecordingError` (rather than
-    directly from ``RuntimeError``) so the IPC handler
-    ``_respond_with_error`` isinstance ladder can map the whole
-    recording-pipeline family to a dedicated IPC error code.
+    now inherits from :class:`RecordingError` (rather than
+        directly from ``RuntimeError``) so the IPC handler
+        ``_respond_with_error`` isinstance ladder can map the whole
+        recording-pipeline family to a dedicated IPC error code.
     """
 
 

@@ -1,4 +1,4 @@
-"""DT-25 (Phase 4.5 spaghetti split): LifecycleController — extracted
+"""(Phase 4.5 spaghetti split): LifecycleController — extracted
 from VoiceTyperApp.
 
 Owns the restart / quit / relaunch-ack lifecycle of ``VoiceTyperApp``:
@@ -6,7 +6,7 @@ Owns the restart / quit / relaunch-ack lifecycle of ``VoiceTyperApp``:
     - ``restart_app`` — push ``relaunch_app`` event, save config, set
       ``_shutting_down``, wait for ack, run ``_do_cleanup``, exit via
       ``sys.exit(0)`` (only on main thread; non-main thread relies on
-      ``tray.stop()`` inside ``_do_cleanup`` + GT-43 watchdog).
+``tray.stop()`` inside ``_do_cleanup`` +  watchdog).
     - ``_wait_for_relaunch_ack`` — bounded wait on the IPC server's
       ``relaunch_ack`` event (PERF-005: 0ms short-circuit when no IPC
       server attached).
@@ -80,30 +80,30 @@ log = logging.getLogger("voice_typer.server.app")
 
 
 class LifecycleController:
-    """DT-25: owns restart / quit / relaunch-ack lifecycle.
+    """owns restart / quit / relaunch-ack lifecycle.
 
-    RW-9 Phase 4.5: extracted from ``VoiceTyperApp``. The app passes
-    itself (``app``) so ``LifecycleController`` can:
+    Phase 4.5: extracted from ``VoiceTyperApp``. The app passes
+        itself (``app``) so ``LifecycleController`` can:
 
-    - Read/write ``app.config`` (save before push)
-    - Call ``app._shutting_down_event.set()`` / read ``app._shutting_down``
-      (DE-49: the threading.Event version provides cross-thread memory
-      ordering; the plain boolean is kept in sync for legacy readers).
-    - Call ``app._do_cleanup()`` (the delegate on ``VoiceTyperApp``)
-      so test spies that ``monkeypatch.setattr(app, "_do_cleanup", spy)``
-      still intercept the call — mirrors the ``ShutdownController``
-      convention.
-    - Call ``app.quit()`` (the delegate) so test spies that
-      ``monkeypatch.setattr(app, "quit", spy)`` still intercept.
-    - Access ``app._ipc_server`` for the relaunch-ack wait.
-    - Call ``app.shutdown._arm_shutdown_watchdog(...)`` (GT-43:
-      non-main-thread restart exit safety net).
-    - Read ``app._shutdown_watchdog_timeout_s`` (stashed on the
-      instance by ``VoiceTyperApp.__init__`` when ``ShutdownController``
-      is wired).
-    - Access ``app.recorder`` / ``app.recorder.recording`` /
-      ``app.recorder.discard()`` (in-progress recording discard before
-      quit).
+        - Read/write ``app.config`` (save before push)
+        - Call ``app._shutting_down_event.set()`` / read ``app._shutting_down``
+    (: the threading.Event version provides cross-thread memory
+          ordering; the plain boolean is kept in sync for legacy readers).
+        - Call ``app._do_cleanup()`` (the delegate on ``VoiceTyperApp``)
+          so test spies that ``monkeypatch.setattr(app, "_do_cleanup", spy)``
+          still intercept the call — mirrors the ``ShutdownController``
+          convention.
+        - Call ``app.quit()`` (the delegate) so test spies that
+          ``monkeypatch.setattr(app, "quit", spy)`` still intercept.
+        - Access ``app._ipc_server`` for the relaunch-ack wait.
+    Call ``app.shutdown._arm_shutdown_watchdog(...)`` (:
+          non-main-thread restart exit safety net).
+        - Read ``app._shutdown_watchdog_timeout_s`` (stashed on the
+          instance by ``VoiceTyperApp.__init__`` when ``ShutdownController``
+          is wired).
+        - Access ``app.recorder`` / ``app.recorder.recording`` /
+          ``app.recorder.discard()`` (in-progress recording discard before
+          quit).
     """
 
     def __init__(self, app: Any) -> None:
@@ -114,40 +114,40 @@ class LifecycleController:
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
 
-        RELIABILITY-001: previously this method duplicated cleanup
-        inline and ended with ``os._exit(0)`` because ``_wrap`` in
-        ``tray.py`` swallowed ``SystemExit``, preventing the audited
-        ``self.quit()`` path from terminating the process. ``os._exit``
-        skips Python atexit handlers, ``__del__`` methods, and
-        ``finally`` blocks — leaking the Win32 named mutex, leaving
-        PortAudio mic handles open, and not unregistering
-        ``RegisterHotKey`` registrations.
+                RELIABILITY-001: previously this method duplicated cleanup
+                inline and ended with ``os._exit(0)`` because ``_wrap`` in
+                ``tray.py`` swallowed ``SystemExit``, preventing the audited
+                ``self.quit()`` path from terminating the process. ``os._exit``
+                skips Python atexit handlers, ``__del__`` methods, and
+                ``finally`` blocks — leaking the Win32 named mutex, leaving
+                PortAudio mic handles open, and not unregistering
+                ``RegisterHotKey`` registrations.
 
-        Now that ``_wrap`` suppresses ``SystemExit`` (see ERR-QUIT-002
-        fix in ``tray.py`` — ``tray.stop()`` inside ``quit()`` already
-        breaks the pystray loop, so re-raising just caused pystray to
-        print a noisy traceback), we delegate to ``self._app.quit()``
-        which does the full cleanup (cancel timers, signal streaming
-        cancel, discard recorder, join transcription thread, stop all
-        three hotkey backends, ``self.tray.stop()`` to break the
-        pystray loop, close devnull FDs, ``sys.exit(0)``).
+        Now that ``_wrap`` suppresses ``SystemExit`` (see
+                fix in ``tray.py`` — ``tray.stop()`` inside ``quit()`` already
+                breaks the pystray loop, so re-raising just caused pystray to
+                print a noisy traceback), we delegate to ``self._app.quit()``
+                which does the full cleanup (cancel timers, signal streaming
+                cancel, discard recorder, join transcription thread, stop all
+                three hotkey backends, ``self.tray.stop()`` to break the
+                pystray loop, close devnull FDs, ``sys.exit(0)``).
 
-        Before cleanup, pushes a ``quit_app`` event over the TCP channel
-        so the Electron frontend knows to call ``app.quit()`` and shut
-        down cleanly (instead of being left orphaned with no backend).
+                Before cleanup, pushes a ``quit_app`` event over the TCP channel
+                so the Electron frontend knows to call ``app.quit()`` and shut
+                down cleanly (instead of being left orphaned with no backend).
 
-        APP-10 (F-06): the ``event_bus.publish({"type": "quit_app"})``
-        call MUST come BEFORE the ``if self._shutting_down:`` re-entry
-        guard. Pre-fix, the guard sat at the top of the method and a
-        double-quit (e.g. user clicks the tray Quit item twice, or
-        SIGTERM races with the tray quit) silently dropped the second
-        push — leaving Electron with no shutdown signal if the first
-        push was lost in a TCP race. The fix pushes unconditionally on
-        every call and only guards the actual ``self._app.quit()`` call
-        so cleanup isn't run twice.
+        (F-06): the ``event_bus.publish({"type": "quit_app"})``
+                call MUST come BEFORE the ``if self._shutting_down:`` re-entry
+                guard. Pre-fix, the guard sat at the top of the method and a
+                double-quit (e.g. user clicks the tray Quit item twice, or
+                SIGTERM races with the tray quit) silently dropped the second
+                push — leaving Electron with no shutdown signal if the first
+                push was lost in a TCP race. The fix pushes unconditionally on
+                every call and only guards the actual ``self._app.quit()`` call
+                so cleanup isn't run twice.
 
-        DT-25: body lives here now; ``VoiceTyperApp.quit_app`` is a
-        one-line delegate.
+        body lives here now; ``VoiceTyperApp.quit_app`` is a
+                one-line delegate.
         """
         app = self._app
         log.info("[QUIT] Quitting %s", APP_NAME)
@@ -162,17 +162,17 @@ class LifecycleController:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
 
         # 0. Notify Electron frontend over TCP so it can quit cleanly.
-        # APP-10: this MUST run BEFORE the _shutting_down guard so a
+        # this MUST run BEFORE the _shutting_down guard so a
         # double-quit still pushes the event (the first push may have
         # been lost in a TCP race; the second push is the safety net).
         from voice_typer.server import event_bus
 
         event_bus.publish({"type": "quit_app"})
 
-        # APP-10: re-entry guard sits AFTER the push so the quit event
+        # re-entry guard sits AFTER the push so the quit event
         # is always published, even on a double-quit. Only the actual
         # ``self._app.quit()`` cleanup is skipped on the second call.
-        # DE-49: use _shutting_down_event.is_set() for cross-thread memory
+        # use _shutting_down_event.is_set() for cross-thread memory
         # ordering (the threading.Event version provides acquire/release
         # semantics — the plain boolean has no such guarantee).
         if app._shutting_down_event.is_set():
@@ -192,49 +192,49 @@ class LifecycleController:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Sends a ``relaunch_app`` event to Electron over the active
-        TCP channel, then exits the current instance via the clean
-        ``sys.exit(0)`` path. Electron's handler calls
-        ``app.relaunch()`` + ``app.exit(0)``, which spawns a fresh
-        Electron process (which in turn spawns a fresh Python backend).
-        If the ``relaunch_app`` event is lost (TCP race), Electron's
-        ``pythonProcess.on("exit")`` handler sees exit code 0 and
-        triggers the same relaunch as a fallback — see
-        ``client/src/main/index.ts``.
+                Sends a ``relaunch_app`` event to Electron over the active
+                TCP channel, then exits the current instance via the clean
+                ``sys.exit(0)`` path. Electron's handler calls
+                ``app.relaunch()`` + ``app.exit(0)``, which spawns a fresh
+                Electron process (which in turn spawns a fresh Python backend).
+                If the ``relaunch_app`` event is lost (TCP race), Electron's
+                ``pythonProcess.on("exit")`` handler sees exit code 0 and
+                triggers the same relaunch as a fallback — see
+                ``client/src/main/index.ts``.
 
-        CR-013 (IMPROVE-mode run, 2026-07-21): re-entry guard at the
-        top — mirror ``quit_app``. Pre-fix, a double-clicked tray
-        "Restart" item or a tray restart racing with SIGTERM-triggered
-        quit would push duplicate ``relaunch_app`` events, re-acquire
-        ``_config_mutation_lock`` for a second ``config.save()``,
-        re-enter ``_do_cleanup()``, and fire a second ``sys.exit(0)``
-        while the first call's finally blocks were still draining.
+        (IMPROVE-mode run, 2026-07-21): re-entry guard at the
+                top — mirror ``quit_app``. Pre-fix, a double-clicked tray
+                "Restart" item or a tray restart racing with SIGTERM-triggered
+                quit would push duplicate ``relaunch_app`` events, re-acquire
+                ``_config_mutation_lock`` for a second ``config.save()``,
+                re-enter ``_do_cleanup()``, and fire a second ``sys.exit(0)``
+                while the first call's finally blocks were still draining.
 
-        CR-014 (same run): pass ``APP_NAME`` as the format argument to
-        ``log.info("[RESTART] Restarting %s...", APP_NAME)``. Pre-fix,
-        the ``%s`` placeholder was never substituted, producing a
-        literal ``[RESTART] Restarting %s...`` log line.
+        (same run): pass ``APP_NAME`` as the format argument to
+                ``log.info("[RESTART] Restarting %s...", APP_NAME)``. Pre-fix,
+                the ``%s`` placeholder was never substituted, producing a
+                literal ``[RESTART] Restarting %s...`` log line.
 
-        DT-25: body lives here now; ``VoiceTyperApp.restart_app`` keeps
-        the re-entry guard inline (to satisfy the source-level
-        invariant pinned by
-        ``tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method``)
-        and delegates the rest to this method. This guard is a mirror
-        of the delegate's guard — idempotent, so the double-check is
-        harmless and makes the controller safe for direct calls from
-        future code.
+        body lives here now; ``VoiceTyperApp.restart_app`` keeps
+                the re-entry guard inline (to satisfy the source-level
+                invariant pinned by
+                ``tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method``)
+                and delegates the rest to this method. This guard is a mirror
+                of the delegate's guard — idempotent, so the double-check is
+                harmless and makes the controller safe for direct calls from
+                future code.
         """
         app = self._app
-        # CR-013: re-entry guard (mirror the delegate on VoiceTyperApp
+        # re-entry guard (mirror the delegate on VoiceTyperApp
         # — idempotent if the delegate has already short-circuited).
-        # DE-49: use _shutting_down_event.is_set() for cross-thread
+        # use _shutting_down_event.is_set() for cross-thread
         # memory ordering (the threading.Event version provides
         # acquire/release semantics — the plain boolean has no such
         # guarantee).
         if app._shutting_down_event.is_set():
             log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
             return
-        # CR-014: pass APP_NAME as the format argument.
+        # pass APP_NAME as the format argument.
         log.info("[RESTART] Restarting %s...", APP_NAME)
 
         # ── THEME-RESTART-FIX: save the config before push ───────────
@@ -244,7 +244,7 @@ class LifecycleController:
         # before the restart sequence begins. This ensures the new
         # Python process loads the latest config, preventing the theme
         # from reverting to default after a restart.
-        # DE-47: wrap in try/except so an unexpected exception from
+        # wrap in try/except so an unexpected exception from
         # save() (e.g. RecursionError from asdict on a cyclic
         # dataclass) does not abort the restart sequence — the user's
         # "Restart" tray click must still work.
@@ -269,7 +269,7 @@ class LifecycleController:
         # by wrap_callback without tray.stop() breaking the loop).
         #
         # 1. Push relaunch_app BEFORE marking _shutting_down.
-        # PVT-2 cleanup (this change): the published event name is now
+        # cleanup (this change): the published event name is now
         # ``relaunch_app`` directly (no longer ``relaunch_electron``).
         # The Rust WS bridge no longer renames it (the rename arm in
         # ws.rs was dropped); main.rs listens for ``relaunch_app`` and
@@ -297,7 +297,7 @@ class LifecycleController:
         # check it (matches quit()'s shutdown signaling — important now
         # that restart_app() shares the same _do_cleanup() body).
         app._shutting_down_event.set()
-        # CR-018 (IMPROVE-mode run, 2026-07-21): the redundant
+        # (IMPROVE-mode run, 2026-07-21): the redundant
         # ``self._restore_volume(fade_ms=0)`` call that lived here was
         # deleted — ``_do_cleanup()`` (invoked further down via
         # ``ShutdownController._do_cleanup``) already invokes the
@@ -305,7 +305,7 @@ class LifecycleController:
         # and produced confusing log noise (two "volume restored" lines
         # per restart). If the volume backend isn't reentrant, the
         # second call could see a stale "ducked" state and re-apply the
-        # duck. CR-64: encapsulated the IPCServer's private
+        # duck. : encapsulated the IPCServer's private
         # ``_relaunch_ack_event`` access in ``_wait_for_relaunch_ack``
         # so the backwards coupling (VoiceTyperApp reaching INTO the
         # IPCServer's private state) is at least named and easy to
@@ -324,7 +324,7 @@ class LifecycleController:
         # ceiling only applies when there's actually someone to ack.
         self._wait_for_relaunch_ack(timeout=0.5)
 
-        # 3. RW-3: run the SAME audited cleanup as quit() — flushes
+        # 3. : run the SAME audited cleanup as quit() — flushes
         #    history_db and _crash_recovery (so no pending writes are
         #    silently lost on restart), stops recorder + mic watcher
         #    (so PortAudio streams don't leak across the restart), stops
@@ -343,7 +343,7 @@ class LifecycleController:
         #    as restart_app() set _shutting_down = True above.
         #    Extracting the shared _do_cleanup() body fixes both bugs.
         #
-        #    HIGH-36 / XCUT-1: mirror quit()'s ordering by running
+        # XCUT-1: mirror quit()'s ordering by running
         #    ``self._thread_registry.shutdown_all()`` BEFORE
         #    ``_do_cleanup()``. The registry's centralized
         #    signal-and-join (per-thread stop_event + join-with-timeout)
@@ -368,7 +368,7 @@ class LifecycleController:
         app._do_cleanup()
 
         # 4. Exit cleanly — electron will relaunch us.
-        # CR-17: mirror ShutdownController.quit()'s threading-aware
+        # mirror ShutdownController.quit()'s threading-aware
         # exit. restart_app is invoked from the tray menu callback,
         # which runs on pystray's worker thread (NOT the main thread).
         # When sys.exit(0) is called from a non-main thread, CPython
@@ -382,7 +382,7 @@ class LifecycleController:
         # conditional mirrors quit()'s pattern at
         # shutdown_controller.py:464,497-498.
         #
-        # GT-43: if restart_app() is running on a non-main thread (the
+        # if restart_app() is running on a non-main thread (the
         # common case — pystray tray menu callback), arm the same
         # shutdown watchdog ``quit()`` uses. If ``tray.stop()`` (called
         # inside ``_do_cleanup`` above) failed to break the pystray
@@ -412,7 +412,7 @@ class LifecycleController:
         # break the pystray loop so app.start() returns and
         # ipc_server.main() falls through to process exit. If that
         # doesn't happen within SHUTDOWN_WATCHDOG_TIMEOUT_S seconds,
-        # the GT-43 watchdog will call os._exit(0) as a last resort.
+        # the  watchdog will call os._exit(0) as a last resort.
 
     def _wait_for_relaunch_ack(self, timeout: float) -> bool:
         """Wait for the host to ack the ``relaunch_app`` event.
@@ -483,7 +483,7 @@ class LifecycleController:
         # test doubles / standalone modes that don't expose the public
         # ``wait_for_relaunch_ack`` method or the ``_relaunch_ack_event``
         # attribute. The defensive ``getattr`` lookups preserve the
-        # CR-64 encapsulation while not breaking tests that swap in a
+        # encapsulation while not breaking tests that swap in a
         # minimal fake server.
         if not hasattr(ipc_server, "wait_for_relaunch_ack"):
             ack_event = getattr(ipc_server, "_relaunch_ack_event", None)

@@ -1,18 +1,18 @@
 """Native binary discovery.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045). CR-46 (session-1): adds SHA-256 manifest verification.
-CR-66 (session-2): adds Windows arch-suffixed binary names
+().  (session-1): adds SHA-256 manifest verification.
+adds Windows arch-suffixed binary names
 (Windows on ARM/aarch64 support).
 
 This module owns:
 
 - :data:`_BINARY_NAMES` — per-``(platform, machine)`` binary filename
-  map (CR-32: per-arch native binaries). Implemented as
-  :class:`_ArchAwareBinaryNameMap` so pre-CR-32 callers that index by
+  map (: per-arch native binaries). Implemented as
+  class:`_ArchAwareBinaryNameMap` so pre- callers that index by
   bare platform string (``_BINARY_NAMES.get("linux")``) keep working
   via the legacy shim.
-- :data:`_LEGACY_BINARY_NAMES` — pre-CR-32 non-arch-suffixed names,
+- data:`_LEGACY_BINARY_NAMES` — pre- non-arch-suffixed names,
   used both as a fallback for existing Tauri bundles (during the
   ``tauri.conf.json`` resource-list transition owned by IMPL-4) and
   as the backing store for the string-key shim on
@@ -21,7 +21,7 @@ This module owns:
   binary for the current platform (env var → dev mode → PyInstaller
   bundle).
 
-Per-arch naming convention (CR-32)
+Per-arch naming convention ()
 -----------------------------------
 - Linux:   ``linux-key-listener-x86_64`` /
   ``linux-key-listener-aarch64``
@@ -49,11 +49,11 @@ log = logging.getLogger(__name__)
 
 # Legacy (non-arch-suffixed) names, kept as a backward-compat fallback
 # for bundles that still ship the old single-arch binary under the
-# pre-CR-32 name. Probed ONLY when the arch-suffixed name is not found
+# pre- name. Probed ONLY when the arch-suffixed name is not found
 # at a given candidate location, so it adds at most one extra
 # ``is_file()`` call per lookup miss. Also used by
 # :class:`_ArchAwareBinaryNameMap` to satisfy the legacy
-# ``_BINARY_NAMES.get("<platform>")`` call site in pre-CR-32 callers
+# ``_BINARY_NAMES.get("<platform>")`` call site in pre- callers
 # (e.g. existing tests that pin the contract by platform-string key).
 # Once IMPL-4 / the primary agent updates ``src-tauri/tauri.conf.json``
 # to ship the arch-suffixed names exclusively AND old bundles have
@@ -65,12 +65,36 @@ _LEGACY_BINARY_NAMES: dict[str, str] = {
     "linux": "linux-key-listener",
 }
 
-# CR-46: path to the SHA-256 manifest emitted by the build script
+# bidirectional legacy <-> arch-suffixed name mapping used by
+# :func:`get_expected_sha256` to find the right manifest entry
+# regardless of which name form the binary on disk uses. The legacy
+# non-arch-suffixed names (``linux-key-listener``,
+# ``windows-key-listener.exe``) are the pre- names that were
+# ALWAYS the x86_64 build (aarch64 builds did not exist pre-), so
+# the legacy name maps to the x86_64 arch-suffixed name ONLY — never
+# to the aarch64 name. macOS uses the same universal name for both
+# forms (``macos-key-listener``), so it has no entry here. The build
+# script (``scripts/build/compile_native.sh``) still emits the legacy
+# names on Linux/Windows; the manifest (``binaries.json``) now carries
+# BOTH name forms (with the same sha256 where the binary exists), so
+# the direct :func:`get_expected_sha256` lookup usually succeeds
+# without needing this fallback. The fallback exists as a defensive
+# measure for future manifests that might drop one form.
+_LEGACY_TO_ARCH_SUFFIX: dict[str, str] = {
+    "linux-key-listener": "linux-key-listener-x86_64",
+    "windows-key-listener.exe": "windows-key-listener-x86_64.exe",
+}
+_ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {
+    "linux-key-listener-x86_64": "linux-key-listener",
+    "windows-key-listener-x86_64.exe": "windows-key-listener.exe",
+}
+
+# path to the SHA-256 manifest emitted by the build script
 # (``scripts/build/compile_native.*``). Used by :func:`load_binary_manifest`
 # to verify native binaries were not tampered with after install.
 _MANIFEST_PATH = Path(__file__).resolve().parent.parent / "native" / "binaries.json"
 
-# CR-66: arch-suffixed binary names. Windows on ARM (aarch64) requires
+# arch-suffixed binary names. Windows on ARM (aarch64) requires
 # a separate native binary build because the x86_64 MSVC toolchain
 # cannot emit ARM64 code. The lookup key for Windows combines the
 # platform (``win32``) with the architecture suffix returned by
@@ -88,7 +112,7 @@ _BINARY_NAMES_BY_PLATFORM_ARCH = {
 def _windows_arch_suffix() -> str:
     """Return the Windows binary arch suffix for the current CPU.
 
-    CR-66: Windows on ARM (aarch64) is now supported via a separate
+    Windows on ARM (aarch64) is now supported via a separate
     binary build (``windows-key-listener-aarch64.exe``). The x86_64
     build is renamed to ``windows-key-listener-x86_64.exe`` for
     clarity (and so the binary name uniquely identifies the target
@@ -132,13 +156,13 @@ def _platform_arch_key() -> str:
 class _ArchAwareBinaryNameMap(dict):
     """Dict keyed by ``(platform, machine)`` with a legacy string-key shim.
 
-    CR-32 mandates that ``_BINARY_NAMES`` be a ``dict[tuple[str, str],
+     mandates that ``_BINARY_NAMES`` be a ``dict[tuple[str, str],
     str]`` keyed by ``(platform, machine)``. This subclass satisfies
-    that contract while *also* keeping the pre-CR-32 string-key
+    that contract while *also* keeping the pre- string-key
     interface alive for backward compatibility:
 
     - ``_BINARY_NAMES[("linux", "x86_64")]`` → ``"linux-key-listener-x86_64"``
-      (new arch-aware lookup — CR-32).
+      (new arch-aware lookup — ).
     - ``_BINARY_NAMES.get("linux")`` → ``"linux-key-listener"``
       (legacy string-key lookup — delegates to
       :data:`_LEGACY_BINARY_NAMES`).
@@ -170,16 +194,16 @@ class _ArchAwareBinaryNameMap(dict):
         return False
 
 
-# Per-(platform, machine) binary filename map (CR-32).
+# Per-(platform, machine) binary filename map ().
 #
 # macOS ships a single universal binary (lipo of arm64 + x86_64) so
 # the same filename ``macos-key-listener`` is used for both arches.
 # Linux and Windows ship per-arch variants because neither OS has a
 # lipo-style universal binary mechanism.
 #
-# Note: the dict literal is built with tuple keys (CR-32 contract);
+# Note: the dict literal is built with tuple keys ( contract);
 # the :class:`_ArchAwareBinaryNameMap` subclass adds the legacy
-# string-key shim on top so pre-CR-32 callers that index by bare
+# string-key shim on top so pre- callers that index by bare
 # platform string keep working.
 _BINARY_NAMES: dict[tuple[str, str], str] = _ArchAwareBinaryNameMap(
     {
@@ -230,7 +254,7 @@ def _normalize_machine(machine: str | None) -> str:
 def _candidate_binary_names() -> list[str]:
     """Return the candidate binary names for the current platform+arch.
 
-    The arch-suffixed name (CR-32) is preferred; the legacy
+    The arch-suffixed name () is preferred; the legacy
     non-arch-suffixed name is appended as a fallback so existing
     bundles keep working during the ``tauri.conf.json`` transition.
     The returned list is de-duplicated (macOS universal binary uses
@@ -256,7 +280,7 @@ def _candidate_binary_names() -> list[str]:
 def get_native_binary_path() -> Path | None:
     """Find the native key-listener binary for the current platform+arch.
 
-    XV-112 (CACHED): the result is memoised with
+     (CACHED): the result is memoised with
     :func:`functools.lru_cache(maxsize=1)` so the 6-step lookup chain
     (env var → dev mode → PyInstaller onedir → ``_MEIPASS``) runs at
     most ONCE per process. Pre-fix, the function was called up to
@@ -292,13 +316,13 @@ def get_native_binary_path() -> Path | None:
     5. Next to the Python executable (PyInstaller onedir mode)
     6. Inside ``_MEIPASS`` (PyInstaller onefile mode)
 
-    At each step (2–6) the arch-suffixed name (CR-32) is tried first;
+    At each step (2–6) the arch-suffixed name () is tried first;
     if no file is found, the legacy non-arch-suffixed name is tried as
-    a fallback (CR-32 transition — see :data:`_LEGACY_BINARY_NAMES`).
+    a fallback ( transition — see :data:`_LEGACY_BINARY_NAMES`).
 
     Returns ``None`` if no binary is found.
 
-    CR-66: on Windows, the binary name is arch-suffixed
+    on Windows, the binary name is arch-suffixed
     (``windows-key-listener-x86_64.exe`` or
     ``windows-key-listener-aarch64.exe``) — see
     :func:`_windows_arch_suffix`. The legacy non-suffixed
@@ -307,7 +331,7 @@ def get_native_binary_path() -> Path | None:
     ``scripts/build/compile_native.ps1`` (which now emits the
     arch-suffixed name).
 
-    CR-46: callers SHOULD follow this with a call to
+    callers SHOULD follow this with a call to
     :func:`verify_native_binary_or_skip` to verify the SHA-256 of the
     returned path against the manifest (``binaries.json``).
     """
@@ -382,31 +406,90 @@ def load_binary_manifest() -> dict | None:
     return manifest
 
 
+def _equivalent_manifest_names(binary_name: str) -> list[str]:
+    """Return the ordered list of manifest keys to try for ``binary_name``.
+
+    the manifest may be keyed by either the arch-suffixed name
+    (``linux-key-listener-x86_64``) or the legacy non-suffixed name
+    (``linux-key-listener``), depending on which form
+    ``scripts/build/compile_native.sh`` emitted and which form
+    ``scripts/build/update_native_manifests.py`` recorded. The shipped
+    manifest (``binaries.json``) now carries BOTH forms as aliases (with
+    the same sha256 where the binary exists), so the direct lookup
+    usually succeeds. This helper returns the direct name first, then
+    any equivalents (legacy <-> arch-suffixed x86_64 ONLY — aarch64 has
+    no legacy equivalent because aarch64 builds are new in ), so
+    :func:`get_expected_sha256` can still find the right entry if a
+    future manifest drops one form.
+
+    The returned list is de-duplicated while preserving order (the
+    direct name is always first). macOS uses the same universal name
+    for both forms (``macos-key-listener``), so it returns a
+    single-element list.
+    """
+    candidates: list[str] = [binary_name]
+    arch_equivalent = _LEGACY_TO_ARCH_SUFFIX.get(binary_name)
+    if arch_equivalent:
+        candidates.append(arch_equivalent)
+    legacy_equivalent = _ARCH_SUFFIX_TO_LEGACY.get(binary_name)
+    if legacy_equivalent:
+        candidates.append(legacy_equivalent)
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in candidates:
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
 def get_expected_sha256(binary_name: str) -> str | None:
     """Look up the expected SHA-256 for a binary by its filename.
 
-    CR-002: ``binary_name`` MUST be the arch-suffixed name actually
+    ``binary_name`` MUST be the arch-suffixed name actually
     produced by ``scripts/build/compile_native.sh`` and discovered by
     :func:`get_native_binary_path` (e.g. ``linux-key-listener-x86_64``,
     ``windows-key-listener-aarch64.exe``, ``macos-key-listener``).
-    Pre-CR-002 the manifest was keyed by the legacy non-suffixed names
+    Pre- the manifest was keyed by the legacy non-suffixed names
     (``linux-key-listener``, ``windows-key-listener.exe``), so every
     call with an arch-suffixed name returned ``None`` and
     :func:`verify_native_binary_or_skip` silently trusted the binary.
     The manifest is now keyed by the arch-suffixed names; this function
     is a plain dict lookup, so callers MUST pass the same name
     :func:`get_native_binary_path` returned (``path.name``).
+
+    the build script (``compile_native.sh``) still emits the
+    legacy non-suffixed names on Linux/Windows
+    (``linux-key-listener``, ``windows-key-listener.exe``), so
+    ``path.name`` may be EITHER form. The manifest now carries BOTH
+    forms as aliases (with the same sha256), so the direct lookup
+    succeeds either way. As a defensive fallback, if the direct lookup
+    misses (or hits an empty sha256 entry), this function also tries
+    the equivalent name (legacy <-> arch-suffixed x86_64) via
+    :func:`_equivalent_manifest_names`. This keeps verification working
+    even if a future manifest drops one form. aarch64 arch-suffixed
+    names have NO legacy equivalent (aarch64 builds are new in ),
+    so they only match their own manifest entry.
     """
     manifest = load_binary_manifest()
     if manifest is None:
         return None
-    entry = manifest.get("binaries", {}).get(binary_name)
-    if not isinstance(entry, dict):
+    binaries = manifest.get("binaries", {})
+    if not isinstance(binaries, dict):
         return None
-    sha = entry.get("sha256", "")
-    if not isinstance(sha, str) or not sha:
-        return None
-    return sha.strip().lower()
+    # try the direct name first, then equivalent names (legacy
+    # <-> arch-suffixed x86_64). The first entry with a non-empty
+    # sha256 wins; entries with empty sha256 are skipped (so a future
+    # manifest that populates only one form still verifies correctly).
+    for candidate_name in _equivalent_manifest_names(binary_name):
+        entry = binaries.get(candidate_name)
+        if not isinstance(entry, dict):
+            continue
+        sha = entry.get("sha256", "")
+        if isinstance(sha, str) and sha:
+            return sha.strip().lower()
+    return None
 
 
 def verify_native_binary(path: Path, expected_sha256: str) -> bool:
@@ -430,7 +513,7 @@ def verify_native_binary(path: Path, expected_sha256: str) -> bool:
 
 
 def _is_trusted_path_override() -> bool:
-    """G4-L-09 + G4-H-34: Return True only when BOTH conditions hold:
+    """+ : Return True only when BOTH conditions hold:
 
       1. The user has explicitly set the trusted-path confirmation env
          var ``VOICE_TYPER_NATIVE_TRUST=1``. This is a paired
@@ -441,7 +524,7 @@ def _is_trusted_path_override() -> bool:
       2. The user has set ``VOICE_TYPER_NATIVE_BINARY`` OR
          ``VOICE_TYPER_NATIVE_DIR`` (the actual override path/dir).
 
-    The bypass is logged at WARNING (G4-L-09 — previously DEBUG which
+    The bypass is logged at WARNING ( — previously DEBUG which
     was invisible at default log levels, making the silent checksum
     bypass unauditable in production).
     """
@@ -453,13 +536,13 @@ def _is_trusted_path_override() -> bool:
 
 
 def _env_specified_paths() -> list[Path]:
-    """G4-H-34: Return the list of paths the user explicitly trust-listed
+    """Return the list of paths the user explicitly trust-listed
     via ``VOICE_TYPER_NATIVE_BINARY`` / ``VOICE_TYPER_NATIVE_DIR``.
 
     Used by :func:`verify_native_binary_or_skip` to confirm that the
     discovered binary actually lives under an env-specified location
     (rather than being discovered via fallback search after the env
-    override was set). This closes the G4-H-34 hole where setting
+    override was set). This closes the  hole where setting
     ``VOICE_TYPER_NATIVE_BINARY=/nonexistent`` disabled verification
     for ANY binary found via fallback search.
 
@@ -476,7 +559,7 @@ def _env_specified_paths() -> list[Path]:
 
 
 def _path_matches_env_override(path: Path) -> bool:
-    """G4-H-34: Return True if ``path`` equals or lives under one of the
+    """Return True if ``path`` equals or lives under one of the
     env-specified paths from :func:`_env_specified_paths`.
 
     The check is path-prefix-based: a discovered path
@@ -515,14 +598,14 @@ def _path_matches_env_override(path: Path) -> bool:
 
 
 def verify_native_binary_or_skip(path: Path) -> bool:
-    # G4-L-09 + G4-H-34: trusted-path override now requires BOTH:
+    #  + : trusted-path override now requires BOTH:
     #   1. ``VOICE_TYPER_NATIVE_TRUST=1`` (paired confirmation env var).
     #   2. The discovered ``path`` actually lives under (or equals) one
     #      of the env-specified paths. Setting the env vars alone no
     #      longer disables verification for binaries discovered via
     #      fallback search.
     if _is_trusted_path_override() and _path_matches_env_override(path):
-        # G4-L-09: elevated from DEBUG to WARNING so the bypass is
+        # elevated from DEBUG to WARNING so the bypass is
         # auditable at default log levels. The bypass is a security-
         # relevant event — operators SHOULD see it in the log without
         # having to enable DEBUG logging.
@@ -535,14 +618,14 @@ def verify_native_binary_or_skip(path: Path) -> bool:
         return True
     expected = get_expected_sha256(path.name)
     if expected is None:
-        # CR-002: FAIL CLOSED. Previously this branch silently trusted
+        # FAIL CLOSED. Previously this branch silently trusted
         # the binary (returned True with a debug log) whenever the
         # manifest entry was missing OR had an empty sha256. That made
         # the entire SHA-256 gate a no-op in any environment where the
         # manifest wasn't perfectly populated (e.g. dev trees without
         # cross-compiled Windows/macOS binaries, CI builds that hadn't
         # yet run scripts/build/update_native_manifests.py, or — as the
-        # CR-002 reviewer found — pre-CR-002 manifests keyed by the
+        #  reviewer found — pre- manifests keyed by the
         # legacy non-suffixed names while the build emitted
         # arch-suffixed names). A tampered binary could bypass
         # verification simply by being named something the manifest

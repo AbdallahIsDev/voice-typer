@@ -55,7 +55,7 @@ class WaveformBubble:
         #   "idle" — hide everything (bubble visible but showing nothing)
         self.on_set_state: Callable[[str], None] | None = None
 
-        # UX-10: `on_config` is called with the app Config when the bubble
+        # `on_config` is called with the app Config when the bubble
         # should learn its relevant settings (e.g. whether to show the mic
         # button). The bubble renderer is sandboxed and receives no
         # get_config, so this is how it gets bubble_behavior /
@@ -146,24 +146,24 @@ class WaveformBubble:
     def update_level(self, rms: float, peak: float = 0.0, audio_chunk=None) -> None:
         """Push a new RMS/peak sample to subscribers.
 
-        The ``rms`` value is typically in ``[0, ~0.3]`` for speech and
-        ``0.0`` for silence.  ``peak`` is the per-chunk absolute max in
-        ``[0, 1.0]`` and is used by the renderer to spike the waveform
-        on transients.
+                The ``rms`` value is typically in ``[0, ~0.3]`` for speech and
+                ``0.0`` for silence.  ``peak`` is the per-chunk absolute max in
+                ``[0, 1.0]`` and is used by the renderer to spike the waveform
+                on transients.
 
-        BUBBLE-FIX-4.1: the previous VAD gate (T021) called
-        ``compute_vad_prob(audio_chunk)`` with the device's native
-        sample-rate audio (often 44.1/48 kHz) but ``compute_vad_prob``
-        assumes 16 kHz.  Silero VAD then received an 11 ms slice
-        interpreted as 32 ms, systematically biasing probabilities low
-        and collapsing the bars on most chunks.  The VAD gate is
-        cosmetic (the renderer's attack/release smoothing already
-        handles ambient noise), so we disable it entirely and rely on
-        the RMS-only path below.  This is simpler and more robust than
-        resampling on the audio thread, and removes a torch dependency
-        from the visualizer critical path.
+        BUBBLE-: the previous VAD gate (T021) called
+                ``compute_vad_prob(audio_chunk)`` with the device's native
+                sample-rate audio (often 44.1/48 kHz) but ``compute_vad_prob``
+                assumes 16 kHz.  Silero VAD then received an 11 ms slice
+                interpreted as 32 ms, systematically biasing probabilities low
+                and collapsing the bars on most chunks.  The VAD gate is
+                cosmetic (the renderer's attack/release smoothing already
+                handles ambient noise), so we disable it entirely and rely on
+                the RMS-only path below.  This is simpler and more robust than
+                resampling on the audio thread, and removes a torch dependency
+                from the visualizer critical path.
         """
-        # VAD gate intentionally removed (BUBBLE-FIX-4.1).  See docstring.
+        # VAD gate intentionally removed (BUBBLE-).  See docstring.
         del audio_chunk  # accepted for backward-compat with callers
 
         with self._lock:

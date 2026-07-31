@@ -1,6 +1,6 @@
 """Config IPC handler mixin: get_config, get_defaults, set_config.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
@@ -13,7 +13,7 @@ from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _error_response  # noqa: F401
 
-# DE-37: module-level "warned once" flag for the missing
+# module-level "warned once" flag for the missing
 # ``_config_mutation_lock`` case. The handler runs on every ``set_config``
 # IPC call, but the absence of the lock only happens on test fakes (real
 # AppProtocol always provides it). A WARNING per process is enough to
@@ -24,34 +24,34 @@ _CONFIG_LOCK_MISSING_WARNED: bool = False
 class ConfigHandlersMixin(HandlerBase):
     """Mixin: config-related IPC handlers (get_config / get_defaults / set_config).
 
-    CR-20 / G4-CR-09: this mixin's ``except Exception`` catch-alls call
-    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
-    no ``str(e)`` leak). Inline per-command validation errors route
-    through :func:`_error_response` with an explicit ``code`` field
-    (PVT-G5-071).
+    this mixin's ``except Exception`` catch-alls call
+        :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+        no ``str(e)`` leak). Inline per-command validation errors route
+        through :func:`_error_response` with an explicit ``code`` field
+    ().
 
-    G4-H-14: ``_handle_set_config`` acquires ``_config_mutation_lock``
-    ONCE at the handler level and holds it across ``change_model`` +
-    ``set_active_backend`` + ``apply_config`` so concurrent IPC
-    ``set_config`` calls can't interleave attribute writes between
-    the three operations.
+    ``_handle_set_config`` acquires ``_config_mutation_lock``
+        ONCE at the handler level and holds it across ``change_model`` +
+        ``set_active_backend`` + ``apply_config`` so concurrent IPC
+        ``set_config`` calls can't interleave attribute writes between
+        the three operations.
 
-    G4-M-20: surface ``change_model`` / ``set_active_backend`` failures
-    via a partial-success envelope in the response data
-    (``data.model_errors``) instead of swallowing them.
+    surface ``change_model`` / ``set_active_backend`` failures
+        via a partial-success envelope in the response data
+        (``data.model_errors``) instead of swallowing them.
 
-    DE-6: when ``change_model`` / ``set_active_backend`` raises, the
-    failed key is dropped from the dict passed to ``apply_config`` AND
-    from the ``applied`` list echoed back to the renderer — otherwise
-    the failed model/backend value would be persisted to disk via
-    ``apply_config`` AND reported as "applied" in the partial-success
-    envelope, contradicting the ``model_errors`` entry. The dropped
-    key is also excluded from the ``config_changed`` event so the
-    renderer doesn't apply the stale value to its local config mirror.
+    when ``change_model`` / ``set_active_backend`` raises, the
+        failed key is dropped from the dict passed to ``apply_config`` AND
+        from the ``applied`` list echoed back to the renderer — otherwise
+        the failed model/backend value would be persisted to disk via
+        ``apply_config`` AND reported as "applied" in the partial-success
+        envelope, contradicting the ``model_errors`` entry. The dropped
+        key is also excluded from the ``config_changed`` event so the
+        renderer doesn't apply the stale value to its local config mirror.
 
-    DE-37: when ``self.app._config_mutation_lock`` is missing (test
-    fakes / misconfigured host), the handler logs a WARNING once per
-    process instead of silently falling back to lock-free execution.
+    when ``self.app._config_mutation_lock`` is missing (test
+        fakes / misconfigured host), the handler logs a WARNING once per
+        process instead of silently falling back to lock-free execution.
     """
 
     def _handle_get_config(self, data: dict | None, resp: dict) -> dict | None:
@@ -70,7 +70,7 @@ class ConfigHandlersMixin(HandlerBase):
 
     def _handle_get_defaults(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_defaults`` IPC command."""
-        # UX-018: return the default Config() values so the
+        # return the default Config() values so the
         # renderer's "Reset to Defaults" button doesn't have to
         # hardcode 22+ field defaults (which silently drift from
         # the Python Config dataclass).  The renderer calls this
@@ -79,20 +79,20 @@ class ConfigHandlersMixin(HandlerBase):
             resp["type"] = "defaults"
             resp["data"] = self.service.get_defaults()
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_defaults")
         return resp
 
     def _handle_set_config(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_config`` IPC command."""
         try:
-            # NEW-IPC-005: reject non-dict data with an explicit error
+            # reject non-dict data with an explicit error
             # instead of silently no-oping. Previously, if data was a
             # list/string/None, the isinstance guard skipped all
             # setattr + side-effect blocks but still returned
             # {type: "ack"} success — the worst IPC failure mode.
             if not isinstance(data, dict):
-                # PVT-G5-071: route the inline validation error through
+                # route the inline validation error through
                 # ``_error_response`` so the envelope carries the
                 # structured ``code: "invalid_payload"`` field (clients
                 # branching on ``code`` can distinguish this from a
@@ -111,13 +111,13 @@ class ConfigHandlersMixin(HandlerBase):
             # the renderer can surface the rejection.
             validated, errors = validate_config_update(data)
             if errors:
-                # PVT-G5-071: ``validate_config_update`` returns
+                # ``validate_config_update`` returns
                 # human-readable error strings (e.g. "model_size must
                 # be one of …"). Stamp them with ``invalid_field`` so
                 # the renderer can branch on the code rather than
                 # pattern-matching the message text.
                 log.warning("[IPC] set_config rejected: %s", "; ".join(errors))
-                # FR-22: ``validate_config_update`` was changed (CR-25)
+                # ``validate_config_update`` was changed ()
                 # to accumulate ALL field errors instead of stopping at
                 # the first. The handler previously threw away the
                 # extra context — only ``errors[0]`` was returned in
@@ -141,19 +141,19 @@ class ConfigHandlersMixin(HandlerBase):
                     "errors": list(errors),
                 }
                 return resp
-            # NEW-IPC-015: echo accepted + rejected keys so the
+            # echo accepted + rejected keys so the
             # renderer can show the user which fields were applied
             # and which were silently dropped (unknown keys).
             accepted_keys = list(validated.keys())
             rejected_keys = [k for k in data if k not in validated]
-            # NEW-IPC-016: when model_size or asr_backend changes,
+            # when model_size or asr_backend changes,
             # apply it to the active engine so the next dictation
             # uses the new model without requiring a restart.
             # ADR 0008 §3.1: route through the service layer rather
             # than calling ``self.app.change_model()`` /
             # ``self.app.models.set_active_backend()`` directly.
             #
-            # G4-H-14: acquire ``_config_mutation_lock`` ONCE at the
+            # acquire ``_config_mutation_lock`` ONCE at the
             # handler level and hold it across ``change_model`` +
             # ``set_active_backend`` + ``apply_config`` so concurrent
             # IPC ``set_config`` calls can't interleave attribute
@@ -163,7 +163,7 @@ class ConfigHandlersMixin(HandlerBase):
             # don't expose the attribute, we fall back to a no-op
             # context manager.
             #
-            # G4-M-20: surface ``change_model`` / ``set_active_backend``
+            # surface ``change_model`` / ``set_active_backend``
             # failures via a partial-success envelope in the response
             # data (``data.model_errors``) instead of swallowing them.
             # The response type stays ``ack`` so the renderer continues
@@ -171,7 +171,7 @@ class ConfigHandlersMixin(HandlerBase):
             # failed. Errors are logged at ERROR with ``exc_info=True``.
             model_errors: list[dict] = []
             applied: list[str] = []
-            # AB-10: ``change_model`` / ``set_active_backend`` now return
+            # ``change_model`` / ``set_active_backend`` now return
             # immediately (the heavy load runs in a background daemon
             # thread). Capture the ack dicts here so the response can
             # surface a "loading" status to the renderer — the renderer
@@ -180,7 +180,7 @@ class ConfigHandlersMixin(HandlerBase):
             # Without this field the renderer would see ``ack`` and
             # assume the model is ready immediately.
             model_loading: list[dict] = []
-            # DE-6: track which keys failed their model/backend swap so
+            # track which keys failed their model/backend swap so
             # we can DROP them from the dict passed to ``apply_config``
             # (otherwise the failed model value gets persisted to disk)
             # and from the ``applied`` list echoed to the renderer
@@ -200,7 +200,7 @@ class ConfigHandlersMixin(HandlerBase):
             # and migrate this call site to use it.
             app_ref = self.app
             config_lock = getattr(app_ref, "_config_mutation_lock", None)
-            # DE-37: surface the missing-lock fallback at WARNING once
+            # surface the missing-lock fallback at WARNING once
             # per process instead of silently running lock-free. The
             # fallback path is preserved (test fakes / misconfigured
             # hosts still work), but operators get a one-shot signal
@@ -221,7 +221,7 @@ class ConfigHandlersMixin(HandlerBase):
                 if "model_size" in validated and validated["model_size"] != getattr(
                     self.app.config, "model_size", None
                 ):
-                    # AB-10: capture the OLD values BEFORE the call —
+                    # capture the OLD values BEFORE the call —
                     # ``change_model`` now spawns a background thread
                     # that mutates config asynchronously, so reading
                     # AFTER the call would race with the background
@@ -231,7 +231,7 @@ class ConfigHandlersMixin(HandlerBase):
                     try:
                         self.service.change_model(validated["model_size"])
                         applied.append("model_size")
-                        # AB-10: surface the "loading" status so the
+                        # surface the "loading" status so the
                         # renderer shows a spinner and listens for the
                         # ``asr_backend_ready`` event (published by the
                         # background thread on completion).
@@ -247,8 +247,8 @@ class ConfigHandlersMixin(HandlerBase):
                             }
                         )
                     except Exception as e:
-                        # G4-M-20: log at ERROR with exc_info + surface
-                        # partial-success envelope. CR-76: include the
+                        # log at ERROR with exc_info + surface
+                        # partial-success envelope. : include the
                         # operation input in the log so operators can
                         # see which model_size failed without having to
                         # cross-reference the IPC payload. The full
@@ -273,7 +273,7 @@ class ConfigHandlersMixin(HandlerBase):
                                 "value": validated["model_size"],
                             }
                         )
-                        # DE-6: drop the failed key from the persist set
+                        # drop the failed key from the persist set
                         # so apply_config doesn't write the broken value
                         # to disk, and so the ``applied`` list below
                         # doesn't claim it succeeded.
@@ -281,14 +281,14 @@ class ConfigHandlersMixin(HandlerBase):
                 if "asr_backend" in validated and validated["asr_backend"] != getattr(
                     self.app.config, "asr_backend", None
                 ):
-                    # AB-10: capture the OLD backend BEFORE the call
+                    # capture the OLD backend BEFORE the call
                     # (see the model_size branch above for rationale).
                     old_backend = getattr(self.app.config, "asr_backend", None)
                     old_model_size = getattr(self.app.config, "model_size", None)
                     try:
                         self.service.set_active_backend(validated["asr_backend"])
                         applied.append("asr_backend")
-                        # AB-10: surface the "loading" status (see above).
+                        # surface the "loading" status (see above).
                         model_loading.append(
                             {
                                 "field": "asr_backend",
@@ -301,7 +301,7 @@ class ConfigHandlersMixin(HandlerBase):
                             }
                         )
                     except Exception as e:
-                        # G4-M-20: same partial-success pattern as above.
+                        # same partial-success pattern as above.
                         # str(e) is logged server-side but not sent to
                         # the renderer (see the change_model branch
                         # above for the rationale).
@@ -318,10 +318,10 @@ class ConfigHandlersMixin(HandlerBase):
                                 "value": validated["asr_backend"],
                             }
                         )
-                        # DE-6: same rationale as the model_size branch.
+                        # same rationale as the model_size branch.
                         failed_keys.add("asr_backend")
                 # Apply only allowlisted, validated values.
-                # RACE-011 + AUDIO-PRESET-SAVE-FIX + ARCH-043:
+                # RACE-011 + AUDIO-PRESET-SAVE-FIX + :
                 # ``service.apply_config`` holds the app's config-mutation
                 # lock for the full setattr + side-effects + save sequence
                 # so concurrent set_config IPC calls can't interleave, and
@@ -330,14 +330,14 @@ class ConfigHandlersMixin(HandlerBase):
                 # invalidates the tray menu cache so the next menu build
                 # picks up the new config values.
                 #
-                # G4-H-14: the lock acquired above is an RLock, so
+                # the lock acquired above is an RLock, so
                 # ``apply_config``'s internal re-acquire is a no-op
                 # (it doesn't deadlock). The handler-level acquisition
                 # ensures the three operations (change_model,
                 # set_active_backend, apply_config) see a consistent
                 # config snapshot across the entire handler body.
                 #
-                # DE-6: build ``to_persist`` excluding failed keys so a
+                # build ``to_persist`` excluding failed keys so a
                 # ``change_model`` / ``set_active_backend`` failure
                 # doesn't get persisted to disk via ``apply_config``.
                 # The previous code passed ``validated`` verbatim, which
@@ -347,12 +347,12 @@ class ConfigHandlersMixin(HandlerBase):
                 # refused to load.
                 to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
                 self.service.apply_config(to_persist)
-                # DE-6: build the ``applied`` echo list from
+                # build the ``applied`` echo list from
                 # ``to_persist`` (not ``validated``) so the
                 # partial-success envelope doesn't claim a failed key
                 # was applied.
                 applied.extend(k for k in to_persist if k not in applied)
-            # ARCH-007: also invalidate the tray models submenu's
+            # also invalidate the tray models submenu's
             # HF download cache so the next right-click reflects the
             # current model download/active state immediately (rather
             # than waiting for the 5-second TTL).
@@ -374,7 +374,7 @@ class ConfigHandlersMixin(HandlerBase):
             # The event carries the validated updates so the
             # renderer doesn't need an extra get_config round-trip.
             #
-            # DE-6: publish ``to_persist`` (not ``validated``) so the
+            # publish ``to_persist`` (not ``validated``) so the
             # renderer doesn't mirror a failed model/backend value into
             # its local config state — that would leave the renderer's
             # UI showing e.g. "model: medium" while the running engine
@@ -389,7 +389,7 @@ class ConfigHandlersMixin(HandlerBase):
             except Exception:
                 log.debug("[IPC] config_changed push failed", exc_info=True)
 
-            # UX-10: if the bubble-relevant settings changed (bubble_behavior
+            # if the bubble-relevant settings changed (bubble_behavior
             # / bubble_click_to_toggle / bubble_mic_button), push a dedicated
             # `bubble_config` event so the sandboxed bubble renderer (which
             # has no get_config) learns whether to show its mic button.
@@ -402,7 +402,7 @@ class ConfigHandlersMixin(HandlerBase):
                 )
             ):
                 try:
-                    # DR-51 (S5-CR-26): delegate to the public
+                    # (): delegate to the public
                     # ``app.push_bubble_config`` method on
                     # :class:`AppProtocol` instead of the prior
                     # ``getattr(self.app, "_waveform_bubble", None)``
@@ -412,14 +412,14 @@ class ConfigHandlersMixin(HandlerBase):
                     log.debug("[IPC] bubble_config push failed", exc_info=True)
 
             resp["type"] = "ack"
-            # NEW-IPC-015: echo accepted + rejected keys so the
+            # echo accepted + rejected keys so the
             # renderer can show the user which fields were applied
             # and which were silently dropped (unknown keys).
             # Only include data when there are rejected keys, so
             # the common case (all keys accepted) returns a plain
             # {type: "ack"} matching existing callers.
             #
-            # G4-M-20: also include ``data.model_errors`` +
+            # also include ``data.model_errors`` +
             # ``data.applied`` when ``change_model`` /
             # ``set_active_backend`` failed, so the renderer can
             # surface a "model switch failed — other settings
@@ -433,7 +433,7 @@ class ConfigHandlersMixin(HandlerBase):
                 response_data["model_errors"] = model_errors
                 response_data["applied"] = applied
             if model_loading:
-                # AB-10: surface the "loading" status so the renderer
+                # surface the "loading" status so the renderer
                 # shows a spinner and listens for the
                 # ``asr_backend_ready`` event (published by the
                 # background thread on completion). Without this field
@@ -443,14 +443,14 @@ class ConfigHandlersMixin(HandlerBase):
             if response_data:
                 resp["data"] = response_data
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             #
             # NOTE: the per-command validation errors above (non-dict
             # payload rejection, ``validate_config_update`` failures)
             # use explicit envelopes with structured ``code`` fields
             # the renderer switches on — they are NOT routed through
             # this catch-all because they carry field-level context
-            # the generic envelope cannot represent. The G4-M-20
+            # the generic envelope cannot represent. The
             # partial-success ``model_errors`` envelope is also NOT
             # routed through here — it's part of the success-path
             # ``ack`` response, not an error path.

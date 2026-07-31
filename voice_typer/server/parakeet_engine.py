@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 class TranscriptionBackendError(RuntimeError):
     """Raised when the ASR backend cannot produce a transcription.
 
-    ERR-007: ``transcribe_with_fallback`` previously returned ``""`` on
+    ``transcribe_with_fallback`` previously returned ``""`` on
     CPU fallback failure, which the caller could not distinguish from a
     legitimate "no speech detected" result — the user saw "No speech
     detected" and assumed the microphone was broken. We now raise this
@@ -66,7 +66,7 @@ def _is_likely_english(text: str) -> bool:
     non_latin = sum(1 for ch in text if not _is_latin_char(ch))
     ratio = non_latin / len(text)
     if ratio > _NON_LATIN_RATIO_LIMIT:
-        # SEC-009: Use PII-safe logging helper for hallucination text
+        # Use PII-safe logging helper for hallucination text
         log_hallucination_rejection(
             "[PARAKEET]",
             text,
@@ -79,7 +79,7 @@ def _is_likely_english(text: str) -> bool:
 
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
-# PW-4: approximate model weight size in MB for MB/s read-speed logging.
+# approximate model weight size in MB for MB/s read-speed logging.
 # The model.safetensors file is ~2.4 GB on disk.
 _PARAKERT_WEIGHTS_MB = 2400
 
@@ -131,7 +131,7 @@ _PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "
 _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
-# NEW-CQ-030 / RW-T1: Maximum words to skip at a chunk boundary.
+#  Maximum words to skip at a chunk boundary.
 
 # Previously the merge step used ``skip = int(len(words) * 0.12)`` which
 # silently dropped words at every boundary — for a 25-word chunk that's
@@ -141,7 +141,7 @@ _CHUNK_OVERLAP_SECONDS = 3
 # AND only after we've checked for an actual word-level overlap with the
 # previous chunk's tail (see ``_merge_chunks``).
 
-# RW-T1 (2025): the previous "allowance" of 1 word per boundary even when
+#  (2025): the previous "allowance" of 1 word per boundary even when
 # no overlap was detected silently dropped up to 14 legitimate words per
 # 5-minute recording (one per chunk boundary).  The allowance is now 0 —
 # boundary hallucinations like "Thanks." at chunk starts are already
@@ -157,11 +157,11 @@ _OVERLAP_DEDUP_WINDOW = 3
 def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
     """Cache cleanup: best-effort delete a tampered HF cache dir.
 
-    EC-FIX-8: this local helper now delegates to the canonical
+    this local helper now delegates to the canonical
     ``voice_typer.server.asr_utils.cleanup_hf_cache_dir`` so the
     cleanup logic lives in one place (previously the same body was
     duplicated 3x across ``transcription.py``,
-    ``asr_setup.py``, and here — EC-17 finding #2).
+    ``asr_setup.py``, and here —  finding #2).
 
     The ``model_dir`` argument is preserved for backward compatibility
     with the existing call site in ``ParakeetEngine.load()`` (which
@@ -192,7 +192,7 @@ class ParakeetEngine:
     """
 
     # Cache these class-level so they're imported ONCE, not per instance.
-    # TASK-10: typed as ``Any`` so pyrefly can follow the .cuda /
+    # typed as ``Any`` so pyrefly can follow the .cuda
     # .from_pretrained / .float16 / .generate / .decode accesses after
     # ``_ensure_imports()`` populates them at runtime. The class attrs
     # are populated lazily because torch / transformers are optional
@@ -220,7 +220,7 @@ class ParakeetEngine:
         # enforced in production; tests can omit it to exercise the
         # cache-hit / already-loaded fast paths.
         self.config = config
-        # TASK-10: instance-level model handles are populated by load()
+        # instance-level model handles are populated by load()
         # and read by transcribe(). Typed as Any so attribute accesses
         # (.device, .dtype, .generate, .decode) type-check without
         # forcing every call site to repeat the None-narrowing guard
@@ -234,7 +234,7 @@ class ParakeetEngine:
         # driver / freed VRAM in the meantime).
         self._cpu_fallback_notified: bool = False
         self._lock = threading.RLock()
-        # XV-66: counter + Condition so transcribe() can release the model
+        # counter + Condition so transcribe() can release the model
         # lock during the (potentially long) chunk-inference loop while
         # still coordinating with unload(). unload() waits for
         # ``_active_inference == 0`` before nulling ``self._model`` so a
@@ -291,7 +291,7 @@ class ParakeetEngine:
             _torch_s = time.perf_counter() - _t0
             log.info("[PARAKEET] torch imported (%.2fs)", _torch_s)
 
-            # TASK-14: ``AutoModelForTDT`` was added to transformers in
+            # ``AutoModelForTDT`` was added to transformers in
             # 4.50 (our pyproject floor).  The venv on this runner has
             # 4.44, so a static ``from transformers import AutoModelForTDT``
             # trips pyrefly's missing-module-attribute even though the
@@ -325,7 +325,7 @@ class ParakeetEngine:
     def _inference_mode_ctx(self) -> Any:
         """Return a context manager that wraps torch.inference_mode().
 
-        AB-11: model.generate() was previously called WITHOUT an
+        model.generate() was previously called WITHOUT an
         inference-mode context, which meant PyTorch built and retained
         the autograd graph for every call. For a 25 s chunk on CUDA
         this roughly DOUBLED activation-memory footprint (increasing
@@ -381,7 +381,7 @@ class ParakeetEngine:
     @staticmethod
     def _is_cached() -> bool:
         """Quick check if model is in HF cache without calling snapshot_download."""
-        # NEW-DEAD-027: use config._config_dir() directly instead of
+        # use config._config_dir() directly instead of
         # the removed asr_setup._config_dir() cache wrapper.
         from voice_typer.server.config import _config_dir
 
@@ -491,10 +491,10 @@ class ParakeetEngine:
                     )
                     if progress_callback:
                         progress_callback("HuggingFace consent required before downloading Parakeet model.")
-                    # EC-FIX-8: import ConsentRequiredError from the
+                    # import ConsentRequiredError from the
                     # canonical ``asr_errors`` module (previously
-                    # imported from ``cloud_engines`` — EC-30 finding
-                    # #12 / EC-B4: local engines should not depend on
+                    # imported from ``cloud_engines`` —  finding
+                    # #12: local engines should not depend on
                     # the cloud-engines module just for a 5-line
                     # exception class).
                     from voice_typer.server.asr_errors import ConsentRequiredError
@@ -510,7 +510,7 @@ class ParakeetEngine:
                         progress_callback("Downloading Parakeet model files...")
                     log.info("[PARAKEET] Downloading model files...")
 
-                    # XV-68: wrap snapshot_download in a retry loop with
+                    # wrap snapshot_download in a retry loop with
                     # exponential backoff. HuggingFace's CDN and the HF Hub
                     # rate-limiter intermittently drop connections on large
                     # (~2.5 GB) downloads — without retry, a single transient
@@ -570,7 +570,7 @@ class ParakeetEngine:
             # offending ``models--<repo>`` directory so the next
             # ``load()`` doesn't re-discover the tampered snapshot.
 
-            # EC-FIX-8 (EC-B4): call ``security.verify_model_integrity``
+            #  (): call ``security.verify_model_integrity``
             # directly with the canonical (local_dir, repo_id) argument
             # order.  Previously this went through the
             # ``asr_setup._verify_model_integrity`` wrapper which had a
@@ -639,7 +639,7 @@ class ParakeetEngine:
                 if effective_device == "cuda" and self._should_force_cpu():
                     effective_device = "cpu"
 
-                # PW-4: time from_pretrained() calls to measure prewarm
+                # time from_pretrained() calls to measure prewarm
                 # cache-hit effectiveness.  <5s suggests OS page-cache
                 # hit (warm), >=5s suggests cold disk read.
                 _load_start = time.perf_counter()
@@ -670,7 +670,7 @@ class ParakeetEngine:
                     except Exception as cuda_exc:
                         err_str = str(cuda_exc).lower()
                         if effective_device == "cuda" and ("1455" in err_str or "paging file" in err_str):
-                            # S5-CR-41: include exc_info=True so the CUDA
+                            # include exc_info=True so the CUDA
                             # allocation traceback is captured for debugging
                             # (previously the ``%s`` interpolation lost the
                             # traceback, leaving only the exception's str()).
@@ -694,9 +694,9 @@ class ParakeetEngine:
                             raise
 
                 _total_elapsed = time.perf_counter() - _load_start
-                # PW-4: classify load as "warm (page-cache)" if under 5s,
+                # classify load as "warm (page-cache)" if under 5s,
                 # "cold (disk)" otherwise.
-                # PW-4: approximate weights read speed from the known
+                # approximate weights read speed from the known
                 # model file size (~2.4 GB for model.safetensors).
                 _read_speed_mbs = _PARAKERT_WEIGHTS_MB / max(_model_elapsed, 0.1)
                 _warm_label = "warm (page-cache)" if _total_elapsed < 5.0 else "cold (disk)"
@@ -739,7 +739,7 @@ class ParakeetEngine:
         When provided, the engine skips its own RMS computation in
         hallucination detection.
 
-        XV-66: the lock is released during the chunk-inference loop.
+        the lock is released during the chunk-inference loop.
         Previously the entire 13-chunk loop ran under ``self._lock``,
         blocking ``is_loaded`` / ``unload`` / parallel transcribes for
         ~13s per long dictation. We now acquire the lock only briefly
@@ -785,7 +785,7 @@ class ParakeetEngine:
         ``(rms, peak, silence_pct)`` tuple. When provided, the
         engine skips its own RMS computation in hallucination detection.
 
-        HIGH-18 / PERF-REL-1: this method no longer catches ``Exception``
+         PERF-REL-1: this method no longer catches ``Exception``
         and returns ``""``.  The previous broad ``except`` swallowed
         CUDA errors (cublas, cudnn, OOM) so ``transcribe_with_fallback``
         received ``""`` — indistinguishable from a legitimate "no speech
@@ -800,14 +800,14 @@ class ParakeetEngine:
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # RW-T1: do NOT pass max_new_tokens — the previous cap of 256
+        # do NOT pass max_new_tokens — the previous cap of 256
         # silently truncated dense 25s chunks (Parakeet TDT emits
         # ~5-12 tokens/sec including duration tokens; dense speech at
         # 200+ WPM can need 250-300+ tokens).  Let the model use its
         # default ``generation_config.max_length`` (4096 for Parakeet
         # TDT v3) and emit EOS when speech ends — same as Whisper.
         #
-        # AB-11: wrap generate() in torch.inference_mode() to skip
+        # wrap generate() in torch.inference_mode() to skip
         # autograd-graph construction. See _inference_mode_ctx.
         #
         # Abort wiring: ``_AbortStoppingCriteria`` is checked between
@@ -838,7 +838,7 @@ class ParakeetEngine:
         # PERF-STATS: reuse pre-computed RMS when provided
         rms = audio_stats[0] if audio_stats is not None else float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
-            # SEC-009: Use PII-safe logging helper instead of raw text
+            # Use PII-safe logging helper instead of raw text
             log_hallucination_rejection(
                 "[PARAKEET]",
                 text,
@@ -865,7 +865,7 @@ class ParakeetEngine:
             start += step
         return chunks
 
-    # XV-67: batch 2-4 chunks per ``processor()`` + ``generate()`` call.
+    # batch 2-4 chunks per ``processor()`` + ``generate()`` call.
     # Default batch size is 1 (sequential) so the existing test contract
     # that pins ``mock_model.generate.call_count == 2`` for a 2-chunk
     # transcription keeps passing. Operators who want the batching
@@ -877,7 +877,7 @@ class ParakeetEngine:
     def _transcribe_chunks_batched(self, chunks: list[np.ndarray]) -> list[str]:
         """Transcribe ``chunks`` in batches, falling back to sequential on OOM.
 
-        XV-67: ``processor()`` and ``model.generate()`` both accept a
+        ``processor()`` and ``model.generate()`` both accept a
         list of audio arrays as a batch. When ``_INFERENCE_BATCH_SIZE``
         is 1 (default), this method is strictly sequential and preserves
         the historical call-count contract pinned by
@@ -888,7 +888,7 @@ class ParakeetEngine:
         sequential inference for the remaining chunks so the user still
         gets a transcription.
 
-        XV-66: callers must have already incremented
+        callers must have already incremented
         ``_active_inference`` (via :py:meth:`transcribe`); this method
         does NOT touch the counter.
         """
@@ -951,7 +951,7 @@ class ParakeetEngine:
             except Exception as exc:
                 err_str = str(exc).lower()
                 if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
-                    # S5-CR-41: include exc_info=True so the OOM
+                    # include exc_info=True so the OOM
                     # traceback is captured for debugging (previously
                     # the ``%s`` interpolation lost the traceback).
                     log.warning(
@@ -976,7 +976,7 @@ class ParakeetEngine:
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # AB-11: wrap generate() in torch.inference_mode() to skip
+        # wrap generate() in torch.inference_mode() to skip
         # autograd-graph construction. See _inference_mode_ctx.
         # Abort wiring: same ``_AbortStoppingCriteria`` as the
         # single-segment path — see ``_transcribe_segment``.
@@ -1026,7 +1026,7 @@ class ParakeetEngine:
         in the new chunk, those leading words duplicate the previous
         chunk's tail and must be skipped.
 
-        NEW-CQ-030 / RW-T1: The old implementation used a fixed ratio
+         The old implementation used a fixed ratio
         ``skip = int(len(words) * 0.12)`` which dropped words at every
         boundary regardless of whether they were actually overlap
         duplicates — for a 25-word chunk that's 3 dropped words.  This
@@ -1041,7 +1041,7 @@ class ParakeetEngine:
         2. Find the longest leading run of the new chunk whose words
            also appear (in order) in the previous chunk's tail window.
            That run is a true overlap duplicate and is skipped.
-        3. RW-T1: If no overlap duplicate is detected, return 0 — do
+        3. : If no overlap duplicate is detected, return 0 — do
            NOT drop legitimate words.  The previous "allowance" of 1
            word per boundary silently dropped up to 14 words per
            5-minute recording (one per chunk boundary) even when the
@@ -1145,7 +1145,7 @@ class ParakeetEngine:
             TranscriptionBackendError: if both the GPU path and the CPU
                 fallback fail. Previously returned ``""``, which the
                 caller could not distinguish from a legitimate "no
-                speech detected" result (ERR-007).
+                speech detected" result ().
         """
         with self._lock:
             if self._model is None or self._processor is None:
@@ -1163,14 +1163,14 @@ class ParakeetEngine:
                 # traceback is captured for debugging.
                 log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
                 try:
-                    # HIGH-18 / PERF-REL-1: pin dtype=float32 when
+                    #  PERF-REL-1: pin dtype=float32 when
                     # moving the model to CPU.  The previous bare
                     # ``self._model.to("cpu")`` left the dtype as
                     # float16 (set during GPU load) — float16 kernels
                     # are unsupported or pathologically slow on CPU,
                     # so the "fallback" was effectively unusable.
 
-                    # XV-66: acquire the lock only long enough to move
+                    # acquire the lock only long enough to move
                     # the model to CPU and claim an inference slot so
                     # ``unload()`` waits for the CPU-fallback transcription
                     # to finish before nulling the model.
@@ -1250,7 +1250,7 @@ class ParakeetEngine:
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.
 
-        NEW-CQ-027: NOT a duplicate of transcribe(). This method uses
+        NOT a duplicate of transcribe(). This method uses
         _transcribe_segment_unlocked() (no lock) while transcribe()
         uses _transcribe_segment() (with lock). The fallback path
         calls this after releasing the lock for CPU retry.
@@ -1272,14 +1272,14 @@ class ParakeetEngine:
     def _transcribe_segment_unlocked(self, audio: np.ndarray) -> str:
         """Transcribe one segment without lock (for fallback path).
 
-        HIGH-18 / PERF-REL-1: mirrors the fix in ``_transcribe_segment`` —
+         PERF-REL-1: mirrors the fix in ``_transcribe_segment`` —
         no longer catches ``Exception`` and returns ``""``.  This is the
         CPU-fallback code path called from ``_transcribe_impl`` after
         ``transcribe_with_fallback`` moved the model to CPU; if it
         swallowed exceptions, the caller would receive ``""`` and treat
         a real CPU failure as a successful "no speech detected" result,
         defeating the ``TranscriptionBackendError`` contract documented
-        on ``transcribe_with_fallback`` (ERR-007).
+        on ``transcribe_with_fallback`` ().
         """
         inputs = self._processor(
             [audio],
@@ -1287,16 +1287,25 @@ class ParakeetEngine:
             return_tensors="pt",
         )
         inputs.to(device=self._model.device, dtype=self._model.dtype)
-        # RW-T1: do NOT pass max_new_tokens — same fix as the GPU path
+        # do NOT pass max_new_tokens — same fix as the GPU path
         # in ``_transcribe_segment``.  The previous cap of 256 silently
         # truncated dense 25s chunks in the CPU fallback path too.
         #
-        # AB-11: wrap generate() in torch.inference_mode() to skip
+        # wrap generate() in torch.inference_mode() to skip
         # autograd-graph construction. See _inference_mode_ctx.
+        #
+        # Abort wiring — same ``_AbortStoppingCriteria`` as the
+        # GPU path in ``_transcribe_segment`` and the batched path in
+        # ``_transcribe_batch``.  Without this, ESC / watchdog during
+        # CPU-fallback transcription could not interrupt generation;
+        # the inference thread stayed blocked for 30-60s on a 25s chunk
+        # because ``transformers`` only consults ``stopping_criteria``
+        # between generated tokens.
         with self._inference_mode_ctx():
             output = self._model.generate(
                 **inputs,
                 return_dict_in_generate=True,
+                stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
             )
         text = self._processor.decode(
             output.sequences,
@@ -1312,7 +1321,7 @@ class ParakeetEngine:
 
         rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
         if should_reject_low_audio_hallucination(text, rms):
-            # SEC-009: Use PII-safe logging helper for unlocked fallback path
+            # Use PII-safe logging helper for unlocked fallback path
             log_hallucination_rejection(
                 "[PARAKEET]",
                 text,
@@ -1325,31 +1334,31 @@ class ParakeetEngine:
     def unload(self) -> None:
         """Free model memory.
 
-        NEW-MEM-001: also release PyTorch's CUDA caching allocator
+        also release PyTorch's CUDA caching allocator
         blocks via ``release_gpu_memory()`` so a subsequent backend
         switch (e.g. back to Whisper) can use the freed VRAM.  Without
         this, the cached blocks from the Parakeet model linger in the
         allocator and cause GPU OOMs after 2 backend switches on
         RTX 3060/4060 (8–12 GB VRAM).
 
-        RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
+        gc.collect() moved OUTSIDE the lock to avoid blocking
         is_loaded / transcribe for 10-100ms.
         """
         import gc
 
-        # EC-FIX-8: ``release_gpu_memory`` lives in the canonical
+        # ``release_gpu_memory`` lives in the canonical
         # ``asr_utils`` module. ``transcription.py`` still re-exports the
         # name for backward compat, BUT because this is a LOCAL import
         # (not a module-level import), tests that want to intercept the
         # call MUST patch ``voice_typer.server.asr_utils.release_gpu_memory``
         # — patching ``voice_typer.server.transcription.release_gpu_memory``
-        # does NOT intercept the local import resolution. (See WR-4 and
+        # does NOT intercept the local import resolution. (See  and
         # tests/regressions/gpu_memory_release_test.py
         # ::TestReleaseGpuMemoryFunctional::test_parakeet_unload_invokes_release.)
         from voice_typer.server.asr_utils import release_gpu_memory
 
         with self._inference_cond:
-            # XV-66: wait for any active transcription to finish before
+            # wait for any active transcription to finish before
             # nulling the model. ``transcribe()`` increments
             # ``_active_inference`` under this lock and decrements it in a
             # ``finally`` block; without this wait a concurrent
@@ -1360,9 +1369,9 @@ class ParakeetEngine:
                 self._inference_cond.wait()
             self._model = None
             self._processor = None
-        # RACE-023: gc.collect() OUTSIDE the lock
+        # gc.collect() OUTSIDE the lock
         gc.collect()
-        # NEW-MEM-001: release CUDA cached blocks.
+        # release CUDA cached blocks.
         release_gpu_memory()
         log.info("[PARAKEET] Model unloaded")
 

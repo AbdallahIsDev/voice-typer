@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-# TY-2 (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
+# (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
 # and is only touched on the first audio chunk (>=1s after dictation
 # begins). Defer the real import to first attribute access via the same
 # ``lazy_module`` proxy already used for ``sounddevice`` and ``pystray``.
@@ -68,14 +68,14 @@ class AudioQualityAnalyzer:
     LOW_VOLUME_THRESHOLD = 0.005  # RMS below this = too quiet
     HIGH_NOISE_THRESHOLD = 0.5  # Noise ratio above this = too noisy
 
-    # AUDIO-8: EMA smoothing factor for the per-chunk RMS accumulator.
+    # EMA smoothing factor for the per-chunk RMS accumulator.
     # 0.05 = ~20-chunk effective window (at 16 Hz chunk rate that's ~1.25s
     # of audio) — long enough to suppress transient dips (e.g. a single
     # quiet consonant), short enough to surface a sustained low-input
     # condition within ~3s.
     RMS_EMA_ALPHA: float = 0.05
 
-    # AUDIO-8: number of consecutive chunks with EMA below
+    # number of consecutive chunks with EMA below
     # LOW_VOLUME_THRESHOLD before the "low input level" warning fires.
     # At 16 Hz chunk rate, 50 chunks ≈ 3.1s of sustained low input.
     LOW_VOLUME_SUSTAINED_CHUNKS: int = 50
@@ -83,7 +83,7 @@ class AudioQualityAnalyzer:
     def __init__(self):
         self._clip_count: int = 0
         self._peak: float = 0.0
-        # 17-C-FIX-3: _rms_values was a write-only list — appended to on
+        # 17-C-: _rms_values was a write-only list — appended to on
         # every audio chunk (via app.py:_on_audio_quality_chunk) but never
         # read by any production code or test. analyze_full_audio()
         # recomputes RMS from the full audio array. Removed to eliminate
@@ -91,7 +91,7 @@ class AudioQualityAnalyzer:
         # list.append() calls on the audio hot path.
         self._chunk_count: int = 0
 
-        # AUDIO-8: per-chunk RMS exponential moving average. The live
+        # per-chunk RMS exponential moving average. The live
         # quality callback (AudioQualityController._on_audio_quality_chunk)
         # already receives a precomputed ``rms`` value from
         # AudioProcessor._run_quality_check — previously that value was
@@ -111,7 +111,7 @@ class AudioQualityAnalyzer:
         self._clip_count = 0
         self._peak = 0.0
         self._chunk_count = 0
-        # AUDIO-8: reset the RMS EMA + low-volume tracking so a new
+        # reset the RMS EMA + low-volume tracking so a new
         # recording session starts with a clean slate.
         self._rms_ema = 0.0
         self._low_volume_chunks = 0
@@ -120,28 +120,28 @@ class AudioQualityAnalyzer:
     def update_live_rms(self, rms: float) -> str | None:
         """Feed a per-chunk RMS value into the EMA accumulator.
 
-        AUDIO-8: called from the live quality callback
-        (:meth:`AudioQualityController._on_audio_quality_chunk`) which
-        already has ``rms`` computed by
-        :meth:`AudioProcessor._run_quality_check` — avoids recomputing
-        RMS from the raw chunk on the PortAudio audio thread.
+        called from the live quality callback
+                (:meth:`AudioQualityController._on_audio_quality_chunk`) which
+                already has ``rms`` computed by
+                :meth:`AudioProcessor._run_quality_check` — avoids recomputing
+                RMS from the raw chunk on the PortAudio audio thread.
 
-        Updates ``self._rms_ema`` (exponential moving average,
-        ``alpha = RMS_EMA_ALPHA``) and tracks consecutive chunks where
-        the EMA is below :attr:`LOW_VOLUME_THRESHOLD`. Once
-        :attr:`LOW_VOLUME_SUSTAINED_CHUNKS` is reached, returns a single
-        warning string (and latches so subsequent chunks in the same
-        low-volume episode don't re-fire).
+                Updates ``self._rms_ema`` (exponential moving average,
+                ``alpha = RMS_EMA_ALPHA``) and tracks consecutive chunks where
+                the EMA is below :attr:`LOW_VOLUME_THRESHOLD`. Once
+                :attr:`LOW_VOLUME_SUSTAINED_CHUNKS` is reached, returns a single
+                warning string (and latches so subsequent chunks in the same
+                low-volume episode don't re-fire).
 
-        Args:
-            rms: per-chunk RMS amplitude (linear, 0.0–1.0).
+                Args:
+                    rms: per-chunk RMS amplitude (linear, 0.0–1.0).
 
-        Returns:
-            Warning string if a new low-volume episode crossed the
-            sustained threshold, else ``None``. Callers (the controller)
-            log the warning at WARNING level — does NOT raise a tray
-            notification (the post-recording report handles user-facing
-            warnings via :meth:`analyze_full_audio`).
+                Returns:
+                    Warning string if a new low-volume episode crossed the
+                    sustained threshold, else ``None``. Callers (the controller)
+                    log the warning at WARNING level — does NOT raise a tray
+                    notification (the post-recording report handles user-facing
+                    warnings via :meth:`analyze_full_audio`).
         """
         # EMA update: alpha * new + (1 - alpha) * prev.
         self._rms_ema = self.RMS_EMA_ALPHA * float(rms) + (1.0 - self.RMS_EMA_ALPHA) * self._rms_ema
@@ -160,19 +160,19 @@ class AudioQualityAnalyzer:
     def analyze_chunk(self, chunk: np.ndarray) -> str | None:
         """Analyze a single audio chunk during recording.
 
-        XV-40: RETAINED FOR TESTS / DIAGNOSTICS ONLY. Production code
-        (the live per-chunk callback in
-        :class:`AudioQualityController`) does NOT call this method --
-        it mirrors the accumulator logic inline (cheaper, no numpy work
-        since the AudioProcessor already computed `(rms, peak)`). This
-        method is preserved so unit tests and external diagnostics can
-        exercise the per-chunk peak/clipping accumulator in isolation,
-        and so the historical API contract is honoured. Do NOT add new
-        production callers -- prefer :meth:`update_live_rms` (EMA
-        path) or :meth:`analyze_full_audio` (post-recording report).
+        RETAINED FOR TESTS / DIAGNOSTICS ONLY. Production code
+                (the live per-chunk callback in
+                :class:`AudioQualityController`) does NOT call this method --
+                it mirrors the accumulator logic inline (cheaper, no numpy work
+                since the AudioProcessor already computed `(rms, peak)`). This
+                method is preserved so unit tests and external diagnostics can
+                exercise the per-chunk peak/clipping accumulator in isolation,
+                and so the historical API contract is honoured. Do NOT add new
+                production callers -- prefer :meth:`update_live_rms` (EMA
+                path) or :meth:`analyze_full_audio` (post-recording report).
 
-        Returns a warning string if an immediate issue is detected,
-        or None if everything is fine.
+                Returns a warning string if an immediate issue is detected,
+                or None if everything is fine.
         """
         # REC-3: dead no-op expression removed. The previous line
         # ``float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))``
@@ -264,7 +264,7 @@ class AudioQualityAnalyzer:
 
     @property
     def rms_ema(self) -> float:
-        """AUDIO-8: exponential moving average of per-chunk RMS.
+        """exponential moving average of per-chunk RMS.
 
         Read-only accessor so callers (tests, diagnostics UI, log
         scrapers) can observe the smoothed RMS without recomputing it.
@@ -275,11 +275,11 @@ class AudioQualityAnalyzer:
 
     @property
     def low_volume_chunks(self) -> int:
-        """AUDIO-8: consecutive chunks with EMA below LOW_VOLUME_THRESHOLD."""
+        """consecutive chunks with EMA below LOW_VOLUME_THRESHOLD."""
         return self._low_volume_chunks
 
     @property
     def low_volume_warned(self) -> bool:
-        """AUDIO-8: latch — True once the low-volume warning has fired
+        """latch — True once the low-volume warning has fired
         for the current episode. Resets to False on recovery."""
         return self._low_volume_warned

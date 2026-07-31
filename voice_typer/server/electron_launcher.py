@@ -54,7 +54,7 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 
-# G4-H-02: env-var names that are ALWAYS stripped from the Electron
+# env-var names that are ALWAYS stripped from the Electron
 # child's environment, regardless of pattern matching. These are the
 # well-known cloud-provider API keys / model download tokens that the
 # Python backend NEVER reads from env (it uses the keyring instead).
@@ -72,7 +72,7 @@ _SENSITIVE_ENV_NAMES = frozenset(
     }
 )
 
-# G4-H-02: substring markers for sensitive env-var names. Any key whose
+# substring markers for sensitive env-var names. Any key whose
 # UPPER-cased name contains one of these substrings is stripped from the
 # child env (with the exception of the IPC token trio, which is restored
 # AFTER stripping). The markers catch the common SaaS API-key / OS
@@ -87,7 +87,7 @@ _SENSITIVE_ENV_MARKERS = (
     "CREDENTIAL",
 )
 
-# G4-H-02: env-var names that are ALWAYS preserved even if they match a
+# env-var names that are ALWAYS preserved even if they match a
 # sensitive marker (because the Electron child needs them to talk back
 # to the Python backend). The IPC token is the ONLY token the child
 # needs; it is restored AFTER stripping in launch_electron_frontend.
@@ -101,7 +101,7 @@ _PRESERVED_ENV_NAMES = frozenset(
 
 
 def _strip_sensitive_env(env: dict) -> None:
-    """G4-H-02: delete sensitive env vars from ``env`` in place.
+    """delete sensitive env vars from ``env`` in place.
 
     Strips:
       - The explicit ``_SENSITIVE_ENV_NAMES`` list
@@ -162,7 +162,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     -------
     The child PID on success, or None on failure.
     """
-    # G4-H-02: Strip sensitive env vars the Electron child does not need.
+    # Strip sensitive env vars the Electron child does not need.
     # The Python server reads NO API keys from env (cloud keys come from
     # the keyring). The IPC token trio (VOICE_TYPER_IPC_TOKEN /
     # VT_IPC_TOKEN / VT_PYTHON_PORT) and standard OS vars (PATH, HOME,
@@ -181,7 +181,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # to send. The IPC token is restored AFTER stripping so it is
     # guaranteed to be present in the child env.
     env["VOICE_TYPER_IPC_TOKEN"] = token
-    # G4-H-02: surface (without values) any sensitive env keys the
+    # surface (without values) any sensitive env keys the
     # parent had, so a future leak in a downstream log is auditable.
     # Only KEY NAMES are logged — values are never printed.
     _log_sensitive_env_keys(dict(os.environ), context="electron_launcher.launch_electron_frontend")
@@ -194,7 +194,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     if exe and not _main_entry_built():
         log.info("[LAUNCHER] No pre-built output — building first")
         if not _build_electron():
-            # CR-76: include the operation inputs (exe path + CLIENT_DIR)
+            # include the operation inputs (exe path + CLIENT_DIR)
             # so operators can tell which build attempt failed.
             log.warning(
                 "[LAUNCHER] Build failed (exe=%s, cwd=%s); will try npm run dev",
@@ -217,7 +217,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             )
             return pid
         except Exception:
-            # CR-76: include the operation inputs (exe path + cwd) so
+            # include the operation inputs (exe path + cwd) so
             # operators can tell which Electron binary was attempted
             # without having to dig through the rest of the launcher log.
             # ``log.exception`` already captures the underlying traceback.
@@ -245,13 +245,13 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
         )
         return pid
     except FileNotFoundError:
-        # CR-76: include the resolved npm command (cmd) so operators
+        # include the resolved npm command (cmd) so operators
         # can see which npm path the launcher tried to exec when the
         # FileNotFoundError was raised.
         log.exception("[LAUNCHER] npm not found (cmd=%s)", cmd)
         return None
     except Exception:
-        # CR-76: include the operation inputs (cmd + port) so operators
+        # include the operation inputs (cmd + port) so operators
         # can tell which npm invocation failed and which backend port
         # was supposed to receive the dev-server connection.
         log.exception(

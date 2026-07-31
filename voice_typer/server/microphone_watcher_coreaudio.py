@@ -157,7 +157,7 @@ class CoreAudioMicrophoneWatcher:
         # pyobjc symbols — loaded lazily in ``start()`` so the module
         # is importable on non-macOS platforms without raising.
         self._ca: SimpleNamespace | None = None
-        # UE-12-F3: lifecycle lock. Serialises ``start()``/``stop()``
+        # lifecycle lock. Serialises ``start()``/``stop()``
         # so two concurrent callers can't both pass the idempotency
         # guard and register two CoreAudio property listeners on
         # ``kAudioHardwarePropertyDevices`` (double-firing callbacks +
@@ -175,21 +175,21 @@ class CoreAudioMicrophoneWatcher:
     def start(self) -> None:
         """Start the watcher thread.
 
-        Idempotent: calling ``start()`` twice does not spawn a second
-        thread.
+                Idempotent: calling ``start()`` twice does not spawn a second
+                thread.
 
-        Raises
-        ------
-        ImportError
-            If ``pyobjc-framework-CoreAudio`` is not available, or if
-            the platform is not macOS. The caller is expected to catch
-            ``ImportError`` and fall back to the polling watcher.
+                Raises
+                ------
+                ImportError
+                    If ``pyobjc-framework-CoreAudio`` is not available, or if
+                    the platform is not macOS. The caller is expected to catch
+                    ``ImportError`` and fall back to the polling watcher.
 
-        UE-12-F3: the entire body runs under ``self._lock`` so two
-        concurrent ``start()`` callers can't both pass the idempotency
-        guard. The lazy pyobjc import is fast (no blocking), and
-        ``threading.Thread.start()`` is non-blocking, so holding the
-        lock here is deadlock-free.
+        the entire body runs under ``self._lock`` so two
+                concurrent ``start()`` callers can't both pass the idempotency
+                guard. The lazy pyobjc import is fast (no blocking), and
+                ``threading.Thread.start()`` is non-blocking, so holding the
+                lock here is deadlock-free.
         """
         with self._lock:
             if self._thread is not None:
@@ -212,20 +212,20 @@ class CoreAudioMicrophoneWatcher:
     def stop(self) -> None:
         """Signal the watcher thread to stop and join it (timeout 2 s).
 
-        Idempotent: calling ``stop()`` twice is safe. After ``stop()``
-        returns, the watcher can be ``start()``-ed again.
+                Idempotent: calling ``stop()`` twice is safe. After ``stop()``
+                returns, the watcher can be ``start()``-ed again.
 
-        UE-12-F3: ``thread`` / ``run_loop`` / ``ca`` are captured
-        atomically under ``self._lock``, then the lock is released
-        before ``CFRunLoopStop`` + ``join``. The lock is NOT held
-        during the join because the watcher thread briefly acquires
-        it (in ``_run_impl``) to publish ``self._run_loop`` before
-        entering ``CFRunLoopRun`` — holding it through the join would
-        deadlock if ``stop()`` ran before the watcher thread had a
-        chance to set ``_run_loop``. Clearing ``_thread`` under the
-        lock (before the join) makes a concurrent ``stop()`` a no-op
-        and a concurrent ``start()`` safe to spawn a fresh watcher
-        immediately.
+        ``thread`` / ``run_loop`` / ``ca`` are captured
+                atomically under ``self._lock``, then the lock is released
+                before ``CFRunLoopStop`` + ``join``. The lock is NOT held
+                during the join because the watcher thread briefly acquires
+                it (in ``_run_impl``) to publish ``self._run_loop`` before
+                entering ``CFRunLoopRun`` — holding it through the join would
+                deadlock if ``stop()`` ran before the watcher thread had a
+                chance to set ``_run_loop``. Clearing ``_thread`` under the
+                lock (before the join) makes a concurrent ``stop()`` a no-op
+                and a concurrent ``start()`` safe to spawn a fresh watcher
+                immediately.
         """
         with self._lock:
             thread = self._thread
@@ -315,7 +315,7 @@ class CoreAudioMicrophoneWatcher:
         # the arguments (we already know which property changed) and
         # fire the invalidation callback.
         #
-        # UE-12-F9: call ``self._on_change()`` directly instead of
+        # call ``self._on_change()`` directly instead of
         # going through a redundant ``_invoke_callback`` wrapper.
         # When this watcher is constructed by
         # ``MicrophoneDeviceWatcher._try_create_coreaudio_watcher``
@@ -344,7 +344,7 @@ class CoreAudioMicrophoneWatcher:
         # and pyobjc's wrapper would be GC'd if the only reference
         # were the local variable, causing a crash on the next
         # property change.
-        # UE-12-F3: publish under ``self._lock`` so ``stop()`` sees a
+        # publish under ``self._lock`` so ``stop()`` sees a
         # consistent (``_listener_proc``, ``_run_loop``) pair when it
         # snapshots. The lock is released before ``add_listener`` /
         # ``CFRunLoopRun`` so the watcher thread never holds it across
@@ -385,7 +385,7 @@ class CoreAudioMicrophoneWatcher:
         # Capture the current thread's CFRunLoop so ``stop()`` can
         # wake it from another thread. Must be done BEFORE
         # ``CFRunLoopRun`` because ``CFRunLoopRun`` blocks.
-        # UE-12-F3: publish under ``self._lock`` so ``stop()``'s
+        # publish under ``self._lock`` so ``stop()``'s
         # snapshot of (``_run_loop``, ``_ca``) is atomic with the
         # assignment. The lock is NOT held during ``CFRunLoopRun``
         # (which blocks) — that would deadlock ``stop()``.

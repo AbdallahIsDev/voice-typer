@@ -1,6 +1,6 @@
-"""Level worker thread for the level_monitor package (AC-129).
+"""Level worker thread for the level_monitor package ().
 
-RT-SAFE-001 (c-review PERF-03): the PortAudio callback previously ran
+ (c-review PERF-03): the PortAudio callback previously ran
 the FULL filter chain (may include RNNoise, 5–50 ms per chunk on CPU),
 allocated squared + abs arrays for RMS/peak, and appended
 ``indata.copy()`` to two test lists — all under ``_monitor_lock``.
@@ -11,9 +11,9 @@ The callback now does ONLY ``deque.append((indata.copy(), status))``
 + ``Event.set()`` (~10 µs). All heavy work runs on the dedicated
 worker thread defined here (``_level_worker_loop``) that drains the
 ring buffer under ``_monitor_lock`` — the same pattern used by
-``recording.py``'s audio callback since RT-SAFE-001.
+``recording.py``'s audio callback since
 
-ER-75: the worker's backstop ``wait()`` timeout was raised from 50 ms
+the worker's backstop ``wait()`` timeout was raised from 50 ms
 to 250 ms — the stop path already calls
 ``_level_worker_wake_event.set()`` so stop latency is unaffected; the
 timeout only governs the "missed wakeup" recovery interval (a rare
@@ -36,12 +36,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("voice_typer.server.level_monitor")
 
-# ─── UE-24: per-burst level-worker error counter ───────────────────────
+# ─── : per-burst level-worker error counter ───────────────────────
 # ``_level_worker_loop`` catches ``Exception`` from ``_process_level_chunk``
 # at DEBUG so a single bad chunk doesn't kill the worker. Previously a
 # sustained failure mode (corrupted RNNoise model, numpy mismatch, filter
 # misconfiguration) was completely silent at default log levels — the
-# level bar would freeze with no WARNING / ERROR breadcrumb. UE-24 mirrors
+# level bar would freeze with no WARNING / ERROR breadcrumb.  mirrors
 # the ``_dropped_level_chunks`` 5-second throttle pattern (which lives on
 # ``_state`` for test-poke compat): ``_level_worker_errors`` accumulates
 # per-chunk failures and is logged + reset every 5s (if >0); if the
@@ -50,7 +50,7 @@ log = logging.getLogger("voice_typer.server.level_monitor")
 # filter chain is broken and the level bar is effectively frozen).
 #
 # These globals live on ``worker.py`` (not ``_state``) so the disjoint
-# fix for UE-24 stays within ``worker.py``. The worker thread is the
+# fix for  stays within ``worker.py``. The worker thread is the
 # ONLY writer; ``int`` / ``float`` read + reset is atomic under
 # CPython's GIL, so no lock is needed (same rationale as
 # ``_dropped_level_chunks``). Tests in ``tests/test_level_monitor*.py``
@@ -65,7 +65,7 @@ _LEVEL_WORKER_ERROR_RATE_THRESHOLD: float = 10.0
 
 
 def _reset_worker_error_state_for_tests() -> None:
-    """Reset the UE-24 per-burst error counter to its post-import defaults.
+    """Reset the  per-burst error counter to its post-import defaults.
 
     Mirrors ``_state.reset_for_tests`` for the worker-error sub-state.
     Test fixtures call this between tests so a sustained-error test
@@ -99,6 +99,13 @@ def _ensure_level_worker_running() -> None:
         return
     _state._level_worker_stop_event.clear()
     _state._level_worker_wake_event.clear()
+    # Clear the ring buffer of any stale chunks from a previous session
+    # (mirrors ``recording/capture.py``: the previous worker has been
+    # stopped, so any chunks left in the buffer are orphans from a
+    # closed stream and must not bleed into the fresh worker's first
+    # iteration). Done BEFORE the thread is spawned so the new worker
+    # starts with an empty queue.
+    _state._level_ring_buffer.clear()
     _state._level_worker_thread = threading.Thread(
         target=_level_worker_loop,
         name="level-monitor-worker",
@@ -123,6 +130,12 @@ def _stop_level_worker() -> None:
     if thread is not threading.current_thread():
         thread.join(timeout=1.0)
     _state._level_worker_thread = None
+    # Clear the ring buffer after the worker has been joined so any
+    # chunks the worker didn't drain (e.g. because stop_monitoring was
+    # called between the worker's last drain and its exit) don't bleed
+    # into the next session's fresh worker. Mirrors the pattern in
+    # ``recording/capture.py``.
+    _state._level_ring_buffer.clear()
     # Clear the stop event so the next _ensure_level_worker_running call
     # can reuse the (now-stopped) thread slot for a fresh worker.
     _state._level_worker_stop_event.clear()
@@ -149,20 +162,20 @@ def _level_worker_loop() -> None:
     any remaining chunks before exiting so a stop right after a
     callback doesn't lose the last level update.
 
-    ER-75: the backstop ``wait()`` timeout was 50 ms (pre-refactor).
+    the backstop ``wait()`` timeout was 50 ms (pre-refactor).
     Raised to 250 ms — the stop path already calls
     ``_level_worker_wake_event.set()`` so stop latency is unaffected;
     the timeout only governs the "missed wakeup" recovery interval
     (a rare edge case when the audio device underflows or stalls).
     250 ms cuts idle wakeups 5× with no functional change.
     """
-    # UE-24: ``global`` declarations for the per-burst error counter
+    # ``global`` declarations for the per-burst error counter
     # (defined at module top). Hoisted to the function header for
     # readability — Python treats ``global`` as function-scoped
     # regardless of where in the function the statement appears.
     global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
     while True:
-        # Wait for work or stop signal. ER-75: raised from 50 ms to
+        # Wait for work or stop signal. : raised from 50 ms to
         # 250 ms — the timeout only governs the missed-wakeup recovery
         # interval (stop latency is unaffected because ``_stop_level_worker``
         # calls ``_level_worker_wake_event.set()``).
@@ -186,7 +199,7 @@ def _level_worker_loop() -> None:
                 # the worker (otherwise all subsequent level updates are
                 # lost until the next start_monitoring).
                 #
-                # UE-24: previously this branch ONLY logged at DEBUG, so
+                # previously this branch ONLY logged at DEBUG, so
                 # a sustained failure mode (corrupted RNNoise model,
                 # numpy mismatch, filter misconfiguration) was completely
                 # silent at default log levels — the level bar would
@@ -206,7 +219,7 @@ def _level_worker_loop() -> None:
                     exc_info=True,
                 )
 
-        # XV-58: throttled log of dropped chunks. The counter is
+        # throttled log of dropped chunks. The counter is
         # incremented in the PortAudio callback (RT thread) when the
         # ring buffer overflows; we log it every 5s (if >0) and reset.
         # ``int`` read + reset is atomic under CPython's GIL, so no
@@ -231,7 +244,7 @@ def _level_worker_loop() -> None:
                     dropped,
                 )
 
-        # UE-24: throttled log of per-chunk processing errors. Mirrors
+        # throttled log of per-chunk processing errors. Mirrors
         # the ``_dropped_level_chunks`` 5-second throttle pattern above:
         # the counter is incremented in the drain loop's ``except``
         # branch when ``_process_level_chunk`` raises; we log it every
@@ -284,7 +297,7 @@ def _level_worker_loop() -> None:
                         rate_per_sec,
                     )
 
-        # ER-14: idle-timeout auto-stop. If no IPC ``get_level`` poll
+        # idle-timeout auto-stop. If no IPC ``get_level`` poll
         # has been received in ``_state._LEVEL_IDLE_TIMEOUT_SEC``
         # seconds (default 5.0), auto-stop the stream. The tray bubble
         # is likely hidden; the level bar isn't visible. The next
@@ -304,12 +317,12 @@ def _level_worker_loop() -> None:
 def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     """Process a single audio chunk on the level worker thread.
 
-    RT-SAFE-001 (c-review PERF-03): this is the heavy work that used
+     (c-review PERF-03): this is the heavy work that used
     to run on the PortAudio RT thread. It is now invoked from
     ``_level_worker_loop`` so it can take 5–50 ms (RNNoise) without
     missing the ~32 ms PortAudio deadline.
 
-    XV-55: the heavy computation (filter chain via
+    the heavy computation (filter chain via
     ``_level_processor.process_chunk``, ``np.abs`` / ``np.sqrt`` /
     ``np.mean`` for RMS/peak, raw-audio quality metrics) runs OUTSIDE
     ``_monitor_lock`` so ``get_level()`` / ``stop_test_recording()`` /
@@ -318,12 +331,12 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     writes (``_monitor_level``, ``_monitor_peak``, ``_test_raw_chunks``
     append, quality-metric appends).
 
-    XV-54: only ``_test_raw_chunks`` is populated with RAW audio.
+    only ``_test_raw_chunks`` is populated with RAW audio.
     ``_test_chunks`` is kept as a backward-compat shim (still bounded +
     cleared) for tests outside this module's scope, but is no longer
     appended to here.
 
-    PVT-013: the FILTERED audio (``flat_filtered``, the post-
+    the FILTERED audio (``flat_filtered``, the post-
     ``process_chunk`` output) is ALSO appended to ``_test_filtered_chunks``
     when a live processor is active and returned non-None. At
     ``stop_test_recording`` time, this buffer is concatenated directly
@@ -335,7 +348,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     if status:
         log.debug("[LEVEL-MON] PortAudio status: %s", status)
 
-    # XV-55: snapshot shared state under the lock (quick). The heavy
+    # snapshot shared state under the lock (quick). The heavy
     # computation below reads these but doesn't write them; re-checking
     # ``_monitor_active`` and ``_test_mode`` under the lock at write
     # time guards against a concurrent stop_monitoring() /
@@ -347,7 +360,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         return
 
     # -- Heavy work OUTSIDE the lock --
-    # XV-55: ``_level_processor.process_chunk`` can take 5-50 ms
+    # ``_level_processor.process_chunk`` can take 5-50 ms
     # (RNNoise on CPU). Holding ``_monitor_lock`` during that time
     # would block ``get_level()`` (called by the IPC handler on the
     # main thread) and ``stop_test_recording()`` -- visible as a frozen
@@ -358,7 +371,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     peak: float | None = None
     raw_rms_for_quality: float | None = None
     raw_peak_for_quality: float | None = None
-    # PVT-013: filtered audio to append to ``_test_filtered_chunks``
+    # filtered audio to append to ``_test_filtered_chunks``
     # under the lock. Populated ONLY when a live processor is active
     # and returned non-None (otherwise the post-hoc filter at stop
     # time handles the "after" WAV). Computed outside the lock (the
@@ -381,7 +394,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                 rms = float(np.sqrt(np.dot(flat_filtered, flat_filtered) / flat_filtered.size))
             else:
                 rms = 0.0
-            # PVT-013: capture the filtered audio for the test's
+            # capture the filtered audio for the test's
             # "after" WAV so stop_test_recording doesn't need to
             # re-run the filter chain synchronously (7-70s block).
             # ``flat_filtered`` may be a view of ``filtered`` (fresh
@@ -400,7 +413,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         # so no temporary ``np.abs`` array is allocated per chunk.
         peak = max(float(flat_filtered.max()), -float(flat_filtered.min())) if flat_filtered.size > 0 else 0.0
 
-        # XV-55: compute test-quality metrics from RAW audio outside
+        # compute test-quality metrics from RAW audio outside
         # the lock too (np.sqrt/mean/square on a 512-sample block is
         # cheap but still RT-relevant under load).
         if test_mode:
@@ -412,7 +425,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                 raw_peak_for_quality = 0.0
 
     # -- Shared-state writes UNDER the lock (quick) --
-    # XV-55: only the writes to ``_monitor_level``, ``_monitor_peak``,
+    # only the writes to ``_monitor_level``, ``_monitor_peak``,
     # ``_test_raw_chunks`` (append), ``_test_filtered_chunks`` (append),
     # and the quality-metric lists are lock-protected. These are all
     # O(1) -- the heavy work is done.
@@ -430,8 +443,8 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             _state._monitor_peak *= 0.85
 
         # If a test recording is active, also accumulate audio.
-        # XV-54: ``_test_raw_chunks`` holds the RAW audio ("before" WAV).
-        # PVT-013: ``_test_filtered_chunks`` holds the FILTERED audio
+        # ``_test_raw_chunks`` holds the RAW audio ("before" WAV).
+        # ``_test_filtered_chunks`` holds the FILTERED audio
         # ("after" WAV) — populated only when a live processor was
         # active for this chunk. ``_test_chunks`` is NOT populated
         # (kept as a backward-compat shim).
@@ -442,7 +455,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             if raw_rms_for_quality is not None:
                 _state._test_raw_chunks.append(indata.copy())
                 _state._test_rms_history.append(raw_rms_for_quality)
-            # PVT-013: append the filtered chunk (if captured) so
+            # append the filtered chunk (if captured) so
             # stop_test_recording can build the "after" WAV without
             # re-running the filter chain synchronously.
             if filtered_chunk_for_test is not None:

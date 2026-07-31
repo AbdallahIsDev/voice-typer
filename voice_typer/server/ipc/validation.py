@@ -1,8 +1,8 @@
-# ARCH-REFAC-002 / ARCH-045: extracted from the original
+# extracted from the original
 # ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """Shared IPC payload validation + error-envelope helpers.
 
-PR-3-FINDING-3: validates an IPC ``data`` argument against a declarative
+validates an IPC ``data`` argument against a declarative
 schema.  Returns ``(validated_dict, None)`` on success, or
 ``(None, error_response_dict)`` on validation failure so the handler
 can ``return resp`` immediately.
@@ -39,7 +39,7 @@ Example::
     if error:
         return error
 
-R4-F5 (IMPROVE-mode run, 2026-07-19): the schema now supports three
+(IMPROVE-mode run, 2026-07-19): the schema now supports three
 optional rules that the previous inline checks in
 ``save_vocabulary`` / ``show_electron_notification`` reimplemented
 ad-hoc:
@@ -60,7 +60,7 @@ from collections.abc import Callable as _Callable
 from typing import TypedDict
 
 
-# G4-M-22: canonical namespaced error-code registry.
+# canonical namespaced error-code registry.
 #
 # Every ``code`` field stamped on an IPC error envelope SHOULD come
 # from this set. The registry is the single source of truth so the
@@ -87,7 +87,7 @@ from typing import TypedDict
 # the legacy form as an alias). The contract test in
 # ``tests/test_error_codes_registry.py`` is the regression guard.
 #
-# DE-36 (2026-10): the validation helper was migrated to emit the
+# (2026-10): the validation helper was migrated to emit the
 # namespaced form (client.invalid_payload / client.invalid_field /
 # client.missing_field) as the primary code field. The legacy bare
 # form is preserved in a sibling legacy_code field on the same error
@@ -132,13 +132,13 @@ class ErrorCodes:
     UNKNOWN_COMMAND = "server.unknown_command"
     UNKNOWN_TRAY_ITEM = "server.unknown_tray_item"
     SERVER_NOT_FOUND = "server.not_found"
-    # XS-11 / EC-10: ``not_initialized`` is the namespaced form of the
+    # ``not_initialized`` is the namespaced form of the
     # legacy un-prefixed ``not_initialized`` code (used by handlers that
     # need to signal "this subsystem is not yet ready" — e.g.
     # vocabulary_automation). Mirrors the legacy alias for backward
     # compat while bringing it under the namespaced registry.
     NOT_INITIALIZED = "server.not_initialized"
-    # DE-31: structured consent-required envelope emitted by the
+    # structured consent-required envelope emitted by the
     # IPC dispatcher when a ``ConsentRequiredError`` is raised by
     # a cloud/LLM handler. Distinct from ``client.consent_required``
     # above (which is emitted by ``handlers/_base.py``); this form
@@ -160,7 +160,7 @@ class ErrorCodes:
     CLOUD_NETWORK_ERROR = "server.cloud_network_error"
     CLOUD_CONFIG_ERROR = "server.cloud_config_error"
     CLOUD_ENGINE_ERROR = "server.cloud_engine_error"
-    # XE-14-C: recording-pipeline exception hierarchy — distinct codes
+    # recording-pipeline exception hierarchy — distinct codes
     # for resample failures (audio cannot be converted to the target
     # sample rate) and resample-unavailable (scipy not installed). See
     # ``voice_typer/server/recording/exceptions.py`` for the typed
@@ -178,7 +178,7 @@ class ErrorCodes:
     # check runs BEFORE the token check so a stale client gets a
     # structured rejection (with both client and server version numbers
     # in the payload) instead of an opaque ``auth_failed``. See the
-    # DR-21 comment block in ``transport_tcp.py`` for the full versioning
+    # comment block in ``transport_tcp.py`` for the full versioning
     # contract.
     PROTOCOL_VERSION_MISMATCH = "server.protocol_version_mismatch"
 
@@ -222,7 +222,7 @@ def _class_str_values(cls: type) -> frozenset[str]:
     return frozenset(value for name, value in vars(cls).items() if not name.startswith("_") and isinstance(value, str))
 
 
-# EC-10: namespaced error codes — the canonical form for new emitters.
+# namespaced error codes — the canonical form for new emitters.
 # Derived from :class:`ErrorCodes` so the class is the single source of
 # truth. This registry is the single source of truth for the renderer's
 # ``ErrorCodes`` union (see
@@ -230,13 +230,13 @@ def _class_str_values(cls: type) -> frozenset[str]:
 # contract test in ``tests/test_error_codes_registry.py``.
 ERROR_CODES: frozenset[str] = _class_str_values(ErrorCodes)
 
-# EC-10: legacy non-namespaced aliases still emitted by some paths for
+# legacy non-namespaced aliases still emitted by some paths for
 # backward compat (TCP ``shutting_down``, dispatcher ``internal_error``,
 # handler ``handler_error``, etc.). New emitters MUST use the namespaced
 # form above. Derived from :class:`LegacyErrorCodes`.
 LEGACY_ERROR_CODES: frozenset[str] = _class_str_values(LegacyErrorCodes)
 
-# EC-10: convenience union for validation / contract tests. Every
+# convenience union for validation / contract tests. Every
 # ``code`` value emitted on the wire MUST be in this set (the contract
 # test asserts this). Use ``ALL_ERROR_CODES`` for membership checks;
 # prefer ``ERROR_CODES`` for new emitters.
@@ -268,15 +268,15 @@ class FieldRule(TypedDict, total=False):
     max_value_len: int
     clamp_range: tuple[int | float, int | float]
     max_payload_bytes: int
-    # XZ-R3-08: when ``True`` (the implicit default for backwards
+    # when ``True`` (the implicit default for backwards
     # compat), an explicit ``None`` value for this field is treated
     # the same as an ABSENT field — the ``default`` rule fires and
-    # the field is populated with ``rules["default"]``. Pre-XZ-R3-08
+    # the field is populated with ``rules["default"]``. Pre-
     # a present ``None`` failed the ``type`` check (assuming the
     # declared type didn't include ``type(None)``), forcing callers
     # like ``_handle_show_electron_notification`` to pre-coerce
     # ``None`` to the default with 8 lines of inline code. Set
-    # ``none_to_default=False`` to restore the strict pre-XZ-R3-08
+    # ``none_to_default=False`` to restore the strict pre-
     # behavior (only ABSENT fields get the default).
     none_to_default: bool
 
@@ -349,86 +349,86 @@ def _validate_dict_payload(
 ) -> tuple[dict[str, object] | None, "dict[str, object] | None"]:
     """Validate IPC ``data`` against a declarative *schema*.
 
-    Parameters
-    ----------
-    data :
-        The ``data`` field from the IPC message.
-    schema :
-        Mapping of field name → validation rules.  Each rule dict
-        supports:
+        Parameters
+        ----------
+        data :
+            The ``data`` field from the IPC message.
+        schema :
+            Mapping of field name → validation rules.  Each rule dict
+            supports:
 
-        - ``type`` (required): the expected Python type (e.g. ``str``,
-          ``list``).
-        - ``required`` (bool): if ``True``, the field MUST be present
-          in ``data``.  Mutually exclusive with ``default``.
-        - ``default``: default value when the field is absent.  Only
-          valid when ``required=False``.
-        - ``none_to_default`` (bool, optional, default ``True``):
-          XZ-R3-08: when ``True``, an explicit ``None`` value for
-          the field is treated as ABSENT — the ``default`` rule
-          fires. Pre-XZ-R3-08 a present ``None`` failed the
-          ``type`` check (assuming ``type`` didn't include
-          ``type(None)``). Set ``False`` to restore the strict
-          behavior.
-        - ``max_value_len`` (int, optional): if the value is a string
-          longer than N characters, return an ``client.invalid_field``
-          error. R4-F5: replaces the ad-hoc per-value length loops in
-          ``save_vocabulary`` and ``show_electron_notification``.
-        - ``clamp_range`` (tuple ``(lo, hi)``, optional): if the
-          value is a number, coerce it to ``max(lo, min(value, hi))``
-          before storing it in ``validated``.  R4-F5: replaces the
-          inline ``max(0, min(int(duration_ms), 24*60*60*1000))`` in
-          ``show_electron_notification``.
-        - ``max_payload_bytes`` (int, optional, DEPRECATED): if the
-          WHOLE ``data`` dict serializes to more than N bytes, return
-          an ``client.invalid_payload`` error. R4-F5: replaces the
-          inline 1 MB cap in ``save_vocabulary``.  XZ-R3-07: this
-          rule is keyed off any field but applies to the WHOLE
-          payload — the helper now scans ALL fields and uses the
-          MINIMUM declared value (most restrictive), so the
-          "first-field-wins" fragility is gone. Prefer the
-          top-level ``max_payload_bytes`` keyword argument for new
-          schemas; the per-field rule is kept for backward compat.
+            - ``type`` (required): the expected Python type (e.g. ``str``,
+              ``list``).
+            - ``required`` (bool): if ``True``, the field MUST be present
+              in ``data``.  Mutually exclusive with ``default``.
+            - ``default``: default value when the field is absent.  Only
+              valid when ``required=False``.
+            - ``none_to_default`` (bool, optional, default ``True``):
+    when ``True``, an explicit ``None`` value for
+              the field is treated as ABSENT — the ``default`` rule
+    fires. Pre- a present ``None`` failed the
+              ``type`` check (assuming ``type`` didn't include
+              ``type(None)``). Set ``False`` to restore the strict
+              behavior.
+            - ``max_value_len`` (int, optional): if the value is a string
+              longer than N characters, return an ``client.invalid_field``
+    error. : replaces the ad-hoc per-value length loops in
+              ``save_vocabulary`` and ``show_electron_notification``.
+            - ``clamp_range`` (tuple ``(lo, hi)``, optional): if the
+              value is a number, coerce it to ``max(lo, min(value, hi))``
+    before storing it in ``validated``.  : replaces the
+              inline ``max(0, min(int(duration_ms), 24*60*60*1000))`` in
+              ``show_electron_notification``.
+            - ``max_payload_bytes`` (int, optional, DEPRECATED): if the
+              WHOLE ``data`` dict serializes to more than N bytes, return
+    an ``client.invalid_payload`` error. : replaces the
+    inline 1 MB cap in ``save_vocabulary``.  : this
+              rule is keyed off any field but applies to the WHOLE
+              payload — the helper now scans ALL fields and uses the
+              MINIMUM declared value (most restrictive), so the
+              "first-field-wins" fragility is gone. Prefer the
+              top-level ``max_payload_bytes`` keyword argument for new
+              schemas; the per-field rule is kept for backward compat.
 
-    max_payload_bytes :
-        XZ-R3-07: top-level whole-payload size cap. When provided,
-        takes precedence over any per-field ``max_payload_bytes``
-        rule. Prefer this for new schemas (the per-field rule was a
-        historical workaround that was fragile under multi-field
-        schemas — the helper only checked the FIRST field that
-        declared it and broke after, silently ignoring any second
-        field's value).
+        max_payload_bytes :
+    top-level whole-payload size cap. When provided,
+            takes precedence over any per-field ``max_payload_bytes``
+            rule. Prefer this for new schemas (the per-field rule was a
+            historical workaround that was fragile under multi-field
+            schemas — the helper only checked the FIRST field that
+            declared it and broke after, silently ignoring any second
+            field's value).
 
-    Returns
-    -------
-    tuple[dict[str, object] | None, dict[str, object] | None]
-        ``(validated_dict, None)`` on success.
-        ``(None, error_response)`` on failure — the error_response
-        is a dict ready to be returned as ``resp`` from the handler.
-        The error_response dict conforms to the :class:`ErrorEnvelope`
-        contract (``{"type": "error", "data": {"code": ..., ...}}``);
-        the return type is plain ``dict[str, object]`` (not
-        :class:`ErrorEnvelope`) because TypedDicts are invariant and
-        not subtypes of ``dict``, so annotating the return as
-        :class:`ErrorEnvelope` would flag every caller that returns
-        the error directly from a ``-> dict | None`` handler. The
-        contract is documented at construction sites via the
-        ``# ErrorEnvelope contract — see validation.py`` comments and
-        verified by ``tests/test_error_codes_registry.py``.
+        Returns
+        -------
+        tuple[dict[str, object] | None, dict[str, object] | None]
+            ``(validated_dict, None)`` on success.
+            ``(None, error_response)`` on failure — the error_response
+            is a dict ready to be returned as ``resp`` from the handler.
+            The error_response dict conforms to the :class:`ErrorEnvelope`
+            contract (``{"type": "error", "data": {"code": ..., ...}}``);
+            the return type is plain ``dict[str, object]`` (not
+            :class:`ErrorEnvelope`) because TypedDicts are invariant and
+            not subtypes of ``dict``, so annotating the return as
+            :class:`ErrorEnvelope` would flag every caller that returns
+            the error directly from a ``-> dict | None`` handler. The
+            contract is documented at construction sites via the
+            ``# ErrorEnvelope contract — see validation.py`` comments and
+            verified by ``tests/test_error_codes_registry.py``.
     """
     if not isinstance(data, dict):
         # ErrorEnvelope contract — see validation.py
         return None, {
             "type": "error",
             "data": {
-                # DE-36: emit the namespaced ``client.invalid_payload``
-                # as the primary ``code`` (per G4-M-22). The legacy
+                # emit the namespaced ``client.invalid_payload``
+                # as the primary ``code`` (per ). The legacy
                 # bare ``invalid_payload`` is preserved in
                 # ``legacy_code`` for one release cycle so the renderer
                 # (and any tests still asserting the old form) can
                 # switch to the namespaced form without a hard cutover.
                 # Drop ``legacy_code`` once the renderer migrates.
-                # ZR-68: reference the constants on ErrorCodes /
+                # reference the constants on ErrorCodes
                 # LegacyErrorCodes (single source of truth) instead of
                 # bare string literals, so a typo surfaces at import
                 # time and the contract test stays in sync with emitters.
@@ -438,7 +438,7 @@ def _validate_dict_payload(
             },
         }
 
-    # R4-F5 + XZ-R3-07: ``max_payload_bytes`` is a whole-payload rule.
+    # + : ``max_payload_bytes`` is a whole-payload rule.
     # The top-level keyword argument takes precedence (the recommended
     # way for new schemas); if not provided, scan ALL fields for the
     # per-field ``max_payload_bytes`` rule and use the MINIMUM value
@@ -454,7 +454,7 @@ def _validate_dict_payload(
 
     effective_max_bytes = max_payload_bytes
     if effective_max_bytes is None:
-        # XZ-R3-07: scan ALL fields and use the minimum (most
+        # scan ALL fields and use the minimum (most
         # restrictive) declared cap. Previously the helper broke after
         # the first field that declared the rule, silently ignoring
         # any subsequent field's value.
@@ -468,9 +468,9 @@ def _validate_dict_payload(
             return None, {
                 "type": "error",
                 "data": {
-                    # DE-36: namespaced form (primary) + legacy
+                    # namespaced form (primary) + legacy
                     # alias (one-release-cycle compat).
-                    # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                    # use ErrorCodes / LegacyErrorCodes constants.
                     "code": ErrorCodes.INVALID_PAYLOAD,
                     "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
                     "message": (f"payload too large ({payload_size} bytes; max {effective_max_bytes})"),
@@ -481,7 +481,7 @@ def _validate_dict_payload(
     for field_name, rules in schema.items():
         if field_name in data:
             value = data[field_name]
-            # XZ-R3-08: if the field is explicitly ``None`` AND the
+            # if the field is explicitly ``None`` AND the
             # rule opts in (``none_to_default`` defaults to True for
             # backward compat with the renderer's pre-coercion
             # behavior) AND a ``default`` is declared, treat ``None``
@@ -498,7 +498,7 @@ def _validate_dict_payload(
                 continue
             expected_type = rules.get("type")
             if expected_type is not None and not isinstance(value, expected_type):
-                # IPC-3: format the expected-type name for the error
+                # format the expected-type name for the error
                 # message.  ``expected_type`` may be a single type
                 # (``str``) or a tuple of types (``(str, type(None))``)
                 # — the latter is the standard ``isinstance`` idiom for
@@ -513,16 +513,16 @@ def _validate_dict_payload(
                     # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
-                        # DE-36: namespaced form (primary) + legacy
+                        # namespaced form (primary) + legacy
                         # alias (one-release-cycle compat).
-                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                        # use ErrorCodes / LegacyErrorCodes constants.
                         "code": ErrorCodes.INVALID_FIELD,
                         "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
                 }
-            # R4-F5: per-value length cap. Only applies to string
+            # per-value length cap. Only applies to string
             # values; non-string values pass through (the type check
             # above already rejected wrong-type values).
             max_value_len = rules.get("max_value_len")
@@ -531,16 +531,16 @@ def _validate_dict_payload(
                     # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
-                        # DE-36: namespaced form (primary) + legacy
+                        # namespaced form (primary) + legacy
                         # alias (one-release-cycle compat).
-                        # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                        # use ErrorCodes / LegacyErrorCodes constants.
                         "code": ErrorCodes.INVALID_FIELD,
                         "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (f"'{field_name}' value too long ({len(value)} > {max_value_len})"),
                     },
                 }
-            # R4-F5: clamp_range. Coerce numeric values into [lo, hi].
+            # clamp_range. Coerce numeric values into [lo, hi].
             # Booleans are a subclass of int — skip them so
             # ``critical: True`` isn't accidentally coerced to 1.
             clamp_range = rules.get("clamp_range")
@@ -553,9 +553,9 @@ def _validate_dict_payload(
                 # ErrorEnvelope contract — see validation.py
                 "type": "error",
                 "data": {
-                    # DE-36: namespaced form (primary) + legacy alias
+                    # namespaced form (primary) + legacy alias
                     # (one-release-cycle compat).
-                    # ZR-68: use ErrorCodes / LegacyErrorCodes constants.
+                    # use ErrorCodes / LegacyErrorCodes constants.
                     "code": ErrorCodes.MISSING_FIELD,
                     "legacy_code": LegacyErrorCodes.MISSING_FIELD,
                     "field": field_name,
@@ -571,45 +571,45 @@ def _validate_dict_payload(
 def _error_response(resp: dict, message: str, *, code: str = ErrorCodes.HANDLER_ERROR) -> dict:
     """Stamp an error envelope on ``resp`` and return it.
 
-    R13-F3: standardizes the catch-all ``except Exception`` envelope
-    produced by handler mixins. Pre-R13-F3 each handler did::
+        R13-F3: standardizes the catch-all ``except Exception`` envelope
+        produced by handler mixins. Pre-R13-F3 each handler did::
 
-        except Exception as e:
-            log.error("[IPC] <cmd> failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
-        return resp
+            except Exception as e:
+                log.error("[IPC] <cmd> failed: %s", e, exc_info=True)
+                resp["type"] = "error"
+                resp["data"] = {"message": str(e)}
+            return resp
 
-    The ad-hoc envelope omitted the ``code`` field that every other
-    error path (validation, dispatch safety net, rate limiter) sets.
-    Clients branching on ``code`` silently fell through to a generic
-    "unknown error" path for handler exceptions. The helper stamps
-    ``code: "server.handler_error"`` (G4-M-22 namespaced form; was
-    ``"handler_error"`` pre-G4-M-22) and a sanitized message (the caller is
-    responsible for logging the full exception server-side at ERROR
-    with ``exc_info=True``).
+        The ad-hoc envelope omitted the ``code`` field that every other
+        error path (validation, dispatch safety net, rate limiter) sets.
+        Clients branching on ``code`` silently fell through to a generic
+        "unknown error" path for handler exceptions. The helper stamps
+    ``code: "server.handler_error"`` ( namespaced form; was
+    ``"handler_error"`` pre-) and a sanitized message (the caller is
+        responsible for logging the full exception server-side at ERROR
+        with ``exc_info=True``).
 
-    Parameters
-    ----------
-    resp : dict
-        The response dict pre-populated by ``_dispatch`` (carries the
-        request ``id``). Mutated in place.
-    message : str
-        The client-facing message. Should be sanitized (no Python
-        internals, no PII). The caller decides what's safe to expose.
-    code : str, optional
-        The error code. Defaults to ``"server.handler_error"`` (G4-M-22 namespaced form; was
-        ``"handler_error"`` pre-G4-M-22) — the standard
-        for an unexpected exception caught by a handler's catch-all.
-        Override for known-error paths that still want the helper's
-        envelope shape (e.g. ``"not_initialized"``).
+        Parameters
+        ----------
+        resp : dict
+            The response dict pre-populated by ``_dispatch`` (carries the
+            request ``id``). Mutated in place.
+        message : str
+            The client-facing message. Should be sanitized (no Python
+            internals, no PII). The caller decides what's safe to expose.
+        code : str, optional
+    The error code. Defaults to ``"server.handler_error"`` ( namespaced form; was
+    ``"handler_error"`` pre-) — the standard
+            for an unexpected exception caught by a handler's catch-all.
+            Override for known-error paths that still want the helper's
+            envelope shape (e.g. ``"not_initialized"``).
 
-    Returns
-    -------
-    dict
-        The same ``resp`` dict, mutated to be an error envelope.
+        Returns
+        -------
+        dict
+            The same ``resp`` dict, mutated to be an error envelope.
     """
-    # XE-14-B: derive the legacy alias from the namespaced ``code``.
+    # derive the legacy alias from the namespaced ``code``.
     # ``client.foo`` / ``server.foo`` → ``foo``; legacy-form codes are
     # returned unchanged so the helper is idempotent on inputs that
     # already lack a namespace prefix.
@@ -625,7 +625,7 @@ __all__ = [
     "ERROR_CODES",
     "LEGACY_ERROR_CODES",
     "ALL_ERROR_CODES",
-    # Single-source-of-truth code constants (ZR-68). Emitters should
+    # Single-source-of-truth code constants (). Emitters should
     # reference these (e.g. ``ErrorCodes.INVALID_PAYLOAD``) instead of
     # bare string literals so typos surface at import time.
     "ErrorCodes",
@@ -637,7 +637,7 @@ __all__ = [
     "ErrorEnvelope",
 ]
 
-# YJ-1 / YJ-27: canonical home for the ResponseEnvelope type alias and
+# canonical home for the ResponseEnvelope type alias and
 # CommandHandler callable alias. Previously these lived in
 # ipc_server.py (lines ~135 and ~138); moved here so handler modules
 # and tests can import them from the validation module without
@@ -653,7 +653,7 @@ ResponseEnvelope = dict[str, object]
 CommandHandler = _Callable[[object | None, ResponseEnvelope], ResponseEnvelope | None]
 del _Callable
 
-# XE-2-3: previously a SECOND top-level ``__all__ = [...]`` literal
+# previously a SECOND top-level ``__all__ = [...]`` literal
 # appeared here, which SILENTLY REPLACED the first ``__all__`` (the one
 # above that lists ``_validate_dict_payload`` / ``ErrorCodes`` / etc.).
 # Any consumer that did ``from voice_typer.server.ipc.validation import *``
@@ -661,7 +661,7 @@ del _Callable
 # public name (the validation helper, the error-code registry, the
 # TypedDicts) was silently dropped from the star-import surface, and
 # ``"_validate_dict_payload" in validation.__all__`` returned ``False``.
-# Use ``+=`` so the YJ-1 / YJ-27 additions are APPENDED to the existing
+# Use ``+=`` so the  /  additions are APPENDED to the existing
 # export list rather than replacing it.
 __all__ += [
     "CommandHandler",

@@ -12,7 +12,7 @@ The two launchers each defined their own copies of ``_electron_binary``,
 ``_electron_log_files`` and ``_build_electron``.  Bug fixes had to be
 applied to both copies, and they had already drifted in intent:
 
-* ``autostart_launcher._npm_command`` carried the NEW-CQ-033 / NEW-SEC-009
+* ``autostart_launcher._npm_command`` carried the
   fix (avoid ``shell=True`` on POSIX when ``shutil.which("npm")`` misses
   by returning the list form ``["npm", "run", script]``), while
   ``electron_launcher._npm_command`` still returned ``None`` (forcing
@@ -68,21 +68,21 @@ CLIENT_DIR = BASE_DIR / "voice_typer" / "client"
 def _electron_binary() -> str | None:
     """Return the path to the dev-mode Electron binary, or ``None`` if absent.
 
-    In dev mode Electron ships under
-    ``node_modules/electron/dist/electron.exe`` (Windows) /
-    ``.../electron`` (POSIX).  Returns ``None`` when not found, in which
-    case the caller falls back to ``npm run dev`` (which itself starts
-    Electron via the npm script).
+        In dev mode Electron ships under
+        ``node_modules/electron/dist/electron.exe`` (Windows) /
+        ``.../electron`` (POSIX).  Returns ``None`` when not found, in which
+        case the caller falls back to ``npm run dev`` (which itself starts
+        Electron via the npm script).
 
-    XZ-R6-AS-02: optional integrity verification. When the environment
-    variable ``VOICE_TYPER_ELECTRON_SHA256`` is set to a 64-char hex
-    SHA-256, the binary is hashed on disk and compared against the
-    expected value. On mismatch, the function logs an ERROR and
-    returns ``None`` (forcing the caller to skip this binary and fall
-    back to ``npm run dev``). When the env var is unset, behaviour is
-    unchanged (no hash check; npm install integrity already covers the
-    download). Operators who pin a known-good Electron build set the
-    env var to detect a tampered or accidentally-upgraded binary.
+    optional integrity verification. When the environment
+        variable ``VOICE_TYPER_ELECTRON_SHA256`` is set to a 64-char hex
+        SHA-256, the binary is hashed on disk and compared against the
+        expected value. On mismatch, the function logs an ERROR and
+        returns ``None`` (forcing the caller to skip this binary and fall
+        back to ``npm run dev``). When the env var is unset, behaviour is
+        unchanged (no hash check; npm install integrity already covers the
+        download). Operators who pin a known-good Electron build set the
+        env var to detect a tampered or accidentally-upgraded binary.
     """
     if is_windows():
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
@@ -90,7 +90,7 @@ def _electron_binary() -> str | None:
         candidate = CLIENT_DIR / "node_modules" / "electron" / "dist" / "electron"
     if not candidate.exists():
         return None
-    # XZ-R6-AS-02: optional SHA-256 verification. Only run when the
+    # optional SHA-256 verification. Only run when the
     # operator has provided an expected hash.
     expected_sha = os.environ.get("VOICE_TYPER_ELECTRON_SHA256", "").strip().lower()
     if expected_sha:
@@ -148,36 +148,36 @@ def _main_entry_built() -> bool:
 def _npm_command(script: str = "dev") -> list[str] | None:
     """Return the command list to run ``npm run <script>``.
 
-    Parameters
-    ----------
-    script : str
-        npm script name, e.g. ``"dev"`` or ``"build"``.
+        Parameters
+        ----------
+        script : str
+            npm script name, e.g. ``"dev"`` or ``"build"``.
 
-    Returns
-    -------
-    list[str] | None
-        The argv list to pass to :class:`subprocess.Popen`, or ``None``
-        if npm truly cannot be resolved on the current platform.  When
-        ``None`` is returned, the caller MUST log a clear error and skip
-        the operation — it MUST NOT fall back to ``shell=True`` (S-7:
-        shell=True is a shell-injection risk and breaks on paths with
-        spaces).
+        Returns
+        -------
+        list[str] | None
+            The argv list to pass to :class:`subprocess.Popen`, or ``None``
+            if npm truly cannot be resolved on the current platform.  When
+            ``None`` is returned, the caller MUST log a clear error and skip
+            the operation — it MUST NOT fall back to ``shell=True`` (S-7:
+            shell=True is a shell-injection risk and breaks on paths with
+            spaces).
 
-    S-7 / NEW-CQ-033 / NEW-SEC-009: On Windows, npm is ``npm.cmd`` (a
-    batch file).  Previously this returned ``None`` to signal "use
-    ``shell=True``" which propagated PATH/env to a shell.  We now
-    resolve the .cmd path directly via :func:`shutil.which` (which
-    checks ``PATHEXT`` on Windows, so ``shutil.which("npm")`` already
-    resolves to ``npm.cmd``), and as a belt-and-suspenders fallback on
-    Windows we also try ``shutil.which("npm.cmd")`` explicitly in case
-    ``PATHEXT`` is misconfigured.  The result is always a list form
-    (no shell) when npm can be found, or ``None`` when it cannot —
-    the caller logs and skips in the latter case.
+    S-7: On Windows, npm is ``npm.cmd`` (a
+        batch file).  Previously this returned ``None`` to signal "use
+        ``shell=True``" which propagated PATH/env to a shell.  We now
+        resolve the .cmd path directly via :func:`shutil.which` (which
+        checks ``PATHEXT`` on Windows, so ``shutil.which("npm")`` already
+        resolves to ``npm.cmd``), and as a belt-and-suspenders fallback on
+        Windows we also try ``shutil.which("npm.cmd")`` explicitly in case
+        ``PATHEXT`` is misconfigured.  The result is always a list form
+        (no shell) when npm can be found, or ``None`` when it cannot —
+        the caller logs and skips in the latter case.
 
-    On POSIX, when ``shutil.which`` misses, we still return the list
-    form ``["npm", "run", script]`` so :func:`subprocess.Popen` does
-    the PATH lookup itself (functionally equivalent to the shell form
-    but without spawning ``/bin/sh``).
+        On POSIX, when ``shutil.which`` misses, we still return the list
+        form ``["npm", "run", script]`` so :func:`subprocess.Popen` does
+        the PATH lookup itself (functionally equivalent to the shell form
+        but without spawning ``/bin/sh``).
     """
     import shutil
 
@@ -259,7 +259,7 @@ def _electron_log_files() -> dict:
         log_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = log_dir / "electron-stdout.log"
         stderr_path = log_dir / "electron-stderr.log"
-        # PVT-G5-077: size-bounded rotation. ``voice-typer.log`` uses a
+        # size-bounded rotation. ``voice-typer.log`` uses a
         # 5 MiB × 5 RotatingFileHandler; the Electron stdout/stderr logs
         # were append-only and never rotated, so a chatty Electron build
         # could grow them unbounded. Mirror the 5 MiB cap and keep one
@@ -288,7 +288,7 @@ def _electron_log_files() -> dict:
         }
 
 
-# PVT-G5-077: rotation threshold mirroring ``voice-typer.log``'s 5 MiB
+# rotation threshold mirroring ``voice-typer.log``'s 5 MiB
 # cap (see ``voice_typer/server/log.py:537``). One backup keeps the most
 # recent crashed session around without growing the logs dir unbounded.
 _ELECTRON_LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -333,20 +333,20 @@ def _rotate_if_oversized(path: Path) -> None:
 def _build_electron() -> bool:
     """Run ``npm run build`` to produce the compiled Electron bundles.
 
-    Returns ``True`` on success, ``False`` on failure.  On success,
-    ``out/main/index.js``, ``out/preload/index.js``, and the renderer
-    bundles will all be present.
+        Returns ``True`` on success, ``False`` on failure.  On success,
+        ``out/main/index.js``, ``out/preload/index.js``, and the renderer
+        bundles will all be present.
 
-    Uses :func:`_npm_command` to resolve the npm path (S-7 /
-    NEW-CQ-033 / NEW-SEC-009: prefer the list form to avoid
-    ``shell=True`` so we don't propagate PATH/env to a shell).  When
-    ``_npm_command`` returns ``None`` (npm not resolvable on Windows),
-    logs an error and returns ``False`` — no ``shell=True`` fallback.
+        Uses :func:`_npm_command` to resolve the npm path (S-7 /
+    prefer the list form to avoid
+        ``shell=True`` so we don't propagate PATH/env to a shell).  When
+        ``_npm_command`` returns ``None`` (npm not resolvable on Windows),
+        logs an error and returns ``False`` — no ``shell=True`` fallback.
 
-    Captures stdout/stderr and logs the last 500 chars of stderr on
-    failure for diagnosability.  Times out after 180 seconds — long
-    enough for a cold Vite build, short enough that a hung build
-    doesn't wedge the launcher.
+        Captures stdout/stderr and logs the last 500 chars of stderr on
+        failure for diagnosability.  Times out after 180 seconds — long
+        enough for a cold Vite build, short enough that a hung build
+        doesn't wedge the launcher.
     """
     log.info("[ELECTRON_BUILD] Building Electron app (npm run build)...")
     try:
@@ -378,7 +378,7 @@ def _build_electron() -> bool:
         return False
 
 
-# NEW-PRIV-003: substring markers for "sensitive" env var names. When a
+# substring markers for "sensitive" env var names. When a
 # child process inherits the parent's env (intentional — same-app
 # restart), we log ONLY the key names matching one of these markers so
 # a future leak in a downstream log is auditable. Values are NEVER
@@ -400,10 +400,10 @@ _SENSITIVE_ENV_MARKERS = (
 def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
     """Return the NAMES of env keys that look sensitive.
 
-    NEW-PRIV-003: helper used by the Electron / autostart launchers
-    right after ``env = dict(os.environ)`` to surface (without values)
-    which sensitive-looking env vars the child will inherit. The list
-    is intended for an audit log line — it is NOT a security control.
+    helper used by the Electron / autostart launchers
+        right after ``env = dict(os.environ)`` to surface (without values)
+        which sensitive-looking env vars the child will inherit. The list
+        is intended for an audit log line — it is NOT a security control.
     """
     return sorted(key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS))
 
@@ -411,9 +411,9 @@ def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
 def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
     """Log (at INFO) the names of sensitive env keys present in ``env``.
 
-    NEW-PRIV-003: only the KEY NAMES are logged — values are never
-    printed. If no sensitive keys are present, nothing is logged
-    (avoids log noise on the common case).
+    only the KEY NAMES are logged — values are never
+        printed. If no sensitive keys are present, nothing is logged
+        (avoids log noise on the common case).
     """
     sensitive = _redact_sensitive_env_keys(env)
     if sensitive:

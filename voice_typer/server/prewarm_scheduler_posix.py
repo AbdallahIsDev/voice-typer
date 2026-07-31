@@ -64,7 +64,7 @@ def _prewarm_python() -> str:
             return resolved  # frozen exe path
         # Dev fallback — extract the interpreter from the command line.
         # Format: "<path>" -m voice_typer.server.prewarm
-        # XZ-R12-07: use ``shlex.split`` instead of the prior
+        # use ``shlex.split`` instead of the prior
         # ``resolved.split(" ", 1)[0].strip('"')`` so a Python path
         # containing spaces (common on macOS `/Users/My Name/...`)
         # parses correctly.
@@ -105,7 +105,7 @@ def _build_macos_plist() -> str:
     ProcessType=Background lowers the process priority (equivalent to
     Windows PROCESS_MODE_BACKGROUND_BEGIN).
 
-    XZ-R6-AS-05: built via ``xml.etree.ElementTree`` so all five XML
+    built via ``xml.etree.ElementTree`` so all five XML
     special characters are escaped by the stdlib. The prior f-string +
     ``xml.sax.saxutils.escape`` builder only escaped &, <, >.
     """
@@ -115,7 +115,7 @@ def _build_macos_plist() -> str:
     args = _prewarm_args()
     log_path = _paths.prewarm_launchagent_log()
 
-    # XZ-R6-AS-05: build the <dict> body with ElementTree so escaping
+    # build the <dict> body with ElementTree so escaping
     # is automatic for all 5 XML special characters. We assemble the
     # XML body via ElementTree and prepend the DOCTYPE + <plist>
     # wrapper manually (ElementTree's default serialization omits the
@@ -167,11 +167,11 @@ def _register_prewarm_macos() -> bool:
 
         plist_path = _macos_plist_path()
         plist_path.parent.mkdir(parents=True, exist_ok=True)
-        # XZ-R12-09: use ``_secure_atomic_write`` so the plist is
+        # use ``_secure_atomic_write`` so the plist is
         # written atomically (temp file + ``os.replace``). The prior
         # ``Path.write_text`` did truncate-then-write.
         _secure_atomic_write(plist_path, _build_macos_plist(), durability=False)
-        # SEC-003: Restrict plist file permissions to owner-only on POSIX.
+        # Restrict plist file permissions to owner-only on POSIX.
         # The LaunchAgent plist contains the Python interpreter path and
         # arguments; restricting to 0o600 prevents other users from
         # reading or modifying the launch configuration.
@@ -259,7 +259,7 @@ def _linux_timer_path() -> Path:
 def _systemd_escape_arg(token: str) -> str:
     """Escape a single ExecStart token for systemd's literal syntax.
 
-    XZ-R6-AS-11: systemd's ``ExecStart=`` parses the command line with
+    systemd's ``ExecStart=`` parses the command line with
     a quote-aware tokenizer. We surround the token with double quotes
     and backslash-escape any literal ``"`` or ``\\`` inside. Newlines
     and other control chars are REJECTED (systemd unit files are
@@ -286,7 +286,7 @@ def _build_linux_service() -> str:
     """Build the systemd user service unit for prewarm."""
     python = _prewarm_python()
     args = _prewarm_args()
-    # XZ-R6-AS-11: validate + escape each ExecStart token to prevent
+    # validate + escape each ExecStart token to prevent
     # directive injection via env-var-controlled paths.
     exec_tokens = [_systemd_escape_arg(python)] + [_systemd_escape_arg(a) for a in args]
     exec_start = " ".join(exec_tokens)
@@ -332,12 +332,12 @@ def _register_prewarm_linux() -> bool:
 
         unit_dir = _linux_unit_dir()
         unit_dir.mkdir(parents=True, exist_ok=True)
-        # XZ-R12-09: write both unit files atomically (temp +
+        # write both unit files atomically (temp +
         # ``os.replace``). The prior ``Path.write_text`` was
         # truncate-then-write.
         _secure_atomic_write(_linux_service_path(), _build_linux_service(), durability=False)
         _secure_atomic_write(_linux_timer_path(), _build_linux_timer(), durability=False)
-        # SEC-003: systemd user unit files are written to
+        # systemd user unit files are written to
         # ~/.config/systemd/user/ which is a per-user directory.
         # Restrictive permissions (0o600) are NOT applied here because:
         # 1. The directory is already per-user (not world-readable).
@@ -345,7 +345,7 @@ def _register_prewarm_linux() -> bool:
         #    user's systemd instance, and overly restrictive permissions
         #    can cause systemd to silently skip the unit on some distros.
         # Try to enable + start the timer so it takes effect this session.
-        # XZ-R12-10: also ``start`` the timer (best-effort) so prewarm
+        # also ``start`` the timer (best-effort) so prewarm
         # fires on the current session, not just the next boot.
         for cmd in (
             ["systemctl", "--user", "daemon-reload"],
@@ -367,7 +367,7 @@ def _unregister_prewarm_linux() -> bool:
     """Remove the prewarm systemd user timer. Returns True on success."""
     try:
         # Try to stop + disable first (best-effort).
-        # XZ-R12-18: also stop the SERVICE unit (not just the timer)
+        # also stop the SERVICE unit (not just the timer)
         # so an in-flight oneshot prewarm run is terminated before we
         # unlink the unit files.
         for cmd in (
@@ -432,7 +432,7 @@ def unregister_prewarm_task() -> bool:
     return False
 
 
-# ─── PLAT-019: systemd user unit for the MAIN app (not just prewarm) ─────
+# ─── : systemd user unit for the MAIN app (not just prewarm) ─────
 
 
 def _linux_app_service_path() -> Path:
@@ -441,23 +441,39 @@ def _linux_app_service_path() -> Path:
 
 
 def _build_linux_app_service() -> str:
-    """PLAT-019: Build the systemd user service unit for the main app.
+    """Build the systemd user service unit for the main app.
 
     Unlike the prewarm service (Type=oneshot), the main app is a
     long-running process (Type=simple) with Restart=on-failure so
     systemd supervises it and restarts after crashes.
-    """
-    import sys as _sys
 
-    python = _sys.executable
-    # Run the IPC server (the main entry point)
+    ExecStart uses ``voice_typer.server.autostart_launcher --hidden``
+    rather than the bare ``voice_typer.server.ipc_server`` backend. The
+    launcher is the same entry point the OS autostart (.desktop / LaunchAgent
+    / Run key) uses — it spawns the Tauri/Electron frontend AND the IPC
+    backend, with ``VT_START_HIDDEN=1`` so the tray starts minimized. The
+    bare ``ipc_server`` module is backend-only (no tray, no UI), so the
+    prior ExecStart produced a supervised process with no user-visible
+    surface — a regression if a user manually ``enable``d the unit.
+
+    TODO(sd_notify): the launcher does not yet emit systemd ``READY=1`` /
+    ``WATCHDOG=1`` keepalives, so we deliberately omit ``WatchdogSec=`` —
+    adding it now would cause systemd to mark the unit failed after the
+    first watchdog interval (the backend never calls ``sd_notify``).
+    Adding ``Type=notify`` + ``WatchdogSec=30`` is a future enhancement
+    gated on a ``sd_notify`` Python binding in the launcher.
+    """
+    python = sys.executable
+    # run the autostart launcher (which orchestrates the frontend
+    # + backend) instead of the bare ipc_server. ``--hidden`` keeps the
+    # tray minimized on first start, matching the .desktop autostart path.
     return f"""[Unit]
 Description=Voice Typer dictation service
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart={python} -m voice_typer.server.ipc_server
+ExecStart={python} -m voice_typer.server.autostart_launcher --hidden
 Restart=on-failure
 RestartSec=5s
 # Lower CPU priority so dictation never starves foreground apps
@@ -469,7 +485,7 @@ WantedBy=default.target
 
 
 def register_linux_app_service() -> bool:
-    """PLAT-019: Register the main app as a systemd user service.
+    """Register the main app as a systemd user service.
 
     Writes the unit file to ~/.config/systemd/user/voice-typer.service
     and runs `systemctl --user daemon-reload`. Does NOT auto-enable —
@@ -502,5 +518,5 @@ def register_linux_app_service() -> bool:
 
 
 def is_linux_app_service_registered() -> bool:
-    """PLAT-019: Check if the main app systemd user unit exists."""
+    """Check if the main app systemd user unit exists."""
     return _linux_app_service_path().exists()

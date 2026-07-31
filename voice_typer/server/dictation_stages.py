@@ -1,6 +1,6 @@
-"""DR-18: stage-based pipeline decomposition for ``DictationPipeline``.
+"""stage-based pipeline decomposition for ``DictationPipeline``.
 
-ARCH-006 / DR-18: the 362-LOC ``DictationPipeline.run`` god method ran
+the 362-LOC ``DictationPipeline.run`` god method ran
 9+ inline pipeline stages (transcribe, empty-check, clean, vocab,
 templates, punct, llm, ai, vocab_auto, store, paste) plus embedded
 try/except, in-flight sentinel file write, correlation-id setup,
@@ -16,7 +16,7 @@ wrappers (``CancellationGuard``) or sentinel exceptions
 (``_PipelineAbortEmpty`` / ``_PipelineAbortCancelled``) so the run loop
 stays uniform.
 
-DR-18 design rules (NO behavior change):
+design rules (NO behavior change):
 
 * The 11 stages run in the SAME order with the SAME side effects as the
   original inline sequence. ``build_default_stages`` is the single
@@ -87,7 +87,7 @@ class _PipelineAbortEmpty(_PipelineAbort):
 class _PipelineAbortCancelled(_PipelineAbort):
     """Raised by :class:`CancellationGuard` when the cycle was force-cancelled.
 
-    CR-006: when the watchdog force-cancels a stuck ctranslate2 call,
+    when the watchdog force-cancels a stuck ctranslate2 call,
     the user has already been notified ("Transcription took too long
     and was cancelled") and has likely alt-tabbed to another window.
     Pasting the late transcription would corrupt whatever window
@@ -160,7 +160,7 @@ class PipelineStage(Protocol):
 #
 # Each stage is a thin delegator: it calls the corresponding ``_<step>``
 # method on ``ctx.pipeline`` and returns the (possibly transformed)
-# text. The step methods are unchanged from the pre-DR-18 code — they
+# text. The step methods are unchanged from the pre- code — they
 # keep their existing signatures, error handling, and side effects so
 # the existing direct-call tests keep passing.
 
@@ -193,7 +193,7 @@ class EmptyCheckStage:
     so we set ``timed = False`` to keep the ``_timings`` dict keys
     identical to the original.
 
-    UE-47 (observability note): this stage only fires when the
+    observability note): this stage only fires when the
     backend WAS loaded but produced empty output (genuine silence or
     a cloud provider returning 200 with an empty body). When the
     backend was NOT loaded, ``DictationPipeline._transcribe`` raises
@@ -241,8 +241,7 @@ class TemplatesStage:
     """Step 5: Apply template matching.
 
     Sets ``pipeline._templates_applied = True`` when a template match
-    modifies the text — see S3-CR-10 in
-    :meth:`DictationPipeline._apply_templates`.
+    modifies the text — see meth:`DictationPipeline._apply_templates`.
     """
 
     name = "templates"
@@ -265,7 +264,7 @@ class PunctuationStage:
 class LLMPolishStage:
     """Step 7: Apply LLM polishing (if consented).
 
-    Logs the S3-CR-10 privacy NOTICE when templates were applied
+    Logs the privacy NOTICE when templates were applied
     earlier in this cycle.
     """
 
@@ -277,7 +276,7 @@ class LLMPolishStage:
 
 
 class AIEnhancementStage:
-    """Step 7b: Apply rule-based AI enhancement (P4)."""
+    """Step 7b: Apply rule-based AI enhancement."""
 
     name = "ai"
     timed = True
@@ -341,7 +340,7 @@ class PasteStage:
 class CancellationGuard:
     """Wraps a stage with a watchdog cancellation check.
 
-    CR-006 / DR-18: the original ``DictationPipeline.run`` checked
+    the original ``DictationPipeline.run`` checked
     ``app.recording._cancelled_cycle_ids`` ONCE, between
     ``_store_result`` and ``_copy_and_paste``, after a stuck
     ctranslate2 call was force-cancelled by the watchdog. If the cycle
@@ -442,25 +441,25 @@ class CancellationGuard:
 def build_default_stages() -> list[PipelineStage]:
     """Construct the standard 11-stage dictation pipeline.
 
-    The order is preserved EXACTLY from the original inline
-    ``DictationPipeline.run`` (DR-18 refactor — no behavior change):
+        The order is preserved EXACTLY from the original inline
+    ``DictationPipeline.run`` ( refactor — no behavior change):
 
-      1. ``transcribe``   — streaming finalize or direct ASR
-      2. ``empty_check``  — handle empty transcription (not timed)
-      3. ``clean``        — text cleanup (spacing, self-corrections)
-      4. ``vocab``        — vocabulary correction
-      5. ``templates``    — template matching (sets ``_templates_applied``)
-      6. ``punct``        — auto-punctuation
-      7. ``llm``          — LLM polish (gated by consent + API key)
-      8. ``ai``           — rule-based AI enhancement (P4)
-      9. ``vocab_auto``   — vocabulary automation analysis (P5)
-     10. ``store``        — history DB + crash-recovery write
-     11. ``paste``        — clipboard copy + paste (wrapped by
-                            :class:`CancellationGuard` for the CR-006
-                            watchdog cancellation check)
+          1. ``transcribe``   — streaming finalize or direct ASR
+          2. ``empty_check``  — handle empty transcription (not timed)
+          3. ``clean``        — text cleanup (spacing, self-corrections)
+          4. ``vocab``        — vocabulary correction
+          5. ``templates``    — template matching (sets ``_templates_applied``)
+          6. ``punct``        — auto-punctuation
+          7. ``llm``          — LLM polish (gated by consent + API key)
+          8. ``ai``           — rule-based AI enhancement (P4)
+          9. ``vocab_auto``   — vocabulary automation analysis (P5)
+         10. ``store``        — history DB + crash-recovery write
+         11. ``paste``        — clipboard copy + paste (wrapped by
+    class:`CancellationGuard` for the
+                                watchdog cancellation check)
 
-    Returns a fresh list so callers can mutate (insert/remove stages)
-    without affecting other pipelines.
+        Returns a fresh list so callers can mutate (insert/remove stages)
+        without affecting other pipelines.
     """
     return [
         TranscribeStage(),
@@ -473,7 +472,7 @@ def build_default_stages() -> list[PipelineStage]:
         AIEnhancementStage(),
         VocabularyAutomationStage(),
         StoreResultStage(),
-        # CR-006: wrap PasteStage in CancellationGuard so the
+        # wrap PasteStage in CancellationGuard so the
         # watchdog cancellation check fires immediately before the
         # paste (preserving the original single-check semantics).
         CancellationGuard(PasteStage()),

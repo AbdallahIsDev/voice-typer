@@ -18,7 +18,7 @@ Three regression tests in ``tests/test_recorder_worker_lifecycle.py``
 (``test_handle_device_disconnect_bouncer_intact``,
 ``test_handle_device_disconnect_restart_uses_lock``,
 ``test_handle_device_disconnect_rechecks_bouncer_under_lock``) inspect
-``inspect.getsource(Recorder._handle_device_disconnect)`` for the GT-24
+``inspect.getsource(Recorder._handle_device_disconnect)`` for the
 bouncer comparisons (``_captured_generation != self._stop_generation``,
 ``_recording_event.is_set()``) and the
 ``with self._stream_lifecycle_lock:`` block. Those structural elements
@@ -60,7 +60,7 @@ sd = lazy_module("sounddevice")
 log = logging.getLogger("voice_typer.server.recording")
 
 
-# DJ-99: ``retune_audio_processor`` consolidates the inline retune block
+# ``retune_audio_processor`` consolidates the inline retune block
 # that was duplicated between ``Recorder.start()`` (in
 # ``_recorder_split.py``) and ``DisconnectHandler.restart_stream()``. The
 # two copies had drifted (the start-path copy included an info log on the
@@ -78,15 +78,15 @@ def retune_audio_processor(
 ) -> None:
     """Retune an :class:`AudioProcessor` to a new device's native sample rate.
 
-    Strategy (mirrors ``AudioQualityController._rebuild_audio_processor``):
-      1. If ``proc._sample_rate`` already equals ``effective_sr``, no-op.
-      2. If ``proc.set_sample_rate`` exists (post-FIX-19), call it with
-         ``effective_sr``. It atomically swaps the chain AND updates
-         ``_sample_rate``, so a single call is sufficient.
-      3. Else (pre-FIX-19 fallback or a spec-limited test double), call
-         ``proc.rebuild_from_config(config)``.
-      4. Guard every step with try/except so a buggy AudioProcessor can't
-         break the recording-start / hot-plug recovery critical path.
+        Strategy (mirrors ``AudioQualityController._rebuild_audio_processor``):
+          1. If ``proc._sample_rate`` already equals ``effective_sr``, no-op.
+    2. If ``proc.set_sample_rate`` exists (post-), call it with
+             ``effective_sr``. It atomically swaps the chain AND updates
+             ``_sample_rate``, so a single call is sufficient.
+    3. Else (pre- fallback or a spec-limited test double), call
+             ``proc.rebuild_from_config(config)``.
+          4. Guard every step with try/except so a buggy AudioProcessor can't
+             break the recording-start / hot-plug recovery critical path.
     """
     if proc is None:
         return
@@ -134,19 +134,19 @@ if TYPE_CHECKING:
 class DisconnectHandler:
     """Handles audio device hot-swap stream restart for :class:`Recorder`.
 
-    Extracted from the body of ``Recorder._handle_device_disconnect`` (the
-    ~175-LOC stream-restart block that runs under
-    ``_stream_lifecycle_lock``). The handler resolves a fallback device
-    (the user's configured mic by name, else the OS default), opens a
-    fresh ``sd.InputStream``, assigns it to ``recorder._stream``, and
-    refreshes the post-restart state (effective sample rate, silence
-    timer, AudioProcessor tuning, VAD caches).
+        Extracted from the body of ``Recorder._handle_device_disconnect`` (the
+        ~175-LOC stream-restart block that runs under
+        ``_stream_lifecycle_lock``). The handler resolves a fallback device
+        (the user's configured mic by name, else the OS default), opens a
+        fresh ``sd.InputStream``, assigns it to ``recorder._stream``, and
+        refreshes the post-restart state (effective sample rate, silence
+        timer, AudioProcessor tuning, VAD caches).
 
-    The bouncer checks (``_captured_generation != self._stop_generation``,
-    ``_recording_event.is_set()``) and the
-    ``with self._stream_lifecycle_lock:`` acquisition STAY on
-    ``Recorder._handle_device_disconnect`` so the GT-24 source-inspection
-    regression tests continue to pin the lock-scope invariant.
+        The bouncer checks (``_captured_generation != self._stop_generation``,
+        ``_recording_event.is_set()``) and the
+        ``with self._stream_lifecycle_lock:`` acquisition STAY on
+    ``Recorder._handle_device_disconnect`` so the  source-inspection
+        regression tests continue to pin the lock-scope invariant.
     """
 
     def __init__(self, recorder: Recorder) -> None:
@@ -179,7 +179,7 @@ class DisconnectHandler:
         _configured_device = recorder._resolve_device()
         if _configured_device is not None:
             _named_candidates = recorder._same_physical_microphone_candidates(_configured_device)
-            # DJ-67: BT headsets that drop and reconnect within the
+            # BT headsets that drop and reconnect within the
             # detection→restart-scheduling→restart-execution window
             # (~50-500ms; BT link-manager reconnection is 200-800ms)
             # often reappear at the SAME PortAudio index. The previous
@@ -378,7 +378,7 @@ class DisconnectHandler:
             )
             # retune the AudioProcessor's chain to the new device's
             # native rate so filter coefficients are tuned correctly
-            # (XV-31 mitigation) and the per-chunk ``process_chunk`` call
+            # ( mitigation) and the per-chunk ``process_chunk`` call
             # avoids the RT-thread resample branch. Shares the
             # ``retune_audio_processor`` helper with ``Recorder.start()``
             # (in ``_recorder_split.py``) so fixes to the 3-level fallback

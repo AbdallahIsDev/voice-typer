@@ -1,4 +1,4 @@
-"""Shared state for the level_monitor package (AC-129).
+"""Shared state for the level_monitor package ().
 
 This module owns the singleton ``_state`` instance that holds every
 piece of mutable module-level state previously scattered across
@@ -42,7 +42,7 @@ access through to ``_state``. So:
     lm._test_chunks.append(x)  →  _state._test_chunks.append(x)
     lm._monitor_lock.acquire() →  _state._monitor_lock.acquire()
 
-This preserves every test access pattern documented in AC-129.
+This preserves every test access pattern documented in
 """
 
 from __future__ import annotations
@@ -51,10 +51,10 @@ import collections
 import threading
 from typing import Any
 
-# UE-12-F15: use the canonical Whisper 16 kHz constant as the default
+# use the canonical Whisper 16 kHz constant as the default
 # monitor sample rate instead of a hardcoded ``16000`` literal. The
 # pre-refactor ``level_monitor.py`` god-module used ``WHISPER_SAMPLE_RATE``
-# here; the AC-129 package split lost that link and inlined the literal.
+# here; the  package split lost that link and inlined the literal.
 # Re-establishing the import keeps a single source of truth so an
 # intent-level change (e.g. moving to 24 kHz models) propagates here
 # automatically.
@@ -79,7 +79,7 @@ class _State:
 
     def __init__(self) -> None:
         # ── Monitor session state ────────────────────────────────────
-        # TASK-14: ``Optional[object]`` made every downstream
+        # ``Optional[object]`` made every downstream
         # ``stream.stop()`` / ``stream.close()`` call raise
         # ``Object of class `object` has no attribute ...``.  ``Any``
         # matches the actual runtime type (``sounddevice.InputStream``)
@@ -96,12 +96,12 @@ class _State:
         # When set, audio from the callback is run through this processor's
         # process_chunk() before computing RMS/peak so the level bar
         # reflects the effect of noise filters in real-time.
-        # TASK-14: same as ``_monitor_stream`` — ``Optional[object]``
+        # same as ``_monitor_stream`` — ``Optional[object]``
         # rejects ``.process_chunk()`` / ``.cancel()`` calls below.  Use
         # ``Any`` to match the runtime ``AudioProcessor`` type.
         self._level_processor: Any | None = None  # AudioProcessor instance
 
-        # ── RT-SAFE-001 (c-review PERF-03): SPSC ring buffer + worker ──
+        # ──  (c-review PERF-03): SPSC ring buffer + worker ──
         # The PortAudio callback (single producer) pushes
         # (indata_copy, status) tuples to this deque; the level worker
         # thread (single consumer) pops them and runs the heavy
@@ -117,7 +117,7 @@ class _State:
         # Counter for chunks dropped because the ring buffer was full
         # (worker couldn't keep up). Logged with throttling.
         self._dropped_level_chunks: int = 0
-        # XV-58: timestamp (``time.monotonic()``) of the last throttled
+        # timestamp (``time.monotonic()``) of the last throttled
         # log emission for ``_dropped_level_chunks``.
         self._last_drop_log_time: float = 0.0
         # R3-F6: one-shot latch so the RT callback emits a WARNING on
@@ -126,19 +126,19 @@ class _State:
         self._first_drop_warning_emitted: bool = False
 
         # ── Test recording state (uses the SAME stream) ──────────────
-        # MEM-02: ``_test_chunks`` / ``_test_raw_chunks`` are bounded
+        # ``_test_chunks`` / ``_test_raw_chunks`` are bounded
         # ``collections.deque`` (NOT plain ``list``).  The maxlen is
         # derived from the CURRENT sample rate and the currently-
         # requested test duration, so a forgotten
         # ``stop_test_recording()`` cannot accumulate unbounded audio.
         self._TEST_MAX_CHUNKS_CAP: int = int(30 * 48000 / 512) + 1  # ~2813
         self._test_mode: bool = False
-        # XV-54 / PVT-013: ``_test_chunks`` is retained as a backward-
+        #  ``_test_chunks`` is retained as a backward-
         # compat shim ONLY because external test files reference it
         # directly via ``lm._test_chunks.clear() / .append() / .maxlen /
         # len(...)``. Removing the symbol here would break those tests.
         # The shim is bounded + cleared alongside ``_test_raw_chunks``
-        # (MEM-02) so it cannot leak.
+        # () so it cannot leak.
         self._test_chunks: collections.deque = collections.deque(
             maxlen=self._TEST_MAX_CHUNKS_CAP,
         )
@@ -183,7 +183,7 @@ class _State:
         self._mic_level_worker_stop: bool = False
         self._MIC_LEVEL_COALESCE_SEC: float = 1.0 / 30.0
 
-        # ── ER-14: idle-timeout auto-stop ────────────────────────────
+        # ── : idle-timeout auto-stop ────────────────────────────
         # When no IPC ``get_level`` poll has been received in
         # ``_LEVEL_IDLE_TIMEOUT_SEC`` seconds, the next ``get_level``
         # call auto-stops the stream (and re-starts it on the next
@@ -191,9 +191,16 @@ class _State:
         # RNNoise filter chain from pegging a core when the tray bubble
         # is hidden but the frontend forgot to call ``level_monitor_stop``.
         self._last_get_level_poll_ts: float = 0.0
-        self._LEVEL_IDLE_TIMEOUT_SEC: float = 5.0
+        # Belt-and-suspenders: 60s instead of 5s. The frontend reliably
+        # calls ``level_monitor_stop`` on unmount (see  docstring
+        # above), so this timeout is purely a defensive backstop for the
+        # rare case where the IPC stop is lost. 5s was too aggressive —
+        # combined with the push-event migration (frontend may only call
+        # ``get_level`` once on mount), it could falsely trip while the
+        # bubble was still actively consuming ``mic_level`` push events.
+        self._LEVEL_IDLE_TIMEOUT_SEC: float = 60.0
 
-        # ── ER-75: worker backstop poll interval ─────────────────────
+        # ── : worker backstop poll interval ─────────────────────
         # Raised from 50 ms to 250 ms — the stop path already calls
         # ``_level_worker_wake_event.set()`` so stop latency is
         # unaffected; the timeout only governs the "missed wakeup"

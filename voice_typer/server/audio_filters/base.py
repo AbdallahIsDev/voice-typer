@@ -8,9 +8,11 @@ import math
 import threading
 from abc import ABC, abstractmethod
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# R4-F10: module-level logger used by ``FilterChain.process``'s
+np = lazy_module("numpy")
+
+# module-level logger used by ``FilterChain.process``'s
 # except branch. Without it the first filter exception raises
 # ``NameError`` (masking the real DSP error). Submodules inherit
 # this logger name (``voice_typer.server.audio_filters.base``).
@@ -66,7 +68,7 @@ class AudioFilter(ABC):
 
     name: str = "AudioFilter"
 
-    # ER-46: per-filter runtime bypass flag. When False, FilterChain.process
+    # per-filter runtime bypass flag. When False, FilterChain.process
     # skips this filter without calling its process method. State (IIR zi,
     # envelope follower, gate openness) survives the bypass window.
     enabled: bool = True
@@ -114,7 +116,7 @@ class FilterChain:
     ``None`` (buffering), the chain returns ``None`` immediately —
     callers should skip the chunk.
 
-    DJ-61 (lock-free process): ``process()`` snapshots the filter list
+     (lock-free process): ``process()`` snapshots the filter list
     under the lock, releases the lock, then runs the filters lock-free.
     Filter ``process()`` calls are pure CPU (no shared-state mutation
     that needs the chain lock) — holding the lock for the duration of
@@ -139,13 +141,13 @@ class FilterChain:
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         """Run audio through all filters in order.
 
-        R4-F10: any exception raised by a filter is logged and the
+        any exception raised by a filter is logged and the
         chain returns ``None`` (drop the chunk) so a buggy filter
         doesn't crash the recording thread. Pre-fix the bare
         ``raise`` masked the underlying DSP error with a ``NameError``
         on the missing ``log`` symbol.
 
-        DJ-61: snapshot the filter list under the lock, release the
+        snapshot the filter list under the lock, release the
         lock, then run the filters lock-free. The audio thread is the
         only ``process()`` caller; ``swap()`` (the only mutator of
         ``_filters``) takes the lock briefly to swap the reference.
@@ -166,7 +168,7 @@ class FilterChain:
         for f in filters_snapshot:
             if audio is None or audio.size == 0:
                 return audio
-            # ER-46: skip disabled filters without calling process() so
+            # skip disabled filters without calling process() so
             # internal state survives the bypass window.
             if not getattr(f, "enabled", True):
                 continue
@@ -186,7 +188,7 @@ class FilterChain:
 
     def reset(self) -> None:
         """Reset all filters' internal state."""
-        # DJ-61: snapshot under the lock, reset lock-free. Filter
+        # snapshot under the lock, reset lock-free. Filter
         # ``reset()`` implementations only mutate the filter's own
         # state (zero ``zi`` arrays, reset envelope followers) — no
         # cross-filter shared state, so no lock needed for the resets.
@@ -199,7 +201,7 @@ class FilterChain:
     @property
     def filters(self) -> list[AudioFilter]:
         """List of filters in chain order (copy)."""
-        # DJ-61: snapshot under the lock — returns a fresh list the
+        # snapshot under the lock — returns a fresh list the
         # caller can iterate without holding the chain lock.
         with self._lock:
             return list(self._filters)
@@ -207,7 +209,7 @@ class FilterChain:
     @property
     def filter_names(self) -> list[str]:
         """Display names of active filters."""
-        # DJ-61: snapshot under the lock, read filter.name lock-free.
+        # snapshot under the lock, read filter.name lock-free.
         # ``f.name`` is a str attribute read (atomic under GIL).
         with self._lock:
             snapshot = list(self._filters)
@@ -216,7 +218,7 @@ class FilterChain:
     @property
     def is_degraded(self) -> bool:
         """True if any filter is in degraded mode."""
-        # DJ-61: snapshot under the lock, read filter.is_degraded
+        # snapshot under the lock, read filter.is_degraded
         # lock-free (atomic bool read under GIL).
         with self._lock:
             snapshot = list(self._filters)
@@ -225,7 +227,7 @@ class FilterChain:
     @property
     def degraded_reasons(self) -> list[str]:
         """List of degradation reasons from all filters."""
-        # DJ-61: snapshot under the lock, read filter attributes
+        # snapshot under the lock, read filter attributes
         # lock-free.
         with self._lock:
             snapshot = list(self._filters)
@@ -234,7 +236,7 @@ class FilterChain:
     @property
     def total_latency_ms(self) -> float:
         """Sum of all filters' latency."""
-        # DJ-61: snapshot under the lock, read filter.latency_ms
+        # snapshot under the lock, read filter.latency_ms
         # lock-free.
         with self._lock:
             snapshot = list(self._filters)
@@ -243,7 +245,7 @@ class FilterChain:
     def swap(self, new_filters: list[AudioFilter]) -> None:
         """Atomically swap the filter list. Used for live config rebuilds.
 
-        G4-L-05: ``reset()`` is called on each OLD filter so the
+        ``reset()`` is called on each OLD filter so the
         previous session's audio residual is securely cleared (each
         filter's ``reset()`` zeroes its state array in-place via
         ``ndarray.fill(0)``). The original code did this BEFORE the
@@ -267,7 +269,7 @@ class FilterChain:
              versions. Moving the reset out of the lock doesn't make
              this worse — it just makes the lock window shorter.
 
-        DJ-61: the swap itself is a single atomic reference assignment
+        the swap itself is a single atomic reference assignment
         (``self._filters = new_list``) under the lock. The
         ``list(new_filters)`` copy is constructed OUTSIDE the lock so
         the lock is held for microseconds, not for the duration of
@@ -292,8 +294,37 @@ class FilterChain:
             # never a mix (the GIL serializes the STORE against their
             # snapshot read).
             self._filters = new_list
-        # G4-L-05: zero state on old filters AFTER the swap (outside
+        # zero state on old filters AFTER the swap (outside
         # the lock — see the docstring for the rationale).
         for f in old:
             with contextlib.suppress(Exception):
                 f.reset()
+
+
+# Cached lazy import of scipy.signal.lfilter.
+# Mirrors the _get_resample_poly pattern in audio_processor.py.
+_lfilter = None
+_lfilter_import_error: Exception | None = None
+
+
+def _get_lfilter():
+    """Return scipy.signal.lfilter, importing it lazily on first call.
+
+    Caches the function reference after the first successful import so the
+    hot path (96 calls/sec on the audio worker thread) pays only a module-level
+    variable lookup. If the import fails, the error is cached and re-raised on
+    every subsequent call so callers see consistent behavior.
+    """
+    global _lfilter, _lfilter_import_error
+    if _lfilter is not None:
+        return _lfilter
+    if _lfilter_import_error is not None:
+        raise _lfilter_import_error
+    try:
+        from scipy.signal import lfilter as _lf
+
+        _lfilter = _lf
+        return _lf
+    except ImportError as exc:
+        _lfilter_import_error = exc
+        raise

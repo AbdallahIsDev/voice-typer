@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-# TY-2 (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
+# (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
 # and is NOT touched during ``VoiceTyperApp.__init__`` or ``start()`` — it
 # is only needed on the first ``process_chunk`` call (>=1s after dictation
 # begins). Defer the real import to first attribute access via the same
@@ -38,7 +38,7 @@ from voice_typer.server.audio_filters import FilterChain
 
 np = lazy_module("numpy")
 
-# CRIT-6 / AUDIO-CHAIN-1: lazy-imported resampler to avoid pulling scipy
+# CRIT-6: lazy-imported resampler to avoid pulling scipy
 # into every test that constructs an AudioProcessor.  The first
 # ``process_chunk`` call that actually needs to resample will import it.
 _resample_poly = None
@@ -73,7 +73,7 @@ log = logging.getLogger(__name__)
 
 QualityCallback = Callable[[float, float], None]
 
-# XV-36: every noise_filter_* / noise_suppression_* / audio_preset
+# every noise_filter_* / noise_suppression_* / audio_preset
 # field that ``build_chain`` consults. Used to compute a stable
 # signature so ``rebuild_from_config`` can short-circuit when nothing
 # relevant changed. MUST be kept in sync with
@@ -108,7 +108,7 @@ _CONFIG_SIGNATURE_FIELDS: tuple[str, ...] = (
 
 
 def _config_signature(config: object, sample_rate: int) -> tuple:
-    """XV-36: compute a stable signature tuple for ``config``.
+    """compute a stable signature tuple for ``config``.
 
     The signature includes every ``noise_filter_*`` /
     ``noise_suppression_method`` / ``audio_preset`` field the chain
@@ -142,13 +142,13 @@ class AudioProcessor:
         self._sample_rate = int(sample_rate)
         self._chain: FilterChain = build_chain(config, sample_rate)
         self._quality_callback: QualityCallback | None = None
-        # XV-36: cache of the config signature that produced the current
+        # cache of the config signature that produced the current
         # chain. ``rebuild_from_config`` short-circuits when the new
         # config's signature matches -- avoids tearing down and rebuilding
         # the entire chain (including reloading RNNoise) on a no-op
         # ``apply_config_side_effects`` pass.
         self._config_signature: tuple = _config_signature(config, self._sample_rate)
-        # XV-37: track (input_sr, chain_sr) pairs already logged at
+        # track (input_sr, chain_sr) pairs already logged at
         # WARNING so a sustained resample fallback doesn't spam the log.
         self._resample_warned_pairs: set[tuple[int, int]] = set()
         # H-22: latched flag set when the RT-thread resample fallback
@@ -177,16 +177,16 @@ class AudioProcessor:
     def rebuild_from_config(self, config: object) -> None:
         """Rebuild the filter chain from a new config.
 
-        XV-36: short-circuits when the new config's signature (the
-        relevant ``noise_filter_*`` / ``noise_suppression_method`` /
-        ``audio_preset`` field values plus the current sample rate)
-        matches the previously-built chain's signature. Avoids tearing
-        down the entire chain (including reloading the RNNoise model
-        and re-running ``scipy.signal.butter``) on a no-op config
-        reload -- the controller calls this on every
-        ``apply_config_side_effects`` pass, and config writes that
-        don't touch audio fields would otherwise pay the full rebuild
-        cost. The chain object identity is preserved either way.
+        short-circuits when the new config's signature (the
+                relevant ``noise_filter_*`` / ``noise_suppression_method`` /
+                ``audio_preset`` field values plus the current sample rate)
+                matches the previously-built chain's signature. Avoids tearing
+                down the entire chain (including reloading the RNNoise model
+                and re-running ``scipy.signal.butter``) on a no-op config
+                reload -- the controller calls this on every
+                ``apply_config_side_effects`` pass, and config writes that
+                don't touch audio fields would otherwise pay the full rebuild
+                cost. The chain object identity is preserved either way.
         """
         new_sig = _config_signature(config, self._sample_rate)
         if new_sig == self._config_signature:
@@ -220,31 +220,31 @@ class AudioProcessor:
     def set_sample_rate(self, sr: int) -> None:
         """Update the chain's sample rate and rebuild the filter chain.
 
-        XV-31 (CRITICAL) / AUDIO-6 (High) / AUDIO-9 (Medium): called by
-        :meth:`AudioQualityController._rebuild_audio_processor` when
-        ``force_sr`` is provided (e.g. on hot-plug or when the recorder
-        resolves a new ``candidate_sr`` that differs from
-        ``config.sample_rate``).
+        (CRITICAL) /  (High) /  (Medium): called by
+                :meth:`AudioQualityController._rebuild_audio_processor` when
+                ``force_sr`` is provided (e.g. on hot-plug or when the recorder
+                resolves a new ``candidate_sr`` that differs from
+                ``config.sample_rate``).
 
-        Without this, all filter coefficients stay tuned to the original
-        sample rate and a hot-plugged device at a different native rate
-        silently mistunes the entire chain: an 80 Hz high-pass built at
-        16 kHz actually cuts at 240 Hz when fed 48 kHz audio (removing
-        male speech fundamentals); notch frequencies, EQ crossovers,
-        and compressor attack/release ballistics all drift in lockstep.
+                Without this, all filter coefficients stay tuned to the original
+                sample rate and a hot-plugged device at a different native rate
+                silently mistunes the entire chain: an 80 Hz high-pass built at
+                16 kHz actually cuts at 240 Hz when fed 48 kHz audio (removing
+                male speech fundamentals); notch frequencies, EQ crossovers,
+                and compressor attack/release ballistics all drift in lockstep.
 
-        XV-36: explicitly rebuilds (does NOT go through
-        ``rebuild_from_config``'s short-circuit) because a rate change
-        always invalidates the cached signature, and we want a single
-        rebuild -- not a skip followed by a redundant rebuild on the
-        next ``rebuild_from_config`` call.
+        explicitly rebuilds (does NOT go through
+                ``rebuild_from_config``'s short-circuit) because a rate change
+                always invalidates the cached signature, and we want a single
+                rebuild -- not a skip followed by a redundant rebuild on the
+                next ``rebuild_from_config`` call.
 
-        H-22: clears the latched resample-degraded flag because the
-        chain is now retuned to the new rate — the corrective action
-        for a resample fallback has been taken.
+                H-22: clears the latched resample-degraded flag because the
+                chain is now retuned to the new rate — the corrective action
+                for a resample fallback has been taken.
 
-        Args:
-            sr: new sample rate in Hz.
+                Args:
+                    sr: new sample rate in Hz.
         """
         new_sr = int(sr)
         self._sample_rate = new_sr
@@ -275,22 +275,22 @@ class AudioProcessor:
     def process_chunk(self, chunk: np.ndarray, input_sample_rate: int | None = None) -> np.ndarray | None:
         """Apply the filter chain to a single audio chunk.
 
-        Returns the filtered chunk (same shape/dtype). If the chain
-        returns ``None`` because a downstream filter is buffering (e.g.
-        RNNoise needs a full 480-sample frame), the ORIGINAL unfiltered
-        chunk is returned so callers that don't propagate ``None``
-        (e.g. ``level_monitor``'s live level bar, and the recording
-        callback's RMS / silence-detection path) keep running without
-        special-casing.
+                Returns the filtered chunk (same shape/dtype). If the chain
+                returns ``None`` because a downstream filter is buffering (e.g.
+                RNNoise needs a full 480-sample frame), the ORIGINAL unfiltered
+                chunk is returned so callers that don't propagate ``None``
+                (e.g. ``level_monitor``'s live level bar, and the recording
+                callback's RMS / silence-detection path) keep running without
+                special-casing.
 
-        **Must be non-blocking.** Only pre-allocated buffers and fast
-        numpy/scipy operations are used.
+                **Must be non-blocking.** Only pre-allocated buffers and fast
+                numpy/scipy operations are used.
 
-        CRIT-6 / AUDIO-CHAIN-1: if ``input_sample_rate`` is provided
-        and differs from the chain's construction sample rate, the
-        chunk is resampled to the chain's rate before processing.
+        CRIT-6: if ``input_sample_rate`` is provided
+                and differs from the chain's construction sample rate, the
+                chunk is resampled to the chain's rate before processing.
         """
-        # XV-40: wrap the entire RT-thread body in a try/except so a
+        # wrap the entire RT-thread body in a try/except so a
         # transient numpy/scipy error or a buggy filter does NOT crash
         # the PortAudio recorder thread (which would silently kill all
         # future audio capture for the session). The original chunk is
@@ -318,20 +318,20 @@ class AudioProcessor:
         if chunk.dtype != np.float32:
             chunk = chunk.astype(np.float32)
 
-        # CRIT-6 / AUDIO-CHAIN-1: resample to the chain's rate if the
+        # CRIT-6: resample to the chain's rate if the
         # input rate differs.  Filters were built at ``self._sample_rate``
         # (16 kHz) -- feeding them audio at a different rate silently
         # mistunes every coefficient (high-pass, notch, EQ crossovers,
         # compressor attack/release).
         if input_sample_rate is not None and int(input_sample_rate) != self._sample_rate:
-            # XV-34: resample_poly allocates per call and runs on the RT
+            # resample_poly allocates per call and runs on the RT
             # thread. The correct long-term fix is for callers (the
             # recorder) to invoke ``set_sample_rate`` with the device's
-            # native rate so this branch is never taken (XV-31 mitigation).
+            # native rate so this branch is never taken ( mitigation).
             # When the rates do differ, we still need to resample here to
             # avoid silently mistuning every filter coefficient. Bump the
             # log level for the fallback path so operators see the
-            # mistune (XV-37 -- was DEBUG, invisible in default logs).
+            # mistune ( -- was DEBUG, invisible in default logs).
             try:
                 resample_poly = _get_resample_poly()
                 # scipy.signal.resample_poly uses integer up/down ratios.
@@ -344,7 +344,7 @@ class AudioProcessor:
                 g = gcd(up, down)
                 up //= g
                 down //= g
-                # ER-67: use cached FIR taps + upfirdn instead of
+                # use cached FIR taps + upfirdn instead of
                 # resample_poly re-designing the filter on every call.
                 try:
                     from scipy.signal import upfirdn
@@ -355,7 +355,7 @@ class AudioProcessor:
                     chunk = upfirdn(taps, chunk, up=up, down=down).astype(np.float32, copy=False)
                 except Exception:
                     chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
-                # XV-37: one-shot WARNING (rate-limited) so operators can
+                # one-shot WARNING (rate-limited) so operators can
                 # spot devices that haven't been routed through
                 # ``set_sample_rate``. Subsequent calls at the same
                 # (input_sr, chain_sr) pair are logged at DEBUG to avoid
@@ -387,7 +387,7 @@ class AudioProcessor:
                         "call set_sample_rate(input_sr) to retune"
                     )
 
-        # PVT-056: run the quality check on the PRE-filter chunk (the
+        # run the quality check on the PRE-filter chunk (the
         # resampled input). The default Limiter (ceiling_db=-6.0 ~ 0.50
         # linear) clamps every sample's envelope to <=0.50, so the
         # post-filter peak fed to the clipping detector (threshold 0.99)
@@ -430,7 +430,7 @@ class AudioProcessor:
             log.debug("[AUDIO-PROC] quality callback raised", exc_info=True)
 
     def _log_resample_once(self, input_sr: int) -> None:
-        """XV-37: log the resample fallback at WARNING once per (input_sr, chain_sr) pair.
+        """log the resample fallback at WARNING once per (input_sr, chain_sr) pair.
 
         The resample path on the RT thread is acceptable when the device
         rate genuinely differs from the chain rate (it keeps audio
@@ -461,10 +461,10 @@ class AudioProcessor:
     def sample_rate(self) -> int:
         """The chain's current sample rate (Hz).
 
-        XV-31: updated by :meth:`set_sample_rate` (e.g. on hot-plug)
-        so callers (and tests) can read the effective rate the chain
-        is currently tuned to. Reads return the same value as
-        ``self._sample_rate``.
+        updated by :meth:`set_sample_rate` (e.g. on hot-plug)
+                so callers (and tests) can read the effective rate the chain
+                is currently tuned to. Reads return the same value as
+                ``self._sample_rate``.
         """
         return self._sample_rate
 

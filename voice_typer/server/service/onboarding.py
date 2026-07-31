@@ -1,7 +1,7 @@
 """Onboarding domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). First-run wizard state, step navigation, and
+( split). First-run wizard state, step navigation, and
 the apply-settings flow that mirrors ``set_config``.
 """
 
@@ -41,7 +41,7 @@ class OnboardingMixin(ServiceMixinBase):
         }
 
     def onboarding_check_permissions(self) -> dict:
-        """Probe OS-level keyboard-monitoring permission state (UX-4 / UX-27).
+        """Probe OS-level keyboard-monitoring permission state ( / ).
 
         Delegates to :meth:`OnboardingController.check_permissions`, which
         returns a renderer-friendly dict describing the current platform,
@@ -132,17 +132,17 @@ class OnboardingMixin(ServiceMixinBase):
     def onboarding_apply(self) -> dict:
         """Apply onboarding settings and mark complete.
 
-        17-H-FIX-1: previously this only called ``ctrl.apply_settings``
-        (which does ``config.save()``) — it never invoked
-        ``apply_config_side_effects``, so the user's hotkey and model
-        choices made in the first-run wizard didn't take effect until
-        app restart. We now mirror the canonical ``set_config`` flow
-        in ``config_handlers.py``: hold the config-mutation lock,
-        invalidate the tray menu cache, re-register the dictation
-        hotkey via ``apply_config_side_effects``, optionally reload
-        the model, and push a ``config_changed`` event so the
-        renderer doesn't need its bespoke re-fetch in
-        ``handleOnboardingComplete``.
+        17-H-: previously this only called ``ctrl.apply_settings``
+                (which does ``config.save()``) — it never invoked
+                ``apply_config_side_effects``, so the user's hotkey and model
+                choices made in the first-run wizard didn't take effect until
+                app restart. We now mirror the canonical ``set_config`` flow
+                in ``config_handlers.py``: hold the config-mutation lock,
+                invalidate the tray menu cache, re-register the dictation
+                hotkey via ``apply_config_side_effects``, optionally reload
+                the model, and push a ``config_changed`` event so the
+                renderer doesn't need its bespoke re-fetch in
+                ``handleOnboardingComplete``.
         """
         ctrl = getattr(self, "_onboarding", None)
         if ctrl is None:
@@ -191,14 +191,14 @@ class OnboardingMixin(ServiceMixinBase):
                 self.apply_config_side_effects(updates)
                 app.config.save()
 
-            # ARCH-043: invalidate the tray menu cache so the next
+            # invalidate the tray menu cache so the next
             # menu build picks up the new hotkey/model/mic.
             try:
                 app.tray.invalidate_menu_cache()
             except Exception:
                 log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
 
-            # 17-H-FIX-1: reload the model if the user picked a
+            # 17-H-: reload the model if the user picked a
             # different one. SVC-10 / ADR-0008 §3.1: route the model
             # switch through ``self.change_model`` (the service-layer
             # wrapper that delegates to ``app.change_model``) instead
@@ -238,7 +238,7 @@ class OnboardingMixin(ServiceMixinBase):
 
             return {"ok": True}
         except Exception as exc:
-            # XZ-EH-002: redact exc string before returning to IPC layer.
+            # redact exc string before returning to IPC layer.
             # Sister service methods (delete_model, test_llm_connection,
             # export_diagnostics, export_gdpr_bundle, force_cancel_transcription,
             # get_volume_backend_status) all wrap str(exc) with
@@ -263,7 +263,7 @@ class OnboardingMixin(ServiceMixinBase):
         return {"models": OnboardingController.MODEL_OPTIONS}
 
     def onboarding_get_model_catalog(self) -> dict:
-        """UX-32: Get the full rich-metadata model catalog for the
+        """Get the full rich-metadata model catalog for the
         onboarding wizard.
 
         Unlike :meth:`onboarding_get_model_options` (which returns the

@@ -1,11 +1,11 @@
 """macOS autostart — LaunchAgent plist.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three macOS autostart primitives:
 
   - :func:`_enable_autostart_macos` — write ``~/Library/LaunchAgents/com.voicetyper.plist``
-    + ``launchctl load`` (with a 5 s timeout — NEW-XPLAT-005).
++ ``launchctl load`` (with a 5 s timeout — ).
   - :func:`_disable_autostart_macos` — ``launchctl bootout`` (modern,
     macOS 10.10+) + ``launchctl remove`` (legacy fallback) + delete the
     plist file.
@@ -66,7 +66,7 @@ def _enable_autostart_macos() -> bool:
     plist_path = plist_dir / "com.voicetyper.plist"
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
 
-    # NEW-XPLAT-006: previously the plist's ``WorkingDirectory`` was
+    # previously the plist's ``WorkingDirectory`` was
     # set to the literal string ``~``.  launchd does NOT expand ``~``
     # in plist values — the WorkingDirectory must be an absolute path.
     # The literal ``~`` caused launchd to fail to chdir into anything
@@ -76,7 +76,7 @@ def _enable_autostart_macos() -> bool:
     # autostart_launcher.py resolve to the wrong place.
     working_dir = str(Path.home())
 
-    # PVT-010/macOS-VENV-AUTOSTART: for parity with Linux + Windows,
+    # macOS-VENV-AUTOSTART: for parity with Linux + Windows,
     # probe whether a system Python (if we're in a venv) can import
     # ``voice_typer.server.autostart_launcher`` before swapping. macOS
     # users typically run from a Homebrew Python or a system Python —
@@ -138,8 +138,8 @@ def _enable_autostart_macos() -> bool:
 </plist>"""
     plist_path.write_text(plist_content)
     plist_path.chmod(0o600)
-    # NEW-PRIV-002: ensure the log directory exists with private perms
-    # RW-7: use _paths.config_dir() instead of Path.home() / ".voice-typer"
+    # ensure the log directory exists with private perms
+    # use _paths.config_dir() instead of Path.home() / ".voice-typer"
     # so the plist's StandardOutPath/StandardErrorPath and the actual log
     # directory on disk agree (and respect VOICE_TYPER_CONFIG_DIR /
     # platform-specific paths).
@@ -147,7 +147,7 @@ def _enable_autostart_macos() -> bool:
     log_dir.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         os.chmod(log_dir, 0o700)
-    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # (pyrefly): import subprocess BEFORE the try block so the
     # ``except subprocess.TimeoutExpired`` clause has a guaranteed-bound
     # name. Previously the import was inside the try, so if the import
     # itself failed (extremely unlikely, but pyrefly cannot prove
@@ -155,13 +155,13 @@ def _enable_autostart_macos() -> bool:
     # instead of catching the intended exception.
 
     try:
-        # NEW-XPLAT-005: previously ``launchctl load`` had no timeout,
+        # previously ``launchctl load`` had no timeout,
         # so a hung launchd (rare but possible after a macOS upgrade
         # or in a stuck boot) would block this thread forever.  The
         # 5-second timeout matches what the Apple docs say is the
         # upper bound for a healthy launchctl load.
         #
-        # FR-38: inspect the CompletedProcess returncode AND stderr.
+        # inspect the CompletedProcess returncode AND stderr.
         # Pre-fix, this function unconditionally ``return True`` after
         # the subprocess.run call — so a launchctl load failure (e.g.
         # "Loader.Error" or "exited with" in stderr, or a non-zero
@@ -176,7 +176,7 @@ def _enable_autostart_macos() -> bool:
         )
     except subprocess.TimeoutExpired:
         log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
-        # FR-38: surface the timeout to the caller so the renderer can
+        # surface the timeout to the caller so the renderer can
         # show "Autostart failed: launchctl load timed out" instead of
         # the misleading success toast.
         log.error("[CONFIG] Autostart enable FAILED: launchctl load timed out")
@@ -186,7 +186,7 @@ def _enable_autostart_macos() -> bool:
         log.error("[CONFIG] Autostart enable FAILED: %s", e)
         return False
 
-    # FR-38: inspect returncode + stderr. ``launchctl load`` exits 0 on
+    # inspect returncode + stderr. ``launchctl load`` exits 0 on
     # success and non-zero on failure. The stderr text contains hints
     # like "Loader.Error: ... exited with" for plist-syntax / path /
     # permission errors. We treat BOTH a non-zero returncode AND the

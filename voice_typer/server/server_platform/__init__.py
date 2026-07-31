@@ -1,6 +1,6 @@
 """Platform-specific adapters: autostart, microphone listing, volume backend.
 
-Phase 4.5 / ARCH-045 — this file was previously a 1,264-line god-module
+Phase 4.5 /  — this file was previously a 1,264-line god-module
 (``voice_typer/server/server_platform.py``); it has been split into a
 package with one module per concern:
 
@@ -46,7 +46,7 @@ module exposed so existing imports of the form
 ``from voice_typer.server.server_platform import X`` keep working
 without modification.
 
-CR-67 / TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
+TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
 -------------------------------------------------------------------------
 This package uses an **indirection pattern** (rather than a custom
 module subclass like :mod:`voice_typer.server.recording` does) to
@@ -77,9 +77,9 @@ the mutable-state routing case).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO (2026-07-28, CR-67 / TECH-DEBT — OPEN, no migration in progress):
+TODO (2026-07-28,  / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once CR-67 is complete, this
+during the package reorganization.  Once  is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
 then remove the ``_pkg.X`` indirection.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
@@ -92,7 +92,7 @@ test site has been migrated, the ``_pkg.X`` references and the
 ``from voice_typer.server import server_platform as _pkg`` lines in
 the submodules can be deleted.  Estimated scope: 30-50 test files
 per package (so 90-150 test files total across the three packages).
-Tracked as CR-67 / TECH-DEBT (no owner assigned; no ETA — see
+Tracked as  / TECH-DEBT (no owner assigned; no ETA — see
 ``docs/rw9-god-class-decomposition.md`` for the migration plan).
 
 Patch-path compatibility

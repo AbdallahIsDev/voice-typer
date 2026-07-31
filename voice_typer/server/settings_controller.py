@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: SettingsController — extracted from VoiceTyperApp.
+"""god-class decomposition: SettingsController — extracted from VoiceTyperApp.
 
 Owns the platform-level configuration side effects triggered by the tray
 menu and IPC:
@@ -49,15 +49,15 @@ log = logging.getLogger(__name__)
 class SettingsController:
     """Owns tray-menu + IPC-driven settings side effects.
 
-    RW-9 Phase 6: extracted from ``VoiceTyperApp``. The app passes itself
-    (``app``) so ``SettingsController`` can:
-    - Read/write ``app.config`` (autostart, show_notifications, microphone)
-    - Call ``app.config.save()`` to persist changes
-    - Call ``app.tray.set_autostart_enabled`` / ``set_notifications_enabled``
-      / ``notify`` to update the tray UI
-    - Recreate ``app.recorder`` (a ``Recorder`` instance) when the mic
-      changes mid-session — see ``select_microphone`` for the
-      during-recording deferral.
+    Phase 6: extracted from ``VoiceTyperApp``. The app passes itself
+        (``app``) so ``SettingsController`` can:
+        - Read/write ``app.config`` (autostart, show_notifications, microphone)
+        - Call ``app.config.save()`` to persist changes
+        - Call ``app.tray.set_autostart_enabled`` / ``set_notifications_enabled``
+          / ``notify`` to update the tray UI
+        - Recreate ``app.recorder`` (a ``Recorder`` instance) when the mic
+          changes mid-session — see ``select_microphone`` for the
+          during-recording deferral.
     """
 
     def __init__(self, app: Any) -> None:
@@ -80,11 +80,11 @@ class SettingsController:
     def set_autostart(self, enabled: bool) -> None:
         """Set autostart from the advanced settings window or tray toggle.
 
-        Persists the change to disk and updates the tray UI. On failure,
-        notifies the user via the tray (best-effort).
+                Persists the change to disk and updates the tray UI. On failure,
+                notifies the user via the tray (best-effort).
 
-        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
-        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
+        wrapped in ``_config_mutation_lock`` for atomicity
+                w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         # Look up the platform helpers from the app module at call time so
         # tests that monkeypatch voice_typer.server.app.{enable_autostart,
@@ -112,12 +112,12 @@ class SettingsController:
     def set_notifications(self, enabled: bool) -> None:
         """Set notification behavior from the settings window.
 
-        Persists ``show_notifications`` to disk and updates the tray UI
-        (``tray.set_notifications_enabled`` gates all future ``notify()``
-        calls so a toggle takes effect immediately).
+                Persists ``show_notifications`` to disk and updates the tray UI
+                (``tray.set_notifications_enabled`` gates all future ``notify()``
+                calls so a toggle takes effect immediately).
 
-        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
-        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
+        wrapped in ``_config_mutation_lock`` for atomicity
+                w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         app = self._app
         with app._config_mutation_lock:
@@ -132,15 +132,15 @@ class SettingsController:
     def select_microphone(self, mic_name: str | None) -> None:
         """Handle microphone selection from tray menu.
 
-        Persists the change to disk. If a recording is in progress, the
-        ``Recorder`` is NOT recreated immediately — the new mic takes
-        effect on the next recording (recreating mid-stream would
-        truncate the in-flight audio). Otherwise the ``Recorder`` is
-        recreated with the new ``config.microphone`` so PortAudio opens
-        the correct input device on the next ``start()``.
+                Persists the change to disk. If a recording is in progress, the
+                ``Recorder`` is NOT recreated immediately — the new mic takes
+                effect on the next recording (recreating mid-stream would
+                truncate the in-flight audio). Otherwise the ``Recorder`` is
+                recreated with the new ``config.microphone`` so PortAudio opens
+                the correct input device on the next ``start()``.
 
-        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
-        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
+        wrapped in ``_config_mutation_lock`` for atomicity
+                w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         app = self._app
         with app._config_mutation_lock:

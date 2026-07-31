@@ -127,7 +127,7 @@ IPC_PORT = _paths.IPC_PORT
 
 
 def _read_ipc_port_from_pid_file() -> int | None:
-    """MED-Y / XPLAT-PORT-HARDCODE-1 (partial): read the backend's IPC
+    """MED-Y /  (partial): read the backend's IPC
     port from the backend PID file if the writer included a ``port=``
     line.
 
@@ -189,7 +189,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
 
 
 # Where to write the PID file (under the app's data dir).
-# RW-7: delegates to voice_typer.server._paths so the path respects the
+# delegates to voice_typer.server._paths so the path respects the
 # platform-aware _config_dir() logic (Windows %APPDATA%, macOS
 # ~/Library/Application Support, Linux $XDG_DATA_HOME, the
 # VOICE_TYPER_CONFIG_DIR override, and the legacy ~/.voice-typer
@@ -198,9 +198,9 @@ def _read_ipc_port_from_pid_file() -> int | None:
 def _config_dir() -> Path:
     """Return the voice-typer data directory.
 
-    RW-7: thin wrapper around :func:`voice_typer.server._paths.config_dir`
-    kept for backwards compatibility — tests monkeypatch this name to
-    redirect PID-file writes to a tmp dir.
+    thin wrapper around :func:`voice_typer.server._paths.config_dir`
+        kept for backwards compatibility — tests monkeypatch this name to
+        redirect PID-file writes to a tmp dir.
     """
     return _paths.config_dir()
 
@@ -208,18 +208,18 @@ def _config_dir() -> Path:
 def _pid_file() -> Path:
     """Return the path to the autostart launcher's PID file.
 
-    RW-7: derives from :func:`_config_dir` so tests that monkeypatch
-    this module's ``_config_dir`` continue to redirect the PID file as
-    well. (The previous ``_paths.pid_file`` helper was removed in
-    GT-56 — production code never adopted it; this local helper
-    remains the single source of truth for the autostart PID file.)
+    derives from :func:`_config_dir` so tests that monkeypatch
+        this module's ``_config_dir`` continue to redirect the PID file as
+        well. (The previous ``_paths.pid_file`` helper was removed in
+    production code never adopted it; this local helper
+        remains the single source of truth for the autostart PID file.)
     """
     return _config_dir() / "autostart.pid"
 
 
 def _setup_logging() -> None:
     """Minimal logging to the app log file (no console — we run hidden)."""
-    # RW-7: _config_dir() already delegates to _paths.config_dir() which
+    # _config_dir() already delegates to _paths.config_dir() which
     # delegates to config._config_dir(). The previous try/except fallback
     # to Path.home() / ".voice-typer" was needed when the local
     # _config_dir() bypassed config.py; now that both go through the
@@ -379,7 +379,7 @@ def _is_tauri_mode() -> bool:
         return True
     if os.environ.get("VT_TAURI_AUTOSTART") == "1":
         return True
-    # CR-44: also detect Tauri mode from sys.executable basename —
+    # also detect Tauri mode from sys.executable basename —
     # the Tauri Rust host renames the Python sidecar executable to
     # ``voice-typer-tauri`` when freezing, so this is a reliable signal
     # that we are running inside a Tauri install.
@@ -396,21 +396,21 @@ def _is_tauri_mode() -> bool:
 def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | None:
     """Spawn the Tauri host binary (``voice-typer-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
 
-    The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
-    in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
-    distinction itself: a second spawn of the same binary causes the
-    first instance to be focused and the second to exit. So unlike the
-    Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
-    to trigger ``requestSingleInstanceLock``), here we always spawn the
-    full Tauri binary — the single-instance plugin does the rest.
+        The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
+        in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
+        distinction itself: a second spawn of the same binary causes the
+        first instance to be focused and the second to exit. So unlike the
+        Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
+        to trigger ``requestSingleInstanceLock``), here we always spawn the
+        full Tauri binary — the single-instance plugin does the rest.
 
-    Returns the child process on success, or ``None`` on failure (the
-    caller logs and exits 1 — no silent Electron fallback per CR-44).
+        Returns the child process on success, or ``None`` on failure (the
+    caller logs and exits 1 — no silent Electron fallback per ).
     """
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    # NEW-PRIV-003: same-app restart — full env intentionally inherited
+    # same-app restart — full env intentionally inherited
     # (see _launch_electron_built for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
     _log_sensitive_env_keys(env, context="autostart_launcher._spawn_tauri_host")
@@ -451,7 +451,7 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     sk = dict(cwd=str(CLIENT_DIR))
     sk.update(_electron_log_files())
     sk.update(_spawn_flags(hidden=hidden))
-    # NEW-PRIV-003: intentional — same-app restart needs the same env.
+    # intentional — same-app restart needs the same env.
     # The child here is the Voice Typer Electron frontend itself (not a
     # less-trusted process). It needs the full env for native module
     # loading, PATH resolution, and platform-specific init. Unlike the
@@ -462,7 +462,7 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    # NEW-PRIV-003: surface (without values) any sensitive env keys the
+    # surface (without values) any sensitive env keys the
     # child will inherit, so a future leak in a downstream log is
     # auditable. Only KEY NAMES are logged — values are never printed.
     _log_sensitive_env_keys(env, context="autostart_launcher._spawn_electron")
@@ -567,7 +567,7 @@ def _focus_running_app() -> bool:
             return False
         env = dict(os.environ)
         env["VT_FOCUS_ONLY"] = "1"
-        # NEW-PRIV-003: same-app restart — full env intentionally
+        # same-app restart — full env intentionally
         # inherited (see _launch_electron_built for rationale). Only
         # sensitive KEY NAMES are logged for audit; values are never
         # printed.
@@ -602,7 +602,7 @@ def _focus_running_app() -> bool:
         # ``electron .`` runs the app pointed at by package.json "main",
         # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
         # duplicate reads to know it should not attempt any heavy init.
-        # NEW-PRIV-003: same-app restart — full env intentionally inherited
+        # same-app restart — full env intentionally inherited
         # (see _spawn_electron above for rationale). Only sensitive KEY
         # NAMES are logged for audit; values are never printed.
         env = dict(os.environ)
@@ -631,7 +631,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     # RACE-009: redirect Electron stdout/stderr to log files.
     spawn_kwargs.update(_electron_log_files())
     spawn_kwargs.update(_spawn_flags(hidden=hidden))
-    # NEW-PRIV-003: same-app restart — full env intentionally inherited
+    # same-app restart — full env intentionally inherited
     # (see _spawn_electron above for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
     env = dict(os.environ)
@@ -640,7 +640,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     _log_sensitive_env_keys(env, context="autostart_launcher._spawn_npm_run_dev")
 
     try:
-        # NEW-CQ-033/NEW-SEC-009/S-7: prefer list form over shell=True.
+        # S-7: prefer list form over shell=True.
         cmd = _npm_command("dev")
         if cmd is None:
             # S-7: npm truly not resolvable — log and bail (no shell=True).
@@ -768,7 +768,7 @@ def launch() -> int:
         except (OSError, ValueError):
             pass
     if not backend_running:
-        # MED-Y / XPLAT-PORT-HARDCODE-1 (partial): the backend may be
+        # MED-Y /  (partial): the backend may be
         # listening on a non-default IPC port (auto-incremented when
         # 9876 was busy). Read the actual port from the backend PID
         # file if it was written there; otherwise fall back to the
@@ -799,13 +799,13 @@ def launch() -> int:
                 _wait_for_backend_ready()
                 log.info("[AUTOSTART] launcher exiting; tauri child continues detached")
                 return 0
-            # CR-44: no silent Electron fallback — if the Tauri spawn
+            # no silent Electron fallback — if the Tauri spawn
             # fails, exit 1 so the user sees a non-zero exit code and
             # can diagnose, rather than silently launching a stale
             # Electron dev binary that may not exist.
             log.error("[AUTOSTART] Tauri spawn failed; exiting 1 (no Electron fallback)")
             return 1
-        # CR-44: Tauri mode detected but no binary resolvable — also
+        # Tauri mode detected but no binary resolvable — also
         # exit 1 with a clear log message rather than silently falling
         # back to a stale Electron path.
         log.error("[AUTOSTART] Tauri mode detected but no binary resolvable; exiting 1 (no Electron fallback)")

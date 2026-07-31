@@ -209,17 +209,17 @@ def log_rate_limited(
     with _RATE_LIMIT_LOCK:
         count = _RATE_LIMIT_COUNTS.get(counter_key, 0) + 1
         _RATE_LIMIT_COUNTS[counter_key] = count
-        # GT-B1-12: mark this key as most-recently-used so the LRU
+        # mark this key as most-recently-used so the LRU
         # eviction policy evicts the LEAST-recently-used key when the
         # dict hits the cap.  ``OrderedDict.__setitem__`` does NOT move
         # an existing key to the end automatically, so this explicit
         # call is what makes the LRU semantics work.
         _RATE_LIMIT_COUNTS.move_to_end(counter_key)
-        # GT-B1-12: cap the dict size.  Eviction signals caller misuse
+        # cap the dict size.  Eviction signals caller misuse
         # (dynamic messages without an explicit ``key=``); we count
         # the evictions here and log a WARNING after releasing the
         # lock so the I/O doesn't block other callers.
-        # UE-16: the two GT-66 summary dicts are keyed by the same
+        # the two  summary dicts are keyed by the same
         # ``counter_key`` tuple — prune their entries for the evicted
         # key here too, otherwise a caller that drives >1024 distinct
         # dynamic messages would leak summary state forever (the
@@ -252,7 +252,7 @@ def log_rate_limited(
         logger.log(level, msg, *args, exc_info=exc_info, **kwargs)
         return
 
-    # Suppressed occurrence: log at DEBUG without exc_info.  XV-125:
+    # Suppressed occurrence: log at DEBUG without exc_info.  :
     # the previous implementation did ``rendered = msg % args`` eagerly
     # before the ``logger.debug`` call — defeating the lazy-formatting
     # guarantee that ``logging`` provides (the framework only renders
@@ -278,7 +278,7 @@ def log_rate_limited(
     else:
         logger.debug("%s (suppressed occurrence %d)", msg, count)
 
-    # GT-66: periodic INFO summary so chronic suppressed-occurrence
+    # periodic INFO summary so chronic suppressed-occurrence
     # conditions surface at INFO level (the file-handler default) — not
     # just at DEBUG (which is only visible when VOICE_TYPER_DEBUG=1).
     # Tracked per ``counter_key`` so each error class gets its own
@@ -288,7 +288,7 @@ def log_rate_limited(
     # least one occurrence has fired since the last summary, emit an
     # INFO line through the module logger and reset the per-key delta.
     #
-    # PI-25: the deadline advances by ``_SUMMARY_INTERVAL_SECONDS`` from
+    # the deadline advances by ``_SUMMARY_INTERVAL_SECONDS`` from
     # the PREVIOUS deadline on each fire (NOT reset to ``now + 60s``).
     # This anchors the cadence to a fixed 60s grid rooted at the seed
     # time, so a fire at ``t=61`` (deadline was 60) advances the next
@@ -323,9 +323,9 @@ def log_rate_limited(
         # the summary_key is not repr()'d into inner quotes -- makes the
         # line grep-friendly.
         #
-        # UE-16: the summary severity tracks the caller's configured
+        # the summary severity tracks the caller's configured
         # ``level`` (clamped to >= INFO so the summary always surfaces
-        # at the file handler's default level).  Pre-UE-16 the summary
+        # at the file handler's default level).  Pre- the summary
         # was hardcoded at INFO, so an ERROR-rate-limited path that
         # fired 1000x in 60s surfaced an INFO summary -- losing the
         # severity signal that operators' alerting rules key on

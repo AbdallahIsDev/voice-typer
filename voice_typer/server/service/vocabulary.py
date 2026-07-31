@@ -1,7 +1,7 @@
 """Vocabulary domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Read / diff-save the user vocabulary file.
+( split). Read / diff-save the user vocabulary file.
 """
 
 import logging
@@ -19,19 +19,19 @@ class VocabularyMixin(ServiceMixinBase):
     defaults) so duplicate entries can't accumulate on reload.
     """
 
-    # ── Vocabulary (ARCH-005) ───────────────────────────────────
+    # Vocabulary () ───────────────────────────────────
 
     def get_vocabulary(self) -> dict[str, object]:
         """Return the current vocabulary entries.
 
-        ERR-IPC-005 (fix): previously called ``vm.list_entries()`` which
-        does not exist on VocabularyManager, causing a 500 error on
-        every Vocabulary page load. The renderer's ``VocabularyData``
-        type expects a dict keyed by category name (misspellings,
-        technical_terms, names, products, phrase_corrections,
-        extra_word_patterns) — same shape as ``VocabularyManager.get_all()``.
-        We now delegate to ``get_all()`` and add the user-file path so
-        the renderer can show "edited" indicators.
+        (fix): previously called ``vm.list_entries()`` which
+                does not exist on VocabularyManager, causing a 500 error on
+                every Vocabulary page load. The renderer's ``VocabularyData``
+                type expects a dict keyed by category name (misspellings,
+                technical_terms, names, products, phrase_corrections,
+                extra_word_patterns) — same shape as ``VocabularyManager.get_all()``.
+                We now delegate to ``get_all()`` and add the user-file path so
+                the renderer can show "edited" indicators.
         """
         from voice_typer.server.vocabulary import VocabularyManager
 
@@ -45,31 +45,31 @@ class VocabularyMixin(ServiceMixinBase):
     def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]:
         """Save vocabulary with bundled diff logic.
 
-        ARCH-005: Moved from ipc_server.py.  Only saves user customizations
-        (diff against bundled defaults) to the user file, preventing
-        duplicate entries on next load.
+        Moved from ipc_server.py.  Only saves user customizations
+                (diff against bundled defaults) to the user file, preventing
+                duplicate entries on next load.
 
-        XZ-R11-01: after writing the user file, reload the live
-        ``self._app._vocabulary_manager`` so its in-memory ``_data``
-        reflects the just-written user file. dictation_pipeline uses
-        ``_vocabulary_manager.apply_to_text()`` on the live instance;
-        without this reload it would use stale state until app restart.
+        after writing the user file, reload the live
+                ``self._app._vocabulary_manager`` so its in-memory ``_data``
+                reflects the just-written user file. dictation_pipeline uses
+                ``_vocabulary_manager.apply_to_text()`` on the live instance;
+                without this reload it would use stale state until app restart.
 
-        XZ-R11-10: reuse the live VocabularyManager (already initialized
-        on the app) instead of constructing a throwaway per IPC call.
-        The old impl loaded bundled + user from disk and built a merged
-        ``_data`` only to discard it - a double file read on every IPC
-        call. We now read the bundled defaults from the live manager's
-        already-merged ``_data`` under its existing lock. A fresh-instance
-        fallback is kept for test fixtures / cold-start paths where
-        ``_vocabulary_manager`` is None.
+        reuse the live VocabularyManager (already initialized
+                on the app) instead of constructing a throwaway per IPC call.
+                The old impl loaded bundled + user from disk and built a merged
+                ``_data`` only to discard it - a double file read on every IPC
+                call. We now read the bundled defaults from the live manager's
+                already-merged ``_data`` under its existing lock. A fresh-instance
+                fallback is kept for test fixtures / cold-start paths where
+                ``_vocabulary_manager`` is None.
         """
         import json
 
         from voice_typer.server.config import _config_dir
         from voice_typer.server.vocabulary import CATEGORIES, VOCAB_FILENAME, VocabularyManager
 
-        # XZ-R11-10: prefer the live VocabularyManager.
+        # prefer the live VocabularyManager.
         live_vm = getattr(self._app, "_vocabulary_manager", None)
         if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_data"):
             with live_vm._lock:
@@ -115,7 +115,7 @@ class VocabularyMixin(ServiceMixinBase):
             json.dumps(user_only, indent=2, ensure_ascii=False),
         )
 
-        # XZ-R11-01: reload the live VocabularyManager so its in-memory
+        # reload the live VocabularyManager so its in-memory
         # ``_data`` reflects the just-written user file.
         if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_load_and_merge"):
             try:

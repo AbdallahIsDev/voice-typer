@@ -1,6 +1,6 @@
 """Transport-neutral config sanitization for IPC transmission.
 
-EC-FIX-15 / EC-22: the canonical implementation of ``sanitize_config_for_ipc``
+ the canonical implementation of ``sanitize_config_for_ipc``
 lives here so the service layer (:mod:`voice_typer.server.service`) does not
 have to reach DOWN into the IPC transport layer
 (:mod:`voice_typer.server.ipc_server`) to redact secrets from a config
@@ -9,12 +9,12 @@ module.
 
 Historical note: this logic was previously extracted from
 ``ipc_server.py`` into :mod:`voice_typer.server.ipc.history_bounds` during
-ARCH-045 (Phase 4.5 split).  That module still re-exports
+ (Phase 4.5 split).  That module still re-exports
 ``_sanitize_config_for_ipc`` for backwards-compat with any external
 importer, but new code should import :func:`sanitize_config_for_ipc`
 (public name) from here.
 
-ZR-12: this module is now the canonical home for the underscore-prefixed
+this module is now the canonical home for the underscore-prefixed
 ``_SECRET_CONFIG_FIELDS`` frozenset and ``_sanitize_config_for_ipc``
 function too.  ``crash_recovery.py`` previously reached into
 ``ipc_server`` for ``_SECRET_CONFIG_FIELDS`` (a private IPC-server
@@ -36,10 +36,13 @@ actual key value.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Any
 
+log = logging.getLogger("voice_typer.server.config_sanitizer")
 
-# FR-19: ``SECRET_CONFIG_FIELDS`` is now STRUCTURALLY DERIVED from
+
+# ``SECRET_CONFIG_FIELDS`` is now STRUCTURALLY DERIVED from
 # ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()`` at import time
 # (not a hand-maintained frozenset). Previously the two lists were
 # maintained independently — if a contributor added a new provider to
@@ -49,49 +52,72 @@ from typing import Any
 # loopback IPC socket (SEC-003 regression). The structural link makes
 # the invariant self-enforcing.
 #
-# The import is lazy (function-local) inside the ``_init`` helper below
-# to avoid a circular import at module load: ``credential_store``
-# imports from ``voice_typer.server.config`` (which re-exports from
-# here) inside ``migrate_secrets_to_keyring``. Importing
+# The import is lazy (function-local) inside the ``_derive_secret_fields``
+# helper below to avoid a circular import at module load:
+# ``credential_store`` imports from ``voice_typer.server.config`` (which
+# re-exports from here) inside ``migrate_secrets_to_keyring``. Importing
 # ``credential_store`` at module top would pull in ``config`` → this
 # module → ``credential_store`` → ``config``. The function-local import
-# breaks the cycle (the import only fires the first time
-# ``SECRET_CONFIG_FIELDS`` is accessed, by which point ``config`` is
-# fully loaded).
+# breaks the cycle (the import only fires when ``_derive_secret_fields()``
+# is called during this module's top-level execution, by which point
+# ``config``'s import is not yet in flight on this call stack).
 #
 # We compute it eagerly at import time so it's available as a module
 # attribute (and so import-time typos in ``PROVIDER_TO_CONFIG_FIELD``
-# surface immediately). The lazy-import dance happens in the IIFE.
+# surface immediately).
+#
+# FAIL-CLOSED: the helper does NOT fall back to a hardcoded literal
+# frozenset on import failure. A silent fallback to a stale 5-field
+# set would leave any newly added provider's API key un-redacted and
+# echoed in plaintext over IPC (SEC-003 regression). Instead the helper
+# logs ``CRITICAL`` and re-raises — the application refuses to start
+# with broken secret redaction, which is the intended fail-closed
+# behavior.
 def _derive_secret_fields() -> frozenset[str]:
-    """FR-19: derive SECRET_CONFIG_FIELDS from credential_store.
+    """Derive SECRET_CONFIG_FIELDS from credential_store (fail-closed).
 
-    Wrapped in a function so a failure to import ``credential_store``
-    (e.g. test sandbox without the package) doesn't crash the whole
-    module — we fall back to the explicit literal set so the redaction
-    still works (just without the structural guarantee).
+    Wrapped in a function so the lazy import of ``credential_store``
+    happens AFTER this module's top-level body has finished executing
+    (avoiding the circular import described above).
+
+    SECURITY (fail-closed): if the import of
+    ``PROVIDER_TO_CONFIG_FIELD`` fails for ANY reason (broken install,
+    sandbox without the package, partial-import during test
+    collection, future refactor that breaks the import path), we log
+    ``CRITICAL`` and RE-RAISE. We do NOT fall back to a hardcoded
+    literal: a silent fallback to a stale 5-field set would leave any
+    newly added provider's API key un-redacted and echoed in plaintext
+    over the loopback IPC socket (SEC-003 regression). Failing the
+    import loudly surfaces the breakage immediately at startup, which
+    is strictly safer than silently degrading the redaction boundary.
+    Callers that depend on ``SECRET_CONFIG_FIELDS`` (the IPC server,
+    crash recovery, the service layer) will fail to import this
+    module, and the application will refuse to start with broken
+    secret redaction — the intended fail-closed behavior.
     """
     try:
         from voice_typer.server.credential_store import PROVIDER_TO_CONFIG_FIELD
 
         return frozenset(PROVIDER_TO_CONFIG_FIELD.values())
-    except Exception:
-        # Fallback literal — matches the historical 5-field set so a
-        # broken import doesn't leave the sanitizer wide open. Logged
-        # at DEBUG (the import almost never fails in production).
-        return frozenset(
-            {
-                "cloud_api_key",
-                "openai_api_key",
-                "groq_api_key",
-                "deepgram_api_key",
-                "llm_api_key",
-            }
+    except Exception as exc:
+        # Fail-closed: do NOT fall back to a hardcoded literal set.
+        # A silent fallback would mask a broken install / sandbox and
+        # could leave newly added provider API keys un-redacted over
+        # IPC (SEC-003 regression). Re-raise so the breakage is loud
+        # and immediate at startup.
+        log.critical(
+            "[CONFIG-SANITIZER] Failed to import PROVIDER_TO_CONFIG_FIELD "
+            "from credential_store — secret field redaction may be "
+            "incomplete. Refusing to fall back to a hardcoded literal "
+            "(fail-closed). Original error: %s",
+            exc,
         )
+        raise
 
 
 SECRET_CONFIG_FIELDS: frozenset[str] = _derive_secret_fields()
 
-# ZR-12: underscore-prefixed alias kept for backward compat with
+# underscore-prefixed alias kept for backward compat with
 # ``crash_recovery.py`` (which imports ``_SECRET_CONFIG_FIELDS`` for its
 # own config.json redaction path) and with
 # :mod:`voice_typer.server.ipc.history_bounds` (which re-exports it
@@ -126,7 +152,7 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     function tolerant of older Config snapshots that lack a newer
     secret field.
 
-    FR-20: previously used ``dict(config.__dict__)`` which leaked
+    previously used ``dict(config.__dict__)`` which leaked
     transient / private attributes that are NOT dataclass fields
     (``_last_saved_bytes``, ``last_load_warnings``, etc.). The
     sanitizer is a security boundary: it should be DENYLIST-BY-DEFAULT
@@ -135,7 +161,7 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     :func:`dataclasses.asdict` enforces that the output is exactly the
     set of declared Config fields — no more, no less.
     """
-    # FR-20: ``dataclasses.asdict`` returns a deep-copied dict of ONLY
+    # ``dataclasses.asdict`` returns a deep-copied dict of ONLY
     # the declared dataclass fields. ``ClassVar`` fields (e.g.
     # ``_mutation_lock``) and plain instance attributes set in
     # ``__post_init__`` (``_last_saved_bytes``, ``last_load_warnings``)
@@ -149,7 +175,7 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     return out
 
 
-# ZR-12: underscore-prefixed alias for backward compat with
+# underscore-prefixed alias for backward compat with
 # :mod:`voice_typer.server.ipc.history_bounds` and any external importer
 # that already uses the underscore form. Same callable object — alias,
 # not a wrapper.
@@ -160,7 +186,7 @@ __all__ = [
     "sanitize_config_for_ipc",
     "SECRET_CONFIG_FIELDS",
     "REDACTED_SENTINEL",
-    # ZR-12: underscore aliases (backward-compat re-exports).
+    # underscore aliases (backward-compat re-exports).
     "_sanitize_config_for_ipc",
     "_SECRET_CONFIG_FIELDS",
 ]

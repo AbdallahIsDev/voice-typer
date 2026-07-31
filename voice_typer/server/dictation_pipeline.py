@@ -1,6 +1,6 @@
 """DictationPipeline: extracted from VoiceTyperApp.transcribe_thread.
 
-ARCH-006: the 180-line nested closure in app.py was a god function
+the 180-line nested closure in app.py was a god function
 that did ALL of: streaming finalize, transcription, text cleanup,
 vocabulary correction, template matching, auto-punctuation, LLM
 polish, history DB write, crash recovery, clipboard copy, paste,
@@ -9,7 +9,7 @@ tray state, notifications, GC, and busy-event clear.
 This class breaks the pipeline into testable methods, one per step.
 The class holds a reference to the app for accessing config, tray,
 history_db, etc. — a full dependency injection refactor is deferred
-(ARCH-005's VoiceTyperService is the first step toward that).
+(VoiceTyperService is the first step toward that).
 """
 
 import contextlib
@@ -29,7 +29,7 @@ from voice_typer.server.tray_types import AppState
 log = logging.getLogger(__name__)
 
 
-# AC-49: vocabulary-automation analyzer degrade-gracefully defaults
+# vocabulary-automation analyzer degrade-gracefully defaults
 # used when the transcription engine did not produce per-segment or
 # per-word confidence data (e.g. faster-whisper's avg_logprob
 # surface). These are module-level sentinels (NOT instance
@@ -42,7 +42,7 @@ _EMPTY_SEGMENTS: list = []
 _NO_TRANSCRIPT_CONFIDENCE: float = 0.0
 
 
-# UE-47: distinct error for the "active ASR backend was never loaded"
+# distinct error for the "active ASR backend was never loaded"
 # failure mode. Pre-fix, ``_transcribe`` always returned the empty
 # string when ``transcribe_with_fallback`` produced no text — the
 # downstream ``EmptyCheckStage`` then ran ``_handle_empty_transcription``
@@ -58,7 +58,7 @@ _NO_TRANSCRIPT_CONFIDENCE: float = 0.0
 class BackendNotLoadedError(RuntimeError):
     """Raised when the active ASR backend is not loaded at transcribe time.
 
-    UE-47: an unloaded backend (``is_loaded is False``) can return ``""``
+    an unloaded backend (``is_loaded is False``) can return ``""``
     from ``transcribe_with_fallback`` without raising — making the empty-
     transcription path indistinguishable from genuine silence. This
     sentinel is raised by ``DictationPipeline._transcribe`` ONLY when
@@ -77,13 +77,13 @@ class BackendNotLoadedError(RuntimeError):
         self.engine_name = engine_name
 
 
-# ERR-005: raw exception messages from ctranslate2 / torch / faster-whisper
+# raw exception messages from ctranslate2 / torch / faster-whisper
 # often leak file paths, CUDA versions, and internal stack details into
 # user-facing tray notifications. Map known exception classes to friendly
 # messages; fall back to a generic message for unknown errors.
 def _friendly_transcription_error(exc: BaseException) -> str:
     """Return a user-friendly message describing a transcription failure."""
-    # UE-47: BackendNotLoadedError has a distinct, friendly message —
+    # BackendNotLoadedError has a distinct, friendly message —
     # do NOT fall through to the generic "model could not be loaded"
     # branch (which is about download/load-time failures, not an
     # unloaded backend at transcribe time). The user needs a different
@@ -157,7 +157,7 @@ def _lookup_local_whisper(app: Any) -> Any:
 def _timed_stage(timings: dict[str, float], name: str) -> typing.Iterator[None]:
     """Context manager that records a single stage's wall-clock duration.
 
-    ZR-64: replaces the 10 inline ``_stage_t0 = time.perf_counter()`` /
+    replaces the 10 inline ``_stage_t0 = time.perf_counter()``
     ``_<name>_ms = (time.perf_counter() - _stage_t0) * 1000`` blocks in
     ``DictationPipeline.run`` with a single DRY primitive. Adding an
     11th stage no longer requires hand-copying the 3-line pattern AND
@@ -309,23 +309,23 @@ class DictationPipeline:
         # change slowly and are only needed for post-crash triage.
         self._last_resources_check_ts: float = 0.0
         self._resources_check_interval: float = 60.0
-        # NEW-PERF-010: pre-computed (rms, peak, silence_pct) from
+        # pre-computed (rms, peak, silence_pct) from
         # Recorder.stop(), passed through to the transcription engine
         # so it doesn't recompute the same stats on the same audio.
         self._audio_stats: tuple[float, float, float] | None = None
-        # S3-CR-10 (defense-in-depth observability): tracks whether
+        #  (defense-in-depth observability): tracks whether
         # ``_apply_templates`` modified the text in this cycle. If it
         # did, the text MAY contain clipboard-substituted content
         # (``{clipboard}`` → ``pyperclip.paste()``), which is a
         # privacy-sensitive surface when LLM polish is enabled. The
-        # CR-10 fix in ``llm_polish._call_api`` applies
+        #  fix in ``llm_polish._call_api`` applies
         # ``redact_pii`` before the API send — this flag lets
         # ``_apply_llm_polish`` log a privacy NOTICE so operators can
         # audit when substituted content is flowing toward the LLM
         # redaction gate, and fail-closed if ``redact_pii`` itself is
         # unimportable.
         self._templates_applied: bool = False
-        # DR-18: the 11-stage dictation pipeline. Each stage is a thin
+        # the 11-stage dictation pipeline. Each stage is a thin
         # delegator that calls the corresponding ``_<step>`` method on
         # this pipeline — see ``dictation_stages.build_default_stages``
         # for the full ordering and per-stage documentation. The run
@@ -409,7 +409,7 @@ class DictationPipeline:
         This is the entry point called from VoiceTyperApp._stop_dictation.
         It runs on the transcription thread.
 
-        RW-13: the ``cycle_id`` is also published as the active correlation
+        the ``cycle_id`` is also published as the active correlation
         id via :func:`voice_typer.server.log.set_correlation_id` so every
         log emitted across the pipeline stages (transcribe, clean, LLM
         polish, clipboard, tray) carries ``correlation_id=<cycle_id>`` in
@@ -417,7 +417,7 @@ class DictationPipeline:
         reset at the end of the method (the ``finally`` block below) so a
         finished cycle can't leak its id into a later, unrelated log line.
         """
-        _corr_token: object | None = None  # RW-13: correlation-id reset token (reset at end of run)
+        _corr_token: object | None = None  # correlation-id reset token (reset at end of run)
         self._audio = audio
         self._duration = duration
         self._recorded_rms = recorded_rms
@@ -432,16 +432,30 @@ class DictationPipeline:
 
             _sentinel = _config_dir() / ".dictation-in-flight"
             _sentinel.write_text(str(cycle_id), encoding="utf-8")
-        # RW-13: publish cycle_id as the correlation id for this thread's
+        # publish cycle_id as the correlation id for this thread's
         # logging context.  Capture the token to reset in the finally block.
         from voice_typer.server.log import set_correlation_id
 
         if cycle_id:
             _corr_token = set_correlation_id(cycle_id)
-        # NEW-PERF-010: capture the pre-computed audio stats from the
+        # capture the pre-computed audio stats from the
         # recorder so we can pass them to the transcription engine.
         self._audio_stats = getattr(self._app.recorder, "_last_audio_stats", None)
         _t0 = time.perf_counter()
+
+        # Hoist ``text = ""`` outside the try block so the
+        # ``except Exception`` block below can reference it (to save
+        # the partial transcription to crash recovery). Pre-fix,
+        # ``text`` was assigned inside the try (just before the for
+        # loop) — if a stage between ``_transcribe`` and
+        # ``_store_result`` raised, the partial text was already
+        # assigned by the previous iteration but the except block
+        # couldn't see it (the local was technically in scope but
+        # the intent wasn't explicit, and an exception before the
+        # original assignment would have left ``text`` unbound).
+        # Hoisting makes the partial-text contract explicit and
+        # ensures ``text`` is always defined in the except block.
+        text = ""
 
         try:
             log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", self._cycle_id)
@@ -454,18 +468,18 @@ class DictationPipeline:
             # driver calls each).
             self._check_resources_throttled()
 
-            # PERF-FIX-001: per-stage timing instrumentation.
+            # per-stage timing instrumentation.
             # Stage durations are collected and logged as a single
             # consolidated line at the end to reduce log verbosity.
             # Individual stage lines are available at DEBUG level.
             #
-            # ZR-64: stage timing is recorded via the ``_timed_stage``
+            # stage timing is recorded via the ``_timed_stage``
             # context manager (one entry per stage in ``_timings``) so
             # adding an 11th stage is a one-line ``with`` instead of a
             # 3-line ``_stage_t0`` / ``_<name>_ms =`` pair AND a
             # hand-edited format string in the consolidated log below.
             #
-            # DR-18: the 11 stages themselves live in
+            # the 11 stages themselves live in
             # ``voice_typer.server.dictation_stages`` as a list of small
             # single-responsibility objects (``TranscribeStage``,
             # ``EmptyCheckStage``, …, ``PasteStage``). The run loop
@@ -498,7 +512,11 @@ class DictationPipeline:
                 app=self._app,
                 pipeline=self,
             )
-            text = ""
+            # ``text = ""`` was hoisted to before the try block
+            # so the ``except Exception`` block can reference it for
+            # the partial-text crash-recovery save. Do NOT re-initialize
+            # here — the hoisted assignment is the single source of truth
+            # for the partial-text contract.
             for stage in stages:
                 if getattr(stage, "timed", True):
                     with _timed_stage(_timings, stage.name):
@@ -548,7 +566,7 @@ class DictationPipeline:
                 )
 
         except _PipelineAbortEmpty:
-            # DR-18: ``EmptyCheckStage`` already called
+            # ``EmptyCheckStage`` already called
             # ``_handle_empty_transcription()`` (tray state, "no speech"
             # notification, busy-event clear) and raised this sentinel
             # to abort the pipeline cleanly. Fall through to the finally
@@ -558,7 +576,7 @@ class DictationPipeline:
             # ``_handle_empty_transcription``.
             pass
         except _PipelineAbortCancelled:
-            # DR-18 / CR-006: ``CancellationGuard`` (wrapping
+            #  ``CancellationGuard`` (wrapping
             # ``PasteStage``) already wrote the late transcription to
             # crash-recovery and tore down the bubble, then raised this
             # sentinel to skip the paste. Fall through to the finally
@@ -567,10 +585,10 @@ class DictationPipeline:
             pass
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
-            # XA-6-3 / XA-6-19: surface the failure in the bubble instead
+            #  surface the failure in the bubble instead
             # of immediately hiding it. The bubble has an `error` mode that
             # renders a red "⚠ Error" pill plus a retry affordance
-            # (XA-6-13). Previously the failure path called `set_state("idle")`
+            # (). Previously the failure path called `set_state("idle")`
             # or `hide()`, which masked the symptom from the user -- the only
             # signal was the tray icon flipping to ERROR, which the user
             # often does not see (tray is collapsed / on another monitor).
@@ -598,7 +616,7 @@ class DictationPipeline:
             except Exception:
                 log.debug("[PIPELINE] bubble set_state('error') on failure failed", exc_info=True)
             self._app.tray.set_state(AppState.ERROR, "Transcription failed")
-            # ERR-005: do NOT leak raw exception text into tray
+            # do NOT leak raw exception text into tray
             # notifications — ctranslate2 / torch errors often contain
             # file paths, CUDA version strings, and internal stack
             # details. Map to a user-friendly message instead.
@@ -607,34 +625,68 @@ class DictationPipeline:
                 _friendly_transcription_error(e),
             )
             self._app._schedule_timer(3.0, lambda: self._app.tray.set_state(AppState.IDLE))
+            # Save the partial transcription to crash recovery
+            # before discarding it. Pre-fix, a stage between
+            # ``_transcribe`` and ``_store_result`` raising would lose
+            # the transcription silently — the user saw "Transcription
+            # failed" but the partial text was gone (no clipboard copy,
+            # no crash-recovery entry). With this save, the user can
+            # recover the partial text from the crash-recovery buffer.
+            # Best-effort: any exception is suppressed (via
+            # ``contextlib.suppress``) so a crash-recovery failure
+            # cannot mask the original transcription error. Gated on
+            # ``crash_recovery_enabled`` (the user's opt-in) AND
+            # ``text`` being non-empty (don't pollute the buffer with
+            # empty strings). The ``text`` local is in scope here
+            # because it was hoisted to before the ``try`` block above.
+            if text and getattr(self._app.config, "crash_recovery_enabled", False):
+                with contextlib.suppress(Exception):
+                    self._app._crash_recovery.add(text, pasted=False)
+                    self._app._crash_recovery.flush(timeout=0.5)
 
         finally:
+            # Each cleanup step below is wrapped in an explicit
+            # try/except with log.debug (NOT contextlib.suppress) so a
+            # stuck-busy state is diagnosable from the log. The
+            # original exception from the try block above is preserved
+            # — the finally block must NOT raise (log.debug, not
+            # log.error, to avoid log noise on the normal cleanup path).
             # Clear the in-flight sentinel — dictation completed (success,
             # cancel, or handled exception). Only a hard process crash
             # leaves the sentinel behind for crash_recovery to detect.
-            with contextlib.suppress(Exception):
+            try:
                 from voice_typer.server._paths import config_dir as _config_dir
 
                 _sentinel = _config_dir() / ".dictation-in-flight"
                 if _sentinel.exists():
                     _sentinel.unlink()
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step sentinel_unlink failed",
+                    exc_info=True,
+                )
             # SEC-audit-008: Zero the audio array after transcription
             # completes to prevent forensic recovery of voice data
             # from process memory.  The audio buffer contains potentially
             # sensitive biometric data (voice recordings) that should not
             # linger in memory longer than necessary.
-            with contextlib.suppress(Exception):
+            try:
                 if self._audio is not None and isinstance(self._audio, np.ndarray):
                     self._audio.fill(0)
                     self._audio = None
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step audio_zero failed",
+                    exc_info=True,
+                )
             # RACE-013: reset the persistent watchdog thread (signal
             # that transcription completed normally). Old code used
             # watchdog.cancel() for Timer-based watchdogs; now we
             # signal the Event-based persistent watchdog thread.
             # RACE-016: wrap daemon thread finally block with
             # try/except to prevent exceptions during shutdown.
-            with contextlib.suppress(Exception):
-                # RW-9 Phase 2: fixed typo — was `_recording_controller`
+            try:
+                #  Phase 2: fixed typo — was `_recording_controller`
                 # (doesn't exist on VoiceTyperApp). The attribute is `recording`
                 # (a RecordingController). Previously the watchdog reset never
                 # fired from this finally block — see worklog.md bug note.
@@ -642,7 +694,7 @@ class DictationPipeline:
                 if recording is not None:
                     recording._reset_watchdog()
                     recording._stop_watchdog_thread()
-                    # CR-006: discard this cycle from the cancelled set so
+                    # discard this cycle from the cancelled set so
                     # the set doesn't grow unboundedly across cycles. ``discard``
                     # is a no-op if the cycle wasn't cancelled (the normal path).
                     _cancelled_lock = getattr(recording, "_cancelled_cycle_ids_lock", None)
@@ -650,8 +702,13 @@ class DictationPipeline:
                     if _cancelled_lock is not None and _cancelled_set is not None:
                         with _cancelled_lock:
                             _cancelled_set.discard(self._cycle_id)
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step watchdog_reset failed",
+                    exc_info=True,
+                )
             try:
-                # UE-10 / UE-9-F2 (FT-5 family): use
+                #  ( family): use
                 # ``pop_streaming_session()`` (atomic get-and-clear
                 # under the recording controller's
                 # ``_streaming_session_lock``) instead of the racy
@@ -672,9 +729,9 @@ class DictationPipeline:
                 # clears the slot under a SINGLE lock acquisition —
                 # we never write back to the slot. If a new session
                 # is installed concurrently, it lands AFTER our pop
-                # and is preserved. Mirrors the DE-7 path in
+                # and is preserved. Mirrors the  path in
                 # ``shutdown_controller._do_cleanup`` and the
-                # ARCH-018 path in
+                #  path in
                 # ``recording_controller._cancel_streaming_session``.
                 #
                 # If we popped a non-None session AND the recorder
@@ -685,18 +742,28 @@ class DictationPipeline:
                 # streaming worker thread exits cleanly instead of
                 # leaking until the next process shutdown.
                 # ``session.cancel()`` is non-blocking by default
-                # (ARCH-025) — it sets the cancel event and returns
+                # () — it sets the cancel event and returns
                 # immediately, matching the finally-block's
                 # bounded-latency contract.
                 session = self._app.recording.pop_streaming_session()
                 if session is not None and not self._app.recorder.recording:
-                    with contextlib.suppress(Exception):
+                    try:
                         session.cancel()
+                    except Exception:
+                        log.debug(
+                            "[PIPELINE] finally cleanup step streaming_session_cancel failed",
+                            exc_info=True,
+                        )
             except Exception:
                 log.debug("[TRANSCRIBE] finally: session cleanup failed", exc_info=True)
-            with contextlib.suppress(Exception):
+            try:
                 self._app._busy_event.set()  # busy = False
-            # ARCH-016 / H-17: clear ``_transcription_thread`` under
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step busy_event_clear failed",
+                    exc_info=True,
+                )
+            #  H-17: clear ``_transcription_thread`` under
             # ``RecordingController._watchdog_lock`` — the SAME lock
             # that guards the field's write (``RecordingController._stop_impl``
             # assigns ``self._transcription_thread = threading.Thread(...)``
@@ -712,7 +779,7 @@ class DictationPipeline:
             # vice versa) when this clear ran, and the watchdog could
             # observe a stale or partially-constructed reference.
             #
-            # ARCH-REFAC-003: write directly to RecordingController (was a
+            # write directly to RecordingController (was a
             # @property delegate previously).
             #
             # Defensive fallback: if the lock is unavailable (e.g. the
@@ -738,9 +805,14 @@ class DictationPipeline:
                     "to clear _transcription_thread; assigning without lock",
                     exc_info=True,
                 )
-                with contextlib.suppress(Exception):
+                try:
                     if _recording is not None:
                         _recording._transcription_thread = None
+                except Exception:
+                    log.debug(
+                        "[PIPELINE] finally cleanup step transcription_thread_clear_unsafe failed",
+                        exc_info=True,
+                    )
             # Downgrade from full gc.collect() to gc.collect(0).
             # Full GC scans the entire Python heap (gen 0+1+2) — with a
             # loaded Whisper model (500MB-3GB of tensors → millions of
@@ -748,12 +820,17 @@ class DictationPipeline:
             # single transcription cycle. Generation-0 only (~1-5ms)
             # catches the per-cycle allocations (audio buffers, segment
             # lists, IPC dicts) without scanning long-lived model objects.
-            with contextlib.suppress(Exception):
+            try:
                 import gc
 
                 gc.collect(0)
+            except Exception:
+                log.debug(
+                    "[PIPELINE] finally cleanup step gc_collect failed",
+                    exc_info=True,
+                )
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
-            # RW-13: clear the correlation id published at the top of run().
+            # clear the correlation id published at the top of run().
             # This runs in the finally block so it executes on both the
             # success and the handled-exception paths, so a finished
             # transcription cycle can't leak its id into a later, unrelated
@@ -796,7 +873,7 @@ class DictationPipeline:
         insufficient disk space (affecting pagefile/swap).  These
         logs help diagnose the root cause when paired with a crash.
 
-        UE-10-F9 (deferred refactor — spaghetti/monolith detection):
+         (deferred refactor — spaghetti/monolith detection):
         This 185-line method is a self-contained resource probe
         (RAM / disk / GPU) inlined in the pipeline. It has NO
         dependencies on ``DictationPipeline`` instance state — only
@@ -808,7 +885,7 @@ class DictationPipeline:
         ``ResourceProbe.check()`` classmethod (or
         ``resource_probe.check_resources()`` module function) and
         call it from ``_check_resources_throttled``. Coordinate
-        with the broader pipeline-decomposition work (the DR-18
+        with the broader pipeline-decomposition work (the
         stage extraction already pulled the *stage execution* into
         ``dictation_stages.py``; ``_check_resources`` is the next
         candidate but it's pre-flight, not a stage, so it belongs
@@ -851,7 +928,7 @@ class DictationPipeline:
                     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
                     free_mb = stat.ullAvailPhys / (1024 * 1024)
             except Exception:
-                # XZ-EH-008 / XZ-EH-022: previously a bare ``except
+                #  previously a bare ``except
                 # Exception: pass`` — the docstring at the top of
                 # ``_check_resources`` promises "failures are logged at
                 # DEBUG level", but this branch silently swallowed the
@@ -974,7 +1051,7 @@ class DictationPipeline:
                         free_gpu,
                     )
         except Exception:
-            # XZ-EH-008 / XZ-EH-022: previously ``except (ImportError,
+            #  previously ``except (ImportError,
             # Exception): pass``. ``ImportError`` was redundant (Exception
             # already covers it) and the bare ``pass`` contradicted the
             # docstring's promise that "failures are logged at DEBUG
@@ -997,18 +1074,18 @@ class DictationPipeline:
         is open) or the active ASR backend (Whisper / Parakeet / Qwen /
         Cloud) via ``transcribe_with_fallback``.
 
-        UE-10 sibling: the streaming-session slot is now popped
+         sibling: the streaming-session slot is now popped
         atomically via ``pop_streaming_session()`` BEFORE
         ``session.finalize()`` runs. Pre-fix, the slot was cleared
         AFTER finalize — an exception in finalize() leaked the stale
         session reference into the next dictation cycle's _transcribe,
         which would re-call finalize() on the already-torn-down
-        session and crash. Atomic pop also eliminates the FT-5 family
-        TOCTOU documented in UE-10 (concurrent
+        session and crash. Atomic pop also eliminates the  family
+        TOCTOU documented in  (concurrent
         ``_start_streaming_session_if_enabled`` could install a NEW
         session between get and set).
 
-        UE-10-F6: ``active`` is captured ONCE at the top and reused
+        ``active`` is captured ONCE at the top and reused
         for both the transcribe call and the ``device_info`` read
         below. Pre-fix, a second ``active_transcriber()`` call after
         the transcribe was both redundant (the backend rarely changes
@@ -1016,7 +1093,7 @@ class DictationPipeline:
         swap the backend between the two calls, so ``device_info``
         reported the wrong device for the result just produced).
 
-        UE-47: ``backend_was_loaded`` is captured BEFORE the transcribe
+        ``backend_was_loaded`` is captured BEFORE the transcribe
         call. If the engine returns empty AND ``backend_was_loaded`` is
         False, raise ``BackendNotLoadedError`` — this bypasses
         ``EmptyCheckStage`` (the exception propagates out of
@@ -1026,7 +1103,7 @@ class DictationPipeline:
         detected" toast that ``_handle_empty_transcription`` would
         produce.
         """
-        # UE-10-F6 / UE-47: capture the active transcriber ONCE — the
+        #  capture the active transcriber ONCE — the
         # previous code made a second ``active_transcriber()`` call
         # after the transcribe to refresh ``device_info`` (redundant +
         # racy vs. a concurrent ``set_active_backend``). Reuse this
@@ -1034,7 +1111,7 @@ class DictationPipeline:
         # ``is_loaded`` BEFORE the transcribe call so the empty-result
         # path can distinguish "engine returned empty" from "engine was
         # never loaded" (a backend that is not loaded can return "" from
-        # ``transcribe_with_fallback`` without raising — UE-47).
+        # ``transcribe_with_fallback`` without raising — ).
         active = self._app.models.active_transcriber()
         backend_was_loaded = bool(getattr(active, "is_loaded", False))
 
@@ -1058,20 +1135,44 @@ class DictationPipeline:
                 abort_watcher.start()
 
         try:
-            # UE-10 sibling: pop_streaming_session() atomically owns the
+            #  sibling: pop_streaming_session() atomically owns the
             # session AND clears the slot under a SINGLE lock acquisition.
             # If finalize() raises below, the slot is already clear — the
             # next dictation cycle starts with a clean slot rather than
             # re-entering the stale session. We never write back to the
             # slot (a concurrent _start_streaming_session_if_enabled could
             # install a NEW session that a set_streaming_session(None) would
-            # clobber — see UE-10).
+            # clobber — see ).
             session = self._app.recording.pop_streaming_session()
             if session is not None:
                 log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
                 text = session.finalize(self._audio)
             else:
-                # NEW-PERF-010: pass the pre-computed audio stats so the
+                # When ``active_transcriber()`` returned None AND
+                # there is no streaming session to finalize, the batch
+                # path would dereference ``None.transcribe_with_fallback``
+                # and raise ``AttributeError`` — masking the real cause
+                # (no ASR backend registered, e.g. the model was unloaded
+                # mid-cycle by a concurrent ``change_model`` and no
+                # streaming session captured the audio). Raise a friendly
+                # ``BackendNotLoadedError`` instead so ``run()``'s generic
+                # ``except Exception`` block surfaces "model not loaded"
+                # via ``_friendly_transcription_error`` (which has an
+                # ``isinstance(exc, BackendNotLoadedError)`` branch with a
+                # distinct, actionable message (see ). The
+                # streaming path above is intentionally NOT guarded:
+                # when a streaming session exists, ``session.finalize()``
+                # produces the text without needing ``active`` (the
+                # streaming worker captured the audio before the backend
+                # was unloaded).
+                if active is None:
+                    raise BackendNotLoadedError(
+                        "No ASR backend is registered — wait for the model "
+                        "to finish loading, or open Settings to verify a "
+                        "backend is available.",
+                        engine_name="<none>",
+                    )
+                # pass the pre-computed audio stats so the
                 # transcription engine doesn't recompute RMS/peak/silence_pct
                 # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
                 # memory per dictation).
@@ -1099,24 +1200,49 @@ class DictationPipeline:
                 local_engine = None
                 if isinstance(active, CloudEngine):
                     local_engine = _lookup_local_whisper(self._app)
-                text = active.transcribe_with_fallback(
-                    self._audio,
-                    audio_stats=self._audio_stats,
-                    local_engine=local_engine,
-                )
+                # Route through the registry's busy-flag wrapper so
+                # the per-backend busy flag is set/cleared atomically
+                # (). Pre-fix, the pipeline called
+                # ``active.transcribe_with_fallback(...)`` directly,
+                # bypassing ``AsrBackendRegistry.transcribe_with_fallback``
+                # (asr_registry.py:951-997) — the  busy flag was dead
+                # code in production, so
+                # ``ModelManager.ensure_active_engine_loaded`` could not
+                # reject new dictation requests when the active backend
+                # was stuck in a C-level ctranslate2 call (which can hold
+                # GPU + GIL for 5-30 min). When a backend hung, the user's
+                # F2 started a new dictation on top of the stuck one.
+                #
+                # We use ``busy_context`` directly — the same primitive
+                # the wrapper uses internally at asr_registry.py:996-997
+                # (``with self.busy_context(target): return
+                # backend.transcribe_with_fallback(...)``) — because the
+                # active backend was already captured above via
+                # ``active_transcriber()``; the wrapper's internal lookup
+                # would be redundant. ``busy_context`` is the exact
+                # primitive that ``ensure_active_engine_loaded`` reads
+                # via ``is_busy`` to reject new dictation requests when
+                # the active backend is busy.
+                registry = self._app.models.registry
+                with registry.busy_context(registry.active_name):
+                    text = active.transcribe_with_fallback(
+                        self._audio,
+                        audio_stats=self._audio_stats,
+                        local_engine=local_engine,
+                    )
         finally:
             if abort_watcher is not None:
                 with contextlib.suppress(Exception):
                     abort_watcher.stop()
 
-        # PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend
+        # PERF-015: refresh the LRU timestamp for the active backend
         # so it isn't evicted as least-recently-used after a successful
         # transcribe. touch_active_model() is guarded internally and safe to
         # call when no backend is active.
         with contextlib.suppress(Exception):
             self._app.models.touch_active_model()
 
-        # UE-10-F6: reuse the captured ``active`` local for device_info
+        # reuse the captured ``active`` local for device_info
         # instead of calling ``active_transcriber()`` a second time. If
         # ``active`` is None (backend was unloaded mid-cycle by a
         # concurrent ``set_active_backend`` / ``change_model``), fall
@@ -1138,7 +1264,7 @@ class DictationPipeline:
         # path visible to developers diagnosing the "finish dictation
         # → nothing transcribed" symptom.
         #
-        # UE-47: include ``backend_is_loaded`` in the warning so
+        # include ``backend_is_loaded`` in the warning so
         # operators can distinguish the three failure modes that all
         # collapse to empty output: (1) genuine silence, (2) unloaded
         # backend returned "", (3) cloud provider returned 200 with
@@ -1164,7 +1290,7 @@ class DictationPipeline:
                 backend_was_loaded,
                 "streaming" if session is not None else "batch",
             )
-            # UE-47: if the backend was not loaded when we entered
+            # if the backend was not loaded when we entered
             # ``_transcribe``, the empty output is overwhelmingly likely
             # caused by the unloaded backend (``transcribe_with_fallback``
             # on an unloaded Whisper/Parakeet/Qwen typically returns ""
@@ -1255,7 +1381,7 @@ class DictationPipeline:
                 self._recorded_rms,
             )
             self._app.tray.set_state(AppState.IDLE, "No speech detected")
-            # UE-10-F4 (observability): publish a ``dictation_suppressed``
+            #  (observability): publish a ``dictation_suppressed``
             # event so the renderer can show a subtle inline bubble
             # ("recording too short — try again") instead of giving the
             # user zero feedback. Pre-fix, this branch silently
@@ -1339,7 +1465,7 @@ class DictationPipeline:
     def _clean_text(self, text: str) -> str:
         """Step 3: Apply text cleanup (spacing, self-corrections, capitalization).
 
-        XZ-R18-02: previously the only two middle-pipeline steps NOT
+        previously the only two middle-pipeline steps NOT
         wrapped in try/except (this method and ``_apply_punctuation``).
         If either threw, the exception propagated to the outer
         ``run()`` ``except Exception`` block — the tray flipped to
@@ -1381,7 +1507,7 @@ class DictationPipeline:
     def _apply_vocabulary(self, text: str) -> str:
         """Step 4: Apply vocabulary corrections.
 
-        ERR-014: previously failures here were ``log.debug`` (invisible
+        previously failures here were ``log.debug`` (invisible
         at default log level). User saw wrong text with no clue why.
         Promoted to ``log.warning`` + tray notify on first occurrence.
         """
@@ -1397,7 +1523,7 @@ class DictationPipeline:
             # (session-scoped) — a fresh DictationPipeline is built per
             # transcription cycle, so flags on ``self`` reset every cycle
             # and the user got a tray notification on EVERY cycle where
-            # the failure occurred. ERR-006/ERR-014's "notify once"
+            # the failure occurred. /'s "notify once"
             # design depends on the flag surviving across cycles.
             if not getattr(self._app, "_vocab_fail_notified", False):
                 self._app._vocab_fail_notified = True
@@ -1411,16 +1537,16 @@ class DictationPipeline:
     def _apply_templates(self, text: str) -> str:
         """Step 5: Apply template matching.
 
-        ERR-014: promoted ``log.debug`` to ``log.warning`` + tray notify.
+        promoted ``log.debug`` to ``log.warning`` + tray notify.
 
-        S3-CR-10 (defense-in-depth observability): when a template
+         (defense-in-depth observability): when a template
         match modifies the text, set ``self._templates_applied = True``
         so the downstream ``_apply_llm_polish`` step can log a privacy
         NOTICE. Templates may substitute ``{clipboard}`` with the
         user's current clipboard content (which can contain passwords,
         2FA codes, private messages) — if LLM polish is then enabled,
         that content would flow toward the third-party LLM API. The
-        CR-10 fix in ``llm_polish._call_api`` applies ``redact_pii``
+         fix in ``llm_polish._call_api`` applies ``redact_pii``
         before the API send; this flag does NOT change that redaction
         behavior — it only makes the substituted-content flow visible
         in the log so operators can audit when template-substituted
@@ -1436,12 +1562,12 @@ class DictationPipeline:
                 expanded = self._app._template_manager.match(text)
                 if expanded is not None:
                     log.info("[TEMPLATE] Matched template, expanded %d -> %d chars", len(text), len(expanded))
-                    # S3-CR-10: mark that templates modified the text
+                    # mark that templates modified the text
                     # this cycle. The downstream LLM polish step uses
                     # this flag to log a privacy NOTICE and to gate a
                     # fail-closed sanity check on ``redact_pii`` — it
                     # does NOT gate or modify the polish call itself
-                    # (the redaction is already applied by CR-10 inside
+                    # (the redaction is already applied by  inside
                     # ``llm_polish._call_api``).
                     self._templates_applied = True
                     text = expanded
@@ -1461,7 +1587,7 @@ class DictationPipeline:
     def _apply_punctuation(self, text: str) -> str:
         """Step 6: Apply auto-punctuation.
 
-        XZ-R18-02: previously NOT wrapped in try/except — see
+        previously NOT wrapped in try/except — see
         ``_clean_text`` for the rationale. ``_add_safe_terminal_punctuation``
         is a pure string operation but can still raise on malformed
         input (e.g. a ``text`` containing a surrogate that breaks
@@ -1489,37 +1615,37 @@ class DictationPipeline:
     def _apply_llm_polish(self, text: str) -> str:
         """Step 7: Apply LLM polishing (if consented).
 
-        S3-CR-10 (defense-in-depth observability + fail-closed): if
+        (defense-in-depth observability + fail-closed): if
         templates were applied earlier in this cycle
         (``self._templates_applied``), the text MAY contain
         clipboard-substituted content (passwords, 2FA codes, private
         messages from ``{clipboard}``). When LLM polish is enabled,
-        that content would flow to a third-party LLM API. The CR-10
+        that content would flow to a third-party LLM API. The
         fix in ``llm_polish._call_api`` applies ``redact_pii`` to the
         user-content before the API send — this method does NOT
         duplicate that redaction (it would change the final pasted
         text on polish-failure paths). Instead, it:
 
           1. Logs a privacy NOTICE so operators can audit when
-             template-substituted content is flowing toward the CR-10
+             template-substituted content is flowing toward the
              redaction gate.
           2. Performs a sanity check that ``redact_pii`` is importable
              BEFORE calling ``polish()``. If the import fails AND
              templates were applied this cycle, polish is SKIPPED
              entirely (fail-closed) — without ``redact_pii``, the
-             CR-10 gate inside ``_call_api`` would also fail open
+             gate inside ``_call_api`` would also fail open
              (its try/except falls through to sending the original
              text). Skipping polish preserves the original text on
              the paste path (the user sees their transcription, not a
              leaked LLM payload). When templates were NOT applied,
              the sanity check is skipped — the text is the user's own
              dictation, not substituted content, so the privacy risk
-             is much lower and the CR-10 fail-open is acceptable.
+             is much lower and the  fail-open is acceptable.
         """
         effective_llm_key = self._app.config.llm_api_key or getattr(self._app.config, "openai_api_key", "")
         if self._app.config.llm_polish and effective_llm_key and getattr(self._app.config, "llm_polish_consent", False):
-            # S3-CR-10: privacy NOTICE when templates were applied
-            # before LLM polish. The CR-10 redaction gate inside
+            # privacy NOTICE when templates were applied
+            # before LLM polish. The  redaction gate inside
             # ``llm_polish._call_api`` strips common PII patterns
             # (credit cards, SSNs, emails, phone numbers, API keys)
             # before the API send — but operators should be able to
@@ -1538,7 +1664,7 @@ class DictationPipeline:
                 )
                 # Defense-in-depth sanity check: verify redact_pii is
                 # importable BEFORE calling polish(). If the import
-                # fails, the CR-10 gate inside _call_api would also
+                # fails, the gate inside _call_api would also
                 # fail open (its try/except falls through to sending
                 # the original text). Skip polish entirely
                 # (fail-closed) so the un-redacted clipboard-
@@ -1567,7 +1693,7 @@ class DictationPipeline:
                     )
                 text = self._app._llm_polisher.polish(text)
             except Exception as exc:
-                # XZ-PII-05: redact the exception message before
+                # redact the exception message before
                 # logging. LLM API errors can echo the request URL +
                 # Authorization header (which carries the API key) back
                 # in their body; ``redact_secret`` masks ``Bearer …`` /
@@ -1576,7 +1702,7 @@ class DictationPipeline:
                 from voice_typer.server._secrets import redact_secret
 
                 log.warning("[LLM_POLISH] Polish failed: %s", redact_secret(str(exc)))
-                # XZ-R18-05: previously this except block only logged a
+                # previously this except block only logged a
                 # WARNING — the user paid for an LLM API call that never
                 # produced output (or believed the feature was broken)
                 # with NO diagnostic. Mirror the ``_apply_vocabulary``
@@ -1619,7 +1745,7 @@ class DictationPipeline:
         toggle (``ai_enhancement_enabled``) defaults OFF — when off,
         ``enhance_transcription`` returns the text unchanged.
 
-        ERR-014-style hardening: failures here are logged at WARNING
+         hardening: failures here are logged at WARNING
         level but do NOT abort the pipeline. The original text is
         returned so the dictation completes and the user sees their
         (un-enhanced) transcription rather than an error.
@@ -1647,7 +1773,7 @@ class DictationPipeline:
         queued for the user to review via the IPC handlers in
         ``vocabulary_automation_handlers.py``.
 
-        ERR-014-style hardening: failures here are logged at WARNING
+         hardening: failures here are logged at WARNING
         level but do NOT abort the pipeline. The transcription is
         already complete; vocabulary suggestions are a side-channel
         for future improvements.
@@ -1680,7 +1806,7 @@ class DictationPipeline:
             # confidence). When the transcription engine exposes
             # richer segment data in the future, we can plumb it
             # through here without changing the analyzer's API.
-            # AC-49: the previous ``getattr(self, "_segments", None) or []``
+            # the previous ``getattr(self, "_segments", None) or []``
             # and ``getattr(self, "_confidence", 0.9)`` fell back to a
             # fabricated confidence of ``0.9`` when the attributes were
             # absent — that fed vocabulary-automation with a confident
@@ -1743,7 +1869,7 @@ class DictationPipeline:
     def _store_result(self, text: str) -> None:
         """Step 8: Store in history DB and crash recovery.
 
-        ERR-006: Previously failures here were DEBUG-level (invisible at
+        Previously failures here were DEBUG-level (invisible at
         default log level) with no tray notification. We now log at
         ``exception`` level and surface a tray notice the first time
         each failure type occurs so the user knows data is being lost.
@@ -1754,28 +1880,28 @@ class DictationPipeline:
         writer thread processes all queued writes (FIFO no-op with
         ``wait=True``). See ``history_db.py:flush()``.
 
-        FR-28 (privacy): if ``self._app.config.history_enabled`` is
+         (privacy): if ``self._app.config.history_enabled`` is
         ``False``, the ``add_transcription`` call is skipped entirely
         (but the clipboard paste still happens — incognito mode only
         disables persistence, not the dictation flow). ``flush()`` is
         also skipped because there is no queued write to wait for.
         ``history_enabled`` defaults to ``True`` (preserving the
-        pre-FR-28 behavior) so the field is only consulted when P4-A2
+        pre- behavior) so the field is only consulted when P4-A2
         has added it to ``Config``. ``getattr(..., True)`` is used so
         dictation still works on an older Config instance that hasn't
         yet picked up the new field.
 
-        FR-10 (resilience): when ``add_transcription`` returns ``<= 0``
+         (resilience): when ``add_transcription`` returns ``<= 0``
         (writer thread is dead or schema init failed — see
-        ``history_db.add_transcription``'s FR-10 guard), we log +
+        ``history_db.add_transcription``'s  guard), we log +
         trigger the notify-once tray message instead of silently
         treating the placeholder as success. Previously the pipeline
         would call ``flush()`` after the failed enqueue and block 30s
-        on a future that would never resolve — the FR-10 fix in
+        on a future that would never resolve — the  fix in
         ``history_db._submit_write`` makes the failure instant, and
         this check makes it visible to the user.
         """
-        # FR-28: gate the entire history-DB block on history_enabled.
+        # gate the entire history-DB block on history_enabled.
         history_enabled = getattr(self._app.config, "history_enabled", True)
         if history_enabled:
             try:
@@ -1785,8 +1911,8 @@ class DictationPipeline:
                     model=self._app.config.model_size,
                     device=self._app.config.device,
                 )
-                # FR-10: add_transcription returns -1 when the writer
-                # thread is dead or schema init failed (see its FR-10
+                # add_transcription returns -1 when the writer
+                # thread is dead or schema init failed (see its
                 # guard). Surface the failure to the user via the
                 # notify-once path instead of silently treating the
                 # placeholder as success.
@@ -1841,7 +1967,7 @@ class DictationPipeline:
         # Save for repaste / undo
         self._app._last_transcription = text
 
-        # NEW-IPC-002: emit transcription_final push event so the
+        # emit transcription_final push event so the
         # renderer can proactively refresh Home/Dashboard/History
         # without polling.
         try:
@@ -1854,7 +1980,7 @@ class DictationPipeline:
                 }
             )
         except Exception:
-            # CR-93: previously a bare ``except Exception: pass``. If
+            # previously a bare ``except Exception: pass``. If
             # the event bus is broken, the renderer never receives the
             # ``transcription_final`` push event — Home / Dashboard /
             # History pages won't auto-refresh and the user sees stale
@@ -1901,7 +2027,7 @@ class DictationPipeline:
         call site. This is the single place that orchestrates the
         clipboard borrow lifecycle.
 
-        ERR-004: If clipboard.copy() fails, we previously lost the
+        If clipboard.copy() fails, we previously lost the
         transcription silently. We now write the text to the crash
         recovery buffer (which persists to disk) and notify the user
         with the path so they can recover it manually.
@@ -1962,7 +2088,7 @@ class DictationPipeline:
                 if recovery_path:
                     notice += f"\nRecovery file: {recovery_path}"
                 self._app.tray.notify(APP_NAME, notice)
-                # NEW-UX-006: surface the paste failure as a renderer
+                # surface the paste failure as a renderer
                 # toast in ADDITION to the tray notification (keep both
                 # for redundancy — the tray icon tooltip is visible when
                 # the user is on another app; the toast is visible when

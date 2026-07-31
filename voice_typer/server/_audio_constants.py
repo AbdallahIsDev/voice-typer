@@ -1,6 +1,6 @@
 """Single source of truth for audio sample-rate constants.
 
-DR-32: previously the literal ``16000`` was duplicated across 30+ sites
+previously the literal ``16000`` was duplicated across 30+ sites
 in the server (transcription engines, VAD, recorder, audio filters,
 level monitor, microphone test recorder, status payloads). Each site
 that referenced 16 kHz also embedded its own implicit assertion that
@@ -47,18 +47,18 @@ RNNOISE_SAMPLE_RATE: int = 48000
 # level monitor's "what rate should I open the stream at?" heuristic.
 NATIVE_MIC_RATES: frozenset[int] = frozenset({8000, 16000, 44100, 48000})
 
-# DJ-104: PortAudio ``blocksize`` literal. VAD-001 / AUDIO-001 — Silero
+# PortAudio ``blocksize`` literal. VAD-001 /  — Silero
 # VAD requires 512-sample blocks per its model contract; ``vad.py`` pads /
 # truncates driver deviations. The literal is load-bearing across
 # ``recorder.py`` (StreamLifecycle.open_stream_for_candidates /
 # open_stream_fallback, DisconnectHandler.restart_stream,
 # SessionState.resize_buffers_for_sample_rate, Recorder._preroll_blocksize
 # init). Tag here as a single source of truth so a future change (e.g.
-# 1024 for lower callback frequency on slow ARM devices — see DJ-58)
+# 1024 for lower callback frequency on slow ARM devices — see )
 # lands in one place.
 _AUDIO_BLOCKSIZE: int = 512
 
-# DJ-106: ``_teardown_stream`` busy-poll budget + interval. The
+# ``_teardown_stream`` busy-poll budget + interval. The
 # ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
 # RUNNING and CLEARED on exit — the inverse of the typical
 # wait-for-event-set pattern. ``teardown_stream_body`` polls for the flag

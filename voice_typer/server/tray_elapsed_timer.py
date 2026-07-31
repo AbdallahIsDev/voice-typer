@@ -1,6 +1,6 @@
 """Elapsed-recording tooltip timer extracted from ``tray.py``.
 
-UX-11 (FIX-10): a daemon ``threading.Timer`` that ticks every 1 second
+ (): a daemon ``threading.Timer`` that ticks every 1 second
 and invokes a ``tick_callback`` so the owner (``TrayIcon``) can refresh
 its tooltip with the current ``mm:ss`` (or ``h:mm:ss``) elapsed
 recording time. The timer reschedules itself on each tick as long as
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 
 class ElapsedTimer:
-    """UX-11 (FIX-10): elapsed-recording tooltip timer helper.
+    """(): elapsed-recording tooltip timer helper.
 
     Manages a daemon ``threading.Timer`` that ticks every 1 second and
     invokes ``tick_callback`` so the owner can refresh its tooltip with
@@ -109,12 +109,29 @@ class ElapsedTimer:
             # Reschedule only if still active. The check happens AFTER
             # the tick callback so a state change during the tick is
             # caught.
+            #
+            # wrap the reschedule in try/except so a
+            # ``threading.Timer`` construction or ``t.start()``
+            # failure (e.g. interpreter shutdown racing the timer
+            # thread, or a transient OS thread-spawn failure) does
+            # not leave the helper stuck — previously an exception
+            # here would propagate out of ``_tick``, the timer would
+            # never reschedule, and the elapsed tooltip would freeze
+            # SILENTLY (no log, no reschedule). Log at WARNING so
+            # the freeze shows up in diagnostics; recording itself
+            # continues unaffected (the timer is tooltip-only).
             if self._is_active():
-                t = threading.Timer(1.0, _tick)
-                t.daemon = True
-                self._timer = t
-                self._set_timer_ref(t)
-                t.start()
+                try:
+                    t = threading.Timer(1.0, _tick)
+                    t.daemon = True
+                    self._timer = t
+                    self._set_timer_ref(t)
+                    t.start()
+                except Exception:
+                    log.warning(
+                        "[TRAY] elapsed-timer reschedule failed — elapsed tooltip will freeze (recording continues)",
+                        exc_info=True,
+                    )
 
         t = threading.Timer(1.0, _tick)
         t.daemon = True

@@ -58,10 +58,10 @@ log = logging.getLogger(__name__)
 # the caller passed ``HTTPSHandler``. Passing ``_NoRedirectHandler()``
 # (a subclass that raises on redirect) actually achieves the intent.
 
-# EC-FIX-8: the handler + builder now live in ``_http_safety`` so
+# the handler + builder now live in ``_http_safety`` so
 # they're shared with ``cloud_engines._opener`` (single source of
 # truth — previously the class was duplicated verbatim across both
-# modules, EC-17 finding #1).
+# modules,  finding #1).
 _opener = build_secure_opener()
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ _PRESETS = {
     ),
 }
 
-# DT-11: canonical LLM endpoint + model defaults live in
+# canonical LLM endpoint + model defaults live in
 # ``_paths.py`` (single source of truth) so they can be shared with
 # ``config.py`` (dataclass field defaults) without a circular import.
 # The local underscore-prefixed aliases preserve the original
@@ -157,7 +157,7 @@ class LLMPolisher:
             # the exception before logging, so a leaked API key in
             # an error response body doesn't end up in the log file.
             log.warning("[LLM_POLISH] Polish failed: %s (returning original)", redact_secret(str(exc)))
-            # XZ-R18-05: publish ``llm_polish_failed`` so the renderer
+            # publish ``llm_polish_failed`` so the renderer
             # can surface a one-time toast. Without this the user pays
             # for an LLM API call that never produces a polished result,
             # and the only signal is a log line they will never see.
@@ -209,20 +209,20 @@ class LLMPolisher:
     def _call_api(self, text: str, system_prompt: str) -> str:
         """Call the OpenAI-compatible chat completions API.
 
-        RELIABILITY-004: asserts ``self.api_url`` is in the trusted
-        allowlist before sending any text.  This prevents an
-        endpoint-swap attack from exfiltrating transcribed speech
-        text even if SEC-002's allowlist is somehow bypassed.
+                RELIABILITY-004: asserts ``self.api_url`` is in the trusted
+                allowlist before sending any text.  This prevents an
+                endpoint-swap attack from exfiltrating transcribed speech
+                text even if SEC-002's allowlist is somehow bypassed.
 
-        CR-10: Apply PII redaction to the user-content text BEFORE
-        sending to the LLM API. This is defense-in-depth against
-        template ``{clipboard}`` substitution (which can inject
-        passwords, 2FA codes, private messages from the user's
-        clipboard into the LLM-bound text). The redaction patterns
-        cover credit cards, SSNs, email addresses, phone numbers,
-        and API keys. The redacted text is what's sent to the API;
-        the original (un-redacted) text is what's returned to the
-        user for pasting.
+        Apply PII redaction to the user-content text BEFORE
+                sending to the LLM API. This is defense-in-depth against
+                template ``{clipboard}`` substitution (which can inject
+                passwords, 2FA codes, private messages from the user's
+                clipboard into the LLM-bound text). The redaction patterns
+                cover credit cards, SSNs, email addresses, phone numbers,
+                and API keys. The redacted text is what's sent to the API;
+                the original (un-redacted) text is what's returned to the
+                user for pasting.
         """
         # Opt in to allow_loopback_http=True — see the
         # test_connection path above for the rationale.
@@ -233,7 +233,7 @@ class LLMPolisher:
             allow_loopback_http=True,
         )
 
-        # CR-10: redact PII from the user-content text before API send.
+        # redact PII from the user-content text before API send.
         # ``redact_pii`` is the same helper used by the log redaction
         # filter — it covers credit cards, SSNs, emails, phone numbers,
         # and common API-key formats. This is a defense-in-depth gate:
@@ -274,7 +274,7 @@ class LLMPolisher:
         req = Request(self.api_url, data=payload, headers=headers, method="POST")
 
         try:
-            # ER-40: was timeout=30 — on a stalled connection the user waited
+            # was timeout=30 — on a stalled connection the user waited
             # up to 30s before their text was pasted. 10s is generous for
             # <500 char dictations (LLM completions typically finish in <3s).
             with _opener.open(req, timeout=10) as resp:

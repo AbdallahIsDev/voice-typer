@@ -1,6 +1,6 @@
 """AsrBackendRegistry: centralized ASR backend selection.
 
-ARCH-007/008: previously VoiceTyperApp had three separate engine
+008: previously VoiceTyperApp had three separate engine
 handles (self.transcriber, self._qwen_engine, self._parakeet_engine)
 and every method re-checked self.config.asr_backend to pick the
 right one. Three near-identical load+fallback branches were
@@ -61,19 +61,19 @@ class AsrBackend(Protocol):
 @runtime_checkable
 class ConfigProtocol(Protocol):
     """Structural contract for the Config object passed to
-    :class:`AsrBackendRegistry`.
+        :class:`AsrBackendRegistry`.
 
-    The real ``Config`` dataclass declares ``asr_backend``, ``device``,
-    ``language``, ``beam_size``, ``best_of``, ``condition_on_previous_text``
-    as required fields — all of which the registry reads when
-    constructing the whisper fallback.
+        The real ``Config`` dataclass declares ``asr_backend``, ``device``,
+        ``language``, ``beam_size``, ``best_of``, ``condition_on_previous_text``
+        as required fields — all of which the registry reads when
+        constructing the whisper fallback.
 
-    ``disabled_backends`` is declared on the Protocol AND on the real
-    ``Config`` dataclass (XZ-CFG-01). The runtime code path in
-    :meth:`AsrBackendRegistry.__init__` still falls back to
-    ``getattr(config, "disabled_backends", None)`` so legacy configs
-    constructed without the field (e.g. test stubs that build a Config
-    via ``__new__``) continue to work.
+        ``disabled_backends`` is declared on the Protocol AND on the real
+    ``Config`` dataclass (). The runtime code path in
+        :meth:`AsrBackendRegistry.__init__` still falls back to
+        ``getattr(config, "disabled_backends", None)`` so legacy configs
+        constructed without the field (e.g. test stubs that build a Config
+        via ``__new__``) continue to work.
     """
 
     asr_backend: str
@@ -95,7 +95,7 @@ class ConfigProtocol(Protocol):
 # independently without overwriting each other.
 BackendDisabledCallback = Callable[[str, int], None]
 
-# XZ-14-06: subscriber callback for the last-resort unloaded-backend
+# subscriber callback for the last-resort unloaded-backend
 # fallback path in get_active(). Pre-fix, that path logged a WARNING
 # ("returning unloaded backend %s (is_loaded=False) as last-resort
 # active — transcription may return empty silently") but fired no
@@ -111,16 +111,16 @@ LastResortCallback = Callable[[str], None]
 class AsrBackendRegistry:
     """Registry of ASR backends — single source of truth for "the model".
 
-    ARCH-008: replaces the three-field pattern
-    (self.transcriber / self._qwen_engine / self._parakeet_engine)
-    with a single registry that callers query via get_active().
+    replaces the three-field pattern
+        (self.transcriber / self._qwen_engine / self._parakeet_engine)
+        with a single registry that callers query via get_active().
 
-    HIGH-20 / MODEL-2: the ``_backends`` dict is guarded by
-    ``self._lock`` (a reentrant lock).  ``register`` / ``unregister`` /
-    ``get`` / ``load_with_fallback`` acquire the lock around their dict
-    operations only — the actual ``backend.load(...)`` call is left
-    OUTSIDE the lock so a slow GPU/disk load doesn't block other
-    readers (e.g. ``get_active`` from the dictation pipeline).
+    the ``_backends`` dict is guarded by
+        ``self._lock`` (a reentrant lock).  ``register`` / ``unregister`` /
+        ``get`` / ``load_with_fallback`` acquire the lock around their dict
+        operations only — the actual ``backend.load(...)`` call is left
+        OUTSIDE the lock so a slow GPU/disk load doesn't block other
+        readers (e.g. ``get_active`` from the dictation pipeline).
     """
 
     # After this many consecutive load failures, a backend is
@@ -134,7 +134,7 @@ class AsrBackendRegistry:
         self._lock = threading.RLock()
         self._failure_counts: dict[str, int] = {}
         self._disabled_backends: set[str] = set()
-        # XZ-CFG-01: ``Config`` now declares ``disabled_backends`` as a
+        # ``Config`` now declares ``disabled_backends`` as a
         # real dataclass field (default empty list). The ``getattr``
         # fallback is retained so test stubs / legacy Config objects
         # constructed via ``__new__`` (which skip ``__init__``) keep
@@ -143,7 +143,7 @@ class AsrBackendRegistry:
         try:
             self._disabled_backends = set(persisted)
         except TypeError:
-            # XE-14-F: previously the TypeError was silently swallowed
+            # previously the TypeError was silently swallowed
             # (the ``except`` block just reset to an empty set with no
             # log). A misconfigured ``disabled_backends`` (e.g. a string
             # instead of a list — ``set("whisper")`` produces
@@ -163,20 +163,20 @@ class AsrBackendRegistry:
         # legacy ``registry.on_backend_disabled = fn`` assignment pattern
         # by adding ``fn`` to the subscriber set.
         self._on_backend_disabled_subscribers: set[BackendDisabledCallback] = set()
-        # XZ-14-06: subscribers for the last-resort unloaded-backend
+        # subscribers for the last-resort unloaded-backend
         # event in get_active(). Same set-based pattern as
         # _on_backend_disabled_subscribers so ModelManager (tray), the
         # IPC layer (renderer event), and a telemetry sink can subscribe
         # independently without overwriting each other.
         self._on_last_resort_subscribers: set[LastResortCallback] = set()
-        # XZ-14-06: one-shot latch so we don't fire the tray notification
+        # one-shot latch so we don't fire the tray notification
         # on every get_active() call while the registry is stuck in the
         # last-resort state. Reset to False whenever get_active() finds a
         # ready backend (so a recovery → re-fallback sequence re-notifies)
         # and in _record_success (primary-backend load success).
         self._last_resort_notified: bool = False
 
-        # UE-48: per-backend "busy" flag. Set when a backend enters
+        # per-backend "busy" flag. Set when a backend enters
         # ``transcribe_with_fallback`` (via the registry's wrapper or the
         # ``busy_context`` context manager), cleared on exit (including
         # the exception path). Used by
@@ -216,19 +216,19 @@ class AsrBackendRegistry:
         """Unregister a backend-disabled subscriber (no-op if absent)."""
         self._on_backend_disabled_subscribers.discard(fn)
 
-    # XZ-14-06: last-resort subscriber management. Mirrors the
+    # last-resort subscriber management. Mirrors the
     # backend-disabled subscriber API so the app can wire a tray
     # notification via the same path used for load_with_fallback
     # failures (see _record_failure's subscriber loop + event_bus.publish).
     @property
     def on_last_resort(self) -> set[LastResortCallback]:
-        """XZ-14-06: set of subscribers fired when get_active() falls
+        """set of subscribers fired when get_active() falls
         through to an unloaded last-resort backend."""
         return self._on_last_resort_subscribers
 
     @on_last_resort.setter
     def on_last_resort(self, fn: LastResortCallback | None) -> None:
-        """XZ-14-06: backward-compatible property setter mirroring
+        """backward-compatible property setter mirroring
         ``on_backend_disabled`` — assigning a callable adds it to the
         subscriber set; assigning None clears the set."""
         if fn is None:
@@ -237,12 +237,12 @@ class AsrBackendRegistry:
             self._on_last_resort_subscribers.add(fn)
 
     def add_last_resort_subscriber(self, fn: LastResortCallback) -> None:
-        """XZ-14-06: register a subscriber for last-resort-unloaded-backend events."""
+        """register a subscriber for last-resort-unloaded-backend events."""
         if callable(fn):
             self._on_last_resort_subscribers.add(fn)
 
     def remove_last_resort_subscriber(self, fn: LastResortCallback) -> None:
-        """XZ-14-06: unregister a last-resort subscriber (no-op if absent)."""
+        """unregister a last-resort subscriber (no-op if absent)."""
         self._on_last_resort_subscribers.discard(fn)
 
     def register(self, name: str, backend: AsrBackend) -> None:
@@ -261,18 +261,18 @@ class AsrBackendRegistry:
     def get_active(self) -> AsrBackend | None:
         """Return the currently active backend based on config.asr_backend.
 
-        Falls back to 'whisper' if the configured backend isn't loaded.
-        Returns None if no backend is available.
+                Falls back to 'whisper' if the configured backend isn't loaded.
+                Returns None if no backend is available.
 
-        XZ-14-06: when this method falls through to the last-resort
-        branch (no ready backend) and returns an *unloaded* backend, a
-        one-shot tray notification is fired via the
-        ``_on_last_resort_subscribers`` set + an ``asr_last_resort_unloaded``
-        event is published on the global ``event_bus``. The latch
-        (``_last_resort_notified``) ensures the notification fires only
-        ONCE per last-resort transition (not on every get_active() call)
-        and resets when a ready backend becomes available again so a
-        recovery → re-fallback sequence re-notifies the user.
+        when this method falls through to the last-resort
+                branch (no ready backend) and returns an *unloaded* backend, a
+                one-shot tray notification is fired via the
+                ``_on_last_resort_subscribers`` set + an ``asr_last_resort_unloaded``
+                event is published on the global ``event_bus``. The latch
+                (``_last_resort_notified``) ensures the notification fires only
+                ONCE per last-resort transition (not on every get_active() call)
+                and resets when a ready backend becomes available again so a
+                recovery → re-fallback sequence re-notifies the user.
         """
         name = getattr(self._config, "asr_backend", "whisper")
         notify_last_resort = False
@@ -280,7 +280,7 @@ class AsrBackendRegistry:
             with self._lock:
                 backend = self._backends.get(name)
                 if backend is not None and self._is_ready(backend):
-                    # XZ-14-06: a ready configured backend is available —
+                    # a ready configured backend is available —
                     # clear the last-resort latch so a future fall-through
                     # re-notifies.
                     self._last_resort_notified = False
@@ -290,7 +290,7 @@ class AsrBackendRegistry:
                 if whisper is not None and self._is_ready(whisper):
                     if name != "whisper":
                         log.info("[ASR_REGISTRY] %s backend not ready, falling back to whisper", name)
-                    # XZ-14-06: whisper is ready — clear the last-resort latch.
+                    # whisper is ready — clear the last-resort latch.
                     self._last_resort_notified = False
                     return whisper
 
@@ -303,7 +303,7 @@ class AsrBackendRegistry:
                                 "transcription may return empty silently",
                                 name,
                             )
-                            # XZ-14-06: fire one-shot tray notification
+                            # fire one-shot tray notification
                             # so the user knows voice transcription is
                             # silently broken. The latch ensures we only
                             # fire once per last-resort transition.
@@ -313,7 +313,7 @@ class AsrBackendRegistry:
                         return b
             return None
         finally:
-            # XZ-14-06: fire subscribers OUTSIDE the lock (the `with`
+            # fire subscribers OUTSIDE the lock (the `with`
             # block's __exit__ has already released it by the time
             # `finally` runs) so a subscriber callback can safely
             # re-enter the registry (e.g. to query active_name) without
@@ -322,7 +322,7 @@ class AsrBackendRegistry:
                 self._fire_last_resort_subscribers(name)
 
     def _fire_last_resort_subscribers(self, name: str) -> None:
-        """XZ-14-06: fire per-registry subscribers + publish an event_bus
+        """fire per-registry subscribers + publish an event_bus
         event for the last-resort unloaded-backend fallback.
 
         Called from :meth:`get_active`'s ``finally`` block, AFTER the
@@ -351,11 +351,11 @@ class AsrBackendRegistry:
                     exc_info=True,
                 )
 
-        # XZ-14-06: publish process-wide event on event_bus so the IPC
+        # publish process-wide event on event_bus so the IPC
         # push channel and any diagnostics aggregator are notified
         # independently of the per-registry subscribers (mirrors the
         # asr_backend_disabled event published from _record_failure).
-        # DT-16: payload fields wrapped under the canonical ``data`` key
+        # payload fields wrapped under the canonical ``data`` key
         # (matching every other event_bus.publish caller) so the Rust WS
         # reader + usePythonEvent forwarding actually surface them.
         try:
@@ -391,7 +391,7 @@ class AsrBackendRegistry:
         with self._lock:
             return self._backends.get(name)
 
-    # ── ARCH-007/008: registry convenience methods ────────────────
+    # 008: registry convenience methods ────────────────
 
     _BACKEND_SPECS: dict[str, tuple[str, str]] = {
         "whisper": ("voice_typer.server.transcription", "TranscriptionEngine"),
@@ -407,7 +407,7 @@ class AsrBackendRegistry:
         qwen_kwargs: dict | None = None,
         parakeet_kwargs: dict | None = None,
     ) -> AsrBackend | None:
-        """ARCH-007: Construct (but don't load) a backend engine.
+        """Construct (but don't load) a backend engine.
 
         Centralizes the triplicated TranscriptionEngine(...) /
         QwenEngine(...) / ParakeetEngine(...) construction.
@@ -442,7 +442,7 @@ class AsrBackendRegistry:
             )
             return engine
         except ImportError as exc:
-            # XE-14-E: previously the ImportError message was dropped
+            # previously the ImportError message was dropped
             # (the log line said "package not installed, unavailable"
             # with no detail). The ImportError's str() carries the
             # missing module name (e.g. "No module named 'whisper'")
@@ -457,7 +457,7 @@ class AsrBackendRegistry:
             )
             return None
         except Exception as exc:
-            # CR-91 / S5-CR-41: use ``log.exception`` so the full
+            # use ``log.exception`` so the full
             # traceback is captured (mechanical pass replacing
             # ``log.error("...: %s", exc, exc_info=True)`` with the
             # idiomatic ``log.exception("...")`` form — same behaviour,
@@ -485,7 +485,7 @@ class AsrBackendRegistry:
         except Exception as exc:
             log.exception("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
             self._record_failure(self.active_name)
-            # XE-14-D: previously the unload error was silently
+            # previously the unload error was silently
             # suppressed via ``contextlib.suppress(Exception)``. A
             # partially-loaded backend that fails to unload leaks GPU
             # memory / CUDA contexts / file handles — and the silent
@@ -534,7 +534,7 @@ class AsrBackendRegistry:
                 self._disabled_backends.discard(name)
                 log.info("[ASR_REGISTRY] backend %s re-enabled (load succeeded)", name)
                 self._persist_disabled()
-            # XZ-14-06: clear the last-resort notification latch — a
+            # clear the last-resort notification latch — a
             # successful primary-backend load means we've recovered
             # from the last-resort state, so the next fall-through
             # should re-notify the user (instead of being suppressed
@@ -602,7 +602,7 @@ class AsrBackendRegistry:
             # Publish process-wide event on event_bus so
             # the IPC push channel and diagnostics aggregator are
             # notified independently of the per-registry subscribers.
-            # DT-16: payload fields wrapped under the canonical ``data``
+            # payload fields wrapped under the canonical ``data``
             # key (matching every other event_bus.publish caller) so the
             # Rust WS reader + usePythonEvent forwarding actually surface
             # them. Previously the fields were emitted at the message
@@ -631,11 +631,11 @@ class AsrBackendRegistry:
     def _persist_disabled(self) -> None:
         """Persist ``_disabled_backends`` to ``config.disabled_backends``.
 
-        XZ-CFG-01: ``Config`` now declares ``disabled_backends`` as a
-        real dataclass field, so this write lands on a real attribute
-        and is serialized by ``asdict(self)`` in ``Config.save()``.
-        The ``contextlib.suppress`` is retained defensively for legacy
-        Config stubs that skip ``__init__`` (and thus lack the field).
+        ``Config`` now declares ``disabled_backends`` as a
+                real dataclass field, so this write lands on a real attribute
+                and is serialized by ``asdict(self)`` in ``Config.save()``.
+                The ``contextlib.suppress`` is retained defensively for legacy
+                Config stubs that skip ``__init__`` (and thus lack the field).
         """
         with contextlib.suppress(AttributeError, TypeError):
             self._config.disabled_backends = sorted(self._disabled_backends)
@@ -645,42 +645,42 @@ class AsrBackendRegistry:
     def load_with_fallback(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
         """Load the configured backend; on failure, fall back to whisper.
 
-        ARCH-008: replaces the duplicated fallback logic in
-        app.py's _load_transcription_engine_background().
+        replaces the duplicated fallback logic in
+                app.py's _load_transcription_engine_background().
 
-        MEM-01 (c-review): on failure, the failed backend's ``unload()``
-        is called so any partially-allocated resources (torch tensors,
-        CUDA contexts, multi-GB model weights) are released.
+        (c-review): on failure, the failed backend's ``unload()``
+                is called so any partially-allocated resources (torch tensors,
+                CUDA contexts, multi-GB model weights) are released.
 
-        HIGH-20 / MODEL-2: the dict reads (``self._backends.get``) are
-        guarded by ``self._lock`` so a concurrent ``register`` /
-        ``unregister`` from another thread (e.g. ``change_model``)
-        cannot corrupt the iteration.  The actual ``backend.load()``
-        call is OUTSIDE the lock so a slow GPU/disk load doesn't block
-        other readers.
+        the dict reads (``self._backends.get``) are
+                guarded by ``self._lock`` so a concurrent ``register`` /
+                ``unregister`` from another thread (e.g. ``change_model``)
+                cannot corrupt the iteration.  The actual ``backend.load()``
+                call is OUTSIDE the lock so a slow GPU/disk load doesn't block
+                other readers.
 
-        When the primary backend fails AND the primary is not
-        whisper, we construct the whisper engine (via :meth:`create`)
-        before attempting the whisper load.
+                When the primary backend fails AND the primary is not
+                whisper, we construct the whisper engine (via :meth:`create`)
+                before attempting the whisper load.
 
-        Circuit breaker. Each PRIMARY-backend load failure
-        increments a per-backend counter; on success the counter is
-        reset. After ``_MAX_CONSECUTIVE_FAILURES`` (3) consecutive
-        failures, the primary backend is added to ``_disabled_backends``
-        and skipped on subsequent ``load_with_fallback`` calls — we go
-        straight to the whisper fallback.
+                Circuit breaker. Each PRIMARY-backend load failure
+                increments a per-backend counter; on success the counter is
+                reset. After ``_MAX_CONSECUTIVE_FAILURES`` (3) consecutive
+                failures, the primary backend is added to ``_disabled_backends``
+                and skipped on subsequent ``load_with_fallback`` calls — we go
+                straight to the whisper fallback.
 
-        XS-17 (F-09): pre-fix, the primary backend was UNREGISTERED on
-        failure, which meant subsequent ``load_with_fallback`` calls no
-        longer found it in ``_backends`` and skipped the primary path
-        entirely — so the failure counter only incremented ONCE and
-        the circuit breaker never tripped. The failed primary now
-        stays registered (only ``unload()`` is called for resource
-        cleanup) so the next call can retry it.
+        (F-09): pre-fix, the primary backend was UNREGISTERED on
+                failure, which meant subsequent ``load_with_fallback`` calls no
+                longer found it in ``_backends`` and skipped the primary path
+                entirely — so the failure counter only incremented ONCE and
+                the circuit breaker never tripped. The failed primary now
+                stays registered (only ``unload()`` is called for resource
+                cleanup) so the next call can retry it.
 
-        Args:
-            progress_callback: optional callable(msg: str) to report
-                loading progress (e.g. tray state updates).
+                Args:
+                    progress_callback: optional callable(msg: str) to report
+                        loading progress (e.g. tray state updates).
         """
         _cb = progress_callback or (lambda msg: None)
 
@@ -719,14 +719,14 @@ class AsrBackendRegistry:
                     )
                     # Increment failure counter; possibly disable.
                     self._record_failure(name)
-                    # MEM-01 (c-review): release any partially-allocated
+                    # (c-review): release any partially-allocated
                     # resources. Wrap in try/except so an unload failure
                     # does not prevent the whisper fallback.
                     try:
                         backend.unload()
                         log.info("[ASR_REGISTRY] unloaded failed backend: %s", name)
                     except Exception:
-                        # XE-14-J: ``log.exception`` (not ``log.warning``
+                        # ``log.exception`` (not ``log.warning``
                         # without ``exc_info``) so the full traceback
                         # lands in the log — a backend.unload() failure
                         # usually means a CUDA context tear-down or
@@ -739,7 +739,7 @@ class AsrBackendRegistry:
                             "[ASR_REGISTRY] failed to unload %s after load failure",
                             name,
                         )
-                    # XS-17 (F-09): do NOT unregister the failed primary
+                    # (F-09): do NOT unregister the failed primary
                     # backend — keep it in ``_backends`` so subsequent
                     # ``load_with_fallback`` calls retry it (and increment
                     # the failure counter toward the disable threshold).
@@ -784,10 +784,10 @@ class AsrBackendRegistry:
                 # OUTSIDE lock — see comment above.
                 whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
-                # XS-17: do NOT call ``_record_success("whisper")``
+                # do NOT call ``_record_success("whisper")``
                 # here — whisper is a FALLBACK, not the user's configured
                 # backend.
-                # XZ-14-06: but DO clear the last-resort notification
+                # but DO clear the last-resort notification
                 # latch — the whisper fallback successfully loaded, so
                 # we've recovered from the last-resort state and the
                 # next fall-through should re-notify the user.
@@ -796,16 +796,16 @@ class AsrBackendRegistry:
                 return whisper
             except Exception:
                 log.exception("[ASR_REGISTRY] whisper fallback also failed")
-                # XS-17: do NOT call ``_record_failure("whisper")``
+                # do NOT call ``_record_failure("whisper")``
                 # — the circuit breaker tracks the user's configured
                 # backend, not the whisper fallback.
-                # MEM-01 (c-review): unload before giving up so we don't
+                # (c-review): unload before giving up so we don't
                 # leak the whisper backend's partially-allocated resources.
                 try:
                     whisper.unload()
                     log.info("[ASR_REGISTRY] unloaded failed fallback backend: whisper")
                 except Exception:
-                    # XE-14-J: ``log.exception`` (not ``log.warning``
+                    # ``log.exception`` (not ``log.warning``
                     # without ``exc_info``) so the full traceback lands
                     # in the log. Mirrors the sibling unload-failure
                     # paths in ``load_with_fallback`` (primary backend)
@@ -819,8 +819,8 @@ class AsrBackendRegistry:
     def unload(self, name: str | None = None) -> None:
         """Unload a backend by name, or the active backend if name is None.
 
-        ARCH-007: used by app.py's _change_model() before loading
-        the new model.
+        used by app.py's _change_model() before loading
+                the new model.
         """
         target = name or self.active_name
         with self._lock:
@@ -830,7 +830,7 @@ class AsrBackendRegistry:
                 backend.unload()
                 log.info("[ASR_REGISTRY] unloaded backend: %s", target)
             except Exception:
-                # XE-14-J: ``log.exception`` (not ``log.warning`` without
+                # ``log.exception`` (not ``log.warning`` without
                 # ``exc_info``) so the full traceback lands in the log —
                 # a backend.unload() failure usually means a CUDA
                 # context tear-down or torch-tensor free raised, and
@@ -846,10 +846,10 @@ class AsrBackendRegistry:
         with self._lock:
             return list(self._backends.keys())
 
-    # ── UE-48: per-backend busy flag ──────────────────────────────────
+    # per-backend busy flag ──────────────────────────────────
 
     def is_busy(self, name: str | None = None) -> bool:
-        """UE-48: return True if the named backend (or the active
+        """return True if the named backend (or the active
         backend when ``name`` is None) is currently inside
         ``transcribe_with_fallback``.
 
@@ -875,7 +875,7 @@ class AsrBackendRegistry:
             return target in self._busy_backends
 
     def set_busy(self, name: str | None = None) -> None:
-        """UE-48: mark the named backend (or the active backend when
+        """mark the named backend (or the active backend when
         ``name`` is None) as busy.
 
         Callers SHOULD prefer :meth:`busy_context` (or the
@@ -894,7 +894,7 @@ class AsrBackendRegistry:
             self._busy_backends.add(target)
 
     def clear_busy(self, name: str | None = None) -> None:
-        """UE-48: mark the named backend (or the active backend when
+        """mark the named backend (or the active backend when
         ``name`` is None) as not busy.
 
         Idempotent — calling on a backend that wasn't busy is a
@@ -912,7 +912,7 @@ class AsrBackendRegistry:
 
     @contextlib.contextmanager
     def busy_context(self, name: str | None = None):
-        """UE-48: context manager that sets the busy flag on enter and
+        """context manager that sets the busy flag on enter and
         clears it on exit (including the exception path).
 
         Yields the resolved backend name so callers can pass it to
@@ -955,7 +955,7 @@ class AsrBackendRegistry:
         name: str | None = None,
         **kwargs: object,
     ) -> str:
-        """UE-48: wrap the backend's ``transcribe_with_fallback`` call
+        """wrap the backend's ``transcribe_with_fallback`` call
         with the busy flag set/clear cycle.
 
         Callers (e.g. ``dictation_pipeline._transcribe``) SHOULD call
@@ -997,7 +997,7 @@ class AsrBackendRegistry:
             return backend.transcribe_with_fallback(audio, *args, **kwargs)
 
     def force_clear_busy(self, name: str | None = None) -> None:
-        """UE-48: alias for :meth:`clear_busy` exposed under a more
+        """alias for :meth:`clear_busy` exposed under a more
         discoverable name for the watchdog's force-recover path.
 
         The watchdog (:meth:`RecordingController._force_recover_from_stuck_transcription`)

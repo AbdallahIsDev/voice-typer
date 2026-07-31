@@ -1,10 +1,10 @@
 """Extracted hotkey formatting logic from tray.py.
 
-ARCH-007: _format_hotkey_label was previously an inline static method
+_format_hotkey_label was previously an inline static method
 in TrayIcon.  It is now a standalone function so other modules (e.g.
 tray_window.py) can import it without creating a TrayIcon instance.
 
-TASK-9 (HOTKEY-UNIFY-003): this function now mirrors the canonical
+(HOTKEY-UNIFY-003): this function now mirrors the canonical
 TypeScript implementation in
 ``client/src/renderer/src/components/hotkey-utils.ts::formatHotkeyLabel``
 exactly — same displayMap, same F-key regex (``^f\\d{1,2}$``), same
@@ -81,14 +81,14 @@ _STRIP_BRACKETS_RE = re.compile(r"[<>]")
 def format_hotkey_label(hotkey: str) -> str:
     """Format a hotkey string like '<ctrl>+<shift>+f2' into 'Ctrl+Shift+F2'.
 
-    Handles pynput-style angle-bracket notation and normalizes
-    modifier names to user-friendly display form.
+        Handles pynput-style angle-bracket notation and normalizes
+        modifier names to user-friendly display form.
 
-    TASK-9: this is a faithful Python port of the canonical TS
-    implementation in
-    ``client/src/renderer/src/components/hotkey-utils.ts::formatHotkeyLabel``.
-    The two must produce identical output for any given input —
-    see ``tests/test_hotkey_format.py`` for the parity corpus.
+    this is a faithful Python port of the canonical TS
+        implementation in
+        ``client/src/renderer/src/components/hotkey-utils.ts::formatHotkeyLabel``.
+        The two must produce identical output for any given input —
+        see ``tests/test_hotkey_format.py`` for the parity corpus.
     """
     # Mirror the TS early-return: `if (!hotkey) return "None"`.
     # In Python, `not ""` is True and `not None` is True, so this

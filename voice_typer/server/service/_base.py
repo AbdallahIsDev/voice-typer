@@ -68,43 +68,43 @@ if TYPE_CHECKING:
 class ServiceMixinBase:
     """Common base for service-layer mixins.
 
-    Declares the runtime-provided attributes that every service mixin
-    accesses via ``self.X``. The annotations are concrete types (not
-    ``Any``) so pyrefly's null-safety check sees a declared attribute
-    with a real type AND so the type system can catch shape mismatches
-    between this base and the concrete :class:`VoiceTyperService`
-    subclass that binds the values at runtime.
+        Declares the runtime-provided attributes that every service mixin
+        accesses via ``self.X``. The annotations are concrete types (not
+        ``Any``) so pyrefly's null-safety check sees a declared attribute
+        with a real type AND so the type system can catch shape mismatches
+        between this base and the concrete :class:`VoiceTyperService`
+        subclass that binds the values at runtime.
 
-    The annotations are bare class-level type hints (NOT ``ClassVar``)
-    so :meth:`VoiceTyperService.__init__` can freely bind the values
-    via ``self.X = ...``. ``ClassVar`` would forbid instance
-    assignment (pyrefly: "Cannot set field [read-only]").
+        The annotations are bare class-level type hints (NOT ``ClassVar``)
+        so :meth:`VoiceTyperService.__init__` can freely bind the values
+        via ``self.X = ...``. ``ClassVar`` would forbid instance
+        assignment (pyrefly: "Cannot set field [read-only]").
 
-    The attributes are bound at runtime by
-    :meth:`VoiceTyperService.__init__` in
-    ``voice_typer/server/service/__init__.py``:
+        The attributes are bound at runtime by
+        :meth:`VoiceTyperService.__init__` in
+        ``voice_typer/server/service/__init__.py``:
 
-    * ``_app`` — the wrapped :class:`AppProtocol` instance.
-    * ``_config_applier`` — the :class:`ConfigApplier` that owns the
-      config-mutation lock + rollback logic.
-    * ``_download_cancel_lock`` / ``_download_cancel_events`` /
-      ``_active_download_id`` — per-download cancellation state for
-      ``ModelMixin.download_model`` (HIGH-8 / SERVICE-1).
-      ``_active_download_id`` is initialised to ``None`` by
-      ``VoiceTyperService.__init__`` so ``cancel_model_download`` can
-      safely read it before any download has been registered.
-    * ``_microphones_cache`` / ``_microphones_cache_ts`` — short-TTL
-      cache for ``MicrophoneTestMixin.refresh_microphones``
-      (PERF-FIX-1). Bound by ``MicrophoneTestMixin.__init__``.
-    * ``_model_status_cache`` / ``_model_status_cache_ts`` /
-      ``_model_status_cache_lock`` — short-TTL cache for
-      ``ModelMixin.get_model_status`` (PERF-10 / SVC-9).
-    * ``_onboarding`` — live :class:`OnboardingController` held between
-      ``OnboardingMixin.onboarding_start`` and
-      ``OnboardingMixin.onboarding_apply``. Initialised to ``None`` by
-      ``VoiceTyperService.__init__`` so the ``getattr(self,
-      "_onboarding", None)`` defensive reads in ``onboarding.py``
-      resolve to a typed value.
+        * ``_app`` — the wrapped :class:`AppProtocol` instance.
+        * ``_config_applier`` — the :class:`ConfigApplier` that owns the
+          config-mutation lock + rollback logic.
+        * ``_download_cancel_lock`` / ``_download_cancel_events`` /
+          ``_active_download_id`` — per-download cancellation state for
+    ``ModelMixin.download_model`` ( / SERVICE-1).
+          ``_active_download_id`` is initialised to ``None`` by
+          ``VoiceTyperService.__init__`` so ``cancel_model_download`` can
+          safely read it before any download has been registered.
+        * ``_microphones_cache`` / ``_microphones_cache_ts`` — short-TTL
+          cache for ``MicrophoneTestMixin.refresh_microphones``
+    (PERF-). Bound by ``MicrophoneTestMixin.__init__``.
+        * ``_model_status_cache`` / ``_model_status_cache_ts`` /
+          ``_model_status_cache_lock`` — short-TTL cache for
+          ``ModelMixin.get_model_status`` (PERF-10 / SVC-9).
+        * ``_onboarding`` — live :class:`OnboardingController` held between
+          ``OnboardingMixin.onboarding_start`` and
+          ``OnboardingMixin.onboarding_apply``. Initialised to ``None`` by
+          ``VoiceTyperService.__init__`` so the ``getattr(self,
+          "_onboarding", None)`` defensive reads in ``onboarding.py``
+          resolve to a typed value.
     """
 
     # Provided at runtime by VoiceTyperService.__init__ via

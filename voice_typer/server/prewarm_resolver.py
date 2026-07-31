@@ -68,23 +68,23 @@ def _should_bypass_cache() -> bool:
 def _target_triple() -> str:
     """Return the Rust target triple for the current platform+arch.
 
-    Mirrors the naming Tauri uses for ``externalBin`` binaries (see
-    ADR-0020 §4.1). The triple must match the suffix on the frozen
-    prewarm binary name exactly, or the resolver won't find it.
+        Mirrors the naming Tauri uses for ``externalBin`` binaries (see
+        ADR-0020 §4.1). The triple must match the suffix on the frozen
+        prewarm binary name exactly, or the resolver won't find it.
 
-    ADR-0020 §4.1 explicitly lists Windows ARM64
-    (``aarch64-pc-windows-msvc``) as a supported target triple. The
-    previous implementation used ``sys.maxsize > 2**32`` which only
-    distinguishes x86_64 from x86 — it NEVER returns ``aarch64`` on
-    Windows ARM64 hosts. This is fixed by using ``platform.machine()``
-    for all three platforms (Windows now mirrors the macOS/Linux
-    branches).
+        ADR-0020 §4.1 explicitly lists Windows ARM64
+        (``aarch64-pc-windows-msvc``) as a supported target triple. The
+        previous implementation used ``sys.maxsize > 2**32`` which only
+        distinguishes x86_64 from x86 — it NEVER returns ``aarch64`` on
+        Windows ARM64 hosts. This is fixed by using ``platform.machine()``
+        for all three platforms (Windows now mirrors the macOS/Linux
+        branches).
 
-    XV-13: the result is memoized via :func:`functools.lru_cache` —
-    the platform + arch tuple is invariant for a process lifetime.
-    The cache is bypassed under pytest so tests that monkeypatch
-    ``sys.platform`` / ``platform.machine`` between scenarios keep
-    working without needing a cache-clear fixture.
+    the result is memoized via :func:`functools.lru_cache` —
+        the platform + arch tuple is invariant for a process lifetime.
+        The cache is bypassed under pytest so tests that monkeypatch
+        ``sys.platform`` / ``platform.machine`` between scenarios keep
+        working without needing a cache-clear fixture.
     """
     if _should_bypass_cache() and _target_triple_cached.cache_info().currsize > 0:
         _target_triple_cached.cache_clear()
@@ -93,7 +93,7 @@ def _target_triple() -> str:
 
 @functools.lru_cache(maxsize=1)
 def _target_triple_cached() -> str:
-    """Memoized body of :func:`_target_triple` (XV-13)."""
+    """Memoized body of :func:`_target_triple` ()."""
     import platform
 
     if is_windows():

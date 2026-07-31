@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """Prewarm pipeline orchestration.
 
-Phase 4.5 / ARCH-045 — this module holds the top-level orchestration:
+Phase 4.5 /  — this module holds the top-level orchestration:
 
 - :func:`run` — the prewarm pipeline entry point.  Runs the guards
   (config flag, sentinel, RAM), writes the PID file, calls
@@ -48,7 +48,7 @@ import time
 # keep affecting production code defined here.
 from voice_typer.server import prewarm as _pkg
 
-# ER-15: import the battery-low-charge threshold constant directly from
+# import the battery-low-charge threshold constant directly from
 # ``logging_setup`` (where ``_on_battery_and_low_charge`` is defined) so
 # the log message in ``run()`` can reference the same threshold the
 # guard uses. Direct import (rather than ``_pkg.X``) because the
@@ -73,7 +73,7 @@ EXIT_DISABLED = 10  # user turned fast_startup off
 EXIT_LOW_RAM = 20  # not enough free RAM to prewarm safely
 EXIT_NO_MODEL = 30  # model not cached yet (first-ever run)
 EXIT_IMPORT_FAILED = 40  # torch/transformers missing or broken
-# ER-15: skip prewarm when the host is on battery AND charge < 60%.
+# skip prewarm when the host is on battery AND charge < 60%.
 # Prewarming reads ~6 GB off disk (~2-3 Wh drain); on a laptop booted
 # on battery at low charge, that drain is perceptible. Defer to the
 # next AC-plug event. See ``_on_battery_and_low_charge`` in
@@ -81,12 +81,12 @@ EXIT_IMPORT_FAILED = 40  # torch/transformers missing or broken
 # ``tests/test_prewarm_er_fix_e2.py::TestOnBatteryAndLowCharge``.
 EXIT_ON_BATTERY = 50
 
-# ER-68: skip warming a weights file when its cache ratio is already
+# skip warming a weights file when its cache ratio is already
 # >= this threshold (i.e. the OS page cache already holds ~all of it).
 # Avoids re-reading the entire 2.4 GB model.safetensors when a prior
 # prewarm (or the app's own model load) already warmed it.
 _CACHE_RATIO_SKIP_WARMING_THRESHOLD = 0.9
-# ER-68: only probe cache ratio for files above this size — small files
+# only probe cache ratio for files above this size — small files
 # are cheap to re-warm (a single read() call) and the probe itself
 # costs a few random reads, so the probe is pure overhead for them.
 _CACHE_RATIO_PROBE_MIN_BYTES = 100 * 1024 * 1024  # 100 MB
@@ -156,7 +156,7 @@ def run(
             )
             return EXIT_LOW_RAM
 
-    # ER-15: BATTERY GUARD THIRD — skip prewarm when the host is on
+    # BATTERY GUARD THIRD — skip prewarm when the host is on
     # battery AND charge < 60%. Prewarming reads ~6 GB off disk
     # (~2-3 Wh drain); on a laptop booted on battery at low charge,
     # that drain is perceptible. Defer to the next AC-plug event
@@ -255,7 +255,7 @@ def _run_warming_pipeline(
                     snapshot_warmed_any = False
                     for f in snapshot_dir.rglob("*"):
                         if f.is_file() and f.suffix in (".bin", ".safetensors", ".pt", ".json", ".txt"):
-                            # AB-17: skip warming when OS standby cache
+                            # skip warming when OS standby cache
                             # already holds >= 90% of the file. Avoids
                             # re-reading a 2.4 GB model.safetensors on every
                             # prewarm re-fire when the OS already has it cached.

@@ -1,6 +1,6 @@
 """Tray notification handling — extracted from ``tray.py``.
 
-DT-FIX-9 / DT-27 (Phase 4.5 spaghetti split): the notification concern
+(Phase 4.5 spaghetti split): the notification concern
 was previously inlined on the ``TrayIcon`` class alongside pystray
 lifecycle, state queuing, menu building, and Electron window
 management. This module owns the four notification-related operations:
@@ -49,16 +49,16 @@ log = logging.getLogger("voice_typer.server.tray_notifications")
 def notify(tray: TrayIcon, title: str, message: str) -> None:
     """Show a notification if notifications are enabled.
 
-    Mirrors the original ``TrayIcon.notify`` contract: when the user
-    has disabled notifications (``tray._notifications_enabled is
-    False``), the call is a no-op. When the pystray ``Icon`` is not yet
-    live (``tray._icon is None``), the (title, message) pair is
-    appended to ``tray._pending_notifications`` under the queue lock;
-    ``TrayIcon.run`` flushes the queue once the event loop starts.
+        Mirrors the original ``TrayIcon.notify`` contract: when the user
+        has disabled notifications (``tray._notifications_enabled is
+        False``), the call is a no-op. When the pystray ``Icon`` is not yet
+        live (``tray._icon is None``), the (title, message) pair is
+        appended to ``tray._pending_notifications`` under the queue lock;
+        ``TrayIcon.run`` flushes the queue once the event loop starts.
 
-    TRAY-025 / TRAY-035: (removed) Notification re-display was
-    previously stored and accessible via the tray menu; that menu item
-    has been removed since the OS manages notification lifetime.
+    (removed) Notification re-display was
+        previously stored and accessible via the tray menu; that menu item
+        has been removed since the OS manages notification lifetime.
     """
     if not tray._notifications_enabled:
         return

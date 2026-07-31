@@ -1,7 +1,7 @@
 """Model domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Model download / delete / status / import,
+( split). Model download / delete / status / import,
 per-download cancellation, deps probes, and the HuggingFace
 consent gate.
 """
@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 # no user-visible staleness (cache is invalidated on download/delete).
 _MODEL_STATUS_CACHE_TTL_S = 5.0
 
-# XA-13-C1: user-facing messages for each ``download_parakeet_weights``
+# user-facing messages for each ``download_parakeet_weights``
 # reason code. The service layer unpacks the ``(success, reason, exc_info)``
 # 3-tuple and maps the short reason code to a human-readable message so
 # the renderer's error toast / tray notification tells the user WHAT
@@ -59,11 +59,59 @@ class ModelMixin(ServiceMixinBase):
     """Model-domain service methods.
 
     Covers download/delete/import/status, per-download cancellation
-    (HIGH-8 / SERVICE-1), dependency probes, and the HuggingFace
-    consent gate (CR-11 / NEW-PRIV-005).
+    ( / SERVICE-1), dependency probes, and the HuggingFace
+    consent gate ( / ).
     """
 
-    # ── Download cancellation helpers (HIGH-8 / SERVICE-1) ──────────
+    def __init__(self) -> None:
+        """initialize ModelMixin's own state.
+
+        Previously the six ModelMixin-specific fields
+        (``_download_cancel_events``, ``_download_cancel_lock``,
+        ``_active_download_id``, ``_model_status_cache``,
+        ``_model_status_cache_ts``, ``_model_status_cache_lock``)
+        were initialised inline in ``VoiceTyperService.__init__``
+        even though they are used ONLY by ModelMixin. This is the
+        same fat-base-class smell called out in  — only
+        ``MicrophoneTestMixin`` got its own ``__init__`` extraction,
+        so the  fix was applied inconsistently.
+
+        mirror the MicrophoneTestMixin pattern —
+        each mixin owns the initialisation of its own state. The
+        mixin ``__init__`` is called explicitly from
+        ``VoiceTyperService.__init__`` (rather than via cooperative
+        ``super().__init__()`` chaining) because ``ServiceMixinBase``
+        doesn't define an ``__init__`` that accepts the ``app``
+        argument. Functionally equivalent: the state ends up on the
+        same instance via the same MRO.
+
+         SERVICE-1: per-download cancellation events guarded by
+        a lock, so concurrent ``download_model`` IPC calls (via the
+        ThreadPoolExecutor) don't overwrite each other's event. The
+        previous single-instance attribute meant the second call's
+        ``self._download_cancel_event = threading.Event()`` clobbered
+        the first call's reference; the first call's polling loop then
+        polled the wrong event, and when the second call finished and
+        set the attribute to ``None`` the first call's
+        ``.is_set()`` raised AttributeError.
+
+        ``_active_download_id`` is initialised to ``None`` so
+        :meth:`ModelMixin.cancel_model_download` can safely read it
+        before any download has been registered. Previously this was
+        left unset, causing an ``AttributeError`` on the first
+        ``cancel_model_download`` call (covered by
+        ``tests/test_history_and_models.py::TestCancelModelDownloadMechanism``).
+
+        PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status.
+        """
+        self._download_cancel_events: dict[str, threading.Event] = {}
+        self._download_cancel_lock = threading.Lock()
+        self._active_download_id: str | None = None
+        self._model_status_cache: dict[str, object] | None = None
+        self._model_status_cache_ts: float = 0.0
+        self._model_status_cache_lock = threading.Lock()
+
+    # ── Download cancellation helpers ( / SERVICE-1) ──────────
 
     def _register_download(self, model_name: str) -> str:
         """Create a per-download cancellation Event and return its id.
@@ -100,7 +148,7 @@ class ModelMixin(ServiceMixinBase):
         """Return True if the download identified by ``download_id``
         has been cancelled.
 
-        HIGH-8 / SERVICE-1: looks up the Event in the per-download dict
+         SERVICE-1: looks up the Event in the per-download dict
         (under the lock) so a concurrent ``download_model`` call's
         cancel signal doesn't bleed into this download. Returns False
         if the entry is missing (already cleaned up, or never
@@ -112,7 +160,7 @@ class ModelMixin(ServiceMixinBase):
             event = self._download_cancel_events.get(download_id)
         return event.is_set() if event is not None else False
 
-    # ── Volume / Model status (ARCH-005) ────────────────────────
+    # ── Volume / Model status () ────────────────────────
 
     def get_model_status(self) -> dict[str, object]:
         """Return the model download/dependency status for each ASR backend.
@@ -209,9 +257,9 @@ class ModelMixin(ServiceMixinBase):
     def delete_model(self, model_name: str) -> dict[str, object]:
         """Delete a downloaded model from the HuggingFace cache.
 
-        LOG-001: logs success/failure with model name and repo ID.
+        logs success/failure with model name and repo ID.
 
-        NEW-UX-005: previously the Models page only removed the model
+        previously the Models page only removed the model
         from the UI list without actually deleting the files.  A 1.5 GB
         model left on disk is a waste of space and confuses users who
         think they deleted it.  We now actually delete the cached files.
@@ -303,7 +351,7 @@ class ModelMixin(ServiceMixinBase):
     def test_llm_connection(self) -> dict[str, object]:
         """Test the LLM polish API connection.
 
-        NEW-DEAD-015: ``LLMPolisher.test_connection`` was previously
+        ``LLMPolisher.test_connection`` was previously
         dead — no IPC route or UI button invoked it.  We now expose
         it via the service layer so the renderer can wire up a "Test
         connection" button on the Settings page (where the user
@@ -315,7 +363,7 @@ class ModelMixin(ServiceMixinBase):
         if cfg is None:
             return {"success": False, "message": "Config not loaded"}
 
-        # CR-43 fix: gate on consent BEFORE sending any test request.
+        #  fix: gate on consent BEFORE sending any test request.
         # The polish production path (dictation_pipeline.py:650) requires
         # BOTH `llm_polish` AND `llm_polish_consent` to be True before
         # sending any HTTP request to the LLM endpoint. The previous
@@ -475,7 +523,7 @@ class ModelMixin(ServiceMixinBase):
             found_models.append(model_name)
             dest = cache_dir / dir_name
             try:
-                # RW-5: refuse to import a model cache that contains
+                # refuse to import a model cache that contains
                 # symlinks.  ``shutil.copytree`` with ``symlinks=False``
                 # would *follow* any symlink in the source tree and copy
                 # the target's contents into the destination — so a
@@ -510,7 +558,7 @@ class ModelMixin(ServiceMixinBase):
                     continue
                 if dest.exists():
                     shutil.rmtree(dest)
-                # RW-5: symlinks=False as defense-in-depth.  The explicit
+                # symlinks=False as defense-in-depth.  The explicit
                 # check above is the primary gate; this ensures that even
                 # if a symlink slips through (e.g. a race condition where
                 # a symlink is created after the check), copytree will
@@ -520,7 +568,7 @@ class ModelMixin(ServiceMixinBase):
                 shutil.copytree(src_path, dest, symlinks=False)
                 imported_models.append(model_name)
             except Exception as exc:
-                # XZ-EH-003: redact str(exc) before appending to per-model
+                # redact str(exc) before appending to per-model
                 # errors list. shutil.Error enumerates source/dest file paths,
                 # leaking cache layout to renderer. Sister IPC methods all
                 # wrap str(exc) with redact_secret(redact_url(...)).
@@ -542,7 +590,7 @@ class ModelMixin(ServiceMixinBase):
 
                 invalidate_model_availability_cache()
             except Exception:
-                # XZ-EH-007: sister calls log cache-invalidation failures at
+                # sister calls log cache-invalidation failures at
                 # DEBUG. Previous pass silently swallowed with no log entry,
                 # making stale tray-cache bugs invisible.
                 log.debug(
@@ -571,26 +619,26 @@ class ModelMixin(ServiceMixinBase):
             "errors": errors,
         }
 
-    # ── Download model (UX-005) ─────────────────────────────────────
+    # ── Download model () ─────────────────────────────────────
 
     def cancel_model_download(self) -> dict:
         """Cancel an in-progress model download.
 
-        NEW-PRIV-011: sets the cancellation event so the download_model
+        sets the cancellation event so the download_model
         polling loop stops waiting and returns a "cancelled" result.
 
-        HIGH-8 / SERVICE-1: signals the active download's per-download
+         SERVICE-1: signals the active download's per-download
         Event (looked up in ``self._download_cancel_events`` under the
         lock). Without the per-download lookup, two concurrent
         ``download_model`` calls would each overwrite a shared attribute
         and only one would actually get cancelled.
 
-        EC-FIX-15 / EC-24: the legacy single-instance
+         the legacy single-instance
         ``self._download_cancel_event`` fallback branch has been REMOVED.
         All cancel signals now flow through the per-download dict.
         """
         cancelled_any = False
-        # HIGH-8 / SERVICE-1: per-download dict path — signal the
+        #  SERVICE-1: per-download dict path — signal the
         # currently-active download's Event, if any.
         with self._download_cancel_lock:
             active_id = self._active_download_id
@@ -606,7 +654,7 @@ class ModelMixin(ServiceMixinBase):
     def pause_model_download(self) -> dict:
         """Pause an in-progress model download.
 
-        NEW-PAUSE-001: delegates to :func:`asr_setup.set_download_paused`,
+        delegates to :func:`asr_setup.set_download_paused`,
         which sets a module-level flag that the download polling loop
         checks between iterations.  While paused, the polling loop
         stops pushing progress updates (and the renderer shows a
@@ -624,7 +672,7 @@ class ModelMixin(ServiceMixinBase):
     def resume_model_download(self) -> dict:
         """Resume a paused model download.
 
-        NEW-PAUSE-001: clears the module-level pause flag set by
+        clears the module-level pause flag set by
         :meth:`pause_model_download`.  The polling loop picks up where
         it left off on the next iteration.
         """
@@ -635,7 +683,7 @@ class ModelMixin(ServiceMixinBase):
         return {"resumed": True}
 
     def _require_huggingface_consent(self, model_name: str) -> DownloadOutcome | None:
-        """CR-11: Gate IPC-triggered HuggingFace downloads on explicit consent.
+        """Gate IPC-triggered HuggingFace downloads on explicit consent.
 
         Mirrors the consent gate in
         :meth:`voice_typer.server.transcription.TranscriptionEngine._pre_download_model`
@@ -644,7 +692,7 @@ class ModelMixin(ServiceMixinBase):
         phoned home to huggingface.co (revealing the user's IP to a
         US-headquartered third party) without the explicit GDPR
         Art. 13/44 consent that ``config.huggingface_consent`` was
-        specifically designed to gate (NEW-PRIV-005).
+        specifically designed to gate ().
 
         Returns ``None`` when consent has been given — the caller
         proceeds with the download.  Returns a :data:`DownloadOutcome`
@@ -697,14 +745,14 @@ class ModelMixin(ServiceMixinBase):
     def download_model(self, model_name: str) -> dict[str, object]:
         """Download a model weight file via HuggingFace.
 
-        UX-005: Downloads the specified model (tiny.en, small.en, medium.en,
+        Downloads the specified model (tiny.en, small.en, medium.en,
         large-v3, qwen, parakeet) to the local HF cache. Pushes
         ``download_progress`` events to the renderer so the Models page
         can update its progress bar and status text in real time, and
         fires a tray notification on completion / failure.
         Returns a result dict with success status.
 
-        DT-49: the return annotation is widened from the
+        the return annotation is widened from the
         ``DownloadResult`` TypedDict union (removed) to
         ``dict[str, object]`` to match the actual runtime shape. The
         implementation returns plain ``dict`` literals (not TypedDict
@@ -712,29 +760,29 @@ class ModelMixin(ServiceMixinBase):
         caused 3 baselined ``bad-return`` pyrefly errors. The runtime
         shape is verified by ``tests/test_service_fixes.py``.
 
-        NEW-MODEL-001: now supports the turbo + distilled variants via
+        now supports the turbo + distilled variants via
         :mod:`voice_typer.server.model_registry`.  The repo_id is
         resolved from the registry instead of being hard-coded.
 
-        NEW-PAUSE-001: the polling loop checks
+        the polling loop checks
         :func:`asr_setup.is_download_paused` between iterations.  When
         paused, progress updates freeze and a ``paused: True`` event is
         pushed once per transition.  Resume clears the flag and pushes
         a ``resumed: True`` event.
 
-        CR-11: the Whisper and Parakeet branches now gate on
+        the Whisper and Parakeet branches now gate on
         :meth:`_require_huggingface_consent` before any HuggingFace
         network call, mirroring the consent gate that already lived in
         ``TranscriptionEngine._pre_download_model`` (transcription.py:835-849).
         The Qwen branch uses a local file path and does not phone home,
         so it is exempt from the consent gate.
 
-        RACE-008: daemon=True is acceptable because _do_download only
+        daemon=True is acceptable because _do_download only
         writes to the HF cache dir — no critical cleanup. The download
         completes or fails naturally; on force-kill the partial
         download is resumed on next start via HF's resume_download=True.
 
-        DR-17: the original 558-LOC god method has been split into a
+        the original 558-LOC god method has been split into a
         ~40-LOC dispatcher (this method) plus three branch methods
         (``_download_whisper_family``, ``_download_qwen``,
         ``_download_parakeet``).  The shared helpers
@@ -746,19 +794,19 @@ class ModelMixin(ServiceMixinBase):
         so the IPC layer sees the exact same runtime shape as before.
         All 10 distinct return shapes are preserved verbatim.
         """
-        # WR-14: pyrefly unbound-name — initialize download_id BEFORE the
+        # pyrefly unbound-name — initialize download_id BEFORE the
         # outer ``try:`` block so the ``except Exception`` handler below
         # can safely reference it even if the very first statement inside
         # the try (the ``from voice_typer.server.model_registry import
         # get_model_metadata`` import) raises ImportError before any
         # branch method has had a chance to set it via
-        # ``self._register_download``.  The HIGH-8 / SERVICE-1 comment
+        # ``self._register_download``.  The  / SERVICE-1 comment
         # below still applies — this initialization is the safety net
         # for the outer handler.
         download_id: str | None = None
 
         try:
-            # NEW-MODEL-001: consult the model registry so we support
+            # consult the model registry so we support
             # turbo + distilled variants without hard-coding name-to-repo
             # mappings.  Falls back to the legacy hard-coded tuple for
             # any registry drift.
@@ -781,13 +829,13 @@ class ModelMixin(ServiceMixinBase):
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
-            # NEW-PRIV-011: clear cancel event on failure too.
-            # HIGH-8 / SERVICE-1: unregister the per-download Event
+            # clear cancel event on failure too.
+            #  SERVICE-1: unregister the per-download Event
             # from the dict (no-op if download_id is None, e.g. the
             # failure happened before _register_download was called).
             if download_id is not None:
                 self._unregister_download(download_id)
-            # NEW-PAUSE-001: clear the pause flag on failure too.
+            # clear the pause flag on failure too.
             try:
                 from voice_typer.server.asr_setup import clear_download_pause_state
 
@@ -814,11 +862,11 @@ class ModelMixin(ServiceMixinBase):
     def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
         """Whisper / distil-whisper branch of :meth:`download_model`.
 
-        DR-17: extracted from the original ``is_whisper_family`` branch
-        of the monolithic ``download_model``.  Handles the CR-11
-        HuggingFace consent gate, the NEW-PAUSE-001 pause/resume state
+        extracted from the original ``is_whisper_family`` branch
+        of the monolithic ``download_model``.  Handles the
+        HuggingFace consent gate, the  pause/resume state
         machine (via :func:`poll_download_progress`), and the
-        per-download cancellation plumbing (HIGH-8 / SERVICE-1).
+        per-download cancellation plumbing ( / SERVICE-1).
 
         Takes explicit args (``model_name``, ``model_meta``) so it can
         be unit-tested in isolation.  Returns a :data:`DownloadOutcome`
@@ -836,10 +884,10 @@ class ModelMixin(ServiceMixinBase):
             push_progress as _push_progress,
         )
 
-        # CR-11: HuggingFace consent gate.  Without this check,
+        # HuggingFace consent gate.  Without this check,
         # clicking "Download" on the Models page would phone
         # home to huggingface.co before the user had explicitly
-        # opted in via the consent dialog (NEW-PRIV-005).
+        # opted in via the consent dialog ().
         # Mirrors TranscriptionEngine._pre_download_model
         # (transcription.py:835-849).  The gate must fire BEFORE
         # any snapshot_download call (including the
@@ -855,7 +903,7 @@ class ModelMixin(ServiceMixinBase):
             model_meta.repo_id if model_meta else "unknown",
             model_meta.backend if model_meta else "unknown",
         )
-        # NEW-PAUSE-001: reset the pause flag at the start of
+        # reset the pause flag at the start of
         # every fresh download so a stale ``paused=True`` from
         # a previous download doesn't carry over.
         from voice_typer.server.asr_setup import (
@@ -866,7 +914,7 @@ class ModelMixin(ServiceMixinBase):
         reset_download_pause_state()
 
         _push_progress(event_bus, model_name, 0, f"Starting download for {model_name}...")
-        # UX-005: pre-download via snapshot_download so we can
+        # pre-download via snapshot_download so we can
         # poll the HF cache file size for progress reporting.
         # TranscriptionEngine.load() blocks with no progress
         # callback; doing the snapshot_download first lets us
@@ -878,7 +926,7 @@ class ModelMixin(ServiceMixinBase):
 
             from voice_typer.server.config import _config_dir
 
-            # NEW-MODEL-001: use the registry's repo_id so
+            # use the registry's repo_id so
             # distilled variants (Systran/faster-distil-whisper-*)
             # resolve correctly.
             assert model_meta is not None  # narrowed by is_whisper_family
@@ -920,7 +968,7 @@ class ModelMixin(ServiceMixinBase):
                 )
                 _push_progress(event_bus, model_name, 100, f"{model_name} already cached")
             except Exception:
-                # NEW-MODEL-001: pull target size from the
+                # pull target size from the
                 # registry instead of the hard-coded size_targets
                 # table.  Falls back to 500 MB if missing.
                 target_mb = model_meta.download_size_mb if model_meta.download_size_mb else 500
@@ -936,7 +984,7 @@ class ModelMixin(ServiceMixinBase):
                 # the cache directory size while it runs.
                 import threading
 
-                # HIGH-8 / SERVICE-1: register a per-download
+                #  SERVICE-1: register a per-download
                 # cancellation Event in the dict (under the
                 # lock) instead of overwriting the shared
                 # ``self._download_cancel_event`` attribute.
@@ -948,7 +996,7 @@ class ModelMixin(ServiceMixinBase):
 
                 def _do_download():
                     try:
-                        # PROD-004: use retry-with-backoff wrapper
+                        # use retry-with-backoff wrapper
                         from voice_typer.server.transcription import _download_with_retry
 
                         _download_with_retry(
@@ -962,7 +1010,7 @@ class ModelMixin(ServiceMixinBase):
                     except Exception as e:
                         download_err.append(e)
 
-                # RACE-008: daemon=True is acceptable because
+                # daemon=True is acceptable because
                 # _do_download only writes to the HF cache dir —
                 # no critical cleanup. The download completes or
                 # fails naturally; on force-kill the partial
@@ -977,7 +1025,7 @@ class ModelMixin(ServiceMixinBase):
                 )
                 # Poll cache size until download thread exits OR
                 # the user cancels OR the user pauses.
-                # DR-17: the polling loop + pause/resume state
+                # the polling loop + pause/resume state
                 # machine was extracted to
                 # :func:`poll_download_progress` in
                 # :mod:`voice_typer.server.service._download_helpers`.
@@ -992,14 +1040,14 @@ class ModelMixin(ServiceMixinBase):
                     event_bus=event_bus,
                     is_cancelled_fn=self._is_download_cancelled,
                 )
-                # NEW-PRIV-011: if cancelled, return early.
-                # HIGH-8 / SERVICE-1: remove our per-download
+                # if cancelled, return early.
+                #  SERVICE-1: remove our per-download
                 # Event from the dict so a sibling
                 # download_model call's cancel signal can't
                 # reach us after we've already exited the
                 # polling loop.
                 self._unregister_download(download_id)
-                # NEW-PAUSE-001: also clear the pause flag so
+                # also clear the pause flag so
                 # a subsequent download starts unpaused.
                 clear_download_pause_state()
                 if poll_outcome == "cancelled":
@@ -1032,7 +1080,7 @@ class ModelMixin(ServiceMixinBase):
         # confirm the files exist.
         log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
         _push_progress(event_bus, model_name, 100, f"Download of {model_name} complete")
-        # NEW-PERF-004: invalidate the tray models submenu cache
+        # invalidate the tray models submenu cache
         # so the next right-click reflects the newly-downloaded
         # model without waiting for the 5-second TTL.
         try:
@@ -1046,14 +1094,14 @@ class ModelMixin(ServiceMixinBase):
                 "[SERVICE] failed to invalidate tray model cache",
                 exc_info=True,
             )
-        # NEW-PRIV-011: clear cancel event on successful completion.
-        # HIGH-8 / SERVICE-1: unregister the per-download Event
+        # clear cancel event on successful completion.
+        #  SERVICE-1: unregister the per-download Event
         # from the dict (no-op if download_id is None, e.g. the
         # model was already cached and we never entered the
         # polling-loop branch).
         if download_id is not None:
             self._unregister_download(download_id)
-        # NEW-PAUSE-001: clear the pause flag so subsequent
+        # clear the pause flag so subsequent
         # pause calls return False (no active download).
         clear_download_pause_state()
         _notify(self._app.tray, model_name, APP_NAME, f"Model '{model_name}' downloaded successfully")
@@ -1066,9 +1114,9 @@ class ModelMixin(ServiceMixinBase):
     def _download_qwen(self, model_name: str) -> DownloadOutcome:
         """Qwen branch of :meth:`download_model`.
 
-        DR-17: extracted from the original ``elif model_name == "qwen"``
+        extracted from the original ``elif model_name == "qwen"``
         branch of the monolithic ``download_model``.  Qwen uses a local
-        file path (no HuggingFace call) so the CR-11 consent gate does
+        file path (no HuggingFace call) so the  consent gate does
         not apply.  Returns a :data:`DownloadOutcome` with the same
         runtime shape the original branch produced.
         """
@@ -1096,9 +1144,9 @@ class ModelMixin(ServiceMixinBase):
     def _download_parakeet(self, model_name: str) -> DownloadOutcome:
         """Parakeet branch of :meth:`download_model`.
 
-        DR-17: extracted from the original ``elif model_name ==
+        extracted from the original ``elif model_name ==
         "parakeet"`` branch of the monolithic ``download_model``.
-        Handles the CR-11 HuggingFace consent gate and the XA-13-C1
+        Handles the  HuggingFace consent gate and the
         structured-error unpack of ``download_parakeet_weights``.
         Returns a :data:`DownloadOutcome` with the same runtime shape
         the original branch produced.
@@ -1111,10 +1159,10 @@ class ModelMixin(ServiceMixinBase):
             push_progress as _push_progress,
         )
 
-        # CR-11: HuggingFace consent gate.  Parakeet weights
+        # HuggingFace consent gate.  Parakeet weights
         # are fetched from huggingface.co via
         # download_parakeet_weights(); gate the network call
-        # on explicit user consent (NEW-PRIV-005).  Mirrors
+        # on explicit user consent ().  Mirrors
         # TranscriptionEngine._pre_download_model
         # (transcription.py:835-849).  Must fire BEFORE the
         # asr_setup import + call so a user who has NOT
@@ -1130,7 +1178,7 @@ class ModelMixin(ServiceMixinBase):
         _push_progress(event_bus, model_name, 0, "Starting Parakeet download (~2.5 GB)...")
         from voice_typer.server.asr_setup import download_parakeet_weights
 
-        # XA-13-C1: surface silent failures. Previously the
+        # surface silent failures. Previously the
         # service called ``download_parakeet_weights()`` with no
         # arguments and discarded the return value, so every
         # failure (consent gate, missing huggingface_hub, disk
@@ -1193,7 +1241,7 @@ class ModelMixin(ServiceMixinBase):
             }
         log.info("[SERVICE] Parakeet download complete")
         _push_progress(event_bus, model_name, 100, "Parakeet download complete")
-        # NEW-PERF-004: invalidate the tray models submenu cache.
+        # invalidate the tray models submenu cache.
         try:
             from voice_typer.server.tray_models import (
                 invalidate_model_availability_cache,

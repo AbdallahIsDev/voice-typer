@@ -2,7 +2,7 @@
 backend for the current platform.
 
 Split out from the original ``hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 """
 
 import os
@@ -82,7 +82,7 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
             )
             return _NativeBackendAdapter(native)
     except Exception as exc:
-        # PVT-G5-081: native-backend unavailability is an EXPECTED fallback
+        # native-backend unavailability is an EXPECTED fallback
         # (e.g. running from a source checkout without the prebuilt binary).
         # ``log.exception`` emits ERROR + full traceback, which makes this
         # routine path look like a crash in the unified log. Downgrade to

@@ -1,6 +1,6 @@
-"""Config side-effect dispatcher — extracted from ``service.py`` (CR-18).
+"""Config side-effect dispatcher — extracted from ``service.py`` ().
 
-ARCH-005 / CR-18: ``VoiceTyperService.apply_config_side_effects`` (215
+``VoiceTyperService.apply_config_side_effects`` (215
 LOC, 8 branching blocks, 12 distinct side-effects) and
 ``VoiceTyperService.apply_config`` (110 LOC: credential routing +
 setattr + side-effects + save + tray-cache invalidation) previously
@@ -12,7 +12,7 @@ Public surface (preserved verbatim from ``VoiceTyperService`` so tests
 - :meth:`ConfigApplier.apply_config_side_effects`
 - :meth:`ConfigApplier.apply_config`
 
-CR-61: the ``filters_dict`` DRY helper :func:`to_filter_dict` is the
+the ``filters_dict`` DRY helper :func:`to_filter_dict` is the
 single source of truth for the audio-filter settings dict pushed to
 the level monitor + mic test on config changes.  Previously two
 near-identical dicts lived in ``service.py`` with divergent defaults
@@ -28,10 +28,10 @@ from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
-# XE-11-2: import ``DEFAULT_HOTKEY`` so the ``hotkeys.restart()`` fallback
+# import ``DEFAULT_HOTKEY`` so the ``hotkeys.restart()`` fallback
 # uses the canonical default (``<caps_lock>``) instead of the stale
 # literal ``"<f2>"`` that lived here pre-fix. ``<f2>`` was the legacy
-# default before DR-33 centralised the default-hotkey constant; the
+# default before  centralised the default-hotkey constant; the
 # fallback should never fire in practice (Config always carries a
 # ``hotkey`` field) but if it does, it must agree with the platform
 # default the rest of the codebase uses.
@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 
 
 def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> None:
-    """PI-21: surface a config side-effect failure to the user via
+    """surface a config side-effect failure to the user via
     ``app.tray.notify`` so the user sees a toast instead of the failure
     being silently logged + swallowed. Mirrors the
     ``SettingsController.set_autostart`` pattern at
@@ -105,22 +105,22 @@ def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> Non
 
 
 def _json_dumps_sorted(obj: Any) -> str:
-    """Stable JSON serialization for state comparison (G4-L-20 dirty-check).
+    """Stable JSON serialization for state comparison ( dirty-check).
 
-    Serializes ``obj`` with ``sort_keys=True`` and ``default=str`` so
-    that two semantically-equal dicts with different key orders compare
-    equal. Used by :meth:`ConfigApplier.apply_config` to detect no-op
-    updates (where the post-setattr Config state matches the
-    pre-setattr state) and skip the ``save_strict()`` call.
+        Serializes ``obj`` with ``sort_keys=True`` and ``default=str`` so
+        that two semantically-equal dicts with different key orders compare
+        equal. Used by :meth:`ConfigApplier.apply_config` to detect no-op
+        updates (where the post-setattr Config state matches the
+        pre-setattr state) and skip the ``save_strict()`` call.
 
-    XV-120: retained for callers that introspect pre_state_dict for
-    rollback logging; the dirty-check itself now compares only the
-    ``updates`` keys via direct equality (no JSON serialization).
+    retained for callers that introspect pre_state_dict for
+        rollback logging; the dirty-check itself now compares only the
+        ``updates`` keys via direct equality (no JSON serialization).
     """
     return json.dumps(obj, sort_keys=True, default=str)
 
 
-# XV-124: hoisted from ``apply_config_side_effects``'s method body.
+# hoisted from ``apply_config_side_effects``'s method body.
 # Rebuilding a 30-element set literal on every IPC ``set_config`` call
 # was pure waste — the keys never change at runtime. A module-level
 # ``frozenset`` is built once at import and the ``&`` operator accepts
@@ -164,7 +164,7 @@ _FILTER_CHAIN_KEYS = frozenset(
 )
 
 
-# CR-61: canonical audio-filter dict keys.  ADR 0007 §5 lists 8 filter
+# canonical audio-filter dict keys.  ADR 0007 §5 lists 8 filter
 # toggles; both call sites previously carried only 5 (missing
 # ``noise_filter_eq``, ``noise_filter_compressor``,
 # ``noise_filter_limiter``, ``noise_filter_notch``).  The level
@@ -183,7 +183,7 @@ _AUDIO_FILTER_KEYS = (
 
 
 def to_filter_dict(config: Any) -> dict:
-    """CR-61: build the audio-filter settings dict from a Config.
+    """build the audio-filter settings dict from a Config.
 
     Single source of truth for the 5-key filter dict consumed by
     :func:`level_monitor.update_level_processor` and
@@ -251,47 +251,47 @@ def _apply_audio_preset(preset: str) -> dict:
 
 
 def apply_config_side_effects(updates: dict, service: Any) -> dict:
-    """XS-14 / CR-18 / Fix-D: module-level entry point for the
-    post-config-update side-effect dispatch.
+    """Fix-D: module-level entry point for the
+        post-config-update side-effect dispatch.
 
-    This function exists primarily as the *delegation seam* referenced
-    by ``tests/test_config_applier.py::test_service_apply_config_delegates_to_module``.
-    The regression guard replaces this module attribute with a spy and
-    asserts that ``VoiceTyperService.apply_config_side_effects`` invokes
-    it — proving the service layer delegates to the extracted
-    ``config_applier`` module rather than carrying the side-effect
-    branching inline.
+        This function exists primarily as the *delegation seam* referenced
+        by ``tests/test_config_applier.py::test_service_apply_config_delegates_to_module``.
+        The regression guard replaces this module attribute with a spy and
+        asserts that ``VoiceTyperService.apply_config_side_effects`` invokes
+        it — proving the service layer delegates to the extracted
+        ``config_applier`` module rather than carrying the side-effect
+        branching inline.
 
-    The canonical dispatch logic lives in the
-    :data:`voice_typer.server.service._CONFIG_SIDE_EFFECTS` registry
-    (SVC-2 / CR-65 step 2) and is iterated directly by
-    :meth:`VoiceTyperService.apply_config_side_effects`.  This
-    module-level function does NOT iterate the registry itself — doing
-    so would double-dispatch when called from
-    :meth:`VoiceTyperService.apply_config_side_effects` (which then
-    iterates the registry itself).  It returns an empty status dict
-    (shape ``{"autostart_status": None, "prewarm_status": None}``) so
-    the call is a no-op from the caller's perspective.
+        The canonical dispatch logic lives in the
+        :data:`voice_typer.server.service._CONFIG_SIDE_EFFECTS` registry
+    (SVC-2 /  step 2) and is iterated directly by
+        :meth:`VoiceTyperService.apply_config_side_effects`.  This
+        module-level function does NOT iterate the registry itself — doing
+        so would double-dispatch when called from
+        :meth:`VoiceTyperService.apply_config_side_effects` (which then
+        iterates the registry itself).  It returns an empty status dict
+        (shape ``{"autostart_status": None, "prewarm_status": None}``) so
+        the call is a no-op from the caller's perspective.
 
-    External callers that want the full side-effect dispatch should
-    call ``service.apply_config_side_effects(updates)`` directly (the
-    instance method on :class:`VoiceTyperService`).
+        External callers that want the full side-effect dispatch should
+        call ``service.apply_config_side_effects(updates)`` directly (the
+        instance method on :class:`VoiceTyperService`).
 
-    Parameters
-    ----------
-    updates :
-        Validated config updates dict (allowlisted keys only).
-    service :
-        The :class:`VoiceTyperService` instance whose app/config the
-        side-effects would target (unused — kept in the signature so
-        the spy in the regression guard receives the same positional
-        args a real delegation would pass).
+        Parameters
+        ----------
+        updates :
+            Validated config updates dict (allowlisted keys only).
+        service :
+            The :class:`VoiceTyperService` instance whose app/config the
+            side-effects would target (unused — kept in the signature so
+            the spy in the regression guard receives the same positional
+            args a real delegation would pass).
 
-    Returns
-    -------
-    dict
-        Empty status dict (no work performed).  The real status dict
-        is returned by :meth:`VoiceTyperService.apply_config_side_effects`.
+        Returns
+        -------
+        dict
+            Empty status dict (no work performed).  The real status dict
+            is returned by :meth:`VoiceTyperService.apply_config_side_effects`.
     """
     return {
         "autostart_status": None,
@@ -312,40 +312,40 @@ class ConfigApplier:
         self._service = service
         self._app = service._app
 
-    # ── Side-effects (CR-18 extraction / CR-65) ────────────────────
+    # Side-effects ( extraction / ) ────────────────────
 
     def apply_config_side_effects(self, updates: dict) -> dict:
         """Apply side effects after config changes.
 
-        ARCH-005: Centralizes the post-config-update hooks that were
-        previously scattered across ipc_server.py.
+        Centralizes the post-config-update hooks that were
+                previously scattered across ipc_server.py.
 
-        CR-65: this method was a 215-line branching monolith in
-        ``service.py``.  The extraction to ``config_applier.py`` is
-        the first step; the branching structure itself is preserved
-        verbatim so no behaviour change is introduced in this pass.
-        A future refactor can replace the if-chain with a registered
-        ``ConfigSideEffect`` protocol + handler list (CR-65 step 2).
+        this method was a 215-line branching monolith in
+                ``service.py``.  The extraction to ``config_applier.py`` is
+                the first step; the branching structure itself is preserved
+                verbatim so no behaviour change is introduced in this pass.
+                A future refactor can replace the if-chain with a registered
+        ``ConfigSideEffect`` protocol + handler list ( step 2).
 
-        PVT-060 (session-3): returns a status dict so the caller
-        (``apply_config`` → ``set_config`` IPC handler) can propagate
-        autostart/prewarm registration results to the renderer. The
-        dict shape is::
+        (session-3): returns a status dict so the caller
+                (``apply_config`` → ``set_config`` IPC handler) can propagate
+                autostart/prewarm registration results to the renderer. The
+                dict shape is::
 
-            {
-                "autostart_status": {"registered": bool, "error": str | None} | None,
-                "prewarm_status":   {"registered": bool, "error": str | None} | None,
-            }
+                    {
+                        "autostart_status": {"registered": bool, "error": str | None} | None,
+                        "prewarm_status":   {"registered": bool, "error": str | None} | None,
+                    }
 
-        A field is ``None`` when the corresponding config key wasn't in
-        ``updates`` (no sync was attempted). The renderer reads
-        ``autostart_status.error`` to surface "Autostart registration
-        failed: <reason>" instead of silently failing.
+                A field is ``None`` when the corresponding config key wasn't in
+                ``updates`` (no sync was attempted). The renderer reads
+                ``autostart_status.error`` to surface "Autostart registration
+                failed: <reason>" instead of silently failing.
         """
         app = self._app
         config = app.config
 
-        # PVT-060: accumulate side-effect statuses for the renderer.
+        # accumulate side-effect statuses for the renderer.
         # Each entry is None (no sync attempted) or a dict with
         # ``registered`` + ``error`` keys.
         side_effect_status: dict[str, dict | None] = {
@@ -356,7 +356,7 @@ class ConfigApplier:
         # Sync autostart if autostart setting changed
         if "autostart" in updates:
             try:
-                # RW-9 Phase 2: invoke startup_tasks directly. The
+                # Phase 2: invoke startup_tasks directly. The
                 # ``app._sync_autostart`` delegate was removed; callers now
                 # target startup_tasks (and tests monkeypatch startup_tasks).
                 from voice_typer.server import startup_tasks
@@ -365,13 +365,13 @@ class ConfigApplier:
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
                 side_effect_status["autostart_status"] = {"registered": False, "error": str(e)}
-                # PI-21: surface the side-effect failure to the user via
+                # surface the side-effect failure to the user via
                 # a tray notification (the config has already been
                 # mutated + persisted; the runtime state didn't take
                 # effect, so the user needs a signal).
                 _notify_side_effect_failure(app, "autostart", e)
 
-        # PW-3: Sync the prewarm scheduled task when fast_startup changes.
+        # Sync the prewarm scheduled task when fast_startup changes.
         # When the user toggles fast_startup in Settings → General, the
         # OS-level scheduled task must be registered (True) or
         # unregistered (False) immediately — otherwise the task fires
@@ -389,7 +389,7 @@ class ConfigApplier:
             except Exception as e:
                 log.warning("Failed to sync prewarm task: %s", e)
                 side_effect_status["prewarm_status"] = {"registered": False, "error": str(e)}
-                # PI-21: surface the prewarm task sync failure to the
+                # surface the prewarm task sync failure to the
                 # user via a tray notification.
                 _notify_side_effect_failure(app, "fast_startup", e)
 
@@ -402,12 +402,12 @@ class ConfigApplier:
                     app.hotkeys.unregister_esc()
             except Exception as e:
                 log.warning("Failed to sync ESC hotkey: %s", e)
-                # PI-21: surface the ESC hotkey sync failure to the
+                # surface the ESC hotkey sync failure to the
                 # user via a tray notification.
                 _notify_side_effect_failure(app, "esc_cancel_enabled", e)
 
         # Register/unregister repaste hotkey.
-        # XE-11-3: dropped the ``or "repaste_enabled" in updates``
+        # dropped the ``or "repaste_enabled" in updates``
         # disjunct. ``repaste_enabled`` is a run-time toggle on the
         # repaste *action* (whether the repaste hotkey, when pressed,
         # actually fires the repaste) — it does NOT change the hotkey
@@ -424,23 +424,23 @@ class ConfigApplier:
                 app.hotkeys.register_repaste()
             except Exception as e:
                 log.warning("Failed to sync repaste hotkey: %s", e)
-                # PI-21: surface the repaste hotkey sync failure to
+                # surface the repaste hotkey sync failure to
                 # the user via a tray notification.
                 _notify_side_effect_failure(app, "repaste_hotkey", e)
 
-        # NEW-UX-027: re-register the dictation hotkey when recording_mode
+        # re-register the dictation hotkey when recording_mode
         # or hotkey changes.
-        # FR-21: dropped the push_to_talk_hotkey disjunct (the third
+        # dropped the push_to_talk_hotkey disjunct (the third
         # ``or <field> in updates`` clause that lived here pre-fix) —
         # ``push_to_talk_hotkey`` was deliberately removed from
-        # ``IPC_CONFIG_ALLOWLIST`` per GT-F2-8, so it can never appear
+        # ``IPC_CONFIG_ALLOWLIST`` per , so it can never appear
         # in ``updates`` via the IPC path. The disjunct was dead code
         # that misled reviewers into thinking the branch handled a
         # user-tunable setting. If ``push_to_talk_hotkey`` is ever
         # re-wired, the allowlist AND this side-effect branch must be
         # added together.
         if "recording_mode" in updates or "hotkey" in updates:
-            # G4-H-17: snapshot the previous hotkey so we can restore it
+            # snapshot the previous hotkey so we can restore it
             # if ``app.hotkeys.restart()`` raises. ``restart()`` sets
             # ``config.hotkey = <new>`` before calling ``register()`` —
             # if ``register()`` then fails (or restart itself raises),
@@ -454,11 +454,11 @@ class ConfigApplier:
             # This block covers the case where ``restart()`` raises.)
             old_hotkey = getattr(config, "hotkey", None)
             try:
-                # XE-11-2: use ``DEFAULT_HOTKEY`` (the canonical
+                # use ``DEFAULT_HOTKEY`` (the canonical
                 # platform default from ``config.py``, currently
                 # ``<caps_lock>``) as the fallback instead of the
                 # stale literal ``"<f2>"``. ``<f2>`` was the legacy
-                # default before DR-33 centralised the constant —
+                # default before  centralised the constant —
                 # leaving it here meant a hypothetical config object
                 # without a ``hotkey`` attribute (test stub / legacy
                 # Config constructed via ``__new__``) would silently
@@ -473,7 +473,7 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to re-register hotkey after mode change: %s", e)
-                # G4-H-17: restore previous hotkey + re-save so a
+                # restore previous hotkey + re-save so a
                 # failed restart doesn't leave the on-disk config with
                 # a broken hotkey value.
                 if old_hotkey is not None:
@@ -504,7 +504,7 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to update tray left-click action: %s", e)
-                # PI-21: surface the tray left-click action update
+                # surface the tray left-click action update
                 # failure to the user via a tray notification.
                 _notify_side_effect_failure(app, "tray_left_click_action", e)
 
@@ -518,7 +518,7 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to update notifications: %s", e)
-                # PI-21: surface the notifications update failure to
+                # surface the notifications update failure to
                 # the user via a tray notification.
                 _notify_side_effect_failure(app, "show_notifications", e)
 
@@ -531,7 +531,7 @@ class ConfigApplier:
                         if hasattr(app, "_waveform_bubble"):
                             app._waveform_bubble.show()
                     except Exception:
-                        # PVT-G5-047 (session-5): previously `except Exception: pass`
+                        # (session-5): previously `except Exception: pass`
                         # — silent failure meant "always visible" toggle
                         # did nothing if the bubble was in a bad state.
                         log.debug(
@@ -544,7 +544,7 @@ class ConfigApplier:
                         if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
                             app._waveform_bubble.hide()
                     except Exception:
-                        # PVT-G5-047: same as above — log at debug so the
+                        # same as above — log at debug so the
                         # failure is at least visible in -vv mode.
                         log.debug(
                             "[SERVICE] Failed to hide waveform bubble after bubble_behavior change",
@@ -553,15 +553,15 @@ class ConfigApplier:
                 log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
             except Exception as e:
                 log.warning("Failed to update bubble behavior: %s", e)
-                # PI-21: surface the bubble behavior update failure to
+                # surface the bubble behavior update failure to
                 # the user via a tray notification.
                 _notify_side_effect_failure(app, "bubble_behavior", e)
 
-        # FR-21: the ``volume_duck_smart`` side-effect branch (an
+        # the ``volume_duck_smart`` side-effect branch (an
         # ``if <field> in updates:`` block that lived here at lines
         # 518-545 in the pre-fix source) was DEAD CODE — the
         # ``volume_duck_smart`` field was removed from the Config
-        # dataclass (UX-2/GT-58) and from ``IPC_CONFIG_ALLOWLIST``,
+        # dataclass (/) and from ``IPC_CONFIG_ALLOWLIST``,
         # so the condition could never be True via the IPC path. The
         # branch survived the field removal because the deletion was
         # missed. We delete it outright (rather than leaving a comment
@@ -581,7 +581,7 @@ class ConfigApplier:
                     app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
             except Exception as e:
                 log.warning("Failed to update smart duck poll interval: %s", e)
-                # PI-21: surface the smart duck poll interval update
+                # surface the smart duck poll interval update
                 # failure to the user via a tray notification.
                 _notify_side_effect_failure(app, "volume_duck_smart_poll_interval_ms", e)
 
@@ -604,7 +604,7 @@ class ConfigApplier:
                 log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
             except Exception as e:
                 log.warning("Failed to apply audio preset: %s", e)
-                # PI-21: surface the audio preset apply failure to the
+                # surface the audio preset apply failure to the
                 # user via a tray notification.
                 _notify_side_effect_failure(app, "audio_preset", e)
 
@@ -612,7 +612,7 @@ class ConfigApplier:
         # chain when any noise_filter_* / audio_preset / noise_suppression_method
         # config field changes. This fixes the bug where Settings UI
         # changes didn't take effect in dictation until app restart.
-        # XV-124: ``_FILTER_CHAIN_KEYS`` is a module-level frozenset; the
+        # ``_FILTER_CHAIN_KEYS`` is a module-level frozenset; the
         # ``&`` operator accepts the ``updates.keys()`` view directly so
         # we no longer wrap it in ``set(...)`` (which would allocate a
         # fresh set on every IPC call).
@@ -623,7 +623,7 @@ class ConfigApplier:
                     app._rebuild_audio_processor()
             except Exception as e:
                 log.warning("Failed to rebuild dictation audio processor: %s", e)
-                # PI-21: surface the audio-processor rebuild failure
+                # surface the audio-processor rebuild failure
                 # to the user via a tray notification. This is the
                 # most user-visible failure mode: the user changed a
                 # noise_filter_* toggle but the live dictation pipeline
@@ -639,7 +639,7 @@ class ConfigApplier:
                     update_test_filters,
                 )
 
-                # CR-61: use the shared helper instead of an inline
+                # use the shared helper instead of an inline
                 # 5-key dict (which diverged from the level-monitor-
                 # start path on ``noise_filter_rnnoise``'s default).
                 filters_dict = to_filter_dict(config)
@@ -647,84 +647,84 @@ class ConfigApplier:
                 update_test_filters(filters_dict)
             except Exception as e:
                 log.warning("Failed to sync level bar processor: %s", e)
-                # PI-21: surface the level bar processor sync failure
+                # surface the level bar processor sync failure
                 # to the user via a tray notification.
                 _notify_side_effect_failure(app, "level_bar_filters", e)
 
-        # PVT-060 (session-3): return the accumulated side-effect
+        # (session-3): return the accumulated side-effect
         # statuses so :meth:`apply_config` can propagate them to the
         # ``set_config`` IPC response. The renderer reads
         # ``autostart_status.error`` / ``prewarm_status.error`` to
         # surface registration failures.
         return side_effect_status
 
-    # ── apply_config (CR-18 extraction) ────────────────────────────
+    # apply_config ( extraction) ────────────────────────────
 
     def apply_config(self, updates: dict) -> dict:
         """Apply validated config updates atomically.
 
-        ADR 0008 §3.1: wraps the config-mutation lock + setattr +
-        side-effects + save + tray-cache invalidation sequence so the
-        IPC ``set_config`` handler doesn't access
-        ``self.app._config_mutation_lock``, ``self.app.config``, or
-        ``self.app.tray.invalidate_menu_cache()`` directly.
+                ADR 0008 §3.1: wraps the config-mutation lock + setattr +
+                side-effects + save + tray-cache invalidation sequence so the
+                IPC ``set_config`` handler doesn't access
+                ``self.app._config_mutation_lock``, ``self.app.config``, or
+                ``self.app.tray.invalidate_menu_cache()`` directly.
 
-        RACE-011: holds the app's config-mutation lock for the full
-        read-modify-save sequence so a concurrent ``set_config`` IPC
-        call can't interleave attribute writes with this update.
+                RACE-011: holds the app's config-mutation lock for the full
+                read-modify-save sequence so a concurrent ``set_config`` IPC
+                call can't interleave attribute writes with this update.
 
-        AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
-        INSIDE the lock and saves AFTER it, so that any side-effect
-        mutations (e.g. ``noise_filter_*`` toggles from the audio
-        preset) are persisted to disk.  The previous order (save
-        first, then apply side effects outside the lock) meant that
-        when the user set ``audio_preset: "off"``, only the preset
-        name was saved; the individual ``noise_filter_*`` toggles
-        were NOT persisted.
+                AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
+                INSIDE the lock and saves AFTER it, so that any side-effect
+                mutations (e.g. ``noise_filter_*`` toggles from the audio
+                preset) are persisted to disk.  The previous order (save
+                first, then apply side effects outside the lock) meant that
+                when the user set ``audio_preset: "off"``, only the preset
+                name was saved; the individual ``noise_filter_*`` toggles
+                were NOT persisted.
 
-        ARCH-043: invalidates the tray menu cache after the save so
-        the next menu build picks up the new config values (model
-        size, hotkey, etc.).
+        invalidates the tray menu cache after the save so
+                the next menu build picks up the new config values (model
+                size, hotkey, etc.).
 
-        RW-01: API key fields (``openai_api_key`` / ``groq_api_key`` /
-        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
-        are routed through ``credential_store.store_secret()`` BEFORE
-        ``setattr(app.config, ...)`` so the secret lands in the OS
-        keychain (with plaintext fallback). The in-memory Config
-        attribute is then set to the real value so cloud_engines /
-        llm_polish can use it. The subsequent ``app.config.save()``
-        writes only a ``keyring://<provider>`` reference token to
-        config.json (when keyring is available) — see
-        ``Config.save()`` for the on-disk format.
+        API key fields (``openai_api_key`` / ``groq_api_key``
+                ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
+                are routed through ``credential_store.store_secret()`` BEFORE
+                ``setattr(app.config, ...)`` so the secret lands in the OS
+                keychain (with plaintext fallback). The in-memory Config
+                attribute is then set to the real value so cloud_engines /
+                llm_polish can use it. The subsequent ``app.config.save()``
+                writes only a ``keyring://<provider>`` reference token to
+                config.json (when keyring is available) — see
+                ``Config.save()`` for the on-disk format.
 
-        CR-97: calls ``app.config.save_strict()`` instead of
-        ``app.config.save()``.  ``save_strict()`` raises
-        ``RuntimeError`` if the underlying save returned ``False``
-        (which indicates an ``OSError`` / ``PermissionError`` was
-        caught and logged by ``save()``).  The IPC handler is
-        expected to catch this and surface the failure to the
-        renderer — previously a silent disk failure produced a
-        successful-but-empty ``ack``.
+        calls ``app.config.save_strict()`` instead of
+                ``app.config.save()``.  ``save_strict()`` raises
+                ``RuntimeError`` if the underlying save returned ``False``
+                (which indicates an ``OSError`` / ``PermissionError`` was
+                caught and logged by ``save()``).  The IPC handler is
+                expected to catch this and surface the failure to the
+                renderer — previously a silent disk failure produced a
+                successful-but-empty ``ack``.
 
-        Parameters
-        ----------
-        updates :
-            Validated config updates dict (allowlisted keys only).
-            The caller is responsible for validating the payload —
-            typically via :func:`voice_typer.server.config.validate_config_update`.
+                Parameters
+                ----------
+                updates :
+                    Validated config updates dict (allowlisted keys only).
+                    The caller is responsible for validating the payload —
+                    typically via :func:`voice_typer.server.config.validate_config_update`.
 
-        Returns
-        -------
-        dict
-            PVT-060 (session-3): side-effect status dict with the
-            shape ``{"autostart_status": dict | None, "prewarm_status": dict | None}``.
-            The ``set_config`` IPC handler propagates this to the
-            renderer so it can surface "Autostart registration failed:
-            <reason>" instead of silently failing. A field is ``None``
-            when the corresponding config key wasn't in ``updates``.
+                Returns
+                -------
+                dict
+        (session-3): side-effect status dict with the
+                    shape ``{"autostart_status": dict | None, "prewarm_status": dict | None}``.
+                    The ``set_config`` IPC handler propagates this to the
+                    renderer so it can surface "Autostart registration failed:
+                    <reason>" instead of silently failing. A field is ``None``
+                    when the corresponding config key wasn't in ``updates``.
         """
         app = self._app
-        # PVT-060 (session-3): capture the side-effect status dict for
+        # (session-3): capture the side-effect status dict for
         # return. The ``with`` block below may raise (e.g. ``save_strict``
         # raises RuntimeError on disk-write failure) — in that case we
         # still want to return whatever side-effect status was captured
@@ -735,13 +735,13 @@ class ConfigApplier:
             "autostart_status": None,
             "prewarm_status": None,
         }
-        # G4-L-20 + G4-H-12: snapshot pre-setattr Config state. Used for
+        # + : snapshot pre-setattr Config state. Used for
         # both the dirty-check (skip ``save_strict()`` if state is
-        # unchanged — G4-L-20) and for rollback on ``save_strict()``
+        # unchanged — ) and for rollback on ``save_strict()``
         # failure (restore snapshot + re-run side-effects with original
-        # values so live state matches disk — G4-H-12).
+        # values so live state matches disk — ).
         with app._config_mutation_lock:
-            # RW-01: pre-route api_key fields through credential_store.
+            # pre-route api_key fields through credential_store.
             # We do this BEFORE setattr so that even if save() is
             # never called (e.g. apply_config_side_effects raises),
             # the secret is already persisted to the keychain. The
@@ -767,7 +767,7 @@ class ConfigApplier:
                     "falling back to plain setattr (secret will be in config.json)",
                     exc,
                 )
-            # G4-L-24: wrap the setattr loop in try/except. On exception,
+            # wrap the setattr loop in try/except. On exception,
             # restore pre-loop values for the keys we already set, then
             # re-raise so the caller sees the original error.
             _MISSING = object()  # noqa: N806
@@ -801,23 +801,23 @@ class ConfigApplier:
                 with contextlib.suppress(Exception):
                     app._llm_polisher = None
             # Apply side effects inside the lock so Config mutations
-            # from the preset are visible to save(). PVT-060 (session-3):
+            # from the preset are visible to save().  (session-3):
             # capture the returned status dict for propagation to the IPC
             # response.
             side_effect_status = self.apply_config_side_effects(updates)
-            # CR-97: surface disk-write failures instead of silently
+            # surface disk-write failures instead of silently
             # swallowing them.  ``save_strict`` raises RuntimeError
             # if ``save()`` returned False; the IPC handler is
             # expected to catch this and return an error envelope
             # instead of ``ack``.
             #
-            # G4-L-20: dirty-check — if the post-setattr state equals
+            # dirty-check — if the post-setattr state equals
             # the pre-setattr state (e.g. the user submitted an empty
             # update or all values were already the same), skip the
             # save_strict() call entirely. This avoids an unnecessary
             # disk write + atomic-rename dance for no-op updates.
             #
-            # XV-120: previously this dirty-check did
+            # previously this dirty-check did
             # ``_json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)``
             # which serialised the FULL Config (150+ fields) twice via
             # ``dataclasses.asdict`` (deep-copy) and twice via
@@ -825,11 +825,11 @@ class ConfigApplier:
             # targeted check below compares only the ``updates`` keys
             # via direct equality — O(len(updates)) instead of
             # O(len(Config fields)). It reuses the pre-setattr values
-            # already captured in ``set_keys`` (G4-L-24 rollback log)
+            # already captured in ``set_keys`` ( rollback log)
             # so no extra getattr pass is needed before setattr.
-            # DJ-29: the eager ``dataclasses.asdict()`` snapshot
+            # the eager ``dataclasses.asdict()`` snapshot
             # (``pre_state_dict``) has been removed entirely. The
-            # dirty-check uses only ``set_keys``, and the G4-H-12
+            # dirty-check uses only ``set_keys``, and the
             # rollback path also uses ``set_keys`` to restore only the
             # mutated keys instead of the full 150+ Config snapshot.
             post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
@@ -841,7 +841,7 @@ class ConfigApplier:
                 try:
                     app.config.save_strict()
                 except Exception:
-                    # G4-H-12: save_strict failed (disk write error,
+                    # save_strict failed (disk write error,
                     # permission denied, etc.). The in-memory Config now
                     # carries the new values while disk holds the old.
                     # Restore the snapshot under the same lock so the
@@ -849,7 +849,7 @@ class ConfigApplier:
                     # apply_config_side_effects with the ORIGINAL values
                     # so live side-effects (hotkey registration, audio
                     # filter rebuild, etc.) match the restored config.
-                    # DJ-29: uses ``set_keys`` (the per-key pre-setattr
+                    # uses ``set_keys`` (the per-key pre-setattr
                     # value log) instead of an eager ``dataclasses.asdict()``
                     # snapshot of the full Config (150+ fields).
                     for k, old_value in set_keys:
@@ -890,7 +890,7 @@ class ConfigApplier:
                 "paste_on_stop",
             }
             if clipboard_keys & set(updates.keys()):
-                # PVT-G5-047 (session-5): previously
+                # (session-5): previously
                 # ``contextlib.suppress(Exception)`` — silent failure
                 # meant runtime changes to clipboard_save_restore /
                 # clipboard_restore_delay_ms / paste_on_stop silently
@@ -907,7 +907,7 @@ class ConfigApplier:
                         "clipboard config changes will not take effect until restart",
                         exc,
                     )
-        # ARCH-043: invalidate the tray menu cache so the next menu
+        # invalidate the tray menu cache so the next menu
         # build picks up the new config values.
         try:
             app.tray.invalidate_menu_cache()

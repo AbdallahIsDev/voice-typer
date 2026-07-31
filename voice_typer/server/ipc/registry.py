@@ -1,4 +1,4 @@
-"""UE-32: IPC command registry — the canonical dispatch table.
+"""IPC command registry — the canonical dispatch table.
 
 This module is the single source of truth for three interrelated
 constants that the IPC dispatcher consults at runtime:
@@ -9,15 +9,15 @@ constants that the IPC dispatcher consults at runtime:
   ``getattr(self, handler_name)`` at dispatch time. The
   ``__init__``-time typo-validation loop iterates over this dict to
   assert every entry resolves to a callable bound method on
-  :class:`IPCServer` (GT-29 / DT-5).
+class:`IPCServer` ( / ).
 - :data:`_READONLY_COMMANDS` — frozenset of command names whose
   handlers do NOT mutate shared app/service state. The dispatcher
   bypasses the per-server ``_dispatch_lock`` for these so a
   long-running state-mutating handler (e.g. ``download_model``) does
   not block a quick status poll from a second authenticated connection
-  (GT-25).
+().
 - :data:`_PYTHON_ONLY_COMMANDS` — frozenset of commands that are
-  intentionally absent from the TS / Rust allowlists (EC-4). These
+intentionally absent from the TS / Rust allowlists (). These
   commands are registered in :data:`_COMMAND_REGISTRY` (so the
   dispatcher recognizes them) but are NEVER invoked by the renderer —
   they are server-internal or host-internal (e.g. ``shutdown`` is
@@ -27,7 +27,7 @@ constants that the IPC dispatcher consults at runtime:
 Why this module exists
 ----------------------
 
-Pre-UE-32 these three constants lived in three different places:
+Pre- these three constants lived in three different places:
 ``_COMMAND_REGISTRY`` and ``_PYTHON_ONLY_COMMANDS`` were class
 attributes on :class:`IPCServer` (in the 2,100-line
 ``ipc_server.py`` god-module), and ``_READONLY_COMMANDS`` lived in
@@ -37,7 +37,7 @@ attributes on :class:`IPCServer` (in the 2,100-line
 ``tests/test_ipc_command_registry_sync.py``) harder to reason about:
 the reader had to know where each constant lived.
 
-UE-32 (this module) is a behavior-preserving extraction — same dict,
+(this module) is a behavior-preserving extraction — same dict,
 same keys, same values. :class:`IPCServer` re-exports them as class
 attributes for backward compatibility (so every existing
 ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
@@ -56,7 +56,7 @@ import _READONLY_COMMANDS`` callers keep working unchanged.
 .. note::
 
    ``ipc._helpers._READONLY_COMMANDS`` still exists as a legacy
-   duplicate (outside the UE-32 disjoint set). It is no longer the
+duplicate (outside the  disjoint set). It is no longer the
    authoritative source; the canonical source is the
    :data:`_READONLY_COMMANDS` defined below. A follow-up task should
    delete the duplicate in ``ipc/_helpers.py`` and re-export from
@@ -115,7 +115,7 @@ cannot silently re-appear. Brief context for each removal:
 
 from __future__ import annotations
 
-# GT-25: read-only IPC commands whose handlers do NOT mutate shared
+# read-only IPC commands whose handlers do NOT mutate shared
 # app/service state. These bypass the per-server ``_dispatch_lock`` so a
 # long-running state-mutating handler (e.g. ``download_model``) does not
 # block a quick status poll from a second authenticated connection. The
@@ -130,7 +130,7 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# EC-4: commands intentionally absent from the TS / Rust allowlists.
+# commands intentionally absent from the TS / Rust allowlists.
 # These commands are registered in the Python ``_COMMAND_REGISTRY``
 # (so the dispatcher recognizes them) but are NEVER invoked by the
 # renderer — they are server-internal or host-internal:
@@ -155,9 +155,9 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# IPC-1 reconciliation (2026-07-18): the registry contains exactly 63
+# reconciliation (2026-07-18): the registry contains exactly 63
 # commands. The 61 "domain" handlers live in voice_typer/server/handlers/
-# (one mixin module per domain). The remaining two — `heartbeat` (RW-10,
+# (one mixin module per domain). The remaining two — `heartbeat` (,
 # ADR-0018 Electron-alive watchdog) and `relaunch_ack` (PERF-005, ack of
 # `relaunch_electron` so `restart_app` can drop its fixed 300 ms sleep) —
 # are resident on IPCServer itself because they touch IPC-server-owned
@@ -168,7 +168,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
     "undo_last": "_handle_undo_last",
-    # UX-23: re-paste the last transcription (repaste_handlers mixin).
+    # re-paste the last transcription (repaste_handlers mixin).
     "repaste_last": "_handle_repaste_last",
     "get_config": "_handle_get_config",
     "get_defaults": "_handle_get_defaults",
@@ -210,7 +210,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "save_templates": "_handle_save_templates",
     "restart_app": "_handle_restart_app",
     "quit_app": "_handle_quit_app",
-    # EC-FIX-2 / EC-9: Tauri host's cooperative-shutdown command.
+    # Tauri host's cooperative-shutdown command.
     # Registered in the shared dispatch table so the WS transport
     # (sidecar_ws.py) can drop its special-case intercept and route
     # ``shutdown`` through the same path as every other command.
@@ -230,7 +230,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "onboarding_get_microphones": "_handle_onboarding_get_microphones",
     "onboarding_get_model_options": "_handle_onboarding_get_model_options",
     "onboarding_get_hotkey_presets": "_handle_onboarding_get_hotkey_presets",
-    # UX-4 / UX-27: platform-conditional permission probe
+    # platform-conditional permission probe
     # (macOS Accessibility / Linux input group + udev rule) used by
     # the Permissions step.
     "onboarding_check_permissions": "_handle_onboarding_check_permissions",
@@ -246,27 +246,27 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "import_model": "_handle_import_model",
     "download_model": "_handle_download_model",
     "cancel_model_download": "_handle_cancel_model_download",
-    # NEW-PAUSE-001: pause/resume in-progress model downloads.
+    # pause/resume in-progress model downloads.
     "pause_model_download": "_handle_pause_model_download",
     "resume_model_download": "_handle_resume_model_download",
-    # NEW-MODEL-001: full model catalog (rich metadata for the
+    # full model catalog (rich metadata for the
     # Models page: VRAM, languages, speed/accuracy ratings).
     "get_model_catalog": "_handle_get_model_catalog",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
-    # ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
+    # ESC-: pause/resume the global ESC cancel hotkey so the
     # frontend (HotkeyPicker in hotkey capture mode) can temporarily
     # disable it, preventing the backend from processing Escape while
     # the UI is capturing a custom hotkey.
     "set_esc_cancel_paused": "_handle_set_esc_cancel_paused",
     # P5: vocabulary automation — confidence-score-based correction
     # suggestions. See ``vocabulary_automation_handlers.py``.
-    # PR-2 Finding #3: force-cancel a stuck transcription.  Invokes
+    # Finding #3: force-cancel a stuck transcription.  Invokes
     # ``_force_recover_from_stuck_transcription(force=True)`` to reset
     # the busy flag and tray state immediately, bypassing the normal
     # 3×90s watchdog timeout.
     "force_cancel_transcription": "_handle_force_cancel_transcription",
-    # RW-10: Electron-alive heartbeat.  Electron's main process
+    # Electron-alive heartbeat.  Electron's main process
     # sends this every 5 seconds; the backend's heartbeat-watchdog
     # daemon thread calls ``app.quit()`` if 9 consecutive heartbeats
     # are missed (45s timeout) so a crashed/force-killed Electron
@@ -283,7 +283,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # ``unknown_command``) so the host can surface "missing item" vs
     # "unknown command" differently.
     "tray_click": "_handle_tray_click",
-    # CR-009 / Fix-A (IMPROVE-mode run, 2026-07-21): GDPR Art. 17 (right
+    # Fix-A (IMPROVE-mode run, 2026-07-21): GDPR Art. 17 (right
     # to erasure) and Art. 20 (right to data portability) handlers.
     # Registered by PrivacyHandlersMixin; service methods live on
     # VoiceTyperService (delete_all_personal_data / export_gdpr_bundle).

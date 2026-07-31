@@ -5,19 +5,11 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
-# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
-# the audio worker thread). Module-top import under try/except so the
-# module still loads when scipy is missing (tests with mock filters).
-try:
-    from scipy.signal import lfilter
-except ImportError:  # pragma: no cover — scipy is a hard dep in prod
-    lfilter = None  # type: ignore[assignment]
-
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter
+np = lazy_module("numpy")
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter, _get_lfilter  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +53,7 @@ class HighPassFilter(AudioFilter):
             # while giving the static analyzer the precise shape it needs.
             result = butter(4, cutoff / nyq, btype="high")
             b, a = cast("tuple[np.ndarray, np.ndarray]", result)
-            # PVT-011: cast coefficients + state to float32 once at init.
+            # cast coefficients + state to float32 once at init.
             # Previously kept as float64 (from butter()), which forced a
             # per-chunk astype(np.float64, copy=False) in process() —
             # ALWAYS a copy (dtype mismatch) = 128 KB/s of float64
@@ -84,21 +76,21 @@ class HighPassFilter(AudioFilter):
 
         b, a, zi = self._state
         original_shape = audio.shape
-        # PVT-011: process in float32 (coefficients are float32 from init).
+        # process in float32 (coefficients are float32 from init).
         # No per-chunk astype upcast — saves 128 KB/s of float64 allocation.
         flat = np.ravel(audio).astype(np.float32, copy=False)
-        filtered, zi = lfilter(b, a, flat, zi=zi)
+        filtered, zi = _get_lfilter()(b, a, flat, zi=zi)
         self._state = (b, a, zi)
         return filtered.reshape(original_shape)
 
     def reset(self) -> None:
         if self._state is not None:
             b, a, zi = self._state
-            # G4-L-05: zero the existing IIR state in place so carry-over
+            # zero the existing IIR state in place so carry-over
             # samples (which encode filter memory of the previous audio)
             # are securely cleared rather than left in process memory
             # until the numpy allocator reuses the block.
-            # XV-39: reuse the just-zeroed array instead of allocating a
+            # reuse the just-zeroed array instead of allocating a
             # fresh ``np.zeros(...)`` block on every reset(). The
             # coefficients ``a`` and ``b`` don't change after init, so
             # the existing ``zi`` array is already the correct length

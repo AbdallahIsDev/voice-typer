@@ -1,7 +1,7 @@
 """Device enumeration, hot-swap, and health-checker for :class:`Recorder`.
 
-PVT-22 / Phase 4.5 — extracted from :mod:`.recorder` to shrink the
-3019-LOC ``recorder.py`` partial monolith (see PVT-22 in
+Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+3019-LOC ``recorder.py`` partial monolith (see  in
 ``review.md``). Owns all device-list caching,
 microphone-watcher lifecycle, sample-rate negotiation, and the periodic
 device-health-checker daemon thread.
@@ -75,7 +75,7 @@ sd = lazy_module("sounddevice")
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
 
-# ER-90: when the mic device watcher fails to start (e.g. on macOS
+# when the mic device watcher fails to start (e.g. on macOS
 # where the OS-event hook isn't implemented, or on platforms where
 # /dev/snd inotify fails), fall back to a SHORTER device-list TTL for
 # a window after the failure so device hot-plug events are detected
@@ -96,9 +96,9 @@ _DEVICE_LIST_FAST_TTL_WINDOW: float = 60.0
 class DeviceManager:
     """Device enumeration, hot-swap, and health-checker for ``Recorder``.
 
-    PVT-22 / Phase 4.5 — extracted from :mod:`.recorder`. See the module
-    docstring for the collaborator-pattern rationale and the list of
-    device-owned vs. recorder-owned state.
+    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        docstring for the collaborator-pattern rationale and the list of
+        device-owned vs. recorder-owned state.
     """
 
     def __init__(self, recorder: Any) -> None:
@@ -127,7 +127,7 @@ class DeviceManager:
         self._device_health_checker_thread: threading.Thread | None = None
         self._device_health_stop_event: threading.Event = threading.Event()
         self._device_check_interval_s: float = 30.0  # seconds between probes
-        # FR-17: counter for periodic OS-level microphone-permission
+        # counter for periodic OS-level microphone-permission
         # re-probe. The health-checker loop wakes every
         # ``_device_check_interval_s`` (30 s default); every
         # ``_permission_check_interval``-th iteration (~60 s) we call
@@ -147,7 +147,7 @@ class DeviceManager:
         self._device_list_cache: list[dict] | None = None
         self._device_list_cache_time: float = 0.0
         self._device_list_cache_ttl: float = 30.0  # seconds
-        # ER-90: monotonic timestamp of the most recent mic-watcher-start
+        # monotonic timestamp of the most recent mic-watcher-start
         # failure. Set in the except branch of the MicrophoneDeviceWatcher
         # startup try/except below; consulted by ``_refresh_device_list``
         # to decide whether to use the fast TTL (5s) or the default
@@ -161,11 +161,11 @@ class DeviceManager:
         # remains as a fallback for platforms where the watcher can't
         # start (macOS) or for the case where the watcher thread crashes.
         self._mic_watcher: Any | None = None
-        # DJ-68: optional service-layer cache invalidator callback.
+        # optional service-layer cache invalidator callback.
         self._service_cache_invalidator: Any | None = None
-        # DJ-70: configurable sleep between BT-device disconnect retries.
+        # configurable sleep between BT-device disconnect retries.
         self._bt_retry_sleep_seconds: float = 0.75
-        # DJ-69: one-shot flag so the name-mismatch warning fires at
+        # one-shot flag so the name-mismatch warning fires at
         # most once per DeviceManager instance.
         self._device_name_mismatch_warned: bool = False
         try:
@@ -173,7 +173,7 @@ class DeviceManager:
                 MicrophoneDeviceWatcher,
             )
 
-            # RW-6 (pyrefly): bind to a local so pyrefly can see the
+            # (pyrefly): bind to a local so pyrefly can see the
             # value is non-None when we call .start() on it. Assigning
             # straight to ``self._mic_watcher`` (typed ``Any | None``)
             # made pyrefly think ``self._mic_watcher.start()`` could be
@@ -189,7 +189,7 @@ class DeviceManager:
                 exc_info=True,
             )
             self._mic_watcher = None
-            # ER-90: record the failure timestamp so ``_refresh_device_list``
+            # record the failure timestamp so ``_refresh_device_list``
             # can use a shorter TTL (5s) for the next 60s to catch hot-plug
             # events more aggressively than the default 30s fallback.
             self._mic_watcher_failed_at = time.monotonic()
@@ -199,23 +199,23 @@ class DeviceManager:
     def _refresh_device_list(self) -> list[dict]:
         """Return the device list, refreshing the cache if stale.
 
-        AUDIO-MIC: The mic list was previously loaded once at startup.
-        If a USB/BT device was disconnected or connected mid-session,
-        the stale list would reference non-existent devices. We now
-        cache the device list with a TTL of 30 seconds and re-query
-        PortAudio when the cache expires or when the current device
-        disappears.
+                AUDIO-MIC: The mic list was previously loaded once at startup.
+                If a USB/BT device was disconnected or connected mid-session,
+                the stale list would reference non-existent devices. We now
+                cache the device list with a TTL of 30 seconds and re-query
+                PortAudio when the cache expires or when the current device
+                disappears.
 
-        ER-90: if the mic device watcher failed to start recently
-        (within ``_DEVICE_LIST_FAST_TTL_WINDOW``), use a shorter TTL
-        of ``_DEVICE_LIST_FAST_TTL`` (5s) instead of the default 30s.
-        This catches hot-plug events more aggressively in the window
-        right after a watcher-start failure (a common user pattern:
-        launch app → realize mic is missing → plug it in). Outside
-        the failure window, the default 30s TTL applies.
+        if the mic device watcher failed to start recently
+                (within ``_DEVICE_LIST_FAST_TTL_WINDOW``), use a shorter TTL
+                of ``_DEVICE_LIST_FAST_TTL`` (5s) instead of the default 30s.
+                This catches hot-plug events more aggressively in the window
+                right after a watcher-start failure (a common user pattern:
+                launch app → realize mic is missing → plug it in). Outside
+                the failure window, the default 30s TTL applies.
         """
         now = time.monotonic()
-        # ER-90: compute the effective TTL based on whether the mic
+        # compute the effective TTL based on whether the mic
         # watcher failed recently. ``_mic_watcher_failed_at`` is 0.0
         # if the watcher started successfully (or hasn't tried yet),
         # so the fast TTL only applies after an actual failure.
@@ -251,7 +251,7 @@ class DeviceManager:
             return self._device_list_cache or []
 
     def set_service_cache_invalidator(self, callback: Any | None) -> None:
-        """Register a service-layer cache invalidator (DJ-68).
+        """Register a service-layer cache invalidator ().
 
         The registered callback is invoked from ``_invalidate_device_cache``
         whenever the OS microphone watcher fires a hot-plug event. The
@@ -265,31 +265,31 @@ class DeviceManager:
 
     def _invalidate_device_cache(self) -> None:
         """Reset the device-list cache so the next ``_refresh_device_list``
-        call re-queries PortAudio.
+                call re-queries PortAudio.
 
-        PERF-MIC-001: called by ``MicrophoneDeviceWatcher`` from its
-        daemon thread when the OS reports a device plug/unplug event.
+                PERF-MIC-001: called by ``MicrophoneDeviceWatcher`` from its
+                daemon thread when the OS reports a device plug/unplug event.
 
-        DJ-68: also fires the registered service-layer cache invalidator
-        so the UI's mic dropdown refreshes immediately after a hot-plug.
+        also fires the registered service-layer cache invalidator
+                so the UI's mic dropdown refreshes immediately after a hot-plug.
 
-        TY-5 (High): when a hot-plug event arrives AND a device disconnect
-        is currently in-progress (``_device_disconnected=True``),
-        proactively trigger a re-attempt of the disconnect handler on a
-        fresh daemon thread. Pre-fix, the recorder stayed stuck (the
-        health-checker loop skipped) and the only path forward was the
-        user pressing the hotkey to stop+start. With this hook, plugging
-        in a new mic mid-session auto-recovers within one OS-event cycle.
+        (High): when a hot-plug event arrives AND a device disconnect
+                is currently in-progress (``_device_disconnected=True``),
+                proactively trigger a re-attempt of the disconnect handler on a
+                fresh daemon thread. Pre-fix, the recorder stayed stuck (the
+                health-checker loop skipped) and the only path forward was the
+                user pressing the hotkey to stop+start. With this hook, plugging
+                in a new mic mid-session auto-recovers within one OS-event cycle.
 
-        Thread-safety: writes to ``_device_list_cache`` and
-        ``_device_list_cache_time`` are simple attribute assignments
-        guarded by the GIL.
+                Thread-safety: writes to ``_device_list_cache`` and
+                ``_device_list_cache_time`` are simple attribute assignments
+                guarded by the GIL.
         """
         self._device_list_cache = None
         self._device_list_cache_time = 0.0
         log.debug("[RECORDING] Device cache invalidated by OS-event watcher")
 
-        # DJ-68: fire the service-layer cache invalidator (best-effort).
+        # fire the service-layer cache invalidator (best-effort).
         service_cb = self._service_cache_invalidator
         if service_cb is not None:
             try:
@@ -300,7 +300,7 @@ class DeviceManager:
                     exc_info=True,
                 )
 
-        # TY-5 (High): proactive recovery on hot-plug while a disconnect
+        # (High): proactive recovery on hot-plug while a disconnect
         # is in-progress.
         if not self._device_disconnected:
             return
@@ -387,7 +387,7 @@ class DeviceManager:
                     "[RECORDING] Device health checker thread did not exit within 1s "
                     "(stop event left SET; thread NOT nulled to prevent duplicate spawn)"
                 )
-            # ER-3: only null the thread reference + clear stop event if the
+            # only null the thread reference + clear stop event if the
             # thread actually exited. If still alive (stuck in sd.query_devices),
             # leave the stop event SET so the loop exits on its next wait()
             # return, and keep the thread reference so _start_device_health_checker's
@@ -399,32 +399,32 @@ class DeviceManager:
     def _device_health_checker_loop(self) -> None:
         """Device health checker daemon thread main loop.
 
-        CPU-03: wakes every ``_device_check_interval_s`` (default 30s) and
-        calls ``sd.query_devices(current_device)`` to verify the current
-        recording device is still present. If PortAudio raises an exception
-        (device disconnected), sets ``_device_disconnected`` and spawns
-        ``_handle_device_disconnect`` on a fresh daemon thread.
+                CPU-03: wakes every ``_device_check_interval_s`` (default 30s) and
+                calls ``sd.query_devices(current_device)`` to verify the current
+                recording device is still present. If PortAudio raises an exception
+                (device disconnected), sets ``_device_disconnected`` and spawns
+                ``_handle_device_disconnect`` on a fresh daemon thread.
 
-        FR-17: every ``_permission_check_interval``-th iteration (~60s)
-        also calls ``permissions.check_microphone_permission()`` to detect
-        a mid-recording OS-level microphone-permission revocation. On
-        DENIED, sets ``_device_disconnected=True`` and spawns a handler
-        that calls ``recorder.on_microphone_permission_revoked`` (a
-        distinct callback from ``on_silence_auto_stop``) so the
-        recording_controller can stop the stream and surface a clear
-        "Microphone permission revoked" notification instead of the
-        misleading "silence detected" message.
+        every ``_permission_check_interval``-th iteration (~60s)
+                also calls ``permissions.check_microphone_permission()`` to detect
+                a mid-recording OS-level microphone-permission revocation. On
+                DENIED, sets ``_device_disconnected=True`` and spawns a handler
+                that calls ``recorder.on_microphone_permission_revoked`` (a
+                distinct callback from ``on_silence_auto_stop``) so the
+                recording_controller can stop the stream and surface a clear
+                "Microphone permission revoked" notification instead of the
+                misleading "silence detected" message.
 
-        Exits immediately when ``_device_health_stop_event`` is set.
+                Exits immediately when ``_device_health_stop_event`` is set.
         """
         while not self._device_health_stop_event.wait(timeout=self._device_check_interval_s):
-            # RW-7: skip the check if we've already detected a disconnect
+            # skip the check if we've already detected a disconnect
             # and scheduled a handler.
             if self._device_disconnected:
                 continue
-            # FR-17: periodic OS-level microphone-permission re-probe.
+            # periodic OS-level microphone-permission re-probe.
             # ``check_microphone_permission`` is best-effort — on
-            # Windows/Linux it historically returns GRANTED (the FR-39
+            # Windows/Linux it historically returns GRANTED (the
             # fix tightens this), but on macOS it does a real
             # AVCaptureDevice probe. Gate the call behind the counter so
             # we don't pay the cost on every 30 s wake.
@@ -473,7 +473,7 @@ class DeviceManager:
                 log.debug("[RECORDING] Device health checker error", exc_info=True)
 
     def _check_microphone_permission_revoked(self) -> bool:
-        """FR-17 — probe the OS-level microphone permission state.
+        """probe the OS-level microphone permission state.
 
         Returns True if the permission was detected as DENIED, in which
         case the caller has already set ``self._device_disconnected=True``
@@ -573,23 +573,23 @@ class DeviceManager:
     def _resolve_device(self):
         """Resolve config.microphone to a sounddevice device specifier.
 
-        ``config.microphone`` is one of:
+                ``config.microphone`` is one of:
 
-        - ``None`` — system default → return ``None``.
-        - ``"<index>"`` (legacy bare index string) → return ``int(index)``.
-        - ``"<index>|<name>|<host_api>"`` (DJ-69 compound form) → prefer
-          name-based resolution via ``find_microphone_by_name`` so a
-          saved index that now points at a different physical device
-          (after Windows MME hot-swap renumbering) is NOT silently
-          substituted.
+                - ``None`` — system default → return ``None``.
+                - ``"<index>"`` (legacy bare index string) → return ``int(index)``.
+        ``"<index>|<name>|<host_api>"`` ( compound form) → prefer
+                  name-based resolution via ``find_microphone_by_name`` so a
+                  saved index that now points at a different physical device
+                  (after Windows MME hot-swap renumbering) is NOT silently
+                  substituted.
 
-        TY-22 (Medium): PortAudio device indices are NOT stable across
-        hot-swap on Windows MME. The compound form stores the device
-        NAME alongside the index so the resolver can re-find the
-        original physical device by name after renumbering.
+        (Medium): PortAudio device indices are NOT stable across
+                hot-swap on Windows MME. The compound form stores the device
+                NAME alongside the index so the resolver can re-find the
+                original physical device by name after renumbering.
 
-        DJ-69: when the saved index now points at a differently-named
-        device AND name lookup failed, emit a one-time WARNING.
+        when the saved index now points at a differently-named
+                device AND name lookup failed, emit a one-time WARNING.
         """
         mic = self.recorder.config.microphone
         if mic is None:
@@ -601,7 +601,7 @@ class DeviceManager:
             except (ValueError, TypeError):
                 return mic
 
-        # DJ-69: compound form "<index>|<name>|<host_api>".
+        # compound form "<index>|<name>|<host_api>".
         parts = mic.split("|", 2)
         if len(parts) < 2:
             try:
@@ -632,7 +632,7 @@ class DeviceManager:
         if saved_index is None:
             return saved_name
 
-        # DJ-69 one-time name-mismatch warning.
+        # one-time name-mismatch warning.
         if not self._device_name_mismatch_warned:
             try:
                 current_info = sd.query_devices(saved_index)
@@ -652,7 +652,7 @@ class DeviceManager:
         return saved_index
 
     def _build_device_info_for_retry_policy(self) -> dict | None:
-        """DJ-70: query the current device info for BT retry classification.
+        """query the current device info for BT retry classification.
 
         Returns the ``sd.query_devices(current_device)`` dict, or ``None``
         if the query raised. Used by ``_get_max_retries_for_device`` and
@@ -669,7 +669,7 @@ class DeviceManager:
             return None
 
     def _get_max_retries_for_device(self, device_info: dict | None) -> int:
-        """DJ-70: return the max retry count for the given device.
+        """return the max retry count for the given device.
 
         Bluetooth HFP/HSP devices (identified by name keyword OR by an
         8/16 kHz native sample rate — the HFP/HSP narrowband signature)
@@ -689,7 +689,7 @@ class DeviceManager:
         return 3
 
     def _get_retry_sleep_for_device(self, device_info: dict | None) -> float:
-        """DJ-70: return the per-retry sleep for the given device.
+        """return the per-retry sleep for the given device.
 
         BT devices sleep ``_bt_retry_sleep_seconds`` (default 0.75s)
         between retries. Non-BT devices sleep 0.0 (immediate retry).
@@ -861,7 +861,7 @@ class DeviceManager:
                 )
                 return native_rate, dev_info_extra
         except Exception as e:
-            # NEW-CQ-020: log at WARNING (not DEBUG) so the user knows
+            # log at WARNING (not DEBUG) so the user knows
             # the native-rate detection failed and PortAudio will do
             # internal resampling (which may introduce artifacts).
             log.warning(

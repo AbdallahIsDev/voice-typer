@@ -19,7 +19,7 @@ _HALLUCINATION_LOG_MAX_CHARS = 40
 
 # Known phrases that Whisper emits on near-silence audio.
 #
-# XV-48: widened to include common single-token hallucinations
+# widened to include common single-token hallucinations
 # observed in production Whisper / Qwen3-ASR logs. Whisper's
 # decoder frequently emits a single short word when fed near-silence
 # (the language model's most likely "starter" token), and Qwen3-ASR
@@ -39,7 +39,7 @@ KNOWN_LOW_AUDIO_HALLUCINATIONS = {
     "please subscribe",
     "thanks for listening",
     "thank you for listening",
-    # XV-48: common single-token hallucinations
+    # common single-token hallucinations
     "you",  # Whisper's #1 most-likely starter token
     "the",  # very common Whisper decoder artifact on silence
     "so",  # common filler-token hallucination
@@ -88,14 +88,14 @@ def should_reject_low_audio_hallucination(
 
     # Tier 1: simple check (always available)
     #
-    # XV-48: relaxed from ``rms < 0.001`` (-60 dBFS) to ``rms < 0.01``
+    # relaxed from ``rms < 0.001`` (-60 dBFS) to ``rms < 0.01``
     # (-40 dBFS). The strict 0.001 threshold missed real hallucinations
     # on quiet-but-not-silent background noise (HVAC, fans) where RMS
     # hovers around 0.003-0.005. -40 dBFS is still essentially inaudible
     # for speech (normal speech is -30 to -10 dBFS), so the false-positive
     # risk is negligible.
     #
-    # XV-48: collapsed the redundant inner branch
+    # collapsed the redundant inner branch
     # ``if silence_pct is None and rms < 0.001`` -- the ``rms < 0.001``
     # clause was dead (we're already inside ``if rms < 0.01``), and the
     # ``silence_pct is None`` case is now folded into the single
@@ -104,7 +104,7 @@ def should_reject_low_audio_hallucination(
     # is suspicious; when silence info IS available, it must corroborate
     # (>= 95% silence) before we reject.
     #
-    # ER-41: when ``duration`` is provided, additionally require
+    # when ``duration`` is provided, additionally require
     # ``duration < 1.0``. Hallucinations on near-silence are typically
     # emitted by the decoder within the first ~1s of audio (Whisper's
     # attention window produces a single spurious token cluster that
@@ -112,7 +112,7 @@ def should_reject_low_audio_hallucination(
     # or "bye" is usually ≥0.5s and recorded with rms > 0.005 (well
     # above the 0.01 threshold) — but even quiet ones that creep under
     # 0.01 RMS are still ≥1s long when spoken deliberately. The duration
-    # guard preserves XV-48's catch-rate on real hallucinations while
+    # guard preserves 's catch-rate on real hallucinations while
     # eliminating the false-positive path where a legitimate quiet
     # "thank you" / "bye" was cut. When ``duration`` is None (QwenEngine
     # simple path — no segment timing), keep the existing behavior; the
@@ -165,7 +165,7 @@ def log_hallucination_rejection(
         return
 
     # SEC-009: When logging is enabled, apply PII redaction and truncation.
-    # CR-87: previously this constructed a synthetic ``logging.LogRecord``
+    # previously this constructed a synthetic ``logging.LogRecord``
     # and ran ``PIIRedactionFilter().filter(record)`` just to redact a
     # plain string. The LogRecord dance was a heavyweight detour that
     # also depended on the filter's mutating ``record.msg``/``record.args``

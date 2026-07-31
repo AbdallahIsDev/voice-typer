@@ -17,19 +17,16 @@ from __future__ import annotations
 import logging
 import math
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
-# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
-# the audio worker thread). Module-top import under try/except so the
-# module still loads when scipy is missing (tests with mock filters).
-try:
-    from scipy.signal import lfilter
-except ImportError:  # pragma: no cover — scipy is a hard dep in prod
-    lfilter = None  # type: ignore[assignment]
-
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON, AudioFilter, db_to_mul
+np = lazy_module("numpy")
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import (  # noqa: E402
+    ANTIDENORMAL_EPSILON,
+    AudioFilter,
+    _get_lfilter,
+    db_to_mul,
+)
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +64,7 @@ class Equalizer(AudioFilter):
         self._delay3: float = 0.0
         self._low_state: float = ANTIDENORMAL_EPSILON
         self._high_state: float = 0.0
-        # DJ-74: pre-allocated delay-line buffer (3-prefix + n-input) so
+        # pre-allocated delay-line buffer (3-prefix + n-input) so
         # process() does not allocate a fresh (n+3)-element array per
         # chunk for the 3-sample delay line. Lazy-resized to the largest
         # chunk seen.
@@ -93,9 +90,9 @@ class Equalizer(AudioFilter):
 
         # Low band: one-pole lowpass: low_s[i] = low_s[i-1] + lf * (x[i] - low_s[i-1])
         # Equivalent IIR form: low_s[i] = (1-lf) * low_s[i-1] + lf * x[i]
-        # lfilter(b=[lf], a=[1, -(1-lf)]) computes exactly this.
+        # _get_lfilter()(b=[lf], a=[1, -(1-lf)]) computes exactly this.
 
-        low_s, _ = lfilter(
+        low_s, _ = _get_lfilter()(
             [lf],
             [1.0, -(1.0 - lf)],
             x,
@@ -103,7 +100,7 @@ class Equalizer(AudioFilter):
         )
 
         # High state: one-pole lowpass on the input; high band = input - state.
-        high_s, _ = lfilter(
+        high_s, _ = _get_lfilter()(
             [hf],
             [1.0, -(1.0 - hf)],
             x,
@@ -113,7 +110,7 @@ class Equalizer(AudioFilter):
 
         # 3-sample delay line: d3[i] = x[i-3], using the carried _delay1/2/3
         # as x[-1], x[-2], x[-3] respectively.
-        # DJ-74: build d3 directly via slice-assignment into a pre-allocated
+        # build d3 directly via slice-assignment into a pre-allocated
         # buffer instead of np.concatenate([prefix, x]) which allocated a
         # fresh (n+3)-element array per chunk just to read the first n
         # elements. d3[0..2] = (delay3, delay2, delay1); d3[3..n] = x[0..n-3].
@@ -135,13 +132,13 @@ class Equalizer(AudioFilter):
 
         mid = d3 - (low_s + high)
 
-        # ER-9: removed the `* 0.5` factor -- at unity gain (low_db=mid_db=high_db=0),
+        # removed the `* 0.5` factor -- at unity gain (low_db=mid_db=high_db=0),
         # low_gain=mid_gain=high_gain=1.0 and low_s + mid + high = d3 (3-sample
         # delayed input), so the old `* 0.5` caused -6.02 dB attenuation at unity.
         output = (low_s * low_gain + mid * mid_gain + high * high_gain).astype(np.float32)
 
         # Carry the last 3 input samples + final band states to the next chunk.
-        # DJ-74: when n >= 3, the last 3 samples of x are the new delay
+        # when n >= 3, the last 3 samples of x are the new delay
         # values (no need to index into a concatenated `extended` array).
         if n >= 3:
             self._delay1 = float(x[-1])

@@ -1,7 +1,7 @@
 """Concrete volume backends for Windows, macOS, and Linux.
 
 This package was extracted from the original ``voice_typer/server/volume_backends.py``
-monolith (1055 LOC) per PVT-24.  Each platform's backend lives in its own
+monolith (1055 LOC) per   Each platform's backend lives in its own
 module:
 
 - :mod:`voice_typer.server.volume_backends.windows` — ``WinVolumeBackend``

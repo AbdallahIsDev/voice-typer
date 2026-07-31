@@ -6,12 +6,12 @@ exists) and guides the user through initial setup:
 Step 1: Welcome screen — brief explanation of what the app does
 Step 2: Microphone selection — dropdown of detected input devices
 Step 3: Permissions — macOS Accessibility / Linux input group + udev rule
-        (UX-4 / UX-27). On Windows the step auto-passes (no permission
+        ( / ). On Windows the step auto-passes (no permission
         needed) but is still shown so the user knows hotkeys will work.
 Step 4: Hotkey selection — F2-F12 or custom combo
 Step 5: Model selection — tiny.en (fastest), small.en (recommended),
         medium.en (best accuracy), plus multilingual variants and
-        Parakeet (UX-32 / UX-13)
+        Parakeet ( / )
 Step 6: Done — app starts loading the model
 """
 
@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 class OnboardingController:
     """Controls the 6-step first-run onboarding wizard.
 
-    UX-31: completion is *not* triggered by :meth:`next_step` reaching
+    completion is *not* triggered by :meth:`next_step` reaching
     the last step — it is only triggered by :meth:`apply_settings`
     (after ``config.save()`` succeeds) or :meth:`skip`. This prevents
     the wizard from marking itself complete when the user reaches the
@@ -41,7 +41,7 @@ class OnboardingController:
             config_dir = _config_dir()
         self._config_dir = config_dir
         self._marker_path = config_dir / ".onboarding_complete"
-        # PVT-006: a second marker tracks that the wizard has *started*
+        # a second marker tracks that the wizard has *started*
         # rendering (as opposed to "completed"). ``startup_sequence.py``'s
         # auto-heal logic should ONLY fire when this marker is absent —
         # if the wizard has started, the user is genuinely in first-run
@@ -57,7 +57,7 @@ class OnboardingController:
         # apply_settings.
         self._progress_path = config_dir / ".onboarding_progress"
         self._current_step = 0
-        # UX-4 / UX-27: bumped from 5 → 6 to add a platform-conditional
+        # bumped from 5 → 6 to add a platform-conditional
         # Permissions step between Microphone (index 1) and Hotkey
         # (now index 3). On Windows the step content auto-passes; on
         # macOS it instructs the user to grant Accessibility; on Linux
@@ -70,7 +70,7 @@ class OnboardingController:
         # NATIVE-001: default hotkey is Caps Lock on all platforms
         self.selected_hotkey: str = DEFAULT_HOTKEY
         self.selected_model: str = "small.en"
-        # NEW-DEAD-033: removed the ``on_step_change`` and ``on_complete``
+        # removed the ``on_step_change`` and ``on_complete``
         # callbacks — they were declared but never set by any caller.
         # The renderer tracks step changes via the IPC response
         # (``onboarding_next_step`` / ``onboarding_prev_step`` return
@@ -156,7 +156,7 @@ class OnboardingController:
                     "selected_model": self.selected_model,
                 }
             )
-            # DJ-55: durability=False — onboarding progress is transient UI
+            # durability=False — onboarding progress is transient UI
             # state recreated on every step. The atomic os.replace still
             # guarantees consistency (no half-written files); only the
             # fsync-on-every-save is skipped. Saves 2 fsyncs (~10-50ms on
@@ -214,32 +214,64 @@ class OnboardingController:
     def mark_complete(self) -> None:
         """Mark onboarding as complete so it doesn't show again.
 
-        SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
+        Uses _secure_atomic_write to ensure 0o600 permissions
         on POSIX and O_NOFOLLOW symlink protection.
-        """
-        try:
-            self._config_dir.mkdir(parents=True, exist_ok=True)
-            from voice_typer.server.config import _secure_atomic_write
 
-            _secure_atomic_write(
-                self._marker_path,
-                json.dumps({"completed": True, "version": 1}),
-            )
-            # PVT-006: the started marker is no longer needed once the
-            # wizard completes — remove it so a future first-run (after a
-            # :meth:`reset` call) starts with a clean slate.
+        re-raises on failure instead of swallowing the exception.
+        Previously this method caught all exceptions via
+        ``except Exception: log.exception(...)`` without re-raising, so
+        if the marker write failed (disk full, read-only ``config_dir``,
+        permission revoked) the caller had no way to surface the error
+        to the user. Combined with :meth:`apply_settings` not setting
+        ``config.onboarding_completed = True`` before ``config.save()``,
+        this caused an infinite wizard-reappear loop: settings were
+        saved to ``config.json`` but the marker was missing and the
+        config flag stayed ``False``, so :meth:`is_first_run` returned
+        ``True`` on every launch.
+
+        The fix has two halves (this method is the second):
+        1. :meth:`apply_settings` sets ``config.onboarding_completed = True``
+           BEFORE ``config.save()`` — making the config flag the source
+           of truth. The marker file becomes a fast-path cache.
+        2. This method re-raises marker-write failures so the IPC layer
+           can surface the disk error. Even if the marker write fails,
+           the persisted config flag keeps :meth:`is_first_run` returning
+           ``False`` on the next launch (it falls through to the config
+           check), breaking the infinite loop.
+
+        The cleanup of the started/progress markers () remains
+        best-effort: if the marker write succeeded, a failure to delete
+        the now-stale started/progress markers is logged but not
+        re-raised (the wizard is correctly marked complete and won't
+        reappear).
+        """
+        self._config_dir.mkdir(parents=True, exist_ok=True)
+        from voice_typer.server.config import _secure_atomic_write
+
+        # Critical operation — let exceptions propagate ().
+        _secure_atomic_write(
+            self._marker_path,
+            json.dumps({"completed": True, "version": 1}),
+        )
+        # the started marker is no longer needed once the
+        # wizard completes — remove it so a future first-run (after a
+        # :meth:`reset` call) starts with a clean slate. Best-effort:
+        # the marker write above already succeeded, so a cleanup failure
+        # here doesn't affect first-run detection.
+        try:
             self._started_marker_path.unlink(missing_ok=True)
-            # The progress marker is also no longer
-            # needed — the wizard is done.
-            self._clear_progress()
-            log.info("[ONBOARDING] Marked as complete")
         except Exception:
-            log.exception("[ONBOARDING] Failed to mark complete")
+            log.debug("[ONBOARDING] Failed to remove started marker", exc_info=True)
+        # The progress marker is also no longer
+        # needed — the wizard is done. _clear_progress has its own
+        # try/except internally.
+        self._clear_progress()
+        log.info("[ONBOARDING] Marked as complete")
 
     def mark_started(self) -> None:
         """Mark that the onboarding wizard has started rendering.
 
-        PVT-006: ``startup_sequence.py``'s auto-heal logic (see lines
+        ``startup_sequence.py``'s auto-heal logic (see lines
         143-183 of that module) fires when ``config.json`` exists on
         disk but ``onboarding_completed`` is ``False`` and the
         ``.onboarding_complete`` marker is missing. The intent is to
@@ -294,7 +326,7 @@ class OnboardingController:
     def reset(self) -> None:
         """Reset onboarding state so the wizard shows again on next launch.
 
-        PVT-006: deletes both the ``.onboarding_complete`` and
+        deletes both the ``.onboarding_complete`` and
         ``.onboarding_started`` markers. Used by tests and by a future
         "re-run onboarding" affordance in Settings. Does NOT modify
         ``config.json`` — the caller is responsible for flipping
@@ -330,7 +362,7 @@ class OnboardingController:
     @property
     def step_name(self) -> str:
         """Human-readable name of the current step."""
-        # UX-4 / UX-27: added "Permissions" between Microphone and
+        # added "Permissions" between Microphone and
         # Hotkey. Step order is now:
         #   0 Welcome, 1 Microphone, 2 Permissions,
         #   3 Hotkey,     4 Model,    5 Done
@@ -349,7 +381,7 @@ class OnboardingController:
     def next_step(self) -> int:
         """Advance to the next step. Returns the new step number.
 
-        UX-31: this method no longer calls :meth:`mark_complete` when
+        this method no longer calls :meth:`mark_complete` when
         the last step is reached. Completion is now triggered only by
         :meth:`apply_settings` (after ``config.save()`` succeeds) or
         :meth:`skip`. Previously, the wizard marked itself complete as
@@ -377,10 +409,23 @@ class OnboardingController:
     def skip(self) -> None:
         """Skip onboarding entirely.
 
-        UX-31: ``skip`` is one of the two valid completion paths
+        ``skip`` is one of the two valid completion paths
         (the other is :meth:`apply_settings`). It marks onboarding
         as complete without persisting any user selections — the
         config defaults remain in effect.
+
+        :meth:`mark_complete` now re-raises on marker-write
+        failure instead of swallowing. ``skip`` lets the exception
+        propagate to the caller (the service layer's
+        ``onboarding_skip`` → the IPC handler's ``except`` clause)
+        so the user sees the disk error rather than the wizard
+        silently failing to mark itself complete. Note: unlike
+        :meth:`apply_settings`, ``skip`` has no ``config`` parameter
+        and therefore cannot set ``config.onboarding_completed = True``
+        as a fallback — so a marker-write failure here means the
+        wizard WILL reappear on next launch. The re-raise at least
+        surfaces the problem so the user knows to free disk space /
+        fix permissions before retrying.
         """
         self.mark_complete()
 
@@ -431,14 +476,14 @@ class OnboardingController:
         # restart restores this selection.
         self._persist_progress()
 
-    # ─── Permission detection (UX-4 / UX-27) ─────────────────────────
+    # ─── Permission detection ( / ) ─────────────────────────
 
     def check_permissions(self) -> dict:
         """Probe the OS-level keyboard-monitoring permission state.
 
-        UX-4: macOS first-run users without Accessibility permission
+        macOS first-run users without Accessibility permission
         complete the wizard, press their hotkey, and nothing happens.
-        UX-27: Linux users not in the ``input`` group (and without
+        Linux users not in the ``input`` group (and without
         the udev rule) hit the same silent failure.
 
         This method delegates to
@@ -462,7 +507,7 @@ class OnboardingController:
         The renderer uses this in the Permissions step to show a
         platform-specific setup walkthrough.
 
-        PVT-052: the ``instructions`` dict now carries i18n *keys*
+        the ``instructions`` dict now carries i18n *keys*
         (``title_key`` / ``steps_keys``) instead of literal English
         strings. The renderer resolves them via ``t(key)`` so the
         walkthrough is fully localized. ``commands`` remains literal
@@ -507,7 +552,7 @@ class OnboardingController:
         elif perm_mod.is_linux():
             platform_name = "linux"
             needed = state != PermissionState.GRANTED
-            # UX-27: mirror the macOS step but for the input group +
+            # mirror the macOS step but for the input group +
             # udev rule. ``commands`` includes both the user-facing
             # ``sudo usermod -aG input $USER`` and the udev rule
             # snippet that scripts/linux/install_permissions.py
@@ -544,13 +589,13 @@ class OnboardingController:
 
     # ─── Model selection ─────────────────────────────────────────────
 
-    # UX-13: each entry now carries ``vram_gb`` (estimated VRAM for
+    # each entry now carries ``vram_gb`` (estimated VRAM for
     # GPU inference / RAM for CPU inference, in gigabytes) and
     # ``languages`` (``None`` means "all languages" / multilingual;
     # a list like ``["en"]`` means English-only). The renderer
     # renders these as badges on each model card.
     #
-    # UX-32: previously this list only contained the three English-
+    # previously this list only contained the three English-
     # only Whisper variants (tiny.en / small.en / medium.en). The
     # multilingual Whisper variants (tiny / small / medium without
     # the ``.en`` suffix) and the NVIDIA Parakeet model were
@@ -582,7 +627,7 @@ class OnboardingController:
             "vram_gb": 2.0,
             "languages": ["en"],
         },
-        # ── Multilingual Whisper variants (UX-32) ──────────────────
+        # ── Multilingual Whisper variants () ──────────────────
         # ``languages: None`` means "all languages" — the renderer
         # should render a "Multilingual" badge for these entries.
         {
@@ -609,7 +654,7 @@ class OnboardingController:
             "vram_gb": 2.0,
             "languages": None,
         },
-        # ── Parakeet (UX-32) ────────────────────────────────────────
+        # ── Parakeet () ────────────────────────────────────────
         # NVIDIA Parakeet RNN-T model — fast, accurate, multilingual.
         # Requires the parakeet_engine backend (auto-selected when
         # the user picks this model).
@@ -634,7 +679,7 @@ class OnboardingController:
     def get_model_catalog(cls) -> list[dict]:
         """Return the full rich-metadata model catalog.
 
-        UX-32: the static :attr:`MODEL_OPTIONS` list is intentionally
+        the static :attr:`MODEL_OPTIONS` list is intentionally
         short — it's the curated subset shown on the wizard's Model
         step. The *full* catalog (every Whisper variant, distilled
         variants, turbo, Parakeet, with VRAM / language / speed /
@@ -672,19 +717,48 @@ class OnboardingController:
     def apply_settings(self, config) -> None:
         """Apply all collected settings to the Config object.
 
-        UX-31: this method calls :meth:`mark_complete` *after*
+        this method calls :meth:`mark_complete` *after*
         ``config.save()`` succeeds, so the onboarding marker is only
         written when the user's selections have actually been
         persisted. If ``config.save()`` raises, the marker is NOT
         written and the wizard will reappear on next launch —
         giving the user another chance to complete setup instead
         of silently dropping their choices.
+
+        ``config.onboarding_completed`` is set to ``True`` BEFORE
+        ``config.save()`` so the config flag becomes the source of
+        truth for first-run detection. The ``.onboarding_complete``
+        marker file (written by :meth:`mark_complete` after save)
+        becomes a fast-path cache. This breaks the previous infinite
+        wizard-reappear loop where a marker-write failure (disk full,
+        read-only ``config_dir``) left both the marker missing AND
+        ``onboarding_completed=False`` — so :meth:`is_first_run`
+        returned ``True`` on every launch even though the user's
+        settings were already persisted to ``config.json``.
+
+        If :meth:`mark_complete` raises (: it now re-raises instead
+        of swallowing), the exception propagates to the caller (the
+        service layer's ``onboarding_apply`` wraps the call in a
+        try/except and returns an ``{"error": ...}`` envelope so the
+        IPC handler surfaces it to the user). The config flag was
+        already persisted by the ``config.save()`` call above, so the
+        wizard will NOT reappear on the next launch even though the
+        marker file is missing — :meth:`is_first_run` falls through to
+        the config check and returns ``False``.
         """
         if self.selected_microphone is not None:
             config.microphone = self.selected_microphone
         config.hotkey = self.selected_hotkey
         config.model_size = self.selected_model
-        # CR-30: ``config.save()`` returns ``False`` on failure (errors
+        # set the onboarding-completed flag BEFORE ``config.save()``
+        # so the persisted config flag is the source of truth. If the
+        # marker write (mark_complete below) later fails, the config
+        # flag is already on disk and is_first_run() returns False on
+        # the next launch (it falls through to the config check when the
+        # marker is absent). This breaks the infinite wizard-reappear
+        # loop described in
+        config.onboarding_completed = True
+        # ``config.save()`` returns ``False`` on failure (errors
         # are caught and logged inside ``save()``) but previously
         # ``mark_complete()`` ran unconditionally — so a silent disk
         # failure would leave the onboarding marker written while the
@@ -701,9 +775,15 @@ class OnboardingController:
         save_result = config.save()
         if save_result is False:
             raise RuntimeError("failed to persist onboarding settings")
-        # UX-31: only mark complete once the config has been
+        # only mark complete once the config has been
         # successfully persisted. If save() raises above, we never
-        # reach this line and is_first_run() will remain True.
+        # reach this line and is_first_run() will remain True (config
+        # flag not persisted).
+        # mark_complete re-raises on failure — propagate to the
+        # caller (service layer / IPC handler) so the user sees the
+        # disk error. The config flag is already persisted, so the
+        # wizard will NOT reappear next launch even if the marker is
+        # missing.
         self.mark_complete()
         log.info(
             "[ONBOARDING] Settings applied: mic=%s, hotkey=%s, model=%s",

@@ -1,10 +1,10 @@
 """IPC server leaf-submodule package — validation, transport, rate-limiting, history bounds.
 
-Phase 4.5 / ARCH-045 began a split of the original ``ipc_server.py``
+Phase 4.5 /  began a split of the original ``ipc_server.py``
 god-module into a package with one module per concern.  The split was
 abandoned mid-way and the parallel ``server.py`` / ``main.py`` /
 ``process_meta.py`` / ``push_events.py`` implementations became dead
-code (CR-1).  This package now contains ONLY the leaf submodules that
+code ().  This package now contains ONLY the leaf submodules that
 are actually imported by the handler mixins:
 
 - :func:`_validate_dict_payload` (IPC payload validation) — :mod:`.validation`

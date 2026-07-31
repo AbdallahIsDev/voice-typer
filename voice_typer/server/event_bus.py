@@ -1,6 +1,6 @@
 """In-process event bus for broadcasting events to subscribers.
 
-B-1: extracted from ``voice_typer.server.ipc_server._push_event_now``
+Extracted from ``voice_typer.server.ipc_server._push_event_now``
 to break the tight coupling between 12+ domain modules and the IPC
 transport layer.
 
@@ -25,7 +25,7 @@ mode).
 Other transports (CLI, gRPC, future WebSocket) can subscribe the same
 way without touching the domain modules.
 
-Canonical event catalogue (IPC-2 reconciliation, 2026-07-18)
+Canonical event catalogue
 ------------------------------------------------------------
 Every event broadcast through ``event_bus.publish`` OR ``IPCServer.push``
 flows through the same channel (2) (server-initiated events). The
@@ -67,29 +67,29 @@ Events emitted via ``event_bus.publish`` (the modern path):
   total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}``.
 * ``notification`` — request a renderer toast. Payload: ``{title, message,
   duration_ms, critical}``. (Canonical name — previously emitted as
-  ``electron_notification``; CR-8 renamed the wire event on the Python
+``electron_notification``;  renamed the wire event on the Python
   side so both the Electron and Tauri paths consume the same name.)
 * ``navigate`` — tray → UI route change. Payload: ``{path:str}``.
 * ``show_window`` — show the main window. Payload: ``{}``.
 * ``quit_app`` — sidecar requests app quit. Payload: ``{}``.
 * ``relaunch_app`` — sidecar requests app relaunch. Payload: ``{}``.
-* ``paste_failed`` — clipboard paste failed (NEW-UX-006); renderer
+* ``paste_failed`` — clipboard paste failed (); renderer
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
-* ``tray_menu`` — ADR-0020 §6.5 / GT-53; serialized menu model pushed
+* ``tray_menu`` — ADR-0020 §6.5 / ; serialized menu model pushed
   to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On Electron/
   pystray the native menu is the single source of truth and this is
   a no-op. Payload: ``{items:[<menu node dict>]}``.
-* ``tray_state`` — ADR-0020 §6.5 / GT-53; tray icon name + tooltip
+* ``tray_state`` — ADR-0020 §6.5 / ; tray icon name + tooltip
   pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
   Electron/pystray the ``TrayIcon`` is updated directly so emitting
   a parallel event would double-publish. Payload: ``{icon:str?,
   tooltip:str?}`` (at least one field present).
-* ``consent_required`` — UX-005 / GT-53; emitted by ``service/model.py``
+* ``consent_required`` —  / ; emitted by ``service/model.py``
   when the renderer must prompt for HuggingFace consent before a model
   download can proceed. Payload: ``{provider:str, model:str,
   message:str}``.
-* ``parakeet_cpu_fallback`` — SK-b / GT-53; emitted by
+* ``parakeet_cpu_fallback`` — SK-b / ; emitted by
   ``parakeet_engine.py`` when GPU transcription fails and the engine
   falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
   Payload: ``{device:str (="cpu"), reason:str}``.
@@ -99,7 +99,7 @@ Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
 or the tray-state hook, both of which already hold a reference to the
 server):
 
-* ``state_changed`` — ERR-017; emitted ONCE per TCP/WS client connect
+* ``state_changed`` — ; emitted ONCE per TCP/WS client connect
   so the renderer immediately knows the current app state. Payload:
   ``{status:str, message:str}``.
 * ``status_change`` — emitted on EVERY tray state transition via the
@@ -146,9 +146,9 @@ from typing import Protocol, runtime_checkable
 
 from voice_typer.server.log_rate_limit import log_rate_limited
 
-# ── DT-42: EVENT_TYPES registry ────────────────────────────────────
+# EVENT_TYPES registry ────────────────────────────────────
 # The docstring catalogue above lists every event the system knows about,
-# but until DT-42 the list lived ONLY in the docstring — there was no
+# but until  the list lived ONLY in the docstring — there was no
 # Python constant. 30+ ``event_bus.publish({"type": "<name>"})`` call
 # sites used bare string literals, and the Rust WS reader
 # (``src-tauri/src/sidecar/ws.rs:62-98``) mirrored the list by hand
@@ -209,7 +209,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     }
 )
 
-# DT-42: dev-time assertion gate. Default OFF so production is not
+# dev-time assertion gate. Default OFF so production is not
 # slowed and existing event_bus unit tests (which publish synthetic
 # types like ``"test"``) don't false-positive. Set
 # ``VOICE_TYPER_DEBUG_EVENTS=1`` at dev time to opt in.
@@ -269,7 +269,7 @@ log = logging.getLogger("voice_typer.server.event_bus")
 #
 # The snapshot holds NO strong references to bound methods (only to
 # plain functions, which are module-level and never GC'd). This
-# preserves the PVT-031 leak-prevention semantics.
+# preserves the  leak-prevention semantics.
 
 
 class _StrongResolver:
@@ -301,7 +301,7 @@ class _CWeakResolver:
 
 
 class _SubscriberSet:
-    """A set-like container for event-bus subscribers (PVT-031).
+    """A set-like container for event-bus subscribers ().
 
     ``IPCServer`` subscribes with ``subscribe(self.push)`` — a *bound
     method*. A plain ``set`` holds a strong ref to the bound method,
@@ -449,7 +449,7 @@ class _SubscriberSet:
         return callback in self._strong
 
 
-# PVT-031: weak-ref-aware subscriber set. Bound methods are stored via
+# weak-ref-aware subscriber set. Bound methods are stored via
 # WeakMethod so destroyed subscribers (e.g. an IPCServer that crashed
 # during stop() without calling unsubscribe) are GC'd instead of
 # leaking forever. Plain functions / lambdas stay strong-ref'd.
@@ -473,7 +473,7 @@ _RT_THREAD_NAME_PREFIXES: tuple[str, ...] = (
 _deferred_executor: ThreadPoolExecutor | None = None
 _deferred_executor_lock = threading.Lock()
 
-# PVT-031: bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
+# bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
 # an unbounded ``SimpleQueue`` internally; a slow subscriber (stalled
 # socket.sendall to the Electron renderer) at 60 Hz ``bubble_level``
 # fan-out would queue 36,000 tasks over 10 minutes — unbounded memory
@@ -492,20 +492,20 @@ _deferred_drop_count: int = 0  # cumulative, for diagnostics
 def _get_deferred_executor() -> ThreadPoolExecutor:
     """Lazily create the single-worker deferred-publish executor.
 
-    CR-9: previously the double-checked-locking pattern could leak a
-    ``ThreadPoolExecutor`` if two threads both entered the slow path
-    and both created a fresh executor before either acquired
-    ``_deferred_executor_lock``. (The first thread to acquire the
-    lock would install theirs; the second thread's executor was a
-    local that went out of scope — but its worker thread kept
-    running, leaking a thread + a kernel-level worker pool.)
+    previously the double-checked-locking pattern could leak a
+        ``ThreadPoolExecutor`` if two threads both entered the slow path
+        and both created a fresh executor before either acquired
+        ``_deferred_executor_lock``. (The first thread to acquire the
+        lock would install theirs; the second thread's executor was a
+        local that went out of scope — but its worker thread kept
+        running, leaking a thread + a kernel-level worker pool.)
 
-    The fix creates the executor BEFORE acquiring the lock (in the
-    slow path), then races for the global slot. The winner installs
-    theirs and returns it; the loser calls ``shutdown(wait=False)``
-    on theirs (which signals the worker thread to exit) and returns
-    the winner. This is the canonical "create-then-compare-and-swap"
-    pattern for lazy singletons guarded by a mutex.
+        The fix creates the executor BEFORE acquiring the lock (in the
+        slow path), then races for the global slot. The winner installs
+        theirs and returns it; the loser calls ``shutdown(wait=False)``
+        on theirs (which signals the worker thread to exit) and returns
+        the winner. This is the canonical "create-then-compare-and-swap"
+        pattern for lazy singletons guarded by a mutex.
     """
     global _deferred_executor
     # Fast path — no lock acquired. The global is published via the
@@ -527,7 +527,7 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
             return local_executor
         # We lost the race — another thread installed theirs while we
         # were constructing ours. Shut ours down so its worker thread
-        # doesn't leak (CR-9), then return the winner.
+        # doesn't leak (), then return the winner.
         winner = _deferred_executor
     # Shutdown OUTSIDE the lock to avoid blocking other racing callers.
     # ``wait=False`` returns immediately; the worker thread exits on
@@ -601,14 +601,14 @@ def _deliver(event, resolvers):
 
 def _deliver_deferred(event, resolvers):
     """Deliver *event* on the deferred-executor thread, then decrement
-    the in-flight counter (PVT-031).
+    the in-flight counter ().
 
-    Pairs with the bounded-submit logic in ``publish()`` so the
-    in-flight counter is decremented exactly once per submitted task —
-    whether the delivery succeeded, a subscriber raised, or the
-    executor was shut down mid-flight. Failing to decrement would
-    re-introduce the unbounded-queue memory growth (the counter would
-    hit ``_DEFERRED_QUEUE_MAX`` and never recover).
+        Pairs with the bounded-submit logic in ``publish()`` so the
+        in-flight counter is decremented exactly once per submitted task —
+        whether the delivery succeeded, a subscriber raised, or the
+        executor was shut down mid-flight. Failing to decrement would
+        re-introduce the unbounded-queue memory growth (the counter would
+        hit ``_DEFERRED_QUEUE_MAX`` and never recover).
     """
     global _deferred_in_flight
     try:
@@ -621,65 +621,65 @@ def _deliver_deferred(event, resolvers):
 def publish(event: dict, *, async_dispatch: bool = False) -> bool:
     """Broadcast *event* to every subscriber.
 
-    Parameters
-    ----------
-    event:
-        The event dict. Must contain a ``"type"`` key (validated at
-        dev-time when ``VOICE_TYPER_DEBUG_EVENTS=1``).
-    async_dispatch:
-        ZR-20: when ``True``, fan-out is deferred to the single-worker
-        :class:`ThreadPoolExecutor` so the caller returns immediately
-        (subscribers run on the executor thread, not the publisher's
-        thread). Useful for non-RT publisher threads that must not
-        block on slow IPC writes — e.g. the transcription thread
-        calling ``publish({"type": "transcription_final", ...})``
-        would otherwise block on ``IPCServer.push`` →
-        ``socket.sendall`` to a stalled Electron renderer (seconds of
-        latency if the renderer is paused in the debugger).
+        Parameters
+        ----------
+        event:
+            The event dict. Must contain a ``"type"`` key (validated at
+            dev-time when ``VOICE_TYPER_DEBUG_EVENTS=1``).
+        async_dispatch:
+    when ``True``, fan-out is deferred to the single-worker
+            :class:`ThreadPoolExecutor` so the caller returns immediately
+            (subscribers run on the executor thread, not the publisher's
+            thread). Useful for non-RT publisher threads that must not
+            block on slow IPC writes — e.g. the transcription thread
+            calling ``publish({"type": "transcription_final", ...})``
+            would otherwise block on ``IPCServer.push`` →
+            ``socket.sendall`` to a stalled Electron renderer (seconds of
+            latency if the renderer is paused in the debugger).
 
-        When ``False`` (default), subscribers are called synchronously
-        in the publisher's thread (existing ``_push_event_now``
-        semantics — most tests assert the callable was invoked by the
-        time ``publish`` returns).
+            When ``False`` (default), subscribers are called synchronously
+            in the publisher's thread (existing ``_push_event_now``
+            semantics — most tests assert the callable was invoked by the
+            time ``publish`` returns).
 
-        The RT-thread auto-defer (PERF-2) takes precedence over this
-        flag: audio-worker / PortAudio threads always defer, regardless
-        of the ``async_dispatch`` value, so the RT loop never glitches.
+            The RT-thread auto-defer (PERF-2) takes precedence over this
+            flag: audio-worker / PortAudio threads always defer, regardless
+            of the ``async_dispatch`` value, so the RT loop never glitches.
 
-    Returns
-    -------
-    bool
-        ``True`` if at least one subscriber accepted the event
-        (returned without raising), OR if the event was queued for
-        deferred delivery (``async_dispatch=True`` or RT thread).
-        ``False`` if there are no subscribers or every subscriber
-        raised on the synchronous path.
+        Returns
+        -------
+        bool
+            ``True`` if at least one subscriber accepted the event
+            (returned without raising), OR if the event was queued for
+            deferred delivery (``async_dispatch=True`` or RT thread).
+            ``False`` if there are no subscribers or every subscriber
+            raised on the synchronous path.
 
-    Notes
-    -----
-    - Synchronous (default): subscribers are called in the publisher's
-      thread. This preserves the previous ``_push_event_now`` semantics
-      (existing tests assert that the callable was invoked by the time
-      ``publish`` returns).
-    - PERF-2: When called from a real-time audio thread (``audio-worker``
-      or ``PortAudio``-prefixed), fan-out is deferred to a single-worker
-      ``ThreadPoolExecutor`` so the RT thread returns in microseconds.
-      Synchronous path is preserved for all other threads.
-    - ZR-20: ``async_dispatch=True`` opts non-RT threads into the same
-      deferred path. The bounded queue (PVT-031, ``_DEFERRED_QUEUE_MAX``)
-      protects against unbounded memory growth under backpressure.
-    - Exception isolation: a subscriber that raises is logged at
-      WARNING (with ``exc_info``) on the first occurrence per
-      subscriber, then at DEBUG on subsequent occurrences
-      (:func:`log_rate_limited`), and skipped. Other subscribers
-      still receive the event. See ``TestSubscriberExceptionIsolation``.
-    - The subscriber list is snapshotted under the lock before
-      iteration, so ``unsubscribe`` from within a subscriber
-      callback does not raise ``RuntimeError: Set changed size
-      during iteration`` and the unsubscribed callback will not be
-      re-invoked on subsequent publishes.
+        Notes
+        -----
+        - Synchronous (default): subscribers are called in the publisher's
+          thread. This preserves the previous ``_push_event_now`` semantics
+          (existing tests assert that the callable was invoked by the time
+          ``publish`` returns).
+        - PERF-2: When called from a real-time audio thread (``audio-worker``
+          or ``PortAudio``-prefixed), fan-out is deferred to a single-worker
+          ``ThreadPoolExecutor`` so the RT thread returns in microseconds.
+          Synchronous path is preserved for all other threads.
+    ``async_dispatch=True`` opts non-RT threads into the same
+    deferred path. The bounded queue (, ``_DEFERRED_QUEUE_MAX``)
+          protects against unbounded memory growth under backpressure.
+        - Exception isolation: a subscriber that raises is logged at
+          WARNING (with ``exc_info``) on the first occurrence per
+          subscriber, then at DEBUG on subsequent occurrences
+          (:func:`log_rate_limited`), and skipped. Other subscribers
+          still receive the event. See ``TestSubscriberExceptionIsolation``.
+        - The subscriber list is snapshotted under the lock before
+          iteration, so ``unsubscribe`` from within a subscriber
+          callback does not raise ``RuntimeError: Set changed size
+          during iteration`` and the unsubscribed callback will not be
+          re-invoked on subsequent publishes.
     """
-    # DT-42: dev-time membership check. Gated by ``_DEBUG_EVENTS`` (env
+    # dev-time membership check. Gated by ``_DEBUG_EVENTS`` (env
     # var ``VOICE_TYPER_DEBUG_EVENTS=1``) so production is not slowed
     # and the existing event_bus unit tests don't false-positive.
     if _DEBUG_EVENTS:
@@ -693,13 +693,13 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
     if not snapshot:
         return False
     # PERF-2: defer fan-out when called from an RT thread.
-    # ZR-20: also defer when the caller explicitly opts in via
+    # also defer when the caller explicitly opts in via
     # ``async_dispatch=True`` (e.g. transcription thread that must not
     # block on slow IPC writes). The RT-thread check takes precedence
     # so audio hot-path latency stays bounded regardless of the flag.
     if _is_rt_thread() or async_dispatch:
         global _deferred_in_flight, _deferred_drop_count
-        # PVT-031: bound the deferred queue. If the single worker is
+        # bound the deferred queue. If the single worker is
         # backed up (slow subscriber), drop new submissions rather than
         # queuing them indefinitely. The drop is rate-limited so a
         # persistently-slow subscriber produces one WARNING per minute,
@@ -736,7 +736,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
 
 
 def publish_sync(event: dict) -> bool:
-    """Broadcast *event* to every subscriber, synchronously (ZR-20).
+    """Broadcast *event* to every subscriber, synchronously ().
 
     Explicit-synchronous alias for :func:`publish` with
     ``async_dispatch=False``. Use this when the caller needs ordering
@@ -775,44 +775,44 @@ def _subscriber_count() -> int:
 
 
 def shutdown() -> None:
-    """M-22 / GT-C1-7 / TY-15: shut down the deferred-publish ThreadPoolExecutor.
+    """M-22: shut down the deferred-publish ThreadPoolExecutor.
 
-    This is the SINGLE canonical lifecycle hook for the lazily-created
-    ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``
-    function existed alongside this one — it was deleted in GT-C1-7
-    (DRY, Rule 24) because nothing in the codebase called it (only
-    ``shutdown()`` is invoked from
-    ``shutdown_controller._teardown_event_bus``).
+        This is the SINGLE canonical lifecycle hook for the lazily-created
+        ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``
+    function existed alongside this one — it was deleted in
+        (DRY, Rule 24) because nothing in the codebase called it (only
+        ``shutdown()`` is invoked from
+        ``shutdown_controller._teardown_event_bus``).
 
-    TY-15: the call now uses ``executor.shutdown(wait=True,
-    cancel_futures=True)`` instead of ``wait=False``. ``wait=False``
-    returned immediately and did NOT block on already-running or queued
-    tasks — but the worker thread is a NON-DAEMON (CPython
-    ``ThreadPoolExecutor`` default), so it kept the interpreter alive
-    past the ``shutdown()`` call until all queued/in-flight tasks
-    finished. The 5s ``_run_with_timeout`` wrapper in
-    ``_teardown_event_bus`` was therefore bounding NOTHING (the
-    non-blocking call returned in microseconds). With
-    ``wait=True, cancel_futures=True``:
-      (a) queued-but-not-started tasks are cancelled immediately (they
-          are stale by definition on shutdown);
-      (b) the call blocks until the in-flight task completes.
-    The 5s ``_run_with_timeout`` wrapper then ACTUALLY bounds the wait.
-    If the in-flight task exceeds 5s, the wrapper returns ``TIMEOUT``
-    and the worker thread is leaked as a daemon (the
-    ``_run_with_timeout`` worker is daemon-marked).
+    the call now uses ``executor.shutdown(wait=True,
+        cancel_futures=True)`` instead of ``wait=False``. ``wait=False``
+        returned immediately and did NOT block on already-running or queued
+        tasks — but the worker thread is a NON-DAEMON (CPython
+        ``ThreadPoolExecutor`` default), so it kept the interpreter alive
+        past the ``shutdown()`` call until all queued/in-flight tasks
+        finished. The 5s ``_run_with_timeout`` wrapper in
+        ``_teardown_event_bus`` was therefore bounding NOTHING (the
+        non-blocking call returned in microseconds). With
+        ``wait=True, cancel_futures=True``:
+          (a) queued-but-not-started tasks are cancelled immediately (they
+              are stale by definition on shutdown);
+          (b) the call blocks until the in-flight task completes.
+        The 5s ``_run_with_timeout`` wrapper then ACTUALLY bounds the wait.
+        If the in-flight task exceeds 5s, the wrapper returns ``TIMEOUT``
+        and the worker thread is leaked as a daemon (the
+        ``_run_with_timeout`` worker is daemon-marked).
 
-    The single-worker ``ThreadPoolExecutor`` lazily created by
-    ``_get_deferred_executor()`` is a process-global resource. On
-    ``quit()`` / process exit, calling this from
-    ``ShutdownController._teardown_event_bus`` releases the worker
-    promptly so it doesn't contribute to shutdown latency.
+        The single-worker ``ThreadPoolExecutor`` lazily created by
+        ``_get_deferred_executor()`` is a process-global resource. On
+        ``quit()`` / process exit, calling this from
+        ``ShutdownController._teardown_event_bus`` releases the worker
+        promptly so it doesn't contribute to shutdown latency.
 
-    Idempotent — safe to call multiple times. After this call,
-    ``_deferred_executor`` is set to ``None`` so the next RT-thread
-    ``publish`` lazily creates a fresh executor (or, if the process
-    is exiting, the ``RuntimeError`` branch in ``publish`` falls
-    back to synchronous delivery).
+        Idempotent — safe to call multiple times. After this call,
+        ``_deferred_executor`` is set to ``None`` so the next RT-thread
+        ``publish`` lazily creates a fresh executor (or, if the process
+        is exiting, the ``RuntimeError`` branch in ``publish`` falls
+        back to synchronous delivery).
     """
     global _deferred_executor
     with _deferred_executor_lock:
@@ -829,14 +829,14 @@ def shutdown() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# G4-M-18: ConfigChangeListener protocol + typed config-change channel.
+# ConfigChangeListener protocol + typed config-change channel.
 #
 # ``config_applier.apply_config_side_effects`` is currently a ~200-line
 # if-chain that dispatches each changed config field to the relevant
 # module's setter (volume_ducker.set_smart_duck_enabled,
 # ai_enhancement.set_enabled, recording.set_*, etc.). Adding a new
 # config-reactive module means editing the chain AND the test file —
-# a fragility that G4-M-18 calls out as Medium severity.
+# a fragility that  calls out as Medium severity.
 #
 # This block provides the SUBSCRIPTION INFRASTRUCTURE only: the
 # :class:`ConfigChangeListener` protocol, ``subscribe_config_changes``,
@@ -864,7 +864,7 @@ def shutdown() -> None:
 # - Listener exceptions are isolated (logged at WARNING on the first
 #   occurrence per listener, then at DEBUG via ``log_rate_limited``,
 #   and skipped) so one misbehaving listener doesn't block the others
-#   — matches the semantics of the generic ``publish`` path (GT-3).
+# matches the semantics of the generic ``publish`` path ().
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -954,45 +954,45 @@ def unsubscribe_config_changes(listener: ConfigChangeListener) -> None:
 def _publish_config_change(updates: dict) -> bool:
     """Fan out *updates* to every registered :class:`ConfigChangeListener`.
 
-    Called by ``config_applier.apply_config`` (agent 2-j owns that
-    file — coordination note in the worklog) AFTER the validated
-    updates have been ``setattr``'d onto the :class:`Config`
-    instance. This is the future replacement for the
-    ``apply_config_side_effects`` if-chain; the if-chain remains as a
-    transitional fallback until every config-reactive module has
-    migrated to a listener.
+        Called by ``config_applier.apply_config`` (agent 2-j owns that
+        file — coordination note in the worklog) AFTER the validated
+        updates have been ``setattr``'d onto the :class:`Config`
+        instance. This is the future replacement for the
+        ``apply_config_side_effects`` if-chain; the if-chain remains as a
+        transitional fallback until every config-reactive module has
+        migrated to a listener.
 
-    Parameters
-    ----------
-    updates
-        A flat ``{field_name: new_value}`` dict of every field that
-        was changed in this apply cycle. The dict is shared across
-        all listeners — they MUST NOT mutate it.
+        Parameters
+        ----------
+        updates
+            A flat ``{field_name: new_value}`` dict of every field that
+            was changed in this apply cycle. The dict is shared across
+            all listeners — they MUST NOT mutate it.
 
-    Returns
-    -------
-    bool
-        ``True`` if at least one listener accepted the event
-        (returned without raising).  ``False`` if there are no
-        listeners or every listener raised. Mirrors the semantics of
-        :func:`publish`.
+        Returns
+        -------
+        bool
+            ``True`` if at least one listener accepted the event
+            (returned without raising).  ``False`` if there are no
+            listeners or every listener raised. Mirrors the semantics of
+            :func:`publish`.
 
-    Notes
-    -----
-    - Synchronous: listeners are called in the publisher's thread.
-      Config changes are low-frequency so this is fine; do NOT add
-      PERF-2-style deferral here (RT threads never publish config
-      changes).
-    - Listener exception isolation: a listener that raises is logged
-      at WARNING (with ``exc_info``) on the FIRST occurrence per
-      listener, then at DEBUG on subsequent occurrences
-      (:func:`log_rate_limited`), and skipped. Other listeners still
-      receive the event. Matches the generic ``publish`` semantics
-      (GT-3).
-    - The listener list is snapshotted under the lock before
-      iteration so a listener that (un)subscribes itself or another
-      listener during fan-out does not raise ``RuntimeError: Set
-      changed size during iteration``.
+        Notes
+        -----
+        - Synchronous: listeners are called in the publisher's thread.
+          Config changes are low-frequency so this is fine; do NOT add
+          PERF-2-style deferral here (RT threads never publish config
+          changes).
+        - Listener exception isolation: a listener that raises is logged
+          at WARNING (with ``exc_info``) on the FIRST occurrence per
+          listener, then at DEBUG on subsequent occurrences
+          (:func:`log_rate_limited`), and skipped. Other listeners still
+          receive the event. Matches the generic ``publish`` semantics
+    ().
+        - The listener list is snapshotted under the lock before
+          iteration so a listener that (un)subscribes itself or another
+          listener during fan-out does not raise ``RuntimeError: Set
+          changed size during iteration``.
     """
     with _config_change_lock:
         listeners = list(_config_change_listeners)
@@ -1004,13 +1004,13 @@ def _publish_config_change(updates: dict) -> bool:
             listener.on_config_changed(updates)
             delivered = True
         except Exception as exc:
-            # GT-3: same WARNING-on-first / DEBUG-on-repeat policy as
+            # same WARNING-on-first / DEBUG-on-repeat policy as
             # the generic ``_deliver`` path. ``listener`` is a
             # ``ConfigChangeListener`` Protocol; ``_subscriber_key``
             # falls back to ``id()`` for protocol-implementing objects
             # without a useful ``__qualname__``.
             #
-            # AB-46: log the exception type + message as a STRING rather
+            # log the exception type + message as a STRING rather
             # than passing ``exc_info=True``. Passing ``exc_info=True``
             # would capture the traceback, whose frames reference the
             # ``listener`` local variable — pinning the listener object

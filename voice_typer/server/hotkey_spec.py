@@ -1,6 +1,6 @@
 """Canonical hotkey spec parser — the single source of truth.
 
-RW-1 (Hotkey parser unification): previously the codebase had four
+(Hotkey parser unification): previously the codebase had four
 independent hotkey parsers with subtly different behaviour:
 
 1. ``_parse_hotkey_parts`` in ``config_validators.py`` — simple

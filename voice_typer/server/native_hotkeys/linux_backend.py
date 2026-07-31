@@ -1,7 +1,7 @@
 """Linux native hotkey backend.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 Spawns ``linux-key-listener`` (C) which reads from
 ``/dev/input/event*`` (evdev). Works on both X11 and Wayland

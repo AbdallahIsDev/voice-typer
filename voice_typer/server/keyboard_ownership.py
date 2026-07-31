@@ -1,6 +1,6 @@
 """Centralized keyboard ownership manager.
 
-ARCH-ESC-001: solves the "Escape key routing" problem with a clean
+solves the "Escape key routing" problem with a clean
 ownership model instead of scattered boolean flags.
 
 # Problem

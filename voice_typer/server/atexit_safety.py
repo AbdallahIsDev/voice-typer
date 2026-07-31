@@ -1,4 +1,4 @@
-"""atexit safety net (DR-28 extraction).
+"""atexit safety net ( extraction).
 
 Extracted out of :mod:`voice_typer.server.shutdown_controller` so the
 shutdown controller can focus on cleanup orchestration. The two
@@ -14,7 +14,7 @@ kill, etc.) without ``quit()`` / ``restart_app()`` having run.
   the process exits without ``quit()`` / ``restart_app()`` having run.
   Idempotent via the ``_shutting_down`` short-circuit and the
   ``_cleanup_done`` flag inside ``_do_cleanup`` itself; never raises
-  (CR-21).
+().
 
 Each function takes the owning :class:`ShutdownController` instance as
 its ``controller`` argument so it can read ``controller._app._shutting_down``
@@ -55,27 +55,27 @@ def atexit_log(controller: ShutdownController) -> None:
 def atexit_cleanup(controller: ShutdownController) -> None:
     """RACE-016: atexit handler for critical cleanup paths.
 
-    Daemon threads can be killed by the interpreter without running
-    their finally blocks.  This method is a safety net that ensures
-    critical cleanup (volume restore, hotkey release, crash recovery
-    flush, history DB flush, recorder stop, PID file + mutex
-    release) happens even if the daemon thread's finally block
-    didn't run.  It is idempotent — calling it after ``quit()`` or
-    ``restart_app()`` is a no-op because both set
-    ``_shutting_down = True`` before delegating to ``_do_cleanup()``,
-    and ``_do_cleanup()`` itself guards against double-execution
-    via the ``_cleanup_done`` flag.
+        Daemon threads can be killed by the interpreter without running
+        their finally blocks.  This method is a safety net that ensures
+        critical cleanup (volume restore, hotkey release, crash recovery
+        flush, history DB flush, recorder stop, PID file + mutex
+        release) happens even if the daemon thread's finally block
+        didn't run.  It is idempotent — calling it after ``quit()`` or
+        ``restart_app()`` is a no-op because both set
+        ``_shutting_down = True`` before delegating to ``_do_cleanup()``,
+        and ``_do_cleanup()`` itself guards against double-execution
+        via the ``_cleanup_done`` flag.
 
-    RW-3: previously this method ran an ad-hoc subset of cleanup
-    (volume restore + hotkey stop + crash recovery flush) that
-    DIVERGED from ``quit()``'s path.  When the process was killed
-    externally (no ``quit()`` / ``restart_app()``), the safety net
-    skipped history DB flush, recorder stop, mic watcher shutdown,
-    bubble level worker stop, PID file clear, and mutex handle
-    close — leaking the same resources that the OLD
-    ``restart_app()`` leaked.  It now delegates to
-    ``_do_cleanup()`` so the safety net runs the SAME audited
-    shutdown path as the regular flow.
+    previously this method ran an ad-hoc subset of cleanup
+        (volume restore + hotkey stop + crash recovery flush) that
+        DIVERGED from ``quit()``'s path.  When the process was killed
+        externally (no ``quit()`` / ``restart_app()``), the safety net
+        skipped history DB flush, recorder stop, mic watcher shutdown,
+        bubble level worker stop, PID file clear, and mutex handle
+        close — leaking the same resources that the OLD
+        ``restart_app()`` leaked.  It now delegates to
+        ``_do_cleanup()`` so the safety net runs the SAME audited
+        shutdown path as the regular flow.
     """
     app = controller._app
     try:
@@ -96,7 +96,7 @@ def atexit_cleanup(controller: ShutdownController) -> None:
         # tests/test_app_cleanup.py::test_atexit_cleanup_never_raises.
         app._do_cleanup()
     except Exception:
-        # CR-21: previously this was a bare ``except Exception: pass``
+        # previously this was a bare ``except Exception: pass``
         # which silently swallowed cleanup failures and left no trace
         # in the log — making post-mortem debugging of crash-loop
         # exits effectively impossible. We still never re-raise out

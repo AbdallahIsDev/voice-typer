@@ -1,6 +1,6 @@
 """Metadata registry for all supported ASR models.
 
-NEW-MODEL-001: This module is the single source of truth for *rich*
+This module is the single source of truth for *rich*
 model metadata — anything beyond the bare ``download_size_mb`` table
 that lives in :mod:`voice_typer.server.transcription`.
 
@@ -22,14 +22,14 @@ instance capturing:
 - ``is_distilled`` — ``True`` for distil-* models
 - ``speed_rating`` — ``"fast"`` / ``"medium"`` / ``"slow"``
 - ``accuracy_rating`` — ``"low"`` / ``"medium"`` / ``"high"``
-- ``network_behavior`` (G4-M-40) — one of ``"local-only"``,
+``network_behavior`` () — one of ``"local-only"``,
   ``"downloads-on-first-use-consent-gated"``,
   ``"downloads-on-first-use-no-consent"``, or ``"cloud-per-call"``.
   Declares what network activity the model requires so the UI / privacy
   surface can show "downloads on first use (consent gated)" vs.
   "local-only" vs. "cloud per call" honestly.  Whisper + distil variants
   are consent-gated HF downloads; parakeet downloads without explicit
-  consent (documented honestly per G4-H-04 — this is a known issue to
+consent (documented honestly per  — this is a known issue to
   fix in a follow-up); qwen is local-only (user supplies the model
   path); cloud providers (not in this registry) are per-call.
 
@@ -71,7 +71,7 @@ class ModelMetadata:
     is_distilled: bool = False
     speed_rating: str = "medium"  # "fast", "medium", "slow"
     accuracy_rating: str = "high"  # "low", "medium", "high"
-    # G4-M-40: declares what network activity the model requires, so the
+    # declares what network activity the model requires, so the
     # UI/privacy surface can show "downloads on first use (consent gated)"
     # vs. "local-only" vs. "cloud per call" honestly.  Default
     # ``"local-only"`` is the safest assumption — entries that DO
@@ -253,7 +253,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="slow",
         accuracy_rating="high",
     ),
-    # ── Turbo (NEW-MODEL-001) ─────────────────────────────────────
+    # Turbo () ─────────────────────────────────────
     # ``large-v3-turbo`` is OpenAI's 2024 fast multilingual model:
     # near-large-v3 accuracy at ~8x speed.  ``turbo`` is an alias
     # that resolves to the same HuggingFace repo.
@@ -283,7 +283,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         speed_rating="fast",
         accuracy_rating="high",
     ),
-    # ── Distil-Whisper variants (NEW-MODEL-001) ──────────────────
+    # Distil-Whisper variants () ──────────────────
     # Distilled models from the Distil-Whisper project: 2-4x faster
     # inference, ~50% smaller, slightly lower accuracy.  Use when
     # speed matters more than edge-case accuracy.
@@ -316,7 +316,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         accuracy_rating="medium",
     ),
     # ── Parakeet (by NVIDIA) ──────────────────────────────────────
-    # ARCH-007: added to registry so get_model_status() can resolve the
+    # added to registry so get_model_status() can resolve the
     # repo_id and check HF cache download status. Previously the model
     # was only hardcoded in service.py / tray_models.py, causing status
     # checks to fail silently (returning downloaded=false even when the
@@ -335,14 +335,14 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         accuracy_rating="high",
     ),
     # ── Qwen (by Alibaba) ─────────────────────────────────────────
-    # ARCH-007: added to registry for status consistency. Qwen uses a
+    # added to registry for status consistency. Qwen uses a
     # different download mechanism — the user must manually configure
     # ``qwen_model_path`` in Settings (pointing at a local snapshot of
-    # ``Qwen/Qwen3-ASR-1.7B``). The repo_id below is informational
+    # ``Qwen/Qwen3-``). The repo_id below is informational
     # only; it is NOT auto-fetched. ``_check_qwen_deps()`` verifies
     # the configured path exists locally before the engine loads.
     #
-    # G4-M-40 / G4-H-04: previously the description claimed
+    # previously the description claimed
     # "Auto-downloaded on first use", which was inaccurate — the
     # engine does not auto-download. Corrected to "Requires manual
     # model path setup in Settings" so the user is not misled into
@@ -391,14 +391,14 @@ def get_models_by_backend(backend: str) -> list[ModelMetadata]:
     return [m for m in MODEL_REGISTRY.values() if m.backend == backend]
 
 
-# S4-CR-38 / CR-38: the canonical allowlist of model names a user is
+# the canonical allowlist of model names a user is
 # permitted to select (onboarding picker + Config.load() validation +
 # Settings page model selector). Exposed as a function (not a module
 # constant) so callers always see the current registry state — if a
 # model is added to ``MODEL_REGISTRY`` in a future PR, this allowlist
 # updates automatically without needing a parallel hardcoded set.
 #
-# This is the durable fix for CR-38: the pre-fix ``ALLOWED_USER_MODELS``
+# This is the durable fix for : the pre-fix ``ALLOWED_USER_MODELS``
 # hardcoded set in ``config_validators.py`` drifted out of sync with
 # ``OnboardingController.MODEL_OPTIONS`` (the onboarding picker offered
 # ``"tiny"``, ``"small"``, ``"medium"`` multilingual variants, but the

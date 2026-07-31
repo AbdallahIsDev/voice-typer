@@ -36,7 +36,7 @@ from voice_typer.server.platform_utils import is_macos, is_windows
 log = logging.getLogger(__name__)
 
 
-# ─── SA-4 / S1-CR-84: cross-thread serialization lock for restore() ──────
+# cross-thread serialization lock for restore() ──────
 #
 # Platform clipboard APIs are NOT thread-safe:
 #
@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 # the clipboard in an indeterminate state (typically: empty, or stuck
 # with the dictated text from one of the two cycles).
 #
-# The DE-63 fix in ``manager.py`` already prevents atexit and the SAME
+# The  fix in ``manager.py`` already prevents atexit and the SAME
 # snapshot's daemon from both calling ``snapshot.restore()`` (the daemon
 # claims its entry under ``_pending_restores_lock`` before restoring,
 # and short-circuits if atexit already took it). But it does NOT prevent
@@ -216,28 +216,28 @@ class ClipboardSnapshot:
     def restore(self) -> bool:
         """Restore all captured formats.
 
-        Returns ``True`` if the restore completed without raising,
-        ``False`` on failure. Best-effort: per-item failures are logged
-        but do not abort the loop (we restore as many formats as we can).
+                Returns ``True`` if the restore completed without raising,
+                ``False`` on failure. Best-effort: per-item failures are logged
+                but do not abort the loop (we restore as many formats as we can).
 
-        SA-4 / S1-CR-84: the entire platform-dispatched restore is
-        serialized across threads by ``_restore_lock``. Platform
-        clipboard APIs are not thread-safe (Win32 ``OpenClipboard``
-        fails on the second concurrent opener; macOS
-        ``NSPasteboard.clearContents`` / ``writeObjects_`` is
-        main-thread-only; Linux ``xclip`` / ``wl-copy`` subprocesses
-        race on selection ownership). The lock prevents the daemon
-        thread for cycle A's ``snapshot_A.restore()`` from racing the
-        atexit handler's ``snapshot_B.restore()`` (or another daemon's
-        ``snapshot_C.restore()``) on the platform clipboard APIs.
+        the entire platform-dispatched restore is
+                serialized across threads by ``_restore_lock``. Platform
+                clipboard APIs are not thread-safe (Win32 ``OpenClipboard``
+                fails on the second concurrent opener; macOS
+                ``NSPasteboard.clearContents`` / ``writeObjects_`` is
+                main-thread-only; Linux ``xclip`` / ``wl-copy`` subprocesses
+                race on selection ownership). The lock prevents the daemon
+                thread for cycle A's ``snapshot_A.restore()`` from racing the
+                atexit handler's ``snapshot_B.restore()`` (or another daemon's
+                ``snapshot_C.restore()``) on the platform clipboard APIs.
 
-        The lock is held for the duration of the platform restore
-        (Open/Empty/Set/Close on Windows; clearContents/writeObjects on
-        macOS; subprocess.run on Linux). This is correct: the platform
-        call sequence is the critical section. Per-item failures inside
-        ``_restore_windows`` etc. are still logged-and-continue (best
-        effort) — the lock is not released between items because
-        releasing between items would re-open the race window mid-loop.
+                The lock is held for the duration of the platform restore
+                (Open/Empty/Set/Close on Windows; clearContents/writeObjects on
+                macOS; subprocess.run on Linux). This is correct: the platform
+                call sequence is the critical section. Per-item failures inside
+                ``_restore_windows`` etc. are still logged-and-continue (best
+                effort) — the lock is not released between items because
+                releasing between items would re-open the race window mid-loop.
         """
         with _restore_lock:
             if self.platform == "windows":
@@ -395,29 +395,29 @@ class ClipboardSnapshot:
     def _restore_windows(self) -> bool:
         """Restore all captured formats to the Windows clipboard.
 
-        Re-registers registered formats by name (the ID may differ from
-        the original because Windows assigns IDs dynamically). Skips
-        GDI-handle formats (CF_BITMAP, CF_METAFILEPICT, CF_ENHMETAFILE)
-        which cannot be round-tripped through GlobalAlloc.
+                Re-registers registered formats by name (the ID may differ from
+                the original because Windows assigns IDs dynamically). Skips
+                GDI-handle formats (CF_BITMAP, CF_METAFILEPICT, CF_ENHMETAFILE)
+                which cannot be round-tripped through GlobalAlloc.
 
-        DE-62 (session-DE, Medium, Data integrity): the pre-fix code
-        called ``EmptyClipboard()`` unconditionally, then iterated
-        ``self.items`` calling ``SetClipboardData`` per format. Per-item
-        failures were logged at DEBUG and the item skipped; the function
-        returned ``True`` unconditionally — even if EVERY
-        ``SetClipboardData`` call failed (e.g. all ``GlobalAlloc``
-        returned 0 due to memory pressure). After ``EmptyClipboard()``
-        ran, the user's original clipboard content was gone, but the
-        caller logged "Restored snapshot" — false success with silent
-        permanent data loss.
+        (session-DE, Medium, Data integrity): the pre-fix code
+                called ``EmptyClipboard()`` unconditionally, then iterated
+                ``self.items`` calling ``SetClipboardData`` per format. Per-item
+                failures were logged at DEBUG and the item skipped; the function
+                returned ``True`` unconditionally — even if EVERY
+                ``SetClipboardData`` call failed (e.g. all ``GlobalAlloc``
+                returned 0 due to memory pressure). After ``EmptyClipboard()``
+                ran, the user's original clipboard content was gone, but the
+                caller logged "Restored snapshot" — false success with silent
+                permanent data loss.
 
-        Fix: track a success count during the loop. If zero items were
-        successfully set, return ``False`` and log at WARNING so the
-        caller logs failure instead of "Restored snapshot". The
-        ``EmptyClipboard()`` call is preserved (the capture-then-swap
-        pattern would be more complex and is left as a future
-        improvement); the fix narrows the false-success case from
-        "zero items set → True" to "zero items set → False + WARNING".
+                Fix: track a success count during the loop. If zero items were
+                successfully set, return ``False`` and log at WARNING so the
+                caller logs failure instead of "Restored snapshot". The
+                ``EmptyClipboard()`` call is preserved (the capture-then-swap
+                pattern would be more complex and is left as a future
+                improvement); the fix narrows the false-success case from
+                "zero items set → True" to "zero items set → False + WARNING".
         """
         import ctypes
 
@@ -479,7 +479,7 @@ class ClipboardSnapshot:
                     continue
                 success_count += 1
             if success_count == 0:
-                # DE-62: zero items were successfully set. EmptyClipboard()
+                # zero items were successfully set. EmptyClipboard()
                 # has already cleared the clipboard, so the user's prior
                 # content is gone. Return False so the caller logs failure
                 # instead of "Restored snapshot" — at least the audit
@@ -631,17 +631,17 @@ class ClipboardSnapshot:
     def _restore_x11(self) -> bool:
         """Restore text content to the X11 clipboard via xclip.
 
-        DE-61 (session-DE, Medium, Data integrity): the pre-fix code
-        called ``subprocess.run(...)`` without ``check=True``, so a
-        non-zero ``xclip`` exit (no ``DISPLAY``, X11 connection
-        refused, compositor error) did NOT raise — the function
-        returned ``True`` unconditionally and the caller logged
-        "Restored snapshot" while the user's clipboard still contained
-        the dictated text. Silent data loss with false-success signal.
-        Now we pass ``check=True`` so non-zero exits raise
-        ``CalledProcessError``, catch it alongside
-        ``TimeoutExpired``/``FileNotFoundError``, and return ``False``
-        on failure with a WARNING log.
+        (session-DE, Medium, Data integrity): the pre-fix code
+                called ``subprocess.run(...)`` without ``check=True``, so a
+                non-zero ``xclip`` exit (no ``DISPLAY``, X11 connection
+                refused, compositor error) did NOT raise — the function
+                returned ``True`` unconditionally and the caller logged
+                "Restored snapshot" while the user's clipboard still contained
+                the dictated text. Silent data loss with false-success signal.
+                Now we pass ``check=True`` so non-zero exits raise
+                ``CalledProcessError``, catch it alongside
+                ``TimeoutExpired``/``FileNotFoundError``, and return ``False``
+                on failure with a WARNING log.
         """
         import subprocess
 
@@ -713,16 +713,16 @@ class ClipboardSnapshot:
     def _restore_wayland(self) -> bool:
         """Restore text content to the Wayland clipboard via wl-copy.
 
-        DE-61 (session-DE, Medium, Data integrity): the pre-fix code
-        called ``subprocess.run(...)`` without ``check=True``, so a
-        non-zero ``wl-copy`` exit (compositor error, no Wayland
-        display) did NOT raise — the function returned ``True``
-        unconditionally and the caller logged "Restored snapshot"
-        while the user's clipboard still contained the dictated text.
-        Silent data loss with false-success signal. Now we pass
-        ``check=True`` so non-zero exits raise ``CalledProcessError``,
-        catch it alongside ``TimeoutExpired``/``FileNotFoundError``,
-        and return ``False`` on failure with a WARNING log.
+        (session-DE, Medium, Data integrity): the pre-fix code
+                called ``subprocess.run(...)`` without ``check=True``, so a
+                non-zero ``wl-copy`` exit (compositor error, no Wayland
+                display) did NOT raise — the function returned ``True``
+                unconditionally and the caller logged "Restored snapshot"
+                while the user's clipboard still contained the dictated text.
+                Silent data loss with false-success signal. Now we pass
+                ``check=True`` so non-zero exits raise ``CalledProcessError``,
+                catch it alongside ``TimeoutExpired``/``FileNotFoundError``,
+                and return ``False`` on failure with a WARNING log.
         """
         import subprocess
 

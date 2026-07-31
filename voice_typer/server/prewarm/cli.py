@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """CLI entry point for ``python -m voice_typer.server.prewarm``.
 
-Phase 4.5 / ARCH-045 — this module holds the argparse-based CLI:
+Phase 4.5 /  — this module holds the argparse-based CLI:
 
 - :func:`_parse_args` — build the ``argparse.ArgumentParser`` and parse
   ``sys.argv`` (or the supplied ``argv``).

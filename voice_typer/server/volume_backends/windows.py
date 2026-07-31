@@ -1,7 +1,7 @@
 """Windows volume backend — pycaw (IAudioEndpointVolume).
 
 Extracted from the original ``voice_typer/server/volume_backends.py``
-monolith per PVT-24.  See ``voice_typer/server/volume_backends/__init__.py``
+monolith per   See ``voice_typer/server/volume_backends/__init__.py``
 for the package-level docstring and re-exports.
 """
 
@@ -16,7 +16,7 @@ from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
 
-# UE-25: number of consecutive backend failures before a WARNING is
+# number of consecutive backend failures before a WARNING is
 # surfaced.  Backends otherwise swallow errors and return safe defaults
 # (``True`` for ``is_speaker_active``, ``None`` for ``get_state``) so
 # duck-state is never corrupted by a transient backend hiccup — but a
@@ -47,7 +47,7 @@ class WinVolumeBackend(VolumeBackend):
         self._meter = None  # IAudioMeterInformation COM pointer
         self._sessions: list = []  # saved (session, original_volume) tuples
         self._com_initialized = False
-        # UE-25: consecutive-error counter for observability.  Reset on
+        # consecutive-error counter for observability.  Reset on
         # any success; surfaces a WARNING after
         # ``_BACKEND_ERROR_WARN_THRESHOLD`` consecutive failures so a
         # stuck/revoked COM pointer doesn't degrade ducking to a silent
@@ -67,7 +67,7 @@ class WinVolumeBackend(VolumeBackend):
     def initialize(self) -> bool:
         if self._vol is not None:
             return True
-        # UE-25: reset the error counter on a fresh initialize() attempt.
+        # reset the error counter on a fresh initialize() attempt.
         self._consecutive_errors = 0
         try:
             from ctypes import POINTER, cast
@@ -80,7 +80,7 @@ class WinVolumeBackend(VolumeBackend):
                 log.warning("[VOLUME-WIN] No speakers endpoint found")
                 return False
 
-            # RW-6 (pyrefly): bind the endpoint volume pointer to a
+            # (pyrefly): bind the endpoint volume pointer to a
             # local first so pyrefly can see it is non-None when we
             # later call .QueryInterface on it. Previously the code
             # assigned straight to ``self._vol`` whose declared type is
@@ -114,7 +114,7 @@ class WinVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-WIN] initialize failed: %s", exc)
             return False
 
-    # ── UE-25 error-tracking helpers ──────────────────────────────────
+    # error-tracking helpers ──────────────────────────────────
     #
     # ``_record_error`` increments the consecutive-failure counter and
     # emits a WARNING every ``_BACKEND_ERROR_WARN_THRESHOLD`` failures
@@ -156,7 +156,7 @@ class WinVolumeBackend(VolumeBackend):
             self._record_success()
             return VolumeState(linear=scalar, muted=muted)
         except Exception as exc:
-            # UE-25: per-failure DEBUG only; the threshold-based WARNING
+            # per-failure DEBUG only; the threshold-based WARNING
             # in ``_record_error`` is the operator-visible signal.
             log.debug("[VOLUME-WIN] get_state failed: %s", exc)
             self._record_error("get_state", exc)
@@ -172,7 +172,7 @@ class WinVolumeBackend(VolumeBackend):
                 self._vol.SetMute(1 if muted else 0, None)
             return True
         except Exception as exc:
-            # UE-25: per-failure DEBUG; threshold WARNING handled by _record_error.
+            # per-failure DEBUG; threshold WARNING handled by _record_error.
             log.debug("[VOLUME-WIN] set_linear failed: %s", exc)
             self._record_error("set_linear", exc)
             return False

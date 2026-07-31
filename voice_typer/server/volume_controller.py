@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: VolumeController — extracted from VoiceTyperApp.
+"""god-class decomposition: VolumeController — extracted from VoiceTyperApp.
 
 Owns the system-volume side effects of the dictation lifecycle:
 
@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from voice_typer.server.branding import APP_NAME
 
-# DT-11: import the canonical smart-duck poll-interval default that
+# import the canonical smart-duck poll-interval default that
 # was previously duplicated as the literal `500` here and in
 # ``config.py``. ``volume_ducker._DEFAULT_SMART_DUCK_POLL_MS`` is the
 # single source of truth.
@@ -55,18 +55,18 @@ log = logging.getLogger(__name__)
 class VolumeController:
     """Owns duck/restore volume side effects for the dictation lifecycle.
 
-    RW-9 §5.3: extracted from ``VoiceTyperApp``. The app passes itself
-    (``app``) so ``VolumeController`` can:
-    - Call ``app._volume_ducker.{set_smart_duck_enabled,
-      set_smart_duck_poll_interval, initialize, duck, restore}``
-    - Read ``app.config.{volume_duck_enabled, volume_duck_level,
-      volume_duck_fade_ms, volume_duck_smart_poll_interval_ms}``
-    - Call ``app.tray.notify(APP_NAME, ...)`` for crash-restore
-      notifications.
+    §5.3: extracted from ``VoiceTyperApp``. The app passes itself
+        (``app``) so ``VolumeController`` can:
+        - Call ``app._volume_ducker.{set_smart_duck_enabled,
+          set_smart_duck_poll_interval, initialize, duck, restore}``
+        - Read ``app.config.{volume_duck_enabled, volume_duck_level,
+          volume_duck_fade_ms, volume_duck_smart_poll_interval_ms}``
+        - Call ``app.tray.notify(APP_NAME, ...)`` for crash-restore
+          notifications.
 
-    The VolumeDucker is constructed in ``VoiceTyperApp.__init__`` (NOT
-    here) because it owns hardware-backend lifecycle and crash-recovery
-    file state — neither of which belong in this controller.
+        The VolumeDucker is constructed in ``VoiceTyperApp.__init__`` (NOT
+        here) because it owns hardware-backend lifecycle and crash-recovery
+        file state — neither of which belong in this controller.
     """
 
     def __init__(self, app: VoiceTyperApp | Any) -> None:
@@ -93,21 +93,21 @@ class VolumeController:
     def _duck_volume(self) -> None:
         """Duck system volume at the start of dictation.
 
-        UX-2: the ducking behavior is now simplified:
-        - Smart Duck is ALWAYS ON (merged into Auto Duck Volume)
-        - Fade duration is a fixed 200ms (not user-configurable)
-        - Poll interval is a fixed 500ms (not user-configurable)
-        - Per-session ducking is removed (always ducks master volume
-          cross-platform)
-        The config fields are kept for backward compat but ignored.
+        the ducking behavior is now simplified:
+                - Smart Duck is ALWAYS ON (merged into Auto Duck Volume)
+                - Fade duration is a fixed 200ms (not user-configurable)
+                - Poll interval is a fixed 500ms (not user-configurable)
+                - Per-session ducking is removed (always ducks master volume
+                  cross-platform)
+                The config fields are kept for backward compat but ignored.
         """
         app = self._app
         if not getattr(app.config, "volume_duck_enabled", True):
             return
         try:
-            # UX-2: smart duck is always on when ducking is enabled.
+            # smart duck is always on when ducking is enabled.
             app._volume_ducker.set_smart_duck_enabled(True)
-            # UX-2: poll interval is a fixed 500ms (not user-configurable).
+            # poll interval is a fixed 500ms (not user-configurable).
             app._volume_ducker.set_smart_duck_poll_interval(
                 getattr(app.config, "volume_duck_smart_poll_interval_ms", _DEFAULT_SMART_DUCK_POLL_MS)
             )
@@ -115,7 +115,7 @@ class VolumeController:
                 app._volume_ducker.duck(
                     level=getattr(app.config, "volume_duck_level", 0.20),
                     fade_ms=getattr(app.config, "volume_duck_fade_ms", 200),
-                    # UX-2: per-session removed — always master-volume duck.
+                    # per-session removed — always master-volume duck.
                     per_session=False,
                 )
         except Exception:
@@ -135,7 +135,7 @@ class VolumeController:
                 fade_ms = getattr(app.config, "volume_duck_fade_ms", 200)
             app._volume_ducker.restore(
                 fade_ms=fade_ms,
-                # UX-2: per-session removed — always master-volume restore.
+                # per-session removed — always master-volume restore.
                 per_session=False,
             )
         except Exception:

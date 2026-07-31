@@ -1,19 +1,19 @@
-"""DT-25 (Phase 4.5 spaghetti split): UndoRepasteController — extracted
+"""(Phase 4.5 spaghetti split): UndoRepasteController — extracted
 from VoiceTyperApp.
 
 Owns the undo / repaste side effects of ``VoiceTyperApp``:
 
-    - ``undo_last`` — UX-003: send N backspaces (grapheme-cluster
-      counted, CR-016) to undo the last transcription. CR-017:
+``undo_last`` — : send N backspaces (grapheme-cluster
+counted, ) to undo the last transcription. :
       keyboard-ownership check mirrors ``_cancel_dictation`` so the
       backspaces don't land in the frontend HotkeyPicker capture field.
-      APP-6: backspaces are batched in chunks of 10 with a 10ms
+backspaces are batched in chunks of 10 with a 10ms
       ``time.sleep(0.01)`` between chunks so we don't flood the OS
       keyboard event queue on long transcriptions.
     - ``repaste_last`` — ADR-0010 §7.1 / DP6 / DP4: re-paste the last
       transcription from ``history_db.get_latest_text()`` (primary —
       survives app restart) with a ``self._last_transcription`` memory
-      fallback. ERR-018: clipboard-copy failures and paste-keystroke
+fallback. : clipboard-copy failures and paste-keystroke
       failures are split into separate toasts so the user knows which
       step failed.
 
@@ -70,23 +70,23 @@ log = logging.getLogger("voice_typer.server.app")
 
 
 class UndoRepasteController:
-    """DT-25: owns undo_last / repaste_last side effects.
+    """owns undo_last / repaste_last side effects.
 
-    RW-9 Phase 4.5: extracted from ``VoiceTyperApp``. The app passes
-    itself (``app``) so ``UndoRepasteController`` can:
+    Phase 4.5: extracted from ``VoiceTyperApp``. The app passes
+        itself (``app``) so ``UndoRepasteController`` can:
 
-    - Read ``app._last_transcription`` (memory fallback for repaste;
-      cleared after undo).
-    - Call ``app.history_db.get_latest_text()`` (primary repaste
-      source — survives app restart).
-    - Call ``app.tray.notify(APP_NAME, i18n.t(...))`` (localized
-      toasts for success / failure / nothing-to-undo states).
-    - Call ``app.clipboard.copy(text)`` /
-      ``app.clipboard.paste(snapshot, ...)`` (snapshot/restore
-      mechanism shared with auto-paste).
-    - Read ``app.clipboard._clipboard_seq`` (CRIT-3 per-request
-      sequence number threaded into ``paste()`` so a concurrent
-      ``copy()`` can't clobber the seq validated in ``paste()``).
+        - Read ``app._last_transcription`` (memory fallback for repaste;
+          cleared after undo).
+        - Call ``app.history_db.get_latest_text()`` (primary repaste
+          source — survives app restart).
+        - Call ``app.tray.notify(APP_NAME, i18n.t(...))`` (localized
+          toasts for success / failure / nothing-to-undo states).
+        - Call ``app.clipboard.copy(text)`` /
+          ``app.clipboard.paste(snapshot, ...)`` (snapshot/restore
+          mechanism shared with auto-paste).
+        - Read ``app.clipboard._clipboard_seq`` (CRIT-3 per-request
+          sequence number threaded into ``paste()`` so a concurrent
+          ``copy()`` can't clobber the seq validated in ``paste()``).
     """
 
     def __init__(self, app: Any) -> None:
@@ -97,28 +97,28 @@ class UndoRepasteController:
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
-        ADR-0010 §7.1 / DP6 / DP4.
+                ADR-0010 §7.1 / DP6 / DP4.
 
-        Reads from ``history_db.get_latest_text()`` (primary — survives
-        app restart), falling back to ``self._app._last_transcription``
-        if the DB read fails. Uses the same snapshot/restore mechanism
-        as auto-paste so the user's clipboard is preserved.
+                Reads from ``history_db.get_latest_text()`` (primary — survives
+                app restart), falling back to ``self._app._last_transcription``
+                if the DB read fails. Uses the same snapshot/restore mechanism
+                as auto-paste so the user's clipboard is preserved.
 
-        ``paste(force=True)`` bypasses the ``paste_enabled`` gate
-        (§2.12) so a manual repaste works regardless of the auto-paste
-        (``paste_on_stop``) setting.
+                ``paste(force=True)`` bypasses the ``paste_enabled`` gate
+                (§2.12) so a manual repaste works regardless of the auto-paste
+                (``paste_on_stop``) setting.
 
-        ERR-018: previously a single try/except collapsed clipboard-copy
-        failures and paste-keystroke failures into one generic toast.
-        We now split them so the user knows which step failed.
+        previously a single try/except collapsed clipboard-copy
+                failures and paste-keystroke failures into one generic toast.
+                We now split them so the user knows which step failed.
 
-        Fallback chain:
-          1. ``history_db.get_latest_text()``  (primary — survives restart)
-          2. ``self._app._last_transcription``  (fallback if DB read fails)
-          3. "No previous transcription" toast  (both empty)
+                Fallback chain:
+                  1. ``history_db.get_latest_text()``  (primary — survives restart)
+                  2. ``self._app._last_transcription``  (fallback if DB read fails)
+                  3. "No previous transcription" toast  (both empty)
 
-        DT-25: body lives here now; ``VoiceTyperApp.repaste_last`` is a
-        one-line delegate.
+        body lives here now; ``VoiceTyperApp.repaste_last`` is a
+                one-line delegate.
         """
         app = self._app
         # ① READ FROM DB (primary — survives restart)
@@ -178,39 +178,39 @@ class UndoRepasteController:
     # ─── Undo ─────────────────────────────────────────────────────────
 
     def undo_last(self) -> None:
-        """UX-003: Undo last transcription by sending backspace keystrokes.
+        """Undo last transcription by sending backspace keystrokes.
 
-        Sends one backspace per character in the last transcription.
-        Works by simulating keyboard input via the hotkey backend's
-        keyboard controller (pynput on all platforms).
+                Sends one backspace per character in the last transcription.
+                Works by simulating keyboard input via the hotkey backend's
+                keyboard controller (pynput on all platforms).
 
-        CR-016 (IMPROVE-mode run, 2026-07-21): count grapheme clusters
-        (not Unicode code points) so emoji and combining-character
-        sequences are deleted with a single backspace (matching the
-        OS's grapheme-level delete behavior). Pre-fix, ``len(text)``
-        returned 14 for
-        ``"Hello \\U0001f468\\u200d\\U0001f469\\u200d\\U0001f467 world"``
-        (1 grapheme = 5 code points ZWJ-joined) but the OS only needs
-        11 backspaces — the extra 3 deleted the user's PREVIOUS text.
+        (IMPROVE-mode run, 2026-07-21): count grapheme clusters
+                (not Unicode code points) so emoji and combining-character
+                sequences are deleted with a single backspace (matching the
+                OS's grapheme-level delete behavior). Pre-fix, ``len(text)``
+                returned 14 for
+                ``"Hello \\U0001f468\\u200d\\U0001f469\\u200d\\U0001f467 world"``
+                (1 grapheme = 5 code points ZWJ-joined) but the OS only needs
+                11 backspaces — the extra 3 deleted the user's PREVIOUS text.
 
-        CR-017 (IMPROVE-mode run, 2026-07-21): check keyboard_ownership
-        before sending backspaces (mirror ``_cancel_dictation``).
-        Pre-fix, if the frontend HotkeyPicker was in capture mode, the
-        backspaces landed in the capture field instead of undoing the
-        transcription.
+        (IMPROVE-mode run, 2026-07-21): check keyboard_ownership
+                before sending backspaces (mirror ``_cancel_dictation``).
+                Pre-fix, if the frontend HotkeyPicker was in capture mode, the
+                backspaces landed in the capture field instead of undoing the
+                transcription.
 
-        APP-6: batch backspaces into chunks of ``_undo_chunk_size``
-        (10) with a 10ms ``time.sleep(0.01)`` between chunks so we
-        don't flood the OS keyboard event queue on long transcriptions
-        (>200 chars). Without rate limiting, pynput can drop keystrokes
-        silently. The sleep is omitted after the final (possibly
-        partial) chunk — there's no subsequent chunk to space it from.
+        batch backspaces into chunks of ``_undo_chunk_size``
+                (10) with a 10ms ``time.sleep(0.01)`` between chunks so we
+                don't flood the OS keyboard event queue on long transcriptions
+                (>200 chars). Without rate limiting, pynput can drop keystrokes
+                silently. The sleep is omitted after the final (possibly
+                partial) chunk — there's no subsequent chunk to space it from.
 
-        DT-25: body lives here now; ``VoiceTyperApp.undo_last`` is a
-        one-line delegate.
+        body lives here now; ``VoiceTyperApp.undo_last`` is a
+                one-line delegate.
         """
         app = self._app
-        # CR-017: keyboard-ownership check — mirror _cancel_dictation.
+        # keyboard-ownership check — mirror _cancel_dictation.
         try:
             from voice_typer.server.keyboard_ownership import keyboard_ownership
 
@@ -223,7 +223,7 @@ class UndoRepasteController:
             app.tray.notify(APP_NAME, i18n.t("notify.app.undo_nothing"))
             return
         text = app._last_transcription
-        # CR-016: count grapheme clusters using the regex library
+        # count grapheme clusters using the regex library
         # (already in deps for text_cleanup.py). ``\X`` matches a
         # single user-perceived grapheme (handles ZWJ emoji, combining
         # marks, etc.).
@@ -232,13 +232,13 @@ class UndoRepasteController:
 
             char_count = len(_regex.findall(r"\X", text))
         except ImportError:
-            # Fallback: code-point count (pre-CR-016 behavior — buggy
+            # Fallback: code-point count (pre- behavior — buggy
             # for multi-code-point graphemes but at least doesn't
             # crash).
             char_count = len(text)
         log.info("[UNDO] Undoing last transcription (%d chars)", char_count)
         try:
-            # CR-016 (cont.): use ``import pynput.keyboard as _pk_keyboard``
+            # (cont.): use ``import pynput.keyboard as _pk_keyboard``
             # + ``_pk_keyboard.Controller()`` (module-attribute access at
             # call time) rather than ``from pynput.keyboard import
             # Controller`` (which binds the name at import time). Both
@@ -263,7 +263,7 @@ class UndoRepasteController:
             # backspaces instead — this is the standard "undo paste"
             # behavior.
             #
-            # APP-6: batch backspaces into chunks of
+            # batch backspaces into chunks of
             # ``_undo_chunk_size`` (10) with a 10ms
             # ``time.sleep(0.01)`` between chunks so we don't flood the
             # OS keyboard event queue on long transcriptions (>200
@@ -284,7 +284,7 @@ class UndoRepasteController:
             app.tray.notify(APP_NAME, i18n.t("notify.app.undo_no_pynput"))
         except Exception as e:
             log.warning("[UNDO] Failed: %s", e)
-            # XZ-EH-017: do NOT interpolate the raw exception (or even
+            # do NOT interpolate the raw exception (or even
             # the class name) into the user-facing tray notification —
             # pynput failures include OS-level error strings, X11 paths,
             # and AT-SPI addresses (PII / sensitive environment details).

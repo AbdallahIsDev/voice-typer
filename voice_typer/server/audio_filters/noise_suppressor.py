@@ -5,26 +5,18 @@ from __future__ import annotations
 import logging
 import math
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
-# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
-# the audio worker thread). Module-top import under try/except so the
-# module still loads when scipy is missing (tests with mock filters).
-try:
-    from scipy.signal import lfilter
-except ImportError:  # pragma: no cover — scipy is a hard dep in prod
-    lfilter = None  # type: ignore[assignment]
-
-from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE, WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import AudioFilter
+np = lazy_module("numpy")
+from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE, WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import AudioFilter, _get_lfilter  # noqa: E402
 
 log = logging.getLogger(__name__)
 
 # RNNoise requires 48kHz, 480-sample frames (10ms at 48kHz).
 _RNNOISE_FRAME_SIZE: int = 480
 
-# XV-38: float32 -> int16 conversion constants. ``_FLOAT_TO_INT16_MAX`` is the
+# float32 -> int16 conversion constants. ``_FLOAT_TO_INT16_MAX`` is the
 # maximum representable int16 value (32767). ``_INT16_SCALE`` is the multiplier
 # applied to float32 audio (after clipping to [-1, 1]) to bring it into the
 # int16 amplitude range. Both names are exposed for testability and so that the
@@ -34,20 +26,20 @@ _INT16_SCALE: float = _FLOAT_TO_INT16_MAX
 
 
 class _StreamingResampler:
-    """Streaming polyphase resampler (XV-32 / XV-33).
+    """Streaming polyphase resampler ( / ).
 
     The FIR anti-imaging / anti-aliasing filter is designed ONCE at
     construction via ``scipy.signal.firwin`` and reused across every
-    ``process()`` call (XV-32). Internal filter state (``_zi``) is persisted
+    ``process()`` call (). Internal filter state (``_zi``) is persisted
     between calls so that chunked processing produces output identical to
-    one-shot processing (XV-33) — there are no edge artifacts at chunk
+    one-shot processing () — there are no edge artifacts at chunk
     boundaries.
 
     Output length invariant: after consuming ``N`` input samples, the
     cumulative output length is exactly ``floor((N * up + phase) / down)``
     where ``phase`` is the residual downsampling phase carried across calls.
     For an up/down roundtrip (e.g. 16k -> 48k -> 16k) the cumulative output
-    length matches the cumulative input length (XV-33).
+    length matches the cumulative input length ().
 
     The implementation upsamples by inserting ``up - 1`` zeros between
     samples, applies the FIR filter via ``scipy.signal.lfilter`` (which
@@ -63,7 +55,7 @@ class _StreamingResampler:
         self._up = int(up)
         self._down = int(down)
 
-        # Design the FIR filter ONCE at construction (XV-32). Cutoff is the
+        # Design the FIR filter ONCE at construction (). Cutoff is the
         # lower Nyquist of input / output (1.0 == Nyquist in firwin's fs=2.0
         # convention). Filter length is chosen as ``10 * max(up, down) + 1``
         # (odd, so the polyphase decomposition is symmetric). The exact length
@@ -83,12 +75,12 @@ class _StreamingResampler:
         # Persistent lfilter state (len = len(h) - 1 for an FIR filter).
         self._zi: np.ndarray = np.zeros(max(len(self._h) - 1, 0), dtype=np.float64)
 
-        # Counters and phase for the output-length invariant (XV-33) and for
+        # Counters and phase for the output-length invariant () and for
         # reset() verification.
         self._in_total: int = 0
         self._out_total: int = 0
         self._phase: int = 0
-        # DJ-75: pre-allocated upsample buffer (zero-filled, reused across
+        # pre-allocated upsample buffer (zero-filled, reused across
         # process() calls) to avoid allocating a fresh (n_in * up) float64
         # array per chunk. Lazy-resized to the largest chunk seen.
         self._x_up_buf: np.ndarray | None = None
@@ -104,7 +96,7 @@ class _StreamingResampler:
         down = self._down
 
         # Upsample: insert up-1 zeros between samples.
-        # DJ-75: reuse a pre-allocated zero-filled buffer instead of
+        # reuse a pre-allocated zero-filled buffer instead of
         # allocating a fresh (n_in * up) float64 array per chunk. The
         # buffer is zero-filled once at allocation; subsequent calls
         # only need to overwrite the up-spaced samples (the zeros between
@@ -126,7 +118,7 @@ class _StreamingResampler:
         x_up[::up] = x64
 
         # Apply FIR filter with persistent state.
-        y, self._zi = lfilter(self._h, [1.0], x_up, zi=self._zi)
+        y, self._zi = _get_lfilter()(self._h, [1.0], x_up, zi=self._zi)
 
         # Downsample: pick every `down`-th sample starting at current phase.
         m = y.size  # == n_in * up
@@ -143,7 +135,7 @@ class _StreamingResampler:
 
     def reset(self) -> None:
         """Clear all internal state (zeros ``_zi`` in place)."""
-        # G4-L-05 (mirrored from NoiseSuppressor.reset): zero the existing
+        #  (mirrored from NoiseSuppressor.reset): zero the existing
         # state array IN PLACE so the buffer contents are securely cleared
         # before the next allocation, then reset counters / phase.
         if self._zi.size > 0:
@@ -186,14 +178,14 @@ class NoiseSuppressor(AudioFilter):
         # Frame buffering: carry holds partial frames between process() calls.
         self._carry: np.ndarray = np.array([], dtype=np.float32)
 
-        # DJ-77: pre-allocated per-frame conversion buffers for the RNNoise
+        # pre-allocated per-frame conversion buffers for the RNNoise
         # loop. Reused across every 480-sample frame to avoid ~5 small
         # allocations (clip, mul, astype, astype, div) per frame — at
         # 48 RNNoise frames/sec that's ~240 allocations/sec saved.
         self._frame_f32_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.float32)
         self._frame_i16_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.int16)
 
-        # XV-32/XV-33: streaming resamplers created lazily by
+        # streaming resamplers created lazily by
         # ``_ensure_resamplers``. At the native RNNoise rate (48kHz) both stay
         # ``None`` (no resampling needed).
         self._upsampler: _StreamingResampler | None = None
@@ -240,7 +232,7 @@ class NoiseSuppressor(AudioFilter):
     def _init_deepfilternet(self) -> None:
         """Initialize DeepFilterNet backend.
 
-        S3-CR-6 (Critical): the DeepFilterNet *processing* path is not
+         (Critical): the DeepFilterNet *processing* path is not
         yet implemented in :meth:`process` — only ``rnnoise`` is wired.
         Previously, when ``deepfilternet`` was selected (e.g. via the
         ``noisy_room`` preset) AND the ``df`` package was importable,
@@ -347,7 +339,7 @@ class NoiseSuppressor(AudioFilter):
 
         if self._method == "rnnoise":
             return self._process_rnnoise(samples, sample_rate, original_shape)
-        # S3-CR-6 defensive guard: ``_init_backend`` is supposed to
+        #  defensive guard: ``_init_backend`` is supposed to
         # narrow every known method to either ``"rnnoise"`` or
         # ``"none"`` at construction time (see ``_init_deepfilternet``
         # for the deepfilternet → rnnoise fallback). Reaching this
@@ -357,7 +349,7 @@ class NoiseSuppressor(AudioFilter):
         # ``is_degraded`` so the UI can warn the user. This branch is
         # not reachable for any currently-supported method
         # (``rnnoise`` / ``deepfilternet`` / ``none``) — it exists
-        # purely to prevent a regression of S3-CR-6.
+        # purely to prevent a regression of
         if not self._degraded:
             self._degraded = True
             self._degraded_reason = f"{self._method} backend not yet implemented — falling back to rnnoise"
@@ -381,7 +373,7 @@ class NoiseSuppressor(AudioFilter):
     def _ensure_resamplers(self, sample_rate: int) -> None:
         """Lazily create (or recreate) the streaming resamplers for ``sample_rate``.
 
-        XV-32 / XV-33: the FIR filter inside each ``_StreamingResampler`` is
+         the FIR filter inside each ``_StreamingResampler`` is
         designed once at construction and reused across every ``process()``
         call. At the native RNNoise rate (48kHz) both resamplers stay ``None``
         (no resampling needed). When the source rate changes, both resamplers
@@ -414,7 +406,7 @@ class NoiseSuppressor(AudioFilter):
         we round-trip resample using the streaming resamplers
         (``_StreamingResampler``). Uses input/output deques like OBS.
         """
-        # NF-R20-5: assert the backend is non-None at the top so the
+        # assert the backend is non-None at the top so the
         # subsequent ``self._backend.<attr>`` accesses can drop their
         # ``# type: ignore[union-attr]`` suppressions. The process()
         # entry point already guards on ``self._backend is None``, so
@@ -422,7 +414,7 @@ class NoiseSuppressor(AudioFilter):
         # the narrowed type for the rest of the method body.
         assert self._backend is not None
 
-        # XV-32 / XV-33: ensure streaming resamplers exist for this rate.
+        #  ensure streaming resamplers exist for this rate.
         # At the native RNNoise rate (48kHz) both stay ``None``.
         self._ensure_resamplers(sample_rate)
 
@@ -447,11 +439,11 @@ class NoiseSuppressor(AudioFilter):
             start = i * _RNNOISE_FRAME_SIZE
             frame = combined[start : start + _RNNOISE_FRAME_SIZE]
             try:
-                # XV-38: clip float32 input to [-1, 1] BEFORE scaling to int16
+                # clip float32 input to [-1, 1] BEFORE scaling to int16
                 # so out-of-range floats (e.g. from upstream gain stages) do not
                 # wrap around the int16 range. ``_INT16_SCALE`` is the float ->
                 # int16 multiplier (= 32767.0). pyrnnoise uses int16 internally.
-                # DJ-77: reuse pre-allocated conversion buffers — np.clip +
+                # reuse pre-allocated conversion buffers — np.clip +
                 # np.multiply + astype each into the same float32 buffer, then
                 # copy into the int16 buffer. Saves 3-5 allocations per frame.
                 frame_f32 = self._frame_f32_buf
@@ -490,7 +482,7 @@ class NoiseSuppressor(AudioFilter):
         return result.astype(np.float32, copy=False).reshape(original_shape)
 
     def reset(self) -> None:
-        # G4-L-05: zero the existing state array BEFORE replacing it
+        # zero the existing state array BEFORE replacing it
         # so partial-frame samples (which can hold ~10ms of the user's
         # voice between process() calls) are securely cleared rather
         # than left in process memory until the numpy allocator reuses
@@ -500,7 +492,7 @@ class NoiseSuppressor(AudioFilter):
         if self._carry.size > 0:
             self._carry.fill(0)
         self._carry = np.array([], dtype=np.float32)
-        # XV-32 / XV-33: also reset the streaming resamplers' filter state
+        #  also reset the streaming resamplers' filter state
         # so a stale tail from the previous session doesn't bleed into the
         # next processing window.
         if self._upsampler is not None:

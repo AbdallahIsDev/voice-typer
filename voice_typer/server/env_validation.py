@@ -1,4 +1,4 @@
-"""PLAT-008: Environment variable validation.
+"""Environment variable validation.
 
 Extracted from ``voice_typer/server/app.py`` (REF-3). Re-exported from
 ``app.py`` as ``_validate_env_vars`` so existing callers (notably
@@ -9,7 +9,7 @@ SEC-audit-011: this module calls ``_validate_systemroot`` from
 :mod:`voice_typer.server.config` to reject attacker-controlled SystemRoot
 values that could enable DLL injection.
 
-FR-18 (P4-A1): this module ALSO strips well-known cloud-provider API
+ (P4-A1): this module ALSO strips well-known cloud-provider API
 keys / model-download tokens (``HF_TOKEN``, ``HUGGING_FACE_HUB_TOKEN``,
 ``OPENAI_API_KEY``, ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``,
 ``DEEPGRAM_API_KEY``, ``GROQ_API_KEY``) from ``os.environ`` at startup.
@@ -32,7 +32,7 @@ import re
 log = logging.getLogger(__name__)
 
 
-# FR-18 (P4-A1): env-var names that are ALWAYS stripped from
+#  (P4-A1): env-var names that are ALWAYS stripped from
 # ``os.environ`` by ``_validate_env_vars`` at startup. These are the
 # well-known cloud-provider API keys / model-download tokens that the
 # Python server NEVER reads from env (cloud keys come from the
@@ -61,7 +61,7 @@ _SENSITIVE_ENV_NAMES = frozenset(
 
 
 def _validate_env_vars() -> None:
-    """PLAT-008: Validate all consumed environment variables.
+    """Validate all consumed environment variables.
 
     Rejects values that don't match expected patterns. Logs warnings
     for invalid values and resets them to safe defaults.
@@ -75,7 +75,7 @@ def _validate_env_vars() -> None:
     for var in _bool_vars:
         val = os.environ.get(var)
         if val is not None and not _bool_pattern.match(val):
-            # GT-63: pre-redact the env-var value at the call site.
+            # pre-redact the env-var value at the call site.
             # The previous ``%r`` of the raw value leaked whatever the
             # user typed (which may carry a username, partial secret,
             # or shell-injection payload) into the log record's msg
@@ -103,15 +103,15 @@ def _validate_env_vars() -> None:
 
     config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if config_dir is not None and (not _path_pattern.match(config_dir) or len(config_dir) > 4096):
-        # GT-63: pre-redact the path value -- ``VOICE_TYPER_CONFIG_DIR`` typically
+        # pre-redact the path value -- ``VOICE_TYPER_CONFIG_DIR`` typically
         # carries a username (``/Users/jane.doe/...``) which is PII; never log raw.
         log.warning(
             "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> -- expected valid path. Resetting to empty.",
         )
         os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
     elif config_dir is not None:
-        # XZ-14-07: path-traversal / out-of-home check.  Mirror the
-        # SEC-HFHOME-001 (HIGH-12) pattern used for HF_HOME below —
+        # path-traversal / out-of-home check.  Mirror the
+        # SEC-HFHOME-001 () pattern used for HF_HOME below —
         # VOICE_TYPER_CONFIG_DIR is consumed by ``config._config_dir()``
         # which already runs ``_validate_path_safety`` itself, but
         # defense-in-depth requires the env-var entry point to reject
@@ -126,8 +126,8 @@ def _validate_env_vars() -> None:
         try:
             _validate_path_safety(Path(config_dir), Path.home())
         except (ValueError, OSError, RuntimeError) as exc:
-            # GT-63: pre-redact the CONFIG_DIR value (path -> PII).
-            # GT-B1-14: include the exception *type name* so the operator
+            # pre-redact the CONFIG_DIR value (path -> PII).
+            # include the exception *type name* so the operator
             # knows which validation predicate failed (ValueError vs
             # OSError vs RuntimeError) without having to grep the source.
             # ``%s`` of the exception instance itself is safe -- the
@@ -157,8 +157,8 @@ def _validate_env_vars() -> None:
 
     _validate_systemroot()
 
-    # PLAT-008: Validate HF_HOME is a valid path if set.
-    # SEC-HFHOME-001 (HIGH-12): HF_HOME is consumed as an allow-root by
+    # Validate HF_HOME is a valid path if set.
+    # SEC-HFHOME-001 (): HF_HOME is consumed as an allow-root by
     # ``config._validate_import_path`` (so ``import_model`` can import
     # directories under it).  A malicious value like ``HF_HOME=/etc``
     # would let the renderer import any directory under ``/etc``.
@@ -171,14 +171,14 @@ def _validate_env_vars() -> None:
     # never see it.
     hf_home = os.environ.get("HF_HOME")
     if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
-        # GT-63: pre-redact -- HF_HOME is a filesystem path, typically under
+        # pre-redact -- HF_HOME is a filesystem path, typically under
         # the user's home directory, so it carries a username.
         log.warning(
             "[ENV] Invalid value for HF_HOME=<redacted> -- expected valid path. Resetting to empty.",
         )
         os.environ.pop("HF_HOME", None)
     elif hf_home is not None:
-        # SEC-HFHOME-001 (HIGH-12): path-traversal / out-of-home check.
+        # SEC-HFHOME-001 (): path-traversal / out-of-home check.
         # Import locally to avoid a circular import at module load time
         # (config.py is heavy and pulls in many dependencies).
         from pathlib import Path
@@ -188,8 +188,8 @@ def _validate_env_vars() -> None:
         try:
             _validate_path_safety(Path(hf_home), Path.home())
         except (ValueError, OSError, RuntimeError) as exc:
-            # GT-63: pre-redact the HF_HOME value (path -> PII).
-            # GT-B1-14: include the exception *type name* so the operator
+            # pre-redact the HF_HOME value (path -> PII).
+            # include the exception *type name* so the operator
             # knows which validation predicate failed (ValueError vs
             # OSError vs RuntimeError) without having to grep the source.
             # ``%s`` of the exception instance itself is safe -- the
@@ -204,7 +204,7 @@ def _validate_env_vars() -> None:
             )
             os.environ.pop("HF_HOME", None)
 
-    # G4-M-58: Validate HF_ENDPOINT if set. HF_ENDPOINT is consumed by
+    # Validate HF_ENDPOINT if set. HF_ENDPOINT is consumed by
     # the ``huggingface_hub`` library as the base URL for model
     # downloads (used to redirect to mirrors like hf-mirror.com for
     # users in regions where huggingface.co is blocked or slow). An
@@ -220,7 +220,7 @@ def _validate_env_vars() -> None:
     hf_endpoint = os.environ.get("HF_ENDPOINT")
     if hf_endpoint is not None:
         if not _path_pattern.match(hf_endpoint) or len(hf_endpoint) > 4096:
-            # GT-63: pre-redact -- HF_ENDPOINT is a URL, may carry a username
+            # pre-redact -- HF_ENDPOINT is a URL, may carry a username
             # (``https://jane%40example.com@mirror/``) or a query-string key.
             log.warning(
                 "[ENV] Invalid value for HF_ENDPOINT=<redacted> -- expected valid URL. Resetting to empty.",
@@ -229,7 +229,7 @@ def _validate_env_vars() -> None:
         else:
             _validate_hf_endpoint(hf_endpoint)
 
-    # FR-18 (P4-A1): strip well-known cloud-provider API keys / model
+    #  (P4-A1): strip well-known cloud-provider API keys / model
     # download tokens from ``os.environ``. The Tauri production path
     # already strips these via ``env_clear()`` in
     # ``src-tauri/src/sidecar/spawn.rs``; the Electron launcher
@@ -242,7 +242,7 @@ def _validate_env_vars() -> None:
     # ``asr_setup.py`` (which calls snapshot_download WITHOUT
     # ``token=`` so huggingface_hub falls back to ``os.environ``).
     #
-    # GT-63: log the key NAME only — never the value (these are
+    # log the key NAME only — never the value (these are
     # secrets). The warning lets an operator diagnose "why is my env
     # var being ignored?" without leaking the secret to the log.
     for _sensitive_name in _SENSITIVE_ENV_NAMES:
@@ -256,14 +256,14 @@ def _validate_env_vars() -> None:
                 _sensitive_name,
             )
 
-    # EC-FIX-10 / EC-24: wire the sidecar-env contract check into the
+    #  wire the sidecar-env contract check into the
     # single env-validation entry point so missing sidecar env vars are
     # logged at startup. No-op when not running under the Tauri host
     # (i.e. when ``TAURI_SIDECAR != "1"``).
     _validate_sidecar_env()
 
 
-# G4-M-58: Allowlist of hostnames that HF_ENDPOINT may point to.
+# Allowlist of hostnames that HF_ENDPOINT may point to.
 # ``huggingface.co`` is the official upstream; ``hf-mirror.com`` is the
 # widely-used community mirror for users in regions where the official
 # endpoint is blocked or slow. Any other hostname is rejected because
@@ -277,7 +277,7 @@ _ALLOWED_HF_ENDPOINT_HOSTS = frozenset(
 
 
 def _validate_hf_endpoint(raw: str) -> None:
-    """G4-M-58: validate and (if unsafe) pop ``HF_ENDPOINT`` from ``os.environ``.
+    """validate and (if unsafe) pop ``HF_ENDPOINT`` from ``os.environ``.
 
     Parameters
     ----------
@@ -308,7 +308,7 @@ def _validate_hf_endpoint(raw: str) -> None:
     scheme = (parsed.scheme or "").lower()
     hostname = parsed.hostname
     if scheme != "https":
-        # GT-63: pre-redact the raw HF_ENDPOINT value (URL -> PII / secret).
+        # pre-redact the raw HF_ENDPOINT value (URL -> PII / secret).
         log.warning(
             "[ENV] HF_ENDPOINT=<redacted> rejected — must use https:// scheme "
             "(got %r). Discarding to prevent plaintext model downloads.",
@@ -361,18 +361,75 @@ def _validate_sidecar_env() -> None:
     spawn.rs that drops an env var would silently degrade Python-side
     behavior with no startup warning.
 
-    EC-FIX-10 / EC-24: now wired into :func:`_validate_env_vars` (called
+     now wired into :func:`_validate_env_vars` (called
     from :func:`voice_typer.server.logging_setup._setup_logging` at
     startup), so the sidecar env-var contract is checked on every server
     boot. No-op when ``TAURI_SIDECAR != "1"`` (i.e. when running standalone
     via ``python -m voice_typer.server``).
+
+    For empty / unsafe values, the offending env var is POPPED from
+    ``os.environ`` (not just logged) so downstream consumers
+    (``native_hotkeys.binary_path`` / ``prewarm_resolver``) never see an
+    attacker-chosen value. A same-user attacker (or a buggy Rust host)
+    could otherwise plant e.g. ``VOICE_TYPER_NATIVE_DIR=/etc`` and have
+    downstream consumers read from the attacker-chosen path. The pop
+    mirrors the pattern already used for ``HF_HOME`` /
+    ``VOICE_TYPER_CONFIG_DIR`` above.
     """
     if os.environ.get("TAURI_SIDECAR") != "1":
         return  # Not a sidecar — skip validation
+
+    from pathlib import Path
+
+    from voice_typer.server.config import _validate_path_safety
 
     for var, expected in _EXPECTED_SIDECAR_ENV.items():
         actual = os.environ.get(var)
         if actual is None:
             log.warning("[SIDECAR-ENV] expected env var %s is unset (expected %s)", var, expected)
-        elif expected == "<non-empty>" and not actual:
-            log.warning("[SIDECAR-ENV] env var %s is empty (expected non-empty)", var)
+            continue
+
+        if not actual:
+            # Empty value: log + pop so downstream sees "unset" rather
+            # than an empty string (which would silently fail downstream
+            # truthiness checks). Pre-redact the value per
+            log.warning(
+                "[SIDECAR-ENV] env var %s is empty (expected %s) — popping",
+                var,
+                expected,
+            )
+            os.environ.pop(var, None)
+            continue
+
+        if expected == "<non-empty path>":
+            # Mirror the HF_HOME / VOICE_TYPER_CONFIG_DIR pattern: first
+            # a basic pattern + length gate, then a path-safety check
+            # that rejects values escaping the user's home directory via
+            # ``..`` or absolute paths outside home. On any failure, pop
+            # the env var so downstream consumers (binary_path /
+            # prewarm_resolver) never see an attacker-chosen path.
+            if len(actual) > 4096 or "\0" in actual:
+                # pre-redact the path value (path -> PII).
+                log.warning(
+                    "[SIDECAR-ENV] env var %s=<redacted> failed basic path validation (length or NUL byte) — popping",
+                    var,
+                )
+                os.environ.pop(var, None)
+                continue
+            try:
+                _validate_path_safety(Path(actual), Path.home())
+            except (ValueError, OSError, RuntimeError) as exc:
+                # pre-redact the path value (path -> PII). Log
+                # only the exception *type name* — the exception
+                # *message* from _validate_path_safety embeds the
+                # offending path verbatim ("Path traversal detected:
+                # <path> escapes <home>"), so logging ``%s`` of the
+                # exception instance would leak the path to the log.
+                # The type name is enough for an operator to grep the
+                # source for the failing predicate.
+                log.warning(
+                    "[SIDECAR-ENV] env var %s=<redacted> failed path-safety validation (%s) — popping",
+                    var,
+                    type(exc).__name__,
+                )
+                os.environ.pop(var, None)

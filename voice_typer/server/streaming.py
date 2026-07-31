@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import collections
-import contextlib
 import logging
 import math
 import threading
@@ -15,64 +14,6 @@ from voice_typer.server._lazy_import import lazy_module
 np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
-
-
-def _secure_clear_audio(arr: np.ndarray | None) -> None:
-    """DEPRECATED (XE-6-2): retained for source-level backward compatibility.
-
-    Do NOT call from new code — the streaming path no longer invokes
-    this helper (see ``process_available_audio_once`` and
-    ``_finalize_impl``). The function body is preserved unchanged so
-    any out-of-tree caller still gets the array-zeroing behavior, but
-    the streaming call sites have been removed because zeroing the
-    recorder's snapshot view was both destructive for correctness and
-    ineffective for privacy (see below).
-
-    The recorder hands out a VIEW (``np.ndarray[:]``) of the shared
-    concat cache, not a fresh array. Filling this view with zeros
-    either (a) in the 1-segment case, zeros ``segments[0]`` causing
-    silent transcription windows, or (b) in the 2+ segment case,
-    zeros only the concat result which is immediately rebuilt from
-    unzeroed segments — completely ineffective for privacy. The
-    secure-clear responsibility belongs to ``secure_clear_caches`` at
-    ``stop()`` / ``discard()`` time (after the XE-6-1 fix covers the
-    segments list).
-
-    History (kept for context — the streaming call sites that needed
-    this helper have been removed):
-
-    Streaming transcription created short-lived ``AudioWindow`` views
-    into the recorder snapshot array (see
-    ``AudioWindowPlanner.next_window``). After transcription, those
-    buffers can contain sensitive voice data (PII, biometric
-    identifiers) and previously lingered in process memory until the
-    next GC pass freed the underlying numpy block. This helper
-    mirrored ``voice_typer.server.recording._secure_clear_array`` (the
-    batch path used by ``dictation_pipeline.py:345``) so the streaming
-    path applied the same secure-clear guarantee.
-
-    The pre-XE-6-2 "Best-effort" caveat (array views whose base array
-    is shared with another live reference cannot be safely zeroed
-    without invalidating the other consumer) turned out to be exactly
-    the failure mode the streaming path was hitting — the recorder
-    hands out a view (``_cached_resampled[:]``), not a fresh array,
-    so the "best-effort" zeroing was actually destructive for
-    correctness in the 1-segment case (zeroed ``segments[0]``) and
-    ineffective for privacy in the 2+ segment case (zeroed only the
-    concat result, immediately rebuilt from the unzeroed segments
-    list on the next snapshot).
-    """
-    # XE-6-2: kept for source-level backward compatibility (existing
-    # callers — if any — still get the array-zeroing behavior). The
-    # streaming path no longer calls this helper: the snapshot view
-    # zeroing was both destructive (1-segment case: zeroed
-    # ``segments[0]``) and ineffective (2+ segment case: zeroed only
-    # the concat result, immediately rebuilt from unzeroed segments).
-    if arr is None:
-        return
-    with contextlib.suppress(Exception):
-        if isinstance(arr, np.ndarray) and arr.size > 0:
-            arr.fill(0)
 
 
 @dataclass(frozen=True)
@@ -131,7 +72,7 @@ class AudioWindow:
         return bool(np.array_equal(self.audio, other.audio))
 
     def __hash__(self) -> int:
-        # ARCH-020: hash on the scalar fields; audio is unhashable but
+        # hash on the scalar fields; audio is unhashable but
         # callers only need equality, not set/dict membership.
         return hash((self.start_seconds, self.end_seconds))
 
@@ -168,7 +109,7 @@ class AudioWindowPlanner:
         )
         start_sample = int(round(requested_start_seconds * sample_rate))
         end_sample = int(round(end_seconds * sample_rate))
-        # PERF-NEW-013: the audio parameter comes from
+        # PERF- the audio parameter comes from
         # ``Recorder.snapshot()`` which always returns a fresh array
         # (either ``np.concatenate(...)`` or ``self._cached_resampled.copy()``).
         # A slice into a fresh array is a view that does not share memory
@@ -196,7 +137,7 @@ class AudioWindowPlanner:
     ) -> float:
         """Find the best boundary point between audio windows.
 
-        NEW-CQ-026: previously returned the CENTER of the quietest frame
+        previously returned the CENTER of the quietest frame
         (best_index = index + len(frame) // 2), which is offset by half
         a frame from where the next voice should start. Now returns the
         END of the quietest frame (best_index = index + len(frame)),
@@ -222,7 +163,7 @@ class AudioWindowPlanner:
             rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
             if rms < best_rms:
                 best_rms = rms
-                # NEW-CQ-026: use end of the quietest frame (index +
+                # use end of the quietest frame (index +
                 # len(frame)) as the boundary, not the center. This
                 # marks where the next voice segment should begin.
                 best_index = index + len(frame)
@@ -236,14 +177,14 @@ class AudioWindowPlanner:
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
-    # AUDIO-019: cap _words to prevent unbounded growth. Pre-fix this
+    # cap _words to prevent unbounded growth. Pre-fix this
     # used a plain ``list`` with ``pop(0)`` eviction (O(n) per eviction
     # — every eviction shifted up to 9999 pointers). Now we use a
     # ``collections.deque(maxlen=_MAX_WORDS)`` for O(1) eviction plus
     # a ``_base_offset`` counter so the external ``_word_key_index``
     # stores ABSOLUTE indices that don't shift on eviction.
     _MAX_WORDS = 10000
-    # ER-69: per-key bounded deque maxlen for _word_key_index. 8 entries
+    # per-key bounded deque maxlen for _word_key_index. 8 entries
     # cover ~2-8s of history per token (words arrive every 0.3-1s), well
     # beyond the 0.25s near-duplicate window checked in
     # ``_has_near_duplicate_unlocked``.
@@ -251,7 +192,7 @@ class StreamingTextAssembler:
     _words: collections.deque[WordTiming] = field(
         default_factory=lambda: collections.deque(maxlen=StreamingTextAssembler._MAX_WORDS)
     )
-    # AUDIO-019: number of items evicted from the front of ``_words``.
+    # number of items evicted from the front of ``_words``.
     # External indices stored in ``_word_key_index`` are absolute
     # (= base_offset + deque_index); we convert to deque index at
     # access time via ``abs_idx - _base_offset``. This makes eviction
@@ -261,20 +202,20 @@ class StreamingTextAssembler:
     _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
     _lock: threading.RLock = field(default_factory=threading.RLock)
-    # PERF-018: cache the sorted committed_text and invalidate on mutation
+    # cache the sorted committed_text and invalidate on mutation
     _committed_text_cache: str | None = field(default=None)
     _words_dirty: bool = field(default=True)
 
     @property
     def committed_text(self) -> str:
         with self._lock:
-            # PERF-018: return cached result if no mutations since last read
+            # return cached result if no mutations since last read
             if not self._words_dirty and self._committed_text_cache is not None:
                 return self._committed_text_cache
-            # PERF-NEW-004: sort at read time since we deferred sorting
+            # PERF- sort at read time since we deferred sorting
             # in _insert_word_unlocked.  Words are approximately in
             # order from streaming, so this is a near-sorted sort (fast).
-            # AUDIO-019: deque has no .sort(); convert to list first.
+            # deque has no .sort(); convert to list first.
             words_list = list(self._words)
             words_list.sort(key=lambda w: (w.start_seconds, w.end_seconds))
             self._committed_text_cache = " ".join(word.word for word in words_list)
@@ -297,7 +238,7 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
-        # RACE-031: Collect words to add into a local list outside the
+        # Collect words to add into a local list outside the
         # lock, then acquire lock briefly to extend the shared data
         # structures, rather than holding the lock for the entire loop.
         # This reduces contention when streaming chunks arrive while a
@@ -360,7 +301,7 @@ class StreamingTextAssembler:
                 self.last_committed_time,
                 word.end_seconds,
             )
-            # PERF-018: invalidate cached text on mutation
+            # invalidate cached text on mutation
             self._words_dirty = True
         # H8: Prune committed words that are well before the commit horizon
         # Only prune when commit_horizon is finite (not inf from finalize)
@@ -369,7 +310,7 @@ class StreamingTextAssembler:
             if prune_threshold > 0:
                 self._prune_old_entries(prune_threshold)
         else:
-            # DJ-21: when ``commit_horizon_seconds == math.inf`` (the
+            # when ``commit_horizon_seconds == math.inf`` (the
             # ``finalize()`` path), ``_prune_old_entries`` short-circuits
             # because its threshold would be ``math.inf - 5.0``. Without
             # this cap, a finalize() that processes an unusually large
@@ -392,7 +333,7 @@ class StreamingTextAssembler:
         _words is the output accumulator and must keep all committed entries.
         Only _seen_timestamps and _word_key_index are pruned to limit memory.
 
-        ARCH-032: previously rebuilt ``_word_key_index`` from scratch
+        previously rebuilt ``_word_key_index`` from scratch
         on every prune. With a 5-min session and 200+ words, this was
         O(n) every few seconds. We now remove only the indices that
         pointed to evicted timestamps — but since _words is never
@@ -409,7 +350,7 @@ class StreamingTextAssembler:
         if len(new_timestamps) == len(self._seen_timestamps):
             return
         self._seen_timestamps = new_timestamps
-        # ARCH-032: do NOT rebuild _word_key_index — it's keyed on
+        # do NOT rebuild _word_key_index — it's keyed on
         # distinct words and indexed by _words position, which never
         # gets pruned. The previous rebuild was O(n) per prune with
         # no benefit.
@@ -417,23 +358,23 @@ class StreamingTextAssembler:
     def _insert_word_unlocked(self, word: WordTiming):
         """Insert a word, maintaining sorted order.
 
-        PERF-NEW-004: previously this did a linear scan + list.insert
+        PERF- previously this did a linear scan + list.insert
         (O(n) per insert, O(n^2) per session) and then shifted all
         index entries.  Now we just append and defer sorting to
         commit time — the words are already approximately in order
         (streaming chunks arrive sequentially), so a full sort at
         commit is O(n log n) vs the O(n^2) insert pattern.
 
-        AUDIO-019: enforce maxlen on _words. When the list exceeds
+        enforce maxlen on _words. When the list exceeds
         _MAX_WORDS, evict the oldest entry and log a warning.
         """
-        # AUDIO-019: detect imminent eviction BEFORE appending so we
+        # detect imminent eviction BEFORE appending so we
         # can log which word is being evicted and adjust indices.
         if self._words.maxlen is not None and len(self._words) >= self._words.maxlen:
             # Peek the leftmost item; deque.append will evict it.
             evicted_word = self._words[0]
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
-            # CR-74 / DE-57: do NOT log evicted_word.word at any level —
+            #  do NOT log evicted_word.word at any level —
             # that leaks user speech content into persistent log files
             # (the WARNING log is shown by default; the DEBUG log fires
             # whenever a support workflow bumps the root logger to DEBUG,
@@ -455,7 +396,7 @@ class StreamingTextAssembler:
             self._base_offset += 1
             # Drop the index entry pointing at the evicted word. Other
             # indices stay valid (they're absolute, not relative).
-            # ER-69: _word_key_index values are bounded deques (maxlen=
+            # _word_key_index values are bounded deques (maxlen=
             # _WORD_KEY_INDEX_MAXLEN) so a single key can never accumulate
             # more than a handful of recent indices. Iteration + filter
             # is therefore bounded per-key by the deque maxlen — the
@@ -471,7 +412,7 @@ class StreamingTextAssembler:
                         self._word_key_index[key] = new_indices
                     else:
                         del self._word_key_index[key]
-            # CR-25: also drop the evicted word's (start, end) timestamp
+            # also drop the evicted word's (start, end) timestamp
             # from ``_seen_timestamps`` so the dedup set is bounded by
             # the deque maxlen. Pre-fix this was only cleaned up by
             # ``_prune_old_entries``, which short-circuits on
@@ -491,7 +432,7 @@ class StreamingTextAssembler:
         absolute_idx = self._base_offset + len(self._words)
         self._words.append(word)
         if key:
-            # ER-69: use a bounded deque (maxlen=_WORD_KEY_INDEX_MAXLEN)
+            # use a bounded deque (maxlen=_WORD_KEY_INDEX_MAXLEN)
             # instead of an unbounded list. Near-duplicate detection
             # (_has_near_duplicate_unlocked) only needs the last few
             # occurrences within 0.25s — words arrive every 0.3-1s, so
@@ -506,7 +447,7 @@ class StreamingTextAssembler:
                 self._word_key_index[key] = collections.deque((absolute_idx,), maxlen=self._WORD_KEY_INDEX_MAXLEN)
             else:
                 existing.append(absolute_idx)
-        # PERF-018: invalidate cached text on mutation
+        # invalidate cached text on mutation
         self._words_dirty = True
 
     def _has_near_duplicate_unlocked(self, word: WordTiming) -> bool:
@@ -515,7 +456,7 @@ class StreamingTextAssembler:
             return False
         matching_indices = self._word_key_index.get(key, [])
         for abs_idx in matching_indices:
-            # AUDIO-019: convert absolute index → deque index.
+            # convert absolute index → deque index.
             deque_idx = abs_idx - self._base_offset
             if deque_idx < 0 or deque_idx >= len(self._words):
                 continue
@@ -561,11 +502,11 @@ class StreamingTranscriptionSession:
         self._cancel_event = threading.Event()
         self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
-        # ERR-019: set to True if Thread.start() raises; cancel() checks
+        # set to True if Thread.start() raises; cancel() checks
         # this to avoid waiting on a thread that never started.
         self._thread_start_failed: bool = False
         self._fallback_required = False
-        # ARCH-024: guard _consecutive_failures with a lock — it's
+        # guard _consecutive_failures with a lock — it's
         # incremented from the worker thread and read/cleared from the
         # main thread. Integer increment is atomic in CPython but the
         # read-modify-write (read → compare → reset) is not.
@@ -580,7 +521,7 @@ class StreamingTranscriptionSession:
         # behavior is unchanged — the worker is still tracked locally
         # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
         self._thread_registry = thread_registry
-        # G4-H-18: optional local engine forwarded to
+        # optional local engine forwarded to
         # ``transcriber.transcribe_with_fallback`` at finalize time so
         # the cloud→local fallback path actually fires when the active
         # transcriber is a CloudEngine and the cloud provider is
@@ -601,7 +542,7 @@ class StreamingTranscriptionSession:
     def start(self):
         """Start the background streaming worker.
 
-        ERR-019: previously any exception raised by Thread.__init__
+        previously any exception raised by Thread.__init__
         or .start() (e.g. out of fd, can't start daemon) was silently
         swallowed, leaving the session in a half-initialized state.
         We now catch + record the failure so ``cancel()`` can clean up.
@@ -616,6 +557,13 @@ class StreamingTranscriptionSession:
             return
         self._cancel_event.clear()
         self._stopped_event.clear()
+        # ``finalize()`` sets ``self._finalizing = True`` to gate
+        # the worker's per-iteration short-circuit, but never reset it.
+        # A session that was finalized and then re-started (e.g. mic
+        # toggle: stop→finalize→start) would inherit the stale flag and
+        # the worker would skip transcription on every loop iteration.
+        # Reset here so each fresh ``start()`` begins from a clean slate.
+        self._finalizing = False
         self._thread_start_failed = False
         try:
             self._thread = threading.Thread(
@@ -642,7 +590,7 @@ class StreamingTranscriptionSession:
                 name="StreamingTranscription",
                 thread=self._thread,
                 stop_event=self._cancel_event,
-                # PERF-FIX-6: reduced from 10.0s to 5.0s. The thread
+                # PERF- reduced from 10.0s to 5.0s. The thread
                 # is a daemon (set above) and dies on process exit
                 # anyway; the join is only for clean in-process drain
                 # during ``cancel(blocking=True)`` / ``finalize()``.
@@ -654,7 +602,7 @@ class StreamingTranscriptionSession:
     def cancel(self, *, blocking: bool = False, timeout: float = 10.0):
         """Stop background streaming work.
 
-        ARCH-025: previously ``cancel()`` always called ``thread.join(timeout=10)``,
+        previously ``cancel()`` always called ``thread.join(timeout=10)``,
         which blocked the UI thread for up to 10 seconds when the user
         pressed the mic to stop. We now default to **non-blocking** —
         signal the cancel event and let the worker self-terminate. The
@@ -680,9 +628,9 @@ class StreamingTranscriptionSession:
     def finalize(self, full_audio: np.ndarray) -> str:
         """Return final transcript, using batch fallback if streaming is unsafe."""
         self._finalizing = True
-        # ARCH-025: finalize genuinely needs to wait for the worker so
+        # finalize genuinely needs to wait for the worker so
         # the assembler state is consistent. Pass blocking=True.
-        # PVT-014: cancel(blocking=True) already joins the worker for up
+        # cancel(blocking=True) already joins the worker for up
         # to 10s. The previous second `_stopped_event.wait(timeout=10.0)`
         # only fired when the first join already failed — adding up to
         # 10s of UI-thread freeze cannot help a stuck thread exit.
@@ -702,10 +650,10 @@ class StreamingTranscriptionSession:
         if self._fallback_required:
             return False
 
-        # XZ-PRIV-02 (historical): the pre-fix code held references to
+        #  (historical): the pre-fix code held references to
         # the snapshot + window so they could be zeroed in the
         # ``finally`` block below even when an exception fired
-        # mid-transcription. XE-6-2 removed the zeroing (see the
+        # mid-transcription.  removed the zeroing (see the
         # finally-block comment for why), but the explicit local
         # bindings are kept so the function body remains readable and
         # so a future maintainer can re-introduce a safe variant
@@ -714,7 +662,7 @@ class StreamingTranscriptionSession:
         audio: np.ndarray | None = None
         window: AudioWindow | None = None
         try:
-            # AB-20: skip the snapshot allocation entirely when the
+            # skip the snapshot allocation entirely when the
             # recorder hasn't accumulated enough NEW audio since the
             # last emitted window. The streaming thread polls at 4 Hz;
             # without this guard each poll called ``snapshot()`` which
@@ -765,7 +713,7 @@ class StreamingTranscriptionSession:
                 self._fallback_required = True
             return False
         finally:
-            # XE-6-2: the pre-fix ``_secure_clear_audio(audio)`` /
+            # the pre-fix ``_secure_clear_audio(audio)`` /
             # ``_secure_clear_audio(window.audio)`` calls have been
             # REMOVED. The recorder hands out a VIEW
             # (``_cached_resampled[:]``) of the shared concat cache,
@@ -794,7 +742,7 @@ class StreamingTranscriptionSession:
             # The secure-clear responsibility for the segment list
             # (the actual primary storage, ~115 MB of dictated audio
             # for a 30-min session) belongs to ``secure_clear_caches``
-            # at ``stop()`` / ``discard()`` time, fixed in XE-6-1.
+            # at ``stop()`` / ``discard()`` time, fixed in
             # The local ``audio`` / ``window`` bindings go out of
             # scope when the function returns, releasing the view
             # references and letting the GC reclaim the view objects
@@ -808,7 +756,7 @@ class StreamingTranscriptionSession:
             snapshot_committed_text = self.assembler.committed_text
             snapshot_last_committed_time = self.assembler.last_committed_time
 
-        # XE-6-2: the pre-fix ``_secure_clear_audio(full_audio)`` call
+        # the pre-fix ``_secure_clear_audio(full_audio)`` call
         # in the ``finally`` block below has been REMOVED. ``full_audio``
         # is the post-stop transcription array (the result of
         # ``recorder.stop()``, which is a fresh ``np.concatenate`` of
@@ -819,7 +767,7 @@ class StreamingTranscriptionSession:
         #   (a) The secure-clear responsibility for the segments list
         #       (the primary storage during recording) belongs to
         #       ``secure_clear_caches`` at ``stop()`` / ``discard()``
-        #       time — fixed in XE-6-1. By the time ``finalize()``
+        #       time — fixed in  By the time ``finalize()``
         #       runs, ``stop()`` has already cleared the segments.
         #
         #   (b) Keeping the call would leave ``_secure_clear_audio``
@@ -829,7 +777,7 @@ class StreamingTranscriptionSession:
         #
         # The pre-fix comment (kept for reference) was:
         #
-        #   XZ-PRIV-02 / SEC-audit-008: zero ``full_audio`` once we no
+        #    SEC-audit-008: zero ``full_audio`` once we no
         #   longer need it.  We capture the caller's array reference up
         #   front, drive all the existing tail-merge / batch-fallback
         #   paths, and zero the buffer in a ``finally`` so the guarantee
@@ -854,15 +802,15 @@ class StreamingTranscriptionSession:
         snapshot_last_committed_time: float,
     ) -> str:
         if not snapshot_committed_text:
-            # G4-H-18: forward the optional local_engine (cloud→local
+            # forward the optional local_engine (cloud→local
             # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
         if self._fallback_required:
-            # G4-H-18: forward the optional local_engine (cloud→local
+            # forward the optional local_engine (cloud→local
             # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 
-        # PERF-NEW-022: if the streaming thread's last committed word is
+        # PERF- if the streaming thread's last committed word is
         # within 1.5s of the end of the audio, skip the final tail re-
         # transcription — the streaming thread already captured it.
         # This saves 2-3s of serial transcription after stop.
@@ -899,7 +847,7 @@ class StreamingTranscriptionSession:
             return self.assembler.committed_text
         except Exception as exc:
             log.exception("[STREAMING] Final tail merge failed: %s", exc)
-            # G4-H-18: forward the optional local_engine (cloud→local
+            # forward the optional local_engine (cloud→local
             # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 

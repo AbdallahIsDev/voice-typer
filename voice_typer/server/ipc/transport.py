@@ -1,8 +1,8 @@
-# ARCH-REFAC-002 / ARCH-045: extracted from the original
+# extracted from the original
 # ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """TCP transport helpers: port picker and line-IO wrapper.
 
-Phase 4.5 / ARCH-045 — extracted from the original ``ipc_server.py``
+Phase 4.5 /  — extracted from the original ``ipc_server.py``
 god-module.  Contains the TCP port picker (used by standalone mode to
 auto-pick a free port for the backend's TCP server) and the
 :class:`_TCPLineIO` wrapper that turns a TCP socket into a text-mode
@@ -22,31 +22,31 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[int, socket.socket]:
     """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
 
-    P1-1.2: used by standalone mode to auto-pick a port for the backend's
-    TCP server.  Starts at the default IPC port (9876) and increments
-    until a free port is found (capped at ``max_tries`` attempts).  Falls
-    back to an OS-assigned ephemeral port (port=0) if every port in the
-    range is busy — this guarantees the function never fails.
+        P1-1.2: used by standalone mode to auto-pick a port for the backend's
+        TCP server.  Starts at the default IPC port (9876) and increments
+        until a free port is found (capped at ``max_tries`` attempts).  Falls
+        back to an OS-assigned ephemeral port (port=0) if every port in the
+        range is busy — this guarantees the function never fails.
 
-    CR-7 fix: the BOUND socket is returned alongside the port number so
-    the caller can pass it through to :meth:`IPCServer.start_tcp` (which
-    accepts either an ``int`` for backward compatibility or a
-    ``(port, sock)`` tuple for the no-race-window gold-standard path).
-    The previous probe-then-bind pattern closed the probe socket before
-    the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
-    race window where another local process could grab the port.  By
-    handing the already-bound socket to ``start_tcp``, the kernel
-    guarantees no other process can claim that port between probe and
-    listen.
+    fix: the BOUND socket is returned alongside the port number so
+        the caller can pass it through to :meth:`IPCServer.start_tcp` (which
+        accepts either an ``int`` for backward compatibility or a
+        ``(port, sock)`` tuple for the no-race-window gold-standard path).
+        The previous probe-then-bind pattern closed the probe socket before
+        the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
+        race window where another local process could grab the port.  By
+        handing the already-bound socket to ``start_tcp``, the kernel
+        guarantees no other process can claim that port between probe and
+        listen.
 
-    The returned socket has ``SO_REUSEADDR`` set and is bound to
-    ``127.0.0.1:port`` but NOT yet listening — the caller is expected to
-    call ``.listen()`` on it (or pass it to ``start_tcp`` which does so).
-    Callers that only want the port number (and accept the race window)
-    can close the socket themselves::
+        The returned socket has ``SO_REUSEADDR`` set and is bound to
+        ``127.0.0.1:port`` but NOT yet listening — the caller is expected to
+        call ``.listen()`` on it (or pass it to ``start_tcp`` which does so).
+        Callers that only want the port number (and accept the race window)
+        can close the socket themselves::
 
-        port, sock = _pick_available_port(...)
-        sock.close()  # releases the port; race window re-opens
+            port, sock = _pick_available_port(...)
+            sock.close()  # releases the port; race window re-opens
     """
     for offset in range(max_tries):
         candidate = start + offset
@@ -59,7 +59,7 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
             with contextlib.suppress(OSError):
                 s.close()
             continue
-        # CR-7: return the ACTUAL bound port (s.getsockname()[1]), not
+        # return the ACTUAL bound port (s.getsockname()[1]), not
         # ``candidate``.  When ``candidate == 0`` (ephemeral-port
         # request), the OS assigns a real port number which we must
         # surface to the caller.  The bound socket is returned so the
@@ -81,7 +81,7 @@ class _TCPLineIO:
 
     def __init__(self, conn: socket.socket) -> None:
         self.conn = conn
-        # XV-86: use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
+        # use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
         # typically 8 KiB) rather than ``buffering=1``. ``buffering=1`` means
         # "line buffered" in text mode — meaningful only for writes (flush
         # when a newline is seen); for reads CPython silently treats it as
@@ -91,7 +91,7 @@ class _TCPLineIO:
         # BufferedReader pulls the largest chunk the kernel will hand over
         # per ``recv()`` call, minimising syscalls under load.
         self._reader = conn.makefile("r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE)
-        # AB-37: user-space write buffer. ``write()`` appends to this
+        # user-space write buffer. ``write()`` appends to this
         # buffer (a list of bytes chunks — cheaper than BytesIO for
         # repeated appends because it avoids the copy-on-extend that
         # BytesIO does when its internal slab is full). ``flush()``
@@ -106,13 +106,13 @@ class _TCPLineIO:
         self._write_buffer: list[bytes] = []
 
     def write(self, text: str) -> None:
-        # AB-37: append to the in-memory buffer; ``flush()`` does the
+        # append to the in-memory buffer; ``flush()`` does the
         # actual ``sendall``. Encoding happens here (once per write) so
         # the flush path can use ``b"".join`` without re-encoding.
         self._write_buffer.append(text.encode("utf-8"))
 
     def flush(self) -> None:
-        # AB-37: drain the write buffer in a single ``sendall``. If the
+        # drain the write buffer in a single ``sendall``. If the
         # buffer is empty, this is a no-op (preserves the previous
         # ``flush()`` semantics for callers that call ``write`` then
         # ``flush`` with no intervening buffer). On failure the buffer
@@ -133,7 +133,7 @@ class _TCPLineIO:
         self._write_buffer.clear()
 
     def _reset_write_buffer(self) -> None:
-        # AB-37: discard the current write buffer without flushing.
+        # discard the current write buffer without flushing.
         # Used by callers that want drop-on-failure semantics (e.g. the
         # drain-failure path in ``_send`` where partially-buffered
         # entries must not leak into the next ``_send`` call).

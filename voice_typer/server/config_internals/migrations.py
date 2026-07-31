@@ -1,6 +1,6 @@
 """Schema migration runner + per-version migrators.
 
-Extracted verbatim from ``voice_typer.server.config`` (FZ-S4 / DT-24
+Extracted verbatim from ``voice_typer.server.config`` (
 partial split).  Every public symbol here is re-exported from
 ``config.py`` (via ``from voice_typer.server.config_internals.migrations
 import _CURRENT_SCHEMA_VERSION, _MIGRATIONS, _migrate_to_v2,
@@ -37,9 +37,9 @@ log = logging.getLogger("voice_typer.server.config")
 
 _CURRENT_SCHEMA_VERSION = 3
 
-# NEW-DEAD-018: _MIGRATIONS infrastructure for schema version migrations.
-# G4-L-22: v3 prunes deprecated dead-code keys.
-# T1-F3 / GT-D1-7: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
+# _MIGRATIONS infrastructure for schema version migrations.
+# v3 prunes deprecated dead-code keys.
+# T1-F3: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
 # so static checkers can verify that every registered migration is a function
 # taking a config dict and returning a (possibly mutated) config dict.
 # The keys/values are deliberately ``Any`` (not a TypedDict) because the
@@ -51,9 +51,9 @@ _MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 def _migrate_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate config from schema v1 to v2 (ADR 0007 -- filter chain).
 
-    G4-M-13: each rename logs at INFO.
-    G4-L-23: warnings appended to data["_load_warnings"].
-    G4-M-16: preset_existed captured BEFORE the rename block.
+    each rename logs at INFO.
+    warnings appended to data["_load_warnings"].
+    preset_existed captured BEFORE the rename block.
     """
     data.setdefault("_load_warnings", [])
     preset_existed = "audio_preset" in data
@@ -86,22 +86,22 @@ def _migrate_to_v2(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _migrate_to_v3(data: dict[str, Any]) -> dict[str, Any]:
-    """Migrate config from schema v2 to v3 (G4-L-22 -- prune deprecated fields).
+    """Migrate config from schema v2 to v3 ( -- prune deprecated fields).
 
-    ADR 0007 deprecated several fields that the filter chain no longer
-    reads.  v3 explicitly pop()s them from the on-disk dict.
+        ADR 0007 deprecated several fields that the filter chain no longer
+        reads.  v3 explicitly pop()s them from the on-disk dict.
 
-    GT-58: ``noise_filter_enabled`` and ``noise_filter_post_capture`` were
-    previously in this scrub list but are actually RUNTIME switches (read
-    by ``level_monitor.py`` and synced by ``config_applier.py``) — they
-    must NOT be pruned here. Only the 7 truly-dead fields below are
-    scrubbed. See ADR 0009 §5 for the canonical field-by-field status.
+    ``noise_filter_enabled`` and ``noise_filter_post_capture`` were
+        previously in this scrub list but are actually RUNTIME switches (read
+        by ``level_monitor.py`` and synced by ``config_applier.py``) — they
+        must NOT be pruned here. Only the 7 truly-dead fields below are
+        scrubbed. See ADR 0009 §5 for the canonical field-by-field status.
 
-    The 7 dead fields are KEPT in this scrub list even though they were
-    also removed from the ``Config`` dataclass — this guarantees that
-    existing ``config.json`` files written by older app versions (which
-    still carry these keys) load without raising ``TypeError`` from
-    ``cls(**data)``. The keys are silently popped before construction.
+        The 7 dead fields are KEPT in this scrub list even though they were
+        also removed from the ``Config`` dataclass — this guarantees that
+        existing ``config.json`` files written by older app versions (which
+        still carry these keys) load without raising ``TypeError`` from
+        ``cls(**data)``. The keys are silently popped before construction.
     """
     data.setdefault("_load_warnings", [])
     deprecated_keys = (
@@ -132,27 +132,27 @@ def _run_migrations(
 ) -> tuple[dict[str, Any], int, bool]:
     """M3: run forward schema migrations from ``loaded_version`` to ``_CURRENT_SCHEMA_VERSION``.
 
-    Extracted verbatim from ``Config._run_migrations`` (FZ-S4 / DT-24).
-    Returns ``(data, final_schema_version, migrations_ran)`` where
-    ``migrations_ran`` is ``True`` iff at least one migrator was
-    attempted (whether successful or not).
+    Extracted verbatim from ``Config._run_migrations`` ( / ).
+        Returns ``(data, final_schema_version, migrations_ran)`` where
+        ``migrations_ran`` is ``True`` iff at least one migrator was
+        attempted (whether successful or not).
 
-    XZ-14-16: On migrator exception, do NOT bump schema_version to
-    ``_CURRENT_SCHEMA_VERSION`` and do NOT continue to the next
-    migrator.  Leave schema_version at ``last_successful_version``
-    (= ``loaded_version`` if no migrator has succeeded yet) so the
-    failed migration re-runs on the next launch.  Previously the
-    runner silently swallowed the exception, kept the
-    partially-migrated data, and bumped the version to
-    ``_CURRENT_SCHEMA_VERSION`` — that bricked the config: the next
-    launch saw version==current and skipped the failed migrator
-    permanently, leaving the user with a half-migrated config that
-    claimed to be fully migrated.
+    On migrator exception, do NOT bump schema_version to
+        ``_CURRENT_SCHEMA_VERSION`` and do NOT continue to the next
+        migrator.  Leave schema_version at ``last_successful_version``
+        (= ``loaded_version`` if no migrator has succeeded yet) so the
+        failed migration re-runs on the next launch.  Previously the
+        runner silently swallowed the exception, kept the
+        partially-migrated data, and bumped the version to
+        ``_CURRENT_SCHEMA_VERSION`` — that bricked the config: the next
+        launch saw version==current and skipped the failed migrator
+        permanently, leaving the user with a half-migrated config that
+        claimed to be fully migrated.
 
-    When ``loaded_version`` is missing or non-int (fresh install /
-    corrupt file), there is nothing to migrate — default to
-    ``_CURRENT_SCHEMA_VERSION`` so a fresh config gets the current
-    schema.
+        When ``loaded_version`` is missing or non-int (fresh install /
+        corrupt file), there is nothing to migrate — default to
+        ``_CURRENT_SCHEMA_VERSION`` so a fresh config gets the current
+        schema.
     """
     migrations_ran = False
     last_successful_version = loaded_version if isinstance(loaded_version, int) else _CURRENT_SCHEMA_VERSION
@@ -160,14 +160,14 @@ def _run_migrations(
         for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
             migrator = _MIGRATIONS.get(version)
             if migrator is not None:
-                # G4-M-13: log the migration BEFORE
+                # log the migration BEFORE
                 # calling the migrator.
                 log.info(
                     "[CONFIG] migrating schema v%d -> v%d",
                     max(loaded_version, version - 1),
                     version,
                 )
-                # G4-CR-07 / XZ-14-16: wrap each
+                # wrap each
                 # migrator in try/except.  On exception:
                 # log ERROR with the failed version and
                 # exception type, save a timestamped +
@@ -201,7 +201,7 @@ def _run_migrations(
                         "migration will re-run on next launch"
                     )
                     migrations_ran = True
-                    # XZ-14-16: save a timestamped .bak
+                    # save a timestamped .bak
                     # with the failed target version in
                     # the filename so multiple failures
                     # across launches don't clobber each
@@ -211,7 +211,7 @@ def _run_migrations(
                     # failure must not mask the original
                     # migrator failure.
                     try:
-                        # XE-10-2: use the SEC-002 symlink-TOCTOU-safe
+                        # use the SEC-002 symlink-TOCTOU-safe
                         # read+write pair (mirrors
                         # ``_backup_before_downgrade`` /
                         # ``_backup_before_migration`` in config.py)
@@ -232,7 +232,7 @@ def _run_migrations(
                             _secure_read_text,
                         )
 
-                        # XE-10-3: the previous ``time.strftime("%Y%m%d-
+                        # the previous ``time.strftime("%Y%m%d-
                         # %H%M%S", time.gmtime())`` suffix had 1-second
                         # resolution — two failures in the same second
                         # (e.g. renderer-triggered reload + backend
@@ -258,7 +258,7 @@ def _run_migrations(
                             version,
                             failed_bak,
                         )
-                        # XE-10-3: cap retained failed-migration backups
+                        # cap retained failed-migration backups
                         # to 5 (oldest pruned).  Mirrors the
                         # ``_prune_kept_backups`` call in
                         # ``_backup_before_migration`` (config.py:1824)
@@ -286,5 +286,5 @@ def _run_migrations(
                             version,
                             backup_exc,
                         )
-                    break  # XZ-14-16: do NOT run later migrators
+                    break  # do NOT run later migrators
     return data, last_successful_version, migrations_ran

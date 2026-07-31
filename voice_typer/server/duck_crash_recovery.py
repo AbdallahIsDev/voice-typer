@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_FILENAME = "duck_crash_recovery.json"
 
-# XZ-R17-05: retry configuration for ``save()``. Previously ``save()``
+# retry configuration for ``save()``. Previously ``save()``
 # was fire-and-forget — a single transient disk failure (NFS hang, disk
 # full, brief permissions glitch) meant the crash-recovery file was
 # NEVER written, and a subsequent app crash left the user's speakers
@@ -45,7 +45,7 @@ class DuckCrashRecovery:
     to 0o600 to prevent other users from reading or tampering with the
     file (though it contains no secrets, defense in depth is cheap).
 
-    AC-94 state machine
+    state machine
     -------------------
     The persisted JSON carries a ``"consumed": bool`` flag that
     disambiguates the two previously-overloaded meanings of "file
@@ -78,7 +78,7 @@ class DuckCrashRecovery:
 
     def __init__(self, config_dir: Path | None = None) -> None:
         if config_dir is None:
-            # RW-7: route through _paths.config_dir() so the default
+            # route through _paths.config_dir() so the default
             # respects the platform-aware _config_dir() logic (Windows
             # %APPDATA%, macOS ~/Library/Application Support, Linux
             # $XDG_DATA_HOME, the VOICE_TYPER_CONFIG_DIR override, and
@@ -88,11 +88,11 @@ class DuckCrashRecovery:
 
             config_dir = _paths.config_dir()
         self._path = config_dir / _DEFAULT_FILENAME
-        # AC-94: in-memory cache of the most-recently-loaded stale
+        # in-memory cache of the most-recently-loaded stale
         # state. See the class docstring for the rationale.
         self._cached_stale: VolumeState | None = None
         self._cache_dirty: bool = False
-        # XE-16-3: ``_consumed_writeback_failed`` is set to True when
+        # ``_consumed_writeback_failed`` is set to True when
         # ``_mark_consumed`` exhausts its retry budget without
         # successfully writing ``consumed=True`` back to the file.
         # ``load_stale`` consults this flag and, if set, returns ``None``
@@ -116,17 +116,17 @@ class DuckCrashRecovery:
         successfully reduced.  If writing fails, a warning is logged but
         no exception is raised — crash recovery is best-effort.
 
-        XZ-R17-05: previously fire-and-forget (single attempt, swallowed
+        previously fire-and-forget (single attempt, swallowed
         all exceptions). Now retries up to ``_SAVE_MAX_RETRIES`` times
         with ``_SAVE_BACKOFF_S`` backoff so transient disk failures
         (NFS hang, disk full, brief permissions glitch) don't silently
         drop the crash-recovery file — a missing file on next launch
         means the user's speakers stay stuck at the ducked level.
 
-        SEC-003: Uses _secure_atomic_write to ensure 0o600 permissions
+        Uses _secure_atomic_write to ensure 0o600 permissions
         on POSIX and O_NOFOLLOW symlink protection.
 
-        AC-94: writes ``consumed=False`` so the next ``load_stale()``
+        writes ``consumed=False`` so the next ``load_stale()``
         (in this or a future process) treats the state as
         "ducked, not yet restored".
 
@@ -142,20 +142,20 @@ class DuckCrashRecovery:
         data = {
             "linear": state.linear,
             "muted": state.muted,
-            # AC-94: default to ``False`` so a fresh save always
+            # default to ``False`` so a fresh save always
             # represents "ducked, not yet restored". Old files written
             # by previous versions lack this key and are treated as
             # ``False`` on load (see ``load_stale``).
             "consumed": False,
         }
         payload = json.dumps(data)
-        # AC-94: invalidate the in-memory cache — the caller is
+        # invalidate the in-memory cache — the caller is
         # persisting a NEW state, so any previously-cached stale state
         # is now stale (in the "stale cache" sense, not the
         # "stale crash-recovery file" sense).
         self._cached_stale = None
         self._cache_dirty = False
-        # XE-16-3: a fresh ``save()`` always represents a clean duck
+        # a fresh ``save()`` always represents a clean duck
         # cycle — clear the writeback-failed flag so a subsequent
         # ``load_stale()`` doesn't accidentally treat the new file as
         # "unknown state". The new ``consumed=False`` write is itself
@@ -169,7 +169,7 @@ class DuckCrashRecovery:
         for attempt in range(_SAVE_MAX_RETRIES):
             try:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-                # DJ-55: durability=False — the volume-duck state file
+                # durability=False — the volume-duck state file
                 # is best-effort crash-recovery data; the atomic
                 # os.replace still guarantees consistency (no
                 # half-written files), only the per-save fsync is
@@ -180,7 +180,7 @@ class DuckCrashRecovery:
                 return True
             except Exception as exc:
                 last_exc = exc
-                # XZ-R17-05: log the per-attempt failure at debug level
+                # log the per-attempt failure at debug level
                 # so a noisy disk doesn't spam the warning log; the
                 # final-attempt warning below is the operator-visible
                 # signal.
@@ -204,11 +204,11 @@ class DuckCrashRecovery:
 
         Returns the saved :class:`VolumeState` if a stale file exists
         and has not been consumed, or ``None`` if no file is present,
-        the file has been consumed (AC-94), or it cannot be parsed.
+        the file has been consumed (), or it cannot be parsed.
 
         Does **not** delete the file — the caller is responsible for
         calling :meth:`clear` after successfully restoring. The
-        ``consumed`` flag (AC-94) is the soft-clear mechanism: this
+        ``consumed`` flag () is the soft-clear mechanism: this
         method writes ``consumed=True`` back to the file on first
         successful load, so a subsequent process launch that finds the
         file with ``consumed=True`` returns ``None`` (avoiding a
@@ -223,7 +223,7 @@ class DuckCrashRecovery:
         saved state). The cache is invalidated by ``save()`` and
         ``clear()``.
 
-        XE-16-3: if the previous process's ``_mark_consumed``
+        if the previous process's ``_mark_consumed``
         write-back failed (signalled by ``consumed=True`` missing
         from the on-disk file AND a known transient-disk condition),
         ``load_stale`` returns ``None`` and the caller surfaces a
@@ -232,9 +232,9 @@ class DuckCrashRecovery:
         in-memory ``_consumed_writeback_failed`` flag tracks this
         state so the next ``load_stale()`` call is consistent.
 
-        SEC-002: Uses _secure_read_text to prevent symlink-TOCTOU attacks.
+        Uses _secure_read_text to prevent symlink-TOCTOU attacks.
         """
-        # AC-94: in-memory cache hit — return the cached state without
+        # in-memory cache hit — return the cached state without
         # re-reading the file. This preserves the existing test
         # contract where two successive ``load_stale()`` calls return
         # the same state (the file's ``consumed`` flag is now True
@@ -243,7 +243,7 @@ class DuckCrashRecovery:
         if self._cached_stale is not None:
             return self._cached_stale
 
-        # XE-16-3: if a previous ``_mark_consumed`` write-back in THIS
+        # if a previous ``_mark_consumed`` write-back in THIS
         # process exhausted its retry budget, treat the on-disk state
         # as "unknown" — do NOT auto-restore. The caller surfaces a
         # notification asking the user to verify their volume setting.
@@ -266,7 +266,7 @@ class DuckCrashRecovery:
 
             raw = _secure_read_text(self._path, encoding="utf-8")
             data = json.loads(raw)
-            # AC-94: ``consumed`` defaults to ``False`` for back-compat
+            # ``consumed`` defaults to ``False`` for back-compat
             # with files written by previous versions that lack the
             # key. A ``True`` value means a prior launch already
             # restored the volume — auto-restoring again would clobber
@@ -280,11 +280,11 @@ class DuckCrashRecovery:
                 linear=float(data["linear"]),
                 muted=bool(data["muted"]),
             )
-            # AC-94: write ``consumed=True`` back to the file so a
+            # write ``consumed=True`` back to the file so a
             # subsequent process launch (after a crash between this
             # load and the eventual ``clear()``) sees the consumed
             # flag and skips the (potentially destructive) restore.
-            # XE-16-3: ``_mark_consumed`` now retries the write-back
+            # ``_mark_consumed`` now retries the write-back
             # up to ``_SAVE_MAX_RETRIES`` times; if all attempts fail
             # it sets ``_consumed_writeback_failed=True`` and this
             # method does NOT cache the state (so a subsequent
@@ -303,16 +303,16 @@ class DuckCrashRecovery:
             return None
 
     def _mark_consumed(self, data: dict) -> None:
-        """AC-94: write ``consumed=True`` back to the file in place.
+        """write ``consumed=True`` back to the file in place.
 
-        XE-16-3: previously fire-and-forget (single attempt, swallowed
+        previously fire-and-forget (single attempt, swallowed
         all exceptions at DEBUG). If the write-back failed — e.g. the
         disk was transiently full, an antivirus briefly locked the
         file, or NFS hiccupped — the on-disk file was left with
         ``consumed=False`` even though this process had already
         restored the volume. A subsequent process launch would then
         re-restore (potentially clobbering a user-initiated manual
-        change made between launches), defeating AC-94's
+        change made between launches), defeating 's
         double-restore protection.
 
         Post-fix the write-back retries up to ``_SAVE_MAX_RETRIES``
@@ -334,10 +334,10 @@ class DuckCrashRecovery:
         last_exc: Exception | None = None
         for attempt in range(_SAVE_MAX_RETRIES):
             try:
-                # DJ-55: durability=False — see save() for rationale.
+                # durability=False — see save() for rationale.
                 _secure_atomic_write(self._path, payload, durability=False)
                 self._cache_dirty = True
-                # XE-16-3: write succeeded — clear the failure flag
+                # write succeeded — clear the failure flag
                 # (it may have been set by a previous failed attempt
                 # in this same call).
                 self._consumed_writeback_failed = False
@@ -369,14 +369,14 @@ class DuckCrashRecovery:
 
         Called by ``VolumeDucker.restore()`` after volume has been
         successfully restored, and by :meth:`load_stale` if the file is
-        corrupt. Also invalidates the in-memory cache (AC-94) so a
+        corrupt. Also invalidates the in-memory cache so a
         subsequent ``load_stale()`` after ``clear()`` correctly returns
         ``None`` (rather than the cached pre-clear state).
         """
-        # AC-94: invalidate the in-memory cache.
+        # invalidate the in-memory cache.
         self._cached_stale = None
         self._cache_dirty = False
-        # XE-16-3: clear the writeback-failed flag — the file is being
+        # clear the writeback-failed flag — the file is being
         # deleted, so the next ``load_stale()`` will see no file (return
         # None) and there's no "unknown state" to track.
         self._consumed_writeback_failed = False
@@ -386,7 +386,7 @@ class DuckCrashRecovery:
         except OSError as exc:
             log.debug("[VOLUME-CRASH] Could not delete stale file: %s", exc)
 
-    # ── AC-94: context-manager support ──────────────────────────────
+    # context-manager support ──────────────────────────────
     #
     # Provides ``with DuckCrashRecovery(...) as cr:`` semantics so the
     # save→restore lifecycle can be expressed as a single block. The

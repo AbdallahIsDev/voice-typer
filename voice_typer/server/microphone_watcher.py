@@ -65,7 +65,7 @@ class MicrophoneDeviceWatcher:
         Defaults to 1.0s. Exposed as a parameter so tests can pass a
         smaller value for fast, deterministic verification.
 
-    G4-M-41 — active-mic-lost detection
+     — active-mic-lost detection
     -----------------------------------
     The watcher also exposes an OPTIONAL active-mic-lost hook so
     ``RecordingController`` can be notified when the microphone backing
@@ -98,7 +98,7 @@ class MicrophoneDeviceWatcher:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._platform = self._detect_platform()
-        # UE-12-F2: lifecycle lock. Serialises ``start()``/``stop()``
+        # lifecycle lock. Serialises ``start()``/``stop()``
         # so two concurrent callers can't both pass the idempotency
         # guard and spawn duplicate polling threads (Linux/Windows) or
         # duplicate ``CoreAudioMicrophoneWatcher`` instances (macOS).
@@ -113,7 +113,7 @@ class MicrophoneDeviceWatcher:
         # import time, so importing this module never triggers a
         # pyobjc import.
         self._coreaudio_watcher: Any | None = None
-        # UE-12-F14: hooks lock. ``_check_active_mic_lost`` snapshots
+        # hooks lock. ``_check_active_mic_lost`` snapshots
         # ``_active_mic_id``/``_on_active_mic_lost``/
         # ``_device_id_provider`` together under this lock so a
         # concurrent ``set_*`` call can't leave it with a torn view
@@ -122,7 +122,7 @@ class MicrophoneDeviceWatcher:
         # thread can run the check without blocking ``start()``/
         # ``stop()``.
         self._hooks_lock = threading.Lock()
-        # G4-M-41: active-mic-lost detection.  ``RecordingController``
+        # active-mic-lost detection.  ``RecordingController``
         # registers an ``_on_active_mic_lost`` callback (and the current
         # ``_active_mic_id`` plus a ``_device_id_provider`` callable)
         # during setup so that, when a device-change event fires AND the
@@ -141,7 +141,7 @@ class MicrophoneDeviceWatcher:
         """Return the current platform as one of ``windows``/``macos``/``linux``/``unknown``.
 
         Defers to ``voice_typer.server.platform_utils`` so all
-        platform-detection logic lives in one place (CQ-029).
+        platform-detection logic lives in one place ().
         """
         # Late import — platform_utils is cheap but late import keeps
         # the module importable in isolation for unit tests.
@@ -173,7 +173,7 @@ class MicrophoneDeviceWatcher:
         CoreAudio import happens here (not at module load) so this
         module stays importable on non-macOS without pyobjc.
 
-        UE-12-F2: the entire body runs under ``self._lock`` so two
+        the entire body runs under ``self._lock`` so two
         concurrent ``start()`` callers can't both pass the idempotency
         guard. The lock is held across ``ca_watcher.start()`` and
         ``self._thread.start()`` (both fast: lazy import + thread
@@ -232,13 +232,13 @@ class MicrophoneDeviceWatcher:
         and treated as "unavailable" — the polling watcher is the
         safe default.
 
-        XV-60: pass ``self._invoke_callback`` (the debounced dispatcher
+        pass ``self._invoke_callback`` (the debounced dispatcher
         that also runs the active-mic-lost check) instead of the raw
         ``self._on_change`` callback. Without this, the CoreAudio path
         fires the raw callback on every property-listener event,
         bypassing the 0.5s debounce window (so a single USB plug event
         can invalidate the cache 5+ times in 200ms) and skipping the
-        G4-M-41 active-mic-lost detection that the polling paths run.
+         active-mic-lost detection that the polling paths run.
         """
         # Late import — runtime selection so this module never imports
         # pyobjc at module load time (keeps Linux/Windows imports clean).
@@ -282,7 +282,7 @@ class MicrophoneDeviceWatcher:
         delegates to its ``stop()`` instead of the polling thread's
         stop logic.
 
-        UE-12-F2: the entire body runs under ``self._lock`` so two
+        the entire body runs under ``self._lock`` so two
         concurrent ``stop()`` callers can't both try to join the same
         thread / call ``CFRunLoopStop`` on the same run loop. The lock
         is held across the 2 s join — this is safe because the watcher
@@ -410,7 +410,7 @@ class MicrophoneDeviceWatcher:
 
     @staticmethod
     def _device_signature(dev: Any) -> tuple:
-        """MED-V / XPLAT-MAC-POLL-1: build a hashable signature for a
+        """MED-V: build a hashable signature for a
         sounddevice device entry.
 
         Comparing only ``len(sd.query_devices())`` misses same-count device
@@ -444,7 +444,7 @@ class MicrophoneDeviceWatcher:
         list every ``poll_interval`` seconds. When the device count
         changes, ``_invoke_callback()`` fires.
 
-        MED-V / XPLAT-MAC-POLL-1: previously this method compared only
+        MED-V: previously this method compared only
         the device COUNT. A same-count device swap (USB mic unplugged
         while a BT headset is plugged in) was missed and the cache was
         not invalidated. Now we also diff the
@@ -490,7 +490,7 @@ class MicrophoneDeviceWatcher:
                 exc_info=True,
             )
 
-        # XV-61: ``sd.query_devices()`` is a 10–50 ms CoreAudio round
+        # ``sd.query_devices()`` is a 10–50 ms CoreAudio round
         # trip on macOS (vs <1 ms for ``os.listdir`` on /dev/snd on
         # Linux). The default 1 s ``poll_interval`` is fine for the
         # Linux directory-polling path but wasteful here — it spends
@@ -519,7 +519,7 @@ class MicrophoneDeviceWatcher:
                     exc_info=True,
                 )
                 continue
-            # MED-V / XPLAT-MAC-POLL-1: fire on count OR signature
+            # MED-V: fire on count OR signature
             # change. The signature check catches same-count device
             # swaps (e.g. USB mic unplugged + BT headset plugged in
             # simultaneously) that the count-only comparison missed.
@@ -610,7 +610,7 @@ class MicrophoneDeviceWatcher:
         ]
         user32.PeekMessageW.restype = wintypes.BOOL
         user32.PeekMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
-        # PVT-030: ``GetMessageW`` is a BLOCKING call that returns
+        # ``GetMessageW`` is a BLOCKING call that returns
         # immediately when a window message is available (so
         # ``WM_DEVICECHANGE`` wakes the thread the instant a device is
         # added/removed) and also when ``WM_QUIT`` is posted by
@@ -724,7 +724,7 @@ class MicrophoneDeviceWatcher:
             self._windows_hwnd = hwnd
 
             msg = wintypes.MSG()
-            # PVT-030: blocking ``GetMessageW`` pump. The thread sleeps
+            # blocking ``GetMessageW`` pump. The thread sleeps
             # with zero CPU until a window message arrives — either
             # ``WM_DEVICECHANGE`` (device added/removed) or ``WM_QUIT``
             # (posted by ``_post_quit_to_windows`` during ``stop()``).
@@ -765,14 +765,62 @@ class MicrophoneDeviceWatcher:
         Called from ``stop()`` so the blocking ``GetMessageW`` returns
         immediately (with ``WM_QUIT``) and the pump exits. No-op if
         the window hasn't been created yet.
+
+        ``PostMessageW`` is called here WITHOUT the
+        argtypes/restype set in ``_run_windows_impl`` — that setup
+        runs on the *watcher* thread, but ``_post_quit_to_windows``
+        runs on the *caller's* thread (the thread calling ``stop()``).
+        On 64-bit Windows, ctypes defaults to ``c_int`` restype and
+        untyped argtypes, which truncates the 64-bit ``HWND`` handle
+        to 32 bits. The truncated handle is almost never a valid
+        window, so ``PostMessageW`` returns 0 (failure) without
+        posting anything — the ``GetMessageW`` pump never wakes and
+        ``stop()``'s 2s ``join`` times out, leaking a thread on
+        every ``stop()`` on 64-bit Windows.
+
+        The fix mirrors the 64-bit safety pattern in
+        ``_run_windows_impl`` (lines 588-637): explicitly set
+        ``restype = wintypes.BOOL`` and ``argtypes = [HWND, UINT,
+        WPARAM, LPARAM]`` on every call. Setting them idempotently
+        on every call (rather than relying on the watcher thread's
+        setup having run) is safe — ctypes attribute assignment is
+        atomic w.r.t. the GIL and ``PostMessageW`` is a function
+        pointer cached on the ``windll.user32`` proxy.
         """
         hwnd = getattr(self, "_windows_hwnd", None)
         if not hwnd:
             return
-        import ctypes
+        try:
+            import ctypes
+            from ctypes import wintypes
+        except (ImportError, AttributeError):
+            log.debug("[MIC-WATCHER] ctypes/wintypes unavailable, cannot post WM_QUIT")
+            return
 
         wm_quit = 0x0012
-        ctypes.windll.user32.PostMessageW(hwnd, wm_quit, 0, 0)
+        try:
+            user32 = ctypes.windll.user32
+        except AttributeError:
+            log.debug("[MIC-WATCHER] windll unavailable (not Windows?), cannot post WM_QUIT")
+            return
+
+        # explicit argtypes/restype for 64-bit HWND safety.
+        # See the block comment above — without these, the 64-bit
+        # HWND is truncated to c_int and PostMessageW fails silently.
+        user32.PostMessageW.restype = wintypes.BOOL
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        posted = user32.PostMessageW(hwnd, wm_quit, 0, 0)
+        if not posted:
+            log.debug(
+                "[MIC-WATCHER] PostMessageW(WM_QUIT) returned 0 (hwnd=%d, err=%d) — pump may have already exited",
+                int(hwnd) if hwnd else 0,
+                ctypes.get_last_error(),
+            )
 
     # ── callback dispatch ─────────────────────────────────────────────
 
@@ -796,7 +844,7 @@ class MicrophoneDeviceWatcher:
         duplicates of DBT_DEVNODES_CHANGED in 1 second) from
         invalidating the device cache 18 times in rapid succession.
 
-        G4-M-41: after the cache-invalidation callback runs, the watcher
+        after the cache-invalidation callback runs, the watcher
         also checks whether the active recording's mic_id is still
         present in the current device list (queried via the
         ``_device_id_provider`` registered by ``RecordingController``).
@@ -825,11 +873,11 @@ class MicrophoneDeviceWatcher:
                 "[MIC-WATCHER] Invalidation callback raised",
                 exc_info=True,
             )
-        # G4-M-41: even if _on_change raised, the device list may have
+        # even if _on_change raised, the device list may have
         # changed in a way that removed the active mic — check anyway.
         self._check_active_mic_lost()
 
-    # ── active-mic-lost detection (G4-M-41) ──────────────────────────
+    # ── active-mic-lost detection () ──────────────────────────
 
     def set_active_mic_id(self, mic_id: Any) -> None:
         """Set the mic_id of the currently-active recording (or clear it).
@@ -845,7 +893,7 @@ class MicrophoneDeviceWatcher:
         starts — the watcher never fires ``_on_active_mic_lost`` while
         no recording is active.
 
-        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        the assignment runs under ``self._hooks_lock`` so
         ``_check_active_mic_lost`` can snapshot a consistent view of
         all three hooks.
         """
@@ -866,7 +914,7 @@ class MicrophoneDeviceWatcher:
         thread-safe.  Exceptions raised by the callback are logged and
         swallowed (they must not kill the watcher thread).
 
-        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        the assignment runs under ``self._hooks_lock`` so
         ``_check_active_mic_lost`` can snapshot a consistent view of
         all three hooks.
         """
@@ -890,7 +938,7 @@ class MicrophoneDeviceWatcher:
         watcher uses ``in`` for membership, so IDs must be hashable.
         Exceptions raised by the provider are logged and swallowed.
 
-        UE-12-F14: the assignment runs under ``self._hooks_lock`` so
+        the assignment runs under ``self._hooks_lock`` so
         ``_check_active_mic_lost`` can snapshot a consistent view of
         all three hooks.
         """
@@ -907,7 +955,7 @@ class MicrophoneDeviceWatcher:
         (e.g. tests that only exercise the device-cache invalidation
         path).
 
-        UE-12-F14: all three hooks are snapshotted together under
+        all three hooks are snapshotted together under
         ``self._hooks_lock`` before any of them is read. Without the
         snapshot, a concurrent ``set_active_mic_id(None)`` (recording
         stop) could land between the ``is None`` guard and the

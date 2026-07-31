@@ -250,7 +250,7 @@ _MIN_WORD_LENGTH = 3
 # IPC payload stays small even for long transcriptions.
 _MAX_CONTEXT_LENGTH = 80
 
-# CR-86: cap on the number of pending (not-yet-applied / not-yet-
+# cap on the number of pending (not-yet-applied / not-yet-
 # dismissed) suggestions retained in memory.  Items only get removed
 # via explicit user action (apply / dismiss), so without a cap, a long
 # unattended dictation session would grow the list without bound
@@ -492,7 +492,7 @@ class VocabularyAutomation:
         # Add the new suggestions to the pending queue.
         with self._lock:
             self._pending.extend(suggestions)
-            # CR-86: enforce the MAX_PENDING cap.  Items only get
+            # enforce the MAX_PENDING cap.  Items only get
             # removed via explicit user action (apply / dismiss), so
             # without this cap, a long unattended dictation session
             # would grow ``_pending`` without bound.  When the cap is

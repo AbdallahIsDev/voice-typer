@@ -1,7 +1,7 @@
 """Session state management for :class:`Recorder` (extracted from ``recorder.py``).
 
-S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder` to shrink the
-3772-LOC ``recorder.py`` god class (see S3-CR-17 in ``review.md``).
+Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the per-session state reset, config-derived scalar caching,
 secure-cache clearing (the bulk ``_secure_clear_caches`` — NOT
 ``_secure_clear_session_caches`` which stays on Recorder for source-
@@ -43,7 +43,7 @@ Tests use ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly
 to inject fake resample behavior. The ``_recording_pkg._get_resample_poly()``
 indirection (see the module docstring of :mod:`.recorder` §Patch-path) is
 preserved here so the patch takes effect at call time. The same indirection
-is used for ``_recording_pkg._secure_clear_array(...)`` (CR-21 regression
+is used for ``_recording_pkg._secure_clear_array(...)`` ( regression
 pinned by ``tests/test_secure_clear_array.py``) and for the module-level
 ``_recording_pkg._AUDIO_RING_BUFFER_CAPACITY`` constant used in
 :meth:`SessionState.resize_buffers_for_sample_rate` — accessing it via the
@@ -82,9 +82,9 @@ if TYPE_CHECKING:
 class SessionState:
     """Session state management for :class:`Recorder`.
 
-    S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. See the module
-    docstring for the collaborator-pattern rationale and the list of
-    recorder-owned vs. collaborator-owned state.
+    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        docstring for the collaborator-pattern rationale and the list of
+        recorder-owned vs. collaborator-owned state.
     """
 
     def __init__(self, recorder: Any) -> None:
@@ -103,37 +103,37 @@ class SessionState:
     def reset_session_state(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._reset_session_state`.
 
-        Reset ALL per-session state for a fresh recording session.
+                Reset ALL per-session state for a fresh recording session.
 
-        ARCH-023: reset ALL per-session state here, not just the buffer.
-        Previously some flags (_max_duration_warning_sent,
-        _silence_warning_sent, etc.) persisted across recordings,
-        causing stale state to suppress warnings on the next session.
+        reset ALL per-session state here, not just the buffer.
+                Previously some flags (_max_duration_warning_sent,
+                _silence_warning_sent, etc.) persisted across recordings,
+                causing stale state to suppress warnings on the next session.
 
-        ARCH-023 (revised): The dead ``_silence_warning_sent`` and
-        ``_max_duration_warning_sent`` boolean flags have been REMOVED.
-        They were declared and reset here but NEVER read in any
-        conditional — the actual silence-warning state machine uses
-        the integer counter ``_silence_warning_count`` (which IS read
-        elsewhere). The dead flags were misleading maintainers into
-        thinking warning deduplication existed when it didn't.
+        (revised): The dead ``_silence_warning_sent`` and
+                ``_max_duration_warning_sent`` boolean flags have been REMOVED.
+                They were declared and reset here but NEVER read in any
+                conditional — the actual silence-warning state machine uses
+                the integer counter ``_silence_warning_count`` (which IS read
+                elsewhere). The dead flags were misleading maintainers into
+                thinking warning deduplication existed when it didn't.
 
-        Called by :meth:`start` after the cache-clearance +
-        pre-flight-permission gate. The state reset block is extracted
-        out of ``start()``'s body so ``start()`` stays a readable
-        orchestrator that calls helpers in order.
+                Called by :meth:`start` after the cache-clearance +
+                pre-flight-permission gate. The state reset block is extracted
+                out of ``start()``'s body so ``start()`` stays a readable
+                orchestrator that calls helpers in order.
         """
         recorder._buffer.clear()
         recorder._chunk_count = 0
         recorder._cached_resampled = np.array([], dtype=np.float32)
         recorder._cached_native_chunk_count = 0
-        # ARCH-023: also reset the cache key so a new session doesn't
+        # also reset the cache key so a new session doesn't
         # reuse a stale prefix from a different sample rate.
         recorder._cached_resample_key = ()
-        # NEW-PERF-003: invalidate the no-resample cache too.
+        # invalidate the no-resample cache too.
         recorder._cached_no_resample_len = -1
         recorder._cached_no_resample_arr = None
-        # XE-6-1: zero each segment's underlying numpy buffer BEFORE
+        # zero each segment's underlying numpy buffer BEFORE
         # dropping the list reference, mirroring the secure-clear
         # contract in ``secure_clear_caches`` / ``_secure_clear_session_caches``.
         # ``reset_session_state`` runs from ``start()`` AFTER
@@ -194,8 +194,8 @@ class SessionState:
         recorder._peak = 0.0
         recorder._last_clip_log_time = 0.0
         recorder._last_rms = 0.0
-        # AUDIO-013: reset VAD state machine.
-        # RW-04: VadProcessor.reset() handles the actual state restoration.
+        # reset VAD state machine.
+        # VadProcessor.reset() handles the actual state restoration.
         # The property-shim assignments below are kept as a redundant
         # safety net AND as source-level documentation that start()
         # resets the VAD calibration state — existing tests pin on the
@@ -207,7 +207,7 @@ class SessionState:
         recorder._vad_consecutive_silence_frames = 0
         recorder._vad_speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
         recorder._vad_silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
-        # AUDIO-014: reset auto-calibration
+        # reset auto-calibration
         recorder._vad_calibration_rms_values = []
         recorder._vad_calibrated = False
         # STREAM-FIX: reset user-stop-pending flag for the new
@@ -224,18 +224,18 @@ class SessionState:
         # AUDIO-HOT: reset disconnect state
         recorder._device_disconnected = False
         recorder._device_disconnect_retries = 0
-        # PERF-011: reset frame-skip state. RT-SAFE-001: the
+        # PERF-011: reset frame-skip state. : the
         # _previous_chunk_pending flag is no longer used (replaced by
         # ring buffer overflow detection), but we keep resetting it for
         # diagnostic cleanliness. _skipped_frames is now incremented by
         # the callback when the ring buffer overflows.
         recorder._previous_chunk_pending = False
         recorder._skipped_frames = 0
-        # RT-SAFE-001: reset ring buffer drop counter for the new session
+        # reset ring buffer drop counter for the new session
         recorder._dropped_ring_chunks = 0
         # AUDIO-HOT: reset periodic device check counter
         recorder._device_check_counter = 0
-        # PERF-NEW-021: cache the target sample rate once at start()
+        # PERF-: cache the target sample rate once at start()
         # so the audio callback / snapshot() doesn't re-read
         # self.config.sample_rate on every call.
         recorder._cached_target_sr = recorder.config.sample_rate
@@ -250,18 +250,18 @@ class SessionState:
     def cache_session_config(self, recorder: Any) -> int:
         """Body of :meth:`Recorder._cache_session_config`.
 
-        Cache config-derived scalars for the upcoming session and return ``max_rec``.
+                Cache config-derived scalars for the upcoming session and return ``max_rec``.
 
-        PERF-NEW-006: cache config values at start() time so the
-        audio callback doesn't do 5x getattr per iteration.
-        Coerce to float so a non-numeric MagicMock config (in tests)
-        doesn't cause TypeError in the silence_timer comparison.
+        PERF-: cache config values at start() time so the
+                audio callback doesn't do 5x getattr per iteration.
+                Coerce to float so a non-numeric MagicMock config (in tests)
+                doesn't cause TypeError in the silence_timer comparison.
 
-        Returns ``max_rec`` (the parsed ``_cached_max_recording_time``
-        as an int, or 0 on TypeError/ValueError) so ``start()`` can
-        pass it to ``_resize_buffers_for_sample_rate`` later — the
-        dynamic buffer sizing is deferred until the device loop
-        finalizes ``effective_sr``.
+                Returns ``max_rec`` (the parsed ``_cached_max_recording_time``
+                as an int, or 0 on TypeError/ValueError) so ``start()`` can
+                pass it to ``_resize_buffers_for_sample_rate`` later — the
+                dynamic buffer sizing is deferred until the device loop
+                finalizes ``effective_sr``.
         """
         _silence_warning = recorder.config.silence_warning_seconds
         # stop_on_silence_seconds is a Config dataclass field (default
@@ -297,33 +297,33 @@ class SessionState:
     def secure_clear_caches(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._secure_clear_caches`.
 
-        G4-H-06: securely zero cached audio arrays BEFORE reassignment.
+        securely zero cached audio arrays BEFORE reassignment.
 
-        ``stop()`` and ``discard()`` previously reassigned
-        ``_cached_resampled`` and ``_cached_no_resample_arr`` to fresh
-        empty arrays without first zeroing the underlying numpy
-        buffers.  The cached arrays can hold up to ~30 min of 16 kHz
-        float32 audio (~115 MB) of the user's voice, so simply dropping
-        the reference left that data in process memory until the numpy
-        allocator reused the block — defeating SEC-audit-008's intent.
+                ``stop()`` and ``discard()`` previously reassigned
+                ``_cached_resampled`` and ``_cached_no_resample_arr`` to fresh
+                empty arrays without first zeroing the underlying numpy
+                buffers.  The cached arrays can hold up to ~30 min of 16 kHz
+                float32 audio (~115 MB) of the user's voice, so simply dropping
+                the reference left that data in process memory until the numpy
+                allocator reused the block — defeating SEC-audit-008's intent.
 
-        This helper factors the 4-way duplication between ``stop()``'s
-        two code paths (empty-buffer early return + main path) and
-        ``discard()`` into a single place, AND fixes the regression by
-        calling ``_secure_clear_array`` on each non-empty cache before
-        replacing it.
+                This helper factors the 4-way duplication between ``stop()``'s
+                two code paths (empty-buffer early return + main path) and
+                ``discard()`` into a single place, AND fixes the regression by
+                calling ``_secure_clear_array`` on each non-empty cache before
+                replacing it.
 
-        Idempotent: safe to call when the caches are already empty /
-        ``None`` (the size guard skips the zeroing).
+                Idempotent: safe to call when the caches are already empty /
+                ``None`` (the size guard skips the zeroing).
 
-        NOTE: this is the bulk ``_secure_clear_caches`` called by
-        ``stop()`` / ``discard()``. The smaller ``_secure_clear_session_caches``
-        helper called from ``start()`` STAYS on ``Recorder`` — it has a
-        positive source-inspection contract (``tests/test_secure_clear_array.py``
-        pins that ``Recorder._secure_clear_session_caches`` source
-        contains ``_secure_clear_array(self._cached_resampled)`` and
-        ``_secure_clear_array(self._cached_no_resample_arr)``). The
-        primary agent will leave that method untouched on ``Recorder``.
+                NOTE: this is the bulk ``_secure_clear_caches`` called by
+                ``stop()`` / ``discard()``. The smaller ``_secure_clear_session_caches``
+                helper called from ``start()`` STAYS on ``Recorder`` — it has a
+                positive source-inspection contract (``tests/test_secure_clear_array.py``
+                pins that ``Recorder._secure_clear_session_caches`` source
+                contains ``_secure_clear_array(self._cached_resampled)`` and
+                ``_secure_clear_array(self._cached_no_resample_arr)``). The
+                primary agent will leave that method untouched on ``Recorder``.
         """
         # Route through ``_recording_pkg.`` so test patches of the form
         # ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
@@ -345,7 +345,7 @@ class SessionState:
                 "[RECORDER] secure_clear_array failed for _cached_no_resample_arr",
                 exc_info=True,
             )
-        # XE-6-1 (High): the resample-path segment list
+        # (High): the resample-path segment list
         # (``_cached_resampled_segments``) holds the per-snapshot
         # resampled prefix as a Python list of contiguous ndarrays.
         # ``_ensure_resampled_concat`` may keep
@@ -353,7 +353,7 @@ class SessionState:
         # (the 1-segment fast path), so simply dropping the list
         # reference (as the original code did) leaves up to ~115 MB of
         # dictated float32 audio in process memory until the numpy
-        # allocator reuses the blocks — defeating G4-H-06's intent for
+        # allocator reuses the blocks — defeating 's intent for
         # the segment cache. Zero each segment in-place BEFORE the
         # list reassignment. Best-effort: a failure to zero one
         # segment doesn't block zeroing the rest or the cache reset.
@@ -370,12 +370,12 @@ class SessionState:
         recorder._cached_no_resample_arr = None
         recorder._cached_native_chunk_count = 0
         recorder._cached_no_resample_len = -1
-        # XE-6-1: now that every segment's underlying numpy buffer has
+        # now that every segment's underlying numpy buffer has
         # been zeroed in-place (above), drop the list reference and
         # reset the dirty flag so the next session starts clean.
         recorder._cached_resampled_segments = []
         recorder._cached_resampled_concat_dirty = False
-        # XZ-PRIV-01: reset the audio processor's filter state too.
+        # reset the audio processor's filter state too.
         # IIR ``zi`` arrays + RNNoise ``_carry`` (up to 479 samples,
         # ~2 KB at 16 kHz float32) retain audio-derived residuals
         # after stop()/discard(). ``AudioProcessor.reset()`` was only
@@ -430,7 +430,7 @@ class SessionState:
         chunks already captured by the audio callback (between
         stream.start() above and here) are preserved.
         """
-        blocksize = _AUDIO_BLOCKSIZE  # DJ-104: matches sd.InputStream blocksize below
+        blocksize = _AUDIO_BLOCKSIZE  # matches sd.InputStream blocksize below
         sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
         if sizing_sr <= 0:
             sizing_sr = recorder.config.sample_rate

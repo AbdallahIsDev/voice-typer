@@ -1,6 +1,6 @@
 """Pure input validators for IPC ``set_config`` payloads.
 
-ARCH-REFAC-001: This module was extracted from ``config.py`` to keep the
+This module was extracted from ``config.py`` to keep the
 config-loading code (parsing JSON, migrating legacy schemas, atomic
 writes) separate from the input-validation logic that gates which fields
 the Electron renderer is allowed to mutate and what values are
@@ -36,7 +36,7 @@ from voice_typer.server.platform_utils import is_windows as _is_windows
 log = logging.getLogger("voice_typer.server.config_validators")
 
 
-# DR-37: canonical bounds + default for ``max_recording_time_seconds``.
+# canonical bounds + default for ``max_recording_time_seconds``.
 # Defined here (the import-safe leaf module) so ``config.py`` can import
 # them without participating in a circular import. Both the IPC validator
 # below and ``Config._coerce_max_recording_time`` read from these
@@ -48,7 +48,7 @@ MAX_RECORDING_TIME_SECONDS_DEFAULT: int = 900  # 15 minutes
 MAX_RECORDING_TIME_SECONDS_MIN: int = 300  # 5 minutes
 MAX_RECORDING_TIME_SECONDS_MAX: int = 3600  # 60 minutes
 
-# XE-11-4: shared streaming-field minimums (mirrors DR-37 pattern).
+# shared streaming-field minimums (mirrors  pattern).
 # Pre-fix the IPC validator used ``lo=0.0`` while
 # ``Config._coerce_streaming_fields`` clamped to ``3.0`` / ``1.5`` — a
 # value the renderer persisted (``0.5``) silently changed across
@@ -60,14 +60,14 @@ STREAMING_LEFT_OVERLAP_SECONDS_MIN: float = 3.0
 STREAMING_RIGHT_GUARD_SECONDS_MIN: float = 1.5
 
 
-# CR-38: extended to include the multilingual variants (tiny/small/medium,
+# extended to include the multilingual variants (tiny/small/medium,
 # no .en suffix) that OnboardingController.MODEL_OPTIONS offers to users.
 # Without these, non-English users who pick a multilingual model in
 # onboarding silently get English-only Whisper after the first restart
 # (Config.load() resets model_size to "small.en" because the multilingual
 # name is not in the allowlist).
 #
-# XZ-CFG-02: ALLOWED_USER_MODELS is now DERIVED from
+# ALLOWED_USER_MODELS is now DERIVED from
 # :data:`model_registry.MODEL_REGISTRY` at import time so the two cannot
 # drift (the previous hand-maintained set had 8 entries while
 # MODEL_REGISTRY had 12 — `base`, `base.en`, `large`, and `turbo` were
@@ -82,7 +82,7 @@ ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.ke
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# G4-M-12: canonical noise-suppression backend enum.
+# canonical noise-suppression backend enum.
 #
 # Previously this enum was duplicated in three places that had already
 # drifted out of sync:
@@ -151,7 +151,7 @@ NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "deepfilternet
 # dispatcher (see ``_validate_config_update``).
 
 ValidatorFn = Callable[[object], str | None]
-# GT-D1-6: widened to accept either a single ``type`` (e.g. ``str``, ``bool``)
+# widened to accept either a single ``type`` (e.g. ``str``, ``bool``)
 # or a tuple of types (used by Optional fields such as ``microphone`` whose
 # spec is ``(str, type(None))``). The previous ``tuple[type, ValidatorFn]``
 # alias was too narrow and forced the bare ``dict`` annotation on
@@ -191,12 +191,12 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
-            # PVT-G5-071 (session-5): include the actual length so the
+            # (session-5): include the actual length so the
             # operator can see how badly the cap was blown (e.g. a 50 KB
             # hotkey string vs. one that's 1 char over). Don't include
             # the value itself — string fields can hold API keys / PII.
             return f"exceeds maximum length {max_len}, got length {len(v)}"
-        # CR-26: Reject C0 control characters and DEL (0x7f) to prevent
+        # Reject C0 control characters and DEL (0x7f) to prevent
         # log poisoning, header injection, and config.json truncation.
         for ch in v:
             o = ord(ch)
@@ -214,11 +214,11 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string or null, got {type(v).__name__}"
         if len(v) > max_len:
-            # PVT-G5-071 (session-5): include actual length (see
+            # (session-5): include actual length (see
             # _make_str_validator for the rationale on why we don't
             # include the value).
             return f"exceeds maximum length {max_len}, got length {len(v)}"
-        # CR-26: Reject C0 control characters and DEL (0x7f).
+        # Reject C0 control characters and DEL (0x7f).
         for ch in v:
             o = ord(ch)
             if o < 0x20 or o == 0x7F:
@@ -239,7 +239,7 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
         if not _is_int_not_bool(v):
             return f"must be an integer, got {type(v).__name__}"
         if v < lo or v > hi:
-            # PVT-G5-071 (session-5): include the actual value — ints
+            # (session-5): include the actual value — ints
             # are non-PII and the value is essential for diagnosing
             # off-by-one / unit bugs.
             return f"must be in [{lo}, {hi}], got {v}"
@@ -253,7 +253,7 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
         if not _is_float_or_int_not_bool(v):
             return f"must be a number, got {type(v).__name__}"
         if v < lo or v > hi:
-            # PVT-G5-071 (session-5): include the actual value — floats
+            # (session-5): include the actual value — floats
             # are non-PII.
             return f"must be in [{lo}, {hi}], got {v}"
         return None
@@ -266,7 +266,7 @@ def _make_enum_validator(allowed: frozenset[str]) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if v not in allowed:
-            # PVT-G5-071 (session-5): include the actual value via
+            # (session-5): include the actual value via
             # ``{v!r}`` so the operator can see exactly what was
             # rejected (including any whitespace / case mismatch).
             # Enum values are short option strings, not PII.
@@ -279,32 +279,32 @@ def _make_enum_validator(allowed: frozenset[str]) -> ValidatorFn:
 def _make_custom_theme_validator() -> ValidatorFn:
     """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}.
 
-    FR-3: ``None`` is now accepted as a valid value — the renderer's
-    ``useTheme.ts`` sends ``custom_theme: null`` when the user clicks
-    "Clear custom theme / revert to preset". Previously the validator
-    rejected ``None`` with ``"must be a dict, got NoneType"`` and the
-    user's clear action silently failed (server returned
-    ``code: "invalid_field"`` while the local React state still held
-    the cleared theme). The expected_type tuple on the
-    ``IPC_CONFIG_ALLOWLIST["custom_theme"]`` entry is also widened to
-    ``(dict, type(None))`` so the pre-validator type check passes for
-    ``None`` before this validator runs.
+    ``None`` is now accepted as a valid value — the renderer's
+        ``useTheme.ts`` sends ``custom_theme: null`` when the user clicks
+        "Clear custom theme / revert to preset". Previously the validator
+        rejected ``None`` with ``"must be a dict, got NoneType"`` and the
+        user's clear action silently failed (server returned
+        ``code: "invalid_field"`` while the local React state still held
+        the cleared theme). The expected_type tuple on the
+        ``IPC_CONFIG_ALLOWLIST["custom_theme"]`` entry is also widened to
+        ``(dict, type(None))`` so the pre-validator type check passes for
+        ``None`` before this validator runs.
     """
     key_keys = {"--background", "--foreground", "--primary", "--bg-subtle", "--border", "--text-muted"}
 
     def _validate(v: object) -> str | None:
-        # FR-3: ``None`` is the canonical "clear custom theme" value —
+        # ``None`` is the canonical "clear custom theme" value —
         # accept it without further checks. Config.load() / Config.save()
         # treat None as "the field is unset / revert to preset" (the
         # dataclass default for ``custom_theme`` is None).
         if v is None:
             return None
         if not isinstance(v, dict):
-            # PVT-G5-071 (session-5): include the actual type (mirror
+            # (session-5): include the actual type (mirror
             # line 128's pattern). The value itself could be a long
             # string, so we use type name rather than the value.
             return f"must be a dict, got {type(v).__name__}"
-        # XZ-14-15: cap the top-level dict size to prevent a malicious
+        # cap the top-level dict size to prevent a malicious
         # or buggy config from sending a 10000-key theme dict (the
         # legitimate shape is exactly 2 keys: "light" and "dark").  64
         # is a generous upper bound that catches attacks without
@@ -315,7 +315,7 @@ def _make_custom_theme_validator() -> ValidatorFn:
             mode_dict = v.get(mode)
             if not isinstance(mode_dict, dict):
                 return f"field {mode!r} must be a dict"
-            # XZ-14-15: bound the per-mode dict size.  The legitimate
+            # bound the per-mode dict size.  The legitimate
             # shape has 6 required CSS-variable keys; 64 leaves room
             # for future extensions while still rejecting pathological
             # inputs.
@@ -325,7 +325,7 @@ def _make_custom_theme_validator() -> ValidatorFn:
                 val = mode_dict.get(key)
                 if not isinstance(val, str):
                     return f"{mode}.{key} must be a string, got {type(val).__name__}"
-                # XZ-14-15: bound the color value length.  Legitimate
+                # bound the color value length.  Legitimate
                 # hex colors are 7 chars (#RRGGBB) or 9 chars
                 # (#RRGGBBAA); 32 is a generous upper bound that
                 # catches malicious 1000-char strings without
@@ -355,24 +355,24 @@ def _make_url_validator(
 ) -> ValidatorFn:
     """Validate an HTTP(S) URL.
 
-    Rejects non-string values, oversized values, and any URL whose scheme
-    is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``
-    (used for fields where empty means "feature disabled").
+        Rejects non-string values, oversized values, and any URL whose scheme
+        is not ``http`` or ``https``.  Empty string is accepted iff ``allow_empty``
+        (used for fields where empty means "feature disabled").
 
-    When ``require_https`` is True (default, NEW-SEC-003), non-loopback hosts
-    must use HTTPS — HTTP is only permitted for loopback hosts
-    (``localhost`` / ``127.0.0.1`` / ``::1``) so local development servers
-    work.  This mirrors the request-time enforcement in
-    ``voice_typer.server._secrets.require_https`` so a cleartext URL is
-    rejected at ``set_config`` time, before it can ever reach config.
+    When ``require_https`` is True (default, ), non-loopback hosts
+        must use HTTPS — HTTP is only permitted for loopback hosts
+        (``localhost`` / ``127.0.0.1`` / ``::1``) so local development servers
+        work.  This mirrors the request-time enforcement in
+        ``voice_typer.server._secrets.require_https`` so a cleartext URL is
+        rejected at ``set_config`` time, before it can ever reach config.
 
-    SECRET-1 (MED-M): URLs with embedded credentials (``user:pass@host``)
-    are rejected outright — the user must use the dedicated ``api_key``
-    field instead.  Embedded credentials in URLs are a security
-    anti-pattern: they end up in process lists (``ps aux``), shell
-    history, log files, and browser history.  They also bypass the
-    keyring-backed credential store (``credential_store``) which is the
-    application's single source of truth for secrets.
+        SECRET-1 (MED-M): URLs with embedded credentials (``user:pass@host``)
+        are rejected outright — the user must use the dedicated ``api_key``
+        field instead.  Embedded credentials in URLs are a security
+        anti-pattern: they end up in process lists (``ps aux``), shell
+        history, log files, and browser history.  They also bypass the
+        keyring-backed credential store (``credential_store``) which is the
+        application's single source of truth for secrets.
     """
 
     _loopback_hosts = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -381,7 +381,7 @@ def _make_url_validator(
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
-            # PVT-G5-071 (session-5): include actual length (URL fields
+            # (session-5): include actual length (URL fields
             # can hold API keys via query strings, so don't include the
             # value itself).
             return f"exceeds maximum length {max_len}, got length {len(v)}"
@@ -408,7 +408,7 @@ def _make_url_validator(
         # dedicated api_key field.
         if parsed.username or parsed.password:
             return "URL must not contain embedded credentials — use the api_key field"
-        # NEW-SEC-003: close the defense-in-depth gap — reject cleartext
+        # close the defense-in-depth gap — reject cleartext
         # HTTP for non-loopback hosts at config time, not just at call time.
         if require_https and parsed.scheme == "http" and host not in _loopback_hosts:
             return f"must use HTTPS for non-loopback host {host!r} (HTTP is only allowed for localhost/127.0.0.1/::1)"
@@ -504,26 +504,26 @@ def _platform_key() -> str:
 def _parse_hotkey_parts(hotkey: str) -> list[str]:
     """Parse a hotkey string like ``"<ctrl>+<alt>+v"`` into ``["ctrl","alt","v"]``.
 
-    RW-1 (Hotkey parser unification): this now delegates to the
-    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` and
-    flattens the resulting :class:`HotkeySpec` (canonical modifiers
-    followed by non-modifier keys) back into a flat list of
-    lowercased tokens, preserving the original list-returning API.
+    (Hotkey parser unification): this now delegates to the
+        canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` and
+        flattens the resulting :class:`HotkeySpec` (canonical modifiers
+        followed by non-modifier keys) back into a flat list of
+        lowercased tokens, preserving the original list-returning API.
 
-    Behavioural changes versus the prior strip-and-split implementation:
+        Behavioural changes versus the prior strip-and-split implementation:
 
-    - Aliases are resolved (e.g. ``<control>`` → ``"ctrl"``,
-      ``<globe>`` → ``"fn"``, ``<altgr>`` → ``"alt_gr"``).
-    - Duplicate tokens are deduplicated (e.g. ``<ctrl>+<ctrl>+<v>``
-      → ``["ctrl", "v"]``).
-    - Modifiers are sorted alphabetically; non-modifier keys keep
-      their original order.
+        - Aliases are resolved (e.g. ``<control>`` → ``"ctrl"``,
+          ``<globe>`` → ``"fn"``, ``<altgr>`` → ``"alt_gr"``).
+        - Duplicate tokens are deduplicated (e.g. ``<ctrl>+<ctrl>+<v>``
+          → ``["ctrl", "v"]``).
+        - Modifiers are sorted alphabetically; non-modifier keys keep
+          their original order.
 
-    These changes are safe for the validator's consumers, which only
-    use ``len(parts)``, ``parts[0]``, ``any(p in ... for p in parts)``,
-    and ``[p for p in parts if p (not) in _HOTKEY_MODIFIERS]`` — all
-    of which are insensitive to ordering, dedup, and alias resolution
-    (every canonical modifier name is in ``_HOTKEY_MODIFIERS``).
+        These changes are safe for the validator's consumers, which only
+        use ``len(parts)``, ``parts[0]``, ``any(p in ... for p in parts)``,
+        and ``[p for p in parts if p (not) in _HOTKEY_MODIFIERS]`` — all
+        of which are insensitive to ordering, dedup, and alias resolution
+        (every canonical modifier name is in ``_HOTKEY_MODIFIERS``).
     """
     from voice_typer.server.hotkey_spec import parse_hotkey
 
@@ -690,18 +690,18 @@ def _check_shift_letter(parts: list[str]) -> str | None:
 def _validate_hotkey(value: object) -> str | None:
     """Validate a hotkey string against the reserved-shortcut denylist.
 
-    Returns ``None`` if valid, or a human-readable error string if invalid.
-    Mirrors the frontend ``validateHotkey`` in ``hotkey-validation.ts``.
+        Returns ``None`` if valid, or a human-readable error string if invalid.
+        Mirrors the frontend ``validateHotkey`` in ``hotkey-validation.ts``.
 
-    HOTKEY-VALIDATION-001: this replaces the previous length-only check
-    (``_make_str_validator(max_len=256)``) which accepted OS-reserved
-    shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
-    ``<ctrl>+<c>``.
+        HOTKEY-VALIDATION-001: this replaces the previous length-only check
+        (``_make_str_validator(max_len=256)``) which accepted OS-reserved
+        shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
+        ``<ctrl>+<c>``.
 
-    ARCH-14: the 9 validation stages below are extracted into small
-    ``_check_*`` helpers so the orchestrator stays readable. Each helper
-    returns an error string or ``None``; the first non-``None`` wins,
-    preserving the original short-circuit ordering exactly.
+    the 9 validation stages below are extracted into small
+        ``_check_*`` helpers so the orchestrator stays readable. Each helper
+        returns an error string or ``None``; the first non-``None`` wins,
+        preserving the original short-circuit ordering exactly.
     """
     if (err := _check_basic_shape(value)) is not None:
         return err
@@ -735,20 +735,20 @@ def _validate_hotkey(value: object) -> str | None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-04 / XZ-14-05: cross-field hotkey conflict check and cross-platform
+# cross-field hotkey conflict check and cross-platform
 # portability warnings.
 #
 # The per-field ``_validate_hotkey`` (above) only consults the *current*
 # platform's reserved list and only sees one hotkey field at a time.  These
 # two helpers layer on top of it:
 #
-#   - :func:`_check_cross_field_hotkey_conflicts` (XZ-14-04): detects when
+# func:`_check_cross_field_hotkey_conflicts` (): detects when
 #     two of the three hotkey fields (``hotkey``, ``repaste_hotkey``,
 #     ``push_to_talk_hotkey``) are assigned the same value.  Called from
 #     both :func:`validate_config_update` and :func:`validate_config` so
 #     the conflict is caught at IPC-write time AND at config-load time.
 #
-#   - :func:`cross_platform_hotkey_warnings` (XZ-14-05): checks each hotkey
+# func:`cross_platform_hotkey_warnings` (): checks each hotkey
 #     value against the reserved lists of EVERY non-current platform and
 #     returns warning strings (NOT errors — the hotkey is valid on the
 #     user's current platform).  Callers (e.g. ``Config.load()`` in
@@ -759,7 +759,7 @@ def _validate_hotkey(value: object) -> str | None:
 
 # The three hotkey fields whose values must not collide.  Note that
 # ``push_to_talk_hotkey`` is NOT in :data:`IPC_CONFIG_ALLOWLIST` (removed
-# per GT-F2-8 — see comment at the allowlist entry for ``repaste_hotkey``),
+# per  — see comment at the allowlist entry for ``repaste_hotkey``),
 # so the IPC path's cross-field check will only see fields that survive
 # the per-field validator (i.e. ``hotkey`` and ``repaste_hotkey``).  The
 # full-config validator (:func:`validate_config`) DOES see all three
@@ -773,28 +773,28 @@ def _check_cross_field_hotkey_conflicts(
 ) -> list[str]:
     """Detect duplicate hotkey assignments across the 3 hotkey fields.
 
-    XZ-14-04: without this cross-field check, a user could set
-    ``hotkey=<ctrl>+<space>`` AND ``push_to_talk_hotkey=<ctrl>+<space>``
-    simultaneously and the second assignment would silently overwrite
-    the first when both listeners register with pynput / Win32
-    ``RegisterHotKey`` / macOS ``CGEventTap``.
+    without this cross-field check, a user could set
+        ``hotkey=<ctrl>+<space>`` AND ``push_to_talk_hotkey=<ctrl>+<space>``
+        simultaneously and the second assignment would silently overwrite
+        the first when both listeners register with pynput / Win32
+        ``RegisterHotKey`` / macOS ``CGEventTap``.
 
-    Parameters
-    ----------
-    field_values
-        A mapping from hotkey field name (``"hotkey"``,
-        ``"repaste_hotkey"``, ``"push_to_talk_hotkey"``) to its current
-        value (or ``None`` if not set).  Unknown field names are
-        ignored; missing field names are treated as ``None``.
+        Parameters
+        ----------
+        field_values
+            A mapping from hotkey field name (``"hotkey"``,
+            ``"repaste_hotkey"``, ``"push_to_talk_hotkey"``) to its current
+            value (or ``None`` if not set).  Unknown field names are
+            ignored; missing field names are treated as ``None``.
 
-    Returns
-    -------
-    list[str]
-        A list of human-readable error strings, one per conflicting
-        pair.  Empty list means no conflicts.  Each error names BOTH
-        conflicting fields so the user can decide which one to change,
-        and includes the canonical hotkey spec (so ``<ctrl>+<space>``
-        and ``<ctrl>+<SPACE>`` are recognised as the same hotkey).
+        Returns
+        -------
+        list[str]
+            A list of human-readable error strings, one per conflicting
+            pair.  Empty list means no conflicts.  Each error names BOTH
+            conflicting fields so the user can decide which one to change,
+            and includes the canonical hotkey spec (so ``<ctrl>+<space>``
+            and ``<ctrl>+<SPACE>`` are recognised as the same hotkey).
     """
     from voice_typer.server.hotkey_spec import parse_hotkey
 
@@ -824,7 +824,7 @@ def _check_cross_field_hotkey_conflicts(
 
 
 # Cloud/LLM cross-field config field names that participate in the
-# PI-18 consistency check. Used by both :func:`validate_config_update`
+# consistency check. Used by both :func:`validate_config_update`
 # (delta-only check) and :func:`validate_config` (full-config check).
 _CLOUD_CONSENT_FIELD_NAMES: tuple[str, ...] = (
     "cloud_openai_consent",
@@ -836,7 +836,7 @@ _CLOUD_CONSENT_FIELD_NAMES: tuple[str, ...] = (
 def _check_cross_field_cloud_config(
     field_values: dict[str, object],
 ) -> list[str]:
-    """PI-18 / PI-24: cross-field cloud/LLM config consistency check.
+    """cross-field cloud/LLM config consistency check.
 
     Catches inconsistencies between paired cloud/LLM config fields at
     IPC save time (and at config-load time via :func:`validate_config`)
@@ -911,21 +911,21 @@ def _check_cross_field_cloud_config(
 def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
     """Return a portability warning if ``value`` is reserved on a non-current platform.
 
-    XZ-14-05: ``_validate_hotkey`` only consults the *current* platform's
-    reserved list (via :func:`_platform_key`), so a hotkey like
-    ``<cmd>+<q>`` passes on Linux but quits apps on macOS.  This helper
-    checks the value against EVERY platform's reserved list (except the
-    current one, which is already enforced by ``_validate_hotkey`` as a
-    hard rejection) and returns a warning string for the first non-current
-    conflict found.
+    ``_validate_hotkey`` only consults the *current* platform's
+        reserved list (via :func:`_platform_key`), so a hotkey like
+        ``<cmd>+<q>`` passes on Linux but quits apps on macOS.  This helper
+        checks the value against EVERY platform's reserved list (except the
+        current one, which is already enforced by ``_validate_hotkey`` as a
+        hard rejection) and returns a warning string for the first non-current
+        conflict found.
 
-    Returns ``None`` if the value is valid on every non-current platform
-    (or if the value is empty / not a string).
+        Returns ``None`` if the value is valid on every non-current platform
+        (or if the value is empty / not a string).
 
-    The warning is informational only — the hotkey may be perfectly valid
-    on the user's current platform, and rejecting it would deny the user
-    the freedom to set platform-specific shortcuts.  The warning just
-    alerts them that the config won't be portable to the named platform.
+        The warning is informational only — the hotkey may be perfectly valid
+        on the user's current platform, and rejecting it would deny the user
+        the freedom to set platform-specific shortcuts.  The warning just
+        alerts them that the config won't be portable to the named platform.
     """
     if not isinstance(value, str) or not value.strip():
         return None
@@ -943,36 +943,36 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
 def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
     """Produce portability warnings for every hotkey field on ``cfg``.
 
-    XZ-14-05: this is the warnings counterpart of :func:`validate_config`.
-    It checks each of the 3 hotkey fields (``hotkey``, ``repaste_hotkey``,
-    ``push_to_talk_hotkey``) against the reserved lists of every
-    non-current platform and returns a list of human-readable warning
-    strings.
+    this is the warnings counterpart of :func:`validate_config`.
+        It checks each of the 3 hotkey fields (``hotkey``, ``repaste_hotkey``,
+        ``push_to_talk_hotkey``) against the reserved lists of every
+        non-current platform and returns a list of human-readable warning
+        strings.
 
-    Callers (e.g. ``Config.load()`` in :mod:`voice_typer.server.config`)
-    should append the returned strings to ``Config._load_warnings`` /
-    ``last_load_warnings`` so the UI can surface them as non-blocking
-    notices.  The mechanism mirrors how :func:`validate_config` errors
-    are surfaced (see the docstring of :func:`validate_config` for the
-    coordination note with agent 2-a / SA11).
+        Callers (e.g. ``Config.load()`` in :mod:`voice_typer.server.config`)
+        should append the returned strings to ``Config._load_warnings`` /
+        ``last_load_warnings`` so the UI can surface them as non-blocking
+        notices.  The mechanism mirrors how :func:`validate_config` errors
+        are surfaced (see the docstring of :func:`validate_config` for the
+        coordination note with agent 2-a / SA11).
 
-    Warnings (NOT errors) are emitted because the hotkey may be perfectly
-    valid on the user's current platform — rejecting it would deny the
-    user the freedom to set platform-specific shortcuts.  The warning
-    just alerts them that the config won't be portable.
+        Warnings (NOT errors) are emitted because the hotkey may be perfectly
+        valid on the user's current platform — rejecting it would deny the
+        user the freedom to set platform-specific shortcuts.  The warning
+        just alerts them that the config won't be portable.
 
-    Parameters
-    ----------
-    cfg
-        A :class:`Config` dataclass instance (duck-typed — only
-        ``getattr`` is used, so any object exposing the hotkey fields
-        as attributes works for testing).
+        Parameters
+        ----------
+        cfg
+            A :class:`Config` dataclass instance (duck-typed — only
+            ``getattr`` is used, so any object exposing the hotkey fields
+            as attributes works for testing).
 
-    Returns
-    -------
-    list[str]
-        A list of warning strings, one per non-current platform conflict.
-        Empty list means the config is portable (or no hotkeys are set).
+        Returns
+        -------
+        list[str]
+            A list of warning strings, one per non-current platform conflict.
+            Empty list means the config is portable (or no hotkeys are set).
     """
     warnings: list[str] = []
     for field_name in _HOTKEY_FIELD_NAMES:
@@ -989,7 +989,7 @@ def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-08: recognized Whisper language codes.
+# recognized Whisper language codes.
 #
 # Previously ``_VALIDATOR_LANGUAGE`` was just ``_make_str_validator(max_len=16)``,
 # which accepted any string up to 16 chars.  A typo like ``"english"`` or
@@ -1121,7 +1121,7 @@ except ImportError:
 
 
 # Reuse the existing string validator for the basic shape checks (type,
-# length, control characters).  XZ-14-08 layers the language-code allowlist
+# length, control characters).   layers the language-code allowlist
 # on top so the existing ``test_str_validator_via_ipc_rejects_nul_in_language``
 # regression test (which expects the error to contain the word "control")
 # continues to pass.
@@ -1131,23 +1131,23 @@ _LANGUAGE_BASE_VALIDATOR = _make_str_validator(max_len=16)
 def _validate_language(value: object) -> str | None:
     """Validate a Whisper language code.
 
-    XZ-14-08: previously ``_VALIDATOR_LANGUAGE`` was just
-    ``_make_str_validator(max_len=16)`` which accepted any string up to
-    16 chars.  A typo like ``"english"`` or ``"zzzzz"`` would pass
-    validation, persist to config.json, and surface as a cryptic Whisper
-    load error at transcription time.
+    previously ``_VALIDATOR_LANGUAGE`` was just
+        ``_make_str_validator(max_len=16)`` which accepted any string up to
+        16 chars.  A typo like ``"english"`` or ``"zzzzz"`` would pass
+        validation, persist to config.json, and surface as a cryptic Whisper
+        load error at transcription time.
 
-    This validator:
+        This validator:
 
-    1. Reuses :data:`_LANGUAGE_BASE_VALIDATOR` for type / length /
-       control-character checks (so the existing
-       ``test_str_validator_via_ipc_rejects_nul_in_language`` regression
-       test still passes — the error must contain the word "control").
-    2. Accepts the empty string as valid (interpreted as "auto-detect" —
-       the renderer's ``value={config.language || "auto"}`` fallback relies
-       on this).
-    3. Rejects any non-empty string that is not a 2-letter ISO 639-1 code
-       in :data:`_ALLOWED_LANGUAGES` with a clear, actionable error.
+        1. Reuses :data:`_LANGUAGE_BASE_VALIDATOR` for type / length /
+           control-character checks (so the existing
+           ``test_str_validator_via_ipc_rejects_nul_in_language`` regression
+           test still passes — the error must contain the word "control").
+        2. Accepts the empty string as valid (interpreted as "auto-detect" —
+           the renderer's ``value={config.language || "auto"}`` fallback relies
+           on this).
+        3. Rejects any non-empty string that is not a 2-letter ISO 639-1 code
+           in :data:`_ALLOWED_LANGUAGES` with a clear, actionable error.
     """
     err = _LANGUAGE_BASE_VALIDATOR(value)
     if err is not None:
@@ -1174,13 +1174,13 @@ _VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey
 _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 
-# GT-D1-6: typed as ``dict[str, FieldSpec]`` (previously a bare ``dict``)
+# typed as ``dict[str, FieldSpec]`` (previously a bare ``dict``)
 # so static checkers can verify that every entry is a (type, validator)
 # pair. ``FieldSpec`` is the tuple alias defined above.
 IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Hotkey ────────────────────────────────────────────────────────
     "hotkey": (str, _VALIDATOR_HOTKEY),
-    # GT-F2-8: ``push_to_talk_hotkey`` removed from the IPC allowlist —
+    # ``push_to_talk_hotkey`` removed from the IPC allowlist —
     # the TS-side contract (see voice_typer/client/src/renderer/src/types/config.ts)
     # documents it as a write-only back-compat field the renderer MUST NOT
     # write. Accepting it here would let a malicious IPC client mutate a
@@ -1216,7 +1216,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "paste_on_stop": (bool, _bool_validator),
     "unsafe_paste_on_unknown_focus": (bool, _bool_validator),
     "show_notifications": (bool, _bool_validator),
-    # PW-3: prewarm scheduled-task master toggle. Surfaced in Settings →
+    # prewarm scheduled-task master toggle. Surfaced in Settings →
     # General so users can opt out (e.g. gamers who want the RAM back).
     "fast_startup": (bool, _bool_validator),
     # ── Clipboard borrow/restore (ADR-0010) ───────────────────────────
@@ -1227,7 +1227,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # the renderer config schema so the Settings UI can reach them.
     "clipboard_save_restore": (bool, _bool_validator),
     "clipboard_restore_delay_ms": (int, _make_int_validator(lo=0, hi=2000)),
-    # TY-11: idle-unload timer for the active ASR backend. 0 (default)
+    # idle-unload timer for the active ASR backend. 0 (default)
     # disables the feature; users with abundant VRAM can leave it at 0;
     # users who dictate intermittently and want the VRAM + GPU idle
     # power back can set it to e.g. 10 or 15. Upper bound 1440 = 24h
@@ -1263,7 +1263,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # PRIVACY-001: consent flag is user-tunable (the consent dialog
     # itself sets this), but it's still subject to type validation.
     "llm_polish_consent": (bool, _bool_validator),
-    # NEW-PRIV-005/006/009: privacy consent flags.  All user-tunable
+    # 006/009: privacy consent flags.  All user-tunable
     # via the consent dialogs in the renderer; all subject to type
     # validation so a malicious IPC client can't set them to non-bool
     # values to bypass the consent UI.
@@ -1272,7 +1272,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "cloud_groq_consent": (bool, _bool_validator),
     "cloud_deepgram_consent": (bool, _bool_validator),
     "voice_biometric_consent": (bool, _bool_validator),
-    # NEW-UX-029: sound feedback toggle.
+    # sound feedback toggle.
     "sound_feedback_enabled": (bool, _bool_validator),
     # ── Crash recovery ────────────────────────────────────────────────
     "crash_recovery_enabled": (bool, _bool_validator),
@@ -1304,11 +1304,11 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "bubble_behavior": (str, _make_enum_validator(frozenset({"show_on_record", "always_visible"}))),
     "bubble_draggable": (bool, _bool_validator),
     "bubble_show_on_startup": (bool, _bool_validator),
-    # UX-10: mic button + click-to-toggle for the always-visible bubble.
+    # mic button + click-to-toggle for the always-visible bubble.
     "bubble_click_to_toggle": (bool, _bool_validator),
     "bubble_mic_button": (bool, _bool_validator),
     # ── History database ──────────────────────────────────────────────
-    # FR-28: ``history_enabled`` is the master toggle for whether dictated
+    # ``history_enabled`` is the master toggle for whether dictated
     # text is persisted to the history SQLite DB. Defaults True; users
     # who dictate sensitive content can toggle it off via Settings →
     # Privacy. The dictation_pipeline gate (owned by P4-A4) reads
@@ -1342,7 +1342,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
             )
         ),
     ),
-    # FR-3: ``expected_type`` widened from bare ``dict`` to
+    # ``expected_type`` widened from bare ``dict`` to
     # ``(dict, type(None))`` so the IPC validator's pre-check accepts
     # ``None`` (the "clear custom theme" sentinel sent by useTheme.ts
     # when the user reverts to preset). The validator itself (returned
@@ -1353,11 +1353,11 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
     "stop_on_silence_seconds": (float, _make_float_validator(lo=0.0, hi=3600.0)),
-    # XZ-14-09: lower bound lowered from 300 to 30 (the prior 5-minute
+    # lower bound lowered from 300 to 30 (the prior 5-minute
     # minimum was an arbitrary / likely-typo value; 30 seconds still
     # guards against accidentally-zero values while allowing short
     # recordings for testing).
-    # DR-37: REVERTED — the IPC validator's ``lo=30`` disagreed with
+    # REVERTED — the IPC validator's ``lo=30`` disagreed with
     # ``Config._coerce_max_recording_time``'s post-load clamp (``lo=300``),
     # causing a split-brain bug where a user could set 30 seconds via IPC
     # but the next ``Config.load()`` silently bumped it back to 300. Both
@@ -1371,26 +1371,26 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
             hi=MAX_RECORDING_TIME_SECONDS_MAX,
         ),
     ),
-    # GT-58: silence_rms_threshold / silence_peak_threshold REMOVED from
+    # silence_rms_threshold / silence_peak_threshold REMOVED from
     # the IPC allowlist — they were also removed from the Config dataclass
     # (declared, validated, persisted, never read at runtime per ADR 0007
     # §4.3). Existing config.json values are silently scrubbed by the v3
     # schema migration.
-    # AUDIO-013: Silero VAD configuration
+    # Silero VAD configuration
     "use_silero_vad": (bool, _bool_validator),
     "vad_speech_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     "vad_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
-    # AUDIO-CH: recording channels (XZ-14-09: lower bound raised from
+    # AUDIO-CH: recording channels (: lower bound raised from
     # 0 to 1 — 0 channels is nonsensical and would crash the recorder at
     # open-stream time with an obscure PyAudio / sounddevice error).
     "recording_channels": (int, _make_int_validator(lo=1, hi=8)),
     # AUDIO-PRE: pre-roll buffer
     "pre_roll_buffer_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
-    # GT-58: normalize_audio / normalize_target_peak REMOVED from the IPC
+    # normalize_audio / normalize_target_peak REMOVED from the IPC
     # allowlist — also removed from the Config dataclass (replaced by the
     # Compressor filter per ADR 0007 §5.2). Existing config.json values
     # are silently scrubbed by the v3 schema migration.
-    # PLAT-013/014: paste safety warnings
+    # 014: paste safety warnings
     "warn_elevated_paste": (bool, _bool_validator),
     "warn_password_paste": (bool, _bool_validator),
     # ── Volume ducking (v1.1.0) ───────────────────────────────────────
@@ -1399,7 +1399,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "volume_duck_fade_ms": (int, _make_int_validator(lo=0, hi=1000)),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
     # ── Audio enhancement preset (ADR 0007) ───────────────────────────
-    # G4-M-12 (partial): legacy aliases ``"none"`` and ``"recommended"``
+    # (partial): legacy aliases ``"none"`` and ``"recommended"``
     # are NO LONGER accepted by the IPC ``set_config`` validator. The
     # ``_migrate_to_v2`` schema migration in ``config.py`` (run inside
     # ``Config.load()``) still rewrites them to ``"off"`` and ``"auto"``
@@ -1423,7 +1423,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
         ),
     ),
     # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
-    # CR-32: Removed deprecated fields: noise_filter_enabled,
+    # Removed deprecated fields: noise_filter_enabled,
     # noise_filter_gate_threshold, noise_filter_rnnoise,
     # noise_filter_post_capture. Use noise_suppression_method + the
     # gate_*_db fields below instead.
@@ -1432,7 +1432,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "noise_filter_gate": (bool, _bool_validator),
     "noise_filter_gate_hold_ms": (float, _make_float_validator(lo=0.0, hi=1000.0)),
     # ADR 0007 §5.1: New filter chain fields
-    # G4-M-12: enum literal is now sourced from the shared
+    # enum literal is now sourced from the shared
     # ``NOISE_SUPPRESSION_METHODS`` constant defined above so the IPC
     # validator, the dataclass comment in ``config.py``, and the
     # runtime fallback in ``audio_filters/noise_suppressor.py`` all
@@ -1463,38 +1463,38 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
 def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], list[str]]:
     """Validate a caller-supplied config update payload.
 
-    Parameters
-    ----------
-    data : dict
-        The raw ``data`` field from an IPC ``set_config`` command.  Must
-        be a dict — callers should check before invoking.
+        Parameters
+        ----------
+        data : dict
+            The raw ``data`` field from an IPC ``set_config`` command.  Must
+            be a dict — callers should check before invoking.
 
-    Returns
-    -------
-    (validated, errors) : (dict, list[str])
-        ``validated`` is the subset of ``data`` whose keys are in
-        :data:`IPC_CONFIG_ALLOWLIST` and whose values passed their
-        validators.  ``errors`` is a list of human-readable error
-        strings for ALL invalid fields encountered (CR-25: the function
-        accumulates all errors rather than stopping at the first — the
-        dispatcher treats the entire payload atomically, see
-        ``ipc_server.set_config``).
+        Returns
+        -------
+        (validated, errors) : (dict, list[str])
+            ``validated`` is the subset of ``data`` whose keys are in
+            :data:`IPC_CONFIG_ALLOWLIST` and whose values passed their
+            validators.  ``errors`` is a list of human-readable error
+    strings for ALL invalid fields encountered (: the function
+            accumulates all errors rather than stopping at the first — the
+            dispatcher treats the entire payload atomically, see
+            ``ipc_server.set_config``).
 
-        Unknown keys are silently dropped (no error, no log entry beyond
-        a debug-level message) to preserve the existing
-        "test_ignores_unknown_fields_without_crashing" contract.
+            Unknown keys are silently dropped (no error, no log entry beyond
+            a debug-level message) to preserve the existing
+            "test_ignores_unknown_fields_without_crashing" contract.
 
-    Notes
-    -----
-    The function is pure: it does not touch the Config object or perform
-    any I/O.  This makes it trivially testable.
+        Notes
+        -----
+        The function is pure: it does not touch the Config object or perform
+        any I/O.  This makes it trivially testable.
     """
     validated: dict[str, object] = {}
     errors: list[str] = []
     for k, v in data.items():
         spec = IPC_CONFIG_ALLOWLIST.get(k)
         if spec is None:
-            # Unknown key — silently drop.  XZ-CFG-12: promoted to
+            # Unknown key — silently drop.  : promoted to
             # WARNING (was DEBUG) to match ``Config._filter_unknown_keys``
             # in ``config.py``. Previously the two paths diverged:
             # on-disk load logged WARNING for unknown keys while the
@@ -1536,26 +1536,26 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
                 else expected_type.__name__
             )
             errors.append(f"field {k!r} must be {type_name}, got {type(v).__name__}")
-            # CR-25: accumulate ALL errors, do not break on first.
+            # accumulate ALL errors, do not break on first.
             continue
         err = validator(v)
         if err is not None:
             errors.append(f"field {k!r} {err}")
-            # CR-25: accumulate ALL errors, do not break on first.
+            # accumulate ALL errors, do not break on first.
             continue
         validated[k] = v
-    # XZ-14-04: cross-field hotkey conflict check.  Only fields that
+    # cross-field hotkey conflict check.  Only fields that
     # passed their per-field validator are in ``validated`` — invalid
     # hotkeys don't participate in the cross-field check (they already
     # produced their own per-field error and would just add noise).
     # Note: ``push_to_talk_hotkey`` is NOT in IPC_CONFIG_ALLOWLIST
-    # (removed per GT-F2-8), so it's silently dropped above and never
+    # (removed per ), so it's silently dropped above and never
     # appears in ``validated`` — the IPC path can only catch conflicts
     # between ``hotkey`` and ``repaste_hotkey``.  Conflicts involving
     # ``push_to_talk_hotkey`` are caught by :func:`validate_config`
     # at config-load time (it sees all 3 fields via getattr).
     #
-    # YJ-FIX-B2: apply the same isinstance narrowing as YJ-24 so the
+    # apply the same isinstance narrowing as  so the
     # ``hotkey_values`` dict (typed ``dict[str, str | None]``) actually
     # matches its annotation. ``validated[name]`` is ``object`` (the
     # ``validated`` dict's value type), so without the narrow the dict
@@ -1571,7 +1571,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
         else:
             hotkey_values[name] = None
     errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
-    # PI-18 / PI-24: cross-field cloud/LLM config consistency check.
+    # cross-field cloud/LLM config consistency check.
     # Only fields that passed their per-field validator are in
     # ``validated`` — invalid cloud/LLM fields don't participate in
     # the cross-field check (they already produced their own per-field
@@ -1593,50 +1593,50 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
 
 def validate_config(cfg: object) -> list[str]:
     """Validate an already-loaded :class:`Config` instance against
-    :data:`IPC_CONFIG_ALLOWLIST`.
+        :data:`IPC_CONFIG_ALLOWLIST`.
 
-    G4-M-12 (Task 2-x): the IPC ``set_config`` validator
-    (:func:`validate_config_update`) only sees the *delta* a renderer
-    pushes; it never re-checks the *whole* config that lives on disk
-    after migration / manual edits / scripted writes. A migrated
-    config can therefore hold values that the IPC validator would
-    reject (e.g. a ``noise_suppression_method`` value of ``"speex"``
-    left over from a hand-edited file before the enum was tightened,
-    or a future ``audio_preset`` legacy alias surviving a botched
-    migration). Until now there was no single choke-point that
-    cross-checked the loaded config against the same rules the IPC
-    layer enforces.
+    (Task 2-x): the IPC ``set_config`` validator
+        (:func:`validate_config_update`) only sees the *delta* a renderer
+        pushes; it never re-checks the *whole* config that lives on disk
+        after migration / manual edits / scripted writes. A migrated
+        config can therefore hold values that the IPC validator would
+        reject (e.g. a ``noise_suppression_method`` value of ``"speex"``
+        left over from a hand-edited file before the enum was tightened,
+        or a future ``audio_preset`` legacy alias surviving a botched
+        migration). Until now there was no single choke-point that
+        cross-checked the loaded config against the same rules the IPC
+        layer enforces.
 
-    This function is that choke-point. Agent 2-a is coordinated (via
-    the worklog) to call it at the end of ``Config.load()`` and append
-    any returned error strings to ``Config.last_load_warnings`` so the
-    UI can surface "your config has invalid values" instead of
-    silently running with a malformed state.
+        This function is that choke-point. Agent 2-a is coordinated (via
+        the worklog) to call it at the end of ``Config.load()`` and append
+        any returned error strings to ``Config.last_load_warnings`` so the
+        UI can surface "your config has invalid values" instead of
+        silently running with a malformed state.
 
-    Parameters
-    ----------
-    cfg
-        A :class:`Config` dataclass instance (duck-typed — only
-        ``getattr`` is used, so any object exposing the allowlisted
-        fields as attributes works for testing).
+        Parameters
+        ----------
+        cfg
+            A :class:`Config` dataclass instance (duck-typed — only
+            ``getattr`` is used, so any object exposing the allowlisted
+            fields as attributes works for testing).
 
-    Returns
-    -------
-    list[str]
-        A list of human-readable error strings, one per invalid
-        field. Empty list means the config is valid. Each entry is
-        formatted as ``"<field_name>: <error>"`` so the caller can
-        display them line-by-line.
+        Returns
+        -------
+        list[str]
+            A list of human-readable error strings, one per invalid
+            field. Empty list means the config is valid. Each entry is
+            formatted as ``"<field_name>: <error>"`` so the caller can
+            display them line-by-line.
 
-    Notes
-    -----
-    - Fields absent from ``cfg`` (``getattr`` returns ``None`` or
-      raises ``AttributeError``) are SKIPPED — this function does not
-      require every allowlisted field to be present on the object.
-      This matches the IPC semantics where the renderer may push a
-      partial update.
-    - The validators are the SAME ones used by
-      :func:`validate_config_update`, so the two paths can't drift.
+        Notes
+        -----
+        - Fields absent from ``cfg`` (``getattr`` returns ``None`` or
+          raises ``AttributeError``) are SKIPPED — this function does not
+          require every allowlisted field to be present on the object.
+          This matches the IPC semantics where the renderer may push a
+          partial update.
+        - The validators are the SAME ones used by
+          :func:`validate_config_update`, so the two paths can't drift.
     """
     errors: list[str] = []
     for key, (_field_type, validator) in IPC_CONFIG_ALLOWLIST.items():
@@ -1651,7 +1651,7 @@ def validate_config(cfg: object) -> list[str]:
         err = validator(value)
         if err:
             errors.append(f"{key}: {err}")
-    # XZ-14-04: cross-field hotkey conflict check on the FULL config.
+    # cross-field hotkey conflict check on the FULL config.
     # Unlike :func:`validate_config_update` (which can only see fields
     # the renderer pushed), this function sees ALL 3 hotkey fields via
     # getattr — so it catches conflicts involving ``push_to_talk_hotkey``
@@ -1661,7 +1661,7 @@ def validate_config(cfg: object) -> list[str]:
     hotkey_values: dict[str, str | None] = {}
     for name in _HOTKEY_FIELD_NAMES:
         try:
-            # YJ-24: narrow the ``getattr`` result explicitly so the
+            # narrow the ``getattr`` result explicitly so the
             # type-checker sees ``str | None`` (matching ``hotkey_values``'s
             # value type) instead of ``Any`` from the dynamic-name lookup.
             raw = getattr(cfg, name)
@@ -1669,7 +1669,7 @@ def validate_config(cfg: object) -> list[str]:
         except AttributeError:
             hotkey_values[name] = None
     errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
-    # PI-18 / PI-24: cross-field cloud/LLM config consistency check
+    # cross-field cloud/LLM config consistency check
     # on the FULL config. Unlike :func:`validate_config_update` (which
     # only sees fields the renderer pushed), this function sees ALL
     # cloud/LLM fields via getattr — so it catches inconsistencies
@@ -1692,7 +1692,7 @@ def validate_config(cfg: object) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# ARCH-REFAC-001: explicit ``__all__`` so the wildcard re-export in
+# explicit ``__all__`` so the wildcard re-export in
 # ``config.py`` (``from .config_validators import *``) brings through
 # every validator symbol — including the underscore-prefixed factory
 # helpers — preserving the pre-refactor import surface.
@@ -1734,7 +1734,7 @@ __all__ = [
     "IPC_CONFIG_ALLOWLIST",
     "validate_config_update",
     "validate_config",
-    # ARCH-14: extracted hotkey validation stage helpers (CR-29 / CR-22:
+    # extracted hotkey validation stage helpers (:
     # reconciled with actual function names — the prior list referenced
     # 9 nonexistent symbols that caused F822 × 9 hard-fail in CI).
     "_check_basic_shape",
@@ -1746,13 +1746,13 @@ __all__ = [
     "_check_alt_shift",
     "_check_ctrl_letter",
     "_check_shift_letter",
-    # XZ-14-04: cross-field hotkey conflict check.
+    # cross-field hotkey conflict check.
     "_HOTKEY_FIELD_NAMES",
     "_check_cross_field_hotkey_conflicts",
-    # XZ-14-05: cross-platform hotkey portability warnings.
+    # cross-platform hotkey portability warnings.
     "_cross_platform_hotkey_warning",
     "cross_platform_hotkey_warnings",
-    # XZ-14-08: language code validator + allowlist.
+    # language code validator + allowlist.
     "_ALLOWED_LANGUAGES",
     "_ALLOWED_LANGUAGES_SOURCE",
     "_LANGUAGE_BASE_VALIDATOR",

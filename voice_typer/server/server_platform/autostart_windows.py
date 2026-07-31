@@ -1,6 +1,6 @@
 """Windows autostart — Task Scheduler + HKCU Run key.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements two
 parallel autostart mechanisms on Windows:
 
@@ -144,25 +144,25 @@ def _is_autostart_windows() -> bool:
 def _app_autostart_command_and_args() -> tuple[str, str]:
     """Return (pythonw_path, arguments) for the app autostart task.
 
-    STARTUP-7: same launcher + --hidden + --delay <N> as the Run-key path,
-    but split into Command + Arguments for the Task Scheduler XML so we
-    avoid the cmd.exe wrapper (mirrors the prewarm task fix).
+        STARTUP-7: same launcher + --hidden + --delay <N> as the Run-key path,
+        but split into Command + Arguments for the Task Scheduler XML so we
+        avoid the cmd.exe wrapper (mirrors the prewarm task fix).
 
-    ADR-0009 Issue 4: the delay was reduced from 30s to 15s (see
-    _autostart_command() for the full rationale).
+        ADR-0009 Issue 4: the delay was reduced from 30s to 15s (see
+        _autostart_command() for the full rationale).
 
-    PLAT-VENV: Uses system Python if running inside a virtualenv.
+        PLAT-VENV: Uses system Python if running inside a virtualenv.
 
-    PVT-010/WINDOWS-VENV-AUTOSTART: previously the code swapped to the
-    system Python unconditionally when running in a venv, WITHOUT
-    checking whether the system Python can actually import
-    ``voice_typer.server.autostart_launcher``. If the user installed
-    Voice Typer only inside the venv, the autostart task would use the
-    system Python — which would fail at login with
-    ``ModuleNotFoundError`` and silently never start the app. We now
-    probe the system Python before swapping; if the probe fails, we
-    keep the venv Python (and log a warning) so the autostart entry
-    works for the current user.
+    WINDOWS-VENV-AUTOSTART: previously the code swapped to the
+        system Python unconditionally when running in a venv, WITHOUT
+        checking whether the system Python can actually import
+        ``voice_typer.server.autostart_launcher``. If the user installed
+        Voice Typer only inside the venv, the autostart task would use the
+        system Python — which would fail at login with
+        ``ModuleNotFoundError`` and silently never start the app. We now
+        probe the system Python before swapping; if the probe fails, we
+        keep the venv Python (and log a warning) so the autostart entry
+        works for the current user.
     """
     from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
 
@@ -173,7 +173,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     python_bin = str(pythonw) if pythonw.exists() else sys.executable
 
     # PLAT-VENV: detect virtualenv and use system Python instead.
-    # PVT-010: probe whether the system Python can import
+    # probe whether the system Python can import
     # voice_typer.server.autostart_launcher BEFORE swapping — if the
     # venv is the only place voice_typer is installed, the system
     # Python would fail at login.
@@ -332,7 +332,7 @@ def _is_app_autostart_task_registered() -> bool:
 
     Bug fix: removed redundant sys.platform != 'win32' check.
     """
-    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # (pyrefly): import subprocess BEFORE the try block so the
     # ``except subprocess.CalledProcessError`` clause has a guaranteed-bound
     # name (matches the pattern at line ~826).
     import subprocess
@@ -390,7 +390,7 @@ def _register_app_autostart_runkey() -> bool:
 
         # PLAT-RUN: Clean stale entries whose path no longer exists.
         #
-        # DE-67: parse the Run-key command line with a Windows-aware
+        # parse the Run-key command line with a Windows-aware
         # splitter before extracting the exe path. Pre-fix, the code did
         # ``value.strip('"').split('"')[0] if '"' in value else value.split()[0]``
         # which misparses UNQUOTED spaced paths (e.g.
@@ -434,7 +434,7 @@ def _register_app_autostart_runkey() -> bool:
                 try:
                     name, value, _ = winreg.EnumValue(run_key, i)
                     if name.startswith("VoiceTyper") and name != reg_key_name and isinstance(value, str):
-                        # DE-67: use shlex.split(posix=False) so quoted
+                        # use shlex.split(posix=False) so quoted
                         # spaced paths are parsed correctly (the quoted
                         # token is a single element). For unquoted
                         # spaced paths, the parse is inherently ambiguous
@@ -542,11 +542,11 @@ def _is_app_autostart_runkey_registered() -> bool:
         return False
 
 
-# ── Uninstaller helper (S2-CR-69 Windows part) ────────────────────────
+# Uninstaller helper ( Windows part) ────────────────────────
 
 
 def _unregister_all_voicetyper_runkeys() -> list[str]:
-    """S2-CR-69: remove ALL ``VoiceTyper_*`` HKCU Run-key entries.
+    """remove ALL ``VoiceTyper_*`` HKCU Run-key entries.
 
     Unlike :func:`_unregister_app_autostart_runkey` (which removes ONLY
     the current install's hash-suffixed entry), this function enumerates
@@ -614,7 +614,7 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
 
 
 def _unregister_all_voicetyper_tasks() -> list[str]:
-    """S2-CR-69: remove ALL ``VoiceTyperAutostart*`` Task Scheduler tasks.
+    """remove ALL ``VoiceTyperAutostart*`` Task Scheduler tasks.
 
     Companion to :func:`_unregister_all_voicetyper_runkeys`. The Task
     Scheduler ``schtasks`` CLI does NOT accept wildcards in ``/TN``,

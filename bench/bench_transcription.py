@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""UX-004: Benchmark harness for Voice Typer transcription latency.
+"""Benchmark harness for Voice Typer transcription latency.
 
 Measures:
 1. Full transcription latency: time from audio input to complete text

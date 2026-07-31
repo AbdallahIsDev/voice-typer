@@ -116,7 +116,7 @@ def _prewarm_command() -> str | None:
     ``~/.voice-typer/venv/`` (the interpreter Electron spawns), and
     fall back to ``sys.executable``.
 
-    NEW-DUP-001: previously this comment referenced
+    previously this comment referenced
     ``asr_setup.get_voice_typer_python()``, a function that no longer
     exists (it was removed in an earlier refactor).  The comment is
     now updated to describe the actual logic without referencing dead
@@ -168,7 +168,7 @@ def _prewarm_command() -> str | None:
         # Resolver returned None — fall through to legacy pythonw path.
 
     # Try pythonw.exe first (no console window).
-    # RW-7: use _paths.venv_pythonw() so the venv path respects the
+    # use _paths.venv_pythonw() so the venv path respects the
     # platform-aware _config_dir() logic instead of the previous
     # hardcoded Path.home() / ".voice-typer".
     venv_pythonw = _paths.venv_pythonw()
@@ -193,7 +193,7 @@ def _prewarm_command() -> str | None:
 
 # Arguments passed to the pythonw interpreter for the prewarm action.
 # Kept as a module constant so tests can verify the XML uses it.
-# PW-2: includes --trigger logon so the log records that the task fired
+# includes --trigger logon so the log records that the task fired
 # via the LogonTrigger (the user logged on).
 _PREWARM_ARGS = "-m voice_typer.server.prewarm --trigger logon"
 
@@ -208,7 +208,7 @@ def _prewarm_pythonw() -> str | None:
     delay is handled in-process by prewarm's own ``--delay`` flag, avoiding
     a ``timeout.exe``/``cmd.exe`` dependency that would itself open a console.
     """
-    # RW-7: use _paths.venv_pythonw() for the same reasons as
+    # use _paths.venv_pythonw() for the same reasons as
     # _prewarm_command() — see the docstring there for details.
     venv_pythonw = _paths.venv_pythonw()
     if venv_pythonw.exists():
@@ -323,7 +323,7 @@ def _is_prewarm_registered_registry() -> bool:
     except FileNotFoundError:
         return False
     except OSError as exc:
-        # XZ-EH-009: parity with the sibling ``_register_prewarm_registry``
+        # parity with the sibling ``_register_prewarm_registry``
         # and ``_unregister_prewarm_registry`` helpers, which both log at
         # WARNING on registry access failures. The previous silent
         # ``return False`` here made a registry permissions issue (or a
@@ -497,7 +497,7 @@ def _build_task_xml(python_exe: str, arguments: str | None = None) -> str:
 def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     """Run ``schtasks`` with *args*. Returns (returncode, combined output).
 
-    PERF-NEW-026: ``schtasks /Create`` can block for up to 30s if the
+    ``schtasks /Create`` can block for up to 30s if the
     Windows Task Scheduler service is hung. This function is now called
     from a background thread (via ``_startup_parallel_work`` in app.py)
     so it doesn't block the main startup sequence.
@@ -556,7 +556,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     see_mask_noclose = 0x00000040
     sw_hide = 0
 
-    # XZ-R6-AS-06: build the arg string for schtasks using
+    # build the arg string for schtasks using
     # ``subprocess.list2cmdline`` (the same helper ``subprocess.Popen``
     # uses on Windows internally). The previous hand-rolled join —
     # ``" ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)``
@@ -591,14 +591,14 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         sei.lpParameters = f'/c "{cmd_line}"'
         sei.nShow = sw_hide
 
-        # XZ-EH-023: parity with the non-elevated ``_schtasks`` helper
+        # parity with the non-elevated ``_schtasks`` helper
         # (which logs WARNING on ``FileNotFoundError`` and ERROR on
         # ``TimeoutExpired``). The elevated path previously had ZERO
         # log lines — a UAC-cancel or stale-temp-file failure was
         # silently swallowed, leaving the caller (e.g.
         # ``register_prewarm_task``) to retry blind or give up with no
         # diagnostic trail. Each failure mode now logs at the same
-        # severity as the sibling helper per XZ-EH-010.
+        # severity as the sibling helper per
         if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
             err = ctypes.WinError()
             log.warning(
@@ -616,7 +616,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             sei.hProcess,
             timeout_ms,
         )
-        # XZ-EH-010: check both documented non-success return values.
+        # check both documented non-success return values.
         # ``WAIT_TIMEOUT`` (258) means the process is still running
         # after ``timeout_ms`` — log.error so a hung schtasks is
         # visible. ``WAIT_FAILED`` (0xFFFFFFFF) means the wait itself
@@ -640,7 +640,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             )
 
         exit_code = ctypes.wintypes.DWORD()
-        # XZ-EH-010: ``GetExitCodeProcess`` returns a BOOL (nonzero on
+        # ``GetExitCodeProcess`` returns a BOOL (nonzero on
         # success, zero on failure). The previous call discarded the
         # return value, so a failure (e.g. invalid handle) silently
         # left ``exit_code`` at its zero-initialized value — the caller
@@ -739,7 +739,7 @@ def is_prewarm_registered() -> bool:
 
             return _posix_is()
         except Exception as exc:
-            # XZ-EH-011: parity with the sibling ``register_prewarm_task``
+            # parity with the sibling ``register_prewarm_task``
             # and ``unregister_prewarm_task`` POSIX delegates (which log
             # at WARNING on ``Exception``). The previous silent
             # ``return False`` here masked import failures (e.g. the
@@ -831,7 +831,7 @@ def register_prewarm_task() -> bool:
         # denied".  An explicit /Delete /F first clears it cleanly;
         # if it doesn't exist, the error is harmless.
         #
-        # XZ-EH-020 (this session): the pre-fix code used
+        # (this session): the pre-fix code used
         # ``with contextlib.suppress(Exception): _schtasks(...)`` —
         # this swallowed *every* exception including ``TypeError``,
         # ``AttributeError``, ``ImportError`` (e.g. if a future edit

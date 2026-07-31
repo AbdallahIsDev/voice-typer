@@ -24,7 +24,7 @@ remove the corresponding manifest entry.  The
 the most common drift (config.json going missing); broader drift is
 caught at runtime by ``verify_model_integrity()`` returning False.
 
-G4-M-39 (Session 7 — Group 4): the original monolithic
+(Session 7 — Group 4): the original monolithic
 ``ALLOW_PATTERNS`` list included ``*.bin`` (a pickle-serialised
 PyTorch state-dict) which is a remote-code-execution vector.  Parakeet
 ships ``model.safetensors`` only and never needs ``*.bin``; allowing
@@ -44,7 +44,7 @@ either pin or ignore).  The list is now split per backend:
 
 """
 
-# SEC-audit-005 / G4-M-39: Allowlist of file patterns permitted in
+# SEC-audit-005: Allowlist of file patterns permitted in
 # HuggingFace Parakeet model downloads.  ``*.bin`` is intentionally
 # OMITTED — Parakeet ships ``model.safetensors`` only, and the
 # pickle-serialised ``*.bin`` format is a remote-code-execution vector
@@ -72,7 +72,7 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
     "*.model",
 ]
 
-# SEC-audit-005 / G4-M-39: Allowlist for HuggingFace Whisper-family
+# SEC-audit-005: Allowlist for HuggingFace Whisper-family
 # downloads (``Systran/faster-whisper-*``).  CTranslate2 loads model
 # weights from ``model.bin`` — this is the native on-disk format for
 # ``faster_whisper.WhisperModel`` and is NOT loaded via

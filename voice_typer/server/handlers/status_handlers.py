@@ -1,11 +1,11 @@
 """Status IPC handler mixin: get_status, get_model_status,
 get_volume_backend_status.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-UE-15 (2026-07-30): ``_handle_get_rms_level`` and
+(2026-07-30): ``_handle_get_rms_level`` and
 ``_handle_get_audio_status`` were REMOVED — both commands were
 dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
 the Tauri migration. The service-layer methods
@@ -22,31 +22,31 @@ from voice_typer.server.platform_utils import is_windows
 class StatusHandlersMixin(HandlerBase):
     """Mixin: status-query IPC handlers (get_status / get_model_status / ...).
 
-    CR-20: this mixin's ``except Exception`` catch-alls call
-    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
-    no ``str(e)`` leak). Specific ``FileNotFoundError`` / ``OSError``
-    catch branches keep their descriptive messages (which are safe —
-    no Python internals / PII) but now route through
-    :func:`_error_response` with an explicit ``code`` field
-    so clients can branch on the code rather than
-    pattern-matching the message text.
+    this mixin's ``except Exception`` catch-alls call
+        :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+        no ``str(e)`` leak). Specific ``FileNotFoundError`` / ``OSError``
+        catch branches keep their descriptive messages (which are safe —
+        no Python internals / PII) but now route through
+        :func:`_error_response` with an explicit ``code`` field
+        so clients can branch on the code rather than
+        pattern-matching the message text.
     """
 
     def _handle_get_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_status`` IPC command.
 
-        DE-43 (session-DE): this was the only status handler with NO
-        ``try/except`` and NO ``_validate_dict_payload`` call. The fix
-        wraps the body in a ``try/except Exception`` routing through
-        :meth:`HandlerBase._respond_with_error` (so a service-layer
-        exception gets the generic ``server.internal_error`` envelope
-        with ``cmd_name='get_status'`` log attribution, instead of
-        propagating to the dispatcher's outer catch-all and losing the
-        command-name context). A non-dict ``data`` payload is now
-        rejected with ``invalid_payload`` to match the documented
-        ADR-0020 §2 contract that every sibling handler enforces.
-        ``None`` is pre-coerced to ``{}`` to preserve the
-        ``test_none_payload_is_coerced_to_empty_dict`` contract.
+        (session-DE): this was the only status handler with NO
+                ``try/except`` and NO ``_validate_dict_payload`` call. The fix
+                wraps the body in a ``try/except Exception`` routing through
+                :meth:`HandlerBase._respond_with_error` (so a service-layer
+                exception gets the generic ``server.internal_error`` envelope
+                with ``cmd_name='get_status'`` log attribution, instead of
+                propagating to the dispatcher's outer catch-all and losing the
+                command-name context). A non-dict ``data`` payload is now
+                rejected with ``invalid_payload`` to match the documented
+                ADR-0020 §2 contract that every sibling handler enforces.
+                ``None`` is pre-coerced to ``{}`` to preserve the
+                ``test_none_payload_is_coerced_to_empty_dict`` contract.
         """
         try:
             if not isinstance(data, dict):
@@ -61,7 +61,7 @@ class StatusHandlersMixin(HandlerBase):
                     }
                     return resp
             resp["type"] = "status"
-            # ERR-021: get_status() now returns a dict with status +
+            # get_status() now returns a dict with status +
             # xruns_since_start. Preserve backward-compat by passing
             # the whole dict through.
             status_data = self.service.get_status()
@@ -71,7 +71,7 @@ class StatusHandlersMixin(HandlerBase):
                 # Backward-compat: older service.get_status() returned a string.
                 resp["data"] = {"status": status_data}
         except Exception as exc:
-            # DE-43: route through ``_respond_with_error`` so the
+            # route through ``_respond_with_error`` so the
             # exception is attributed to ``get_status`` in the log
             # (instead of propagating to the dispatcher's generic
             # catch-all) and the renderer sees the standard
@@ -82,14 +82,14 @@ class StatusHandlersMixin(HandlerBase):
     def _handle_get_volume_backend_status(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_volume_backend_status`` IPC command."""
         # Returns the active volume backend's name + capability flags
-        # ARCH-005: delegates to service layer
+        # delegates to service layer
         try:
             status = self.service.get_volume_backend_status()
             status["is_windows"] = is_windows()
             resp["type"] = "volume_backend_status"
             resp["data"] = status
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_volume_backend_status")
         return resp
 
@@ -97,13 +97,13 @@ class StatusHandlersMixin(HandlerBase):
         """Handle the ``get_model_status`` IPC command."""
         # Item 10/11: check which models are actually on disk.
         # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.
-        # ARCH-005: delegates to service layer
+        # delegates to service layer
         try:
             status = self.service.get_model_status()
             resp["type"] = "model_status"
             resp["data"] = status
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_model_status")
         return resp
 
@@ -122,7 +122,7 @@ class StatusHandlersMixin(HandlerBase):
             resp["type"] = "prewarm_status"
             resp["data"] = get_prewarm_status()
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_prewarm_status")
         return resp
 
@@ -160,7 +160,7 @@ class StatusHandlersMixin(HandlerBase):
                 if pythonw.exists():
                     python_bin = str(pythonw)
 
-            # PW-2: pass --trigger manual so the prewarm log records
+            # pass --trigger manual so the prewarm log records
             # that the user explicitly clicked "Run Prewarm Now".
             cmd = [
                 python_bin,
@@ -206,7 +206,7 @@ class StatusHandlersMixin(HandlerBase):
             # the renderer can branch on ``not_found`` rather than
             # pattern-matching the message text.
             #
-            # DE-46 (session-DE): the previous ``f"Python interpreter
+            # (session-DE): the previous ``f"Python interpreter
             # not found: {e}"`` echoed ``str(e)`` back to the
             # renderer. On Windows / macOS the embedded absolute path
             # (``/Users/<uname>/...`` or ``C:\\Users\\<uname>\\...``)
@@ -225,7 +225,7 @@ class StatusHandlersMixin(HandlerBase):
             # "[Errno 13] Permission denied: …"), but route through
             # ``_error_response`` for envelope-shape consistency.
             #
-            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # (session-DE): drop the ``: {e}`` suffix — the
             # ``[Errno 13] Permission denied: '<path>'`` text embeds
             # the absolute interpreter path which leaks the username
             # on Windows / macOS. The full ``str(e)`` is still logged
@@ -237,7 +237,7 @@ class StatusHandlersMixin(HandlerBase):
                 code="server.handler_error",
             )
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "run_prewarm")
         return resp
 
@@ -339,7 +339,7 @@ class StatusHandlersMixin(HandlerBase):
             # app itself chose) but stamp a structured ``code`` so
             # the renderer can branch on ``not_found``.
             #
-            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # (session-DE): drop the ``: {e}`` suffix — the
             # ``[Errno 2] No such file: '<path>'`` text embeds the
             # absolute editor path which leaks the username on
             # Windows / macOS. The full ``str(e)`` is still logged
@@ -356,7 +356,7 @@ class StatusHandlersMixin(HandlerBase):
             # consistency (the ``str(e)`` is typically
             # "[Errno 13] Permission denied: …" — no Python internals).
             #
-            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # (session-DE): drop the ``: {e}`` suffix — the
             # embedded absolute path leaks the username.
             log.error("[IPC] open_prewarm_log: open failed: %s", e, exc_info=True)
             return _error_response(
@@ -365,6 +365,6 @@ class StatusHandlersMixin(HandlerBase):
                 code="server.handler_error",
             )
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "open_prewarm_log")
         return resp

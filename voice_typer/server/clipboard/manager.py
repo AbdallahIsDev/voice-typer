@@ -1,4 +1,4 @@
-"""ClipboardManager orchestrator + atexit registry (PVT-23 split).
+"""ClipboardManager orchestrator + atexit registry ( split).
 
 Extracted from the original ``clipboard.py`` monolith. Contains:
 
@@ -7,7 +7,7 @@ Extracted from the original ``clipboard.py`` monolith. Contains:
 * :class:`ClipboardManager` — copy/paste orchestrator with snapshot
   borrow/restore lifecycle (ADR-0010 §5.x).
 * :data:`_pending_restores` / :data:`_pending_restores_lock` — module-
-  level registry of pending delayed-restores (CLIP-8).
+  level registry of pending delayed-restores ().
 * :func:`_force_restore_pending_at_exit` — atexit handler that
   force-restores any pending snapshots if the app exits during the
   restore-delay window.
@@ -40,18 +40,18 @@ from typing import Any
 from voice_typer.server import clipboard as _cb
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 
-# XZ-CLIP-15: import the single canonical credential-dialog class set
+# import the single canonical credential-dialog class set
 # so this module and ``clipboard_target_safety.py`` can't drift.
-# ``#32770`` (generic Win32 Dialog class — XZ-CLIP-07) is NOT in the
+# ``#32770`` (generic Win32 Dialog class — ) is NOT in the
 # unified set; legitimate dictation into Open/Save As / Properties
 # dialogs is governed by the UIA ``IsPassword`` check instead.
-# DT-11: import canonical default for the restore-delay literal that
+# import canonical default for the restore-delay literal that
 # was previously duplicated as `150` in three places in this module.
 # Aliased to a private name to make the provenance obvious at call
 # sites without bloating the import line.
 from voice_typer.server.config import DEFAULT_CLIPBOARD_RESTORE_DELAY_MS as _DEFAULT_RESTORE_DELAY_MS
 
-# AC-41: the per-submodule `log = logging.getLogger(...)` definition that
+# the per-submodule `log = logging.getLogger(...)` definition that
 # used to live here was removed because it was unused — every log call in
 # this module routes through `_cb.log` (the package-level logger imported
 # above as `_cb`). Defining a separate `log` here would shadow the
@@ -61,7 +61,7 @@ from voice_typer.server.config import DEFAULT_CLIPBOARD_RESTORE_DELAY_MS as _DEF
 # The `import logging` was also removed (no remaining references).
 
 
-# ─── CLIP-8: module-level registry of pending delayed-restores ────────
+# ─── : module-level registry of pending delayed-restores ────────
 #
 # When paste() schedules a daemon-thread restore, it also appends an
 # entry to this list. The daemon thread removes its entry on normal
@@ -79,7 +79,7 @@ _pending_restores_lock = threading.Lock()
 
 
 def _force_restore_pending_at_exit() -> None:
-    """CLIP-8: atexit handler — force-restore any pending snapshots.
+    """atexit handler — force-restore any pending snapshots.
 
     Walks the module-level ``_pending_restores`` list and synchronously
     restores each snapshot. This prevents data loss when the app exits
@@ -96,7 +96,7 @@ def _force_restore_pending_at_exit() -> None:
         try:
             # Try to read the clipboard to decide whether to restore.
             # If we can't read it, restore anyway (data-loss prevention
-            # beats false-positive restore — see CLIP-9).
+            # beats false-positive restore — see ).
             try:
                 current = _cb._paste_from_clipboard()
             except Exception:
@@ -142,7 +142,7 @@ class ClipboardCopyError(RuntimeError):
 class ClipboardManager:
     """Handles copying text to clipboard and pasting into the focused app."""
 
-    # NEW-CQ-025: rate limit for paste operations. The PROBLEMS
+    # rate limit for paste operations. The PROBLEMS
     # invariant says "500ms"; the code previously said 1.0s. We
     # align to 500ms (0.5s) which is the documented invariant —
     # fast enough for rapid dictation but slow enough to prevent
@@ -233,7 +233,7 @@ class ClipboardManager:
 
         PLAT-CLIPRACE: used to detect if another app modified the
         clipboard between our copy and paste.
-        PLAT-027: delegates to Win32Clipboard.get_sequence_number().
+        delegates to Win32Clipboard.get_sequence_number().
         """
         return _cb.Win32Clipboard.get_sequence_number()
 
@@ -244,7 +244,7 @@ class ClipboardManager:
         Blocks paste into UAC dialogs, credential prompts, and
         Winlogon windows to prevent credential theft.
 
-        CLIP-3 (Medium, Security): the outer ``except Exception`` now
+         (Medium, Security): the outer ``except Exception`` now
         distinguishes "safety-check infrastructure is broken" from
         "target is safe." Previously any exception (including from
         ``_is_password_field`` or ``_is_elevated_target``) returned
@@ -262,25 +262,25 @@ class ClipboardManager:
             still fail-open. This indicates a broken Python install,
             not a security infra issue.
 
-        CLIP-4 (Perf): the focused UIA element is fetched ONCE at the
+         (Perf): the focused UIA element is fetched ONCE at the
         top via :func:`_get_uia_focused_element` and passed to both
         :func:`_is_password_field` and :func:`_is_content_editable`.
         Previously each helper fetched the focused element separately
         (2x ``GetFocusedElement`` RPCs per paste).
 
-        CLIP-5 (Perf): ``CoInitialize`` / ``CoUninitialize`` are
+         (Perf): ``CoInitialize`` / ``CoUninitialize`` are
         hoisted here to wrap both ``_is_password_field`` and
         ``_is_content_editable`` calls. Previously each helper did
         its own init/teardown (2x ``CoInitialize`` + 2x
         ``CoUninitialize`` per paste).
 
-        CLIP-12 (Perf): ``GetForegroundWindow`` is fetched ONCE at
+         (Perf): ``GetForegroundWindow`` is fetched ONCE at
         the top and passed to ``_is_elevated_target`` and
         ``_is_password_field`` (for the cred-dialog fallback).
         Previously each helper fetched it separately.
         """
         if not _cb.is_windows():
-            # G4-H-05 (session-4): dispatch to platform-native password-field
+            #  (session-4): dispatch to platform-native password-field
             # detection. Previously returned ``True`` unconditionally
             # on non-Windows, which allowed dictated text to be pasted
             # into password fields, SSH passphrase prompts, credit-card
@@ -318,7 +318,7 @@ class ClipboardManager:
 
             user32 = ctypes.windll.user32
             # Fetch hwnd ONCE and pass to all helpers (avoids redundant
-            # GetForegroundWindow calls — History: CLIP-12).
+            # GetForegroundWindow calls — History: ).
             hwnd = user32.GetForegroundWindow()
             if not hwnd:
                 return True
@@ -330,17 +330,17 @@ class ClipboardManager:
 
             # Block UAC/consent dialogs and credential prompts.
             #
-            # XZ-CLIP-15: ``blocked_classes`` and
+            # ``blocked_classes`` and
             # ``_CRED_DIALOG_CLASSES`` (in clipboard_target_safety.py)
             # are deliberately kept as two separate sets for now —
             # unifying them would require updating
             # ``tests/test_clipboard_win32_coverage.py`` (not owned by
-            # this agent) to reflect the new XZ-CLIP-07 guidance that
+            # this agent) to reflect the new  guidance that
             # ``#32770`` should NOT be blocked. The unification is
             # tracked as a follow-up; for now this matches the
             # existing test contract.
             #
-            # XZ-CLIP-07: ``#32770`` is the generic Win32 Dialog class
+            # ``#32770`` is the generic Win32 Dialog class
             # (used by Open/Save As/Properties dialogs too). Blocking
             # it prevented legitimate dictation into standard dialogs.
             # Legitimate credential-prompt blocking is governed by the
@@ -354,7 +354,7 @@ class ClipboardManager:
                 _cb.log.warning("[CLIPBOARD] Blocked paste into security-sensitive window (class=%s)", class_name)
                 return False
 
-            # PLAT-013 (revised): Block paste if the target is elevated
+            #  (revised): Block paste if the target is elevated
             # and we are not. The previous code called _is_elevated_target()
             # but discarded the return value — only the side-effect (a log
             # line inside the function) was observed, and the paste
@@ -371,7 +371,7 @@ class ClipboardManager:
             #
             # Fail-closed on exception — if the elevation check itself
             # raises, we block paste rather than risk UIPI failure.
-            # (History: CLIP-3.)
+            # (History: )
             try:
                 if _cb._is_elevated_target(hwnd):
                     _cb.log.warning(
@@ -385,7 +385,7 @@ class ClipboardManager:
                 )
                 return False
 
-            # CLIP-4/5: fetch the focused UIA element ONCE and hoist
+            # 5: fetch the focused UIA element ONCE and hoist
             # CoInitialize/CoUninitialize to wrap both password-field
             # and content-editable checks. Falls back to the
             # credential-dialog heuristic when comtypes is unavailable.
@@ -410,10 +410,10 @@ class ClipboardManager:
                 _cb.log.debug("[CLIPBOARD] CoInitialize failed in _is_safe_paste_target", exc_info=True)
 
             try:
-                # PLAT-014: check if the focused element is a password field.
+                # check if the focused element is a password field.
                 # Fail-closed on exception — if password-field detection
                 # itself raises, block paste rather than risk pasting
-                # into a credential prompt. (History: CLIP-3.)
+                # into a credential prompt. (History: )
                 try:
                     if _cb._is_password_field(focused, hwnd):
                         return False
@@ -431,7 +431,7 @@ class ClipboardManager:
                 # our plain-text paste may lose formatting.
                 #
                 # Keep fail-OPEN here — contentEditable is informational,
-                # not a security gate. (History: CLIP-3.)
+                # not a security gate. (History: )
                 try:
                     if _cb._is_content_editable(focused):
                         _cb.log.info(
@@ -443,7 +443,7 @@ class ClipboardManager:
             finally:
                 if com_initialized:
                     with contextlib.suppress(Exception):
-                        # AC-123: the redundant local ``import comtypes
+                        # the redundant local ``import comtypes
                         # as _ct`` was removed; the top-of-function
                         # import (line 377: ``import comtypes``) is
                         # still in scope here. The original
@@ -463,19 +463,19 @@ class ClipboardManager:
 
             return True
         except (ImportError, AttributeError):
-            # XZ-CLIP-03: outer exception — fail-open ONLY for truly
+            # outer exception — fail-open ONLY for truly
             # broken infra (ctypes itself unavailable, missing
             # attribute on the windll proxy). This is rare and
             # indicates a broken Python install rather than a security-
             # infra issue. Security-check exceptions are caught earlier
-            # (per-helper) and fail-closed. (History: CLIP-3, XZ-CLIP-03.)
+            # (per-helper) and fail-closed. (History: , )
             _cb.log.warning(
                 "[CLIPBOARD] _is_safe_paste_target infra unavailable (ImportError/AttributeError) — failing open",
                 exc_info=True,
             )
             return True  # Fail open — don't block paste on outer infra error
         except Exception:
-            # XZ-CLIP-03: any OTHER exception here is security-relevant
+            # any OTHER exception here is security-relevant
             # (e.g. Win32 APIs raising during shutdown, broken COM init)
             # — fail CLOSED so we never paste into an unverified target.
             # The per-helper ``except Exception`` blocks above already
@@ -528,7 +528,7 @@ class ClipboardManager:
             finally:
                 kernel32.CloseHandle(h_process)
         except (OSError, AttributeError):
-            # EC-15: narrowed from bare ``except Exception: pass``. The
+            # narrowed from bare ``except Exception: pass``. The
             # protected block is a Win32 ctypes call sequence
             # (OpenProcess / QueryFullProcessImageNameW / CloseHandle)
             # which raises ``OSError`` on Win32 failures and
@@ -541,7 +541,7 @@ class ClipboardManager:
 
     @staticmethod
     def _get_frontmost_pid_macos() -> int | None:
-        """XZ-CLIP-04: return the frontmost macOS app's PID for TOCTOU re-check.
+        """return the frontmost macOS app's PID for TOCTOU re-check.
 
         Uses ``AppKit.NSWorkspace`` (pyobjc) to fetch
         ``frontmostApplication().processIdentifier()``. Returns ``None``
@@ -608,13 +608,13 @@ class ClipboardManager:
                 _cb.log.debug("[CLIPBOARD] Snapshot capture returned None (clipboard locked or empty)")
 
         try:
-            # ② WIN32 EMPTY (existing PLAT-006). On Windows, empty the
+            # ② WIN32 EMPTY (existing ). On Windows, empty the
             # clipboard before copying to clear rich text artifacts from
-            # the previous clipboard content. PLAT-027: uses
+            # the previous clipboard content. : uses
             # Win32Clipboard abstraction instead of direct ctypes calls.
             _cb._win32_empty_clipboard()
 
-            # ③ COPY TEXT (existing PLAT-007 retry on ERROR_ACCESS_DENIED).
+            # ③ COPY TEXT (existing  retry on ERROR_ACCESS_DENIED).
             # ADR-0020 §6.6: on Linux Wayland, route through _copy_to_clipboard
             # which uses `wl-copy` instead of pyperclip's xclip/xsel (which
             # are X11-only and silently no-op under native Wayland apps).
@@ -652,7 +652,7 @@ class ClipboardManager:
 
             # ⑤ STORE METADATA (existing PLAT-CLIPRACE / PLAT-SECURE).
             #
-            # DE-59 (session-DE, Medium, Privacy): only cache
+            #  (session-DE, Medium, Privacy): only cache
             # ``_last_copied_text`` when a snapshot was captured (i.e.
             # a restore IS scheduled, whose ``_delayed_restore`` finally
             # block will clear it after the restore-delay window).
@@ -663,9 +663,9 @@ class ClipboardManager:
             # user dictated) into process memory for the entire process
             # lifetime. The seq-mismatch re-copy path in ``paste()``
             # threads ``pasted_text`` as a request-scoped value
-            # parameter (DE-60), so it does not depend on the instance
+            # parameter (), so it does not depend on the instance
             # attribute when ``snapshot is None``. The Wayland paste
-            # call sites also thread ``pasted_text`` (DE-60). Defensive
+            # call sites also thread ``pasted_text`` (). Defensive
             # clear of any stale value from a prior cycle.
             if snapshot is not None:
                 self._last_copied_text = text
@@ -693,11 +693,11 @@ class ClipboardManager:
         """Release any stuck modifier keys before paste.
 
         PLAT-STUCK: if a previous paste was interrupted (e.g. exception
-        during _send_keystroke_sequence), Ctrl/Shift/Alt/Cmd may be
+        during _safe_key_press), Ctrl/Shift/Alt/Cmd may be
         left in a pressed state. Releasing them before the next paste
         prevents stuck-modifier behavior.
         """
-        # TASK-10: pynput is optional — _Key / _Controller stay None in
+        # pynput is optional — _Key / _Controller stay None in
         # headless environments, and self._keyboard is None whenever
         # _Controller is unavailable. Guard both before touching the
         # keyboard controller.
@@ -708,7 +708,7 @@ class ClipboardManager:
                 with contextlib.suppress(Exception):
                     self._keyboard.release(key)
         except Exception:
-            # EC-15: was silent ``pass``. The protected block is a pynput
+            # was silent ``pass``. The protected block is a pynput
             # keyboard.release loop; pynput can raise a variety of
             # exceptions (OSError, RuntimeError, AttributeError on a
             # half-initialised controller) so we keep the broad catch
@@ -725,7 +725,7 @@ class ClipboardManager:
         modifier key is always released even if the character press or
         release raises an exception.
         """
-        # TASK-10: pynput may be unavailable (headless / sandboxed).
+        # pynput may be unavailable (headless / sandboxed).
         # Without this guard, .press() / .release() would raise
         # AttributeError on the None controller, defeating the
         # try/finally cleanup below.
@@ -782,7 +782,7 @@ class ClipboardManager:
         # Register the pending restore in the module-level _pending_restores
         # list so the atexit handler can force-restore it if the app exits
         # before the daemon thread fires. The daemon thread removes its
-        # entry on normal completion. (History: CLIP-8.)
+        # entry on normal completion. (History: )
         _pending_entry: tuple[Any, Any, str, float] | None = None
         if snapshot is not None:
             delay = restore_delay if restore_delay is not None else (self._restore_delay_ms / 1000.0)
@@ -790,7 +790,7 @@ class ClipboardManager:
             _pending_entry = (self, snapshot, expected, delay)
             with _pending_restores_lock:
                 _pending_restores.append(_pending_entry)
-            # ER-72: wrap Thread().start() in try/except — if start() fails
+            # wrap Thread().start() in try/except — if start() fails
             # (out of thread resources / fd exhaustion), remove the orphaned
             # entry from _pending_restores so it doesn't hold the snapshot
             # (potentially large image/file clipboard content) and dictated
@@ -816,13 +816,13 @@ class ClipboardManager:
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()
 
-        # TASK-10: pynput is optional. If both _Key and _Controller are
+        # pynput is optional. If both _Key and _Controller are
         # unavailable AND we're not on Windows (where _send_ctrl_v_win32
         # uses SendInput directly without pynput), there's no way to
         # synthesize a paste keystroke. Bail out early rather than
         # AttributeError on _Key.cmd / _Key.ctrl below.
         #
-        # XPLAT-15: on Linux Wayland, we route through `wtype` (no pynput
+        # on Linux Wayland, we route through `wtype` (no pynput
         # needed), so don't bail out even if pynput is missing — let the
         # Wayland branch below handle it.
         if _cb._Controller is None and not _cb.is_windows():
@@ -879,7 +879,7 @@ class ClipboardManager:
                     )
                     # Re-copy the text we want to paste.
                     #
-                    # DE-60 (session-DE, Medium, Concurrency): thread the
+                    #  (session-DE, Medium, Concurrency): thread the
                     # request-scoped ``pasted_text`` parameter through
                     # this re-copy path instead of reading the shared
                     # mutable ``self._last_copied_text`` instance
@@ -897,7 +897,7 @@ class ClipboardManager:
                     # only if ``pasted_text`` is None (legacy callers
                     # that don't thread it).
                     #
-                    # CLIP-7 (Medium, Wayland): use _copy_to_clipboard()
+                    #  (Medium, Wayland): use _copy_to_clipboard()
                     # instead of pyperclip.copy() so the Wayland dispatcher
                     # routes through `wl-copy` on Linux Wayland sessions.
                     # Previously, paste()'s seq-mismatch re-copy bypassed
@@ -921,7 +921,7 @@ class ClipboardManager:
         # PLAT-RDP: increase paste delay in RDP sessions where clipboard
         # sync is slower.
         #
-        # CLIP-11 (Low, Perf): drop the unconditional 20ms ``paste_delay``
+        #  (Low, Perf): drop the unconditional 20ms ``paste_delay``
         # sleep. The 20ms was applied to every paste on every platform,
         # adding latency without benefit (the seq-mismatch re-copy path
         # already has its own 20ms settle delay when it fires). The 100ms
@@ -938,7 +938,7 @@ class ClipboardManager:
                         "[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000)
                     )
             except Exception:
-                # EC-15: was silent ``pass``. The protected block is a
+                # was silent ``pass``. The protected block is a
                 # lazy import + platform predicate call which can raise
                 # ImportError (server_platform not importable in some
                 # test/headless envs) or any error from the underlying
@@ -964,7 +964,7 @@ class ClipboardManager:
             # (e.g. focus moved to a credential prompt), abort — do NOT
             # send the paste into the wrong/unsafe window.
             #
-            # XZ-CLIP-14: only re-check when we actually slept. When
+            # only re-check when we actually slept. When
             # ``paste_delay == 0`` the check above ran immediately before
             # this branch, so a second UIA round-trip here would be
             # redundant (no time for the foreground window to change).
@@ -972,7 +972,7 @@ class ClipboardManager:
                 _cb.log.info("[CLIPBOARD] Paste blocked — foreground target became unsafe during paste delay")
                 return False
 
-            # G4-M-25 (session-4): capture the foreground window handle
+            #  (session-4): capture the foreground window handle
             # immediately after the safety check so we can re-verify
             # right before sending the Win32 paste keystroke. The check
             # above (``_is_safe_paste_target``) already validated the
@@ -984,7 +984,7 @@ class ClipboardManager:
             # captured right after the safety check; if they differ,
             # abort paste to avoid sending Ctrl+V into the wrong window.
             #
-            # XZ-CLIP-04: extend the TOCTOU re-check to macOS by
+            # extend the TOCTOU re-check to macOS by
             # capturing the frontmost application's PID via
             # ``NSWorkspace.sharedWorkspace().frontmostApplication()
             # .processIdentifier()``. If the PID differs between the
@@ -1015,7 +1015,7 @@ class ClipboardManager:
                     process_name,
                 )
 
-            # XPLAT-15: on Linux Wayland, pynput silently no-ops (it's
+            # on Linux Wayland, pynput silently no-ops (it's
             # X11-only). Route through `wtype` instead — uses Ctrl+V
             # (the clipboard was already populated by copy()). Falls
             # through to the pynput path on X11, when wtype isn't
@@ -1023,21 +1023,21 @@ class ClipboardManager:
             #
             # ``_linux_paste_via_wtype`` now always uses the Ctrl+V
             # clipboard path (no more ``-d 50`` keystroke delay for
-            # short text). (History: CLIP-10.)
+            # short text). (History: )
             use_wayland_wtype = _cb.is_linux() and _cb._is_wayland_paste_session() and _cb._have_wtype()
             paste_succeeded = True
-            # DE-60 (session-DE): thread ``pasted_text`` (request-scoped
+            #  (session-DE): thread ``pasted_text`` (request-scoped
             # value parameter) through the Wayland paste call sites too,
             # instead of reading the shared mutable
             # ``self._last_copied_text`` instance attribute.
             # ``_linux_paste_via_wtype`` currently ignores its ``text``
-            # argument (CLIP-10), but if CLIP-10 is ever reverted, the
+            # argument (), but if  is ever reverted, the
             # instance attribute would become a leak/race vector (same
             # rationale as the seq-mismatch re-copy path above).
             wtype_text = pasted_text if pasted_text is not None else self._last_copied_text
             if is_terminal:
                 if _cb.is_macos():
-                    # XZ-CLIP-04: TOCTOU re-check on macOS. Re-fetch the
+                    # TOCTOU re-check on macOS. Re-fetch the
                     # frontmost app PID and compare to ``safe_macos_pid``
                     # captured above. If the user Cmd-Tabbed (or a
                     # credential prompt stole focus) between the safety
@@ -1058,7 +1058,7 @@ class ClipboardManager:
                             return False
                     self._safe_key_press(_cb._Key.cmd, "v")
                 elif use_wayland_wtype:
-                    # XZ-CLIP-04: Linux Wayland residual risk — wtype
+                    # Linux Wayland residual risk — wtype
                     # does not return the focused surface, so we cannot
                     # re-verify the target atomically. The safety check
                     # above ran immediately before this call (paste_delay
@@ -1070,7 +1070,7 @@ class ClipboardManager:
                 else:
                     self._safe_key_press(_cb._Key.shift, _cb._Key.insert)
             elif _cb.is_macos():
-                # XZ-CLIP-04: same TOCTOU re-check as the terminal branch above.
+                # same TOCTOU re-check as the terminal branch above.
                 if safe_macos_pid is not None:
                     current_pid = self._get_frontmost_pid_macos()
                     if current_pid is not None and current_pid != safe_macos_pid:
@@ -1084,7 +1084,7 @@ class ClipboardManager:
                         return False
                 self._safe_key_press(_cb._Key.cmd, "v")
             elif _cb.is_windows():
-                # G4-M-25 (session-4): TOCTOU re-check. Re-fetch the
+                #  (session-4): TOCTOU re-check. Re-fetch the
                 # foreground window and compare to ``safe_hwnd`` captured
                 # above. If the user Alt+Tabbed (or a credential prompt
                 # stole focus) between the safety check and the SendInput
@@ -1154,7 +1154,7 @@ class ClipboardManager:
         ``pasted_text`` (user copied something else, or target app
         rewrote it), skip restore to avoid clobbering the new content.
 
-        CR-3 fix: the ``pending_entry`` parameter is the tuple that
+         fix: the ``pending_entry`` parameter is the tuple that
         ``paste()`` appended to ``_pending_restores`` before spawning
         this daemon thread. The entry is removed from the list (under
         the lock) BEFORE ``snapshot.restore()`` runs so the list does
@@ -1165,7 +1165,7 @@ class ClipboardManager:
         existing tests at
         ``tests/test_clipboard_borrow_restore.py:301/318``).
 
-        DE-63 fix (session-DE, Medium, Concurrency): the pre-fix code
+         fix (session-DE, Medium, Concurrency): the pre-fix code
         removed the entry in the ``finally`` block AFTER
         ``snapshot.restore()`` completed. There was a window between
         the daemon's ``snapshot.restore()`` call and the ``finally``
@@ -1188,7 +1188,7 @@ class ClipboardManager:
         try:
             _cb.time.sleep(delay)
 
-            # DE-63: claim the pending_entry under the lock BEFORE
+            # claim the pending_entry under the lock BEFORE
             # calling snapshot.restore(). If atexit has already taken
             # the entry (cleared the list), the remove() raises
             # ValueError and we short-circuit — atexit will restore
@@ -1207,7 +1207,7 @@ class ClipboardManager:
                                 "[CLIPBOARD-AUDIT] Pending entry already claimed "
                                 "by atexit — skipping daemon restore (DE-63)"
                             )
-                            return  # CR-84 / DE-63: short-circuit
+                            return  #  short-circuit
                 except Exception:  # pragma: no cover — catastrophic lock failure
                     _cb.log.exception("[CLIPBOARD] Failed to claim pending restore entry — proceeding with restore")
                     # Continue with restore anyway (best-effort). The
@@ -1236,7 +1236,7 @@ class ClipboardManager:
         except Exception:
             _cb.log.exception("[CLIPBOARD] Delayed restore failed")
         finally:
-            # G4-M-24 (session-4): clear the cached last-copied text
+            #  (session-4): clear the cached last-copied text
             # after the restore completes (or skips, or raises). The
             # pasted text is no longer needed — the clipboard has been
             # restored to the user's original content (or the user
@@ -1251,14 +1251,14 @@ class ClipboardManager:
             #
             # Best-effort: never raise from the finally block.
             #
-            # DE-63: the ``pending_entry`` removal has moved to BEFORE
+            # the ``pending_entry`` removal has moved to BEFORE
             # ``snapshot.restore()`` (above). The ``finally`` block
             # now only clears ``_last_copied_text``.
             #
-            # DJ-22: defensively re-attempt the ``pending_entry`` removal
+            # defensively re-attempt the ``pending_entry`` removal
             # here (under the lock, suppressing ValueError if atexit or
             # the pre-restore path already claimed it). This closes two
-            # leak windows left by the DE-63 move: (1) ``sleep(delay)``
+            # leak windows left by the  move: (1) ``sleep(delay)``
             # raises before the pre-restore removal runs; (2) the
             # catastrophic-lock-failure broad ``except`` at the
             # pre-restore path leaves the entry in the list while
@@ -1291,7 +1291,7 @@ class ClipboardManager:
         except Exception:
             _cb.log.exception("[CLIPBOARD] Immediate restore failed")
         finally:
-            # DE-59 (session-DE, Medium, Privacy): clear the cached
+            #  (session-DE, Medium, Privacy): clear the cached
             # last-copied text. ``restore_now()`` is the path used when
             # ``paste_on_stop=False`` (no paste keystroke follows), so
             # no ``_delayed_restore`` daemon thread will run to clear
@@ -1308,31 +1308,10 @@ class ClipboardManager:
                     exc_info=True,
                 )
 
-    def _send_keystroke_sequence(self, modifier, char) -> None:
-        # PLAT-STUCK: ensure modifier is always released even on exception.
-        # Uses a robust try/finally pattern that presses modifier + char,
-        # releases in reverse order, and guarantees ALL keys are released
-        # in the finally block even if an intermediate release raises.
-        # TASK-10: guard None keyboard — pynput is optional.
-        if self._keyboard is None:
-            _cb.log.debug("[CLIPBOARD] _send_keystroke_sequence skipped — no keyboard controller")
-            return
-        try:
-            self._keyboard.press(modifier)
-            self._keyboard.press(char)
-            self._keyboard.release(char)
-            self._keyboard.release(modifier)
-        finally:
-            # Double-release: guarantee modifier is freed even if the
-            # normal release path above was skipped by an exception.
-            for key in (modifier, char):
-                with contextlib.suppress(Exception):
-                    self._keyboard.release(key)
-
     def _send_ctrl_v_win32(self) -> bool:
         """Send Ctrl+V via a single atomic SendInput batch.
 
-        PLAT-001: On Windows, we always prefer SendInput over
+        On Windows, we always prefer SendInput over
         pynput.keyboard.Controller because pynput's Controller is
         blocked by UIPI when targeting elevated processes from a
         non-elevated one.  Our direct SendInput call is subject to the

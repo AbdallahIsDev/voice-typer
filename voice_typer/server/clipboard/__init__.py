@@ -1,4 +1,4 @@
-"""Clipboard management and auto-paste package (PVT-23 split).
+"""Clipboard management and auto-paste package ( split).
 
 This package was extracted from the original 1432-LOC ``clipboard.py``
 monolith into four focused modules:
@@ -20,7 +20,7 @@ Design contract preserved from the original monolith:
   V down, V up, Ctrl up) submitted as a single atomic INPUT batch to
   avoid applications interpreting key-up as a duplicate paste event.
 
-PLAT-001: On Windows, we always prefer SendInput over
+On Windows, we always prefer SendInput over
 pynput.keyboard.Controller for sending keystrokes.  pynput uses
 SendInput internally on Windows, but when UIPI (User Interface
 Privilege Isolation) blocks it (e.g. targeting an elevated process
@@ -29,7 +29,7 @@ _send_ctrl_v_win32() uses the same Win32 SendInput API directly and
 logs the failure, then falls back to the pynput path as a last
 resort.
 
-PLAT-027: All direct ctypes.windll.user32 clipboard calls are wrapped
+All direct ctypes.windll.user32 clipboard calls are wrapped
 in the Win32Clipboard context manager, which handles
 OpenClipboard/CloseClipboard lifecycle, EmptyClipboard, and
 GetClipboardSequenceNumber.
@@ -40,14 +40,14 @@ contentEditable elements (via UI Automation on Windows) and pasting
 rich text. For now, we log when the paste target appears to be a
 rich editor (e.g. Word, LibreOffice).
 
-PLAT-007 (source-string pin — see
+ (source-string pin — see
 tests/regressions/security_test.py::TestClipboardRetryNarrowedException):
 the copy() retry block in :mod:`.manager` MUST catch ``OSError``
 (narrowed from the pre-fix broad ``Exception`` pattern) and check
 ``winerror == 5`` (ERROR_ACCESS_DENIED) before retrying. The exact
 source patterns pinned by the test are reproduced below so
 ``inspect.getsource(voice_typer.server.clipboard)`` — which returns
-this ``__init__.py``'s source after the PVT-23 package split —
+this ``__init__.py``'s source after the  package split —
 continues to satisfy the source-string assertion::
 
     # in ClipboardManager.copy() (manager.py):
@@ -105,26 +105,26 @@ log = logging.getLogger(__name__)
 # ``_ensure_pynput_imported()`` (in .linux) writes these attributes on
 # first use.
 #
-# YJ-22 (retry / partial fix): narrow ``_Controller`` from ``Any`` to
+#  (retry / partial fix): narrow ``_Controller`` from ``Any`` to
 # ``type | None``. Safe — the only downstream usage is instantiation
 # (``_cb._Controller()`` in :mod:`voice_typer.server.clipboard.manager`,
 # line 141), and ``type`` is callable. ``None`` accepts the initial
 # empty binding. No ``# type: ignore[assignment]`` marker is needed
 # because ``None`` is in ``type | None``.
 #
-# ``_Key`` is left as ``Any``. YJ-22's prescribed narrowing to
+# ``_Key`` is left as ``Any``. 's prescribed narrowing to
 # ``type | None`` broke 6 downstream ``_cb._Key.cmd`` /
 # ``_cb._Key.shift`` / ``_cb._Key.insert`` / ``_cb._Key.ctrl``
 # accesses in :mod:`voice_typer.server.clipboard.manager` (because
 # ``type`` and ``None`` don't expose pynput's ``Key`` enum members).
-# YJ-FIX-B2 reverted both annotations; this retry re-applies the
+#  reverted both annotations; this retry re-applies the
 # narrowing ONLY to ``_Controller`` (where it's safe) and leaves
 # ``_Key: Any`` with a documented rationale. The full narrowing for
 # ``_Key`` requires either a ``voice_typer/stubs/pynput/keyboard.pyi``
 # stub + ``TYPE_CHECKING`` import (so ``_Key: type[Key] | None``
 # resolves) or a ``Protocol`` exposing the enum members — both are
 # larger changes deferred to a future session. The
-# ``# type: ignore[assignment]`` markers YJ-22 removed stay dropped
+# ``# type: ignore[assignment]`` markers  removed stay dropped
 # (``Any | None`` accepts ``None`` without a marker, and ``type | None``
 # accepts ``None`` without a marker).
 _Key: Any | None = None
@@ -136,24 +136,35 @@ _Controller: type | None = None
 # dependencies. .manager depends on both (via the package attribute
 # lookups described above), so it MUST be imported last.
 
-# ARCH-11: Win32 UI Automation focus / password-field / elevated-target
+# Win32 UI Automation focus / password-field / elevated-target
 # detection was extracted to ``clipboard_target_safety``. Re-export the
 # names here so internal callers (``ClipboardManager._is_safe_paste_target``)
 # and external tests that patch ``voice_typer.server.clipboard.<name>``
 # keep working unchanged.
 #
-# G4-H-05 (session-4): also re-export the platform-native password-field
+#  (session-4): also re-export the platform-native password-field
 # helpers (macOS pyobjc / Linux pyatspi) so ClipboardManager can dispatch
 # to them from ``_is_safe_paste_target`` on non-Windows platforms.
+#
+# the seven MUTABLE globals below (``_PYATSPI_STATE_FOCUSED``,
+# ``_PYATSPI_UNAVAILABLE_WARNED``, ``_PYOBJC_UNAVAILABLE_WARNED``,
+# ``_UIA_MODULE``, ``_UIA_SINGLETON``, ``_UIA_SINGLETON_INIT_ATTEMPTED``,
+# ``_WE_ELEVATED``) are deliberately NOT pulled in via
+# ``from ... import (...)``. Python's ``from X import Y`` binds ``Y`` in
+# this package's namespace at import time; subsequent mutations of the
+# source attribute (e.g. ``clipboard_target_safety._UIA_SINGLETON = ...``)
+# would NOT be visible via ``voice_typer.server.clipboard._UIA_SINGLETON``,
+# and tests that monkeypatch the source module's global wouldn't affect
+# code reading the re-export. Instead these names are resolved
+# dynamically via the PEP 562 ``__getattr__`` hook defined at the bottom
+# of this module, which reads the current value from
+# ``clipboard_target_safety`` on every access. The names are still
+# listed in ``__all__`` so ``from voice_typer.server.clipboard import
+# _PYATSPI_STATE_FOCUSED`` keeps working (the import machinery falls
+# back to ``__getattr__`` when the name isn't a normal module
+# attribute).
 from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
     _CRED_DIALOG_CLASSES,
-    _PYATSPI_STATE_FOCUSED,
-    _PYATSPI_UNAVAILABLE_WARNED,
-    _PYOBJC_UNAVAILABLE_WARNED,
-    _UIA_MODULE,
-    _UIA_SINGLETON,
-    _UIA_SINGLETON_INIT_ATTEMPTED,
-    _WE_ELEVATED,
     _find_focused_atspi_accessible,
     _focused_window_is_credential_dialog,
     _get_uia_focused_element,
@@ -167,6 +178,12 @@ from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
     reset_platform_unavailable_warnings,
 )
 
+# Mutable globals re-exported dynamically via PEP 562 ``__getattr__``
+# (see  note above and the ``__getattr__`` definition at the bottom
+# of this module). Listed here for grep-ability:
+#   _PYATSPI_STATE_FOCUSED, _PYATSPI_UNAVAILABLE_WARNED,
+#   _PYOBJC_UNAVAILABLE_WARNED, _UIA_MODULE, _UIA_SINGLETON,
+#   _UIA_SINGLETON_INIT_ATTEMPTED, _WE_ELEVATED
 from .linux import (  # noqa: E402,F401
     _RICH_EDITOR_PROCESS_NAMES,
     _TERMINAL_PROCESS_NAMES,
@@ -228,7 +245,7 @@ __all__ = [
     # Pynput lazy-import state (mutated by _ensure_pynput_imported)
     "_Controller",
     "_Key",
-    # Target-safety re-exports (ARCH-11)
+    # Target-safety re-exports ()
     "_CRED_DIALOG_CLASSES",
     "_PYATSPI_UNAVAILABLE_WARNED",
     "_PYATSPI_STATE_FOCUSED",
@@ -365,3 +382,74 @@ if not _SIGNAL_HANDLERS_REGISTERED:
         pass
     except Exception:  # pragma: no cover — defensive
         pass
+
+
+# ─── PEP 562 dynamic re-export of mutable globals ─────────────
+#
+# The following seven names live in ``voice_typer.server.clipboard_target_safety``
+# and are MUTATED at runtime (e.g. ``_UIA_SINGLETON`` is filled in on first
+# Win32 call, ``_WE_ELEVATED`` is cached after the first token-query, the
+# ``*_UNAVAILABLE_WARNED`` flags flip to ``True`` after the first failed
+# pyatspi/pyobjc import). A plain ``from clipboard_target_safety import
+# _UIA_SINGLETON`` would bind the value ONCE at import time and never see
+# subsequent mutations — meaning a test that does
+# ``monkeypatch.setattr(clipboard_target_safety, "_UIA_SINGLETON", mock)``
+# wouldn't affect any caller reading ``voice_typer.server.clipboard._UIA_SINGLETON``.
+#
+# PEP 562 (Python 3.7+) lets a module define a module-level ``__getattr__``
+# that is invoked ONLY when normal attribute lookup fails. Because we no
+# longer ``from ... import`` these seven names, accessing
+# ``voice_typer.server.clipboard._UIA_SINGLETON`` falls through to this
+# hook, which delegates to the current value on ``clipboard_target_safety``
+# — so mutations (including test monkeypatches) ARE visible.
+#
+# The names remain in ``__all__`` so static-analysis tools, ``dir()``, and
+# ``from voice_typer.server.clipboard import _PYATSPI_STATE_FOCUSED`` keep
+# working (the import machinery consults ``__getattr__`` when the name
+# isn't otherwise found).
+_DYNAMIC_REEXPORT_MUTABLE_GLOBALS = frozenset(
+    {
+        "_PYATSPI_STATE_FOCUSED",
+        "_PYATSPI_UNAVAILABLE_WARNED",
+        "_PYOBJC_UNAVAILABLE_WARNED",
+        "_UIA_MODULE",
+        "_UIA_SINGLETON",
+        "_UIA_SINGLETON_INIT_ATTEMPTED",
+        "_WE_ELEVATED",
+    }
+)
+
+
+def __getattr__(name: str):  # noqa: D401
+    """PEP 562: dynamically resolve mutable target-safety globals.
+
+    See the  block comment above. For any name in
+    ``_DYNAMIC_REEXPORT_MUTABLE_GLOBALS``, return the CURRENT attribute
+    value from ``voice_typer.server.clipboard_target_safety`` so that
+    runtime mutations (and test monkeypatches) are visible through this
+    package's namespace.
+
+    Raises ``AttributeError`` for any other unknown name, preserving the
+    standard module-attribute-lookup semantics.
+    """
+    if name in _DYNAMIC_REEXPORT_MUTABLE_GLOBALS:
+        from voice_typer.server import clipboard_target_safety as _safety
+
+        return getattr(_safety, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():  # pragma: no cover — exercised by ``dir(clip_mod)`` in REPLs
+    """PEP 562: include the dynamically-resolved mutable globals in ``dir()``.
+
+    Without this, ``dir(voice_typer.server.clipboard)`` would omit the
+    seven mutable globals (because they aren't bound at module level),
+    which would surprise REPL users and break ``hasattr``-based discovery
+    in some static-analysis tools. We append them to the default module
+    ``dir()`` so the public surface matches ``__all__``.
+    """
+    module_attrs = list(globals().keys())
+    for _name in sorted(_DYNAMIC_REEXPORT_MUTABLE_GLOBALS):
+        if _name not in module_attrs:
+            module_attrs.append(_name)
+    return module_attrs

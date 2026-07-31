@@ -1,6 +1,6 @@
 """Linux autostart — freedesktop ``.desktop`` entry.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three Linux autostart primitives:
 
@@ -51,7 +51,7 @@ def _enable_autostart_linux() -> bool:
     # (e.g. "/usr/bin/python3" "/path/launcher.py" -> python3" "/path...).
     exec_field = _pkg._autostart_command()
 
-    # CR-145: align the autostart .desktop Icon with the bundled template
+    # align the autostart .desktop Icon with the bundled template
     # (src-tauri/voice-typer.desktop.template uses `Icon=voice-typer`).
     # Pre-fix this wrote `Icon=audio-input-microphone`, causing the same
     # app to show two different icons (one in autostart, one in the

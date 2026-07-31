@@ -1,4 +1,4 @@
-# ARCH-REFAC-002: handlers extracted to handlers/ package as mixins
+# handlers extracted to handlers/ package as mixins
 """JSON-lines IPC server over stdin/stdout OR TCP.
 
 Reads JSON commands from stdin (legacy) or a TCP socket (Electron),
@@ -38,17 +38,17 @@ if TYPE_CHECKING:
     # not need to import ``AppProtocol``.
     from voice_typer.server.providers import AppProtocol
 
-    # GT-D1-5: concrete type for the ``service`` DI parameter (was ``Any``).
+    # concrete type for the ``service`` DI parameter (was ``Any``).
     # Imported under TYPE_CHECKING to avoid a runtime circular import —
     # VoiceTyperService imports from this module's neighbours.
     from voice_typer.server.service import VoiceTyperService
 
-# CR-1 (consolidated): the helper leaf submodules under
+#  (consolidated): the helper leaf submodules under
 # ``voice_typer.server.ipc`` (``validation.py``, ``transport.py``,
 # ``rate_limiter.py``, ``history_bounds.py``) are the CANONICAL source
 # for every helper this module uses.  The dead duplicates
 # ``ipc/server.py``, ``ipc/main.py``, ``ipc/process_meta.py`` and
-# ``ipc/push_events.py`` were deleted (CR-019 / test_dead_code_stays_removed)
+# ``ipc/push_events.py`` were deleted ( / test_dead_code_stays_removed)
 # and the local copies of these helpers that used to live in
 # ``ipc_server.py`` were replaced with the re-export imports below so the
 # two implementations cannot silently drift.  The ``IPCServer`` class,
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 # (``from voice_typer.server.ipc_server import _SECRET_CONFIG_FIELDS``)
 # keep working unchanged. ``_sanitize_config_for_ipc`` is intentionally
 # still imported from :mod:`voice_typer.server.ipc.history_bounds` because
-# that version uses the DE-33 pattern-based denylist (defense-in-depth
+# that version uses the  pattern-based denylist (defense-in-depth
 # beyond the explicit frozenset); the config_sanitizer version is a
 # simpler implementation kept for service-layer callers that don't need
 # the pattern matching.
@@ -83,7 +83,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
     _SECRET_CONFIG_FIELDS,
 )
 
-# S1-CR-66: the ``log`` / ``_push_event_now`` helpers used to be
+# the ``log`` / ``_push_event_now`` helpers used to be
 # defined inline here.  They moved to the
 # ``voice_typer.server.ipc._helpers`` leaf submodule so that
 # ``ipc_server.py`` can be loaded as ``__main__`` (via
@@ -91,15 +91,16 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # ``sys.modules[_CANONICAL] = sys.modules["__main__"]`` registration
 # hack to keep lazy imports (in providers.py / sidecar_ws.py / app.py /
 # __main__.py) resolving to the same object.  The names are re-exported
-# here (``# noqa: F401`` in backtick comments) so existing
+# here ('noqa: F401' on the import line) so existing
 # ``from voice_typer.server.ipc_server import log`` /
 # ``... import _push_event_now`` callers keep working unchanged.
-# UE-32: ``_READONLY_COMMANDS`` previously lived in ``ipc._helpers``;
+# ``_READONLY_COMMANDS`` previously lived in ``ipc._helpers``;
 # it now lives in ``voice_typer.server.ipc.registry`` (see the import
 # block below).  The ``ipc._helpers`` duplicate is a legacy leftover
-# (outside the UE-32 disjoint set) and is no longer the authoritative
+# (outside the  disjoint set) and is no longer the authoritative
 # source.
-from voice_typer.server.ipc._helpers import (  # noqa: E402
+from voice_typer.server.ipc._helpers import (  # noqa: E402, F401
+    _push_event_now,
     log,
 )
 from voice_typer.server.ipc.history_bounds import (  # noqa: F401
@@ -125,16 +126,16 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
     _RateLimiter,
 )
 
-# UE-32: the command-dispatch registry, the read-only command set, and
+# the command-dispatch registry, the read-only command set, and
 # the Python-only exception set all live in the
-# :mod:`voice_typer.server.ipc.registry` leaf submodule.  Pre-UE-32
+# mod:`voice_typer.server.ipc.registry` leaf submodule.  Pre-
 # ``_COMMAND_REGISTRY`` + ``_PYTHON_ONLY_COMMANDS`` were class attributes
 # on :class:`IPCServer` (defined ~1,400 lines into this 2,100-line
 # god-module) and ``_READONLY_COMMANDS`` lived in ``ipc._helpers``; the
 # split made the three-layers-must-agree parity contract harder to
 # reason about.  The extraction is behavior-preserving — same dict,
 # same keys, same values.  The names are re-exported here
-# (``# noqa: F401`` in backtick comments) so existing
+# ('noqa: F401' on the import line) so existing
 # ``from voice_typer.server.ipc_server import _COMMAND_REGISTRY`` /
 # ``... import _READONLY_COMMANDS`` /
 # ``... import _PYTHON_ONLY_COMMANDS`` callers keep working unchanged.
@@ -154,8 +155,8 @@ from voice_typer.server.ipc.registry import (  # noqa: E402
 )
 
 # NOTE: ``_get_rate_limiter`` is intentionally NOT imported here — it is
-# defined locally below as a thin re-export (see the CR-11 / R4-F18 /
-# DR-45 comment block) so tests that monkey-patch
+# defined locally below as a thin re-export (see the
+#  comment block) so tests that monkey-patch
 # ``ipc_server._RateLimiter`` are still observed (the re-export passes
 # the patched class to the canonical leaf implementation via ``_cls=``).
 from voice_typer.server.ipc.transport import (  # noqa: F401
@@ -170,7 +171,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
     _validate_dict_payload,
 )
 
-# GT-29 / GT-D1-10: typed response envelope and command-handler aliases.
+#  typed response envelope and command-handler aliases.
 #
 # ``ResponseEnvelope`` is the canonical shape of every IPC frame pushed or
 # dispatched: a dict with at least ``type`` (str) and optional ``data``,
@@ -178,18 +179,18 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 # checker verify handler signatures and the dispatch-table value type, so
 # a typo in a handler-method name surfaces at IPCServer construction
 # (where the bound-method cache is built) rather than at dispatch time.
-# YJ-1 / YJ-27: ResponseEnvelope + CommandHandler canonical definitions
+#  ResponseEnvelope + CommandHandler canonical definitions
 # moved to voice_typer.server.ipc.validation (breaks the circular import
 # and lets handler modules import them from a non-god-module location).
 
-# GT-25: ``_READONLY_COMMANDS`` now lives in ``ipc.registry`` (UE-32
+# ``_READONLY_COMMANDS`` now lives in ``ipc.registry`` (
 # extraction — see the import above).  The set lists dispatch commands
 # whose handlers do NOT mutate shared app/service state; they bypass the
 # per-server ``_dispatch_lock`` so a long-running state-mutating handler
 # (e.g. ``download_model``) does not block a quick status poll from a
 # second authenticated connection.
 
-# UE-13 (High): the unauthenticated stdin/stdout IPC listener is gated
+#  (High): the unauthenticated stdin/stdout IPC listener is gated
 # behind this env var. ``start()`` refuses to spawn the stdin listener
 # thread when ``_tcp_mode`` is False AND the env var is not set to
 # ``"1"`` — closing the "unprotected stdin IPC path is still the
@@ -202,13 +203,13 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 _STDIN_IPC_ENV_VAR: str = "VOICE_TYPER_ALLOW_STDIN_IPC"
 
 
-# ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
+# ──: per-process rate limiter get-or-create ───────────────
 #
-# DR-45: this is a THIN RE-EXPORT — the canonical implementation lives in
+# this is a THIN RE-EXPORT — the canonical implementation lives in
 # ``voice_typer.server.ipc.rate_limiter._get_rate_limiter``. Tests in
 # ``tests/test_r4_f18_rate_limiter_concurrent_init.py`` and
 # ``tests/test_cr_fixes.py`` monkey-patch ``ipc_server._RateLimiter`` with
-# a counting stand-in to widen the race window (CR-11 / R4-F18). The
+# a counting stand-in to widen the race window ( / ). The
 # re-export delegates to the canonical implementation with the patched
 # ``_RateLimiter`` class injected via ``_cls=``, so the patched class is
 # still observed (preserving the test contract) while the get-or-create
@@ -218,7 +219,7 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     ``voice_typer.server.ipc.rate_limiter``.
 
     Tests monkey-patch ``ipc_server._RateLimiter`` to widen the race
-    window (CR-11 / R4-F18). We delegate to the canonical implementation
+    window ( / ). We delegate to the canonical implementation
     with the patched class injected via ``_cls=`` so the patched class
     is still observed.
     """
@@ -228,23 +229,23 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
 
 
 # Module-level push hook.  ``_push_event_now`` now lives in
-# ``ipc._helpers`` (S1-CR-66 refactor — see the import above).  It is a
+# ``ipc._helpers`` ( refactor — see the import above).  It is a
 # thin shim over ``event_bus.publish`` so existing lazy imports
 # (``from voice_typer.server.ipc_server import _push_event_now``) keep
 # working.  Domain code should call ``event_bus.publish`` directly.
-# B-1 FIX-12: the _push_event_registry/_push_event_registry_lock aliases
+# The _push_event_registry/_push_event_registry_lock aliases
 # and _set_push_event/_clear_push_event shims have been removed — domain
 # code and tests now call ``event_bus.subscribe`` /
 # ``event_bus.unsubscribe`` directly.
 
 
-# ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
+# the per-command ``_handle_*`` methods live in the
 # ``handlers/`` subpackage as mixin classes.  The handler mixins import
 # their own helpers (``log`` from ``handlers._log``, validation from
 # ``ipc.validation``, etc.) and do NOT import from this module, so there
 # is no circular dependency to break.
 #
-# S1-CR-66: the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
+# the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
 # registration hack that used to live here has been removed.  The hack
 # was originally needed because ``python -m voice_typer.server.ipc_server``
 # loads this file as ``__main__`` (NOT under the canonical dotted name),
@@ -299,10 +300,10 @@ from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMi
 # _SHUTDOWN_ALLOWLIST`` callers (tests/test_ipc_send_shutdown_allowlist.py,
 # tests/test_zr43_zr70_constants.py) keep working unchanged.
 from voice_typer.server.ipc.sender import (  # noqa: E402, F401
-    OutputMixin,
     _SHUTDOWN_ALLOWLIST,
     _TCP_PENDING_BUFFER_CAP,
     _TCP_PENDING_DRAIN_CAP,
+    OutputMixin,
 )
 from voice_typer.server.ipc.transport_tcp import TCPTransportMixin  # noqa: E402
 
@@ -342,7 +343,7 @@ class IPCServer(
     # corrupting the JSON-lines protocol. Serializing ONLY the
     # write+flush+drain section (NOT the snapshot phase, NOT the
     # dispatch read path) prevents interleaving without re-introducing
-    # the NEW-IPC-014 "slow client blocks all dispatchers" problem
+    # the  "slow client blocks all dispatchers" problem
     # that ``self._lock`` had when it covered the entire send path.
     #
     # Production instances override this in ``__init__`` with a
@@ -355,9 +356,9 @@ class IPCServer(
     # shared fallback safe (no cross-test contention).
     _tcp_write_lock = threading.Lock()
 
-    # UE-32: ``_COMMAND_REGISTRY`` and ``_PYTHON_ONLY_COMMANDS`` are
+    # ``_COMMAND_REGISTRY`` and ``_PYTHON_ONLY_COMMANDS`` are
     # canonical to :mod:`voice_typer.server.ipc.registry` (imported at
-    # module top — see the ``UE-32`` comment block above).  They are
+    # module top — see the ```` comment block above).  They are
     # re-aliased here as class attributes so every existing
     # ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
     # call site (pinned by ``tests/test_ipc_shutdown_registry.py``,
@@ -367,7 +368,7 @@ class IPCServer(
     # ``tests/tauri/test_tauri_sidecar_gate.py``) keeps working
     # unchanged.  ``__init__`` iterates over ``self._COMMAND_REGISTRY``
     # to typo-validate every entry resolves to a callable bound method
-    # (GT-29 / DT-5); the iteration observes this alias and therefore
+    # ( / ); the iteration observes this alias and therefore
     # the registry's canonical dict.
     _COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY
     _PYTHON_ONLY_COMMANDS: frozenset[str] = _PYTHON_ONLY_COMMANDS
@@ -377,7 +378,7 @@ class IPCServer(
         app: "AppProtocol",
         service: "VoiceTyperService | None" = None,
     ) -> None:
-        # ARCH-REFAC-004: dependency-injection seam.
+        # dependency-injection seam.
         #
         # ``IPCServer(app)`` (no ``service``) is the backward-compatible
         # path used by all existing call sites — production entry point
@@ -405,7 +406,7 @@ class IPCServer(
         if service is not None:
             self.service = service
         else:
-            # ARCH-005: wire VoiceTyperService as the service boundary.
+            # wire VoiceTyperService as the service boundary.
             # IPC routes delegate through the service instead of calling
             # self.app directly. This allows a second transport (CLI,
             # gRPC) to reuse the same service layer without duplicating
@@ -413,7 +414,7 @@ class IPCServer(
             from voice_typer.server.service import VoiceTyperService
 
             self.service = VoiceTyperService(app)
-            # DJ-68: wire the service-layer mic cache invalidator so
+            # wire the service-layer mic cache invalidator so
             # the OS device-change watcher (which already invalidates
             # DeviceManager._device_list_cache via _invalidate_device_cache)
             # ALSO invalidates the service-layer 5s-TTL cache
@@ -429,11 +430,11 @@ class IPCServer(
                     recorder_devices.set_service_cache_invalidator(lambda: self.service.refresh_microphones(force=True))
             except Exception:
                 log.debug(
-                    "[IPC] failed to wire DJ-68 service-layer cache invalidator",
+                    "[IPC] failed to wire service-layer cache invalidator",
                     exc_info=True,
                 )
         self._running = False
-        # NEW-CQ-018: use RLock instead of Lock so _hook_tray_set_state
+        # use RLock instead of Lock so _hook_tray_set_state
         # (which calls self.push() → self._send() → acquires _lock) can
         # safely re-enter if a future change makes set_state indirectly
         # trigger an IPC call. Lock would deadlock; RLock allows the
@@ -448,7 +449,7 @@ class IPCServer(
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
         self._pending_tcp: list[str] = []
-        # NEW-IPC-001: store the listening TCP server socket so stop()
+        # store the listening TCP server socket so stop()
         # can close it to unblock the accept() loop.  Previously the
         # socket was a local variable in _accept_tcp and stop() had no
         # way to wake the loop, leaving the daemon thread blocked on
@@ -464,13 +465,13 @@ class IPCServer(
         # can no longer stall the accept loop and block the next
         # legitimate client from being accepted.
         self._tcp_worker_pool: ThreadPoolExecutor | None = None
-        # NEW-IPC-013: this server's push callable, registered in the
+        # this server's push callable, registered in the
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
         # our callable without affecting other active servers.
         self._push_fn: typing.Callable[[dict], None] | None = None
 
-        # RW-10: heartbeat watchdog state.
+        # heartbeat watchdog state.
         #
         # ``_last_heartbeat_at`` is ``None`` until Electron sends its
         # first ``heartbeat`` IPC command.  The watchdog daemon thread
@@ -498,7 +499,7 @@ class IPCServer(
         # restart can't satisfy a fresh one.
         self._relaunch_ack_event = threading.Event()
 
-        # CR-4: per-instance flag (was module-level in sidecar_ws.py).
+        # per-instance flag (was module-level in sidecar_ws.py).
         # ``sidecar_ws._handle_connection`` reads/writes this attribute on the
         # ``IPCServer`` instance passed to ``sidecar_ws.run()`` so the ``ready``
         # event is emitted only on the first authenticated WS connection.
@@ -511,7 +512,7 @@ class IPCServer(
         # test-only helper that resets this between runs of the same server.
         self._ready_emitted: bool = False
 
-        # GT-30: declare the per-instance rate-limiter attribute on
+        # declare the per-instance rate-limiter attribute on
         # ``IPCServer`` itself (was dynamically injected by the
         # module-level ``_get_rate_limiter`` helper, with a
         # ``# type: ignore[attr-defined]`` silencing the missing-attribute
@@ -553,7 +554,7 @@ class IPCServer(
         # suppression kicks in for real.
         self._cached_shutting_down: bool = False
 
-        # GT-25: per-server dispatch lock serializing state-mutating
+        # per-server dispatch lock serializing state-mutating
         # handler invocations. Read-only handlers (see
         # ``_READONLY_COMMANDS``) bypass this lock. The lock is held ONLY
         # for the handler body — NOT for the dispatch I/O (read, parse,
@@ -565,9 +566,9 @@ class IPCServer(
         # event) does not self-deadlock.
         self._dispatch_lock = threading.RLock()
 
-        # UE-18 (Medium): per-instance shutdown re-entrancy gate.
+        #  (Medium): per-instance shutdown re-entrancy gate.
         # ``_handle_shutdown`` checks this event at the top and no-ops
-        # the second invocation. Pre-UE-18, a double-``shutdown`` (e.g.
+        # the second invocation. Pre-, a double-``shutdown`` (e.g.
         # the Tauri host's WS transport retrying after a slow ack) would
         # spawn a SECOND untracked ``ipc-shutdown-cleanup`` daemon thread
         # — both threads would race into ``service.quit()`` /
@@ -577,7 +578,7 @@ class IPCServer(
         # no-op is atomic with the first's thread-spawn decision.
         self._shutdown_started: threading.Event = threading.Event()
 
-        # DT-5: registry-typo validation at construction time. We resolve
+        # registry-typo validation at construction time. We resolve
         # every ``_COMMAND_REGISTRY`` method-name string to its attribute on
         # ``self`` via ``getattr`` and assert it's callable. A typo in the
         # class-level registry now surfaces at IPCServer construction (every
@@ -605,7 +606,7 @@ class IPCServer(
     def _reset_ready_emitted(self) -> None:
         """Test-only: reset the per-instance ``_ready_emitted`` flag.
 
-        CR-4: in production, ``_ready_emitted`` is set to ``True`` on the
+        in production, ``_ready_emitted`` is set to ``True`` on the
         first authenticated WS connection and never reset — this is the
         intended behavior so a transient WS reconnect after a drop does
         NOT re-emit the ``ready`` event. However, tests that construct a
@@ -646,15 +647,15 @@ class IPCServer(
         # the bullet-proof path: any code (waveform listeners, hot
         # paths, audio callback) can call ``event_bus.publish(msg)``
         # without holding a reference to the app or the server.
-        # NEW-IPC-013: _set_push_event now adds to a registry instead
+        # _set_push_event now adds to a registry instead
         # of stomping a single global.  We track our own push callable
         # so stop() can unregister just ours without affecting other
         # active servers.
-        # B-1: subscribe through the event_bus directly.
+        # Subscribe through the event_bus directly.
         self._push_fn = self.push
         event_bus.subscribe(self._push_fn)
         self._hook_tray_set_state()
-        # NEW-PRIV-0xx / d-review Finding 1: do NOT start the stdin
+        #  Do NOT start the stdin
         # listener in TCP/WS mode. A direct-terminal invocation
         # (``python -m voice_typer.server.ipc_server --port N``) would
         # otherwise accept unauthenticated JSON commands on stdin while
@@ -663,7 +664,7 @@ class IPCServer(
         # (``_tcp_mode`` is False). In TCP mode stdin is unused (inherited
         # from Electron, connected to /dev/null or NUL).
         #
-        # UE-13 (High): the unauthenticated stdin IPC path is gated
+        #  (High): the unauthenticated stdin IPC path is gated
         # behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``. When ``_tcp_mode`` is
         # False (the legacy stdin/stdout path) AND the env var is not
         # set, the stdin listener is REFUSED — a WARNING is logged and
@@ -684,7 +685,7 @@ class IPCServer(
                 )
                 self._stdin_thread.start()
             else:
-                # UE-13: refuse to start the unauthenticated stdin
+                # refuse to start the unauthenticated stdin
                 # listener. ``_tcp_mode`` is False (so the caller did
                 # NOT explicitly opt into TCP/WS mode) AND the env-var
                 # gate is unset — this is the "unprotected stdin IPC
@@ -703,7 +704,7 @@ class IPCServer(
                 self._stdin_thread = None
         else:
             self._stdin_thread = None
-        # RW-10: start the Electron-alive heartbeat watchdog.  Daemon
+        # start the Electron-alive heartbeat watchdog.  Daemon
         # thread so it doesn't block shutdown.  The thread refuses to
         # fire ``app.quit()`` until the first heartbeat lands, so a
         # slow Electron cold start (10+ seconds for torch import)
@@ -779,7 +780,7 @@ class IPCServer(
     def stop(self) -> None:
         """Signal the stdin loop and TCP accept loop to stop.
 
-        NEW-IPC-001: previously ``stop()`` only set ``_running = False``
+        previously ``stop()`` only set ``_running = False``
         and cleared the push hook, but the TCP accept loop checked
         ``getattr(self, '_stopped', False)`` — a flag that was never
         set anywhere — and the listening socket was a local variable
@@ -791,11 +792,11 @@ class IPCServer(
         here so ``accept()`` raises ``OSError`` and the loop exits
         cleanly.
 
-        NEW-IPC-013: stop() now unregisters OUR push callable from the
+        stop() now unregisters OUR push callable from the
         module-level registry instead of clearing the global outright.
         Other active servers in the same process keep working.
 
-        S-5: ``_stdin_thread`` is now joined with a short timeout so
+        The ``_stdin_thread`` is now joined with a short timeout so
         the thread is properly tracked and doesn't leak in test
         start/stop cycles. The stdin thread is a daemon that blocks
         on ``for line in iter(stdin)``, so a 0.5s timeout is
@@ -818,7 +819,7 @@ class IPCServer(
         self._cached_shutting_down = True
         # Unregister our push callable.  Other servers in the registry
         # are unaffected.
-        # B-1: unsubscribe through the event_bus directly.
+        # Unsubscribe through the event_bus directly.
         push_fn = getattr(self, "_push_fn", None)
         if push_fn is not None:
             event_bus.unsubscribe(push_fn)
@@ -855,7 +856,7 @@ class IPCServer(
             join_thread.join(timeout=5.0)
             if join_thread.is_alive():
                 log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
-        # RW-10: signal the heartbeat watchdog to exit.  The thread
+        # signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
         # setting the event wakes it immediately so it doesn't linger
         # past shutdown.  (It's a daemon thread, so even if it lingered
@@ -871,7 +872,7 @@ class IPCServer(
         if registry is not None:
             registry.unregister("heartbeat-watchdog")
             registry.unregister("ipc-server")
-        # S-5: join the stdin thread so it doesn't leak in test
+        # Join the stdin thread so it doesn't leak in test
         # start/stop cycles.  The thread is a daemon that blocks on
         # ``for line in iter(stdin)``, so a 0.5s timeout is sufficient
         # — the thread exits naturally on stdin EOF/OSError (set by
@@ -885,10 +886,10 @@ class IPCServer(
 
     # ── TCP listener ───────────────────────────────────────────────
 
-    # ── Heartbeat watchdog (RW-10) ───────────────────────────────────────
+    # ── Heartbeat watchdog () ───────────────────────────────────────
 
     def _heartbeat_loop(self) -> None:
-        """RW-10: daemon thread that watches for Electron heartbeat timeouts.
+        """daemon thread that watches for Electron heartbeat timeouts.
 
         Wakes every ``_HEARTBEAT_INTERVAL_SECONDS`` (5s) and calls
         :meth:`_check_heartbeat_timeout`.  When the timeout fires
@@ -896,7 +897,7 @@ class IPCServer(
         reduced from 120s/24 misses to align with the Rust-side
         ~30-45s supervisor respawn window), the loop returns —
         ``app.quit()`` has already been triggered, which runs the
-        shared ``_do_cleanup()`` path from RW-3 (restores volume,
+        shared ``_do_cleanup()`` path from  (restores volume,
         flushes recovery, releases the mutex, closes PortAudio) and
         breaks the pystray loop so the process exits.
 
@@ -911,7 +912,7 @@ class IPCServer(
     def _check_heartbeat_timeout(self) -> bool:
         """Return True and call ``app.quit()`` if the heartbeat is overdue.
 
-        RW-10: extracted as a separate method so tests can invoke it
+        extracted as a separate method so tests can invoke it
         directly without spinning up the daemon thread (and without
         waiting for the real-time 45s timeout to elapse).
 
@@ -926,7 +927,7 @@ class IPCServer(
           recent heartbeat is fresh enough; Electron is still alive.
 
         The ``True`` case calls ``self.app.quit()`` — which runs the
-        shared ``_do_cleanup()`` cleanup path (RW-3) so the mic
+        shared ``_do_cleanup()`` cleanup path () so the mic
         stream, hotkeys, volume duck, and single-instance mutex are
         properly released before the process exits.  ``app.quit()``
         also calls ``tray.stop()`` which breaks the pystray loop,
@@ -935,7 +936,7 @@ class IPCServer(
         a daemon thread it relies on tray.stop() to unwind the main
         loop).
 
-        CR-9: if ``tray.stop()`` hangs (observed on certain Linux
+        if ``tray.stop()`` hangs (observed on certain Linux
         backends + Windows Server), the daemon thread scheduled here
         force-exits the process via ``os._exit(1)`` after a 10-second
         grace period. See the inline comment in the ``True`` branch.
@@ -961,7 +962,7 @@ class IPCServer(
         except Exception:
             log.exception("[HEARTBEAT] app.quit() raised during heartbeat timeout")
 
-        # CR-9: force-exit fallback if ``tray.stop()`` hangs.
+        # force-exit fallback if ``tray.stop()`` hangs.
         #
         # ``app.quit()`` from a daemon thread relies on
         # ``tray.stop()`` breaking the pystray loop so ``app.start()``
@@ -1016,7 +1017,7 @@ class IPCServer(
         return True
 
     def _handle_heartbeat(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
-        """Handle the ``heartbeat`` IPC command (RW-10).
+        """Handle the ``heartbeat`` IPC command ().
 
         Electron's main process sends this every 5 seconds (see
         ``client/src/main/index.ts``) once the TCP connection is
@@ -1114,7 +1115,7 @@ class IPCServer(
     ) -> None:
         """Build + send an error envelope on the legacy stdin/stdout path.
 
-        ZR-76: consolidates the three inline error-envelope construction
+        consolidates the three inline error-envelope construction
         sites in :meth:`_run` (invalid payload / invalid JSON /
         internal_error) into a single helper so the envelope shape is
         defined in one place. The TCP / WS paths use
@@ -1124,7 +1125,7 @@ class IPCServer(
         uses ``_out=stdout`` (the TextIO variant of ``_send``).
 
         ``code`` is optional so the helper can express the bare
-        ``{"message": "invalid JSON"}`` envelope (IPC-5 backward-compat
+        ``{"message": "invalid JSON"}`` envelope ( backward-compat
         with ``tests/test_server.py``'s ``test_handles_invalid_json``,
         which asserts the no-``code`` shape). ``legacy_code`` carries
         the one-release alias for the invalid-payload site.
@@ -1165,7 +1166,7 @@ class IPCServer(
                     continue
                 try:
                     msg = json.loads(line)
-                    # CR-31: validate that the parsed JSON is a dict
+                    # validate that the parsed JSON is a dict
                     # before dispatch. ``_dispatch`` calls
                     # ``msg.get("type")`` which raises ``AttributeError``
                     # if ``msg`` is a list/int/str/None (all valid JSON).
@@ -1174,10 +1175,10 @@ class IPCServer(
                     # JSON line on stdin killed the IPC thread silently
                     # (keyboard ownership was not reset, app became
                     # unresponsive with no diagnostic). The TCP path was
-                    # hardened by ERR-018 but the stdin path was not
+                    # hardened by  but the stdin path was not
                     # updated in lockstep.
                     if not isinstance(msg, dict):
-                        # ZR-76: route through the shared
+                        # route through the shared
                         # ``_send_stdin_error_envelope`` helper so the
                         # envelope shape is defined in one place.
                         # Namespaced form (canonical) + legacy alias
@@ -1192,7 +1193,7 @@ class IPCServer(
                     result = self._dispatch(msg)
                     self._send(result, _out=stdout)
                 except json.JSONDecodeError:
-                    # IPC-5 note: the TCP path now emits
+                    #  note: the TCP path now emits
                     # ``{"code": "invalid_payload", "message": "invalid JSON"}``
                     # to match the WS path (see ``_handle_tcp_connection``).
                     # The stdin/stdout (legacy console) path is
@@ -1201,12 +1202,12 @@ class IPCServer(
                     # existing ``test_handles_invalid_json`` contract
                     # in ``tests/test_server.py`` (which asserts the
                     # bare ``{"message": "invalid JSON"}`` envelope).
-                    # The stdin path is not in the IPC-5 parity scope
+                    # The stdin path is not in the  parity scope
                     # (the directive only mentions TCP vs WS); a
                     # future task may align all three paths.
-                    # ZR-76: route through the shared helper. ``code``
+                    # route through the shared helper. ``code``
                     # is intentionally omitted to preserve the
-                    # IPC-5 backward-compat contract pinned by
+                    #  backward-compat contract pinned by
                     # ``tests/test_server.py::test_handles_invalid_json``
                     # (bare ``{"message": "invalid JSON"}`` envelope).
                     self._send_stdin_error_envelope(
@@ -1214,7 +1215,7 @@ class IPCServer(
                         _out=stdout,
                     )
                 except Exception as dispatch_exc:
-                    # CR-31: mirror the TCP path's ERR-018 hardening —
+                    # mirror the TCP path's  hardening —
                     # catch ANY exception from ``_dispatch`` so a
                     # handler bug doesn't silently kill the stdin
                     # thread. Log server-side with traceback; return a
@@ -1225,11 +1226,11 @@ class IPCServer(
                         dispatch_exc,
                         exc_info=True,
                     )
-                    # EC-FIX-2 / EC-10: align to the namespaced
+                    #  align to the namespaced
                     # ``server.internal_error`` form (same as the TCP
                     # dispatch-level error handler above) so the
                     # renderer can switch on a single canonical prefix.
-                    # ZR-76: route through the shared helper.
+                    # route through the shared helper.
                     self._send_stdin_error_envelope(
                         message="internal error",
                         code="server.internal_error",
@@ -1237,7 +1238,7 @@ class IPCServer(
                     )
         except OSError:
             pass  # stdin closed (e.g. during test teardown)
-        # TASK-0010: stdin EOF (or OSError on read) means the IPC
+        # stdin EOF (or OSError on read) means the IPC
         # client is gone. If we're still running, reset keyboard
         # ownership so a crashed CLI client doesn't leave the
         # backend stuck in ``"hotkey_capture"`` state. The helper
@@ -1263,14 +1264,14 @@ class IPCServer(
         The handler bodies are identical to the old elif blocks -- this
         is a mechanical refactor with zero behavior change.
 
-        GT-25 / GT-45: state-mutating handler invocations are serialized
+         state-mutating handler invocations are serialized
         on ``self._dispatch_lock`` with a TOCTOU-closing re-check of
         ``app._shutting_down`` inside the lock. Read-only handlers (see
         ``_READONLY_COMMANDS``) bypass the lock; their best-effort
         shutdown re-check is done unlocked (mirroring the original
-        PVT-G5-004 gate).
+         gate).
         """
-        # PVT-G5-004: cooperative shutdown gate. When the app is shutting
+        # cooperative shutdown gate. When the app is shutting
         # down (``app._shutting_down is True``), reject all NEW dispatch
         # requests with a structured ``shutting_down`` error so the client
         # can stop retrying and tear down cleanly. ``is True`` (rather than
@@ -1282,7 +1283,7 @@ class IPCServer(
         # ``is True`` — keep exercising the dispatch path instead of
         # short-circuiting here.
         #
-        # DJ-31/DJ-32: read the cached snapshot (refreshed in start()/stop())
+        # read the cached snapshot (refreshed in start()/stop())
         # via a defensive ``getattr(self, ...)`` so test fixtures that bypass
         # ``__init__`` (mirroring the sender.py:224 pattern) keep working
         # without explicitly setting the field. ``getattr`` traversal of
@@ -1296,7 +1297,7 @@ class IPCServer(
         data = msg.get("data")
         resp: ResponseEnvelope = {"id": msg.get("id")} if "id" in msg else {}
 
-        # RW-13: propagate the inbound request id as a correlation id for
+        # propagate the inbound request id as a correlation id for
         # the duration of this dispatch.  Every log emitted by a handler
         # (and any code it calls synchronously) now carries
         # correlation_id=<request id>, so a client's request and all the
@@ -1311,7 +1312,7 @@ class IPCServer(
         _req_id = msg.get("id") if isinstance(msg, dict) else None
         if _req_id is not None:
             _corr_token = set_correlation_id(str(_req_id))
-        # RW-6 (pyrefly): ``_COMMAND_REGISTRY`` is typed ``dict[str, str]``
+        #  (pyrefly): ``_COMMAND_REGISTRY`` is typed ``dict[str, str]``
         # and ``dict.get`` requires a ``str`` key. ``msg.get("type")``
         # returns ``Unknown | None`` because the inbound JSON dict has no
         # static value-type, so the lookup below would be flagged
@@ -1320,7 +1321,7 @@ class IPCServer(
         # receives the original value (including ``None``) for the error
         # message, preserving the previous wire behaviour.
         cmd_key = cmd if isinstance(cmd, str) else ""
-        # DT-5: resolve the handler via the class-level ``_COMMAND_REGISTRY``
+        # resolve the handler via the class-level ``_COMMAND_REGISTRY``
         # (the introspection source-of-truth) plus ``getattr`` so test-time
         # monkey-patches (``monkeypatch.setattr(server, '_handle_<cmd>', ...)``)
         # are observed at dispatch time. Registry-typo validation is
@@ -1335,7 +1336,7 @@ class IPCServer(
         if handler_name is not None:
             _resolved = getattr(self, handler_name, None)
             if callable(_resolved):
-                # YJ-27: ``getattr(self, name, None)`` returns ``Any``;
+                # ``getattr(self, name, None)`` returns ``Any``;
                 # ``callable()`` narrows that to a callable type whose
                 # return is inferred as ``object`` (pyrefly infers the
                 # narrowest callable supertype). Direct assignment to
@@ -1348,7 +1349,7 @@ class IPCServer(
                 # ``CommandHandler`` contract: every entry in
                 # ``_COMMAND_REGISTRY`` maps to a ``_handle_<cmd>``
                 # method on this class, and the ``__init__``
-                # registry-typo validation loop (DT-5) asserts each
+                # registry-typo validation loop () asserts each
                 # entry resolves to a callable attribute at construction
                 # time — so a non-CommandHandler resolution would have
                 # surfaced as an ``IPCServer.__init__`` test failure
@@ -1358,7 +1359,7 @@ class IPCServer(
                 # to flag genuine ``CommandHandler``-shape mismatches
                 # on the assignment LHS, (2) does not silently mask
                 # future type errors on this line, and (3) keeps the
-                # cast local — if YJ-1's full handler annotation
+                # cast local — if 's full handler annotation
                 # migration ever lands, the cast can be removed without
                 # touching anything else.
                 handler = typing.cast(CommandHandler, _resolved)
@@ -1366,18 +1367,18 @@ class IPCServer(
             if handler is None:
                 result = self._handle_unknown_command(cmd, data, resp)
             elif cmd_key in _READONLY_COMMANDS:
-                # GT-25: read-only handlers bypass the dispatch lock —
+                # read-only handlers bypass the dispatch lock —
                 # they don't mutate shared app/service state, so a
                 # long-running state-mutating handler on another thread
                 # can't block a quick status poll.
-                # GT-45: best-effort unlocked re-check (the initial
-                # PVT-G5-004 gate already covered the common case).
+                # best-effort unlocked re-check (the initial
+                #  gate already covered the common case).
                 if getattr(self, "_cached_shutting_down", False) is True:
                     result = self._shutting_down_error(msg)
                 else:
                     result = handler(data, resp)
             else:
-                # GT-25 + GT-45: state-mutating handlers serialize on the
+                #  + : state-mutating handlers serialize on the
                 # per-server dispatch lock; the shutdown re-check happens
                 # INSIDE the lock so the (locked) handler invocation is
                 # atomic with the (locked, on the ShutdownController side)
@@ -1390,7 +1391,7 @@ class IPCServer(
                     else:
                         result = handler(data, resp)
         except ConsentRequiredError as exc:
-            # DE-31: consent errors get a structured ``consent_required``
+            # consent errors get a structured ``consent_required``
             # envelope (NOT the generic ``server.internal_error`` toast)
             # so the renderer's consent-dialog logic can surface a
             # provider-specific dialog. This clause MUST come before any
@@ -1414,13 +1415,13 @@ class IPCServer(
             if _corr_token is not None:
                 reset_correlation_id(_corr_token)
 
-        # NEW-IPC-006: ensure every response has a `data` field so the
+        # ensure every response has a `data` field so the
         # client can always read `resp.data` without a defensive guard.
         # Commands that return None (restart_app/quit_app) send their
         # response internally and skip this.
         if result is not None:
             result.setdefault("data", {})
-            # S3-CR-27: stamp the inbound request id onto the response
+            # stamp the inbound request id onto the response
             # envelope so clients using id-based request/response
             # correlation (the standard JSON-RPC-like pattern in
             # ``usePython.ts``) can match the response back to the
@@ -1442,11 +1443,11 @@ class IPCServer(
     def _shutting_down_error(self, msg: dict) -> ResponseEnvelope:
         """Build a structured ``server.shutting_down`` error envelope.
 
-        EC-FIX-2 / EC-10: aligned to the namespaced ``server.*`` form so
+         aligned to the namespaced ``server.*`` form so
         the WS path (sidecar_ws.py) and the TCP / stdin path produce
-        identical envelopes — restoring the IPC-5 parity contract.
+        identical envelopes — restoring the  parity contract.
 
-        Factored out of ``_dispatch`` (GT-45) so the initial PVT-G5-004
+        Factored out of ``_dispatch`` () so the initial
         gate and the per-handler-call TOCTOU re-check share a single
         source of truth for the envelope shape.
 
@@ -1469,7 +1470,7 @@ class IPCServer(
             err["id"] = msg["id"]
         return err
 
-    # UE-32: the inline _COMMAND_REGISTRY dict literal previously lived
+    # the inline _COMMAND_REGISTRY dict literal previously lived
     # here (~180 lines, including the ~30 "REMOVED" historical comments).
     # It has been extracted to
     # :mod:`voice_typer.server.ipc.registry` as the canonical single
@@ -1493,7 +1494,7 @@ class IPCServer(
         distinct ``unknown_tray_item`` error (so the host can tell "malformed
         request" from "item not found").
 
-        CR-12: validation is delegated to the shared
+        validation is delegated to the shared
         ``_validate_dict_payload`` helper (the contract source of truth)
         rather than an inline ``isinstance`` check, so the error envelope
         (``invalid_payload`` / ``invalid_field`` / ``missing_field``)
@@ -1516,7 +1517,7 @@ class IPCServer(
 
         item_id = validated["id"]
         tray = getattr(self.app, "tray", None)
-        # EC-FIX-2 / EC-10: align to the namespaced
+        #  align to the namespaced
         # ``server.unknown_tray_item`` form so the renderer's
         # ``ErrorEvent.code`` narrowing switches on a single canonical
         # prefix (``server.*``) across all error emitters.
@@ -1541,18 +1542,18 @@ class IPCServer(
         """Handle the ``__unknown__`` IPC command."""
         # ErrorEnvelope contract — see validation.py
         resp["type"] = "error"
-        # ERR-009: include a structured `code` field so clients can
+        # include a structured `code` field so clients can
         # distinguish "unknown command" (caller bug / version skew)
         # from "command handler raised" (server-side fault). The
         # previous payload only had a free-text `message`, which
         # forced clients to substring-match the message to tell
         # the two cases apart.
-        # EC-FIX-2 / EC-10: align to the namespaced ``server.unknown_command``
+        #  align to the namespaced ``server.unknown_command``
         # form so the renderer's ``ErrorEvent.code`` narrowing can
         # switch on a single canonical prefix (``server.*``).
         resp["data"] = {
             "code": "server.unknown_command",
-            # PI-23: legacy_code preserves the bare form for back-compat
+            # legacy_code preserves the bare form for back-compat
             # with older Electron builds that substring-match the code
             # field instead of switching on the namespaced prefix.
             "legacy_code": "unknown_command",
@@ -1567,7 +1568,7 @@ class IPCServer(
         return resp
 
     def _handle_shutdown(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
-        """Handle the ``shutdown`` IPC command (EC-FIX-2 / EC-9).
+        """Handle the ``shutdown`` IPC command ( / ).
 
         ADR-0020 §10: cooperative shutdown. The Tauri host sends this
         to ask the backend to release the mic / volume / mutex and
@@ -1591,7 +1592,7 @@ class IPCServer(
         ``shutdown`` match arm (which awaits this exact envelope) keeps
         working unchanged.
 
-        GT-5: the ack is set on ``resp`` and returned BEFORE
+        the ack is set on ``resp`` and returned BEFORE
         ``self.service.quit()`` is invoked. ``service.quit()`` runs
         ``_do_cleanup()`` synchronously (30+ steps, ~95s worst case);
         the Tauri host's ``SHUTDOWN_ACK_TIMEOUT_MS=2000ms`` fires long
@@ -1601,16 +1602,16 @@ class IPCServer(
         receives the ack within milliseconds and proceeds to its
         graceful-wait while the sidecar's cleanup runs concurrently.
 
-        GT-C3-7: the background-thread cleanup catches ``BaseException``
+        the background-thread cleanup catches ``BaseException``
         (NOT just ``Exception``) so a ``SystemExit`` / ``KeyboardInterrupt``
         raised inside ``service.quit()`` is logged server-side rather
         than silently killing the cleanup thread. The ack is unaffected
         — it was already returned before the thread started.
         """
-        # UE-18 (Medium): per-instance shutdown re-entrancy gate. The
+        #  (Medium): per-instance shutdown re-entrancy gate. The
         # Tauri host's WS transport can legitimately send ``shutdown``
         # twice (e.g. a slow ack + a supervisor retry, or a WS-close
-        # race with the cooperative-shutdown frame). Pre-UE-18, the
+        # race with the cooperative-shutdown frame). Pre-, the
         # second invocation spawned a SECOND untracked
         # ``ipc-shutdown-cleanup`` daemon thread — both threads would
         # race into ``service.quit()`` / ``_do_cleanup()`` and
@@ -1631,14 +1632,14 @@ class IPCServer(
             return resp
         self._shutdown_started.set()
 
-        # GT-5: build the ack envelope FIRST and return it. The dispatch
+        # build the ack envelope FIRST and return it. The dispatch
         # loop flushes the wire frame before the background cleanup
         # thread can make progress (the daemon thread doesn't get
         # scheduled until the dispatch loop yields or blocks on I/O).
         resp["type"] = "result"
         resp["data"] = {"ack": True}
 
-        # GT-5 + GT-C3-7: run service.quit() on a background daemon
+        #  + : run service.quit() on a background daemon
         # thread so the synchronous ~95s _do_cleanup does NOT block the
         # dispatch pool thread that's about to flush the ack frame. The
         # host's 2s SHUTDOWN_ACK_TIMEOUT_MS fires long before cleanup
@@ -1647,13 +1648,13 @@ class IPCServer(
         # recorder.stop, hotkey unregisters, PID file clear, tray.stop,
         # Win32 mutex CloseHandle are all interrupted).
         def _bg_cleanup() -> None:
-            # EC-FIX-2: delegate to the service layer (NOT
+            # delegate to the service layer (NOT
             # self.app.quit()) so shutdown side-effects added to
             # VoiceTyperService.quit run identically across TCP / stdin
             # / WS transports.
             try:
                 self.service.quit()
-            except BaseException as e:  # noqa: BLE001 — GT-C3-7
+            except BaseException as e:  # noqa: BLE001 —
                 # The service-layer shutdown controller is best-effort;
                 # a failure here (e.g. the tray is mid-teardown, a
                 # KeyboardInterrupt during a sleep, or a SystemExit
@@ -1670,10 +1671,10 @@ class IPCServer(
                     exc_info=True,
                 )
 
-        # UE-18: register the cleanup thread on the central
+        # register the cleanup thread on the central
         # ``_thread_registry`` (if the app provides one) so
         # ``shutdown_all()`` can join it during ``VoiceTyperApp.quit()``
-        # — pre-UE-18 the thread was untracked, so a fast process exit
+        # — pre- the thread was untracked, so a fast process exit
         # could orphan it mid-cleanup and leave resources held.
         cleanup_thread = threading.Thread(
             target=_bg_cleanup,
@@ -1712,7 +1713,7 @@ def _set_process_metadata() -> None:
 
 
 def parse_ipc_args() -> tuple[int | None, bool]:
-    """Parse the IPC server CLI args (EC-8 extraction from ``main()``).
+    """Parse the IPC server CLI args ( extraction from ``main()``).
 
     Returns ``(port, ws_mode)`` where ``port`` is the ``--port N`` value
     (or ``None`` for stdin/stdout mode) and ``ws_mode`` is True when
@@ -1787,7 +1788,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
         action="store_true",
         default=False,
         help=(
-            "UE-13: explicitly enable the unauthenticated stdin/stdout "
+            "Explicitly enable the unauthenticated stdin/stdout "
             "IPC listener (sets VOICE_TYPER_ALLOW_STDIN_IPC=1). The "
             "stdin listener is gated off by default for security: "
             "stdin commands bypass the VOICE_TYPER_IPC_TOKEN handshake. "
@@ -1797,7 +1798,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
     args, _unknown = parser.parse_known_args(sys.argv[1:])
     if args.debug:
         os.environ["VOICE_TYPER_DEBUG"] = "1"
-    # UE-13: --allow-stdin sets the env var that ``IPCServer.start()``
+    # --allow-stdin sets the env var that ``IPCServer.start()``
     # checks before spawning the stdin listener. The env var (not the
     # CLI flag) is the canonical gate so direct-API users (tests,
     # ``IPCServer(app); server.start()``) can opt in without going
@@ -1845,7 +1846,7 @@ def main() -> None:
     during the heavy torch import.  Push events reach the frontend
     via TCP, and the terminal sees normal log output.
     """
-    # FR-26 (privacy): tighten the process umask to ``0o077`` (owner-only)
+    #  (privacy): tighten the process umask to ``0o077`` (owner-only)
     # at process startup so ALL files created by the sidecar — including
     # the history DB ``-wal`` / ``-shm`` sidecar files that SQLite creates
     # lazily on the first WAL-mode write — are owner-only by default.
@@ -1868,15 +1869,15 @@ def main() -> None:
     # init, so the OS sees the correct identity from the start.
     _set_process_metadata()
 
-    # NEW-CLI-003: import the standardized exit-code constant.
+    # import the standardized exit-code constant.
     # EXIT_BAD_ARGS is now used inside ``parse_ipc_args()`` (extracted
-    # EC-8); main() needs only EXIT_CRASH for the construction-failure
+    # ); main() needs only EXIT_CRASH for the construction-failure
     # and app.start()-failure paths. Previously EXIT_CRASH was imported
     # but unused and the crash path called sys.exit with a raw literal.
     from voice_typer.__main__ import EXIT_CRASH
-    # S1-CR-66: the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
+    # the ``sys.modules[_CANONICAL] = sys.modules["__main__"]``
     # registration hack that used to live at module level has been
-    # removed.  See the ARCH-REFAC-002 comment block above the mixin
+    # removed.  See the  comment block above the mixin
     # imports for the rationale.
 
     # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
@@ -1889,7 +1890,7 @@ def main() -> None:
         import signal
 
         if hasattr(signal, "SIGUSR1"):
-            # TASK-14: ``faulthandler.dump_traceback_later`` has the
+            # ``faulthandler.dump_traceback_later`` has the
             # signature ``(timeout: float, repeat: bool = False, ...)
             # -> None`` and does NOT match the ``signal.signal`` handler
             # protocol ``(signum: int, frame: FrameType | None) -> Any``.
@@ -1905,10 +1906,10 @@ def main() -> None:
     except Exception:
         pass  # Not available on all platforms
 
-    # NEW-DOC-006: parse arguments BEFORE acquiring the single-instance
+    # parse arguments BEFORE acquiring the single-instance
     # lock, so ``--version`` works even when another instance is running
     # (mirrors voice_typer.__main__, which parses args before app.main()).
-    # EC-8: the argparse setup + validation + env-var side effects are
+    # the argparse setup + validation + env-var side effects are
     # extracted to ``parse_ipc_args()`` above so ``main()`` no longer
     # mixes CLI parsing with app construction / transport dispatch.
 
@@ -1918,7 +1919,7 @@ def main() -> None:
 
     _setup_logging()
 
-    # NEW-DOC-006: single-instance lock is acquired AFTER args are parsed
+    # single-instance lock is acquired AFTER args are parsed
     # but BEFORE app construction (which stores the mutex handle).  The
     # lock is still taken for real launches (both standalone and --port IPC).
     #
@@ -1936,7 +1937,7 @@ def main() -> None:
     else:
         _single_instance_mutex = _ensure_single_instance(silent=True)
 
-    # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
+    # the os._exit monkey-patch that printed a stack trace
     # on every shutdown has been removed.
 
     try:
@@ -1949,12 +1950,12 @@ def main() -> None:
         # the app's log file and a dedicated diagnostic file so debugging
         # is possible.
         log.exception("[FATAL] VoiceTyperApp() construction failed")
-        # EC-FIX-2 / EC-8: the io.StringIO → traceback → _redact_text →
+        #  the io.StringIO → traceback → _redact_text →
         # _secure_atomic_write → /tmp-fallback pattern is encapsulated
         # in ``ipc_diagnostics.write_startup_diagnostic`` so the
         # construction-failure and app.start()-failure paths share a
         # single source of truth (the two inline blocks had already
-        # drifted once — CR-10's overwrite-vs-append fix was applied to
+        # drifted once — 's overwrite-vs-append fix was applied to
         # only one). The helper preserves the historical
         # "Voice Typer startup failed at <time>" header so
         # ``tests/test_ipc_server_main_diagnostics.py``'s substring
@@ -1962,14 +1963,14 @@ def main() -> None:
         from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
         write_startup_diagnostic("construction")
-        # NEW-CLI-003: use the standardized exit code instead of raw 1.
+        # use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
 
     # PLAT-HLEAK: store the mutex handle on the app instance so
     # quit() can CloseHandle it on shutdown
     app._mutex_handle = _single_instance_mutex
 
-    # ARCH-REFAC-004: use the providers.build_ipc_server composition
+    # use the providers.build_ipc_server composition
     # root instead of constructing IPCServer directly.  Behavior is
     # identical today (build_ipc_server just calls IPCServer(app));
     # the factory exists so future wiring (logging, metrics, feature
@@ -1978,7 +1979,7 @@ def main() -> None:
     from voice_typer.server.providers import build_ipc_server
 
     server = build_ipc_server(app)
-    # XZ-IPC-001 / d-review Finding 1: ``main()`` NEVER uses the
+    #  ``main()`` NEVER uses the
     # unauthenticated stdin/stdout IPC path. The three launch modes are:
     #   1. ``--port N``        — explicit TCP, Electron connects over the
     #                            network with a session token.
@@ -2044,7 +2045,7 @@ def main() -> None:
         ipc_token = electron_launcher.generate_session_token()
         os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
 
-        # CR-7: pass the BOUND socket through to start_tcp so there's
+        # pass the BOUND socket through to start_tcp so there's
         # no race window between _pick_available_port's probe and the
         # real bind() in _accept_tcp.  The kernel guarantees no other
         # local process can claim the port between probe and listen.
@@ -2101,20 +2102,20 @@ def main() -> None:
         log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
         raise
     except Exception:
-        # ERR-ERR-002 (fix): was `except BaseException` which also caught
+        #  (fix): was `except BaseException` which also caught
         # KeyboardInterrupt and GeneratorExit. Now catches only Exception
         # so Ctrl+C and SystemExit propagate normally to the finally block.
         log.exception("[FATAL] app.start() raised — shutting down")
-        # EC-FIX-2 / EC-8: route through the shared diagnostic helper
+        #  route through the shared diagnostic helper
         # (same as the construction-failure path above). The helper
         # preserves the historical
         # "\n--- app.start() failed at <time> ---\n" header and the
-        # CR-10 overwrite-vs-append semantics so repeated relaunch
+        #  overwrite-vs-append semantics so repeated relaunch
         # crashes don't grow ``startup-error.log`` without bound.
         from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
         write_startup_diagnostic("app.start()")
-        # NEW-CLI-003: use the standardized exit code instead of raw 1.
+        # use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:
         pass

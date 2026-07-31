@@ -1,6 +1,6 @@
 """Encrypted credential store for API keys via the OS keychain.
 
-RW-01: API keys for cloud providers (OpenAI / Groq / Deepgram) and the
+API keys for cloud providers (OpenAI / Groq / Deepgram) and the
 LLM polishing service are stored via the ``keyring`` library, which
 auto-selects the appropriate OS-native backend at runtime:
 
@@ -60,7 +60,7 @@ Design notes
   stores it as a ``str`` attribute anyway). This is the standard
   Python limitation — full secret-memory hygiene requires a C extension.
 
-- **Two-instance migration race (closed — RACE-001 / HIGH-13)**: the
+- **Two-instance migration race (closed — RACE-001 / )**: the
   ``secrets_migrated`` flag in ``config.json`` is guarded by an
   exclusive cross-process lock (``fcntl.flock`` on POSIX,
   ``msvcrt.locking`` on Windows) acquired on ``config.json.lock``.
@@ -95,7 +95,7 @@ log = logging.getLogger("voice_typer.server.credential_store")
 
 # ── Keyring I/O timeout isolation ────────────────────────────────────────
 #
-# PVT-039: keyring backends call into platform IPC (D-Bus on Linux,
+# keyring backends call into platform IPC (D-Bus on Linux,
 # Keychain daemon on macOS, Credential Manager service on Windows).
 # Any of these can block for up to ~30s (D-Bus default timeout) or
 # indefinitely (Keychain waiting for an unlock prompt). When called
@@ -128,7 +128,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
 
     Spawns a daemon worker thread for the call (a pooled executor's
     single worker would queue subsequent calls behind a hung one,
-    defeating the timeout — see PVT-39 above). Raises ``TimeoutError``
+    defeating the timeout — see  above). Raises ``TimeoutError``
     if the call doesn't complete within :data:`_KEYRING_TIMEOUT_SECONDS`.
     The caller is expected to handle both ``TimeoutError`` and the
     backend's own exceptions by falling through to the plaintext / skip
@@ -170,7 +170,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
 #: matches the convention recommended by the keyring docs (one service
 #: per application, multiple usernames).
 #:
-#: XZ-SEC-08: changed from the bare ``"voice-typer"`` to the reverse-DNS
+# changed from the bare ``"voice-typer"`` to the reverse-DNS
 #: form ``"app.voicetyper"`` so another app registering the same bare
 #: service name cannot read Voice Typer secrets (or pollute our
 #: namespace). :func:`migrate_secrets_to_keyring` performs a one-time
@@ -213,7 +213,7 @@ CONFIG_FIELD_TO_PROVIDER: dict[str, str] = {v: k for k, v in PROVIDER_TO_CONFIG_
 #: error text we surface over IPC or write to logs.
 _REASON_MAX_LEN = 200
 
-# CR-94: thread-local record of the most recent ``store_secret`` outcome.
+# thread-local record of the most recent ``store_secret`` outcome.
 # Used by :func:`last_store_outcome` so the IPC handler (Fix-G) can
 # surface ``{"stored_in": "keyring"|"plaintext", "provider": "...",
 # "reason": "..."}`` in the ``set_config`` ack payload WITHOUT changing
@@ -273,7 +273,7 @@ def _set_last_store_outcome(
 def last_store_outcome() -> dict[str, Any]:
     """Return the outcome of the most recent ``store_secret`` call.
 
-    CR-94: ``store_secret`` returns a plain ``bool`` and silently
+    ``store_secret`` returns a plain ``bool`` and silently
     falls back to plaintext on keyring failure. The IPC handler
     (``set_config`` — Fix-G's territory) needs to surface *why* the
     store fell back so the renderer can show a "your API key was
@@ -338,7 +338,7 @@ def last_store_outcome() -> dict[str, Any]:
 #   referencing the keychain file). The user's home directory is
 #   private metadata — redact it before exposing via IPC.
 #
-# XV-121 (DRY consolidation): the API-key redaction pattern previously
+#  (DRY consolidation): the API-key redaction pattern previously
 #   lived here as ``_API_KEY_RE`` (a separate single-regex with sk-12+,
 #   gsk_12+, 32+ char alphanum). It duplicated
 #   ``_secrets._KEY_PATTERNS`` (Bearer / Token / sk-any / 20+ char
@@ -365,7 +365,7 @@ def _redact_sensitive(text: str | None) -> str | None:
     Returns ``None`` unchanged (so callers can pass through optional
     values without a separate None check).
 
-    XV-121: API-key redaction delegates to
+    API-key redaction delegates to
     :func:`voice_typer.server._secrets.redact_api_keys` (the canonical
     helper) with ``replacement="[redacted]"``. The shared
     ``_KEY_PATTERNS`` list in ``_secrets`` is the single source of
@@ -391,7 +391,7 @@ _keyring_available_cache: bool | None = None
 # or the broken backend's class name) for diagnostics.
 _keyring_backend_name_cache: str | None = None
 
-# ER-79: cache for parsed config.json in _read_plaintext_fallback. Keyed by
+# cache for parsed config.json in _read_plaintext_fallback. Keyed by
 # config_file path, value is (mtime_ns, parsed_dict). Config.load() resolves
 # `keyring://<provider>` references by calling load_secret() for each of the
 # 5 providers — without this cache, each call re-opens and re-parses the same
@@ -488,7 +488,7 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
         # We use a sentinel username that we never store under to avoid
         # accidentally returning a real secret.
         #
-        # PVT-039: run the probe under a finite timeout so a hung
+        # run the probe under a finite timeout so a hung
         # D-Bus / Keychain doesn't stall is_keyring_available() (which
         # runs once at startup and would otherwise block for ~30s).
         _run_keyring_call(backend.get_password, KEYRING_SERVICE_NAME, "__keyring_probe__")
@@ -582,7 +582,7 @@ def _reset_keyring_cache() -> None:
 def _clear_plaintext_config_cache() -> None:
     """Drop the cached parsed ``config.json`` dict.
 
-    DJ-24 (G4-CR-05): the module-level :data:`_plaintext_config_cache`
+     (): the module-level :data:`_plaintext_config_cache`
     holds the parsed config dict (which may contain plaintext API keys
     when keyring is unavailable). GDPR Art. 17 ``delete_all_personal_data``
     zeroes the on-disk + in-memory Config attributes via
@@ -653,7 +653,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         delete request — the secret is removed from both keyring and
         the plaintext fallback.
     _caller_holds_config_lock : bool
-        XE-3-1 (Critical): when ``True``, indicates the caller (e.g.
+         (Critical): when ``True``, indicates the caller (e.g.
         ``Config._save_unlocked``) already holds the cross-process
         ``config.json.lock``. The plaintext-fallback write then SKIPS
         re-acquiring the lock (which would deadlock — fcntl.flock is
@@ -669,7 +669,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         and the secret was written to config.json as a plaintext
         fallback (with ``0o600`` perms on POSIX).
 
-        CR-94: to surface *why* the store fell back to plaintext to
+        to surface *why* the store fell back to plaintext to
         the IPC caller (Fix-G), call :func:`last_store_outcome`
         immediately after this function returns on the same thread.
         It returns a dict ``{"stored_in": "keyring"|"plaintext"|
@@ -698,14 +698,14 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         # in sync (the keyring might have a stale entry from a prior
         # successful store that we now want to clear).
         delete_secret(provider)
-        # CR-94: record the delete outcome so the IPC ack can
+        # record the delete outcome so the IPC ack can
         # distinguish "stored in keyring" from "deleted" without
         # inspecting the value the caller passed (which we no longer
         # have by the time the ack is built).
         _set_last_store_outcome("deleted", None, provider=provider)
         return True
 
-    # DE-23: defensive type guard for truthy non-string values. The
+    # defensive type guard for truthy non-string values. The
     # IPC layer validates ``value`` is a string before calling here,
     # but a buggy caller or a hand-edited config can leak a non-string
     # truthy value (e.g. int ``12345`` from an old config that stored
@@ -748,7 +748,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
             raise RuntimeError("keyring backend not available")
         import keyring  # type: ignore[import-not-found]
 
-        # PVT-039: wrap set_password in a finite timeout so a hung
+        # wrap set_password in a finite timeout so a hung
         # D-Bus / Keychain on the IPC set_config thread doesn't stall
         # the server. On timeout we fall through to the plaintext
         # fallback (the except branch below).
@@ -759,7 +759,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
             len(value),
             _keyring_backend_name_cache,
         )
-        # CR-94: record the success outcome.
+        # record the success outcome.
         _set_last_store_outcome("keyring", None, provider=provider)
         return True
     except Exception as e:
@@ -778,7 +778,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
             redacted_reason,
         )
         _write_plaintext_fallback(provider, value, caller_holds_config_lock=_caller_holds_config_lock)
-        # CR-94: record the fallback outcome (with the redacted reason)
+        # record the fallback outcome (with the redacted reason)
         # so the IPC handler can include the reason in the ack payload
         # the renderer shows to the user.
         _set_last_store_outcome("plaintext", redacted_reason, provider=provider)
@@ -808,14 +808,14 @@ def load_secret(provider: str) -> str | None:
         if is_keyring_available():
             import keyring  # type: ignore[import-not-found]
 
-            # PVT-039: wrap get_password in a finite timeout so a hung
+            # wrap get_password in a finite timeout so a hung
             # D-Bus / Keychain on the Config.load() path doesn't stall
             # startup (load_secret runs once per provider × 5
             # providers). On timeout we fall through to the plaintext
             # fallback below.
             value = _run_keyring_call(keyring.get_password, KEYRING_SERVICE_NAME, provider)
             if value:
-                # DE-XZ-05: emit an INFO audit log so operators can
+                # emit an INFO audit log so operators can
                 # confirm secrets are being loaded from keyring (not
                 # the plaintext fallback) at startup.
                 log.info(
@@ -848,7 +848,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
     cleanup — a failure to delete from a broken keyring is not fatal,
     since the keyring is presumably already inaccessible).
 
-    G4-L-08: ``config`` is an optional in-memory :class:`Config`
+    ``config`` is an optional in-memory :class:`Config`
     dataclass instance. When provided, the corresponding
     ``<provider>_api_key`` attribute (see
     :data:`PROVIDER_TO_CONFIG_FIELD`) is reset to ``""`` so the running
@@ -866,7 +866,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
             import keyring  # type: ignore[import-not-found]
 
             try:
-                # PVT-039: wrap delete_password in a finite timeout.
+                # wrap delete_password in a finite timeout.
                 # delete_secret is best-effort cleanup (failure here is
                 # non-fatal — the keyring is presumably already
                 # inaccessible), so a timeout just logs at debug and
@@ -894,12 +894,12 @@ def delete_secret(provider: str, config: Any = None) -> None:
     # Also clear from config.json (plaintext fallback or stale reference)
     try:
         _write_plaintext_fallback(provider, "")
-        # DJ-24 (G4-CR-05): invalidate the parsed-config cache so the
+        #  (): invalidate the parsed-config cache so the
         # stale dict (which may still contain the plaintext key) is not
         # retained in process memory after the GDPR delete.
         _clear_plaintext_config_cache()
     except Exception as e:
-        # PVT-G5-046 (session-5): a failure here means the plaintext
+        #  (session-5): a failure here means the plaintext
         # credential is STILL on disk — the opposite of what the user
         # requested. This MUST be visible at default log levels (not
         # debug) so the user knows to manually clean up config.json.
@@ -911,7 +911,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
             _redact_sensitive(str(e)),
         )
 
-    # G4-L-08: also clear the in-memory Config attribute (when provided)
+    # also clear the in-memory Config attribute (when provided)
     # so the running process stops seeing the old value. ``setattr`` on
     # a dataclass field is safe — the field is a plain ``str``. We wrap
     # it in try/except because ``config`` may be a ``MagicMock`` in
@@ -935,7 +935,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
 def clear_in_memory_secrets(config: Any) -> int:
     """Zero every API-key attribute on the in-memory :class:`Config`.
 
-    G4-CR-05: GDPR Art. 17 ``delete_all_personal_data`` calls this
+    GDPR Art. 17 ``delete_all_personal_data`` calls this
     after iterating :func:`delete_secret` over every provider so the
     running Python process stops holding the plaintext API keys in
     memory. Without this, the keys survive the GDPR delete in the
@@ -967,11 +967,11 @@ def clear_in_memory_secrets(config: Any) -> int:
                 provider,
                 _redact_sensitive(str(e)),
             )
-    # DJ-24 (G4-CR-05): invalidate the parsed-config cache so the
+    #  (): invalidate the parsed-config cache so the
     # stale dict (which may still contain plaintext API keys) is not
     # retained in process memory after the GDPR delete.
     _clear_plaintext_config_cache()
-    # DJ-25 (G4-CR-05): ``Config._last_saved_bytes`` is the serialized
+    #  (): ``Config._last_saved_bytes`` is the serialized
     # JSON byte cache populated by ``Config.save()``. It includes the
     # plaintext API key fields whenever keyring is unavailable (the
     # keyring replacement of value -> 'keyring://<provider>' only
@@ -1010,7 +1010,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
         if not config_file.exists():
             return None
         config_file_str = str(config_file)
-        # ER-79: check mtime cache before re-reading + re-parsing config.json.
+        # check mtime cache before re-reading + re-parsing config.json.
         # Config.load() calls load_secret() for each of the 5 providers; without
         # this cache, each call re-opens and re-parses the same file.
         try:
@@ -1054,11 +1054,11 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
 
     On any I/O error, logs and returns — never raises.
 
-    XZ-SEC-02: the read-modify-write is wrapped in
+    the read-modify-write is wrapped in
     ``_acquire_config_lock()`` (the same cross-process lock used by
     ``Config.save()`` and ``migrate_secrets_to_keyring``).
 
-    XE-3-1 (Critical): the OLD docstring claimed flock was "per-fd"
+     (Critical): the OLD docstring claimed flock was "per-fd"
     and therefore safe to nest. This is FALSE — fcntl.flock is
     per-open-file-description, so a second LOCK_EX on a fresh fd in
     the same process DEADLOCKS. When ``caller_holds_config_lock`` is
@@ -1099,12 +1099,12 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
             _secure_atomic_write(config_file, json.dumps(data, indent=2))
 
         if caller_holds_config_lock:
-            # XE-3-1: caller (Config._save_unlocked) already holds the
+            # caller (Config._save_unlocked) already holds the
             # cross-process lock — re-acquiring would deadlock because
             # fcntl.flock is per-open-file-description, not per-fd.
             _do_read_modify_write()
         else:
-            # XZ-SEC-02: hold the cross-process lock for the full
+            # hold the cross-process lock for the full
             # read-modify-write so concurrent Config.save() / migration
             # can't clobber our change (or vice versa).
             with _acquire_config_lock():
@@ -1137,8 +1137,33 @@ def _is_windows() -> bool:
     return sys.platform == "win32"
 
 
+# Deadline for the migration cross-process lock.  Mirrors
+# ``_CONFIG_LOCK_TIMEOUT_SECONDS`` in ``config_internals/paths.py`` so
+# the two locks (held on the same ``config.json.lock`` file) enforce a
+# consistent deadline.  The previous implementation called
+# ``fcntl.flock(LOCK_EX)`` (blocking, no timeout) on POSIX and
+# ``msvcrt.locking(LK_LOCK)`` (blocks ~1s internally, then busy-waited
+# via ``contextlib.suppress``) on Windows — both would hang the startup
+# migration indefinitely if another process held the lock.  The polled
+# ``LOCK_EX | LOCK_NB`` / ``LK_NBLCK`` retry loop in
+# :func:`_acquire_migration_lock` below bounds the wait at this value
+# and raises ``TimeoutError`` on expiry.  Tests monkeypatch this
+# attribute (e.g. to 0.5s) to keep the regression suite fast — the
+# function reads it as a module global on each call so the patch takes
+# effect (same pattern as ``_CONFIG_LOCK_TIMEOUT_SECONDS``).
+_MIGRATION_LOCK_TIMEOUT_SECONDS = 5.0
+
+# Once the migration lock wait passes this threshold, emit a
+# single ``log.warning`` so operators can diagnose a wedged holder
+# (e.g. a stuck ``Config.save()`` or a crashed process that never
+# released the flock).  Kept well under
+# ``_MIGRATION_LOCK_TIMEOUT_SECONDS`` so the warning fires before the
+# ``TimeoutError`` aborts the migration.
+_MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS = 2.0
+
+
 def _acquire_migration_lock(lock_file):
-    """RACE-001 (HIGH-13): acquire an exclusive cross-process lock.
+    """RACE-001 (): acquire an exclusive cross-process lock.
 
     Opens ``lock_file`` (creating it if needed) and acquires an
     exclusive lock on it.  Returns the open file object (which the
@@ -1150,6 +1175,21 @@ def _acquire_migration_lock(lock_file):
     :func:`migrate_secrets_to_keyring` and clobbering each other's
     writes — a real secret could otherwise be lost from disk when the
     second writer's ``_secure_atomic_write`` overwrites the first's.
+
+    The lock is acquired with a polled non-blocking retry loop
+    (``LOCK_EX | LOCK_NB`` on POSIX, ``LK_NBLCK`` on Windows) bounded
+    by :data:`_MIGRATION_LOCK_TIMEOUT_SECONDS`.  The previous blocking
+    ``fcntl.flock(LOCK_EX)`` / ``msvcrt.locking(LK_LOCK)`` calls would
+    hang the startup migration indefinitely if another process held
+    ``config.json.lock`` (e.g. a wedged ``Config.save()``).  On
+    timeout, ``TimeoutError`` is raised; the caller
+    (:func:`migrate_secrets_to_keyring`) catches it and proceeds
+    without the lock (fail-open), preserving the prior single-process
+    behavior.  This mirrors the sibling ``_acquire_config_lock`` in
+    ``config_internals/paths.py``.  A single ``log.warning`` is emitted
+    if the wait exceeds
+    :data:`_MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS` so operators can
+    diagnose a wedged holder before the timeout fires.
 
     On platforms where neither ``fcntl`` nor ``msvcrt`` is available
     (e.g. some niche embeddable Python builds), the lock is silently
@@ -1176,17 +1216,78 @@ def _acquire_migration_lock(lock_file):
     lock_fd = os.fdopen(fd, "r+b")
     try:
         if not _is_windows():
+            import errno
             import fcntl
 
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            deadline = time.monotonic() + _MIGRATION_LOCK_TIMEOUT_SECONDS
+            wait_start = time.monotonic()
+            warned_slow = False
+            while True:
+                try:
+                    # LOCK_NB makes the call non-blocking so we
+                    # can enforce our own deadline via polled retry
+                    # (matches _acquire_config_lock in paths.py).  The
+                    # previous blocking LOCK_EX call would hang the
+                    # startup migration indefinitely if another process
+                    # held config.json.lock.
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as e:
+                    if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        # Any other flock failure (e.g. EBADF): re-raise
+                        # so the caller's fail-open path handles it.
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"migration lock not acquired within "
+                            f"{_MIGRATION_LOCK_TIMEOUT_SECONDS}s — another "
+                            f"process is holding {lock_file}"
+                        ) from e
+                    if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
+                        log.warning(
+                            "[CREDENTIAL_STORE] migration lock wait on %s "
+                            "exceeds %.1fs — another process may be wedging "
+                            "config.json.lock (will time out in %.1fs)",
+                            lock_file,
+                            _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS,
+                            max(0.0, deadline - time.monotonic()),
+                        )
+                        warned_slow = True
+                    time.sleep(0.05)
         else:
-            # msvcrt.locking with LK_LOCK blocks until the lock is held
-            # (or raises OSError after ~1s on some Windows builds —
-            # fall back to a busy-wait by retrying on OSError).
             import msvcrt
 
-            with contextlib.suppress(OSError):
-                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
+            deadline = time.monotonic() + _MIGRATION_LOCK_TIMEOUT_SECONDS
+            wait_start = time.monotonic()
+            warned_slow = False
+            while True:
+                try:
+                    # LK_NBLCK (non-blocking) + self-paced retry
+                    # mirrors the POSIX branch and the sibling
+                    # _acquire_config_lock.  The previous LK_LOCK call
+                    # blocked for ~1s internally (ignoring our deadline)
+                    # and then busy-waited on OSError via
+                    # contextlib.suppress.
+                    msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as e:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"migration lock not acquired within "
+                            f"{_MIGRATION_LOCK_TIMEOUT_SECONDS}s — another "
+                            f"process is holding {lock_file}"
+                        ) from e
+                    if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
+                        log.warning(
+                            "[CREDENTIAL_STORE] migration lock wait on %s "
+                            "exceeds %.1fs — another process may be wedging "
+                            "config.json.lock (will time out in %.1fs)",
+                            lock_file,
+                            _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS,
+                            max(0.0, deadline - time.monotonic()),
+                        )
+                        warned_slow = True
+                    time.sleep(0.05)
     except Exception:
         # Any failure acquiring the lock: close the fd and re-raise so
         # the caller knows the lock is NOT held (callers catch this and
@@ -1216,7 +1317,7 @@ def migrate_secrets_to_keyring() -> int:
     in config.json so the migration doesn't run again on every launch
     (idempotent).
 
-    RACE-001 (HIGH-13): the entire read-migrate-write sequence is
+    RACE-001 (): the entire read-migrate-write sequence is
     guarded by an exclusive lock on ``config.json.lock`` (alongside
     ``config.json``).  POSIX uses ``fcntl.flock(LOCK_EX)``; Windows
     uses ``msvcrt.locking(LK_LOCK)``.  After acquiring the lock, the
@@ -1249,7 +1350,7 @@ def migrate_secrets_to_keyring() -> int:
     config_file = _config_dir() / "config.json"
     lock_file = _config_dir() / "config.json.lock"
 
-    # RACE-001 (HIGH-13): acquire the cross-process lock BEFORE we
+    # RACE-001 (): acquire the cross-process lock BEFORE we
     # inspect config.json.  The lock is held for the entire
     # read-migrate-write sequence so a concurrent process cannot
     # interleave its own migration with ours.
@@ -1294,7 +1395,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         _secure_read_text,
     )
 
-    # RACE-001 (HIGH-13): re-check whether config.json exists NOW that
+    # RACE-001 (): re-check whether config.json exists NOW that
     # we hold the lock.  A concurrent process may have just created it
     # (with secrets_migrated=True) while we were waiting for the lock.
     if not config_file.exists():
@@ -1325,7 +1426,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         )
         return 0
 
-    # XZ-SEC-08: one-time legacy keyring service-name cutover. Runs
+    # one-time legacy keyring service-name cutover. Runs
     # BEFORE the ``secrets_migrated`` early-return so it's not blocked
     # by a prior successful migration. Gated on the independent
     # ``service_name_migrated`` config flag. If keyring is unavailable,
@@ -1339,7 +1440,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         else:
             log.info("[CREDENTIAL_STORE] migration: deferring legacy service-name cutover — keyring unavailable")
 
-    # RACE-001 (HIGH-13): re-check the secrets_migrated flag NOW that
+    # RACE-001 (): re-check the secrets_migrated flag NOW that
     # we hold the lock.  A concurrent process may have completed the
     # migration while we were waiting — if so, skip our own migration
     # entirely (idempotent).
@@ -1359,7 +1460,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     migrated = 0
     keyring_ok = is_keyring_available()
-    # XZ-SEC-04: track whether we skipped any REAL plaintext secret
+    # track whether we skipped any REAL plaintext secret
     # because keyring was unavailable. If so, do NOT set the
     # ``secrets_migrated`` gate — otherwise the next launch (when
     # keyring may be available) would skip migration and the plaintext
@@ -1370,7 +1471,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     for provider, field_name in PROVIDER_TO_CONFIG_FIELD.items():
         value = data.get(field_name, "")
-        # DE-23: guard against non-string ``api_key`` values that may
+        # guard against non-string ``api_key`` values that may
         # appear in a hand-edited or corrupted config.json. Pre-fix, a
         # dict / list / int value would crash the entire migration loop
         # with ``AttributeError`` at ``value.startswith(...)`` below —
@@ -1412,7 +1513,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         try:
             import keyring  # type: ignore[import-not-found]
 
-            # PVT-039: wrap set_password in a finite timeout. Migration
+            # wrap set_password in a finite timeout. Migration
             # runs once per provider (× 5) at startup; without the
             # timeout, a single hung backend would stall startup for up
             # to 5 × 30s = 150s. On timeout we keep the plaintext value
@@ -1435,12 +1536,12 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             # _secure_atomic_write preserves it. The user's secret is
             # never lost — it's either in keyring OR in config.json.
             #
-            # XE-3-2 (High): we MUST set ``skipped_plaintext = True``
-            # here so the XZ-SEC-04 gating below does NOT set
+            #  (High): we MUST set ``skipped_plaintext = True``
+            # here so the  gating below does NOT set
             # ``secrets_migrated``. Pre-fix, when ``set_password``
             # raised mid-migration, this branch only logged a warning
             # and fell through to ``continue`` without setting
-            # ``skipped_plaintext``. The XZ-SEC-04 gate then saw
+            # ``skipped_plaintext``. The  gate then saw
             # ``skipped_plaintext == False`` and set
             # ``secrets_migrated = True`` — meaning the NEXT launch
             # would skip migration entirely and the plaintext would
@@ -1454,7 +1555,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             skipped_plaintext = True
             continue
 
-    # XZ-SEC-04: gate ``secrets_migrated`` on whether we actually had
+    # gate ``secrets_migrated`` on whether we actually had
     # to skip any real plaintext. If keyring was unavailable AND there
     # was real plaintext to skip, do NOT set the gate — the next launch
     # must re-attempt migration. If keyring was unavailable but there
@@ -1490,12 +1591,12 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
 
 def _migrate_legacy_service_names_locked() -> int:
-    """XZ-SEC-08 / XE-3-3: copy keyring entries from legacy service names
+    """copy keyring entries from legacy service names
     to the current :data:`KEYRING_SERVICE_NAME`, then delete the legacy
     entries.
 
-    Pre-XZ-SEC-08, Voice Typer stored secrets under the bare service
-    name ``"voice-typer"``. XZ-SEC-08 changed the service name to the
+    Pre-, Voice Typer stored secrets under the bare service
+    name ``"voice-typer"``.  changed the service name to the
     reverse-DNS form ``"app.voicetyper"``. This function performs the
     one-time cutover: for each legacy service name in
     :data:`_LEGACY_KEYRING_SERVICE_NAMES` and each provider in

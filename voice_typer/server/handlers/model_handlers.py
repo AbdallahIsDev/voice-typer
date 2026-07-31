@@ -1,21 +1,21 @@
 """Model IPC handler mixin: download_model, cancel_model_download,
 delete_model, import_model.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-UE-15 (2026-07-30): ``_handle_test_llm_connection`` was REMOVED — the
+(2026-07-30): ``_handle_test_llm_connection`` was REMOVED — the
 renderer's Settings page now uses ``service.test_llm_connection``
 directly (not over IPC). The TS allowlist also dropped the entry.
 The service-layer method ``service.test_llm_connection`` still exists
 (called from other internal paths); only the IPC dispatch route was
 deleted.
 
-NEW-MODEL-001: added ``_handle_get_model_catalog`` to expose the full
+added ``_handle_get_model_catalog`` to expose the full
 ``MODEL_REGISTRY`` to the renderer (rich metadata for the Models page).
 
-NEW-PAUSE-001: added ``_handle_pause_model_download`` and
+added ``_handle_pause_model_download`` and
 ``_handle_resume_model_download`` so the renderer can pause/resume
 in-progress downloads.
 
@@ -35,21 +35,21 @@ from voice_typer.server.ipc.validation import (
 class ModelHandlersMixin(HandlerBase):
     """Mixin: model-management IPC handlers (download / cancel / delete).
 
-    CR-20: this mixin is one of the four "representative" handlers
-    migrated to :meth:`HandlerBase._respond_with_error` for the
-    catch-all ``except Exception`` path. See
-    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    this mixin is one of the four "representative" handlers
+        migrated to :meth:`HandlerBase._respond_with_error` for the
+        catch-all ``except Exception`` path. See
+        ``voice_typer/server/handlers/_base.py`` for the migration plan.
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
     # inherited from :class:`HandlerMixinBase` — no per-mixin
     # re-declaration needed (the duplicate block removed here was one
-    # of four that the R4-F3 centralization refactor missed).
+    # of four that the  centralization refactor missed).
 
     def _handle_download_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``download_model`` IPC command."""
         try:
-            # IPC-3: validate the ``model`` field type via the shared
+            # validate the ``model`` field type via the shared
             # ``_validate_dict_payload`` helper so the ADR-0020 §2 claim
             # ("every handler re-validates via _validate_dict_payload")
             # holds. ``required: False, default: ""`` preserves the
@@ -76,8 +76,8 @@ class ModelHandlersMixin(HandlerBase):
                 resp["type"] = "download_model_result"
                 resp["data"] = result
         except Exception as exc:
-            # CR-20: emit the generic WS-path envelope instead of
-            # leaking ``str(exc)`` to the renderer. CR-76's intent
+            # emit the generic WS-path envelope instead of
+            # leaking ``str(exc)`` to the renderer. 's intent
             # (correlate failure with operation input) is satisfied by
             # the entry INFO log above (which records ``model_name``)
             # plus the ``cmd_name`` argument to ``_respond_with_error``
@@ -87,23 +87,23 @@ class ModelHandlersMixin(HandlerBase):
 
     def _handle_cancel_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``cancel_model_download`` IPC command."""
-        # NEW-PRIV-011: cancel an in-progress HuggingFace download.
+        # cancel an in-progress HuggingFace download.
         try:
             log.info("[IPC] cancel_model_download called")
             result = self.service.cancel_model_download()
             resp["type"] = "ack"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "cancel_model_download")
         return resp
 
     def _handle_pause_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``pause_model_download`` IPC command.
 
-        NEW-PAUSE-001: pause the in-progress model download.  Sets a
-        module-level flag in :mod:`voice_typer.server.asr_setup` that
-        the download polling loop checks between iterations.
+        pause the in-progress model download.  Sets a
+                module-level flag in :mod:`voice_typer.server.asr_setup` that
+                the download polling loop checks between iterations.
         """
         try:
             log.info("[IPC] pause_model_download called")
@@ -111,15 +111,15 @@ class ModelHandlersMixin(HandlerBase):
             resp["type"] = "ack"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "pause_model_download")
         return resp
 
     def _handle_resume_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``resume_model_download`` IPC command.
 
-        NEW-PAUSE-001: resume a paused model download.  Clears the
-        module-level pause flag set by ``_handle_pause_model_download``.
+        resume a paused model download.  Clears the
+                module-level pause flag set by ``_handle_pause_model_download``.
         """
         try:
             log.info("[IPC] resume_model_download called")
@@ -127,30 +127,30 @@ class ModelHandlersMixin(HandlerBase):
             resp["type"] = "ack"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "resume_model_download")
         return resp
 
     def _handle_get_model_catalog(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_model_catalog`` IPC command.
 
-        NEW-MODEL-001: return the full ``MODEL_REGISTRY`` as a list of
-        plain dicts so the renderer can populate the Models page with
-        rich metadata (VRAM, supported languages, speed/accuracy
-        ratings, descriptions, repo IDs).
+        return the full ``MODEL_REGISTRY`` as a list of
+                plain dicts so the renderer can populate the Models page with
+                rich metadata (VRAM, supported languages, speed/accuracy
+                ratings, descriptions, repo IDs).
 
-        The renderer uses this to:
-          - Render model cards with VRAM, language, and speed badges
-          - Show accurate download sizes (matching the backend's
-            ``_MODEL_SIZE_MB`` table)
-          - Filter by backend (whisper vs distil-whisper)
+                The renderer uses this to:
+                  - Render model cards with VRAM, language, and speed badges
+                  - Show accurate download sizes (matching the backend's
+                    ``_MODEL_SIZE_MB`` table)
+                  - Filter by backend (whisper vs distil-whisper)
 
-        Response shape::
+                Response shape::
 
-            {"type": "model_catalog", "data": {"models": [<metadata-dict>, ...]}}
+                    {"type": "model_catalog", "data": {"models": [<metadata-dict>, ...]}}
 
-        Each metadata-dict has the fields defined on
-        :class:`voice_typer.server.model_registry.ModelMetadata`.
+                Each metadata-dict has the fields defined on
+                :class:`voice_typer.server.model_registry.ModelMetadata`.
         """
         try:
             from voice_typer.server.model_registry import get_all_models
@@ -159,28 +159,28 @@ class ModelHandlersMixin(HandlerBase):
             resp["type"] = "model_catalog"
             resp["data"] = {"models": models}
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_model_catalog")
         return resp
 
     def _handle_import_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``import_model`` IPC command.
 
-        MODEL-IMPORT: scan a directory for HuggingFace model cache
-        folders and import any recognized models into the app's HF
-        cache.  ``data`` should contain ``{"dir_path": "..."}``.
+                MODEL-IMPORT: scan a directory for HuggingFace model cache
+                folders and import any recognized models into the app's HF
+                cache.  ``data`` should contain ``{"dir_path": "..."}``.
 
-        Returns the result dict from ``self.service.import_model()``.
+                Returns the result dict from ``self.service.import_model()``.
 
-        RW-5: ``dir_path`` is validated to be within an allowed root
-        (home directory, OS temp dir, or HF cache) before being passed
-        to ``import_model``.  Without this check, an IPC payload could
-        request scanning — and copying into the app's HF cache — any
-        directory on the filesystem, including ones the user did not
-        pick via the file chooser.
+        ``dir_path`` is validated to be within an allowed root
+                (home directory, OS temp dir, or HF cache) before being passed
+                to ``import_model``.  Without this check, an IPC payload could
+                request scanning — and copying into the app's HF cache — any
+                directory on the filesystem, including ones the user did not
+                pick via the file chooser.
         """
         try:
-            # IPC-3: validate ``dir_path`` is a string via the shared
+            # validate ``dir_path`` is a string via the shared
             # ``_validate_dict_payload`` helper. ``required: False,
             # default: ""`` preserves the existing inline missing-field
             # error message ("Missing 'dir_path' parameter") that
@@ -210,7 +210,7 @@ class ModelHandlersMixin(HandlerBase):
                 resp["data"] = {"message": "Missing 'dir_path' parameter"}
                 return resp
 
-            # RW-5: validate dir_path is within an allowed root before
+            # validate dir_path is within an allowed root before
             # passing it to import_model.  Resolve the path to an
             # absolute, canonical form first so the validation is not
             # bypassed by ``..`` sequences or relative paths.
@@ -247,18 +247,18 @@ class ModelHandlersMixin(HandlerBase):
                 resp["type"] = "import_model_result"
                 resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no str(exc) leak).
-            # CR-76 correlation: ``dir_path`` is logged at INFO on
+            # generic WS-path envelope (no str(exc) leak).
+            # correlation: ``dir_path`` is logged at INFO on
             # entry above; ``cmd_name`` here records the operation.
             self._respond_with_error(resp, exc, "import_model")
         return resp
 
     def _handle_delete_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``delete_model`` IPC command."""
-        # NEW-UX-005: actually delete the model files from disk,
+        # actually delete the model files from disk,
         # not just remove from the UI list.
         try:
-            # IPC-3: validate the ``model`` field type via the shared
+            # validate the ``model`` field type via the shared
             # ``_validate_dict_payload`` helper. ``required: False,
             # default: ""`` preserves the existing inline missing-field
             # error message ("Missing 'model' parameter") that callers
@@ -284,8 +284,8 @@ class ModelHandlersMixin(HandlerBase):
                 resp["type"] = "delete_model_result"
                 resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no str(exc) leak).
-            # CR-76 correlation: ``model_name`` is logged at INFO on
+            # generic WS-path envelope (no str(exc) leak).
+            # correlation: ``model_name`` is logged at INFO on
             # entry above; ``cmd_name`` here records the operation.
             self._respond_with_error(resp, exc, "delete_model")
         return resp

@@ -1,7 +1,7 @@
 """Shared HTTP safety helpers: no-redirect handler, secure opener builder.
 
-EC-FIX-8: extracted from ``cloud_engines.py`` and ``llm_polish.py`` to
-eliminate the DRY duplication of ``_NoRedirectHandler`` (EC-17 finding
+extracted from ``cloud_engines.py`` and ``llm_polish.py`` to
+eliminate the DRY duplication of ``_NoRedirectHandler`` ( finding
 #1: previously the class was duplicated verbatim across both modules).
 
 Both cloud transcription (``cloud_engines._opener``) and LLM polish
@@ -45,13 +45,14 @@ from urllib.request import (
     build_opener,
 )
 
+from voice_typer.server._paths import LOOPBACK_HOSTS
 from voice_typer.server._secrets import redact_url
 
 _log = logging.getLogger(__name__)
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
-    """SEC-2: refuse to follow HTTP redirects.
+    """refuse to follow HTTP redirects.
 
     ``urllib.request.build_opener`` ALWAYS installs the default
     ``HTTPRedirectHandler`` (which silently follows 3xx responses)
@@ -90,7 +91,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         # endpoint, but ``redact_url`` is applied by the caller before
         # logging to avoid leaking credentials in the URL.
         #
-        # DE-64: also pass ``url=redact_url(newurl)`` to the HTTPError
+        # also pass ``url=redact_url(newurl)`` to the HTTPError
         # constructor. The ``url`` attribute is exposed as ``e.url`` to
         # callers and is commonly logged directly (e.g. ``except
         # HTTPError as e: log.warning('failed: %s', e.url)``). Pre-fix,
@@ -111,7 +112,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 class _HttpsOnlyHTTPHandler(HTTPHandler):
     """SEC: refuse plaintext HTTP requests.
 
-    DE-65: ``urllib.request.build_opener`` ALWAYS installs the default
+    ``urllib.request.build_opener`` ALWAYS installs the default
     handler set in addition to caller-provided handlers — this
     includes ``HTTPHandler`` (plaintext HTTP). The function name and
     docstring of :func:`build_secure_opener` imply HTTPS-only, but
@@ -134,10 +135,22 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
     adding a second one in parallel).
     """
 
-    _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+    # the loopback exemption set is imported from the canonical
+    # source of truth (``voice_typer.server._paths.LOOPBACK_HOSTS``)
+    # rather than re-declared inline. Pre-fix, this attribute was a
+    # separate inline frozenset literal of the three loopback hosts
+    # — a DRY violation: if the canonical set ever changes, two files
+    # would need to be edited in sync, and drift would silently either
+    # over-block (breaking local dev servers like Ollama / vLLM) or
+    # under-block (SSRF surface). The class-attribute name
+    # ``_LOOPBACK_HOSTS`` is preserved for backward compatibility with
+    # ``tests/test_http_safety.py::test_loopback_set_is_documented``
+    # and ``tests/test_http_safety_ssrf.py`` (both inspect
+    # ``_HttpsOnlyHTTPHandler._LOOPBACK_HOSTS`` directly).
+    _LOOPBACK_HOSTS = LOOPBACK_HOSTS
 
     def http_open(self, req: Request) -> http.client.HTTPResponse:
-        # YJ-26: the return type now matches the parent
+        # the return type now matches the parent
         # ``HTTPHandler.http_open`` signature exactly (per typeshed:
         # ``http.client.HTTPResponse``). Previously this override was
         # annotated ``-> object`` with a ``# type: ignore[override]``
@@ -172,12 +185,12 @@ def build_secure_opener():
     """Build a urllib opener that does NOT follow HTTP redirects and
     refuses plaintext HTTP for non-loopback hosts.
 
-    SEC-2: pass ``_NoRedirectHandler()`` so the opener does NOT follow
+    pass ``_NoRedirectHandler()`` so the opener does NOT follow
     3xx redirects (the default ``HTTPRedirectHandler`` would silently
     POST the request body — user audio + API key — to an attacker-
     controlled redirect target).
 
-    DE-65: also install :class:`_HttpsOnlyHTTPHandler` so the opener
+    also install :class:`_HttpsOnlyHTTPHandler` so the opener
     refuses plaintext HTTP requests to non-loopback hosts. Pre-fix,
     ``build_opener(HTTPSHandler(), _NoRedirectHandler())`` left the
     default ``HTTPHandler`` installed — so a caller passing
@@ -187,7 +200,7 @@ def build_secure_opener():
     ``build_opener`` replace the default ``HTTPHandler`` instead of
     adding a parallel one, so the override actually takes effect.
 
-    PERF-NEW-010: the returned ``OpenerDirector`` reuses TCP
+    PERF- the returned ``OpenerDirector`` reuses TCP
     connections across requests (like ``requests.Session``).  Callers
     should stash the returned opener at module level and reuse it
     rather than calling this function per request.

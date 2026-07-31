@@ -1,10 +1,14 @@
 """Adapter that wraps a native ``SubprocessHotkeyBackend`` to satisfy the
 ``HotkeyBackend`` interface expected by ``HotkeyDispatcher``.
 
-Implements the GAP-4 runtime fallback chain (native → legacy) and the
-GAP-2 macOS Accessibility permission onboarding.  Split out from the
-original ``hotkeys.py`` god-file in Phase 4.5 (ARCH-045).
+Implements the  runtime fallback chain (native → legacy) and the
+macOS Accessibility permission onboarding.  Split out from the
+original ``hotkeys.py`` god-file in Phase 4.5 ().
 """
+
+# ruff: noqa: E501 -- the state-transition ASCII table in the
+# ``NativeHotkeyAdapter`` docstring below uses fixed-width box-drawing
+# columns that intentionally exceed the 120-char line limit.
 
 import contextlib
 import os
@@ -31,99 +35,99 @@ def is_linux() -> bool:
 
 class _NativeBackendAdapter(HotkeyBackend):
     """Adapter that wraps a ``SubprocessHotkeyBackend`` to satisfy the
-    ``HotkeyBackend`` interface expected by ``HotkeyDispatcher``.
+        ``HotkeyBackend`` interface expected by ``HotkeyDispatcher``.
 
-    The native backends in ``native_hotkeys.py`` don't inherit from
-    ``HotkeyBackend`` (they use a separate base class to avoid an import
-    cycle). This adapter bridges the two.
+        The native backends in ``native_hotkeys.py`` don't inherit from
+        ``HotkeyBackend`` (they use a separate base class to avoid an import
+        cycle). This adapter bridges the two.
 
-    GAP-4 (runtime fallback chain): when the native backend permanently
-    fails (5 retries exhausted), the adapter transparently swaps to a
-    legacy backend (``PynputHotkey`` / ``WindowsNativeHotkey`` /
-    ``WaylandHotkey``) with the same callbacks. A 5-minute retry timer
-    periodically attempts to swap back to the native backend; on
-    success, the adapter swaps back and notifies the user.
+    (runtime fallback chain): when the native backend permanently
+        fails (5 retries exhausted), the adapter transparently swaps to a
+        legacy backend (``PynputHotkey`` / ``WindowsNativeHotkey`` /
+        ``WaylandHotkey``) with the same callbacks. A 5-minute retry timer
+        periodically attempts to swap back to the native backend; on
+        success, the adapter swaps back and notifies the user.
 
-    GAP-2 (macOS Accessibility onboarding): when the native backend
-    emits an ``ERROR:`` line classified as a permission issue, the
-    adapter shows a tray notification and (on macOS) opens System
-    Settings → Accessibility. A 60-second permission retry timer
-    polls for the permission being granted and, on success, restarts
-    the native backend.
+    (macOS Accessibility onboarding): when the native backend
+        emits an ``ERROR:`` line classified as a permission issue, the
+        adapter shows a tray notification and (on macOS) opens System
+        Settings → Accessibility. A 60-second permission retry timer
+        polls for the permission being granted and, on success, restarts
+        the native backend.
 
-    State machine (5 states, 3 callback slots, 2 async timers):
+        State machine (5 states, 3 callback slots, 2 async timers):
 
-        States: NATIVE, FALLING_BACK, FALLBACK, FAILED, STOPPED
-        Callback slots (set on the native backend in __init__):
-            - native._on_error_callback            -> _on_native_error
-            - native._on_permanent_failure_callback-> _on_native_permanent_failure
-            - _on_release_callback                 -> set via set_on_release
-        Async timers:
-            - 300s native-retry timer  (_native_retry_timer, this class)
-            - 60s  permission-retry    (voice_typer.server.permissions,
-                                         max 5 attempts)
+            States: NATIVE, FALLING_BACK, FALLBACK, FAILED, STOPPED
+            Callback slots (set on the native backend in __init__):
+                - native._on_error_callback            -> _on_native_error
+                - native._on_permanent_failure_callback-> _on_native_permanent_failure
+                - _on_release_callback                 -> set via set_on_release
+            Async timers:
+                - 300s native-retry timer  (_native_retry_timer, this class)
+                - 60s  permission-retry    (voice_typer.server.permissions,
+                                             max 5 attempts)
 
-        Quick diagram (omits self-loops, FAILED->STOPPED, and the
-        permission-grant recovery path; see the full table below):
+            Quick diagram (omits self-loops, FAILED->STOPPED, and the
+            permission-grant recovery path; see the full table below):
 
-            NATIVE → FALLING_BACK → FALLBACK → (NATIVE on recovery, or FAILED)
-            Any state → STOPPED on stop()
+                NATIVE → FALLING_BACK → FALLBACK → (NATIVE on recovery, or FAILED)
+                Any state → STOPPED on stop()
 
-    State Transition Table:
-    ┌──────────────┬──────────────────────────────────────┬──────────────────┬───────────────────────────────────────┐
-    │ From         │ Event                                │ To               │ Side Effects                          │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ (init)       │ __init__                             │ NATIVE           │ Wire _on_error_callback &             │
-    │              │                                      │                  │ _on_permanent_failure_callback        │
-    │              │                                      │                  │ on native.                            │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ NATIVE       │ start() succeeds                     │ NATIVE           │ (self-loop; confirms state            │
-    │              │                                      │                  │ under swap_lock)                      │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ NATIVE       │ start() raises OR                    │ FALLING_BACK     │ Via _swap_to_legacy(): fire           │
-    │              │ _on_native_permanent_failure         │                  │ _on_release_callback, create &        │
-    │              │ (native's 5 retries exhausted)       │                  │ start legacy backend.                 │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLING_BACK │ legacy backend starts                │ FALLBACK         │ Assign _legacy, show fallback         │
-    │              │ successfully                         │                  │ notification, schedule 300s           │
-    │              │                                      │                  │ native retry timer.                   │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLING_BACK │ legacy create/start raises           │ FAILED           │ Log error, show failure               │
-    │              │                                      │                  │ notification.                         │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLING_BACK │ stop() called during swap            │ STOPPED          │ Stop the just-created legacy          │
-    │              │                                      │                  │ backend, return.                      │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLBACK     │ 300s native retry timer fires,       │ NATIVE           │ Stop legacy, stop+start native,       │
-    │              │ native restart succeeds              │                  │ set _on_release, show recovery        │
-    │              │                                      │                  │ notification, reset perm flag.        │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLBACK     │ 300s timer fires, native fails,      │ FALLBACK         │ (self-loop) Stop old legacy,          │
-    │              │ legacy restarts                      │                  │ restart native (fails), new           │
-    │              │                                      │                  │ legacy, schedule 300s retry.          │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ FALLBACK     │ 300s timer fires, both native        │ FAILED           │ Log "both backends failed",           │
-    │              │ & legacy restart fail                │                  │ show failure notification.            │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ NATIVE,      │ 60s permission retry timer           │ NATIVE           │ Stop+start native, set                │
-    │ FALLBACK, or │ fires, native restart succeeds       │                  │ _on_release, reset perm flag.         │
-    │ FAILED       │                                      │                  │ NOTE: legacy NOT stopped when         │
-    │              │                                      │                  │ transitioning from FALLBACK.          │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ NATIVE,      │ stop() called                        │ STOPPED          │ Cancel 300s timer & 60s perm          │
-    │ FALLING_BACK,│                                      │                  │ retry, reset flag, stop legacy        │
-    │ FALLBACK, or │                                      │                  │ & native. Idempotent no-op if         │
-    │ FAILED       │                                      │                  │ already STOPPED.                      │
-    ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
-    │ STOPPED      │ (none - terminal state)              │ STOPPED          │ No transitions out; stop() is         │
-    │              │                                      │                  │ a no-op.                              │
-    └──────────────┴──────────────────────────────────────┴──────────────────┴───────────────────────────────────────┘
+        State Transition Table:
+        ┌──────────────┬──────────────────────────────────────┬──────────────────┬───────────────────────────────────────┐
+        │ From         │ Event                                │ To               │ Side Effects                          │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ (init)       │ __init__                             │ NATIVE           │ Wire _on_error_callback &             │
+        │              │                                      │                  │ _on_permanent_failure_callback        │
+        │              │                                      │                  │ on native.                            │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ NATIVE       │ start() succeeds                     │ NATIVE           │ (self-loop; confirms state            │
+        │              │                                      │                  │ under swap_lock)                      │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ NATIVE       │ start() raises OR                    │ FALLING_BACK     │ Via _swap_to_legacy(): fire           │
+        │              │ _on_native_permanent_failure         │                  │ _on_release_callback, create &        │
+        │              │ (native's 5 retries exhausted)       │                  │ start legacy backend.                 │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLING_BACK │ legacy backend starts                │ FALLBACK         │ Assign _legacy, show fallback         │
+        │              │ successfully                         │                  │ notification, schedule 300s           │
+        │              │                                      │                  │ native retry timer.                   │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLING_BACK │ legacy create/start raises           │ FAILED           │ Log error, show failure               │
+        │              │                                      │                  │ notification.                         │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLING_BACK │ stop() called during swap            │ STOPPED          │ Stop the just-created legacy          │
+        │              │                                      │                  │ backend, return.                      │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLBACK     │ 300s native retry timer fires,       │ NATIVE           │ Stop legacy, stop+start native,       │
+        │              │ native restart succeeds              │                  │ set _on_release, show recovery        │
+        │              │                                      │                  │ notification, reset perm flag.        │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLBACK     │ 300s timer fires, native fails,      │ FALLBACK         │ (self-loop) Stop old legacy,          │
+        │              │ legacy restarts                      │                  │ restart native (fails), new           │
+        │              │                                      │                  │ legacy, schedule 300s retry.          │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ FALLBACK     │ 300s timer fires, both native        │ FAILED           │ Log "both backends failed",           │
+        │              │ & legacy restart fail                │                  │ show failure notification.            │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ NATIVE,      │ 60s permission retry timer           │ NATIVE           │ Stop+start native, set                │
+        │ FALLBACK, or │ fires, native restart succeeds       │                  │ _on_release, reset perm flag.         │
+        │ FAILED       │                                      │                  │ NOTE: legacy NOT stopped when         │
+        │              │                                      │                  │ transitioning from FALLBACK.          │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ NATIVE,      │ stop() called                        │ STOPPED          │ Cancel 300s timer & 60s perm          │
+        │ FALLING_BACK,│                                      │                  │ retry, reset flag, stop legacy        │
+        │ FALLBACK, or │                                      │                  │ & native. Idempotent no-op if         │
+        │ FAILED       │                                      │                  │ already STOPPED.                      │
+        ├──────────────┼──────────────────────────────────────┼──────────────────┼───────────────────────────────────────┤
+        │ STOPPED      │ (none - terminal state)              │ STOPPED          │ No transitions out; stop() is         │
+        │              │                                      │                  │ a no-op.                              │
+        └──────────────┴──────────────────────────────────────┴──────────────────┴───────────────────────────────────────┘
 
-    Key: STOPPED is terminal. FAILED is terminal except for stop() and the
-    60s permission-grant recovery path (which restarts native directly).
-    FALLING_BACK is a transient state held only while _swap_to_legacy() is
-    between acquiring the swap_lock to set the state and re-acquiring it to
-    install the legacy backend.
+        Key: STOPPED is terminal. FAILED is terminal except for stop() and the
+        60s permission-grant recovery path (which restarts native directly).
+        FALLING_BACK is a transient state held only while _swap_to_legacy() is
+        between acquiring the swap_lock to set the state and re-acquiring it to
+        install the legacy backend.
     """
 
     # State constants
@@ -133,10 +137,10 @@ class _NativeBackendAdapter(HotkeyBackend):
     _STATE_FAILED = "FAILED"
     _STATE_STOPPED = "STOPPED"
 
-    # GAP-4: retry interval for swapping back to native (5 minutes)
+    # retry interval for swapping back to native (5 minutes)
     _NATIVE_RETRY_INTERVAL_SECONDS = 300.0
 
-    # YJ-56: declare the tray reference as a typed class attribute. The
+    # declare the tray reference as a typed class attribute. The
     # adapter doesn't construct the tray — it's propagated from
     # ``hotkey_dispatcher.py`` (``adapter._tray = app.tray`` after
     # construction) and forwarded to the active legacy backend via
@@ -159,7 +163,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         # Wire up the native backend's error and permanent-failure
         # callbacks so we know when to (a) show a permission prompt
         # and (b) swap to the legacy backend.
-        # YJ-56: use the public setters on ``SubprocessHotkeyBackend``
+        # use the public setters on ``SubprocessHotkeyBackend``
         # (``set_error_callback`` / ``set_permanent_failure_callback``
         # / ``set_warn_callback``) instead of reaching into the private
         # ``_on_*_callback`` attributes directly. The setters live on
@@ -168,7 +172,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         # of the native backend.
         native_backend.set_error_callback(self._on_native_error)
         native_backend.set_permanent_failure_callback(self._on_native_permanent_failure)
-        # CR-143: wire WARN callback
+        # wire WARN callback
         native_backend.set_warn_callback(self._on_native_warn)
 
     def start(self, callback: Callable[[], None]) -> None:
@@ -250,10 +254,10 @@ class _NativeBackendAdapter(HotkeyBackend):
             f"Legacy backend:\n{legacy_diag}"
         )
 
-    # ── GAP-2: permission error handling ────────────────────────────────
+    # permission error handling ────────────────────────────────
 
     def _on_native_warn(self, warn_message: str) -> None:
-        """CR-143: non-fatal degradation (e.g. SKIP_ACCESSIBILITY)."""
+        """non-fatal degradation (e.g. SKIP_ACCESSIBILITY)."""
         log.warning("[HOTKEY] Native backend WARN: %s", warn_message)
         tray = self._get_tray()
         if tray is not None:
@@ -307,7 +311,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         with contextlib.suppress(Exception):
             self._native.stop()
         try:
-            # YJ-56: narrow ``self._callback`` (typed
+            # narrow ``self._callback`` (typed
             # ``Callable[[], None] | None``) to the non-None local
             # ``cb`` so :meth:`HotkeyBackend.start`'s non-optional
             # ``callback`` parameter is satisfied without a
@@ -347,7 +351,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         # ``adapter._tray = app.tray`` after construction.
         return getattr(self, "_tray", None)
 
-    # ── GAP-4: runtime fallback chain ───────────────────────────────────
+    # runtime fallback chain ───────────────────────────────────
 
     def _on_native_permanent_failure(self) -> None:
         """Called when the native backend exhausts its 5 retries."""
@@ -377,7 +381,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         try:
             legacy = self._create_legacy_backend()
-            # YJ-56: narrow ``self._callback`` to non-None (see
+            # narrow ``self._callback`` to non-None (see
             # ``_on_permission_granted`` for the rationale).
             cb = self._callback
             if cb is None:
@@ -395,8 +399,8 @@ class _NativeBackendAdapter(HotkeyBackend):
                         legacy.stop()
                     return
                 self._legacy = legacy
-                # CR-142: propagate _tray to legacy backend via the
-                # public ``set_tray`` API (YJ-56) instead of reaching
+                # propagate _tray to legacy backend via the
+                # public ``set_tray`` API () instead of reaching
                 # into the private ``_tray`` attribute directly.
                 with contextlib.suppress(AttributeError, TypeError):
                     self._legacy.set_tray(self._tray)
@@ -447,27 +451,27 @@ class _NativeBackendAdapter(HotkeyBackend):
     def _retry_native(self) -> None:
         """Attempt to swap back to the native backend.
 
-        If the native backend restarts successfully, swap back and notify
-        the user. If it fails, stay on legacy and schedule another retry.
+                If the native backend restarts successfully, swap back and notify
+                the user. If it fails, stay on legacy and schedule another retry.
 
-        XV-110: keep the stopped legacy backend as a "warm spare" while
-        attempting the native restart. Previously ``_retry_native`` nulled
-        ``self._legacy`` BEFORE attempting the native restart, so if the
-        native failed to come back up the code had to construct a brand
-        new legacy backend (``_create_legacy_backend()``) — during that
-        construction window the hotkey was completely dead. By keeping
-        the stopped legacy instance around, we can restart it directly
-        (``legacy.start(...)``) on native failure, shrinking the dead
-        window from "construct + start" to just "start". The warm spare
-        is dropped (``self._legacy = None``) only after the native
-        restart succeeds.
+        keep the stopped legacy backend as a "warm spare" while
+                attempting the native restart. Previously ``_retry_native`` nulled
+                ``self._legacy`` BEFORE attempting the native restart, so if the
+                native failed to come back up the code had to construct a brand
+                new legacy backend (``_create_legacy_backend()``) — during that
+                construction window the hotkey was completely dead. By keeping
+                the stopped legacy instance around, we can restart it directly
+                (``legacy.start(...)``) on native failure, shrinking the dead
+                window from "construct + start" to just "start". The warm spare
+                is dropped (``self._legacy = None``) only after the native
+                restart succeeds.
         """
         with self._swap_lock:
             if self._state != self._STATE_FALLBACK:
                 return  # Already recovered, failed, or stopped
 
         log.info("[HOTKEY] Retrying native backend...")
-        # XV-110: snapshot the legacy reference and stop it (frees any
+        # snapshot the legacy reference and stop it (frees any
         # RegisterHotKey slot the native needs) WITHOUT nulling
         # ``self._legacy`` — keep it as a warm spare so we can restart
         # it quickly if the native restart fails.
@@ -477,7 +481,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 with contextlib.suppress(Exception):
                     warm_spare.stop()
             self._native.stop()
-            # YJ-56: narrow ``self._callback`` to non-None (see
+            # narrow ``self._callback`` to non-None (see
             # ``_on_permission_granted`` for the rationale).
             cb = self._callback
             if cb is None:
@@ -505,12 +509,12 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         # Retry failed — restart the warm spare (or create a new legacy
         # backend if we never had one) and schedule another retry.
-        # XV-110: prefer restarting the existing warm_spare instance —
+        # prefer restarting the existing warm_spare instance —
         # it's already constructed and its hotkey_str / state match the
         # adapter, so the restart is faster than constructing a new one.
         try:
             legacy = warm_spare if warm_spare is not None else self._create_legacy_backend()
-            # YJ-56: ``cb`` is the narrowed callback from above — if
+            # ``cb`` is the narrowed callback from above — if
             # ``self._callback`` was None we already returned.
             if cb is None:
                 log.warning("[HOTKEY] Cannot restart legacy — no callback registered")
@@ -518,8 +522,8 @@ class _NativeBackendAdapter(HotkeyBackend):
             legacy.start(cb)
             if self._on_release_callback is not None:
                 legacy.set_on_release(self._on_release_callback)
-            # CR-142 (cont.): propagate _tray via the public
-            # ``set_tray`` API (YJ-56) instead of the private attr.
+            # (cont.): propagate _tray via the public
+            # ``set_tray`` API () instead of the private attr.
             with contextlib.suppress(AttributeError, TypeError):
                 legacy.set_tray(self._tray)
             with self._swap_lock:

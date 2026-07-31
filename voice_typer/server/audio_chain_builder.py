@@ -80,7 +80,7 @@ def build_chain(config: Any, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterCh
                 hold_ms=config.noise_filter_gate_hold_ms,
                 release_ms=config.noise_filter_gate_release_ms,
                 sample_rate=sample_rate,
-                # ER-10: opt-in adaptive calibration — gate samples the first
+                # opt-in adaptive calibration — gate samples the first
                 # ~500ms of audio to estimate noise floor and derives thresholds.
                 adaptive=getattr(config, "noise_filter_gate_adaptive", False),
             )
@@ -135,7 +135,7 @@ def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_R
 
     Like :func:`build_chain` but accepts a plain dict instead of a
     Config object. Missing keys use the canonical defaults declared on
-    :class:`voice_typer.server.config.Config` — FZ-55: previously this
+    class:`voice_typer.server.config.Config` — previously this
     function shadowed ``Config`` defaults with a parallel ``_DEFAULTS``
     dict that drifted whenever a default was bumped on ``Config`` (e.g.
     ``noise_filter_gate_hold_ms`` 150 → 200 in ADR 0007 §5). The dict
@@ -150,37 +150,3 @@ def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_R
     for key, value in config_dict.items():
         setattr(cfg, key, value)
     return build_chain(cfg, sample_rate=sample_rate)
-
-
-# FZ-55: the previous ``_DEFAULTS`` dict is intentionally retained (now
-# unused by ``build_chain_from_dict``) for backward-compatibility imports
-# in case external scripts/tests reference it. It is no longer the
-# source of truth — ``Config()`` defaults are. New code should not
-# reference ``_DEFAULTS``; instead construct a ``Config()`` instance or
-# import the canonical default directly from the dataclass field.
-_DEFAULTS: dict[str, object] = {
-    "noise_filter_highpass": True,
-    "noise_filter_highpass_cutoff_hz": 80.0,
-    "noise_suppression_method": "rnnoise",
-    "noise_filter_gate": True,
-    "noise_filter_gate_open_threshold_db": -26.0,
-    "noise_filter_gate_close_threshold_db": -32.0,
-    "noise_filter_gate_attack_ms": 25.0,
-    "noise_filter_gate_hold_ms": 200.0,
-    "noise_filter_gate_release_ms": 150.0,
-    "noise_filter_eq": True,
-    "noise_filter_eq_low_db": -3.0,
-    "noise_filter_eq_mid_db": 3.0,
-    "noise_filter_eq_high_db": 2.0,
-    "noise_filter_compressor": True,
-    "noise_filter_compressor_threshold_db": -18.0,
-    "noise_filter_compressor_ratio": 3.0,
-    "noise_filter_compressor_attack_ms": 6.0,
-    "noise_filter_compressor_release_ms": 60.0,
-    "noise_filter_compressor_output_gain_db": 0.0,
-    "noise_filter_limiter": True,
-    "noise_filter_limiter_ceiling_db": -6.0,
-    "noise_filter_limiter_release_ms": 60.0,
-    "noise_filter_notch": False,
-    "noise_filter_notch_frequency_hz": 0.0,
-}

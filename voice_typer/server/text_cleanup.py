@@ -65,7 +65,7 @@ _INTENTIONAL_REPEAT_WORDS = {
 class CorrectionsLoadError(RuntimeError):
     """Raised when external corrections could not be loaded.
 
-    ARCH-029: previously ``_load_external_corrections`` returned ``None``
+    previously ``_load_external_corrections`` returned ``None``
     for both "no file" and "load failed", and the caller couldn't
     distinguish them. We now raise this typed exception on load
     failure; "no file" still returns ``None``.
@@ -82,11 +82,11 @@ def _load_external_corrections(
     file on top.  Returns (misspellings, phrase_corrections, extra_word_patterns)
     from the external file, or None if no corrections file exists.
 
-    ARCH-029: raises ``CorrectionsLoadError`` when a file exists but
+    raises ``CorrectionsLoadError`` when a file exists but
     could not be parsed (was previously a silent ``None`` return).
     """
     loaded_any = False
-    # ARCH-029: track the last load error so callers can distinguish
+    # track the last load error so callers can distinguish
     # "no file" (None, no error) from "file failed to load" (raise).
     load_errors: list[str] = []
 
@@ -158,7 +158,7 @@ def _load_external_corrections(
             log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
             load_errors.append(f"{path.name}: {e}")
 
-    # AC-83: raise whenever ANY load error occurred — previously the
+    # raise whenever ANY load error occurred — previously the
     # raise was gated on ``not loaded_any``, which meant a malformed
     # USER file was silently swallowed when the BUNDLED file loaded OK
     # (the bundled corrections were returned as if nothing had gone
@@ -174,7 +174,7 @@ def _load_external_corrections(
     # assertions (``tests/test_text_cleanup.py::
     # TestConfigureCorrectionsSurfacesLoadErrors::test_returns_error_for_malformed_json``
     # checks for ``"malformed" in result.lower() or "invalid" in
-    # result.lower()``) keep passing after the AC-83 refactor that
+    # result.lower()``) keep passing after the  refactor that
     # replaced the inline parse with the typed-exception path.
     if load_errors:
         raise CorrectionsLoadError(
@@ -188,7 +188,7 @@ def _load_external_corrections(
     max_pattern_length = 200
     max_replacement_length = 500
 
-    # AC-82: the 3 per-correction-type truncation blocks + 3 per-correction-
+    # the 3 per-correction-type truncation blocks + 3 per-correction-
     # type length-filter loops were copy-paste with different variable names
     # and subtly different filter semantics (misspellings/extra_words used
     # separate pattern-vs-replacement counters; phrases used a single
@@ -243,7 +243,7 @@ def _truncate_corrections(
     max_count: int,
     label: str,
 ) -> list[tuple[str, str]]:
-    """AC-82: cap a corrections list at ``max_count`` entries.
+    """cap a corrections list at ``max_count`` entries.
 
     Keeps the first ``max_count`` items (matching the prior
     ``list(items)[:max_count]`` slice semantics — preserves load order
@@ -274,7 +274,7 @@ def _filter_corrections_by_length(
     max_replacement_length: int,
     label: str,
 ) -> list[tuple[str, str]]:
-    """AC-82: drop corrections whose pattern OR replacement exceeds the
+    """drop corrections whose pattern OR replacement exceeds the
     SEC-011 length limits.
 
     SEC-011 rationale: long patterns cause expensive regex backtracking
@@ -328,14 +328,14 @@ def _active_corrections(
 _active_misspellings: dict[str, str] = {}
 _active_phrases: list[tuple[str, str]] = []
 _active_extra_words: list[tuple[str, str]] = []
-# XV-42: eager-compiled patterns, kept in parallel with _active_phrases /
+# eager-compiled patterns, kept in parallel with _active_phrases
 # _active_extra_words so each substitution step reuses a precompiled
 # Pattern instead of touching the LRU cache on every dictation. The LRU
 # cache (_phrase_pattern_cache / _get_compiled_phrase_pattern below) is
 # kept for backward compatibility with the test suite and as a fallback.
 _active_phrase_patterns: list["re.Pattern[str]"] = []
 _active_extra_word_patterns: list["re.Pattern[str]"] = []
-# ARCH-027: guard the three module-level mutables with a lock so
+# guard the three module-level mutables with a lock so
 # concurrent dictations don't clobber each other. The proper fix is
 # to move these into a TextCleanupService instance; for now the lock
 # prevents the worst race (two threads each replacing the dict mid-
@@ -343,7 +343,7 @@ _active_extra_word_patterns: list["re.Pattern[str]"] = []
 # it touches ~20 call sites.
 _active_state_lock = __import__("threading").Lock()
 
-# ARCH-031: cache of compiled regex patterns for phrase corrections.
+# cache of compiled regex patterns for phrase corrections.
 # Keyed on the (lowercased) phrase string; value is a compiled regex
 # with re.IGNORECASE.
 # SEC-011 (revised): The cache now uses collections.OrderedDict with
@@ -388,7 +388,7 @@ def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
     return compiled
 
 
-# XV-42: helper that eagerly precompiles one Pattern per phrase at
+# helper that eagerly precompiles one Pattern per phrase at
 # configure_corrections time so the hot cleanup path never pays a
 # compile cost. The patterns are used by pattern.sub() during the
 # substitution step; the per-phrase membership test ("does this phrase
@@ -522,7 +522,7 @@ def configure_corrections(
     Call this once at startup so that ``clean_transcribed_text`` uses
     the user-provided corrections.
 
-    ARCH-004: returns an error message string if the external file
+    Returns an error message string if the external file
     exists but could not be loaded (malformed JSON, permission error,
     etc.), or None on success / no-file.  Callers can surface this
     to the user via a tray notification so they know why their
@@ -532,7 +532,7 @@ def configure_corrections(
     global _active_phrase_patterns, _active_extra_word_patterns
 
     # Determine the user corrections path (mirrors _load_external_corrections)
-    # AC-83: the user_path was previously used by an inline parse block
+    # the user_path was previously used by an inline parse block
     # that duplicated ``_load_external_corrections``'s read+parse. The
     # inline parse was removed; ``configure_corrections`` now relies on
     # ``_active_corrections`` → ``_load_external_corrections`` to raise
@@ -547,14 +547,14 @@ def configure_corrections(
     elif config_dir is not None:
         _user_path = config_dir / "voice-typer-corrections.json"
 
-    # AC-83: previously this function did its OWN ``_secure_read_text`` +
+    # previously this function did its OWN ``_secure_read_text`` +
     # ``json.loads(raw)`` parse to detect a malformed user file, and then
     # IMMEDIATELY called ``_active_corrections`` (which calls
     # ``_load_external_corrections``) that re-parsed the SAME file via the
     # SAME ``_secure_read_text`` + ``json.loads`` path — a redundant
     # double-read+double-parse on every configure call (and a double
     # failure on every malformed file). The inline parse was a leftover
-    # from before ARCH-029 introduced the typed ``CorrectionsLoadError``:
+    # from before  introduced the typed ``CorrectionsLoadError``:
     # the inline parse produced an error message string, while the typed
     # exception is the canonical signal. We now rely on
     # ``_active_corrections`` → ``_load_external_corrections`` to raise
@@ -581,7 +581,7 @@ def configure_corrections(
         # are loaded — the user file is skipped entirely, which is
         # safe because we already know it's malformed.
         result = _active_corrections(config_dir=None, corrections_path=None)
-    # XV-42: eagerly precompile per-phrase patterns while we hold the
+    # eagerly precompile per-phrase patterns while we hold the
     # lock, so the hot cleanup path reuses precompiled Patterns for
     # substitution and uses a cheap ``in`` substring check (instead of
     # re.Pattern.search) for the per-phrase membership test.  Benchmarks
@@ -589,7 +589,7 @@ def configure_corrections(
     misspellings, phrases, extra_words = result
     phrase_patterns = _compile_phrase_patterns(phrases)
     extra_word_patterns = _compile_phrase_patterns(extra_words)
-    # ARCH-027: take the lock when replacing the module-level mutables so
+    # take the lock when replacing the module-level mutables so
     # a concurrent cleanup() call doesn't see a half-replaced state.
     with _active_state_lock:
         _active_misspellings = misspellings
@@ -608,13 +608,13 @@ def clean_transcribed_text(
 ) -> str:
     """Apply conservative cleanup without changing the user's meaning.
 
-    ARCH-009: when ``skip_corrections=True``, the misspelling, phrase,
+    when ``skip_corrections=True``, the misspelling, phrase,
     and extra-word corrections are skipped.  This is used when
     ``VocabularyManager`` will apply the same corrections later in the
     pipeline (avoiding double-application).  The structural cleanup
     (spacing, self-corrections, capitalization) always runs.
 
-    XV-52: the four token-based structural helpers
+    The four token-based structural helpers
     (``_clean_self_corrections``, ``_remove_adjacent_duplicate_phrases``,
     ``_remove_near_duplicate_words``, ``_fix_common_misspellings``) used
     to each call ``text.split(" ")`` independently — 4 tokenisations per
@@ -628,7 +628,7 @@ def clean_transcribed_text(
     if not cleaned:
         return ""
     cleaned = _normalize_spacing(cleaned)
-    # XV-52: tokenise ONCE and reuse the list across the four
+    # tokenise ONCE and reuse the list across the four
     # token-based helpers.  _normalize_spacing guarantees single-space
     # separation, so split(" ") is lossless here.
     tokens = cleaned.split(" ")
@@ -664,12 +664,12 @@ _RE_SPACING_PUNCT_AFTER = re.compile(r"([,.;:!?])(?=[^\s,.;:!?])")
 _RE_TOKEN_KEY = re.compile(r"^\W+|\W+$")
 # _fix_file_extensions compiled pattern
 _RE_FILE_EXT = re.compile(r"(\w+)\.\s+([a-zA-Z]{2,4})\b")
-# XV-52: precompile the per-token misspelling wrapping regex. Previously
+# precompile the per-token misspelling wrapping regex. Previously
 # a re.match with an uncompiled ``^(\W*)(\w+)(\W*)$`` pattern was called
 # per-token — wasteful since _fix_common_misspellings runs on every
 # dictation.
 _RE_MISSPELL_WRAP = re.compile(r"^(\W*)(\w+)(\W*)$")
-# XV-52: precompile the regexes used in _looks_like_question. Previously
+# precompile the regexes used in _looks_like_question. Previously
 # re.split and re.findall with uncompiled patterns were used. Only
 # reached when auto_punctuation=True, but precompiling is free and
 # avoids the re module's per-call cache lookup.
@@ -688,7 +688,7 @@ def _normalize_spacing(text: str) -> str:
 def _clean_self_corrections_tokens(tokens: list[str]) -> list[str]:
     """Token-based core of ``_clean_self_corrections``.
 
-    XV-52: factored out so ``clean_transcribed_text`` can tokenize the
+    factored out so ``clean_transcribed_text`` can tokenize the
     dictation once and pass the token list through the four token-based
     helpers without re-splitting + re-joining between each step.
     """
@@ -728,7 +728,7 @@ def _clean_self_corrections(text: str) -> str:
 
 
 def _remove_adjacent_duplicate_phrases_tokens(tokens: list[str]) -> list[str]:
-    """Token-based core of ``_remove_adjacent_duplicate_phrases`` (XV-52)."""
+    """Token-based core of ``_remove_adjacent_duplicate_phrases`` ()."""
     output: list[str] = []
     i = 0
     n = len(tokens)
@@ -760,7 +760,7 @@ def _duplicate_phrase_length(tokens: list[str], index: int) -> int:
 
 
 def _remove_near_duplicate_words_tokens(tokens: list[str]) -> list[str]:
-    """Token-based core of ``_remove_near_duplicate_words`` (XV-52)."""
+    """Token-based core of ``_remove_near_duplicate_words`` ()."""
     output: list[str] = []
     i = 0
     n = len(tokens)
@@ -793,13 +793,13 @@ def _remove_near_duplicate_words(text: str) -> str:
 
 
 def _fix_common_misspellings_tokens(tokens: list[str]) -> list[str]:
-    """Token-based core of ``_fix_common_misspellings`` (XV-52).
+    """Token-based core of ``_fix_common_misspellings`` ().
 
-    XV-52: uses the module-level precompiled ``_RE_MISSPELL_WRAP``
-    instead of calling ``re.match`` with an uncompiled pattern per
-    token (the pattern wraps a word with its leading/trailing
-    non-word characters so punctuation is preserved across the
-    substitution).
+    uses the module-level precompiled ``_RE_MISSPELL_WRAP``
+        instead of calling ``re.match`` with an uncompiled pattern per
+        token (the pattern wraps a word with its leading/trailing
+        non-word characters so punctuation is preserved across the
+        substitution).
     """
     misspellings = _active_misspellings
     output: list[str] = []
@@ -821,40 +821,40 @@ def _fix_common_misspellings(text: str) -> str:
 def _correct_whisper_phrases(text: str) -> str:
     """Fix known Whisper small-model phrase misrecognitions.
 
-    ARCH-031: previously ``re.compile(re.escape(bad), re.IGNORECASE)``
-    was called inside the loop, recompiling the same pattern on every
-    dictation. With hundreds of phrases × thousands of dictations,
-    that's significant CPU. We now use a module-level cache keyed on
-    the phrase string so each pattern is compiled at most once.
+    previously ``re.compile(re.escape(bad), re.IGNORECASE)``
+        was called inside the loop, recompiling the same pattern on every
+        dictation. With hundreds of phrases × thousands of dictations,
+        that's significant CPU. We now use a module-level cache keyed on
+        the phrase string so each pattern is compiled at most once.
 
-    XV-42: previously this function did an O(N×M) regex search per
-    dictation (one ``pattern.search(lower)`` per phrase).  We now use
-    Python's highly-optimised ``bad.lower() in lower`` substring check
-    for the per-phrase membership test (benchmarked ~10× faster than
-    ``re.Pattern.search`` for the short patterns in corrections.json,
-    because ``str.__contains__`` runs in C with the Two-Way algorithm
-    while regex search carries engine overhead per call) and reuse the
-    eagerly-precompiled ``_active_phrase_patterns`` for the actual
-    ``pattern.sub`` substitution.
+    previously this function did an O(N×M) regex search per
+        dictation (one ``pattern.search(lower)`` per phrase).  We now use
+        Python's highly-optimised ``bad.lower() in lower`` substring check
+        for the per-phrase membership test (benchmarked ~10× faster than
+        ``re.Pattern.search`` for the short patterns in corrections.json,
+        because ``str.__contains__`` runs in C with the Two-Way algorithm
+        while regex search carries engine overhead per call) and reuse the
+        eagerly-precompiled ``_active_phrase_patterns`` for the actual
+        ``pattern.sub`` substitution.
 
-    This revision replaces the O(N×M) per-phrase membership loop with
-    a single O(N+M) ``re.sub`` pass driven by a combined-alternation
-    regex (``re.compile(r"(?:p1|p2|...)", re.IGNORECASE)``). The SRE
-    engine compiles alternations of ``re.escape``d literals to a trie,
-    so a single pass through the text finds every phrase match
-    regardless of how many phrases are in the dictionary. The
-    ``re.sub`` callback looks up the replacement by
-    ``match.group(0).lower()`` in a precomputed dict and applies the
-    L19 case-preserving substitution. Behaviour is identical to the
-    original for non-overlapping phrases: ``re.sub`` naturally uses
-    the ORIGINAL text for matching (not the mutated text), so a
-    substitution that introduces a phrase that LATER matches another
-    phrase does NOT trigger a second substitution — preserving the
-    XV-42 invariant. (For overlapping phrases within the same
-    alternation, the longer match wins via the
-    length-descending sort in ``_build_phrases_regex``; the bundled
-    corrections.json has no overlapping phrases, so this is
-    theoretical.)
+        This revision replaces the O(N×M) per-phrase membership loop with
+        a single O(N+M) ``re.sub`` pass driven by a combined-alternation
+        regex (``re.compile(r"(?:p1|p2|...)", re.IGNORECASE)``). The SRE
+        engine compiles alternations of ``re.escape``d literals to a trie,
+        so a single pass through the text finds every phrase match
+        regardless of how many phrases are in the dictionary. The
+        ``re.sub`` callback looks up the replacement by
+        ``match.group(0).lower()`` in a precomputed dict and applies the
+        L19 case-preserving substitution. Behaviour is identical to the
+        original for non-overlapping phrases: ``re.sub`` naturally uses
+        the ORIGINAL text for matching (not the mutated text), so a
+        substitution that introduces a phrase that LATER matches another
+        phrase does NOT trigger a second substitution — preserving the
+    invariant. (For overlapping phrases within the same
+        alternation, the longer match wins via the
+        length-descending sort in ``_build_phrases_regex``; the bundled
+        corrections.json has no overlapping phrases, so this is
+        theoretical.)
     """
     pattern, lookup = _get_phrases_regex()
     if pattern is None:
@@ -874,18 +874,18 @@ def _correct_whisper_phrases(text: str) -> str:
 def _apply_case_preserving_replacement(match: object, good: str) -> str:
     """Replace ``match.group(0)`` with ``good`` preserving the original casing.
 
-    AC-18: hoisted out of ``_correct_whisper_phrases`` so the
-    function object is created once per call site rather than once
-    per bad-word in the corrections table. The function follows
-    four casing rules, in order:
+    hoisted out of ``_correct_whisper_phrases`` so the
+        function object is created once per call site rather than once
+        per bad-word in the corrections table. The function follows
+        four casing rules, in order:
 
-    1. ALL UPPER → ``good.upper()`` (e.g. "WONT" → "WON'T").
-    2. Title case (first letter upper, rest lower) → first letter
-       of ``good`` upper, rest as-is.
-    3. Mixed case (any upper after the first char) → map each
-       uppercase position from the original to the replacement,
-       lowercasing the rest.
-    4. All lower (the common case) → ``good`` as-is.
+        1. ALL UPPER → ``good.upper()`` (e.g. "WONT" → "WON'T").
+        2. Title case (first letter upper, rest lower) → first letter
+           of ``good`` upper, rest as-is.
+        3. Mixed case (any upper after the first char) → map each
+           uppercase position from the original to the replacement,
+           lowercasing the rest.
+        4. All lower (the common case) → ``good`` as-is.
     """
     original = match.group(0)  # type: ignore[attr-defined]
     # Apply same casing pattern as original
@@ -907,9 +907,9 @@ def _apply_case_preserving_replacement(match: object, good: str) -> str:
 def _make_case_preserving_replacement(good: str):
     """Return a ``re.sub`` callback that replaces ``good`` preserving case.
 
-    AC-18: the per-bad-word redefinition is replaced with a
-    ``functools.partial`` binding. This hoists the closure object
-    creation out of the hot loop.
+    the per-bad-word redefinition is replaced with a
+        ``functools.partial`` binding. This hoists the closure object
+        creation out of the hot loop.
     """
     from functools import partial
 
@@ -919,33 +919,33 @@ def _make_case_preserving_replacement(good: str):
 def _remove_extra_words(text: str) -> str:
     """Remove common extra word insertions from Whisper.
 
-    ARCH-031: previously ``re.compile(re.escape(bad), re.IGNORECASE)`` was
-    called inside the loop, recompiling the same pattern on every dictation.
-    We now reuse the same module-level cache as ``_correct_whisper_phrases``.
+    previously ``re.compile(re.escape(bad), re.IGNORECASE)`` was
+        called inside the loop, recompiling the same pattern on every dictation.
+        We now reuse the same module-level cache as ``_correct_whisper_phrases``.
 
-    XV-42: same ``pattern.search`` → ``bad.lower() in lower`` optimisation
-    as ``_correct_whisper_phrases`` (see its docstring for the rationale).
+    same ``pattern.search`` → ``bad.lower() in lower`` optimisation
+        as ``_correct_whisper_phrases`` (see its docstring for the rationale).
 
-    AC-9: mirror the XZ-3 fix applied to ``_correct_whisper_phrases``.
-    Always resolve the pattern via the LRU-cached
-    ``_get_compiled_phrase_pattern(bad)`` keyed on the bad string itself,
-    instead of indexing ``_active_extra_word_patterns`` in parallel with
-    ``_active_extra_words``. The parallel-lists indexing reintroduced the
-    XZ-3 race here: if ``configure_corrections()`` ran between reading
-    ``_active_extra_words`` and ``_active_extra_word_patterns``,
-    ``patterns[idx]`` could be a compiled regex for a DIFFERENT bad
-    string than ``phrases[idx]``, producing corrupted text. The LRU
-    cache keyed on the bad string itself guarantees the pattern always
-    matches the phrase, at O(1) cost after warmup.
+    mirror the  fix applied to ``_correct_whisper_phrases``.
+        Always resolve the pattern via the LRU-cached
+        ``_get_compiled_phrase_pattern(bad)`` keyed on the bad string itself,
+        instead of indexing ``_active_extra_word_patterns`` in parallel with
+        ``_active_extra_words``. The parallel-lists indexing reintroduced the
+    race here: if ``configure_corrections()`` ran between reading
+        ``_active_extra_words`` and ``_active_extra_word_patterns``,
+        ``patterns[idx]`` could be a compiled regex for a DIFFERENT bad
+        string than ``phrases[idx]``, producing corrupted text. The LRU
+        cache keyed on the bad string itself guarantees the pattern always
+        matches the phrase, at O(1) cost after warmup.
 
-    This revision replaces the O(N×M) per-phrase membership loop with
-    a single O(N+M) ``re.sub`` pass driven by a combined-alternation
-    regex (mirroring the ``_correct_whisper_phrases`` refactor). The
-    ``re.sub`` callback looks up the plain replacement by
-    ``match.group(0).lower()`` in a precomputed dict — no
-    case-preservation needed for extra-word removal (the original
-    ``pattern.sub(good, text)`` substituted the literal ``good``
-    string regardless of matched casing, which we preserve).
+        This revision replaces the O(N×M) per-phrase membership loop with
+        a single O(N+M) ``re.sub`` pass driven by a combined-alternation
+        regex (mirroring the ``_correct_whisper_phrases`` refactor). The
+        ``re.sub`` callback looks up the plain replacement by
+        ``match.group(0).lower()`` in a precomputed dict — no
+        case-preservation needed for extra-word removal (the original
+        ``pattern.sub(good, text)`` substituted the literal ``good``
+        string regardless of matched casing, which we preserve).
     """
     pattern, lookup = _get_extra_words_regex()
     if pattern is None:
@@ -1014,7 +1014,7 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
     "x",
 }
 
-# AC-84: precompiled regex for standalone 'i' (not preceded or followed by
+# precompiled regex for standalone 'i' (not preceded or followed by
 # an alpha character — preserves the original semantics where 'i3' or '3i'
 # do NOT match, which differs from `\b` word boundaries that treat digits
 # and underscore as word characters). The regex is compiled once at module
@@ -1088,25 +1088,25 @@ def _next_word_starting_at(text: str, start_idx: int) -> str:
 def _capitalize_pronoun_i(text: str) -> str:
     """Capitalize the pronoun 'i' but not Roman numeral 'i'.
 
-    AC-84: replaced the character-by-character loop with a single
-    :func:`re.finditer` pass driven by :data:`_PRONOUN_I_RE`.
+    replaced the character-by-character loop with a single
+        :func:`re.finditer` pass driven by :data:`_PRONOUN_I_RE`.
 
-    This revision eliminates the per-match O(N) substring slicing the
-    prior ``re.sub`` callback performed (``text[:start].rstrip()`` +
-    ``text[end:].lstrip()`` each allocated a fresh O(N) string, giving
-    O(M·N) total slicing for M standalone-'i' matches — quadratic on
-    pathological input like ``"i i i i i"``). The replacer now uses
-    bounded backward/forward scans (:func:`_prev_word_ending_at` /
-    :func:`_next_word_starting_at`) that touch only the surrounding
-    word characters (typically <30 chars per match), making the total
-    work O(N + M·k) where k is the average word length — effectively
-    O(N) for any realistic input.
+        This revision eliminates the per-match O(N) substring slicing the
+        prior ``re.sub`` callback performed (``text[:start].rstrip()`` +
+        ``text[end:].lstrip()`` each allocated a fresh O(N) string, giving
+        O(M·N) total slicing for M standalone-'i' matches — quadratic on
+        pathological input like ``"i i i i i"``). The replacer now uses
+        bounded backward/forward scans (:func:`_prev_word_ending_at` /
+        :func:`_next_word_starting_at`) that touch only the surrounding
+        word characters (typically <30 chars per match), making the total
+        work O(N + M·k) where k is the average word length — effectively
+        O(N) for any realistic input.
 
-    Behaviour is identical to the original: a standalone ``i`` is
-    capitalized to ``I`` unless the preceding word is a Roman-numeral
-    context word (e.g. "King Henry i") OR the following word is a
-    Roman-numeral continuation (e.g. "i through iv"), in which case
-    it is kept lowercase.
+        Behaviour is identical to the original: a standalone ``i`` is
+        capitalized to ``I`` unless the preceding word is a Roman-numeral
+        context word (e.g. "King Henry i") OR the following word is a
+        Roman-numeral continuation (e.g. "i through iv"), in which case
+        it is kept lowercase.
     """
     # Fast path: no standalone-'i' candidates at all.
     if "i" not in text:
@@ -1129,7 +1129,7 @@ def _capitalize_pronoun_i(text: str) -> str:
     return "".join(chars)
 
 
-# NEW-CQ-007: _add_terminal_punctuation deleted. The safe variant
+# _add_terminal_punctuation deleted. The safe variant
 # (_add_safe_terminal_punctuation) is the only one used in the pipeline.
 # The unsafe variant was dead code that shipped in the bundle but was
 # never called.
@@ -1234,7 +1234,7 @@ def _fix_file_extensions(text: str) -> str:
 
 # ─── Safe auto-punctuation ──────────────────────────────────────────────
 
-# AC-85: minimum word count before ``_add_safe_terminal_punctuation``
+# minimum word count before ``_add_safe_terminal_punctuation``
 # appends a period or question mark. Short fragments like "ok" or
 # "no thanks" should never be auto-punctuated — appending "." to
 # "ok" produces "ok." which the user did NOT dictate, and
@@ -1271,7 +1271,7 @@ def _add_safe_terminal_punctuation(text: str) -> str:
             return text
 
     words = text.split()
-    # AC-85: the magic ``4``-word cutoff was extracted to a named
+    # the magic ``4``-word cutoff was extracted to a named
     # constant so the threshold is auditable and the rationale
     # (single-word fragments like "ok" or two-word short replies
     # like "no thanks" should never be auto-punctuated) lives next
@@ -1287,12 +1287,12 @@ def _add_safe_terminal_punctuation(text: str) -> str:
 def _looks_like_question(text: str) -> bool:
     """Detect whether the final sentence looks like a question.
 
-    Uses a conservative set of question openers that excludes "how"
-    and "what" to avoid false positives on declarative sentences.
+        Uses a conservative set of question openers that excludes "how"
+        and "what" to avoid false positives on declarative sentences.
 
-    XV-52: uses the module-level precompiled ``_RE_SENTENCE_SPLIT`` and
-    ``_RE_WORD_CHARS`` patterns instead of ``re.split`` / ``re.findall``
-    with uncompiled string patterns.
+    uses the module-level precompiled ``_RE_SENTENCE_SPLIT`` and
+        ``_RE_WORD_CHARS`` patterns instead of ``re.split`` / ``re.findall``
+        with uncompiled string patterns.
     """
     sentence = _RE_SENTENCE_SPLIT.split(text.strip())[-1]
     words = _RE_WORD_CHARS.findall(sentence.lower())

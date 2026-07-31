@@ -68,18 +68,18 @@ def _cloud_http_error_class(code: int) -> type[CloudEngineError]:
     return CloudEngineError
 
 
-# PERF-NEW-010: module-level OpenerDirector for connection pooling.
+# PERF-: module-level OpenerDirector for connection pooling.
 # Reuses TCP connections across requests (like requests.Session).
 # SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
 # the opener does NOT follow 3xx redirects (the default
 # ``HTTPRedirectHandler`` would silently POST the request body — user
 # audio + API key — to an attacker-controlled redirect target).
-# EC-FIX-8: the handler + builder live in ``_http_safety`` so they're
+# the handler + builder live in ``_http_safety`` so they're
 # shared with ``llm_polish._opener`` (single source of truth).
 _opener = build_secure_opener()
 
 
-# FR-6 (P4-A1): CloudEngine lifecycle is **per-transcription**.
+# (P4-A1): CloudEngine lifecycle is **per-transcription**.
 #
 # Historically this module hosted an 80-line module-level cached-engine
 # infrastructure (``_CACHED_ENGINES``, ``register_cached_cloud_engine``,
@@ -164,17 +164,17 @@ def _read_capped(resp, *, max_bytes: int) -> bytes:
 def _parse_retry_after(header_value: str | None) -> float:
     """Parse a ``Retry-After`` header into a sleep duration in seconds.
 
-    CR-47: RFC 7231 §7.1.3 allows ``Retry-After`` to be either:
-      1. An integer number of seconds, OR
-      2. An HTTP-date (e.g. ``Wed, 21 Oct 2015 07:28:00 GMT``).
+    RFC 7231 §7.1.3 allows ``Retry-After`` to be either:
+          1. An integer number of seconds, OR
+          2. An HTTP-date (e.g. ``Wed, 21 Oct 2015 07:28:00 GMT``).
 
-    We cap the wait at 60 seconds so a hostile or misconfigured server
-    cannot stall the dictation thread indefinitely. A negative or
-    unparseable value falls back to a small default (2s) so we still
-    honor the spirit of "wait briefly before retrying" without trusting
-    the server blindly.
+        We cap the wait at 60 seconds so a hostile or misconfigured server
+        cannot stall the dictation thread indefinitely. A negative or
+        unparseable value falls back to a small default (2s) so we still
+        honor the spirit of "wait briefly before retrying" without trusting
+        the server blindly.
 
-    Returns a float suitable for ``time.sleep``.
+        Returns a float suitable for ``time.sleep``.
     """
     if not header_value:
         return 2.0
@@ -208,16 +208,16 @@ def _parse_retry_after(header_value: str | None) -> float:
 class _StreamingMultipartBody:
     """File-like object that yields multipart body chunks on demand.
 
-    PERF-NEW-019: avoids building the entire multipart body in memory
-    as a single ``bytes`` object. ``urllib.request.Request`` accepts a
-    file-like object as ``data`` and reads it in chunks via ``read()``.
-    This class yields the pre-computed parts list one chunk at a time,
-    reducing peak memory from the full body (~5.2 MB for a 30s
-    recording) to one chunk (~64 KB).
+    PERF-: avoids building the entire multipart body in memory
+        as a single ``bytes`` object. ``urllib.request.Request`` accepts a
+        file-like object as ``data`` and reads it in chunks via ``read()``.
+        This class yields the pre-computed parts list one chunk at a time,
+        reducing peak memory from the full body (~5.2 MB for a 30s
+        recording) to one chunk (~64 KB).
 
-    The ``__contains__`` method supports the ``in`` operator so
-    existing tests like ``assert b"fake_wav_data" in body`` continue
-    to work without materializing the entire body.
+        The ``__contains__`` method supports the ``in`` operator so
+        existing tests like ``assert b"fake_wav_data" in body`` continue
+        to work without materializing the entire body.
     """
 
     _CHUNK_SIZE = 64 * 1024  # 64 KB per read() call
@@ -284,16 +284,16 @@ class _StreamingMultipartBody:
 class CloudEngine:
     """Cloud ASR engine implementing TranscriberProtocol.
 
-    Supports OpenAI, Groq, and Deepgram APIs (all OpenAI-compatible
-    except Deepgram which uses its own format).
+        Supports OpenAI, Groq, and Deepgram APIs (all OpenAI-compatible
+        except Deepgram which uses its own format).
 
-    NEW-PRIV-006: each CloudEngine instance has a ``consent_given``
-    flag that must be True before any audio is sent to the provider.
-    The flag is set from the per-provider consent field on the Config
-    dataclass (``cloud_openai_consent``, ``cloud_groq_consent``,
-    ``cloud_deepgram_consent``).  When consent is False, ``is_loaded``
-    returns False and ``transcribe`` raises a ConsentRequiredError so
-    the IPC layer can surface a consent dialog to the renderer.
+    each CloudEngine instance has a ``consent_given``
+        flag that must be True before any audio is sent to the provider.
+        The flag is set from the per-provider consent field on the Config
+        dataclass (``cloud_openai_consent``, ``cloud_groq_consent``,
+        ``cloud_deepgram_consent``).  When consent is False, ``is_loaded``
+        returns False and ``transcribe`` raises a ConsentRequiredError so
+        the IPC layer can surface a consent dialog to the renderer.
     """
 
     # Per-request timeout for cloud HTTP calls. Reduced from 30s to 10s
@@ -317,7 +317,7 @@ class CloudEngine:
         self.provider = provider
         self.api_key = api_key
         self.language = language
-        # NEW-PRIV-006: per-instance consent flag.  Must be True before
+        # per-instance consent flag.  Must be True before
         # any audio is sent.  Set from Config.cloud_{provider}_consent
         # by the app when the engine is constructed.
         self.consent_given = bool(consent_given)
@@ -358,7 +358,7 @@ class CloudEngine:
 
     @property
     def is_loaded(self) -> bool:
-        # NEW-PRIV-006: consent is required for the engine to be
+        # consent is required for the engine to be
         # considered "loaded" — without consent, the engine should
         # not be selected for transcription.
         return self._loaded and bool(self.api_key) and self.consent_given
@@ -397,11 +397,11 @@ class CloudEngine:
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe audio via cloud API.
 
-        NEW-PRIV-006: refuses to send audio if consent hasn't been
-        given.  Raises CloudConsentRequiredError (a subclass of
-        ConsentRequiredError / RuntimeError so existing catch clauses
-        still work) so the IPC layer can detect this case and show the
-        consent dialog.
+        refuses to send audio if consent hasn't been
+                given.  Raises CloudConsentRequiredError (a subclass of
+                ConsentRequiredError / RuntimeError so existing catch clauses
+                still work) so the IPC layer can detect this case and show the
+                consent dialog.
         """
         if not self.consent_given:
             raise CloudConsentRequiredError(
@@ -438,37 +438,37 @@ class CloudEngine:
     ) -> str:
         """Try cloud transcription; fall back to local engine on failure.
 
-        PERF-NEW-010: if the cloud request fails after all retries,
-        and a local_engine is provided, attempt transcription on it
-        instead of raising.  This gives a best-effort result even
-        when the cloud is temporarily unreachable.
+        PERF-: if the cloud request fails after all retries,
+                and a local_engine is provided, attempt transcription on it
+                instead of raising.  This gives a best-effort result even
+                when the cloud is temporarily unreachable.
 
-        When ``local_engine`` is NOT explicitly passed but the
-        engine was constructed with a ``local_engine_factory`` callable,
-        the factory is invoked lazily to construct the local whisper
-        engine on demand.  This decouples the cloud engine from the
-        model registry / app object: callers that don't know about
-        the local whisper backend (e.g. the streaming session) still
-        get the cloud→local fallback as long as the factory was wired
-        at construction time.  If the factory returns ``None`` (e.g.
-        cold start with whisper not yet registered), the fallback is
-        skipped and the original cloud error is re-raised.
+                When ``local_engine`` is NOT explicitly passed but the
+                engine was constructed with a ``local_engine_factory`` callable,
+                the factory is invoked lazily to construct the local whisper
+                engine on demand.  This decouples the cloud engine from the
+                model registry / app object: callers that don't know about
+                the local whisper backend (e.g. the streaming session) still
+                get the cloud→local fallback as long as the factory was wired
+                at construction time.  If the factory returns ``None`` (e.g.
+                cold start with whisper not yet registered), the fallback is
+                skipped and the original cloud error is re-raised.
 
-        NEW-PERF-010 (a-review Finding 8): ``audio_stats`` is accepted
-        for signature parity with the three local engines
-        (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
-        can pass it unconditionally without a broad ``except TypeError``
-        fallback. The cloud engines don't use it — RMS/peak/silence
-        detection is irrelevant when audio is shipped to a remote API
-        — so the value is simply ignored here on the cloud path.
-        When a ``local_engine`` is provided, ``audio_stats`` is forwarded
-        so the local fallback benefits from the same pre-computation
-        (all three local engines accept the kwarg).
+        (a-review Finding 8): ``audio_stats`` is accepted
+                for signature parity with the three local engines
+                (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
+                can pass it unconditionally without a broad ``except TypeError``
+                fallback. The cloud engines don't use it — RMS/peak/silence
+                detection is irrelevant when audio is shipped to a remote API
+                — so the value is simply ignored here on the cloud path.
+                When a ``local_engine`` is provided, ``audio_stats`` is forwarded
+                so the local fallback benefits from the same pre-computation
+                (all three local engines accept the kwarg).
         """
         try:
             return self.transcribe(audio)
         except ConsentRequiredError:
-            # DE-31: consent errors must propagate — do NOT fall back to
+            # consent errors must propagate — do NOT fall back to
             # the local engine (the user explicitly declined cloud consent;
             # silently falling back would violate that choice).
             raise
@@ -495,7 +495,7 @@ class CloudEngine:
                     cloud_err,
                     exc_info=True,
                 )
-                # XZ-R18-08: surface the fallback to the renderer so the
+                # surface the fallback to the renderer so the
                 # user gets a visible toast ("cloud provider X failed,
                 # used local engine instead"). Without this signal the
                 # cloud outage is invisible until the user checks the
@@ -528,7 +528,7 @@ class CloudEngine:
                     # Include exc_info so the local fallback
                     # failure traceback is captured for debugging.
                     log.error("[CLOUD] Local fallback also failed: %s", local_err, exc_info=True)
-                    # S1-CR-24: re-raise the ORIGINAL cloud error (not a
+                    # re-raise the ORIGINAL cloud error (not a
                     # bare RuntimeError) so the dictation pipeline's
                     # ``_friendly_transcription_error`` can match the
                     # exception type (ConnectionError, TimeoutError,
@@ -566,16 +566,16 @@ class CloudEngine:
     def _send_openai_compatible(self, wav_bytes: bytes, filename: str) -> str:
         """Send request to OpenAI-compatible API (OpenAI, Groq).
 
-        RELIABILITY-004: asserts the configured ``api_url`` is in the
-        trusted-host allowlist before sending any audio.  This closes
-        the SEC-002 endpoint-swap vector at the cloud-engine layer:
-        even if an attacker finds another path to write
-        ``config.cloud_api_url``, this engine refuses to send audio
-        to an untrusted host.
+                RELIABILITY-004: asserts the configured ``api_url`` is in the
+                trusted-host allowlist before sending any audio.  This closes
+                the SEC-002 endpoint-swap vector at the cloud-engine layer:
+                even if an attacker finds another path to write
+                ``config.cloud_api_url``, this engine refuses to send audio
+                to an untrusted host.
 
-        PERF-NEW-010: exponential backoff retry (3 attempts) for
-        transient network errors.  Connection pooling via a module-
-        level OpenerDirector (urllib's equivalent of requests.Session).
+        PERF-: exponential backoff retry (3 attempts) for
+                transient network errors.  Connection pooling via a module-
+                level OpenerDirector (urllib's equivalent of requests.Session).
         """
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
@@ -593,8 +593,8 @@ class CloudEngine:
 
         boundary = "----VoiceTyperBoundary7MA4YWxkTrZu0gW"
 
-        # PERF-NEW-010: retry with exponential backoff.
-        # CR-47/CR-48: HTTPError is a subclass of URLError, so it must be
+        # PERF-: retry with exponential backoff.
+        # HTTPError is a subclass of URLError, so it must be
         # caught FIRST. Retrying 4xx (auth failures, bad request) is
         # counterproductive — the request will never succeed without a
         # config change — and burns API quota. 429 (Too Many Requests) is
@@ -626,7 +626,7 @@ class CloudEngine:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
-                # PERF-NEW-019: pass Content-Length explicitly so urllib
+                # PERF-: pass Content-Length explicitly so urllib
                 # uses a single write instead of chunked encoding. The
                 # _StreamingMultipartBody.__len__ returns the total length.
                 "Content-Length": str(len(body)),
@@ -644,7 +644,7 @@ class CloudEngine:
                     log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
                     return text
             except HTTPError as exc:
-                # CR-47: 429 Too Many Requests is the only retryable 4xx.
+                # 429 Too Many Requests is the only retryable 4xx.
                 # Honor Retry-After (numeric seconds or HTTP-date); cap the
                 # wait at 60s so a hostile server can't stall us forever.
                 # Only retry once on 429 — the backoff loop is intended for
@@ -684,7 +684,7 @@ class CloudEngine:
                 err_cls = _cloud_http_error_class(exc.code)
                 raise err_cls(f"{self.provider} API error (HTTP {exc.code})") from exc
             except URLError as exc:
-                # CR-48: URLError that is NOT an HTTPError = transient
+                # URLError that is NOT an HTTPError = transient
                 # network error (timeout, connection reset, DNS failure).
                 # Retry with exponential backoff.
                 if attempt < max_retries - 1:
@@ -716,7 +716,7 @@ class CloudEngine:
                     # ``server.cloud_network_error``.
                     raise CloudNetworkError(f"{self.provider} API error") from exc
             except Exception as exc:
-                # XZ-PII-06: use the same ``redact_secret(redact_url(...))``
+                # use the same ``redact_secret(redact_url(...))``
                 # chain as the HTTPError / URLError branches above so a
                 # generic Exception carrying a URL-embedded credential
                 # (e.g. ``https://user:pass@host/...`` echoed back in a
@@ -726,7 +726,7 @@ class CloudEngine:
                 # Include exc_info so the unexpected-exception
                 # traceback is captured for debugging.
                 log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg, exc_info=True)
-                # NEW-UX-029: include the underlying error in the user-facing
+                # include the underlying error in the user-facing
                 # message so the user can tell if it's a network issue vs an
                 # API error. Pre-fix this was a generic "request failed" with
                 # no hint about the cause.
@@ -741,18 +741,18 @@ class CloudEngine:
     def _send_deepgram(self, wav_bytes: bytes) -> str:
         """Send request to Deepgram API.
 
-        RELIABILITY-004: same URL allowlist + log redaction as the
-        OpenAI-compatible path.
+                RELIABILITY-004: same URL allowlist + log redaction as the
+                OpenAI-compatible path.
 
-        SEC-005: query parameters (model, language) are URL-encoded
-        to prevent parameter injection via crafted config values.
-        Previously the URL was built with f-string interpolation,
-        which let an attacker inject extra query parameters or path
-        segments via ``config.cloud_model`` (e.g. ``"&punctuate=false&"
-        "smart_format=true"``).
+                SEC-005: query parameters (model, language) are URL-encoded
+                to prevent parameter injection via crafted config values.
+                Previously the URL was built with f-string interpolation,
+                which let an attacker inject extra query parameters or path
+                segments via ``config.cloud_model`` (e.g. ``"&punctuate=false&"
+                "smart_format=true"``).
 
-        PERF-NEW-010: exponential backoff retry (3 attempts) for
-        transient network errors, matching the OpenAI-compatible path.
+        PERF-: exponential backoff retry (3 attempts) for
+                transient network errors, matching the OpenAI-compatible path.
         """
         # Opt in to allow_loopback_http=True — see the
         # OpenAI-compatible transcribe path above for the rationale.
@@ -788,8 +788,8 @@ class CloudEngine:
         url = f"{self.api_url}?{query}"
         req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
-        # PERF-NEW-010: retry with exponential backoff (same as OpenAI path).
-        # CR-47/CR-48: HTTPError caught before URLError; 4xx (except 429)
+        # PERF-: retry with exponential backoff (same as OpenAI path).
+        # HTTPError caught before URLError; 4xx (except 429)
         # is not retried; 429 honors Retry-After (capped at 60s, retry once).
         max_retries = 3
         retried_429 = False
@@ -818,7 +818,7 @@ class CloudEngine:
                             return text
                     return ""
             except HTTPError as exc:
-                # CR-47: 429 is the only retryable 4xx; honor Retry-After
+                # 429 is the only retryable 4xx; honor Retry-After
                 # and retry once. All other 4xx/5xx surface immediately.
                 if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
                     retried_429 = True
@@ -847,7 +847,7 @@ class CloudEngine:
                 err_cls = _cloud_http_error_class(exc.code)
                 raise err_cls(f"Deepgram API error (HTTP {exc.code})") from exc
             except URLError as exc:
-                # CR-48: URLError (non-HTTPError) = transient network error.
+                # URLError (non-HTTPError) = transient network error.
                 if attempt < max_retries - 1:
                     import time as _time
 
@@ -869,7 +869,7 @@ class CloudEngine:
                     # ``RuntimeError``).
                     raise CloudNetworkError("Deepgram API error") from exc
             except Exception as exc:
-                # XZ-PII-06: same ``redact_secret(redact_url(...))``
+                # same ``redact_secret(redact_url(...))``
                 # chain as the OpenAI-compatible path above — keeps
                 # redaction consistent across all four error branches.
                 safe_msg = redact_secret(redact_url(str(exc)))
@@ -885,18 +885,18 @@ class CloudEngine:
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str):
         """Build multipart/form-data body for OpenAI-compatible APIs.
 
-        PERF-NEW-019: the previous implementation concatenated all parts
-        into a single ``bytes`` object via ``b"".join(parts)``. For a
-        30s recording at 16 kHz float32, that's ~5.2 MB held in memory
-        as one contiguous block. This method now returns a
-        ``_StreamingMultipartBody`` file-like object that yields chunks
-        on demand, reducing peak memory to one chunk (~64 KB) at a time.
-        ``Content-Length`` is computed upfront so the server knows the
-        total size without chunked transfer encoding.
+        PERF-: the previous implementation concatenated all parts
+                into a single ``bytes`` object via ``b"".join(parts)``. For a
+                30s recording at 16 kHz float32, that's ~5.2 MB held in memory
+                as one contiguous block. This method now returns a
+                ``_StreamingMultipartBody`` file-like object that yields chunks
+                on demand, reducing peak memory to one chunk (~64 KB) at a time.
+                ``Content-Length`` is computed upfront so the server knows the
+                total size without chunked transfer encoding.
 
-        The test ``test_build_multipart_body`` calls ``b"fake_wav_data"
-        in body`` — ``_StreamingMultipartBody`` supports ``in`` via
-        ``__contains__`` so the test still passes.
+                The test ``test_build_multipart_body`` calls ``b"fake_wav_data"
+                in body`` — ``_StreamingMultipartBody`` supports ``in`` via
+                ``__contains__`` so the test still passes.
         """
         parts = self._multipart_parts(wav_bytes, filename, boundary)
         return _StreamingMultipartBody(parts)

@@ -1,7 +1,7 @@
 """Hotkey spec parsing and key-name normalisation.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045) — see ``native_hotkeys/__init__.py`` for the package-level
+() — see ``native_hotkeys/__init__.py`` for the package-level
 re-export surface that preserves the legacy
 ``voice_typer.server.native_hotkeys`` import path.
 
@@ -33,37 +33,37 @@ log = logging.getLogger("voice_typer.server.native_hotkeys")
 def parse_hotkey_spec(spec: str) -> dict | None:
     """Parse a pynput-style hotkey spec into a structured form.
 
-    Returns a dict with keys:
-        - ``modifiers``: set of modifier names (lowercased: ctrl, shift, alt, cmd, fn)
-        - ``main_key``: the non-modifier key name, or None if modifier-only
-        - ``is_fn_only``: True if the hotkey is exactly ``<fn>``
-        - ``is_modifier_only``: True if the hotkey is a single modifier
-          (e.g. ``<alt>``, ``<caps_lock>``)
-        - ``is_caps_lock``: True if main_key is "CapsLock"
+        Returns a dict with keys:
+            - ``modifiers``: set of modifier names (lowercased: ctrl, shift, alt, cmd, fn)
+            - ``main_key``: the non-modifier key name, or None if modifier-only
+            - ``is_fn_only``: True if the hotkey is exactly ``<fn>``
+            - ``is_modifier_only``: True if the hotkey is a single modifier
+              (e.g. ``<alt>``, ``<caps_lock>``)
+            - ``is_caps_lock``: True if main_key is "CapsLock"
 
-    Returns None if the spec is empty or unparseable.
+        Returns None if the spec is empty or unparseable.
 
-    RW-1 (Hotkey parser unification): this now delegates to the
-    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
-    tokenisation and alias resolution, then converts the resulting
-    :class:`HotkeySpec` to the dict format consumers expect.
+    (Hotkey parser unification): this now delegates to the
+        canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
+        tokenisation and alias resolution, then converts the resulting
+        :class:`HotkeySpec` to the dict format consumers expect.
 
-    Platform-specific modifier collapsing — preserved for backward
-    compatibility with the wire-protocol matching logic in this
-    module (``_on_modifier_event`` maps wire ``Cmd``/``Win``/``Super``
-    events to ``"cmd"``, and ``<cmd>`` is expected to match
-    ``MOD_DOWN:Win`` on Windows and ``MOD_DOWN:Super`` on Linux):
+        Platform-specific modifier collapsing — preserved for backward
+        compatibility with the wire-protocol matching logic in this
+        module (``_on_modifier_event`` maps wire ``Cmd``/``Win``/``Super``
+        events to ``"cmd"``, and ``<cmd>`` is expected to match
+        ``MOD_DOWN:Win`` on Windows and ``MOD_DOWN:Super`` on Linux):
 
-    - Canonical ``"win"`` → ``"cmd"`` (this adapter collapses)
-    - Canonical ``"super"`` → ``"cmd"`` (this adapter collapses)
-    - Canonical ``"alt_gr"`` → ``"altgr"`` (wire-protocol name has
-      no underscore)
+        - Canonical ``"win"`` → ``"cmd"`` (this adapter collapses)
+        - Canonical ``"super"`` → ``"cmd"`` (this adapter collapses)
+        - Canonical ``"alt_gr"`` → ``"altgr"`` (wire-protocol name has
+          no underscore)
 
-    The canonical parser preserves the distinction; this adapter
-    collapses for platform-specific matching. The Win32 adapter
-    (``parse_hotkey_to_win32``) collapses ``win`` / ``super`` / ``cmd``
-    into ``_MOD_WIN`` for the same reason (Windows does not
-    distinguish).
+        The canonical parser preserves the distinction; this adapter
+        collapses for platform-specific matching. The Win32 adapter
+        (``parse_hotkey_to_win32``) collapses ``win`` / ``super`` / ``cmd``
+        into ``_MOD_WIN`` for the same reason (Windows does not
+        distinguish).
     """
     from voice_typer.server.hotkey_spec import parse_hotkey
 
@@ -112,7 +112,7 @@ def parse_hotkey_spec(spec: str) -> dict | None:
 def _normalize_key_name(token: str) -> str:
     """Normalize a non-modifier key token to the wire-protocol name.
 
-    ISSUE-3 (Key-name maps): this function is the canonical
+    Key-name maps: this function is the canonical
     name-to-name transformer for the THREE independent key-name tables:
 
       Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput

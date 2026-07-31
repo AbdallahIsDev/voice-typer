@@ -23,18 +23,18 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# ER-55: precompiled regexes — was `re.sub(r"\s+", ...)` recompiled per call
+# precompiled regexes — was `re.sub(r"\s+", ...)` recompiled per call
 # (Python's re module has an internal cache, but with MAX_TEMPLATES=1000 the
 # inner loop re-looks-up the cached pattern 1000 times per dictation).
 _WHITESPACE_RE = re.compile(r"\s+")
-# ER-55: single regex pass for variable substitution with lazy resolution.
+# single regex pass for variable substitution with lazy resolution.
 # Was: 4 eager str.replace() calls, including a potentially-blocking
 # _get_clipboard_text() even when the output had no {clipboard} placeholder.
 _TEMPLATE_VAR_RE = re.compile(r"\{(today|now|clipboard|username)\}")
 
 TEMPLATES_FILENAME = "voice-typer-templates.json"
 
-# G4-M-38: SEC-011-style caps for templates to prevent resource
+# SEC-011-style caps for templates to prevent resource
 # exhaustion. Mirror vocabulary.MAX_CORRECTIONS_ENTRIES pattern.
 MAX_TEMPLATES = 1000
 MAX_TRIGGER_LENGTH = 200
@@ -63,7 +63,7 @@ def substitute_variables(text: str) -> str:
         {clipboard} — current clipboard content
         {username}  — OS username
 
-    ER-55: single regex pass with lazy variable resolution. The old code
+    single regex pass with lazy variable resolution. The old code
     eagerly computed all 4 values (including a potentially-blocking
     _get_clipboard_text() call) even when the output text contained none
     of the variables. Now each variable is resolved only when its
@@ -98,7 +98,7 @@ def substitute_variables(text: str) -> str:
 def _safe_getuser() -> str:
     """Get username safely, returning 'user' on any failure.
 
-    NEW-CQ-013: ``getpass.getuser()`` always returns ``str`` (or raises).
+    ``getpass.getuser()`` always returns ``str`` (or raises).
     The previous ``isinstance(name, str)`` check was dead code. Simplified
     to a direct truthiness check.
     """
@@ -130,32 +130,32 @@ class TemplateManager:
 
         self._store = PersistedJSON(self._path, default={"templates": []})
         self._templates: list[dict] = []
-        # XZ-R11-06: re-entrant lock guarding ``_templates`` +
+        # re-entrant lock guarding ``_templates`` +
         # ``_exact_index`` + ``_contains_list``.  ``match`` iterates
         # the indexes while CRUD methods (``add`` / ``update`` /
         # ``delete`` / ``import_json``) mutate ``_templates`` and
         # rebuild the indexes via ``_rebuild_indexes``.  Without a
         # lock, a CRUD mutation interleaved with a ``match`` iteration
-        # could observe a half-rebuilt index — the same race CR-23
+        # could observe a half-rebuilt index — the same race
         # fixed for ``VocabularyManager``.  ``RLock`` because ``_save``
         # is called from inside already-locked CRUD methods and
         # ``add``'s rollback path re-mutates ``_templates``.
         self._lock = threading.RLock()
-        # S5-CR-60: match indexes for O(1) exact lookup + reduced-scan
+        # match indexes for O(1) exact lookup + reduced-scan
         # contains lookup. Rebuilt by ``_rebuild_indexes`` after every
         # mutation (add/update/delete/import/load). Pre-fix ``match`` did
         # an O(N) linear scan of ``self._templates`` on every dictation;
         # with MAX_TEMPLATES=1000 that was 1000 iterations per call.
         self._exact_index: dict[str, dict] = {}
         self._contains_list: list[tuple[str, dict]] = []
-        # S5-CR-60: _load() calls _rebuild_indexes() at its end so the
+        # _load() calls _rebuild_indexes() at its end so the
         # indexes are populated by the time __init__ returns.
         self._load()
 
-    # ── Match indexes (S5-CR-60) ─────────────────────────────────────
+    # ── Match indexes () ─────────────────────────────────────
 
     def _rebuild_indexes(self) -> None:
-        """S5-CR-60: rebuild the match indexes from ``self._templates``.
+        """rebuild the match indexes from ``self._templates``.
 
         Called after ``_load`` and after every mutation (add/update/
         delete/import). The indexes let ``match`` do an O(1) dict lookup
@@ -181,6 +181,19 @@ class TemplateManager:
         self._exact_index = {}
         self._contains_list = []
         for t in self._templates:
+            # skip templates without a usable ``output`` field.
+            # ``_load`` already validates structure on the load path,
+            # but templates added via ``update`` (which writes raw
+            # user input directly into the dict without an
+            # ``"output" in t`` guard) or via direct IPC mutation can
+            # still reach here with a missing/None output. Pre-fix,
+            # such a template would be indexed and then cause
+            # ``KeyError: 'output'`` inside ``match`` — breaking the
+            # template-matching pipeline mid-dictation. Skipping it
+            # here means ``match`` can safely use ``.get("output", "")``
+            # and never KeyError.
+            if not t.get("output"):
+                continue
             trigger = t.get("trigger", "")
             if not trigger:
                 continue
@@ -204,7 +217,7 @@ class TemplateManager:
     def templates(self) -> list[dict]:
         """Public read accessor for the templates list.
 
-        XS-15: the previous public ``templates`` attribute was renamed
+        the previous public ``templates`` attribute was renamed
         to ``_templates`` (private) without a property shim, breaking
         every caller — tests, IPC handlers, the tray menu builder, and
         the on-disk persistence round-trip in
@@ -220,7 +233,7 @@ class TemplateManager:
         (shallow copy) — callers that need to mutate a template should
         use :meth:`update` so the change persists to disk.
 
-        XZ-R11-06: copies under the lock so a concurrent CRUD mutation
+        copies under the lock so a concurrent CRUD mutation
         can't observe a half-updated list (e.g. ``_templates.pop``
         mid-iteration by ``delete``).
         """
@@ -250,19 +263,59 @@ class TemplateManager:
         file with a symlink to a sensitive file (e.g.
         ``~/.ssh/id_rsa``).
 
-        XZ-R11-06: ``_load`` is called only from ``__init__`` (before
+        ``_load`` is called only from ``__init__`` (before
         the instance is published to other threads), so it does NOT
         acquire ``self._lock`` — the lock guards public-method
         interleaving, not single-threaded construction.
+
+        validate each item's structure (must be a dict with both
+        ``trigger`` and ``output`` keys) BEFORE assigning to
+        ``self._templates``. Pre-fix, a valid-JSON-but-wrong-structure
+        file (e.g. ``{"templates": [42, "foo", null]}`` or
+        ``{"templates": [{"trigger": "no_output"}]}``) passed the
+        ``isinstance(data, list)`` / ``"templates" in data`` checks but
+        then crashed ``_rebuild_indexes`` with
+        ``AttributeError: 'int' object has no attribute 'get'`` (or
+        ``match`` with ``KeyError: 'output'``) — and since ``_load`` is
+        called from ``__init__`` with no try/except, the constructor
+        raised, crashing app startup with an opaque traceback and no
+        recovery path (the file is NOT quarantined because the JSON
+        itself is valid). The validation mirrors the one already
+        enforced in ``import_json`` (line ~472) so the two load paths
+        agree on what counts as a well-formed template.
         """
         data = self._store.load()
         if isinstance(data, list):
-            self._templates = data
+            raw_list = data
         elif isinstance(data, dict) and "templates" in data:
-            self._templates = data["templates"]
+            raw_list = data["templates"]
         else:
-            self._templates = []
-        # S5-CR-60: rebuild match indexes after load.
+            raw_list = []
+        # per-item structural validation. Drop any item that
+        # isn't a dict or that lacks a "trigger" or "output" key, and
+        # log a single warning summarising the dropped count so the
+        # user can see their file was partially-corrupt (the file is
+        # NOT quarantined — the JSON itself is valid; only the
+        # per-item structure is wrong, so we keep the file and just
+        # skip the bad entries). Mirrors the import_json validation.
+        if not isinstance(raw_list, list):
+            raw_list = []
+        validated: list[dict] = []
+        dropped = 0
+        for t in raw_list:
+            if isinstance(t, dict) and "trigger" in t and "output" in t:
+                validated.append(t)
+            else:
+                dropped += 1
+        if dropped:
+            log.warning(
+                "[TEMPLATES] Dropped %d malformed template(s) from %s "
+                "(each must be a dict with both 'trigger' and 'output' keys)",
+                dropped,
+                self._path,
+            )
+        self._templates = validated
+        # rebuild match indexes after load.
         self._rebuild_indexes()
         log.info("[TEMPLATES] Loaded %d templates from %s", len(self._templates), self._path)
 
@@ -287,13 +340,13 @@ class TemplateManager:
         can roll back their in-memory mutation and the IPC layer can
         surface the failure to the renderer.
 
-        XZ-R11-06: caller is expected to hold ``self._lock`` (all
+        caller is expected to hold ``self._lock`` (all
         current callers — the public CRUD methods — already do).
         """
         try:
             # PersistedJSON.save handles atomic write + .bak
             # + 0o600 perms + parent-dir creation in one call.
-            # DJ-52: durability=False — the atomic os.replace still
+            # durability=False — the atomic os.replace still
             # guarantees consistency (no half-written files); only the
             # per-save fsync is dropped. Template edits are frequent
             # (CRUD ops from the settings UI) and a power-loss window
@@ -301,7 +354,7 @@ class TemplateManager:
             self._store.save({"templates": self._templates}, durability=False)
         except Exception:
             # M-62: log then re-raise so callers can roll back.
-            # G4-H-38: use log.exception so the traceback is captured
+            # use log.exception so the traceback is captured
             # automatically via sys.exc_info().
             log.exception("[TEMPLATES] Failed to save")
             raise
@@ -311,7 +364,7 @@ class TemplateManager:
         """Add a new template. Returns the created template dict, or
         ``None`` if rejected.
 
-        G4-M-38: enforces SEC-011-style caps:
+        enforces SEC-011-style caps:
           - Per-field length cap: ``MAX_TRIGGER_LENGTH``,
             ``MAX_OUTPUT_LENGTH``. Oversized entries are rejected with
             a logged warning.
@@ -322,7 +375,7 @@ class TemplateManager:
         raises, the appended entry is popped back off so the
         in-memory state stays consistent with the on-disk state.
 
-        XZ-R11-06: the entire read-validate-mutate-save-rebuild
+        the entire read-validate-mutate-save-rebuild
         sequence runs under ``self._lock`` so a concurrent ``match``
         or CRUD call can't observe a half-applied mutation.
         """
@@ -367,7 +420,7 @@ class TemplateManager:
                         del self._templates[i]
                         break
                 raise
-            # S5-CR-60: rebuild match indexes after mutation.
+            # rebuild match indexes after mutation.
             self._rebuild_indexes()
             return template
 
@@ -378,7 +431,7 @@ class TemplateManager:
         on save failure so the in-memory state stays consistent with
         the on-disk state.
 
-        XZ-R11-06: the snapshot-mutate-save-rebuild sequence runs
+        the snapshot-mutate-save-rebuild sequence runs
         under ``self._lock`` so a concurrent ``match`` can't observe
         a half-updated entry.
         """
@@ -400,7 +453,7 @@ class TemplateManager:
                 entry["output"] = old_output
                 entry["match_mode"] = old_match_mode
                 raise
-            # S5-CR-60: rebuild match indexes after mutation.
+            # rebuild match indexes after mutation.
             self._rebuild_indexes()
             return entry
 
@@ -411,7 +464,7 @@ class TemplateManager:
         same index on save failure so the in-memory state stays
         consistent with the on-disk state.
 
-        XZ-R11-06: the pop-save-rebuild sequence runs under
+        the pop-save-rebuild sequence runs under
         ``self._lock`` so a concurrent ``match`` can't observe the
         list mid-pop.
         """
@@ -425,7 +478,7 @@ class TemplateManager:
                 # Rollback: re-insert at the original index.
                 self._templates.insert(index, removed)
                 raise
-            # S5-CR-60: rebuild match indexes after mutation.
+            # rebuild match indexes after mutation.
             self._rebuild_indexes()
             return True
 
@@ -434,7 +487,7 @@ class TemplateManager:
     def export_json(self) -> str:
         """Export templates as a JSON string.
 
-        XZ-R11-06: snapshot ``_templates`` under the lock before
+        snapshot ``_templates`` under the lock before
         serializing so a concurrent CRUD mutation can't produce a
         half-serialized JSON (e.g. ``json.dumps`` observing a list
         mid-``pop``).
@@ -446,7 +499,7 @@ class TemplateManager:
     def import_json(self, json_str: str) -> int:
         """Import templates from a JSON string. Returns number imported.
 
-        G4-M-38: enforces SEC-011-style caps:
+        enforces SEC-011-style caps:
           - Drops templates whose trigger exceeds
             ``MAX_TRIGGER_LENGTH`` or output exceeds
             ``MAX_OUTPUT_LENGTH`` (mirrors
@@ -458,7 +511,7 @@ class TemplateManager:
         save failure so the in-memory state stays consistent with the
         on-disk state.
 
-        XZ-R11-06: the validate-extend-save-rebuild sequence runs
+        the validate-extend-save-rebuild sequence runs
         under ``self._lock`` so a concurrent ``match`` can't observe
         a half-extended list.
         """
@@ -517,7 +570,7 @@ class TemplateManager:
                     # Rollback: truncate back to the pre-import length.
                     del self._templates[old_len:]
                     raise
-                # S5-CR-60: rebuild match indexes after mutation.
+                # rebuild match indexes after mutation.
                 self._rebuild_indexes()
                 return len(to_add)
             except Exception:
@@ -538,7 +591,7 @@ class TemplateManager:
         - "contains" mode: the trigger must be found anywhere in the text
         - Shortest trigger wins when multiple templates match
 
-        S5-CR-60: pre-fix this method did an O(N) linear scan of
+        pre-fix this method did an O(N) linear scan of
         ``self._templates`` on every dictation. With MAX_TEMPLATES=1000
         that was up to 1000 iterations per call (re-normalizing each
         trigger's text on every call too). Now the exact-mode templates
@@ -551,7 +604,7 @@ class TemplateManager:
         can still win — matching the pre-fix behavior where a short
         contains trigger beats a long exact trigger.
 
-        XZ-R11-06: snapshot the match indexes under ``self._lock``
+        snapshot the match indexes under ``self._lock``
         BEFORE iterating so a concurrent CRUD mutation (which
         reassigns ``_exact_index`` / ``_contains_list`` via
         ``_rebuild_indexes``) can't leave ``match`` iterating a
@@ -563,24 +616,24 @@ class TemplateManager:
             if not text or not self._templates:
                 return None
 
-            normalized = _WHITESPACE_RE.sub(" ", text.strip()).lower()  # ER-55
+            normalized = _WHITESPACE_RE.sub(" ", text.strip()).lower()  #
 
             best_match: dict | None = None
             best_len = float("inf")
 
-            # S5-CR-60: O(1) exact lookup. The exact match (if any) sets
+            # O(1) exact lookup. The exact match (if any) sets
             # the upper-bound length for the contains scan below.
             exact_t = self._exact_index.get(normalized)
             if exact_t is not None:
                 best_match = exact_t
                 best_len = len(normalized)
 
-            # S5-CR-60: reduced-scan contains lookup. The list is sorted by
+            # reduced-scan contains lookup. The list is sorted by
             # trigger length ascending; once we see a trigger whose length
             # is >= best_len, no subsequent (longer) trigger can beat the
             # current best, so we early-exit. Before any match is found
             # (best_len == inf) we scan the entire contains list.
-            # XZ-R11-06: iterate a snapshot of the list so a concurrent
+            # iterate a snapshot of the list so a concurrent
             # ``_rebuild_indexes`` (which reassigns ``_contains_list``)
             # can't truncate our iteration mid-scan.
             contains_snapshot = list(self._contains_list)
@@ -593,7 +646,16 @@ class TemplateManager:
 
             if best_match is None:
                 return None
-            output = best_match["output"]
+            # use ``.get("output", "")`` instead of a direct
+            # subscript. ``_rebuild_indexes`` now skips templates
+            # without an ``output`` field, so ``best_match`` should
+            # always have one — but a defensive ``.get`` keeps
+            # ``match`` from raising ``KeyError`` if a future code
+            # path adds a template to the index without going through
+            # ``_rebuild_indexes``'s validation. An empty-output
+            # template substituting to "" is a graceful no-op rather
+            # than a pipeline-crashing KeyError.
+            output = best_match.get("output", "")
 
         # Substitute variables OUTSIDE the lock so the (potentially
         # blocking) clipboard read in ``{clipboard}`` doesn't block

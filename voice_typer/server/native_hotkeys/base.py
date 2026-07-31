@@ -1,7 +1,7 @@
 """Base class for native subprocess hotkey backends.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 This module owns:
 
@@ -58,7 +58,7 @@ MAX_RESTART_ATTEMPTS = 5
 RESTART_DELAY_BASE_SECONDS = 1.0  # 1, 2, 4, 8, 16s backoff
 READY_TIMEOUT_SECONDS = 5.0
 
-# G4-H-31: liveness watchdog constants.
+# liveness watchdog constants.
 #   * ``_WATCHDOG_PING_INTERVAL_SECONDS`` — how often the watchdog
 #     writes ``PING\n`` to the binary's stdin.
 #   * ``_WATCHDOG_PONG_TIMEOUT_SECONDS`` — how long the watchdog waits
@@ -88,7 +88,7 @@ class SubprocessHotkeyBackend(ABC):
     platform_name: str = "subprocess"
     supports_fn: bool = False
 
-    # ZR-65: table-driven wire-protocol dispatch.
+    # table-driven wire-protocol dispatch.
     #
     # Each entry is ``(prefix, handler_method_name, down_flag)``:
     #   - ``prefix``    — the wire-protocol line prefix to match
@@ -135,7 +135,7 @@ class SubprocessHotkeyBackend(ABC):
         self._ready_event = threading.Event()
         self._failed = False
         self._error_message: str | None = None
-        # XZ-R6-NH-02: accept an explicit ``binary_path`` from the
+        # accept an explicit ``binary_path`` from the
         # factory so the SHA-256-verified binary discovered by
         # ``create_native_backend`` is the one we actually spawn —
         # previously the constructor re-discovered via
@@ -145,10 +145,10 @@ class SubprocessHotkeyBackend(ABC):
         # a factory still work; when it's None we fall back to
         # ``get_native_binary_path()`` to preserve the pre-fix behavior.
         # The factory (owned by another agent) needs a follow-up to
-        # pass its verified ``binary`` here: see XZ-R6-NH-02 cross-file
+        # pass its verified ``binary`` here: see  cross-file
         # note in the assignment.
         self._binary_path: Path | None = binary_path if binary_path is not None else get_native_binary_path()
-        # CR-007 (IMPROVE-mode run, 2026-07-21): restart lock + instance-level
+        # restart lock + instance-level
         # attempt counter. Pre-fix, ``_reader_loop`` used a LOCAL ``attempts``
         # counter and the old thread did ``continue`` after spawning a
         # replacement, causing a fork-bomb (after 5 crashes the backend could
@@ -170,7 +170,7 @@ class SubprocessHotkeyBackend(ABC):
         # (release) instead of key-down. Prevents a press-and-hold from
         # starting and then immediately stopping recording.
         self._toggle_on_keyup: bool = False
-        # GAP-2/GAP-4: optional callbacks invoked from _handle_line and
+        # optional callbacks invoked from _handle_line and
         # _reader_loop. Set by _NativeBackendAdapter (in hotkeys.py) so
         # the adapter can (a) show a permission notification on ERROR
         # and (b) swap to a legacy backend when the native binary dies
@@ -178,9 +178,9 @@ class SubprocessHotkeyBackend(ABC):
         # opt-in and don't affect tests that don't care about them.
         self._on_error_callback: Callable[[str], None] | None = None
         self._on_permanent_failure_callback: Callable[[], None] | None = None
-        # CR-143: optional callback for WARN: lines.
+        # optional callback for WARN: lines.
         self._on_warn_callback: Callable[[str], None] | None = None
-        # G4-H-31: liveness watchdog state.  ``last_event_received_at``
+        # liveness watchdog state.  ``last_event_received_at``
         # is updated in ``_handle_line`` on every recognised wire-protocol
         # event (READY, KEY_DOWN, MOD_DOWN, PONG, etc.).  ``last_pong_received_at``
         # is updated only when a ``PONG`` line is received.  The watchdog
@@ -188,7 +188,7 @@ class SubprocessHotkeyBackend(ABC):
         # hung and needs to be respawned.
         self._last_event_received_at: float = time.time()
         self._last_pong_received_at: float = 0.0
-        # G4-H-31: ``_pong_supported`` is set to True the first time a
+        # ``_pong_supported`` is set to True the first time a
         # ``PONG`` line is received.  Until we've seen at least one PONG,
         # we don't know whether the binary supports the PING/PONG
         # protocol — respawning based on "no PONG" would be a false
@@ -197,22 +197,39 @@ class SubprocessHotkeyBackend(ABC):
         # seen a PONG, we know the binary supports the protocol and the
         # watchdog can safely respawn on PONG absence.
         self._pong_supported: bool = False
-        # G4-H-31: watchdog thread + its own stop event.  The watchdog
+        # watchdog thread + its own stop event.  The watchdog
         # uses a separate stop event so it can be torn down independently
         # of the reader thread (the reader's ``_stop_event`` is shared,
         # but the watchdog needs to survive long enough to be joined in
         # ``stop()`` after the reader has exited).
         self._watchdog_thread: threading.Thread | None = None
         self._watchdog_stop_event = threading.Event()
-        # G4-H-31: optional callback for watchdog restart notifications.
+        # optional callback for watchdog restart notifications.
         # Wired by the adapter to surface a tray notification when the
         # watchdog respawns the binary.  Defaults to None (no-op) so
         # tests that don't care about tray notifications aren't affected.
         self._on_watchdog_restart_callback: Callable[[str], None] | None = None
-        # G4-H-31: callback used by ``start()`` — stashed so the watchdog
+        # callback used by ``start()`` — stashed so the watchdog
         # can call ``self.start(self._callback)`` to respawn without
         # needing the caller to pass the callback again.
         self._callback: Callable[[], None] | None = None
+        # one-shot latch set by
+        # ``stop(shutdown=True)`` (the default for external callers —
+        # main thread / app shutdown).  Once True, ``_watchdog_loop``
+        # skips its respawn path (``stop()`` + ``start(cb)``) and exits
+        # instead of resurrecting the binary.  Without this latch, the
+        # watchdog's respawn sequence races a concurrent main-thread
+        # ``stop()``: the main-thread ``stop()`` hits the idempotency
+        # guard (``if self._stop_event.is_set(): return``) and is a
+        # no-op, so the watchdog's subsequent ``start(cb)`` resurrects
+        # an orphaned native binary that holds the keyboard hook
+        # (Windows) or evdev FDs (Linux) after the app has shut down.
+        # The flag is intentionally NEVER cleared — once shutdown is
+        # requested, the binary must never be respawned by the
+        # watchdog.  ``stop(shutdown=False)`` (used by the watchdog's
+        # own cleanup and by ``start()``'s error-recovery paths) does
+        # NOT set this flag, so legitimate respawns still work.
+        self._shutdown_requested: bool = False
 
     # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
 
@@ -227,7 +244,7 @@ class SubprocessHotkeyBackend(ABC):
         """
         self._toggle_on_keyup = value
 
-    # YJ-56: public setters for the GAP-2/GAP-4 callbacks. Previously
+    # public setters for the / callbacks. Previously
     # the ``_NativeBackendAdapter`` reached into the private
     # ``_on_error_callback`` / ``_on_permanent_failure_callback`` /
     # ``_on_warn_callback`` attributes directly (with
@@ -278,7 +295,7 @@ class SubprocessHotkeyBackend(ABC):
         # Spawn the binary
         self._spawn_process()
 
-        # XZ-R6-NH-01: ``_spawn_process`` may set ``_failed=True`` and
+        # ``_spawn_process`` may set ``_failed=True`` and
         # return early (without spawning) when SHA-256 verification
         # fails OR the binary path is None. Check immediately so the
         # operator sees the precise error message ("binary failed
@@ -286,7 +303,7 @@ class SubprocessHotkeyBackend(ABC):
         # ``_ready_event`` timeout below to overwrite it with the
         # generic "Timed out waiting for READY" message.
         if self._failed:
-            self.stop()
+            self.stop(shutdown=False)
             msg = self._error_message or f"{self.platform_name} binary failed to start"
             raise RuntimeError(msg)
 
@@ -295,21 +312,48 @@ class SubprocessHotkeyBackend(ABC):
             self._failed = True
             self._error_message = f"Timed out waiting for READY from {self.platform_name} binary"
             log.error("[NATIVE-HOTKEY] %s", self._error_message)
-            self.stop()
+            self.stop(shutdown=False)
             raise RuntimeError(self._error_message)
 
         if self._failed:
             msg = self._error_message or f"{self.platform_name} binary failed to start"
             raise RuntimeError(msg)
 
-    def stop(self) -> None:
-        """Stop the binary cleanly."""
+    def stop(self, *, shutdown: bool = True) -> None:
+        """Stop the binary cleanly.
+
+        ``shutdown=True`` (the
+        default for external callers — main thread / app shutdown)
+        latches ``_shutdown_requested=True`` BEFORE the idempotency
+        guard so a concurrent main-thread ``stop()`` that sees
+        ``_stop_event`` already set (by the watchdog's own
+        ``stop(shutdown=False)`` cleanup) still records the shutdown
+        request.  Pre-fix, the main-thread ``stop()`` was a no-op
+        (idempotency guard returned early) and never recorded the
+        shutdown, so the watchdog's subsequent ``start(cb)`` resurrected
+        an orphaned native binary (holding the keyboard hook on Windows
+        or evdev FDs on Linux) after the app had begun shutdown.
+
+        ``shutdown=False`` is used by the watchdog's own respawn
+        cleanup (which is a teardown-for-restart, NOT an app shutdown)
+        and by ``start()``'s internal error-recovery cleanup — neither
+        should latch the shutdown flag, otherwise the watchdog could
+        never respawn (its own cleanup would latch the flag) and a
+        failed ``start()`` would permanently disable the watchdog.
+        """
+        if shutdown:
+            # latch BEFORE the idempotency guard so a concurrent
+            # main-thread stop() that sees ``_stop_event`` already set
+            # (by the watchdog's cleanup stop) still records the
+            # shutdown request.  Once True, this flag is NEVER cleared
+            # — see the ``__init__`` comment for the rationale.
+            self._shutdown_requested = True
         if self._stop_event.is_set():
             return
         log.info("[NATIVE-HOTKEY] Stopping %s backend", self.platform_name)
         self._stop_event.set()
 
-        # G4-H-31: signal the watchdog to exit BEFORE we kill the
+        # signal the watchdog to exit BEFORE we kill the
         # process so it doesn't try to write PING to a dead stdin or
         # race the reader thread's restart logic.  The watchdog is a
         # daemon thread, so even if the join times out it won't block
@@ -384,7 +428,7 @@ class SubprocessHotkeyBackend(ABC):
     def _spawn_process(self) -> None:
         """Spawn the native binary with the hotkey spec as argv[1].
 
-        XZ-R6-NH-01: re-verify the binary's SHA-256 against the
+        re-verify the binary's SHA-256 against the
         manifest BEFORE every spawn. The factory's
         ``verify_native_binary_or_skip`` call at construction time
         covers the FIRST spawn, but the watchdog respawns the binary
@@ -401,7 +445,7 @@ class SubprocessHotkeyBackend(ABC):
         and raises a clear ``RuntimeError`` (rather than spawning an
         untrusted binary).
 
-        XE-12-5: TOCTOU mitigation between ``verify_native_binary_or_skip``
+        TOCTOU mitigation between ``verify_native_binary_or_skip``
         and ``subprocess.Popen``. The previous code did::
 
             if not verify_native_binary_or_skip(self._binary_path):
@@ -452,7 +496,7 @@ class SubprocessHotkeyBackend(ABC):
         Windows limitation: Windows does not have ``O_CLOEXEC`` and
         ``subprocess.Popen`` on Windows does not accept an open fd as
         argv[0] (it must be a path string). The TOCTOU window on
-        Windows is the same as the pre-XE-12-5 code (between verify
+        Windows is the same as the pre- code (between verify
         and the ``CreateProcess`` call inside Popen). This is
         documented as a known limitation; the mitigation on Windows
         is the existing SHA-256 manifest gate (still in place) plus
@@ -473,7 +517,7 @@ class SubprocessHotkeyBackend(ABC):
         # cycle if binary_path.py grows additional deps).
         from .binary_path import verify_native_binary_or_skip
 
-        # XE-12-5: on POSIX, open the file with O_RDONLY | O_CLOEXEC
+        # on POSIX, open the file with O_RDONLY | O_CLOEXEC
         # BEFORE the verify so the fd pins the inode. The fd is held
         # across the verify and Popen so we can detect tampering via
         # a stat mismatch (path-stat vs fd-stat) just before Popen.
@@ -510,7 +554,7 @@ class SubprocessHotkeyBackend(ABC):
             log.error("[NATIVE-HOTKEY] %s", self._error_message)
             return
 
-        # XE-12-5: capture the pinned inode's stat for the pre-Popen
+        # capture the pinned inode's stat for the pre-Popen
         # check. fstat reads metadata directly from the fd (no path
         # re-resolution), so this is the stat of the inode the fd
         # pinned at os.open time — unaffected by any later path swap.
@@ -529,7 +573,7 @@ class SubprocessHotkeyBackend(ABC):
                 log.error("[NATIVE-HOTKEY] %s", self._error_message)
                 return
 
-        # XE-12-5: pre-Popen stat check. If the path's stat differs
+        # pre-Popen stat check. If the path's stat differs
         # from the pinned fd's stat, the file was swapped or modified
         # between os.open and now (which includes the verify window).
         # Refuse to spawn — this is the TOCTOU gate.
@@ -566,7 +610,7 @@ class SubprocessHotkeyBackend(ABC):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                # G4-H-31: change stdin from DEVNULL to PIPE so the
+                # change stdin from DEVNULL to PIPE so the
                 # liveness watchdog can write ``PING\n`` to the binary's
                 # stdin.  The binary is expected to respond with ``PONG\n``;
                 # if it doesn't implement the PING/PONG protocol, the
@@ -589,7 +633,7 @@ class SubprocessHotkeyBackend(ABC):
                     os.close(fd)
             raise RuntimeError(self._error_message) from exc
 
-        # XE-12-5: close the pinned fd now that Popen has spawned.
+        # close the pinned fd now that Popen has spawned.
         # The child has its own reference to the binary via the
         # execve, so the parent's fd is no longer needed. Closing
         # here avoids leaking fds across respawns.
@@ -597,7 +641,7 @@ class SubprocessHotkeyBackend(ABC):
             with contextlib.suppress(OSError):
                 os.close(fd)
 
-        # G4-H-31: reset the liveness timestamps so the freshly-spawned
+        # reset the liveness timestamps so the freshly-spawned
         # binary gets a full 60s grace period before the watchdog
         # considers it hung.  ``_pong_supported`` is NOT reset here —
         # once we've seen a PONG from any spawn of this binary, we know
@@ -613,7 +657,7 @@ class SubprocessHotkeyBackend(ABC):
         )
         self._reader_thread.start()
 
-        # G4-H-31: start (or restart) the liveness watchdog thread.
+        # start (or restart) the liveness watchdog thread.
         # The watchdog writes ``PING\n`` to the binary's stdin every
         # 30s and respawns the binary if it stops responding.  We use
         # a dedicated ``_watchdog_stop_event`` (separate from
@@ -631,7 +675,7 @@ class SubprocessHotkeyBackend(ABC):
     def _reader_loop(self) -> None:
         """Read lines from the binary's stdout and dispatch.
 
-        CR-007 (IMPROVE-mode run, 2026-07-21): the check-then-spawn sequence
+        the check-then-spawn sequence
         is guarded by ``_restart_lock`` and the old thread ``return``s after
         spawning a replacement (was: ``continue`` → fork-bomb). The attempt
         counter is the instance-level ``_restart_attempts`` (was: local
@@ -656,7 +700,7 @@ class SubprocessHotkeyBackend(ABC):
                         self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
                         log.error("[NATIVE-HOTKEY] %s", self._error_message)
                         self._ready_event.set()  # unblock start() wait
-                        # GAP-4: notify the adapter so it can swap to a
+                        # notify the adapter so it can swap to a
                         # legacy backend. The callback is invoked on the
                         # reader thread; adapters must be thread-safe.
                         if self._on_permanent_failure_callback is not None:
@@ -696,7 +740,7 @@ class SubprocessHotkeyBackend(ABC):
                                 self.platform_name,
                             )
                     return
-                # CR-007: the new spawn creates its own reader thread (in
+                # the new spawn creates its own reader thread (in
                 # ``_spawn_process``). The OLD thread (this one) MUST return
                 # so it doesn't compete with the new reader for
                 # ``self._process.stdout.readline()``. Pre-fix, the old
@@ -731,12 +775,12 @@ class SubprocessHotkeyBackend(ABC):
     def _handle_line(self, line: str) -> None:
         """Parse one wire-protocol line and dispatch to the hotkey matcher.
 
-        ZR-65: the dispatch is now table-driven via
+        the dispatch is now table-driven via
         :data:`_WIRE_HANDLERS`. Adding a new event type = one table
         entry + one ``_on_*_event`` handler method, not a new branch
         in a 100-line if/elif chain.
 
-        G4-H-31: every recognised line (except ``PONG``) updates
+        every recognised line (except ``PONG``) updates
         ``_last_event_received_at`` so the liveness watchdog can tell
         whether the binary is producing output.  ``PONG`` is tracked
         separately via ``_last_pong_received_at`` so the watchdog can
@@ -744,14 +788,14 @@ class SubprocessHotkeyBackend(ABC):
         "binary is alive but ignoring PING" (the latter is a strong
         signal of a stuck event loop).
         """
-        # G4-H-31: PONG is tracked separately from generic events so the
+        # PONG is tracked separately from generic events so the
         # watchdog can apply the "no event AND no PONG" respawn rule.
         # PONG does NOT update ``_last_event_received_at``.
         if line == "PONG":
             self._on_pong_event()
             return
 
-        # G4-H-31: update the general "last event received" timestamp
+        # update the general "last event received" timestamp
         # for every other recognised line.  This includes READY,
         # ERROR:, WARN:, and all key/modifier events.  Unrecognised
         # lines also update the timestamp (any output means the binary
@@ -783,7 +827,7 @@ class SubprocessHotkeyBackend(ABC):
 
         log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)
 
-    # ── Wire-protocol event handlers (ZR-65 table-driven dispatch) ────
+    # ── Wire-protocol event handlers ( table-driven dispatch) ────
     #
     # Each handler accepts a single positional ``payload: str`` (the
     # substring after the matching prefix; empty for exact-match
@@ -792,7 +836,7 @@ class SubprocessHotkeyBackend(ABC):
     # omit the ``down`` kwarg (no up/down semantics).
 
     def _on_pong_event(self) -> None:
-        """Handle a ``PONG`` wire-protocol line (G4-H-31).
+        """Handle a ``PONG`` wire-protocol line ().
 
         Updates ``_last_pong_received_at`` and latches
         ``_pong_supported`` on the first PONG so the liveness
@@ -812,7 +856,7 @@ class SubprocessHotkeyBackend(ABC):
         """Handle a ``READY`` wire-protocol line.
 
         Sets ``_ready_event`` (unblocking ``start()``'s READY wait)
-        and resets the per-backend restart counter (CR-007) so a
+        and resets the per-backend restart counter () so a
         transient crash followed by recovery doesn't permanently count
         toward ``MAX_RESTART_ATTEMPTS``.
         """
@@ -828,7 +872,7 @@ class SubprocessHotkeyBackend(ABC):
         READY wait so callers see the failure promptly rather than
         timing out.
 
-        GAP-2: also invokes ``_on_error_callback`` (if registered by
+        also invokes ``_on_error_callback`` (if registered by
         the adapter) so the adapter can classify the error and
         potentially show a permission prompt. The callback is invoked
         on the reader thread; adapters must be thread-safe.
@@ -851,7 +895,7 @@ class SubprocessHotkeyBackend(ABC):
                 )
 
     def _on_warn_event(self, payload: str) -> None:
-        """Handle a ``WARN:<message>`` wire-protocol line (CR-143).
+        """Handle a ``WARN:<message>`` wire-protocol line ().
 
         Non-fatal degradation: logs at WARNING level and invokes
         ``_on_warn_callback`` (if registered by the adapter) so the
@@ -871,10 +915,10 @@ class SubprocessHotkeyBackend(ABC):
                     self.platform_name,
                 )
 
-    # ── Liveness watchdog (G4-H-31) ────────────────────────────────────
+    # ── Liveness watchdog () ────────────────────────────────────
 
     def _watchdog_loop(self) -> None:
-        """G4-H-31: liveness watchdog for the native hotkey binary.
+        """liveness watchdog for the native hotkey binary.
 
         Runs in a dedicated daemon thread.  Every ``_WATCHDOG_PING_INTERVAL_SECONDS``
         (30s) it writes ``PING\n`` to the binary's stdin and expects a
@@ -933,7 +977,7 @@ class SubprocessHotkeyBackend(ABC):
             if self._stop_event.is_set():
                 return
 
-            # G4-H-31: respawn check — "no event AND no PONG for 60s".
+            # respawn check — "no event AND no PONG for 60s".
             # Only enforce PONG absence if the binary is known to
             # support the PING/PONG protocol (``_pong_supported``).
             # Otherwise, an idle binary that doesn't implement PONG
@@ -969,6 +1013,17 @@ class SubprocessHotkeyBackend(ABC):
             # BEFORE calling ``start()`` so the new spawn can start a
             # fresh watchdog.  The OLD watchdog (this thread) exits
             # after ``start()`` returns to avoid having two watchdogs.
+            #
+            # ``stop(shutdown=False)`` is used here because this
+            # is a teardown-for-restart, NOT an app shutdown — latching
+            # ``_shutdown_requested`` here would prevent the watchdog
+            # from ever respawning (its own cleanup would disable it).
+            # The subsequent ``_shutdown_requested`` check guards the
+            # race where the main thread called ``stop(shutdown=True)``
+            # concurrently between our cleanup ``stop()`` and our
+            # ``start(cb)``: in that case the app is shutting down and
+            # we must NOT resurrect the binary (it would orphan the
+            # keyboard hook on Windows or evdev FDs on Linux).
             try:
                 # Stash the callback so we can re-start after stop().
                 cb = self._callback
@@ -978,7 +1033,22 @@ class SubprocessHotkeyBackend(ABC):
                         self.platform_name,
                     )
                     return
-                self.stop()
+                self.stop(shutdown=False)
+                # if the main thread called ``stop(shutdown=True)``
+                # while we were inside ``stop(shutdown=False)`` above
+                # (or any time before this point), ``_shutdown_requested``
+                # is now latched.  Do NOT resurrect the binary — the app
+                # is shutting down and an orphaned native binary would
+                # hold the keyboard hook (Windows) or evdev FDs (Linux)
+                # after the parent has exited.  Once True, this flag is
+                # NEVER cleared (see ``__init__``).
+                if self._shutdown_requested:
+                    log.info(
+                        "[NATIVE-HOTKEY] %s watchdog: shutdown requested during "
+                        "respawn cleanup; not resurrecting binary",
+                        self.platform_name,
+                    )
+                    return
                 # ``stop()`` set ``_watchdog_stop_event`` — clear it
                 # so the new watchdog (spawned by ``start()`` via
                 # ``_spawn_process``) can run.
@@ -999,7 +1069,7 @@ class SubprocessHotkeyBackend(ABC):
     def _on_fn_event(self, payload: str = "", *, down: bool) -> None:
         """Handle FN_DOWN / FN_UP. Used by the macOS backend only.
 
-        ZR-65: ``payload`` is accepted for dispatch-table uniformity
+        ``payload`` is accepted for dispatch-table uniformity
         but ignored — ``FN_DOWN`` / ``FN_UP`` are exact-match events
         with no payload (the prefix IS the line).
         """

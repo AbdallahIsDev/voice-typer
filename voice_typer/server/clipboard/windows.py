@@ -1,14 +1,14 @@
-"""Win32 clipboard primitives (PVT-23 split).
+"""Win32 clipboard primitives ( split).
 
 Extracted from the original ``clipboard.py`` monolith. Contains:
 
 * :class:`Win32Clipboard` — context-manager abstraction over Win32
   OpenClipboard / EmptyClipboard / CloseClipboard /
-  GetClipboardSequenceNumber (PLAT-027).
+GetClipboardSequenceNumber ().
 * :func:`_win32_empty_clipboard` — convenience wrapper that clears the
-  clipboard via the :class:`Win32Clipboard` context manager (PLAT-006).
+clipboard via the :class:`Win32Clipboard` context manager ().
 * :func:`_send_ctrl_v_win32` — standalone SendInput helper that
-  injects an atomic Ctrl+V keystroke batch (PLAT-001).
+injects an atomic Ctrl+V keystroke batch ().
 
 Platform guard: the Win32 code paths use ``ctypes.windll`` which only
 exists on Windows. On non-Windows hosts, every function degrades to a
@@ -29,7 +29,7 @@ from ctypes import wintypes
 
 from voice_typer.server import clipboard as _cb
 
-# AC-41: the per-submodule `log = logging.getLogger(...)` definition that
+# the per-submodule `log = logging.getLogger(...)` definition that
 # used to live here was removed because it was unused — every log call in
 # this module routes through `_cb.log` (the package-level logger imported
 # above as `_cb`). Defining a separate `log` here would shadow the
@@ -39,11 +39,11 @@ from voice_typer.server import clipboard as _cb
 # The `import logging` was also removed (no remaining references).
 
 
-# ─── PLAT-027: Win32Clipboard abstraction ─────────────────────────────
+# Win32Clipboard abstraction ─────────────────────────────
 
 
 class Win32Clipboard:
-    """PLAT-027: Abstraction over Win32 clipboard API.
+    """Abstraction over Win32 clipboard API.
 
     Wraps OpenClipboard, EmptyClipboard, CloseClipboard, and
     GetClipboardSequenceNumber so callers don't use ctypes.windll.user32
@@ -85,7 +85,7 @@ class Win32Clipboard:
             try:
                 ctypes.windll.user32.CloseClipboard()
             except (OSError, AttributeError):
-                # EC-15: narrowed from bare ``except Exception: pass``.
+                # narrowed from bare ``except Exception: pass``.
                 # CloseClipboard is a Win32 ctypes call; ``OSError`` covers
                 # Win32 API failures and ``AttributeError`` covers a
                 # missing ctypes function pointer on stripped builds.
@@ -115,7 +115,7 @@ class Win32Clipboard:
             if hasattr(user32, "GetClipboardSequenceNumber"):
                 return user32.GetClipboardSequenceNumber()
         except (OSError, AttributeError):
-            # EC-15: narrowed from bare ``except Exception: pass``.
+            # narrowed from bare ``except Exception: pass``.
             # GetClipboardSequenceNumber is a Win32 ctypes call;
             # ``OSError`` covers Win32 API failures and
             # ``AttributeError`` covers a missing function pointer.
@@ -124,7 +124,7 @@ class Win32Clipboard:
 
 
 def _win32_empty_clipboard() -> None:
-    """PLAT-006: Empty the clipboard via the Win32Clipboard abstraction.
+    """Empty the clipboard via the Win32Clipboard abstraction.
 
     Called before pyperclip.copy() on Windows to clear stale clipboard
     formats (e.g. rich text artifacts from a previous copy).
@@ -138,7 +138,7 @@ def _win32_empty_clipboard() -> None:
         with _cb.Win32Clipboard() as clip:
             clip.empty()
     except (OSError, AttributeError):
-        # EC-15: narrowed from bare ``except Exception: pass``. The
+        # narrowed from bare ``except Exception: pass``. The
         # protected block opens, empties, and closes the clipboard via
         # Win32 ctypes (OpenClipboard / EmptyClipboard / CloseClipboard);
         # ``OSError`` covers Win32 API failures and ``AttributeError``
@@ -146,9 +146,9 @@ def _win32_empty_clipboard() -> None:
         _cb.log.debug("clipboard cleanup failed", exc_info=True)
 
 
-# ─── PLAT-001: Win32 SendInput Ctrl+V helper ──────────────────────────
+# Win32 SendInput Ctrl+V helper ──────────────────────────
 
-# XZ-CLIP-12: Win32 INPUT / KEYBDINPUT structures defined inline via
+# Win32 INPUT / KEYBDINPUT structures defined inline via
 # ``ctypes.Structure`` (previously imported from ``pynput._util.win32``,
 # a private submodule that may break across pynput releases without
 # notice). Only the keyboard branch is needed — mouse/hardware input
@@ -207,13 +207,13 @@ class INPUT(ctypes.Structure):
 def _resolve_send_input():
     """Look up ``user32.SendInput`` via ``ctypes.windll`` at call time.
 
-    XZ-CLIP-12: replaces the ``pynput._util.win32.SendInput`` import
-    (a private API). Looking the function up at call time means test
-    patches like ``patch("ctypes.windll", create=True)`` or
-    ``patch.object(ctypes.windll.user32, "SendInput", ...)`` take
-    effect. Configuring ``argtypes`` / ``restype`` here (rather than at
-    module import time) keeps the module importable on non-Windows
-    hosts where ``ctypes.windll`` doesn't exist.
+    replaces the ``pynput._util.win32.SendInput`` import
+        (a private API). Looking the function up at call time means test
+        patches like ``patch("ctypes.windll", create=True)`` or
+        ``patch.object(ctypes.windll.user32, "SendInput", ...)`` take
+        effect. Configuring ``argtypes`` / ``restype`` here (rather than at
+        module import time) keeps the module importable on non-Windows
+        hosts where ``ctypes.windll`` doesn't exist.
     """
     send_input = ctypes.windll.user32.SendInput
     send_input.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
@@ -226,37 +226,37 @@ def _send_ctrl_v_win32(
 ) -> bool:
     """Send Ctrl+V via a single atomic SendInput batch.
 
-    PLAT-001: On Windows, we always prefer SendInput over
-    pynput.keyboard.Controller because pynput's Controller is
-    blocked by UIPI when targeting elevated processes from a
-    non-elevated one.  Our direct SendInput call is subject to the
-    same UIPI restriction, but we log the failure explicitly
-    instead of silently dropping it.
+    On Windows, we always prefer SendInput over
+        pynput.keyboard.Controller because pynput's Controller is
+        blocked by UIPI when targeting elevated processes from a
+        non-elevated one.  Our direct SendInput call is subject to the
+        same UIPI restriction, but we log the failure explicitly
+        instead of silently dropping it.
 
-    XZ-CLIP-12: the Win32 ``INPUT`` / ``KEYBDINPUT`` structures
-    (and the ``SendInput`` function pointer) are now resolved inline
-    via ``ctypes`` + ``ctypes.windll.user32`` (previously imported
-    from ``pynput._util.win32``, a private submodule). The previous
-    implementation imported them from
-    ``pynput._util.win32`` (a private submodule) which made the
-    paste path fragile against pynput internal refactors.
+    the Win32 ``INPUT`` / ``KEYBDINPUT`` structures
+        (and the ``SendInput`` function pointer) are now resolved inline
+        via ``ctypes`` + ``ctypes.windll.user32`` (previously imported
+        from ``pynput._util.win32``, a private submodule). The previous
+        implementation imported them from
+        ``pynput._util.win32`` (a private submodule) which made the
+        paste path fragile against pynput internal refactors.
 
-    Returns ``True`` if the full Ctrl+V sequence was delivered
-    (SendInput returned 4) OR the ``fallback`` was invoked
-    (best-effort — assumed success since pynput raises on failure).
-    Returns ``False`` on partial success (SendInput returned 1..3)
-    so the caller can surface a warning without risking a
-    double-paste.
+        Returns ``True`` if the full Ctrl+V sequence was delivered
+        (SendInput returned 4) OR the ``fallback`` was invoked
+        (best-effort — assumed success since pynput raises on failure).
+        Returns ``False`` on partial success (SendInput returned 1..3)
+        so the caller can surface a warning without risking a
+        double-paste.
 
-    Parameters
-    ----------
-    fallback : callable, optional
-        Invoked when SendInput returns 0 (complete failure — no
-        events delivered, so no double-paste risk). Typically
-        ``lambda: self._safe_key_press(_Key.ctrl, "v")`` for the
-        pynput Controller fallback path.
+        Parameters
+        ----------
+        fallback : callable, optional
+            Invoked when SendInput returns 0 (complete failure — no
+            events delivered, so no double-paste risk). Typically
+            ``lambda: self._safe_key_press(_Key.ctrl, "v")`` for the
+            pynput Controller fallback path.
     """
-    # XZ-CLIP-12: structs are defined inline at the top of this module
+    # structs are defined inline at the top of this module
     # (no longer imported from pynput._util.win32 — a private submodule).
     # ``SendInput`` is resolved via ``ctypes.windll.user32`` at call time
     # so test patches like ``patch("ctypes.windll", create=True)`` take
@@ -287,7 +287,7 @@ def _send_ctrl_v_win32(
 
     result = send_input(4, ctypes.byref(events), ctypes.sizeof(INPUT))
     if result != 4:
-        # PLAT-001 (revised): SendInput returns the number of events
+        # (revised): SendInput returns the number of events
         # successfully inserted. Values 1..3 mean SOME but not all of
         # the Ctrl+V keystroke events were delivered — e.g. result=2
         # means Ctrl-down + V-down happened but V-up + Ctrl-up did not.
@@ -345,7 +345,7 @@ def _send_ctrl_v_win32(
         # result == 0: complete failure — safe to fall back to pynput
         # (no events were delivered, so no double-paste risk).
         _cb.log.info("[CLIPBOARD] SendInput returned 0 — falling back to pynput Controller")
-        # PLAT-001: fallback to pynput Controller as last resort.
+        # fallback to pynput Controller as last resort.
         # Note: pynput.keyboard.Controller is also subject to UIPI,
         # so this may also fail silently.
         if fallback is not None:

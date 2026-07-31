@@ -1,7 +1,7 @@
 """Native hotkey recorder (capture mode).
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 This module owns:
 
@@ -61,7 +61,7 @@ class NativeHotkeyRecorder:
         if backend is None:
             raise RuntimeError("Failed to create native backend for recording")
         self._backend = backend
-        # TASK-14: capture ``backend`` in a local so the
+        # capture ``backend`` in a local so the
         # ``recording_handler`` closure below does not need to re-read
         # ``self._backend`` (which is ``Optional`` and could be reset to
         # ``None`` by ``stop()`` on another thread).  ``backend`` is
@@ -98,7 +98,7 @@ class NativeHotkeyRecorder:
             # Fall back to original handler for unknown lines
             original_handler(line)
 
-        # XZ-CC-11: ``# type: ignore[assignment]`` is required because
+        # ``# type: ignore[assignment]`` is required because
         # ``recording_handler`` is a free function (signature
         # ``(line: str) -> None``) while ``backend._handle_line`` is a
         # bound method (signature ``(self, line: str) -> None``). The

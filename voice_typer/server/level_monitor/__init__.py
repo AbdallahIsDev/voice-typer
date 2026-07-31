@@ -19,7 +19,7 @@ read under the lock.
 Resource usage: 512-sample blocks at device native rate.  Test audio is
 stored as a list of numpy arrays in memory (max ~30 s of float32 mono).
 
-RT-SAFE-001 (c-review PERF-03): the PortAudio callback previously ran
+(c-review PERF-03): the PortAudio callback previously ran
 the FULL filter chain (may include RNNoise, 5–50 ms per chunk on CPU),
 allocated squared + abs arrays for RMS/peak, and appended
 ``indata.copy()`` to two test lists — all under ``_monitor_lock``.
@@ -28,10 +28,10 @@ was active. The callback now does ONLY ``deque.append((indata.copy(),
 status))`` + ``Event.set()`` (~10 µs). All heavy work runs on a
 dedicated worker thread (``_level_worker_loop``) that drains the ring
 buffer under ``_monitor_lock`` — the same pattern used by
-``recording.py``'s audio callback since RT-SAFE-001.
+``recording.py``'s audio callback since
 
 =====================================================================
-AC-129 package split
+package split
 =====================================================================
 This file was previously a 1586-line god-module
 (``voice_typer/server/level_monitor.py``); it has been split into a
@@ -86,7 +86,7 @@ instance in :mod:`._state`. So:
     lm._monitor_lock.acquire() →  _state._monitor_lock.acquire()
     lm._level_worker_stop_event.set() → _state._level_worker_stop_event.set()
 
-This preserves every test access pattern documented in AC-129.
+This preserves every test access pattern documented in
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ def _reset_state_for_tests() -> None:
 
 
 # ─── Custom module class for mutable-state routing ──────────────────────
-# CR-67 / TECH-DEBT (mirrors the pattern in recording/__init__.py).
+# TECH-DEBT (mirrors the pattern in recording/__init__.py).
 # Tests access state via ``lm._test_mode`` (read) / ``lm._test_mode = False``
 # (write) — i.e. via the package namespace, NOT via ``_state`` directly.
 # Without this routing, those reads/writes would land on the package's

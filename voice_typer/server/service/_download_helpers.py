@@ -1,6 +1,6 @@
 """Module-level helpers extracted from ``ModelMixin.download_model``.
 
-DR-17: the 558-LOC ``download_model`` god method (in
+the 558-LOC ``download_model`` god method (in
 ``voice_typer/server/service/model.py``) previously defined two nested
 closures (``_push_progress`` at line 718 and ``_notify`` at line 755)
 and inlined a polling loop with a pause/resume state machine.  Those
@@ -42,27 +42,27 @@ log = logging.getLogger(__name__)
 class DownloadOutcome(TypedDict, total=False):
     """Outcome of a model download attempt.
 
-    DR-17: uniform return-type for the three ``_download_*`` branch
-    methods on :class:`ModelMixin` so the
-    :meth:`ModelMixin.download_model` dispatcher has a single contract.
-    ``total=False`` so each branch only populates the fields it
-    actually returns — the runtime dict shape is preserved exactly
-    (the dispatcher converts to a plain ``dict`` via ``dict(outcome)``
-    for IPC serialization).
+    uniform return-type for the three ``_download_*`` branch
+        methods on :class:`ModelMixin` so the
+        :meth:`ModelMixin.download_model` dispatcher has a single contract.
+        ``total=False`` so each branch only populates the fields it
+        actually returns — the runtime dict shape is preserved exactly
+        (the dispatcher converts to a plain ``dict`` via ``dict(outcome)``
+        for IPC serialization).
 
-    Field reference (mirrors the 10 distinct return shapes the
-    original monolithic ``download_model`` produced):
+        Field reference (mirrors the 10 distinct return shapes the
+        original monolithic ``download_model`` produced):
 
-    * ``success`` — always present (bool).
-    * ``error`` — present on failure (str).
-    * ``model`` — present on most paths (str).  Omitted on the
-      cancelled, qwen-not-configured, unknown-model, and
-      exception-handler paths (preserving the original shapes).
-    * ``message`` — present on the cached-qwen and cancelled paths.
-    * ``cancelled`` — present on the user-cancelled path.
-    * ``consent_required`` — present on the HuggingFace consent-gate
-      path (CR-11).
-    * ``reason`` — present on the parakeet failure path (XA-13-C1).
+        * ``success`` — always present (bool).
+        * ``error`` — present on failure (str).
+        * ``model`` — present on most paths (str).  Omitted on the
+          cancelled, qwen-not-configured, unknown-model, and
+          exception-handler paths (preserving the original shapes).
+        * ``message`` — present on the cached-qwen and cancelled paths.
+        * ``cancelled`` — present on the user-cancelled path.
+        * ``consent_required`` — present on the HuggingFace consent-gate
+    path ().
+    * ``reason`` — present on the parakeet failure path ().
     """
 
     success: bool
@@ -89,16 +89,16 @@ def push_progress(
 ) -> None:
     """Push a ``download_progress`` event with rich metadata.
 
-    Extracted from the ``_push_progress`` closure that lived inside
-    :meth:`ModelMixin.download_model` (originally at line 718 of
-    ``model.py``).  The closure captured ``model_name`` and
-    ``event_bus`` from the enclosing scope; this module-level function
-    takes them as explicit args so it can be unit-tested in isolation.
+        Extracted from the ``_push_progress`` closure that lived inside
+        :meth:`ModelMixin.download_model` (originally at line 718 of
+        ``model.py``).  The closure captured ``model_name`` and
+        ``event_bus`` from the enclosing scope; this module-level function
+        takes them as explicit args so it can be unit-tested in isolation.
 
-    ``progress`` (0-100) and ``status`` (human-readable) are always
-    present (backward compat with UX-005 tests).  The remaining fields
-    are optional and only included when meaningful (e.g. during active
-    transfer, not for "cached" or "cancelled" events).
+        ``progress`` (0-100) and ``status`` (human-readable) are always
+    present (backward compat with  tests).  The remaining fields
+        are optional and only included when meaningful (e.g. during active
+        transfer, not for "cached" or "cancelled" events).
     """
     data: dict = {
         "model": model_name,
@@ -150,46 +150,46 @@ def poll_download_progress(
 ) -> tuple[str, int]:
     """Poll the HF cache directory size while the download thread runs.
 
-    Extracted from the polling loop that lived inside the whisper
-    branch of :meth:`ModelMixin.download_model` (originally at lines
-    937-1037 of ``model.py``).  Owns the pause/resume state machine
-    (NEW-PAUSE-001) and the per-iteration progress event.
+        Extracted from the polling loop that lived inside the whisper
+        branch of :meth:`ModelMixin.download_model` (originally at lines
+        937-1037 of ``model.py``).  Owns the pause/resume state machine
+    () and the per-iteration progress event.
 
-    Args:
-        thread: the daemon thread running ``_do_download``.  The loop
-            polls ``thread.is_alive()`` and ``thread.join(timeout=1.0)``.
-        target_bytes: the expected download size in bytes (from the
-            model registry's ``download_size_mb`` field, converted to
-            bytes by the caller).
-        target_mb: the same size in MB (kept as a separate arg so the
-            log messages and percentage calc use the same int the
-            original code used).
-        model_name: the model being downloaded (for log messages and
-            progress events).
-        repo_id: the HuggingFace repo id (used to construct the
-            per-repo cache subdir path).
-        cache_dir: the HF hub cache root (``_config_dir() /
-            "huggingface" / "hub"``).
-        download_id: the per-download cancellation key (HIGH-8 /
-            SERVICE-1).  Passed to ``is_cancelled_fn``.
-        event_bus: the event bus module (for ``push_progress`` calls).
-        is_cancelled_fn: callable taking ``download_id`` and returning
-            ``True`` if the download has been cancelled.  Bound to
-            :meth:`ModelMixin._is_download_cancelled` by the caller.
+        Args:
+            thread: the daemon thread running ``_do_download``.  The loop
+                polls ``thread.is_alive()`` and ``thread.join(timeout=1.0)``.
+            target_bytes: the expected download size in bytes (from the
+                model registry's ``download_size_mb`` field, converted to
+                bytes by the caller).
+            target_mb: the same size in MB (kept as a separate arg so the
+                log messages and percentage calc use the same int the
+                original code used).
+            model_name: the model being downloaded (for log messages and
+                progress events).
+            repo_id: the HuggingFace repo id (used to construct the
+                per-repo cache subdir path).
+            cache_dir: the HF hub cache root (``_config_dir() /
+                "huggingface" / "hub"``).
+    download_id: the per-download cancellation key (
+                SERVICE-1).  Passed to ``is_cancelled_fn``.
+            event_bus: the event bus module (for ``push_progress`` calls).
+            is_cancelled_fn: callable taking ``download_id`` and returning
+                ``True`` if the download has been cancelled.  Bound to
+                :meth:`ModelMixin._is_download_cancelled` by the caller.
 
-    Returns:
-        A ``(outcome, last_total_bytes_seen)`` tuple where ``outcome``
-        is ``"cancelled"`` (the user cancelled — caller returns the
-        cancelled dict) or ``"complete"`` (the thread exited — caller
-        inspects ``download_err`` to decide whether to raise or
-        continue), and ``last_total_bytes_seen`` is the last byte
-        count observed (for the caller's completion log message).
+        Returns:
+            A ``(outcome, last_total_bytes_seen)`` tuple where ``outcome``
+            is ``"cancelled"`` (the user cancelled — caller returns the
+            cancelled dict) or ``"complete"`` (the thread exited — caller
+            inspects ``download_err`` to decide whether to raise or
+            continue), and ``last_total_bytes_seen`` is the last byte
+            count observed (for the caller's completion log message).
 
-    The caller is responsible for unregistering the download and
-    clearing the pause flag (so the same cleanup runs on every exit
-    path: success, failure, cancellation).
+        The caller is responsible for unregistering the download and
+        clearing the pause flag (so the same cleanup runs on every exit
+        path: success, failure, cancellation).
     """
-    # PERF-21 / XV-2 / PVT-025: scope the filesystem walk to the
+    # PERF-21: scope the filesystem walk to the
     # in-progress model's HF cache subdir, NOT the entire HF hub cache
     # root.  Previously ``cache_dir.rglob("*")`` ran once per second
     # and stat'd every file in every cached model dir (thousands of
@@ -198,16 +198,16 @@ def poll_download_progress(
     from voice_typer.server.asr_setup import is_download_paused, wait_while_paused
 
     cancelled = False
-    # NEW-PAUSE-001: track pause/resume transitions so we only push
+    # track pause/resume transitions so we only push
     # the event once per state change (not once per 1-second poll
     # iteration).
     last_paused_state = False
-    # NEW-PAUSE-001: track timing for speed / ETA.
+    # track timing for speed / ETA.
     last_progress_time = time.monotonic()
     last_total_bytes_seen = 0
 
     while thread.is_alive():
-        # HIGH-8 / SERVICE-1: check for cancellation via the
+        # SERVICE-1: check for cancellation via the
         # per-download helper so a sibling download_model call's
         # cancel signal (or cleanup) doesn't bleed into this loop.
         if is_cancelled_fn(download_id):
@@ -215,7 +215,7 @@ def poll_download_progress(
             log.info("[SERVICE] Download of %s cancelled by user", model_name)
             push_progress(event_bus, model_name, 0, "Download cancelled")
             break
-        # NEW-PAUSE-001: check for pause.  When paused, block for up
+        # check for pause.  When paused, block for up
         # to 1s (replacing the normal ``t.join(timeout=1.0)``), then
         # continue the loop.  We push a single ``paused: True`` event
         # on transition and a single ``resumed: True`` event when the
@@ -271,7 +271,7 @@ def poll_download_progress(
                         total_mb_seen,
                         target_mb,
                     )
-                # NEW-PAUSE-001: compute speed & ETA.
+                # compute speed & ETA.
                 now = time.monotonic()
                 elapsed = now - last_progress_time
                 delta_bytes = total_bytes_seen - last_total_bytes_seen
@@ -297,7 +297,7 @@ def poll_download_progress(
                     eta_seconds=eta_s,
                 )
         except Exception:
-            # XZ-EH-006: previously pass — silently swallowed per-iteration
+            # previously pass — silently swallowed per-iteration
             # polling failures. Log at DEBUG (non-fatal) so a transient
             # filesystem error doesn't freeze the progress bar with no log.
             log.debug(

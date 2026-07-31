@@ -1,10 +1,10 @@
 """Microphone-test IPC handler mixin: 4 microphone_test_* commands.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-UE-15 (2026-07-30): ``_handle_microphone_test_status`` was REMOVED —
+(2026-07-30): ``_handle_microphone_test_status`` was REMOVED —
 the renderer polls ``microphone_test_get_level`` at 60 Hz during a
 test; the separate status query was unused. The service-layer method
 ``service.microphone_test_status`` still exists for internal callers;
@@ -19,52 +19,52 @@ from voice_typer.server.ipc.validation import _validate_dict_payload
 class MicrophoneTestHandlersMixin(HandlerBase):
     """Mixin: microphone-test IPC handlers (start / stop / cancel / get_level).
 
-    CR-20: this mixin's ``except Exception`` catch-alls call
-    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
-    no ``str(e)`` leak).
+    this mixin's ``except Exception`` catch-alls call
+        :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+        no ``str(e)`` leak).
 
-    XZ-PRIV-03: ``_handle_microphone_test_start`` enforces
-    ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
-    test records up to 60s of audio and returns base64-encoded WAV over
-    IPC — the same privacy contract as dictation
-    (``recording_controller.py:248-263``). Without this gate, a
-    renderer-side bug or compromised renderer could trigger a test
-    recording and exfiltrate up to 60s of biometric voice data without
-    the user's explicit consent. The handler raises
-    :class:`ConsentRequiredError` which the existing
-    :meth:`HandlerBase._respond_with_error` maps to the structured
-    ``client.consent_required`` envelope so the renderer can surface a
-    consent dialog instead of a generic error toast.
+    ``_handle_microphone_test_start`` enforces
+        ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
+        test records up to 60s of audio and returns base64-encoded WAV over
+        IPC — the same privacy contract as dictation
+        (``recording_controller.py:248-263``). Without this gate, a
+        renderer-side bug or compromised renderer could trigger a test
+        recording and exfiltrate up to 60s of biometric voice data without
+        the user's explicit consent. The handler raises
+        :class:`ConsentRequiredError` which the existing
+        :meth:`HandlerBase._respond_with_error` maps to the structured
+        ``client.consent_required`` envelope so the renderer can surface a
+        consent dialog instead of a generic error toast.
     """
 
     def _handle_microphone_test_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command.
 
-        DE-45 (session-DE): ``duration`` is now in the schema with
-        ``clamp_range: (1.0, 60.0)``. Previously the inline
-        ``float(d.get("duration") or 10.0)`` coercion accepted any
-        numeric value (including ``1e300`` and ``-5.0``) without
-        bounds — a misbehaving caller could request a 1-hour
-        microphone test that would block the recorder, or a
-        negative-duration test that would crash the service layer.
-        The clamp enforces a sane [1.0, 60.0] window.
+        (session-DE): ``duration`` is now in the schema with
+                ``clamp_range: (1.0, 60.0)``. Previously the inline
+                ``float(d.get("duration") or 10.0)`` coercion accepted any
+                numeric value (including ``1e300`` and ``-5.0``) without
+                bounds — a misbehaving caller could request a 1-hour
+                microphone test that would block the recorder, or a
+                negative-duration test that would crash the service layer.
+                The clamp enforces a sane [1.0, 60.0] window.
 
-        The ``clamp_range`` rule in the schema only applies to
-        int/float values (the helper skips strings). For string
-        values (e.g. ``"7.5"`` from a form input), the helper
-        passes the string through unchanged; we then do
-        ``float(validated["duration"])`` and re-clamp manually to
-        enforce the same [1.0, 60.0] window on the coerced value.
+                The ``clamp_range`` rule in the schema only applies to
+                int/float values (the helper skips strings). For string
+                values (e.g. ``"7.5"`` from a form input), the helper
+                passes the string through unchanged; we then do
+                ``float(validated["duration"])`` and re-clamp manually to
+                enforce the same [1.0, 60.0] window on the coerced value.
 
-        Note: the previous ``float(d.get("duration") or 10.0)``
-        treated ``0`` as falsy and used the default ``10.0``. The
-        new clamp treats ``0`` as a real value and clamps it to
-        the lower bound ``1.0``. This is the documented behavior
-        change in DE-45 — ``0`` is no longer "use default", it's
-        a clamped value.
+                Note: the previous ``float(d.get("duration") or 10.0)``
+                treated ``0`` as falsy and used the default ``10.0``. The
+                new clamp treats ``0`` as a real value and clamps it to
+                the lower bound ``1.0``. This is the documented behavior
+        change in  — ``0`` is no longer "use default", it's
+                a clamped value.
         """
         try:
-            # XZ-PRIV-03: enforce voice_biometric_consent BEFORE
+            # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 60s
             # of base64-encoded WAV over IPC — same privacy contract
             # as dictation (recording_controller.py:248-263). We raise
@@ -90,7 +90,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             except Exception:
                 log.exception("[IPC] microphone_test_start: failed to read voice_biometric_consent — failing open")
 
-            # IPC-3: validate ``mic_id`` and ``filters`` types via the
+            # validate ``mic_id`` and ``filters`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
             # ``data`` is pre-coerced to ``{}`` so the
             # ``test_non_dict_data_uses_defaults`` contract (None →
@@ -111,7 +111,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                         "required": False,
                         "default": None,
                     },
-                    # DE-45: ``duration`` in schema with clamp_range.
+                    # ``duration`` in schema with clamp_range.
                     # ``type: (int, float, str)`` preserves the
                     # documented string → float coercion for form-input
                     # compatibility (``"7.5" → 7.5``). The
@@ -127,7 +127,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                 },
             )
             if error:
-                # DE-45: the helper emits namespaced
+                # the helper emits namespaced
                 # ``client.invalid_field`` for the ``duration`` type
                 # check and namespaced ``client.invalid_payload`` for
                 # non-dict ``data``. Test assertions expect the
@@ -137,7 +137,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             assert validated is not None  # narrowed by the error guard above
             mic_id = validated.get("mic_id")
             filters = validated.get("filters")
-            # DE-45: coerce to float (handles string values like
+            # coerce to float (handles string values like
             # ``"7.5"``) and re-clamp. The schema's ``clamp_range``
             # already clamped int/float values, but strings bypass it
             # (the helper only clamps int/float). A string like
@@ -149,7 +149,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_start")
         return resp
 
@@ -160,7 +160,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_stop")
         return resp
 
@@ -171,7 +171,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_cancel")
         return resp
 
@@ -182,6 +182,6 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             resp["type"] = "microphone_test_level"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "microphone_test_get_level")
         return resp

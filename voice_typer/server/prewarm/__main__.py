@@ -1,4 +1,4 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """Entry point for ``python -m voice_typer.server.prewarm``.
 
 Delegates to :func:`voice_typer.server.prewarm.main` (defined in

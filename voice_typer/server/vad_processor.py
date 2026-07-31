@@ -1,6 +1,6 @@
 """VAD state machine, Silero integration, and auto-calibration.
 
-RW-04: extracted from ``voice_typer/server/recording.py`` (god-class
+extracted from ``voice_typer/server/recording.py`` (god-class
 decomposition). The ``Recorder`` class previously owned device
 resolution, VAD state machine, auto-calibration, resampling, buffer
 management, xrun/clipping detection, hot-plug handling, and pre-roll
@@ -55,7 +55,7 @@ np = lazy_module("numpy")
 log = logging.getLogger(__name__)
 
 
-# ─── AUDIO-013: VAD state machine ───────────────────────────────────────
+# VAD state machine ───────────────────────────────────────
 
 
 class VadState(enum.Enum):
@@ -71,7 +71,7 @@ class VadState(enum.Enum):
     UNKNOWN = "unknown"
 
 
-# AUDIO-014: default VAD thresholds (overridden by auto-calibration)
+# default VAD thresholds (overridden by auto-calibration)
 DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS — above this → speech candidate
 DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS — below this → silence candidate
 # R18-F14: hard floors on the user-configurable thresholds. The
@@ -88,7 +88,7 @@ DEFAULT_VAD_SPEECH_FRAMES = 3  # consecutive loud frames to declare SPEECH
 DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
 DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as SILENCE_FRAMES — configurable alias
 
-# FZ-56: Silero VAD probability thresholds. These must match the canonical
+# Silero VAD probability thresholds. These must match the canonical
 # defaults declared on the ``Config`` dataclass
 # (``voice_typer.server.config.Config.vad_speech_threshold`` /
 # ``vad_silence_threshold``). Importing the class attribute here keeps the
@@ -109,18 +109,18 @@ except Exception:  # pragma: no cover - defensive fallback for partial imports
 
 class VadProcessor:
     """Encapsulates the VAD state machine, Silero integration, and
-    auto-calibration.
+        auto-calibration.
 
-    Stateless w.r.t. the audio buffer: callers pass in per-frame
-    RMS (and optional Silero probability) and read back the new state.
-    The processor owns its own counters and threshold state, refreshed
-    by :meth:`reset` between recording sessions.
+        Stateless w.r.t. the audio buffer: callers pass in per-frame
+        RMS (and optional Silero probability) and read back the new state.
+        The processor owns its own counters and threshold state, refreshed
+        by :meth:`reset` between recording sessions.
 
-    RW-04: pure extraction from ``Recorder``. Behavior is preserved
-    bit-for-bit — the state-machine logic, hysteresis, grey-zone
-    pass-through, and auto-calibration math are identical to the
-    pre-refactor ``Recorder._vad_update`` /
-    ``Recorder._vad_auto_calibrate`` implementations.
+    pure extraction from ``Recorder``. Behavior is preserved
+        bit-for-bit — the state-machine logic, hysteresis, grey-zone
+        pass-through, and auto-calibration math are identical to the
+        pre-refactor ``Recorder._vad_update`` /
+        ``Recorder._vad_auto_calibrate`` implementations.
     """
 
     # PERF-02 (c-review): max age in seconds before the cached vad_enabled
@@ -155,14 +155,14 @@ class VadProcessor:
         self._consecutive_speech_frames: int = 0
         self._consecutive_silence_frames: int = 0
 
-        # AUDIO-5: grey-zone hold bounding. Without this, a long run of
+        # grey-zone hold bounding. Without this, a long run of
         # grey-zone chunks (between speech and silence thresholds) pins
         # both counters indefinitely — soft-speech tails can stall the
         # silence timer. After ``_grey_zone_hold_limit`` consecutive
         # grey-zone frames, decay both counters by 1 so the state machine
         # can transition on the next clear frame.
         self._consecutive_grey_frames: int = 0
-        # XV-47: grey-zone hold limit is now configurable so soft-spoken
+        # grey-zone hold limit is now configurable so soft-spoken
         # users (whose speech legitimately hovers in the 0.3-0.5 prob
         # band) can extend the bound beyond the default ~1s instead of
         # being force-transitioned to SILENCE mid-phrase. Reads
@@ -185,7 +185,7 @@ class VadProcessor:
         self._silence_frames: int = DEFAULT_VAD_SILENCE_FRAMES
         self._hangover_frames: int = DEFAULT_VAD_HANGOVER_FRAMES
 
-        # AUDIO-013: Silero VAD integration — when use_silero_vad is
+        # Silero VAD integration — when use_silero_vad is
         # enabled in config, the recording callback uses Silero VAD
         # probability instead of RMS dB thresholds for the state machine.
         # impl-vad-fix: ADR 0007 §4.1 changed the config.py default to
@@ -194,16 +194,12 @@ class VadProcessor:
         # or partial configs) silently disables VAD even though the
         # documented default is True.
         self._use_silero_vad: bool = getattr(config, "use_silero_vad", True)
-        # FZ-56: getattr fallbacks now reference the canonical Config
+        # getattr fallbacks now reference the canonical Config
         # defaults via DEFAULT_VAD_SPEECH_PROB_THRESHOLD /
         # DEFAULT_VAD_SILENCE_PROB_THRESHOLD (imported from Config at module
         # top) so a stub config exercises the same threshold as production.
-        self._speech_threshold: float = getattr(
-            config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD
-        )
-        self._silence_threshold: float = getattr(
-            config, "vad_silence_threshold", DEFAULT_VAD_SILENCE_PROB_THRESHOLD
-        )
+        self._speech_threshold: float = getattr(config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD)
+        self._silence_threshold: float = getattr(config, "vad_silence_threshold", DEFAULT_VAD_SILENCE_PROB_THRESHOLD)
         self._silero_available: bool = False
         if self._use_silero_vad:
             try:
@@ -224,11 +220,11 @@ class VadProcessor:
                 log.debug("[VAD] Silero init failed — falling back to RMS", exc_info=True)
                 self._silero_available = False
 
-        # AUDIO-014: auto-calibration state
+        # auto-calibration state
         self._calibration_duration: float = DEFAULT_VAD_CALIBRATION_DURATION
         self._calibration_rms_values: list[float] = []
         self._calibrated: bool = False
-        # AUDIO-4: explicit, inspectable calibration status so a no-op skip
+        # explicit, inspectable calibration status so a no-op skip
         # (Silero active / VAD disabled / no samples) is never silent.
         # Values: "pending" | "calibrated" | "skipped_silero" |
         # "skipped_disabled" | "skipped_no_samples".
@@ -250,20 +246,20 @@ class VadProcessor:
     ) -> VadState:
         """Update the VAD state machine based on the current frame's signal.
 
-        AUDIO-013: Uses hysteresis — transitioning from SILENCE to SPEECH
-        requires N consecutive loud frames, while SPEECH to SILENCE
-        requires M consecutive quiet frames (hangover period). This
-        prevents rapid toggling at the boundary.
+        Uses hysteresis — transitioning from SILENCE to SPEECH
+                requires N consecutive loud frames, while SPEECH to SILENCE
+                requires M consecutive quiet frames (hangover period). This
+                prevents rapid toggling at the boundary.
 
-        When Silero VAD is enabled and a probability is provided, uses
-        the VAD probability for speech/silence determination instead of
-        RMS dB. Falls back to RMS-based detection if ``vad_prob`` is
-        None.
+                When Silero VAD is enabled and a probability is provided, uses
+                the VAD probability for speech/silence determination instead of
+                RMS dB. Falls back to RMS-based detection if ``vad_prob`` is
+                None.
 
-        VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately when
-        VAD is disabled (all audio enhancements off). The caller's
-        silence-timer logic sees UNKNOWN and treats it as "not silence"
-        (no silence warnings, no VAD-based auto-stop).
+                VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately when
+                VAD is disabled (all audio enhancements off). The caller's
+                silence-timer logic sees UNKNOWN and treats it as "not silence"
+                (no silence warnings, no VAD-based auto-stop).
         """
         # VAD-GATE (Task 4): skip the full state machine when VAD is
         # disabled. Returning UNKNOWN (without updating any state or
@@ -282,16 +278,16 @@ class VadProcessor:
         if is_loud:
             self._consecutive_speech_frames += 1
             self._consecutive_silence_frames = 0
-            # AUDIO-5: a clear loud frame breaks the grey-zone run.
+            # a clear loud frame breaks the grey-zone run.
             self._consecutive_grey_frames = 0
         elif is_quiet:
             self._consecutive_silence_frames += 1
             self._consecutive_speech_frames = 0
-            # AUDIO-5: a clear quiet frame breaks the grey-zone run.
+            # a clear quiet frame breaks the grey-zone run.
             self._consecutive_grey_frames = 0
         else:
             # Grey zone (between speech and silence thresholds).
-            # AUDIO-5: bound the grey-zone hold so a soft-speech tail can't
+            # bound the grey-zone hold so a soft-speech tail can't
             # lock the state machine in SPEECH and starve the silence timer.
             self._consecutive_grey_frames += 1
             if self._consecutive_grey_frames >= self._grey_zone_hold_limit:
@@ -348,21 +344,21 @@ class VadProcessor:
     ) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
 
-        AUDIO-014: During the first ``calibration_duration`` seconds of
-        recording, we collect RMS values to determine the ambient noise
-        floor. Then we set speech/silence thresholds relative to it.
+        During the first ``calibration_duration`` seconds of
+                recording, we collect RMS values to determine the ambient noise
+                floor. Then we set speech/silence thresholds relative to it.
 
-        Args:
-            chunk_rms: RMS amplitude of the current chunk (linear).
-            elapsed_seconds: time since recording start (used to gate the
-                calibration window). Caller computes this from
-                ``time.perf_counter() - recording_start_time`` so this
-                module stays clock-agnostic and testable.
-            chunk_duration: duration of the chunk in seconds (reserved
-                for future per-chunk weighting; currently unused, kept
-                for signature compatibility with the prior
-                ``Recorder._vad_auto_calibrate(chunk_rms, chunk_duration)``
-                API).
+                Args:
+                    chunk_rms: RMS amplitude of the current chunk (linear).
+                    elapsed_seconds: time since recording start (used to gate the
+                        calibration window). Caller computes this from
+                        ``time.perf_counter() - recording_start_time`` so this
+                        module stays clock-agnostic and testable.
+                    chunk_duration: duration of the chunk in seconds (reserved
+                        for future per-chunk weighting; currently unused, kept
+                        for signature compatibility with the prior
+                        ``Recorder._vad_auto_calibrate(chunk_rms, chunk_duration)``
+                        API).
         """
         # VAD-GATE (Task 4): skip calibration entirely when VAD is
         # disabled. The prior fix only demoted the log level; this gate
@@ -374,7 +370,7 @@ class VadProcessor:
         if self._calibrated:
             return
 
-        # AUDIO-4: when Silero VAD is the active backend, dB-threshold
+        # when Silero VAD is the active backend, dB-threshold
         # calibration has no effect (update_frame uses probability thresholds).
         # Skip the RMS collection and surface a one-time INFO log so the
         # operator knows calibration is intentionally not running.
@@ -424,18 +420,18 @@ class VadProcessor:
     def reset(self) -> None:
         """Reset VAD state machine + auto-calibration to defaults.
 
-        Called by ``Recorder.start()`` at the beginning of each session
-        so counters and thresholds from the prior session don't bleed
-        into the new one.
+                Called by ``Recorder.start()`` at the beginning of each session
+                so counters and thresholds from the prior session don't bleed
+                into the new one.
 
-        XV-46: also resets the Silero LSTM hidden state (if the model
-        is loaded) so prior-session speech patterns don't bias the
-        first probabilities of the new session.
+        also resets the Silero LSTM hidden state (if the model
+                is loaded) so prior-session speech patterns don't bias the
+                first probabilities of the new session.
         """
         self._state = VadState.UNKNOWN
         self._consecutive_speech_frames = 0
         self._consecutive_silence_frames = 0
-        # AUDIO-5: reset grey-zone hold counter on session reset.
+        # reset grey-zone hold counter on session reset.
         self._consecutive_grey_frames = 0
         self._speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
         self._silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
@@ -443,7 +439,7 @@ class VadProcessor:
         self._calibrated = False
         self._calibration_status = "pending"
 
-        # XV-46: reset Silero LSTM hidden state at session boundaries.
+        # reset Silero LSTM hidden state at session boundaries.
         # No-op if the model isn't loaded (avoids triggering a load just
         # to reset state — the model starts fresh on first load).
         try:
@@ -479,7 +475,7 @@ class VadProcessor:
             # perf_counter call + one comparison.
             now = time.perf_counter()
             if now - self._vad_enabled_cache_ts >= self.VAD_ENABLED_CACHE_TTL_S:
-                # ZR-37 (item 2): reassign the narrowed local ``cached``
+                # (item 2): reassign the narrowed local ``cached``
                 # rather than re-reading ``self._vad_enabled_cached`` so
                 # pyrefly's null-safety check tracks the narrowed
                 # ``bool`` type through the return (an attribute access
@@ -497,31 +493,31 @@ class VadProcessor:
     def on_config_changed(self) -> None:
         """Refresh cached config-derived state after a config change.
 
-        PERF-02 (c-review): called by ``app._rebuild_audio_processor``
-        (wiring owned by Sub-Agent H in app.py) whenever any
-        ``noise_filter_*``, ``audio_preset``, or
-        ``noise_suppression_method`` config field changes. Refreshes
-        the cached ``vad_enabled`` value so the next audio chunk's VAD
-        gate decision uses the new config without re-running 6
-        ``getattr()`` calls per access.
+                PERF-02 (c-review): called by ``app._rebuild_audio_processor``
+                (wiring owned by Sub-Agent H in app.py) whenever any
+                ``noise_filter_*``, ``audio_preset``, or
+                ``noise_suppression_method`` config field changes. Refreshes
+                the cached ``vad_enabled`` value so the next audio chunk's VAD
+                gate decision uses the new config without re-running 6
+                ``getattr()`` calls per access.
 
-        XV-50: when VAD transitions enabled → disabled mid-session
-        (user selected the "Off" audio preset, or manually turned off
-        every noise filter), the Silero model is unloaded so the ~2MB
-        JIT graph isn't pinned in RAM for the rest of the process
-        lifetime. Reload happens lazily via ``vad._load_model`` on the
-        next VAD-enabled chunk.
+        when VAD transitions enabled → disabled mid-session
+                (user selected the "Off" audio preset, or manually turned off
+                every noise filter), the Silero model is unloaded so the ~2MB
+                JIT graph isn't pinned in RAM for the rest of the process
+                lifetime. Reload happens lazily via ``vad._load_model`` on the
+                next VAD-enabled chunk.
 
-        Safe to call from any thread (only reads ``self._config`` and
-        writes two atomic Python attributes under the GIL). No-op if
-        the processor has not been initialized yet.
+                Safe to call from any thread (only reads ``self._config`` and
+                writes two atomic Python attributes under the GIL). No-op if
+                the processor has not been initialized yet.
         """
         was_enabled = self._vad_enabled_cached
         new_enabled = self.compute_vad_enabled(self._config)
         self._vad_enabled_cached = new_enabled
         self._vad_enabled_cache_ts = time.perf_counter()
 
-        # XV-50: release the Silero model when VAD transitions to
+        # release the Silero model when VAD transitions to
         # disabled. ``unload`` is a no-op if the model isn't loaded.
         if was_enabled and not new_enabled:
             try:
@@ -697,12 +693,12 @@ class VadProcessor:
     def calibration_status(self) -> str:
         """Explicit, inspectable reason for the current calibration state.
 
-        AUDIO-4: makes a no-op skip (Silero active / VAD disabled / no
-        samples) explicit rather than a silent early-return. Values:
-        ``"pending"`` (not yet run), ``"calibrated"`` (RMS-dB thresholds
-        computed), ``"skipped_silero"`` (Silero active — uses probability
-        thresholds), ``"skipped_disabled"`` (VAD off), ``skipped_no_samples``
-        (calibration window elapsed with no RMS samples).
+        makes a no-op skip (Silero active / VAD disabled / no
+                samples) explicit rather than a silent early-return. Values:
+                ``"pending"`` (not yet run), ``"calibrated"`` (RMS-dB thresholds
+                computed), ``"skipped_silero"`` (Silero active — uses probability
+                thresholds), ``"skipped_disabled"`` (VAD off), ``skipped_no_samples``
+                (calibration window elapsed with no RMS samples).
         """
         return self._calibration_status
 

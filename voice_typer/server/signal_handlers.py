@@ -1,14 +1,14 @@
-"""POSIX signal + Win32 console handlers (DR-28 extraction).
+"""POSIX signal + Win32 console handlers ( extraction).
 
 Extracted out of :mod:`voice_typer.server.shutdown_controller` so the
 shutdown controller can focus on cleanup orchestration. The functions
 here install:
 
-* On POSIX — SIGINT / SIGTERM / SIGHUP handlers (PROD-003 / MED-PPP /
-  PVT-G5-014) that set an ``Event`` from the signal context (async-
+* On POSIX — SIGINT / SIGTERM / SIGHUP handlers ( / MED-PPP
+) that set an ``Event`` from the signal context (async-
   signal-safe) and defer the unsafe work (logging + spawning the
   ``quit()`` worker thread) to a long-lived watcher daemon.
-* On Windows — a ``SetConsoleCtrlHandler`` callback (ARCH-046) that
+* On Windows — a ``SetConsoleCtrlHandler`` callback () that
   keeps the tray app alive when the console window closes (Ctrl+Close
   → ``FreeConsole`` + reopen devnull), and triggers ``quit()`` on
   Ctrl+C / logoff / shutdown.
@@ -52,22 +52,22 @@ log = logging.getLogger(__name__)
 def install_signal_handlers(controller: ShutdownController) -> None:
     """Install SIGINT/SIGTERM/SIGHUP handlers for graceful shutdown.
 
-    PROD-003: On POSIX there was no signal handler, so Ctrl+C
-    would kill the process without running quit() cleanup
-    (stop hotkeys, restore volume, release mutex). This method
-    installs handlers that trigger quit() on a separate thread
-    to avoid deadlock when the main thread is inside the signal
-    handler.
+    On POSIX there was no signal handler, so Ctrl+C
+        would kill the process without running quit() cleanup
+        (stop hotkeys, restore volume, release mutex). This method
+        installs handlers that trigger quit() on a separate thread
+        to avoid deadlock when the main thread is inside the signal
+        handler.
 
-    MED-PPP / XCUT-4: the handler body itself is now
-    async-signal-safe — it only calls ``Event.set()`` (a thin
-    wrapper around ``PyThread_acquire_lock(NOWAIT_LOCK)`` which
-    is reentrant and never blocks). A long-lived watcher thread
-    (started lazily here) wakes on the event and performs the
-    unsafe work (logging + ``threading.Thread(target=quit)``)
-    outside the signal context. This eliminates the deadlock
-    risk if the signal fires while the main thread holds the
-    logging lock.
+        MED-PPP / XCUT-4: the handler body itself is now
+        async-signal-safe — it only calls ``Event.set()`` (a thin
+        wrapper around ``PyThread_acquire_lock(NOWAIT_LOCK)`` which
+        is reentrant and never blocks). A long-lived watcher thread
+        (started lazily here) wakes on the event and performs the
+        unsafe work (logging + ``threading.Thread(target=quit)``)
+        outside the signal context. This eliminates the deadlock
+        risk if the signal fires while the main thread holds the
+        logging lock.
     """
 
     # Start the watcher daemon once. ``_signal_watcher_started`` is
@@ -94,7 +94,7 @@ def install_signal_handlers(controller: ShutdownController) -> None:
         controller._shutdown_signum = signum
         controller._shutdown_signal_event.set()
 
-    # PVT-G5-014: also register SIGHUP on POSIX so terminal close
+    # also register SIGHUP on POSIX so terminal close
     # / SSH disconnect triggers graceful shutdown (default action
     # would terminate immediately without running atexit). Filtered
     # via ``hasattr`` because Windows doesn't define SIGHUP. The
@@ -114,37 +114,37 @@ def install_signal_handlers(controller: ShutdownController) -> None:
 def signal_watcher_loop(controller: ShutdownController) -> None:
     """Watcher thread for the POSIX signal handlers.
 
-    MED-PPP / XCUT-4: polls ``_shutdown_signal_event`` (1s
-    timeout) and, when set, performs the unsafe work that the
-    signal handler itself must not do — logging the signal name
-    and spawning the quit() worker thread. Runs as a daemon so
-    it never blocks process exit; ``quit()`` is idempotent so a
-    duplicate signal that re-triggers the watcher is harmless.
+        MED-PPP / XCUT-4: polls ``_shutdown_signal_event`` (1s
+        timeout) and, when set, performs the unsafe work that the
+        signal handler itself must not do — logging the signal name
+        and spawning the quit() worker thread. Runs as a daemon so
+        it never blocks process exit; ``quit()`` is idempotent so a
+        duplicate signal that re-triggers the watcher is harmless.
 
-    UE-1-F4: the watcher body is wrapped in ``while True:`` so
-    the watcher SURVIVES multiple signals. Pre-fix, the watcher
-    exited after the first signal — a second SIGTERM (e.g. user
-    double-tapping Ctrl+C because the first one was slow to take
-    effect) would fall through to Python's default handler
-    (immediate termination with no cleanup). The event is
-    cleared after each wakeup so a subsequent signal re-arms the
-    watcher for the next dispatch.
+    the watcher body is wrapped in ``while True:`` so
+        the watcher SURVIVES multiple signals. Pre-fix, the watcher
+        exited after the first signal — a second SIGTERM (e.g. user
+        double-tapping Ctrl+C because the first one was slow to take
+        effect) would fall through to Python's default handler
+        (immediate termination with no cleanup). The event is
+        cleared after each wakeup so a subsequent signal re-arms the
+        watcher for the next dispatch.
     """
-    # UE-1-F4: outer ``while True:`` keeps the watcher alive across
+    # outer ``while True:`` keeps the watcher alive across
     # multiple signal deliveries. ``quit()`` is idempotent (guarded by
     # ``_shutting_down``) so re-dispatching on a duplicate signal is a
     # no-op; the loop is purely defensive against the case where the
     # first quit() worker hasn't yet flipped ``_shutting_down`` and a
     # second signal arrives.
     while True:
-        # AB-32: block indefinitely — ``Event.set()`` from the signal
+        # block indefinitely — ``Event.set()`` from the signal
         # handler wakes the watcher immediately, and on POSIX CPython's
         # interpreter shutdown releases the underlying pthread condvar
         # lock so the daemon thread never blocks process exit. The
         # previous 1s poll loop caused 60 kernel wakeups/min for the
         # entire app lifetime (preventing deep C-states on battery).
         controller._shutdown_signal_event.wait()
-        # UE-1-F4: clear the event so a subsequent signal arrival is
+        # clear the event so a subsequent signal arrival is
         # observable (re-arms the ``wait()`` above for the next round).
         controller._shutdown_signal_event.clear()
         # Outside the signal context — safe to use logging and threading.
@@ -153,7 +153,7 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
             sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
             log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
         except Exception:
-            # UE-1-F7: async-signal-safe fallback. ``log.info`` could
+            # async-signal-safe fallback. ``log.info`` could
             # fail if the logging lock is held by an interrupted thread,
             # if the configured handler raises (e.g. ``FileHandler`` on
             # a closed log file during interpreter shutdown), or if the
@@ -170,7 +170,7 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
         try:
             threading.Thread(target=controller.quit, daemon=True).start()
         except Exception:
-            # UE-1-F7: same async-signal-safe stderr fallback as above
+            # same async-signal-safe stderr fallback as above
             # — ``log.exception`` itself could fail under the same
             # conditions. The ``os.write`` here is the last-resort
             # evidence that we tried to spawn the quit() worker.
@@ -181,9 +181,9 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
 def install_win32_console_handler(controller: ShutdownController) -> None:
     """On Windows, install a console control handler to survive console closure.
 
-    ARCH-046: skip when running under ``pythonw.exe`` — there's no
-    console attached, so SetConsoleCtrlHandler is a no-op that
-    spews "no console" warnings in the log.
+    skip when running under ``pythonw.exe`` — there's no
+        console attached, so SetConsoleCtrlHandler is a no-op that
+        spews "no console" warnings in the log.
     """
     # Look up the platform helper from the app module at call time
     # so tests that monkeypatch voice_typer.server.app.is_windows
@@ -193,7 +193,7 @@ def install_win32_console_handler(controller: ShutdownController) -> None:
     if not _app_module.is_windows():
         return
     app = controller._app
-    # ARCH-046: detect pythonw.exe (no console) and skip install.
+    # detect pythonw.exe (no console) and skip install.
     exe_name = Path(sys.executable).name.lower()
     if exe_name == "pythonw.exe":
         log.debug("[WIN32] pythonw.exe detected — skipping console control handler")
@@ -259,7 +259,7 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
             "[WIN32] System event %d received, invoking fast cleanup (XZ-R17-06)",
             ctrl_type,
         )
-        # UE-1: route Windows logoff/shutdown to ``_do_fast_cleanup()``
+        # route Windows logoff/shutdown to ``_do_fast_cleanup()``
         # (NOT ``controller.quit``). The full ``_do_cleanup`` body has a
         # cumulative worst-case of ~25-85s; Windows gives the process
         # ~5s before force-kill. The fast path runs critical-only cleanup

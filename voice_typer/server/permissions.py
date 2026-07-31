@@ -25,7 +25,7 @@ The udev rule installed by ``scripts/linux/install_permissions.py`` is::
 
     KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MODE="0660"
 
-(PVT-059/LINUX-UDEV: the previous onboarding instructions referenced
+(/LINUX-UDEV: the previous onboarding instructions referenced
 ``event*`` + ``MODE="0640"`` which (a) over-matches non-keyboard event
 devices and (b) grants no group-write access. The correct pattern is
 ``event[0-9]*`` with ``MODE="0660"`` — group-readable AND group-writable
@@ -62,17 +62,17 @@ log = logging.getLogger("voice_typer.server.permissions")
 class PermissionState(str, Enum):
     """Three-state permission model.
 
-    - ``GRANTED``: the OS reports we have the permission, or no
-      permission is needed on this platform (e.g. Windows).
-    - ``DENIED``: the OS reports we don't have the permission.
-    - ``UNKNOWN``: we can't tell (e.g. macOS without pyobjc, or an
-      unsupported platform). This is the "soft unknown" — the probe ran
-      successfully but the answer is indeterminate.
-    - ``ERROR``: PVT-059 — the probe itself failed unexpectedly (raised
-      an exception). Distinct from ``UNKNOWN`` so the renderer can show
-      "Permission probe failed — click to retry" instead of the
-      misleading "No extra permission needed" (which it used to render
-      for any state with ``needed=False``).
+        - ``GRANTED``: the OS reports we have the permission, or no
+          permission is needed on this platform (e.g. Windows).
+        - ``DENIED``: the OS reports we don't have the permission.
+        - ``UNKNOWN``: we can't tell (e.g. macOS without pyobjc, or an
+          unsupported platform). This is the "soft unknown" — the probe ran
+          successfully but the answer is indeterminate.
+    ``ERROR``:  — the probe itself failed unexpectedly (raised
+          an exception). Distinct from ``UNKNOWN`` so the renderer can show
+          "Permission probe failed — click to retry" instead of the
+          misleading "No extra permission needed" (which it used to render
+          for any state with ``needed=False``).
     """
 
     GRANTED = "granted"
@@ -82,7 +82,7 @@ class PermissionState(str, Enum):
 
 
 class MicrophonePermissionState(str, Enum):
-    """PVT-061 — three-state model for OS-level microphone permission.
+    """three-state model for OS-level microphone permission.
 
     - ``GRANTED``: the OS reports we have microphone access (or no
       permission is needed on this platform / Linux).
@@ -99,7 +99,7 @@ class MicrophonePermissionState(str, Enum):
     UNKNOWN = "unknown"
 
 
-# PVT-059/LINUX-UDEV: canonical udev rule string installed by
+# LINUX-UDEV: canonical udev rule string installed by
 # ``scripts/linux/install_permissions.py``. Exposed as a module constant so
 # the onboarding instructions (in :mod:`voice_typer.server.onboarding`) and
 # the pkexec installer agree on the exact pattern. The previous onboarding
@@ -160,23 +160,23 @@ def request_keyboard_permission(
 ) -> None:
     """Open the OS permission UI so the user can grant the permission.
 
-    - **macOS**: opens ``System Settings → Privacy & Security →
-      Accessibility`` via the ``x-apple.systempreferences:`` scheme,
-      with a fallback to the older ``Security.prefPane`` bundle path.
-    - **Linux**: invokes ``pkexec`` to run
-      ``scripts/linux/install_permissions.py`` (installs udev rule +
-      adds user to ``input`` group + configures Caps Lock). If pkexec
-      isn't available, falls back to ``gksu`` / ``kdesu`` / a
-      terminal-based prompt. PVT-057: this is the zero-command path for
-      AppImage users — the OS shows a polkit GUI prompt, the user types
-      their password once, and the install script runs as root. The
-      onboarding instructions should mention that clicking "Grant
-      permission" triggers ``pkexec install_permissions.py``.
-    - **Windows**: no-op (no permission needed).
+        - **macOS**: opens ``System Settings → Privacy & Security →
+          Accessibility`` via the ``x-apple.systempreferences:`` scheme,
+          with a fallback to the older ``Security.prefPane`` bundle path.
+        - **Linux**: invokes ``pkexec`` to run
+          ``scripts/linux/install_permissions.py`` (installs udev rule +
+          adds user to ``input`` group + configures Caps Lock). If pkexec
+          isn't available, falls back to ``gksu`` / ``kdesu`` / a
+    terminal-based prompt. : this is the zero-command path for
+          AppImage users — the OS shows a polkit GUI prompt, the user types
+          their password once, and the install script runs as root. The
+          onboarding instructions should mention that clicking "Grant
+          permission" triggers ``pkexec install_permissions.py``.
+        - **Windows**: no-op (no permission needed).
 
-    The optional ``on_granted`` callback is invoked when the permission
-    is detected as granted (best-effort — see ``schedule_permission_retry``
-    for the retry mechanism).
+        The optional ``on_granted`` callback is invoked when the permission
+        is detected as granted (best-effort — see ``schedule_permission_retry``
+        for the retry mechanism).
     """
     if is_macos():
         _open_macos_accessibility_settings()
@@ -197,14 +197,14 @@ def request_keyboard_permission(
 PERMISSION_RETRY_INTERVAL_SECONDS = 60.0
 PERMISSION_RETRY_MAX_ATTEMPTS = 5
 
-# TASK-14: ``Optional["object"]`` made the ``_retry_timer.cancel()``
+# ``Optional["object"]`` made the ``_retry_timer.cancel()``
 # call below raise ``Object of class `object` has no attribute `cancel```
 # because the ``object`` type has no ``cancel`` method.  Switch to ``Any``
 # to match the runtime ``threading.Timer`` type (which is fully dynamic
 # at the stub level — older Python's threading.Timer is not annotated).
 _retry_timer: Any | None = None  # threading.Timer
 _retry_count = 0
-# DE-32: cancellation flag set by ``cancel_permission_retry`` so an
+# cancellation flag set by ``cancel_permission_retry`` so an
 # in-flight ``_poll`` callback can short-circuit instead of firing the
 # success callback after the user cancelled.
 _cancelled: bool = False
@@ -251,7 +251,7 @@ def schedule_permission_retry(
             global _retry_count, _cancelled
             _retry_count += 1
             if _cancelled:
-                # DE-32: cancelled between scheduling and this poll firing — skip
+                # cancelled between scheduling and this poll firing — skip
                 return
             state = check_keyboard_permission()
             log.info(
@@ -262,7 +262,7 @@ def schedule_permission_retry(
             )
             if state == PermissionState.GRANTED:
                 if _cancelled:
-                    # DE-32: cancelled between the state check and the callback fire
+                    # cancelled between the state check and the callback fire
                     return
                 log.info("[PERMISSION] Permission granted — invoking callback")
                 try:
@@ -302,11 +302,11 @@ def cancel_permission_retry() -> None:
         _retry_count = 0
 
 
-# ─── Onboarding permission payload (PVT-058 / PVT-059) ────────────────────
+# Onboarding permission payload ( / ) ────────────────────
 
 
 def permission_probe_error_payload(error_message: str | None = None) -> dict:
-    """PVT-059 — renderer-friendly error envelope for a failed permission probe.
+    """renderer-friendly error envelope for a failed permission probe.
 
     The onboarding ``check_permissions`` flow previously fell back to
     ``{"state": "unknown", "needed": False}`` when the underlying probe
@@ -341,36 +341,36 @@ def permission_probe_error_payload(error_message: str | None = None) -> dict:
 
 
 def check_permissions_payload() -> dict:
-    """PVT-058 — re-probe OS permissions and return the renderer-friendly dict.
+    """re-probe OS permissions and return the renderer-friendly dict.
 
-    This is the canonical entry point for the ``onboarding_check_permissions``
-    and ``onboarding_recheck_permission`` IPC handlers. It returns a dict
-    matching :meth:`OnboardingController.check_permissions`'s shape so the
-    renderer doesn't need to know which entry point produced it.
+        This is the canonical entry point for the ``onboarding_check_permissions``
+        and ``onboarding_recheck_permission`` IPC handlers. It returns a dict
+        matching :meth:`OnboardingController.check_permissions`'s shape so the
+        renderer doesn't need to know which entry point produced it.
 
-    The dict shape is::
+        The dict shape is::
 
-        {
-            "platform": "windows" | "macos" | "linux" | "unknown",
-            "state": "granted" | "denied" | "unknown" | "error",
-            "needed": bool,
-            "instructions": None | {
-                "title": str,
-                "steps": list[str],
-                "commands": list[str] | None,
-            },
-            "microphone": "granted" | "denied" | "prompt" | "unknown",
-        }
+            {
+                "platform": "windows" | "macos" | "linux" | "unknown",
+                "state": "granted" | "denied" | "unknown" | "error",
+                "needed": bool,
+                "instructions": None | {
+                    "title": str,
+                    "steps": list[str],
+                    "commands": list[str] | None,
+                },
+                "microphone": "granted" | "denied" | "prompt" | "unknown",
+            }
 
-    PVT-059: if the probe itself raises an unexpected exception, this
-    returns :func:`permission_probe_error_payload` instead of letting the
-    exception propagate — so the IPC handler's generic ``except`` clause
-    never triggers the misleading "No extra permission needed" fallback.
+    if the probe itself raises an unexpected exception, this
+        returns :func:`permission_probe_error_payload` instead of letting the
+        exception propagate — so the IPC handler's generic ``except`` clause
+        never triggers the misleading "No extra permission needed" fallback.
 
-    PVT-061: also probes the OS-level microphone permission (macOS
-    AVCaptureDevice / Windows MediaFoundation) and returns it under the
-    ``microphone`` key. The renderer can use this to gate the Microphone
-    step (e.g. show "Open System Settings → Microphone" if denied).
+    also probes the OS-level microphone permission (macOS
+        AVCaptureDevice / Windows MediaFoundation) and returns it under the
+        ``microphone`` key. The renderer can use this to gate the Microphone
+        step (e.g. show "Open System Settings → Microphone" if denied).
     """
     try:
         state = check_keyboard_permission()
@@ -405,7 +405,7 @@ def check_permissions_payload() -> dict:
     elif is_linux():
         platform_name = "linux"
         needed = state != PermissionState.GRANTED
-        # PVT-059/LINUX-UDEV: use the corrected LINUX_UDEV_RULE constant
+        # LINUX-UDEV: use the corrected LINUX_UDEV_RULE constant
         # (event[0-9]* + MODE="0660") instead of the old incorrect
         # event* + MODE="0640" pattern.
         instructions = (
@@ -431,7 +431,7 @@ def check_permissions_payload() -> dict:
         instructions = None
         needed = False
 
-    # PVT-061: probe microphone permission alongside keyboard permission.
+    # probe microphone permission alongside keyboard permission.
     try:
         mic_state = check_microphone_permission()
     except Exception:
@@ -447,10 +447,10 @@ def check_permissions_payload() -> dict:
     }
 
 
-# ─── pyobjc availability cache (XV-123) ───────────────────────────────────
+# pyobjc availability cache () ───────────────────────────────────
 
 
-# XV-123: module-level cache for "is pyobjc importable on this host?".
+# module-level cache for "is pyobjc importable on this host?".
 # ``None`` means "not yet probed"; a bool is the cached answer. Probing
 # ``from ApplicationServices import AXIsProcessTrustedWithOptions`` on
 # every call to ``_check_macos_microphone`` / ``_check_macos_accessibility``
@@ -462,7 +462,7 @@ _PYOBJC_AVAILABLE: bool | None = None
 
 
 def _is_pyobjc_available() -> bool:
-    """XV-123 — probe whether pyobjc (``ApplicationServices``) is importable.
+    """probe whether pyobjc (``ApplicationServices``) is importable.
 
     Cached at module level in :data:`_PYOBJC_AVAILABLE` so repeated calls
     (e.g. one per permission check) don't re-pay the import-lookup cost.
@@ -488,7 +488,7 @@ def _is_pyobjc_available() -> bool:
 
 
 def reset_pyobjc_cache() -> None:
-    """XV-123 — clear the cached pyobjc availability flag.
+    """clear the cached pyobjc availability flag.
 
     The next call to :func:`_is_pyobjc_available` will re-probe. Intended
     for tests (which monkeypatch the cache to exercise specific branches)
@@ -498,41 +498,41 @@ def reset_pyobjc_cache() -> None:
     _PYOBJC_AVAILABLE = None
 
 
-# ─── Microphone permission probe (PVT-061) ────────────────────────────────
+# Microphone permission probe () ────────────────────────────────
 
 
 def check_microphone_permission() -> MicrophonePermissionState:
-    """PVT-061 — probe the OS-level microphone permission state.
+    """probe the OS-level microphone permission state.
 
-    - **macOS**: uses pyobjc ``AVCaptureDevice.authorizationStatus(for: .audio)``
-      to return one of ``GRANTED`` / ``DENIED`` / ``PROMPT`` (the
-      ``AVAuthorizationStatusNotDetermined`` case). Returns ``UNKNOWN``
-      if pyobjc isn't installed.
-    - **Windows**: FR-39 — attempts a 1-frame ``sounddevice.InputStream``
-      open in probe mode. If PortAudio raises an ``OSError`` whose
-      message contains "access denied" (the Windows mic-privacy-blocked
-      signature), returns ``DENIED``. Otherwise returns ``GRANTED``
-      (the probe succeeded) or ``UNKNOWN`` (the probe itself raised an
-      unrelated error — we never want a probe failure to take down the
-      caller). Pre-fix, this branch unconditionally returned ``GRANTED``,
-      so a globally-disabled Windows mic privacy setting was reported
-      as GRANTED and the user got a generic OSError toast instead of a
-      clean "Open Windows Settings → Microphone" prompt.
-    - **Linux**: FR-39 — checks for Flatpak (``/.flatpak-info``) and
-      reads the flatpak per-app microphone permission table. Returns
-      ``DENIED`` if the per-app portal permission is revoked. Returns
-      ``GRANTED`` otherwise (no standard per-app mic permission system
-      on non-Flatpak Linux — PipeWire/PulseAudio access is controlled
-      by the session manager but typically granted by default).
-    - **Unsupported platform**: returns ``UNKNOWN``.
+        - **macOS**: uses pyobjc ``AVCaptureDevice.authorizationStatus(for: .audio)``
+          to return one of ``GRANTED`` / ``DENIED`` / ``PROMPT`` (the
+          ``AVAuthorizationStatusNotDetermined`` case). Returns ``UNKNOWN``
+          if pyobjc isn't installed.
+    **Windows**:  — attempts a 1-frame ``sounddevice.InputStream``
+          open in probe mode. If PortAudio raises an ``OSError`` whose
+          message contains "access denied" (the Windows mic-privacy-blocked
+          signature), returns ``DENIED``. Otherwise returns ``GRANTED``
+          (the probe succeeded) or ``UNKNOWN`` (the probe itself raised an
+          unrelated error — we never want a probe failure to take down the
+          caller). Pre-fix, this branch unconditionally returned ``GRANTED``,
+          so a globally-disabled Windows mic privacy setting was reported
+          as GRANTED and the user got a generic OSError toast instead of a
+          clean "Open Windows Settings → Microphone" prompt.
+    **Linux**:  — checks for Flatpak (``/.flatpak-info``) and
+          reads the flatpak per-app microphone permission table. Returns
+          ``DENIED`` if the per-app portal permission is revoked. Returns
+          ``GRANTED`` otherwise (no standard per-app mic permission system
+          on non-Flatpak Linux — PipeWire/PulseAudio access is controlled
+          by the session manager but typically granted by default).
+        - **Unsupported platform**: returns ``UNKNOWN``.
 
-    FR-39 note: the Windows/Linux probes are best-effort. If the probe
-    itself raises (e.g. sounddevice not importable on a headless CI
-    box, or the flatpak permission file moved between versions), we
-    fall back to ``GRANTED`` and log a warning so the operator knows
-    the pre-check is limited — the runtime PortAudio-open path in
-    :mod:`voice_typer.server.recording.recorder` will re-classify the
-    actual OSError at device-open time.
+    note: the Windows/Linux probes are best-effort. If the probe
+        itself raises (e.g. sounddevice not importable on a headless CI
+        box, or the flatpak permission file moved between versions), we
+        fall back to ``GRANTED`` and log a warning so the operator knows
+        the pre-check is limited — the runtime PortAudio-open path in
+        :mod:`voice_typer.server.recording.recorder` will re-classify the
+        actual OSError at device-open time.
     """
     try:
         if is_macos():
@@ -548,7 +548,7 @@ def check_microphone_permission() -> MicrophonePermissionState:
 
 
 def _check_windows_microphone() -> MicrophonePermissionState:
-    """FR-39 — probe Windows microphone permission via a 1-frame
+    """probe Windows microphone permission via a 1-frame
     ``sounddevice.InputStream`` open.
 
     Windows doesn't expose a clean ahead-of-time probe for the per-app
@@ -643,7 +643,7 @@ def _check_windows_microphone() -> MicrophonePermissionState:
 
 
 def _check_linux_microphone() -> MicrophonePermissionState:
-    """FR-39 — probe Linux microphone permission.
+    """probe Linux microphone permission.
 
     On Flatpak, the per-app portal permission can revoke mic access
     while the app is running. We check ``/.flatpak-info`` (the canonical
@@ -747,7 +747,7 @@ def _check_linux_microphone() -> MicrophonePermissionState:
 
 
 def verify_microphone_accessible() -> None:
-    """DE-4 — pre-flight check that the OS reports microphone permission
+    """pre-flight check that the OS reports microphone permission
     as granted (or prompt — the OS will show the consent dialog on first
     PortAudio open in that case).
 
@@ -790,7 +790,7 @@ def _check_macos_microphone() -> MicrophonePermissionState:
     """
     global _PYOBJC_AVAILABLE
 
-    # XV-123: short-circuit when pyobjc isn't installed. Avoids paying
+    # short-circuit when pyobjc isn't installed. Avoids paying
     # the ``from AVFoundation import ...`` lookup cost on every probe.
     if not _is_pyobjc_available():
         return MicrophonePermissionState.UNKNOWN
@@ -798,7 +798,7 @@ def _check_macos_microphone() -> MicrophonePermissionState:
     try:
         from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore[import-not-found]
     except ImportError:
-        # XV-123: pyobjc was cached as available but AVFoundation isn't
+        # pyobjc was cached as available but AVFoundation isn't
         # importable (partial pyobjc install). Flip the cache so future
         # probes short-circuit to UNKNOWN without re-attempting the import.
         _PYOBJC_AVAILABLE = False
@@ -833,7 +833,7 @@ def _check_macos_accessibility() -> PermissionState:
     """
     global _PYOBJC_AVAILABLE
 
-    # XV-123: short-circuit when pyobjc isn't installed. Avoids paying
+    # short-circuit when pyobjc isn't installed. Avoids paying
     # the ``from ApplicationServices import ...`` lookup cost on every probe.
     if not _is_pyobjc_available():
         return PermissionState.UNKNOWN
@@ -849,7 +849,7 @@ def _check_macos_accessibility() -> PermissionState:
         trusted = AXIsProcessTrustedWithOptions(options)
         return PermissionState.GRANTED if trusted else PermissionState.DENIED
     except ImportError:
-        # XV-123: pyobjc was cached as available but ApplicationServices /
+        # pyobjc was cached as available but ApplicationServices
         # CoreFoundation aren't importable (partial pyobjc install). Flip
         # the cache so future probes short-circuit to UNKNOWN, then return
         # UNKNOWN. The native binary will emit ERROR on first use and the
@@ -988,7 +988,7 @@ def _trigger_macos_microphone_consent_prompt() -> None:
 def request_microphone_permission(
     on_granted: Callable[[], None] | None = None,
 ) -> None:
-    """DE-5 - request microphone permission from the OS.
+    """request microphone permission from the OS.
 
     Mirrors :func:`request_keyboard_permission` but for the microphone.
     On macOS, opens System Settings -> Privacy -> Microphone AND actively
@@ -1020,7 +1020,7 @@ def request_microphone_permission(
 def request_microphone_permission_result(
     on_granted: Callable[[], None] | None = None,
 ) -> dict:
-    """DE-5 - IPC-friendly wrapper around :func:`request_microphone_permission`.
+    """IPC-friendly wrapper around :func:`request_microphone_permission`.
 
     Returns a result dict so the renderer can surface success/failure
     without a follow-up ``onboarding_check_permissions`` round-trip.
@@ -1229,7 +1229,7 @@ def _find_linux_install_script():
 # ─── Tray notification helper ──────────────────────────────────────────────
 
 
-# PVT-011-i18n: i18n keys for the permission notification. The English
+# i18n keys for the permission notification. The English
 # fallbacks live in ``voice_typer/server/i18n.py`` under
 # ``notify.permissions.macos_title`` / ``notify.permissions.macos_body`` /
 # ``notify.permissions.linux_title`` / ``notify.permissions.linux_body``.
@@ -1244,15 +1244,15 @@ _PERMISSION_NOTIFY_LINUX_BODY_KEY = "notify.permissions.linux_body"
 def show_permission_notification(tray, error_message: str) -> None:
     """Show a tray notification about the permission issue.
 
-    ``tray`` is the app's tray object (must have a ``notify(title, body)``
-    method). If ``tray`` is None, the notification is only logged.
+        ``tray`` is the app's tray object (must have a ``notify(title, body)``
+        method). If ``tray`` is None, the notification is only logged.
 
-    PVT-011-i18n: the title/body strings are now resolved through
-    :mod:`voice_typer.server.i18n` (via :func:`i18n.t`) so the renderer
-    can push translations via the ``set_tray_locale`` IPC. The English
-    fallback (registered at i18n import time) matches the previous
-    hardcoded strings verbatim, so source-level regression tests that
-    grep for the English text continue to find the substring.
+    the title/body strings are now resolved through
+        :mod:`voice_typer.server.i18n` (via :func:`i18n.t`) so the renderer
+        can push translations via the ``set_tray_locale`` IPC. The English
+        fallback (registered at i18n import time) matches the previous
+        hardcoded strings verbatim, so source-level regression tests that
+        grep for the English text continue to find the substring.
     """
     # Local import to avoid a circular dependency at module import time
     # (i18n imports branding, branding is imported by this module).

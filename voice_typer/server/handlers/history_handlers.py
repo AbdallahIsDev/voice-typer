@@ -2,7 +2,7 @@
 restore_history, clear_history, toggle_favorite, get_favorites, search_history,
 get_history_count, get_transcription_text.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
@@ -35,21 +35,21 @@ _HISTORY_MAX_FRAME_BYTES = 1 * 1024 * 1024 - 32 * 1024
 class HistoryHandlersMixin(HandlerBase):
     """Mixin: history-related IPC handlers (get_history / delete_history / ...).
 
-    CR-20: this mixin is one of the four "representative" handlers
-    migrated to :meth:`HandlerBase._respond_with_error` for the
-    catch-all ``except Exception`` path. See
-    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    this mixin is one of the four "representative" handlers
+        migrated to :meth:`HandlerBase._respond_with_error` for the
+        catch-all ``except Exception`` path. See
+        ``voice_typer/server/handlers/_base.py`` for the migration plan.
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are inherited
     # from :class:`HandlerMixinBase` — no per-mixin re-declaration
     # needed (the duplicate block removed here was one of four that
-    # the R4-F3 centralization refactor missed).
+    # the  centralization refactor missed).
 
     def _handle_get_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_history`` IPC command."""
         try:
-            # IPC-3: validate ``limit`` / ``offset`` types via the
+            # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
             # ``data`` is pre-coerced to ``{}`` so the
             # ``test_non_dict_data_falls_back_to_defaults`` contract
@@ -100,7 +100,7 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "history"
             resp["data"] = rows
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_history")
         return resp
 
@@ -189,7 +189,7 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "today_stats"
             resp["data"] = self.service.get_today_stats()
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_today_stats")
         return resp
 
@@ -215,26 +215,26 @@ class HistoryHandlersMixin(HandlerBase):
             # manual refresh. clear_history already does the same above.
             _publish_history_changed("deleted")
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "delete_history")
         return resp
 
     def _handle_restore_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``restore_history`` IPC command.
 
-        NEW-UX-004: re-insert a previously-deleted record so the
-        renderer's Undo-delete toast can recover the entry.
+        re-insert a previously-deleted record so the
+                renderer's Undo-delete toast can recover the entry.
 
-        DE-44: added a 256 KB whole-payload cap
-        (``max_payload_bytes``) and an inline 8192-char per-field
-        cap on ``record['text']``. Without these guards, a
-        misbehaving caller could push a multi-MB ``record`` blob
-        (or a single 1 MB ``text`` field) that the history store
-        would happily persist, bloating the SQLite DB and the
-        diagnostics bundle. The whole-payload cap catches a
-        caller who stuffs a giant blob into a non-``text`` field;
-        the per-field cap catches a caller who stuffs it into
-        ``text`` specifically.
+        added a 256 KB whole-payload cap
+                (``max_payload_bytes``) and an inline 8192-char per-field
+                cap on ``record['text']``. Without these guards, a
+                misbehaving caller could push a multi-MB ``record`` blob
+                (or a single 1 MB ``text`` field) that the history store
+                would happily persist, bloating the SQLite DB and the
+                diagnostics bundle. The whole-payload cap catches a
+                caller who stuffs a giant blob into a non-``text`` field;
+                the per-field cap catches a caller who stuffs it into
+                ``text`` specifically.
         """
         try:
             validated, error = _validate_dict_payload(
@@ -280,7 +280,7 @@ class HistoryHandlersMixin(HandlerBase):
             # invalidate the history caches (see _publish_history_changed).
             _publish_history_changed("restored")
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "restore_history")
         return resp
 
@@ -297,7 +297,7 @@ class HistoryHandlersMixin(HandlerBase):
             # the next transcription_final / manual refresh.
             _publish_history_changed("cleared")
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "clear_history")
         return resp
 
@@ -321,14 +321,14 @@ class HistoryHandlersMixin(HandlerBase):
             # count on the Dashboard, so invalidate history caches too.
             _publish_history_changed("favorite_toggled")
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "toggle_favorite")
         return resp
 
     def _handle_get_favorites(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_favorites`` IPC command."""
         try:
-            # IPC-3: validate ``limit`` / ``offset`` types via the
+            # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Same pattern as
             # ``_handle_get_history`` (above) — ``(int, str)`` accepts
             # numeric strings from form inputs.
@@ -354,14 +354,14 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "history"
             resp["data"] = rows
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_favorites")
         return resp
 
     def _handle_search_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``search_history`` IPC command."""
         try:
-            # IPC-3: validate ``query`` / ``limit`` / ``offset`` types
+            # validate ``query`` / ``limit`` / ``offset`` types
             # via the shared ``_validate_dict_payload`` helper. Non-dict
             # ``data`` is pre-coerced to ``{}`` so the
             # ``test_non_dict_data_uses_empty_query`` contract (None →
@@ -392,7 +392,7 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "history"
             resp["data"] = rows
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "search_history")
         return resp
 
@@ -423,7 +423,7 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "history_count"
             resp["data"] = {"count": int(count)}
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_history_count")
         return resp
 
@@ -461,7 +461,7 @@ class HistoryHandlersMixin(HandlerBase):
             resp["type"] = "transcription_text"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "get_transcription_text")
         return resp
 

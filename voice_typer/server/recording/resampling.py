@@ -1,11 +1,11 @@
 """scipy.signal.resample_poly lazy-loading + background preloader.
 
-Phase 4.5 / ARCH-045 — extracted from the original ``recording.py``
+Phase 4.5 /  — extracted from the original ``recording.py``
 god-module.  Owns the cached ``_resample_poly`` binding, the cached
 import-error state, the preloader thread, and the locks that guard
 them.
 
-PVT-22 (Phase 4.5 follow-up) — also owns the ``resample_audio()``
+(Phase 4.5 follow-up) — also owns the ``resample_audio()``
 helper (promoted from ``Recorder._resample_audio_impl``) that runs the
 scipy → linear-interp → raise fallback chain. ``Recorder`` keeps a
 1-line delegator method (``_resample_audio_impl``) so existing
@@ -62,12 +62,12 @@ log = logging.getLogger("voice_typer.server.recording")
 
 _resample_poly = None
 _resample_poly_error: Exception | None = None
-# AUDIO-003: track when the error was cached so we can retry after a timeout
+# track when the error was cached so we can retry after a timeout
 _resample_poly_error_time: float = 0.0
 _RESAMPLE_RETRY_INTERVAL = 300.0  # Retry every 5 minutes
 _resample_poly_lock = threading.Lock()
 
-# ER-67: cache of (up, down) → FIR filter taps for ``resample_poly``.
+# cache of (up, down) → FIR filter taps for ``resample_poly``.
 # ``scipy.signal.resample_poly`` re-designs the FIR filter (via
 # ``firwin``) on every call, even when the (up, down) ratio is the
 # same — for a 48k→16k pipeline running at ~16 Hz, that's ~16 filter
@@ -85,7 +85,7 @@ _resample_fir_cache_lock = threading.Lock()
 
 
 def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
-    """ER-67: return cached FIR filter context for the given (up, down) ratio.
+    """return cached FIR filter context for the given (up, down) ratio.
 
     Mirrors the filter design that ``scipy.signal.resample_poly`` does
     internally (``firwin`` with scipy's default ``('kaiser', 5.0)``
@@ -226,15 +226,15 @@ def _start_scipy_preloader() -> None:
 def _get_resample_poly():
     """Load scipy's resampler once so imports do not happen on F2 stop.
 
-    ARCH-033: raises ``ResampleUnavailable`` (a typed exception) when
-    scipy is missing, instead of the bare ``ImportError``. Callers
-    that want to fall back to linear interp can catch this type.
+    raises ``ResampleUnavailable`` (a typed exception) when
+        scipy is missing, instead of the bare ``ImportError``. Callers
+        that want to fall back to linear interp can catch this type.
     """
     global _resample_poly, _resample_poly_error, _resample_poly_error_time
     if _resample_poly is not None:
         return _resample_poly
     if _resample_poly_error is not None:
-        # AUDIO-003: retry after timeout instead of memoizing forever
+        # retry after timeout instead of memoizing forever
         if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
             raise _resample_poly_error
         # Retry — clear the cached error
@@ -244,7 +244,7 @@ def _get_resample_poly():
         if _resample_poly is not None:
             return _resample_poly
         if _resample_poly_error is not None:
-            # AUDIO-003: retry after timeout instead of memoizing forever
+            # retry after timeout instead of memoizing forever
             if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
                 raise _resample_poly_error
             # Retry — clear the cached error
@@ -252,7 +252,7 @@ def _get_resample_poly():
         try:
             from scipy.signal import resample_poly
         except ImportError as exc:
-            # ARCH-033: wrap in a typed exception so callers can catch
+            # wrap in a typed exception so callers can catch
             # without inspecting the ImportError message.
             typed = ResampleUnavailableError(f"scipy.signal.resample_poly unavailable: {exc}")
             _resample_poly_error = typed
@@ -272,25 +272,25 @@ def resample_audio(
 ) -> np.ndarray:
     """Shared resampling logic for ``_resample_chunk`` and ``_prepare_audio``.
 
-    PVT-22 / Phase 4.5 — promoted from ``Recorder._resample_audio_impl``
-    (the body is unchanged). ``Recorder._resample_audio_impl`` is now a
-    1-line delegator that calls this function so existing internal call
-    sites and any subclass overrides keep working unchanged.
+    Phase 4.5 — promoted from ``Recorder._resample_audio_impl``
+        (the body is unchanged). ``Recorder._resample_audio_impl`` is now a
+        1-line delegator that calls this function so existing internal call
+        sites and any subclass overrides keep working unchanged.
 
-    PERF-NEW-027: previously the scipy → linear interp → raise
-    fallback chain was duplicated between the two methods. This
-    helper centralizes it so bug fixes (ERR-012, ERR-001, ARCH-033)
-    only need to be applied once.
+    PERF-: previously the scipy → linear interp → raise
+        fallback chain was duplicated between the two methods. This
+    helper centralizes it so bug fixes (, , )
+        only need to be applied once.
 
-    ERR-012: narrows exceptions to ``(ValueError, OSError, TypeError)``
-    so genuine bugs (``AttributeError``, ``MemoryError``) propagate
-    instead of being silently masked as "resampling failed".
+    narrows exceptions to ``(ValueError, OSError, TypeError)``
+        so genuine bugs (``AttributeError``, ``MemoryError``) propagate
+        instead of being silently masked as "resampling failed".
 
-    Patch-path compatibility: calls ``_get_resample_poly()`` via the
-    ``_recording_pkg`` package namespace (NOT a direct call) so test
-    patches of the form
-    ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
-    keep affecting this code. See the module docstring §Patch-path.
+        Patch-path compatibility: calls ``_get_resample_poly()`` via the
+        ``_recording_pkg`` package namespace (NOT a direct call) so test
+        patches of the form
+        ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+        keep affecting this code. See the module docstring §Patch-path.
     """
     if log is None:
         log = logging.getLogger("voice_typer.server.recording")
@@ -302,7 +302,7 @@ def resample_audio(
         gcd = math.gcd(effective_sr, target_sr)
         up = target_sr // gcd
         down = effective_sr // gcd
-        # ER-67: use cached FIR taps + ``upfirdn`` instead of the
+        # use cached FIR taps + ``upfirdn`` instead of the
         # ``resample_poly`` shortcut, which re-designs the filter on
         # every call. ``upfirdn`` is what ``resample_poly`` calls
         # internally after designing the filter; by designing once and
@@ -332,12 +332,12 @@ def resample_audio(
             )
         resampled = True
     except ResampleUnavailableError as exc:
-        # ARCH-033: scipy missing — fall through to linear interp.
+        # scipy missing — fall through to linear interp.
         last_error = exc
         if log_resample:
             log.warning("[RECORDING] scipy not available, using linear interp resampling")
     except (ValueError, OSError, TypeError) as exc:
-        # ERR-012: narrow to expected scipy/numpy failure modes.
+        # narrow to expected scipy/numpy failure modes.
         # AttributeError / MemoryError / etc. propagate.
         last_error = exc
         if log_resample:
@@ -369,7 +369,7 @@ def resample_audio(
                 )
             resampled = True
         except (ValueError, OSError, TypeError) as exc:
-            # ERR-012: narrow here too.
+            # narrow here too.
             last_error = exc
             if log_resample:
                 log.error(
@@ -379,7 +379,7 @@ def resample_audio(
                 )
 
     if not resampled:
-        # ERR-001: previously returned the native-rate audio here,
+        # previously returned the native-rate audio here,
         # which silently produced garbage transcriptions. Raise so
         # the streaming / final paths can decide how to recover.
         raise ResampleError(

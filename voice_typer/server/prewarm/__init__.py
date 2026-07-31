@@ -1,4 +1,4 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """OS-level cache prewarming for fast cold-boot startup.
 
 The dominant cost on first launch after a Windows reboot is *not* Python
@@ -40,7 +40,7 @@ Run manually for diagnostics::
     python -m voice_typer.server.prewarm
     python -m voice_typer.server.prewarm --force   # skip config/RAM guards
 
-Phase 4.5 / ARCH-045 — this file was previously a 2,162-line god-module
+Phase 4.5 /  — this file was previously a 2,162-line god-module
 (``voice_typer/server/prewarm.py``); it has been split into a package
 with one module per concern:
 
@@ -79,7 +79,7 @@ module exposed so existing imports of the form
 ``from voice_typer.server.prewarm import X`` keep working without
 modification.
 
-CR-67 / TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
+TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
 -------------------------------------------------------------------------
 This package uses an **indirection pattern** (rather than a custom
 module subclass like :mod:`voice_typer.server.recording` does) to
@@ -108,9 +108,9 @@ mutable-state routing case) and :mod:`voice_typer.server.server_platform`.
 All three packages together account for ~500 LOC of ``__init__.py``
 boilerplate that exists purely for test-patch compatibility.
 
-TODO (2026-07-29, CR-67 / TECH-DEBT — OPEN, no migration in progress):
+TODO (2026-07-29,  / TECH-DEBT — OPEN, no migration in progress):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once CR-67 is complete, this
+during the package reorganization.  Once  is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
 then remove the ``_pkg.X`` indirection.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.prewarm.X", ...)`` with
@@ -122,7 +122,7 @@ test site has been migrated, the ``_pkg.X`` references and the
 ``from voice_typer.server import prewarm as _pkg`` lines in the
 submodules can be deleted.  Estimated scope: 30-50 test files per
 package (so 90-150 test files total across the three packages).
-Tracked as CR-67 / TECH-DEBT (no owner assigned; no ETA — see
+Tracked as  / TECH-DEBT (no owner assigned; no ETA — see
 ``docs/rw9-god-class-decomposition.md`` for the migration plan).
 
 Patch-path compatibility
@@ -265,7 +265,7 @@ __all__ = [
     "_fast_startup_enabled",
     "_free_ram_mb",
     "_lower_io_priority",
-    # ER-15: battery guard + threshold.
+    # battery guard + threshold.
     "_on_battery_and_low_charge",
     "_BATTERY_LOW_CHARGE_THRESHOLD_PERCENT",
     # cache_probe

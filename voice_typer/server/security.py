@@ -1,7 +1,7 @@
 """Security utilities for Voice Typer.
 
-SEC-002: Secure file reading with symlink protection.
-SEC-009: PII redaction filter for log messages.
+Secure file reading with symlink protection.
+PII redaction filter for log messages.
 SEC-audit-005: Model integrity verification (SHA-256 hash checking).
 
 Historical note: the SEC-001 restart-token machinery
@@ -24,20 +24,20 @@ import logging
 import mmap
 import os
 import re
-import tempfile
 import threading
 import traceback as _traceback
 from pathlib import Path
 from typing import Any
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.secure_file_io import _secure_atomic_write, _secure_read_text
 
 log = logging.getLogger(__name__)
 
 
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
 
-# XV-122: fast-path trigger for ``_redact_text``.  The redaction pass
+# fast-path trigger for ``_redact_text``.  The redaction pass
 # runs 8-12 regex substitutions unconditionally on every log record,
 # even though the vast majority of records contain no PII / secret
 # pattern.  This single ``re.Pattern.search`` is a *necessary* condition
@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 #                  (``_KEY_PATTERNS[3]``); also catches any flag form
 #                  whose *value* is 20+ chars (the common production
 #                  case — real API keys are long).
-# XE-5-A: the 20+ char alternation uses negative lookbehind/lookahead on
+# the 20+ char alternation uses negative lookbehind/lookahead on
 # path delimiters so filesystem path components are not false-positive
 # redacted (mirrors the fix in _secrets._KEY_PATTERNS[-1]).
 _FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])")
@@ -74,7 +74,7 @@ _FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z
 def _redact_text(text: str) -> str:
     """Apply PII + API-secret + URL-credential redaction to *text*.
 
-    RW-6: shared helper used by :class:`PIIRedactionFilter` for both
+    shared helper used by :class:`PIIRedactionFilter` for both
     the formatted log message and the formatted traceback.  Order
     matters:
 
@@ -95,14 +95,14 @@ def _redact_text(text: str) -> str:
     so the secret-matching patterns stay defined in exactly one place
     (no duplicated regexes).
 
-    XV-122: a single :data:`_FAST_TRIGGER` scan gates the whole pass.
+    a single :data:`_FAST_TRIGGER` scan gates the whole pass.
     Every trigger in the alternation is a *necessary* condition for at
     least one downstream pattern to match, so a miss lets us return
     *text* unchanged without issuing the 8-12 ``re.sub`` calls (a
     5-10x speedup for the common log line that carries no secret /
     PII / URL-credential trigger).
     """
-    # XV-122: fast path — no trigger means no pattern can match, so
+    # fast path — no trigger means no pattern can match, so
     # skip the substitution loop entirely.  ``str`` input only; the
     # ``PIIRedactionFilter.filter`` call site always passes the
     # already-stringified ``record.getMessage()`` / traceback text.
@@ -152,7 +152,7 @@ class PIIRedactionFilter(logging.Filter):
       - **Generic 9-20 digit numbers** (potential account / customer
         IDs): same false-positive concern.
 
-    RW-6: in addition to the formatted log message, the filter also
+    in addition to the formatted log message, the filter also
     pre-formats and redacts the traceback when ``record.exc_info`` is
     set.  The redacted text is cached on ``record.exc_text`` so any
     subsequent :class:`logging.Formatter` that appends ``exc_text``
@@ -195,7 +195,7 @@ class PIIRedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         msg = _redact_text(msg)
-        # YJ-18: store the redacted message on ``record.redacted_msg`` so
+        # store the redacted message on ``record.redacted_msg`` so
         # downstream structured consumers (metrics exporters, a future
         # MemoryHandler ring buffer that re-emits to a structured backend)
         # can read the redacted version WITHOUT having to re-format
@@ -214,7 +214,7 @@ class PIIRedactionFilter(logging.Filter):
         record.msg = msg
         record.args = ()
 
-        # RW-6: pre-format and redact the traceback so exceptions
+        # pre-format and redact the traceback so exceptions
         # whose ``str(exc)`` carries an API key don't leak the key via
         # the formatted traceback.  ``record.exc_text`` is consulted
         # by :meth:`logging.Formatter.format` (which only re-formats
@@ -237,14 +237,14 @@ class PIIRedactionFilter(logging.Filter):
 
 
 def redact_pii(text: str) -> str:
-    """SEC-009: Redact potential PII and API secrets from a text string.
+    """Redact potential PII and API secrets from a text string.
 
     Standalone helper that applies the same redaction patterns as
     ``PIIRedactionFilter`` but can be used directly on arbitrary
     strings (e.g. before logging transcription text, error messages,
     or other user-visible content).
 
-    XZ-PII-03: previously this function only applied the four PII
+    previously this function only applied the four PII
     patterns (email / phone / SSN / CC) — API keys, bearer tokens,
     and URL-embedded credentials passed through verbatim. The
     ``llm_polish.py`` docstring claimed API keys were covered, which
@@ -287,11 +287,11 @@ def redact_pii(text: str) -> str:
     """
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
-    # XZ-PII-03: also redact API keys / bearer tokens (idempotent on
+    # also redact API keys / bearer tokens (idempotent on
     # already-redacted text — the ``<prefix>***`` mask doesn't match
     # the secret patterns).
     text = redact_secret(text)
-    # XZ-PII-03: also strip URL userinfo. Gated on ``"@" in text`` for
+    # also strip URL userinfo. Gated on ``"@" in text`` for
     # the same perf reason as ``_redact_text`` — the vast majority of
     # inputs carry no ``@`` so the comparatively expensive
     # ``urllib.parse.urlparse`` call is skipped.
@@ -317,7 +317,7 @@ def redact_pii(text: str) -> str:
 def _load_model_hashes() -> "dict[str, dict[str, Any]]":
     """Load MODEL_HASHES from the companion JSON file, with hardcoded fallback.
 
-    TASK-14: the value type is widened from ``dict[str, str]`` to
+    the value type is widened from ``dict[str, str]`` to
     ``dict[str, Any]`` because each manifest entry mixes value kinds
     (``"revision": "main"`` is a str, ``"files": {filename: hash}`` is
     a nested dict).  The narrower annotation made
@@ -327,7 +327,14 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
     json_path = Path(__file__).parent / "model_hashes.json"
     if json_path.exists():
         try:
-            raw = json.loads(json_path.read_text(encoding="utf-8"))
+            # use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` /
+            # Windows reparse-point rejection) instead of ``Path.read_text``
+            # so a symlink planted at ``model_hashes.json`` cannot redirect
+            # the read to an attacker-controlled file and inject pinned
+            # SHA-256 entries. On a symlink, ``_secure_read_text`` raises
+            # ``OSError``/``ValueError`` which is caught below — the
+            # hardcoded fallback then applies.
+            raw = json.loads(_secure_read_text(json_path))
             # Filter out the _comment metadata key
             return {k: v for k, v in raw.items() if k != "_comment" and isinstance(v, dict)}
         except Exception as exc:
@@ -382,7 +389,7 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
                 "tokenizer.json": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
             },
         },
-        # NF-R18-9: add the ``qwen`` entry to the hardcoded fallback so
+        # add the ``qwen`` entry to the hardcoded fallback so
         # a missing/corrupt ``model_hashes.json`` doesn't soft-pass
         # Qwen. ``revision: "local"`` + empty ``files`` triggers the
         # new hard-FAIL path in ``verify_model_integrity`` above; this
@@ -401,13 +408,13 @@ def _load_model_hashes() -> "dict[str, dict[str, Any]]":
 MODEL_HASHES: "dict[str, dict[str, Any]]" = _load_model_hashes()
 
 
-# ─── AB-8: On-disk integrity cache for SHA-256 verification ─────────────
+# ─── : On-disk integrity cache for SHA-256 verification ─────────────
 #
 # verify_model_integrity() is called UNCONDITIONALLY on every model load
-# (cache hit AND miss). Pre-AB-8, this re-hashed the full multi-GB weight
+# (cache hit AND miss). Pre-, this re-hashed the full multi-GB weight
 # file (model.safetensors ~2.5 GB for Parakeet, model.bin ~3 GB for
 # Whisper large-v3) on EVERY load — 5-10 s of pure I/O + SHA-256 CPU per
-# load. The TY-11 idle-unload feature made this worse.
+# load. The  idle-unload feature made this worse.
 #
 # The integrity cache is a JSON file at <config_dir>/cache/integrity_cache.json
 # keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256_hex. On a
@@ -436,13 +443,29 @@ def _integrity_cache_path() -> Path:
 
 
 def _load_integrity_cache() -> "dict[str, Any]":
-    """Load the integrity cache from disk. Returns empty cache on any error."""
+    """Load the integrity cache from disk. Returns empty cache on any error.
+
+    uses ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` / Windows
+    reparse-point rejection) instead of ``Path.read_text`` so a symlink
+    planted at ``<config_dir>/cache/integrity_cache.json`` cannot
+    redirect the read to an arbitrary file and control the cached
+    SHA-256 entries. On a symlink, ``_secure_read_text`` raises
+    ``OSError`` (POSIX ``ELOOP``) / ``OSError`` (Windows reparse-point
+    rejection), which is caught by the broad ``except Exception`` and
+    falls through to the empty cache.
+    """
     empty = {"version": _INTEGRITY_CACHE_VERSION, "repos": {}}
     try:
         path = _integrity_cache_path()
         if not path.exists():
             return empty
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw_text = _secure_read_text(path)
+        # defense-in-depth — re-tighten perms to 0o600 on every
+        # successful read. Mirrors ``secure_file_io._chmod_owner_only``.
+        # Best-effort; a read-only filesystem must not fail the load.
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
+        raw = json.loads(raw_text)
         if not isinstance(raw, dict):
             return empty
         if raw.get("version") != _INTEGRITY_CACHE_VERSION:
@@ -457,28 +480,22 @@ def _load_integrity_cache() -> "dict[str, Any]":
 
 
 def _save_integrity_cache(cache: "dict[str, Any]") -> None:
-    """Atomically write the integrity cache to disk. Best-effort."""
-    tmp_name = None
+    """Atomically write the integrity cache to disk. Best-effort.
+
+    delegates to ``_secure_atomic_write`` ( ``owned_fd``
+    sentinel + explicit ``_chmod_owner_only`` + symlink-safe
+    ``tempfile.mkstemp``) instead of a bare ``tempfile.mkstemp`` +
+    ``os.fdopen`` + ``os.replace`` block. ``durability=False`` preserves
+    the pre- no-fsync cache-write behaviour — the integrity cache
+    is a perf optimization (skips re-hashing multi-GB model files), not
+    security-critical state, so a power-loss window of a few seconds is
+    acceptable (the next ``verify_model_integrity`` call re-computes
+    any missing cache entry).
+    """
     try:
         path = _integrity_cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(path.parent),
-            prefix=path.name + ".",
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(json.dumps(cache))
-                f.flush()
-            os.replace(tmp_name, str(path))
-            tmp_name = None
-        except Exception:
-            if tmp_name is not None:
-                with contextlib.suppress(OSError):
-                    os.unlink(tmp_name)
-                tmp_name = None
-            raise
+        _secure_atomic_write(path, json.dumps(cache), durability=False)
     except Exception as exc:
         log.debug("[SECURITY] integrity cache save failed (%s) — cache will not persist", exc)
 
@@ -486,7 +503,7 @@ def _save_integrity_cache(cache: "dict[str, Any]") -> None:
 def compute_file_sha256(path: Path) -> str:
     """Compute the SHA-256 hash of a file.
 
-    AB-8: uses mmap when possible for zero-copy hashing of large model
+    uses mmap when possible for zero-copy hashing of large model
     files. Falls back to the 64 KB chunk loop on mmap failure (e.g.
     mmap of a 0-length file raises ValueError).
     """
@@ -524,7 +541,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     (file exists and is not empty) and the computed hash is logged at
     INFO level so it can be added to the manifest later.
 
-    AB-8: hashes are memoized in an on-disk integrity cache
+    hashes are memoized in an on-disk integrity cache
     (``<config_dir>/cache/integrity_cache.json``) keyed on
     ``(repo_id, relpath, st_mtime_ns, st_size)``. On a cache hit, the
     cached hash is reused without re-reading the multi-GB weight file
@@ -576,7 +593,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         )
         return False
 
-    # NF-R18-9: hard-FAIL for local models with an empty ``files`` dict.
+    # hard-FAIL for local models with an empty ``files`` dict.
     # Pre-fix, ``verify_model_integrity`` soft-passed whenever the
     # manifest's ``files`` dict was empty (see the ``else`` branch
     # below). For HuggingFace repos this was acceptable because the
@@ -606,7 +623,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         )
         return False
 
-    # AB-8: load the integrity cache ONCE for the whole verification
+    # load the integrity cache ONCE for the whole verification
     # call. Keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256.
     # The cache lock is held only for load/save — NOT for hash
     # computation (which can take 5-10 s for a multi-GB weight file).
@@ -659,7 +676,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     # INFO level. Operators can copy these logged hashes into
     # model_hashes.json to enable enforcement on the next run.
     #
-    # NF-R18-9: this branch is now reachable ONLY for HuggingFace
+    # this branch is now reachable ONLY for HuggingFace
     # repos (``revision`` is a 40-char SHA, validated upstream by
     # ``snapshot_download``). Local repos with empty files hit the
     # hard-FAIL branch above.
@@ -717,7 +734,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
             except Exception as exc:
                 log.debug("[SECURITY]   failed to hash %s: %s", entry, exc)
 
-    # AB-8: persist the cache once at the end (only if dirty).
+    # persist the cache once at the end (only if dirty).
     if cache_dirty:
         with _integrity_cache_lock:
             _save_integrity_cache(cache)
@@ -725,7 +742,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     return True
 
 
-# SEC-009: The standalone ``_redact_pii`` helper that previously lived
+# The standalone ``_redact_pii`` helper that previously lived
 # here was a DUPLICATE of ``redact_pii`` above (lines 114-140) with
 # slightly different regex patterns and replacement tokens. Having two
 # parallel implementations of the same logic was a maintenance hazard
@@ -755,7 +772,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 # attached. A buggy keyring backend that logged a credential value, or
 # a urllib3 exception whose message echoed a request URL with an API
 # key in the query string, would land in stderr (and any captured
-# stderr buffer) unredacted — defeating the SEC-009 / RW-6 redaction
+# stderr buffer) unredacted — defeating the SEC-009 /  redaction
 # that protects the rotating-file handler.
 #
 # The fix: replace ``logging.lastResort`` with a ``StreamHandler``

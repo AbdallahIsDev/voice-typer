@@ -36,11 +36,11 @@ class ConfigEditorLauncher:
     def open(self) -> None:
         """Open ``config.json`` in the user's default editor.
 
-        Constructs the platform-specific
-        :class:`voice_typer.server.config_editor.ConfigEditorLauncher`
-        with the owning app and delegates to its ``launch()`` method,
-        preserving the XPLAT-01 / SEC-audit-011 / B-4 / CR-015 lock +
-        reload invariants.
+                Constructs the platform-specific
+                :class:`voice_typer.server.config_editor.ConfigEditorLauncher`
+                with the owning app and delegates to its ``launch()`` method,
+        preserving the  / SEC-audit-011 / B-4 /  lock +
+                reload invariants.
         """
         config_file = self._app.config.config_dir / "config.json"
         # Imported locally to avoid a top-level name clash with this

@@ -31,7 +31,7 @@ Both ``getattr`` and ``setattr`` are delegated, so tests that do
 ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` keep working
 without modification.
 
-G4-M-43: ``ImportError`` is cached on the proxy so a missing dependency
+``ImportError`` is cached on the proxy so a missing dependency
 is reported once (with a clear error) rather than re-attempted on every
 attribute access — re-attempting can mask the root cause with a flood
 of identical tracebacks and waste CPU on every call site. The cached
@@ -49,22 +49,22 @@ from typing import Any
 class _LazyModule:
     """Transparent proxy that defers ``import <name>`` to first use.
 
-    The proxy caches the most recent ``ImportError`` (G4-M-43) so that
-    a missing dependency is reported once with a clear traceback rather
-    than re-attempted on every attribute access. The successful module
-    is NOT cached — the proxy re-resolves from ``sys.modules`` on every
-    access so per-test ``monkeypatch`` mocks are always honoured (see
-    the module docstring for the test-safety rationale).
+    The proxy caches the most recent ``ImportError`` () so that
+        a missing dependency is reported once with a clear traceback rather
+        than re-attempted on every attribute access. The successful module
+        is NOT cached — the proxy re-resolves from ``sys.modules`` on every
+        access so per-test ``monkeypatch`` mocks are always honoured (see
+        the module docstring for the test-safety rationale).
 
-    Cache invalidation: ``reset_cache()`` clears the cached
-    ``ImportError`` so the next attribute access re-attempts the real
-    import. This is the recovery path for the case where a dependency
-    becomes available AFTER the first failed access (e.g. a deferred
-    installer finished, or a test fixed ``sys.modules`` after a
-    failure). Without this method, the only recovery was to construct a
-    new proxy — which is not always possible when the proxy is held as
-    a module-level singleton (e.g. ``sd = lazy_module("sounddevice")``
-    at the top of ``recording.py``).
+        Cache invalidation: ``reset_cache()`` clears the cached
+        ``ImportError`` so the next attribute access re-attempts the real
+        import. This is the recovery path for the case where a dependency
+        becomes available AFTER the first failed access (e.g. a deferred
+        installer finished, or a test fixed ``sys.modules`` after a
+        failure). Without this method, the only recovery was to construct a
+        new proxy — which is not always possible when the proxy is held as
+        a module-level singleton (e.g. ``sd = lazy_module("sounddevice")``
+        at the top of ``recording.py``).
     """
 
     __slots__ = ("_module_name", "_cached_error")
@@ -73,7 +73,7 @@ class _LazyModule:
         # Bypass our own __setattr__ (which delegates to the wrapped
         # module) when storing state on the proxy itself.
         object.__setattr__(self, "_module_name", module_name)
-        # G4-M-43: cache the most recent ImportError so a missing
+        # cache the most recent ImportError so a missing
         # dependency is reported once, not on every attribute access.
         # ``None`` means "no error cached — caller may attempt import".
         object.__setattr__(self, "_cached_error", None)
@@ -100,7 +100,7 @@ class _LazyModule:
         object.__setattr__(self, "_cached_error", None)
 
     def _resolve(self):
-        # G4-M-43: if a previous attempt raised ImportError, re-raise
+        # if a previous attempt raised ImportError, re-raise
         # the cached error instead of re-attempting ``import_module``.
         # This prevents a flood of identical tracebacks when a missing
         # dependency is accessed from many call sites, and avoids the
@@ -117,7 +117,7 @@ class _LazyModule:
         try:
             return importlib.import_module(module_name)
         except ImportError as exc:
-            # G4-M-43: cache the error so subsequent accesses don't
+            # cache the error so subsequent accesses don't
             # re-attempt the (likely still-failing) import.
             object.__setattr__(self, "_cached_error", exc)
             raise
@@ -131,59 +131,59 @@ class _LazyModule:
     def __setattr__(self, name: str, value: Any) -> None:
         """Delegate attribute assignment to the wrapped module in ``sys.modules``.
 
-        XV-78 (LOAD-BEARING — DO NOT REMOVE): this method MUTATES the real
-        module object that lives in ``sys.modules`` (returned by
-        ``self._resolve()`` → ``importlib.import_module``). It does NOT
-        store the value on the proxy itself — the proxy is intentionally
-        stateless for attribute reads (see the module docstring + ``__getattr__``).
+        (LOAD-BEARING — DO NOT REMOVE): this method MUTATES the real
+                module object that lives in ``sys.modules`` (returned by
+                ``self._resolve()`` → ``importlib.import_module``). It does NOT
+                store the value on the proxy itself — the proxy is intentionally
+                stateless for attribute reads (see the module docstring + ``__getattr__``).
 
-        Why this matters
-        -----------------
-        ``__getattr__`` re-resolves the module from ``sys.modules`` on every
-        access (per-test ``monkeypatch`` mocks must be honoured — see the
-        module docstring). If ``__setattr__`` stored the value on the proxy
-        (e.g. via ``object.__setattr__(self, name, value)``), the value
-        would land in a location that ``__getattr__`` NEVER consults —
-        ``__getattr__`` only runs when normal lookup fails, and the
-        per-instance dict is bypassed by ``__slots__``. The result would be
-        a write/read asymmetry: ``proxy.X = v`` would silently no-op,
-        ``proxy.X`` would then raise ``AttributeError`` (or return the
-        wrapped module's value), and the documented test pattern::
+                Why this matters
+                -----------------
+                ``__getattr__`` re-resolves the module from ``sys.modules`` on every
+                access (per-test ``monkeypatch`` mocks must be honoured — see the
+                module docstring). If ``__setattr__`` stored the value on the proxy
+                (e.g. via ``object.__setattr__(self, name, value)``), the value
+                would land in a location that ``__getattr__`` NEVER consults —
+                ``__getattr__`` only runs when normal lookup fails, and the
+                per-instance dict is bypassed by ``__slots__``. The result would be
+                a write/read asymmetry: ``proxy.X = v`` would silently no-op,
+                ``proxy.X`` would then raise ``AttributeError`` (or return the
+                wrapped module's value), and the documented test pattern::
 
-            monkeypatch.setattr(recording.sd, "InputStream", fake)
+                    monkeypatch.setattr(recording.sd, "InputStream", fake)
 
-        would silently fail to take effect, breaking the entire test
-        fixture layer that injects fake ``sounddevice`` / ``pystray`` /
-        ``pynput`` backends.
+                would silently fail to take effect, breaking the entire test
+                fixture layer that injects fake ``sounddevice`` / ``pystray`` /
+                ``pynput`` backends.
 
-        Because modules are singletons in ``sys.modules``, the mutation is
-        visible to ANY other code that imports the same module name —
-        including other proxies for the same name (see
-        ``test_two_proxies_for_same_module_share_state``). This is
-        intentional and mirrors what would happen with a direct
-        ``import sounddevice as sd; sd.InputStream = fake``.
+                Because modules are singletons in ``sys.modules``, the mutation is
+                visible to ANY other code that imports the same module name —
+                including other proxies for the same name (see
+                ``test_two_proxies_for_same_module_share_state``). This is
+                intentional and mirrors what would happen with a direct
+                ``import sounddevice as sd; sd.InputStream = fake``.
 
-        Removal would break: ``tests/test__lazy_import.py``
-        (``test_setattr_delegates_to_wrapped_module``,
-        ``test_monkeypatch_setattr_on_proxy_then_access_works``,
-        ``test_two_proxies_for_same_module_share_state``) plus every
-        production test that does ``monkeypatch.setattr(<lazy proxy>,
-        <attr>, <fake>)`` to inject a fake backend.
+                Removal would break: ``tests/test__lazy_import.py``
+                (``test_setattr_delegates_to_wrapped_module``,
+                ``test_monkeypatch_setattr_on_proxy_then_access_works``,
+                ``test_two_proxies_for_same_module_share_state``) plus every
+                production test that does ``monkeypatch.setattr(<lazy proxy>,
+                <attr>, <fake>)`` to inject a fake backend.
 
-        This behaviour is INTENTIONAL and load-bearing — it is the only
-        way to keep the proxy transparent for both reads and writes when
-        reads always re-resolve from ``sys.modules``.
+                This behaviour is INTENTIONAL and load-bearing — it is the only
+                way to keep the proxy transparent for both reads and writes when
+                reads always re-resolve from ``sys.modules``.
         """
         setattr(self._resolve(), name, value)
 
     def __delattr__(self, name: str) -> None:
         """Delegate attribute deletion to the wrapped module in ``sys.modules``.
 
-        XV-78 (mirrors ``__setattr__``): deletion must mutate the real
-        module so a subsequent ``__getattr__`` re-resolve sees the
-        attribute as gone. Deleting on the proxy itself would be
-        silently invisible to ``__getattr__`` for the same reason
-        ``__setattr__`` would be (see ``__setattr__`` docstring).
+        (mirrors ``__setattr__``): deletion must mutate the real
+                module so a subsequent ``__getattr__`` re-resolve sees the
+                attribute as gone. Deleting on the proxy itself would be
+                silently invisible to ``__getattr__`` for the same reason
+                ``__setattr__`` would be (see ``__setattr__`` docstring).
         """
         delattr(self._resolve(), name)
 

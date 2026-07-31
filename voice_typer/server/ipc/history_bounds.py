@@ -1,8 +1,8 @@
-# ARCH-REFAC-002 / ARCH-045: extracted from the original
+# extracted from the original
 # ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """History-DB bounds and config sanitization helpers.
 
-Phase 4.5 / ARCH-045 — extracted from the original ``ipc_server.py``
+Phase 4.5 /  — extracted from the original ``ipc_server.py``
 god-module.  Contains:
 
 - :func:`_bound_history_limit` / :func:`_bound_history_offset` —
@@ -18,7 +18,7 @@ sanitized view where API keys are replaced with a presence indicator so
 the renderer can render "key configured" UI without ever holding the
 actual key value.
 
-DE-33 (2026-10 fix): the prior implementation relied on a static
+(2026-10 fix): the prior implementation relied on a static
 ``_SECRET_CONFIG_FIELDS`` frozenset of five hand-listed names.  Any
 future secret-bearing config field added without updating that frozenset
 would be echoed verbatim to the IPC client — a credential disclosure.
@@ -33,7 +33,7 @@ value is masked (previously falsy values like ``0`` / ``False`` /
 unsafe for ``0`` / ``False`` secrets and inconsistent with the "key is
 set" semantic).
 
-DE-35 (2026-10 fix): :func:`_bound_history_offset` now caps the offset
+(2026-10 fix): :func:`_bound_history_offset` now caps the offset
 at :data:`_HISTORY_OFFSET_MAX` (10_000_000) in addition to the
 ``max(0, v)`` floor.  Previously a client could send
 ``offset=999999999999`` (or ``int('9'*10000)``) and force SQLite to
@@ -42,7 +42,7 @@ alone never tripped.  The cap matches the ``limit`` cap pattern.
 """
 
 # Fields whose values are secrets and must never be echoed back.
-# DE-33: this frozenset is the EXPLICIT allowlist — kept for backward
+# this frozenset is the EXPLICIT allowlist — kept for backward
 # compat with ``crash_recovery.py`` (which imports it for its own
 # config.json redaction path). The PATTERN-based denylist below is the
 # authoritative defense-in-depth: a new secret field that matches a
@@ -59,12 +59,12 @@ alone never tripped.  The cap matches the ``limit`` cap pattern.
 # canonical set is the single source of truth; the alias here keeps
 # the existing ``from voice_typer.server.ipc.history_bounds import
 # _SECRET_CONFIG_FIELDS`` import path (used by ``crash_recovery.py``,
-# ``ipc_server.py``, ``ipc/__init__.py``, and the DE-33 regression
+# ``ipc_server.py``, ``ipc/__init__.py``, and the  regression
 # tests) working unchanged while guaranteeing the two names refer to
 # the SAME frozenset object.
 from voice_typer.server.config_sanitizer import _SECRET_CONFIG_FIELDS  # noqa: F401
 
-# DE-33: pattern-based secret-field denylist (defense-in-depth).
+# pattern-based secret-field denylist (defense-in-depth).
 #
 # Each entry is either:
 # - ``"!<suffix>"`` (e.g. ``"!_api_key"``) — matches any field name
@@ -99,7 +99,7 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "!_password",
     "!_credential",
     "!_bearer",
-    # XE-2-2: ``!_key`` catches generic key-suffixed fields that the
+    # ``!_key`` catches generic key-suffixed fields that the
     # narrower ``!_api_key`` suffix missed — ``secret_key``,
     # ``signing_key``, ``private_key``, ``hmac_key``, ``aes_key``,
     # ``encryption_key``. The pattern is NAME-based so a non-secret
@@ -114,7 +114,7 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "=secret",
     "=token",
     "=api_key",
-    # XE-2-2: bare-name exact matches for cryptographic key material
+    # bare-name exact matches for cryptographic key material
     # that doesn't carry a vendor prefix. ``private_key`` /
     # ``secret_key`` / ``signing_key`` are the conventional names for
     # PEM-encoded key blobs; without these exact matches a Config
@@ -127,7 +127,7 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
 
 
 def _is_secret_field_name(name: str) -> bool:
-    """Return True if ``name`` matches a secret-field pattern (DE-33).
+    """Return True if ``name`` matches a secret-field pattern ().
 
     A field is considered secret if EITHER:
     - It is listed in :data:`_SECRET_CONFIG_FIELDS` (explicit allowlist,
@@ -168,7 +168,7 @@ _REDACTED_SENTINEL = "<redacted>"
 _HISTORY_LIMIT_MAX = 500
 _HISTORY_LIMIT_DEFAULT = 50
 
-# DE-35: maximum history ``offset`` accepted from a client.  Python
+# maximum history ``offset`` accepted from a client.  Python
 # big-ints are unbounded, so without this cap a client sending
 # ``offset=999999999999`` (or ``int('9'*10000)``) could force SQLite to
 # scan/skip rows wastefully even though the result set is empty.  10M
@@ -197,17 +197,17 @@ def _bound_history_limit(raw) -> int:
 def _bound_history_offset(raw) -> int:
     """Clamp a caller-supplied history ``offset`` to a safe range.
 
-    DE-35: previously the offset was clamped only with ``max(0, v)``
-    (no upper bound).  Python big-ints are unbounded, so a client
-    sending ``offset=999999999999`` (or ``int('9'*10000)``) could
-    force SQLite to scan/skip rows wastefully.  The offset is now
-    capped at :data:`_HISTORY_OFFSET_MAX` (10_000_000) — far above any
-    plausible history size, but small enough that the SQL ``OFFSET n``
-    skip stays in the microsecond range.  Mirrors the
-    :func:`_bound_history_limit` cap pattern.
+    previously the offset was clamped only with ``max(0, v)``
+        (no upper bound).  Python big-ints are unbounded, so a client
+        sending ``offset=999999999999`` (or ``int('9'*10000)``) could
+        force SQLite to scan/skip rows wastefully.  The offset is now
+        capped at :data:`_HISTORY_OFFSET_MAX` (10_000_000) — far above any
+        plausible history size, but small enough that the SQL ``OFFSET n``
+        skip stays in the microsecond range.  Mirrors the
+        :func:`_bound_history_limit` cap pattern.
 
-    Accepts ints, floats, and numeric strings.  Rejects anything else
-    with ``0``.  Result is always in ``[0, _HISTORY_OFFSET_MAX]``.
+        Accepts ints, floats, and numeric strings.  Rejects anything else
+        with ``0``.  Result is always in ``[0, _HISTORY_OFFSET_MAX]``.
     """
     if raw is None:
         return 0
@@ -221,30 +221,30 @@ def _bound_history_offset(raw) -> int:
 def _sanitize_config_for_ipc(config) -> dict:
     """Return a copy of ``config.__dict__`` with secret fields redacted.
 
-    A field is considered secret if EITHER:
+        A field is considered secret if EITHER:
 
-    - It is listed in :data:`_SECRET_CONFIG_FIELDS` (the explicit
-      allowlist, kept for backward compat with ``crash_recovery.py``'s
-      own config.json redaction path), OR
-    - It matches one of :data:`_SECRET_FIELD_PATTERNS` (the pattern-
-      based denylist — defense-in-depth so a new secret field added to
-      ``Config`` without updating the frozenset is still redacted).
+        - It is listed in :data:`_SECRET_CONFIG_FIELDS` (the explicit
+          allowlist, kept for backward compat with ``crash_recovery.py``'s
+          own config.json redaction path), OR
+        - It matches one of :data:`_SECRET_FIELD_PATTERNS` (the pattern-
+          based denylist — defense-in-depth so a new secret field added to
+          ``Config`` without updating the frozenset is still redacted).
 
-    DE-33: redaction now masks any non-None value, regardless of
-    truthiness.  Previously falsy values like ``0`` / ``False`` /
-    ``""`` were preserved verbatim — fine for the empty-string "no key
-    set" case but unsafe for ``0`` / ``False`` secrets and inconsistent
-    with the "key is set" semantic.  ``None`` is still preserved (so
-    the renderer can distinguish "no key configured" from "key set but
-    hidden"); any other value (including ``""``) is replaced with the
-    ``<redacted>`` sentinel.
+    redaction now masks any non-None value, regardless of
+        truthiness.  Previously falsy values like ``0`` / ``False`` /
+        ``""`` were preserved verbatim — fine for the empty-string "no key
+        set" case but unsafe for ``0`` / ``False`` secrets and inconsistent
+        with the "key is set" semantic.  ``None`` is still preserved (so
+        the renderer can distinguish "no key configured" from "key set but
+        hidden"); any other value (including ``""``) is replaced with the
+        ``<redacted>`` sentinel.
     """
     out = config.__dict__.copy()
     for k in list(out.keys()):
         if not _is_secret_field_name(k):
             continue
         v = out[k]
-        # DE-33: redact any non-None value, regardless of truthiness.
+        # redact any non-None value, regardless of truthiness.
         # Previously ``v if not v else _REDACTED_SENTINEL`` would skip
         # falsy non-None values (``0``, ``False``, ``""``) — fine for
         # ``""`` (the "no key set" case) but unsafe for ``0`` /

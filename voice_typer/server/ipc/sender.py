@@ -51,9 +51,9 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 # allocations/sec). Hoisting to a module-level frozenset eliminates the
 # per-call allocation entirely.
 #
-# PR-2-FIX-2: expanded from the original ``("relaunch_app", "quit_app")``
+# expanded from the original ``("relaunch_app", "quit_app")``
 # pair to include the content-bearing events above.
-# PVT-G5-013: dispatch responses (which carry an ``id`` field) are
+# dispatch responses (which carry an ``id`` field) are
 # exempted from the shutdown suppress by a separate ``"id" not in msg``
 # check in ``_send`` — they are NOT in this allowlist because the allowlist
 # is for PUSH events only (no ``id``).
@@ -67,7 +67,7 @@ _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
-# ZR-43 / ZR-70: hoisted from inline magic numbers in ``_send`` so they
+# hoisted from inline magic numbers in ``_send`` so they
 # are visible at the module top alongside the other TCP tuning knobs
 # (``_TCP_WRITE_TIMEOUT_SECONDS`` in ``ipc/rate_limiter.py``). Both
 # constants trade memory for catch-up latency on client reconnect:
@@ -89,7 +89,7 @@ _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
 _TCP_PENDING_DRAIN_CAP: int = 100
 _TCP_PENDING_BUFFER_CAP: int = 1000
 
-# XE-2-4: hard size cap on a single outbound TCP frame. Matches the WS
+# hard size cap on a single outbound TCP frame. Matches the WS
 # path's ``_MAX_FRAME_BYTES`` (1 MiB, see ``sidecar_ws.py``) so a buggy
 # handler that returns an enormous dict (e.g. an unbounded history
 # query, a diagnostics export with a full log tail) cannot OOM the
@@ -122,34 +122,34 @@ class OutputMixin:
     ) -> None:
         """Serialize *msg* and write it to the active transport.
 
-        NEW-IPC-014 / NEW-CONC-001 / NEW-CONC-003: previously the entire
-        send path (json.dumps + sendall + pending drain) ran under
-        ``self._lock``, which meant:
+        previously the entire
+                send path (json.dumps + sendall + pending drain) ran under
+                ``self._lock``, which meant:
 
-        - Every other IPC dispatch command blocked while a slow Electron
-          renderer drained its TCP receive buffer (NEW-CONC-001).
-        - The audio-callback-spawned bubble_level worker could stall
-          inside ``sendall`` with no timeout, holding the lock and
-          stalling every other dispatch path (NEW-CONC-003).
-        - ``Microphone.tsx::testMicrophone → get_microphones`` saw
-          user-visible lag during recording (NEW-CONC-001 details).
+                - Every other IPC dispatch command blocked while a slow Electron
+        renderer drained its TCP receive buffer ().
+                - The audio-callback-spawned bubble_level worker could stall
+                  inside ``sendall`` with no timeout, holding the lock and
+        stalling every other dispatch path ().
+                - ``Microphone.tsx::testMicrophone → get_microphones`` saw
+        user-visible lag during recording ( details).
 
-        The fix splits the work:
-        1. Under the lock: snapshot the current client / mode / pending
-           list.  This is the only section that needs mutual exclusion.
-        2. Outside the lock: serialize the message, perform the actual
-           ``sendall`` (with a write timeout — NEW-CONC-003), and drain
-           the pending list.  A slow client can no longer block other
-           dispatchers.
+                The fix splits the work:
+                1. Under the lock: snapshot the current client / mode / pending
+                   list.  This is the only section that needs mutual exclusion.
+                2. Outside the lock: serialize the message, perform the actual
+        ``sendall`` (with a write timeout — ), and drain
+                   the pending list.  A slow client can no longer block other
+                   dispatchers.
 
-        PVT-G5-011: the optional ``_client`` parameter lets a TCP
-        dispatch loop write its response to the LOCAL client it
-        authenticated (captured at the top of the loop) rather than
-        ``self._tcp_client`` — which may have been reassigned to a
-        newer connection by a concurrent fast-auth client (SEC-8 race).
-        Defaults to ``None`` (fall back to ``self._tcp_client``) so the
-        push-event path (``server.push()``) and existing call sites are
-        backward-compatible.
+        the optional ``_client`` parameter lets a TCP
+                dispatch loop write its response to the LOCAL client it
+                authenticated (captured at the top of the loop) rather than
+                ``self._tcp_client`` — which may have been reassigned to a
+                newer connection by a concurrent fast-auth client (SEC-8 race).
+                Defaults to ``None`` (fall back to ``self._tcp_client``) so the
+                push-event path (``server.push()``) and existing call sites are
+                backward-compatible.
         """
         if msg is None:
             return
@@ -158,17 +158,17 @@ class OutputMixin:
         # (no I/O) and is the only section that needs mutual exclusion.
         with self._lock:
             out = _out
-            # PVT-G5-011: prefer the caller-provided local client (the
+            # prefer the caller-provided local client (the
             # one this dispatch loop authenticated) over ``self._tcp_client``
             # (which a concurrent fast-auth reconnect may have replaced).
             # ``_client`` defaults to ``None`` for the push-event path.
             tcp_client = _client if _client is not None else self._tcp_client
             tcp_mode = self._tcp_mode
-            # XV-82 / GT-48: snapshot the pending list ONLY when we have
+            # snapshot the pending list ONLY when we have
             # a connected client to drain it to. When ``tcp_client`` is
             # None (disconnected), the snapshot+clear is skipped — the
             # tcp_mode branch below appends the new line to the in-memory
-            # buffer instead. This eliminates the FIFO race (GT-48) at
+            # buffer instead. This eliminates the FIFO race () at
             # its root: with no snapshot+clear, no other thread can
             # observe an empty ``_pending_tcp`` mid-snapshot and append
             # a NEW event that the snapshot's re-merge would mis-order.
@@ -190,7 +190,7 @@ class OutputMixin:
             return
 
         if tcp_client is not None:
-            # XE-2-4: cap the outbound TCP frame size before acquiring the
+            # cap the outbound TCP frame size before acquiring the
             # write lock. A buggy handler returning an enormous dict (e.g.
             # an unbounded history query, a diagnostics export with a full
             # log tail) would otherwise OOM the client by writing a multi-
@@ -208,7 +208,7 @@ class OutputMixin:
                     "[IPC] outbound TCP frame exceeds %d bytes — dropping",
                     _TCP_MAX_OUTBOUND_BYTES,
                 )
-                # CR-79: re-merge the pending snapshot so the dropped
+                # re-merge the pending snapshot so the dropped
                 # frame's would-be-drained entries survive for the next
                 # reconnect (mirrors the re-merge after a write failure).
                 # The dropped frame itself is NOT re-merged — it would
@@ -234,7 +234,7 @@ class OutputMixin:
             # tells the host (Tauri ``app.restart()`` / Electron
             # ``app.relaunch() + app.exit(0)``) to relaunch before
             # the Python process exits.  Without it, the restart hangs.
-            # PVT-2 cleanup: the published event name is ``relaunch_app``
+            # cleanup: the published event name is ``relaunch_app``
             # (no longer ``relaunch_electron``); the Rust WS bridge no
             # longer renames it.
             #
@@ -266,7 +266,7 @@ class OutputMixin:
             _is_shutting_down = getattr(self, "_cached_shutting_down", False) is True
             msg_type = msg.get("type", "")
             # Allow critical shutdown events through; suppress others.
-            # PR-2-FIX-2: expanded allowlist to include content-bearing events
+            # expanded allowlist to include content-bearing events
             # that the user is waiting for. transcription_final carries the
             # final transcription text — if it's suppressed during shutdown,
             # the user sees no result on the Home page and perceives data loss
@@ -284,7 +284,7 @@ class OutputMixin:
             # ``tuple.__contains__`` for short tuples, but no allocation
             # overhead).
             _shutdown_allowlist = _SHUTDOWN_ALLOWLIST
-            # PVT-G5-013: dispatch responses (which carry an ``id`` field)
+            # dispatch responses (which carry an ``id`` field)
             # MUST be exempted from the shutdown suppress — otherwise the
             # client waits forever for a response to an in-flight request
             # that the server has already processed. Only push events
@@ -296,7 +296,7 @@ class OutputMixin:
                         with contextlib.suppress(Exception):
                             self._tcp_client.close()
                         self._tcp_client = None
-                    # CR-79: re-merge the pending snapshot back into
+                    # re-merge the pending snapshot back into
                     # ``_pending_tcp`` so events queued for this (now-
                     # closed) client are NOT silently lost during the
                     # shutdown short-circuit. The snapshot+clear at the
@@ -319,7 +319,7 @@ class OutputMixin:
                             _dropped = len(self._pending_tcp) - _pending_cap_shutdown
                             del self._pending_tcp[:_dropped]
                 return
-            # NEW-CONC-003: set a write timeout so a stalled renderer
+            # set a write timeout so a stalled renderer
             # can't block the worker thread indefinitely.  2 seconds is
             # generous for a localhost TCP write — under normal load the
             # kernel buffer accepts the data immediately.  If we hit the
@@ -327,26 +327,26 @@ class OutputMixin:
             # the connection (the accept loop will catch the next
             # reconnect).  We restore the PREVIOUS timeout afterwards
             # rather than forcing blocking mode: the auth read set a
-            # deadline (PR-3-FIX-1) and we must not clobber it to
+            # deadline () and we must not clobber it to
             # ``None`` (blocking), or the dispatch-loop ``readline`` would
             # block forever and the connection could never be reaped/
             #
-            # TY-24 PERF NOTE: the per-write ``gettimeout`` / ``settimeout``
+            # PERF NOTE: the per-write ``gettimeout`` / ``settimeout``
             # dance below is 4 syscalls per write × 15-50 writes/sec =
             # 60-200 syscalls/sec on the waveform-bubble push path. This
-            # is correctness-related (NEW-CONC-003 — a stalled renderer
+            # is correctness-related ( — a stalled renderer
             # must NOT block the worker thread indefinitely) and was
-            # intentionally LEFT UNCHANGED in the TY-24 perf pass. The
+            # intentionally LEFT UNCHANGED in the  perf pass. The
             # alternative (set ``_TCP_WRITE_TIMEOUT_SECONDS`` once in
             # ``_handle_tcp_connection`` after auth) would clobber the
-            # auth-read deadline set by PR-3-FIX-1, breaking the
+            # auth-read deadline set by , breaking the
             # connection-reaping contract. A future pass could use
             # ``select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)``
             # before each write to achieve the same timeout semantics
             # without the per-write ``settimeout`` syscalls — but that
             # refactor is deferred (it requires careful audit of the
             # ``gettimeout``/``settimeout`` interactions with the auth
-            # read path and is out of scope for TY-24).
+            # read path and is out of scope for ).
             # closed on cleanup (SEC-018 auth-timeout/close path).
             #
             # Write-serialization: the entire settimeout → write →
@@ -372,10 +372,10 @@ class OutputMixin:
             # ``setsockopt`` calls + 2 socket writes). At 15-50 Hz
             # waveform-bubble push rate, that's 60-200 syscalls/sec
             # just for timeout bookkeeping. The dance is
-            # CORRECTNESS-related (NEW-CONC-003): we cannot leave the
+            # CORRECTNESS-related (): we cannot leave the
             # socket in write-timeout mode because the dispatch-loop
             # ``readline`` on the same socket expects the auth deadline
-            # set in PR-3-FIX-1. A proper fix would either (a) use two
+            # set in  A proper fix would either (a) use two
             # sockets (one read, one write) with independent timeouts,
             # or (b) switch to non-blocking I/O with
             # ``select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)``
@@ -383,7 +383,7 @@ class OutputMixin:
             # out of scope. Leaving the behavior unchanged and
             # documenting the overhead here so the next pass has the
             # context.
-            # CR-79: track entries that were snapshotted but NOT
+            # track entries that were snapshotted but NOT
             # written to the client (either because they exceeded the
             # drain cap or because the drain failed mid-way). They are
             # re-merged into ``_pending_tcp`` after the write block so
@@ -403,7 +403,7 @@ class OutputMixin:
                 try:
                     tcp_client.write(line + "\n")
                     tcp_client.flush()
-                    # PERF-NEW-014 / SEC-008: drain at most the most recent
+                    # PERF- / SEC-008: drain at most the most recent
                     # K pending entries, not the whole list.  When the
                     # client was disconnected for a while, _pending_tcp
                     # could have grown to thousands of entries (16 Hz
@@ -412,7 +412,7 @@ class OutputMixin:
                     # and blocked the audio thread.
                     _drain_cap = _TCP_PENDING_DRAIN_CAP
                     if pending:
-                        # CR-79: split the snapshot into ``older`` (the
+                        # split the snapshot into ``older`` (the
                         # entries that exceed the drain cap — these are
                         # NEVER attempted) and ``recent`` (the last
                         # ``_drain_cap`` entries that we'll try to write).
@@ -427,7 +427,7 @@ class OutputMixin:
                             older = []
                             recent = list(pending)
                         _drain_failed_at: int | None = None
-                        # AB-37: buffer ALL recent entries to the
+                        # buffer ALL recent entries to the
                         # ``_TCPLineIO`` write buffer WITHOUT flushing
                         # per-entry, then flush ONCE at the end. With
                         # the old per-entry ``write+flush`` pattern, a
@@ -471,7 +471,7 @@ class OutputMixin:
                                 log.debug("[IPC] client write failed during pending drain flush")
                                 _drain_failed_at = 0
                         if _drain_failed_at is not None:
-                            # AB-37: reset the write buffer so any
+                            # reset the write buffer so any
                             # partially-buffered entries (written before
                             # a per-entry failure, or buffered before a
                             # flush failure) don't leak into the next
@@ -499,7 +499,7 @@ class OutputMixin:
                             _undrained = older
                 except (TimeoutError, OSError) as exc:
                     log.debug("[IPC] client write failed: %s", exc)
-                    # CR-79: the first write failed before the drain loop
+                    # the first write failed before the drain loop
                     # could run, so the ENTIRE ``pending`` snapshot is
                     # undrained. Re-merge it so the next reconnect's drain
                     # can pick it up (previously the whole snapshot was
@@ -521,13 +521,13 @@ class OutputMixin:
                     # the dispatch-loop ``readline`` keeps its auth deadline
                     # and the worker can exit/be reaped on cleanup.  Setting
                     # ``None`` here was the root cause of the
-                    # auth-timeout/close deadlock (CR-2): a blocking socket
+                    # auth-timeout/close deadlock (): a blocking socket
                     # could never time out, so the reader thread never exited
                     # and ``_TCPLineIO.close()`` deadlocked against the
                     # in-progress ``recv``.
                     with contextlib.suppress(OSError, AttributeError):
                         tcp_client.conn.settimeout(_prev_timeout)
-            # CR-79: re-merge any undrained pending entries back into
+            # re-merge any undrained pending entries back into
             # ``_pending_tcp`` so they survive for the next reconnect's
             # drain. FIFO order is preserved: snapshot events (oldest)
             # first, then any events a concurrent thread appended
@@ -556,8 +556,8 @@ class OutputMixin:
             # events are also in history_db).
             _pending_cap = _TCP_PENDING_BUFFER_CAP
             with self._lock:
-                # GT-48: re-merge with correct FIFO ordering. Under the
-                # XV-82 snapshot gate above, ``pending`` is always None
+                # re-merge with correct FIFO ordering. Under the
+                # snapshot gate above, ``pending`` is always None
                 # in this tcp_mode branch (the snapshot only runs when
                 # ``tcp_client is not None``, which short-circuits to
                 # the earlier write-and-drain path). The re-merge is kept
@@ -594,7 +594,7 @@ class OutputMixin:
         #    were silently dropped here at DEBUG level, making
         #    the console session useless for observing state
         #    changes / errors / background-audio events.
-        #    NEW-IPC-008: surface these at INFO level so the
+        # surface these at INFO level so the
         #    user can actually see what the app is doing.
         #
         # 2. Brief disconnect during normal Electron use: the
@@ -609,7 +609,7 @@ class OutputMixin:
         # log; everything else goes to INFO so the user can
         # see state changes, errors, etc.
         if msg_type in ("bubble_level", "waveform"):
-            # G4-M-28: bubble_level / waveform are emitted at 15-50 Hz
+            # bubble_level / waveform are emitted at 15-50 Hz
             # by the audio worker; even DEBUG-level flooding here can
             # saturate a slow disk's log buffer. Rate-limit to every
             # 100th occurrence (matches the ipc-no-client-drop INFO
@@ -624,13 +624,13 @@ class OutputMixin:
                 every_n=100,
             )
         else:
-            # CR-8: never log the message body — push events include
+            # never log the message body — push events include
             # transcription text (``transcription_partial`` /
             # ``transcription_final``) which is user PII.  Log only the
             # type and a size hint so the operator can see drop rate
             # without leaking dictated content to the log file.
             #
-            # G4-M-28: a disconnected Electron client during a
+            # a disconnected Electron client during a
             # transcription (mic still recording, hotkeys still firing)
             # produces a steady stream of push events. The previous
             # unconditional ``log.info`` per drop could emit thousands
@@ -655,7 +655,7 @@ __all__ = [
     "_SHUTDOWN_ALLOWLIST",
     "_TCP_PENDING_DRAIN_CAP",
     "_TCP_PENDING_BUFFER_CAP",
-    # XE-2-4: exported so tests can import the constant and assert the
+    # exported so tests can import the constant and assert the
     # size cap is enforced (mirrors the WS path's ``_MAX_FRAME_BYTES``
     # export in ``sidecar_ws.py``).
     "_TCP_MAX_OUTBOUND_BYTES",

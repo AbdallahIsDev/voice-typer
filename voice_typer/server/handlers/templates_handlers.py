@@ -1,10 +1,10 @@
 """Templates IPC handler mixin: get_templates, save_templates.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-CR-20: this mixin's ``except Exception`` catch-alls call
+this mixin's ``except Exception`` catch-alls call
 :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
 no ``str(e)`` leak). Per-command VALIDATION errors (``missing_field``,
 ``invalid_field``, ``invalid_payload``, ``payload_too_large``) remain
@@ -20,9 +20,9 @@ from voice_typer.server.ipc.validation import _error_response, _validate_dict_pa
 class TemplatesHandlersMixin(HandlerBase):
     """Mixin: templates IPC handlers (get_templates / save_templates).
 
-    CR-20: this mixin's ``except Exception`` catch-alls call
-    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
-    no ``str(e)`` leak).
+    this mixin's ``except Exception`` catch-alls call
+        :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+        no ``str(e)`` leak).
     """
 
     def _handle_get_templates(self, data: dict | None, resp: dict) -> dict | None:
@@ -32,7 +32,7 @@ class TemplatesHandlersMixin(HandlerBase):
             resp["type"] = "templates"
             resp["data"] = {"templates": templates}
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "get_templates")
         return resp
 
@@ -92,7 +92,7 @@ class TemplatesHandlersMixin(HandlerBase):
             # 50 KB trigger" from "server failed to persist a valid
             # template" — without it, the oversized value would propagate
             # into ``templates.save`` and surface as a generic
-            # ``internal_error`` (CR-20) envelope.
+            # ``internal_error`` () envelope.
             _max_field_len = 1024
             for idx, entry in enumerate(templates):
                 if not isinstance(entry, dict):
@@ -121,6 +121,6 @@ class TemplatesHandlersMixin(HandlerBase):
             resp["type"] = "ack"
             resp["data"] = {"saved": len(templates)}
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "save_templates")
         return resp

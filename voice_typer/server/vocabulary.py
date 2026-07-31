@@ -25,7 +25,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 VOCAB_FILENAME = "voice-typer-vocabulary.json"
-# ARCH-028: single source of truth for the bundled corrections file path.
+# single source of truth for the bundled corrections file path.
 # text_cleanup.py imports this constant instead of re-declaring it.
 BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 
@@ -42,7 +42,7 @@ CATEGORIES = [
 # ─── Vocabulary Manager ─────────────────────────────────────────────────
 
 
-# SEC-011: Limits for corrections entries to prevent resource exhaustion
+# Limits for corrections entries to prevent resource exhaustion
 MAX_CORRECTIONS_ENTRIES = 5000
 MAX_PATTERN_LENGTH = 200
 MAX_REPLACEMENT_LENGTH = 500
@@ -60,7 +60,7 @@ class VocabularyManager:
         self._user_path = config_dir / VOCAB_FILENAME
 
         if bundled_path is None:
-            # ARCH-028: use the shared BUNDLED_CORRECTIONS_PATH constant.
+            # use the shared BUNDLED_CORRECTIONS_PATH constant.
             bundled_path = BUNDLED_CORRECTIONS_PATH
         self._bundled_path = bundled_path
 
@@ -74,11 +74,11 @@ class VocabularyManager:
 
         # Active merged data: {category: data}
         self._data: dict[str, Any] = {}
-        # SEC-012: guards read-modify-write mutations of self._data (add/remove/
+        # guards read-modify-write mutations of self._data (add/remove/
         # import) so concurrent callers (UI thread + auto-vocabulary analysis
         # thread) can't corrupt the merge or lose entries.
         self._lock = threading.Lock()
-        # ER-37: lazy cache of compiled regex patterns for phrase_corrections
+        # lazy cache of compiled regex patterns for phrase_corrections
         # and extra_word_patterns. Invalidated (set to None) on any mutation
         # (add_entry/remove_entry/import_json/_load_and_merge). Rebuilt on
         # first apply_to_text() call after invalidation. At 5000 entries this
@@ -87,11 +87,11 @@ class VocabularyManager:
         self._load_and_merge()
 
     def _invalidate_pattern_cache(self) -> None:
-        """ER-37: invalidate the compiled-pattern cache. Called on any mutation."""
+        """invalidate the compiled-pattern cache. Called on any mutation."""
         self._compiled_patterns = None
 
     def _get_compiled_patterns(self, category: str) -> list[tuple[object, str]]:
-        """ER-37: return cached compiled patterns for a phrase category, rebuilding if needed."""
+        """return cached compiled patterns for a phrase category, rebuilding if needed."""
         if self._compiled_patterns is None:
             self._compiled_patterns = {}
         if category not in self._compiled_patterns:
@@ -142,7 +142,7 @@ class VocabularyManager:
             else:
                 # Fallback
                 self._data[cat] = user_cat if user_cat is not None else bundled_cat
-        # ER-37: invalidate pattern cache after data reload.
+        # invalidate pattern cache after data reload.
         self._invalidate_pattern_cache()
 
     def _load_bundled(self) -> dict:
@@ -150,7 +150,7 @@ class VocabularyManager:
         if not self._bundled_path.exists():
             return {}
         try:
-            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+            # use _secure_read_text to prevent symlink-TOCTOU attacks
             from voice_typer.server.config import _secure_read_text
 
             raw = _secure_read_text(self._bundled_path, encoding="utf-8")
@@ -182,7 +182,7 @@ class VocabularyManager:
     def _normalize_data(data: dict) -> dict:
         """Normalize raw JSON data into canonical category format.
 
-        NEW-CQ-028: previously if ``data`` was a list (e.g. user had a
+        previously if ``data`` was a list (e.g. user had a
         malformed vocabulary.json that was a JSON array instead of an
         object), ``data.get(cat)`` would raise ``AttributeError`` and
         the entire normalization would crash, losing all bundled
@@ -214,7 +214,7 @@ class VocabularyManager:
         (``self._user_store``), which provides atomic write + single-slot
         ``.bak`` before overwrite + 0o600 perms (parity with
         ``config.py:1163-1182``). The Windows ``PermissionError`` retry
-        loop is preserved (ARCH-044): ``Path.replace`` is not atomic on
+        loop is preserved (): ``Path.replace`` is not atomic on
         Windows when the destination is open by another process (e.g.
         an editor or a cloud-sync client watching the file). The shared
         ``_secure_atomic_write`` itself is already atomic — the retries
@@ -222,7 +222,7 @@ class VocabularyManager:
         where the destination is locked by an editor / cloud-sync
         client.
 
-        ARCH-044: ``Path.replace`` is not atomic on Windows when the
+        ``Path.replace`` is not atomic on Windows when the
         destination is open by another process (e.g. an editor or a
         cloud-sync client watching the file). We now:
           1. Write to a tmp file with ``fsync``.
@@ -252,7 +252,7 @@ class VocabularyManager:
             try:
                 # PersistedJSON.save handles atomic write + .bak
                 # + 0o600 perms + parent-dir creation in one call.
-                # DJ-52: durability=False — the atomic os.replace still
+                # durability=False — the atomic os.replace still
                 # guarantees consistency (no half-written files); only
                 # the per-save fsync is dropped. User-vocabulary edits
                 # are frequent (typing in the settings panel) and a
@@ -280,7 +280,7 @@ class VocabularyManager:
                     )
             except OSError as exc:
                 final_exc = exc
-                # G4-H-38: use log.exception so the traceback is
+                # use log.exception so the traceback is
                 # captured automatically via sys.exc_info().
                 log.exception("[VOCAB] Failed to save user vocabulary")
                 break
@@ -292,10 +292,32 @@ class VocabularyManager:
     # ── Read access ──────────────────────────────────────────────────
 
     def get_category(self, category: str) -> object:
-        """Get all entries for a category."""
-        if category in ("misspellings", "technical_terms", "names", "products"):
-            return self._data.get(category, {})
-        return self._data.get(category, [])
+        """Get all entries for a category.
+
+        acquire ``self._lock`` and return a SHALLOW COPY of the
+        underlying container. Pre-fix, this method bypassed the lock
+        and returned the live internal ``self._data[category]``
+        dict/list. Callers like
+        ``vocabulary_automation._collect_vocabulary_words`` iterate
+        the returned container — and a concurrent ``add_entry`` /
+        ``remove_entry`` / ``import_json`` mutation (which acquires
+        ``self._lock``) could mutate the dict mid-iteration, raising
+        ``RuntimeError: dictionary changed size during iteration``
+        that was silently swallowed by
+        ``dictation_pipeline._apply_vocabulary``'s try/except —
+        degrading transcription quality with no diagnostic.
+
+        The snapshot pattern mirrors ``apply_to_text`` (line ~664)
+        and ``get_all`` (line ~300), both of which already copy
+        under the lock. The individual values inside dict categories
+        are NOT deep-copied (shallow copy) — callers that need to
+        mutate a value should use ``add_entry`` so the change
+        persists to disk.
+        """
+        with self._lock:
+            if category in ("misspellings", "technical_terms", "names", "products"):
+                return dict(self._data.get(category, {}))
+            return list(self._data.get(category, []))
 
     def get_all(self) -> dict:
         """Return a copy of all merged data."""
@@ -306,7 +328,7 @@ class VocabularyManager:
     def add_entry(self, category: str, key: str, value: str) -> bool:
         """Add an entry to a dict-based category (misspellings, technical_terms, names, products).
 
-        SEC-011: Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
+        Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
         MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
 
         M-63: rolls back the in-memory mutation if ``_save_user`` raises
@@ -352,7 +374,7 @@ class VocabularyManager:
                 elif key in cat_data:
                     del cat_data[key]
             raise
-        # ER-37: invalidate pattern cache on mutation.
+        # invalidate pattern cache on mutation.
         self._invalidate_pattern_cache()
         return True
 
@@ -380,7 +402,7 @@ class VocabularyManager:
                     if isinstance(cat_data, dict):
                         cat_data[key] = old_value
                 raise
-            # ER-37: invalidate pattern cache on mutation.
+            # invalidate pattern cache on mutation.
             self._invalidate_pattern_cache()
         return removed
 
@@ -389,7 +411,7 @@ class VocabularyManager:
     def add_phrase(self, category: str, wrong: str, correct: str) -> bool:
         """Add an entry to a list-based category (phrase_corrections, extra_word_patterns).
 
-        SEC-011: Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
+        Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
         MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
 
         M-63: rolls back the in-memory mutation if ``_save_user`` raises
@@ -432,7 +454,7 @@ class VocabularyManager:
             with self._lock, contextlib.suppress(ValueError):
                 cat_data.remove(new_entry)
             raise
-        # ER-37: invalidate pattern cache on mutation.
+        # invalidate pattern cache on mutation.
         self._invalidate_pattern_cache()
         return True
 
@@ -459,7 +481,7 @@ class VocabularyManager:
                     if isinstance(cat_data, list):
                         cat_data.insert(index, old_entry)
                 raise
-        # ER-37: invalidate pattern cache on mutation.
+        # invalidate pattern cache on mutation.
         self._invalidate_pattern_cache()
         return removed
 
@@ -475,7 +497,7 @@ class VocabularyManager:
         If merge=True, extends existing entries. If False, replaces.
         Returns a tuple ``(categories_imported, dropped_entries)``.
 
-        G4-M-37: validates each category BEFORE mutating ``self._data``:
+        validates each category BEFORE mutating ``self._data``:
           - Drops entries whose key/pattern exceeds
             ``MAX_PATTERN_LENGTH`` or whose value/replacement exceeds
             ``MAX_REPLACEMENT_LENGTH`` (mirrors
@@ -497,7 +519,7 @@ class VocabularyManager:
             data = json.loads(json_str)
             data = self._normalize_data(data)
 
-            # G4-M-37: pre-validate every category before mutating
+            # pre-validate every category before mutating
             # ``self._data``. We drop oversized entries and reject
             # entire categories that would exceed
             # MAX_CORRECTIONS_ENTRIES so the in-memory state stays
@@ -539,7 +561,7 @@ class VocabularyManager:
                         )
                         dropped += new_len
                         continue
-                    # G4-M-37: only register non-empty categories so the
+                    # only register non-empty categories so the
                     # returned ``count`` reflects categories that actually
                     # received new entries (empty placeholders from
                     # _normalize_data defaults would otherwise inflate it).
@@ -577,7 +599,7 @@ class VocabularyManager:
                         )
                         dropped += new_len
                         continue
-                    # G4-M-37: only register non-empty categories so the
+                    # only register non-empty categories so the
                     # returned ``count`` reflects categories that actually
                     # received new entries.
                     if filtered_list:
@@ -631,7 +653,7 @@ class VocabularyManager:
                         self._data.clear()
                         self._data.update(snapshot)
                     raise
-            # ER-37: invalidate pattern cache on import.
+            # invalidate pattern cache on import.
             self._invalidate_pattern_cache()
             return count, dropped
         except Exception:
@@ -653,7 +675,7 @@ class VocabularyManager:
         """
         import re as _re
 
-        # CR-23: snapshot self._data under the lock so concurrent
+        # snapshot self._data under the lock so concurrent
         # add_entry / remove_entry / add_phrase / remove_phrase / import_json
         # calls (which acquire self._lock) cannot mutate the dict/list
         # mid-iteration. Previously the read path bypassed the lock,
@@ -665,12 +687,12 @@ class VocabularyManager:
             data_snapshot = {cat: (list(v) if isinstance(v, list) else dict(v)) for cat, v in self._data.items()}
 
         # Phrase-level corrections first (longer matches first)
-        # ER-37: use cached compiled patterns instead of recompiling per
+        # use cached compiled patterns instead of recompiling per
         # phrase per call. Cache is invalidated on any mutation.
         for cat in ("phrase_corrections", "extra_word_patterns"):
             compiled = self._get_compiled_patterns(cat)
             for pattern, good in compiled:
-                # NEW-SEC-004: use a callable replacement to prevent
+                # use a callable replacement to prevent
                 # regex backref interpretation. Previously `pattern.sub(good, text)`
                 # interpreted `\1`, `\g<0>`, `\9` etc. in the user-supplied
                 # `good` string. A malicious or accidental entry like

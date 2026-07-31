@@ -1,4 +1,4 @@
-"""Monitoring public API for the level_monitor package (AC-129).
+"""Monitoring public API for the level_monitor package ().
 
 Contains the continuous level-monitoring public API (``start_monitoring``,
 ``stop_monitoring``, ``is_monitoring``, ``get_level``,
@@ -7,7 +7,7 @@ Contains the continuous level-monitoring public API (``start_monitoring``,
 thread (in :mod:`.worker`) and the PortAudio ``finished_callback``
 both call into.
 
-ER-14 (idle-timeout): ``get_level`` records the timestamp of every
+ (idle-timeout): ``get_level`` records the timestamp of every
 IPC poll on ``_state._last_get_level_poll_ts``. The worker thread
 (:mod:`.worker`) checks this timestamp on every iteration and
 auto-stops the stream when no poll has been received in
@@ -165,7 +165,7 @@ def is_monitoring() -> bool:
 def get_level() -> dict:
     """Return the current audio level from the monitor.
 
-    ER-14: records the timestamp of this IPC poll on
+    records the timestamp of this IPC poll on
     ``_state._last_get_level_poll_ts`` so the level worker thread can
     auto-stop the stream when no poll has been received in
     ``_state._LEVEL_IDLE_TIMEOUT_SEC`` seconds (default 5.0). This
@@ -179,7 +179,7 @@ def get_level() -> dict:
             - "peak": float (0-1) — peak level since last call.
             - "active": bool — whether the monitor stream is running.
     """
-    # ER-14: record the poll timestamp so the worker thread can detect
+    # record the poll timestamp so the worker thread can detect
     # the idle condition (no polls in N seconds → auto-stop).
     _state._last_get_level_poll_ts = time.monotonic()
     with _state._monitor_lock:
@@ -195,7 +195,7 @@ def get_level() -> dict:
 
 
 def get_level_diagnostics() -> dict:
-    """Return runtime diagnostics for the level monitor (XV-58).
+    """Return runtime diagnostics for the level monitor ().
 
     Exposes ``_dropped_level_chunks`` (chunks dropped because the worker
     thread couldn't keep up with the PortAudio callback rate) plus ring
@@ -308,7 +308,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             old_stream = None
 
     # Close old stream (if any) without holding the lock.
-    # TASK-14: the ``if old_stream is not None`` guard was previously
+    # the ``if old_stream is not None`` guard was previously
     # fused into the trailing comment, so it was never executed and
     # pyrefly reported ``Object of class `NoneType` has no attribute
     # `stop`/`close``` at the unconditional call sites below.  Split
@@ -329,7 +329,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
 
         try:
             dev_info_raw = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
-            # TASK-14: ``query_devices`` is overloaded to return either a
+            # ``query_devices`` is overloaded to return either a
             # ``dict`` (single device) or a ``DeviceList`` (tuple).  The
             # ``default_samplerate`` key only exists on the dict form, so
             # narrow before indexing.
@@ -342,7 +342,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         _state._monitor_peak = 0.0
 
         def callback(indata, frames, time_info, status):
-            # RT-SAFE-001 (c-review PERF-03): the PortAudio callback runs
+            #  (c-review PERF-03): the PortAudio callback runs
             # on the real-time audio thread and must complete in well
             # under the ~32 ms PortAudio deadline (512-sample blocks at
             # 16 kHz = 32 ms per chunk; on 44.1/48 kHz devices the
@@ -414,14 +414,14 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             _state._monitor_mic_id = mic_id
             _state._device_lost_emitted = False
             _state._consecutive_zero_chunks = 0
-            # ER-14: seed the idle-timeout poll timestamp so the worker
+            # seed the idle-timeout poll timestamp so the worker
             # doesn't immediately auto-stop the stream right after
             # start (the first ``get_level`` IPC poll will arrive
             # shortly from the frontend).
             _state._last_get_level_poll_ts = time.monotonic()
             _ensure_mic_level_worker_running()
 
-            # RT-SAFE-001 (c-review PERF-03): start the dedicated worker
+            #  (c-review PERF-03): start the dedicated worker
             # thread that drains ``_level_ring_buffer`` and runs the
             # heavy filter chain + RMS/peak + test-chunk accumulation.
             # Idempotent: if a worker from a previous ``start_monitoring``
@@ -474,7 +474,7 @@ def stop_monitoring() -> dict:
     stream = None
     with _state._monitor_lock:
         if not _state._monitor_active:
-            # RT-SAFE-001 (c-review PERF-03): monitoring was already
+            #  (c-review PERF-03): monitoring was already
             # stopped. Remember this so we can still stop a possibly
             # leaked worker thread — but that must happen OUTSIDE the lock
             # (see below), because the worker acquires ``_monitor_lock``
@@ -490,7 +490,7 @@ def stop_monitoring() -> dict:
             _state._monitor_mic_id = None
 
     if already_stopped:
-        # RT-SAFE-001 (c-review PERF-03): stop the (possibly leaked) worker
+        #  (c-review PERF-03): stop the (possibly leaked) worker
         # thread OUTSIDE the lock so the join can't stall against the
         # worker's own ``_monitor_lock`` acquisition. Safe to call
         # repeatedly.
@@ -504,7 +504,18 @@ def stop_monitoring() -> dict:
         except Exception as exc:
             log.debug("[LEVEL-MON] Stream close: %s", exc)
 
-    # RT-SAFE-001 (c-review PERF-03): now that the stream is closed (no
+    # Reset the per-session audio processor filter state so the IIR
+    # ``zi`` arrays + RNNoise ``_carry`` don't retain audio-derived
+    # residuals from this monitoring session and bleed into the next
+    # one. Mirrors the pattern in ``recording/session_state.py`` for
+    # the dictation ``AudioProcessor``: the model itself stays loaded;
+    # only the per-session filter state is zeroed. Best-effort: a
+    # failing ``reset()`` must NOT block the worker shutdown path below.
+    if _state._level_processor is not None:
+        with contextlib.suppress(Exception):
+            _state._level_processor.reset()
+
+    #  (c-review PERF-03): now that the stream is closed (no
     # more callbacks will fire), stop the worker thread so it doesn't
     # spin waiting for chunks that will never arrive.
     _stop_level_worker()
@@ -514,7 +525,7 @@ def stop_monitoring() -> dict:
 
 
 def _idle_timeout_auto_stop() -> bool:
-    """ER-14: auto-stop the monitor stream if the IPC idle-timeout has fired.
+    """auto-stop the monitor stream if the IPC idle-timeout has fired.
 
     Called from the level worker loop on every iteration. Returns True
     if the stream was auto-stopped (so the caller can log it).
@@ -532,13 +543,24 @@ def _idle_timeout_auto_stop() -> bool:
     """
     if not _state._monitor_active:
         return False
-    if _state._last_get_level_poll_ts <= 0.0:
-        # No poll has ever been recorded — don't auto-stop yet (the
-        # stream was just started; the first ``get_level`` poll will
-        # arrive shortly).
+    # Consider BOTH activity timestamps. After the push-event migration
+    # the Microphone page and the always-visible bubble consume
+    # ``mic_level`` push events and may only call ``get_level`` once on
+    # mount. Checking only ``_last_get_level_poll_ts`` would falsely
+    # trip the idle timeout while the frontend is actively listening
+    # via push events. The MORE RECENT of the two timestamps governs
+    # the idle check.
+    last_activity_ts = max(
+        _state._last_get_level_poll_ts,
+        _state._mic_level_last_push_ts,
+    )
+    if last_activity_ts <= 0.0:
+        # No poll or push has ever been recorded — don't auto-stop yet
+        # (the stream was just started; the first ``get_level`` poll or
+        # ``mic_level`` push will arrive shortly).
         return False
     now = time.monotonic()
-    if (now - _state._last_get_level_poll_ts) < _state._LEVEL_IDLE_TIMEOUT_SEC:
+    if (now - last_activity_ts) < _state._LEVEL_IDLE_TIMEOUT_SEC:
         return False
 
     # Idle timeout has fired — close the stream.
@@ -556,9 +578,13 @@ def _idle_timeout_auto_stop() -> bool:
         _state._monitor_level = 0.0
         _state._monitor_peak = 0.0
         _state._monitor_mic_id = None
-        # Reset the idle timestamp so the next start_monitoring call
-        # seeds it freshly.
+        # Reset BOTH idle-timestamp clocks so the next
+        # ``start_monitoring`` call seeds them freshly. The push
+        # timestamp is reset here (alongside the poll timestamp) so a
+        # stale push from this session can't keep a freshly-restarted
+        # stream alive past its real idle window.
         _state._last_get_level_poll_ts = 0.0
+        _state._mic_level_last_push_ts = 0.0
 
     if stream is not None:
         try:

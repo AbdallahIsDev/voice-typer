@@ -1,7 +1,7 @@
 """Dictation domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Toggle / undo / repaste / force-cancel the
+( split). Toggle / undo / repaste / force-cancel the
 active dictation.
 """
 
@@ -12,7 +12,7 @@ from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
-    # WR-14: ``ForceCancelResult`` is a TypedDict defined in
+    # ``ForceCancelResult`` is a TypedDict defined in
     # ``voice_typer/server/service/__init__.py`` (which imports this
     # mixin via ``from voice_typer.server.service.dictation import
     # DictationMixin``). Importing it at runtime would create a circular
@@ -45,18 +45,18 @@ class DictationMixin(ServiceMixinBase):
         """Re-paste the last transcription."""
         self._app.repaste_last()
 
-    # ── Force cancel transcription (PR-2 Finding #3) ─────────────
+    # Force cancel transcription ( Finding #3) ─────────────
 
     def force_cancel_transcription(self) -> "ForceCancelResult":  # noqa: F821
         """Force-cancel a stuck transcription.
 
-        PR-2 Finding #3: invokes ``_force_recover_from_stuck_transcription``
-        with ``force=True`` so the busy flag and tray state are reset
-        even if the transcription thread is still alive.  This gives
-        the user a manual escape hatch when the 3×90s=4.5min auto-
-        recovery is too slow.
+        Finding #3: invokes ``_force_recover_from_stuck_transcription``
+                with ``force=True`` so the busy flag and tray state are reset
+                even if the transcription thread is still alive.  This gives
+                the user a manual escape hatch when the 3×90s=4.5min auto-
+                recovery is too slow.
 
-        Returns ``{"success": bool, "message": str}``.
+                Returns ``{"success": bool, "message": str}``.
         """
         try:
             self._app.recording._force_recover_from_stuck_transcription(force=True)

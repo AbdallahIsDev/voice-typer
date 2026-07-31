@@ -47,7 +47,7 @@ All three backends share ``SubprocessHotkeyBackend`` which handles:
 - Restart-on-crash with exponential backoff (max 5 attempts)
 - Clean shutdown via SIGTERM (POSIX) / terminate() (Windows)
 
-Phase 4.5 / ARCH-045 — this file was previously a 1,188-line god-module
+Phase 4.5 /  — this file was previously a 1,188-line god-module
 (``voice_typer/server/native_hotkeys.py``); it has been split into a
 package with one module per concern.  This ``__init__.py`` re-exports
 every public name that the original module exposed so existing imports

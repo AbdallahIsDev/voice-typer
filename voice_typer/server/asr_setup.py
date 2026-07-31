@@ -4,15 +4,15 @@ This module provides utilities for automatically setting up the ASR
 environment, including GPU detection, dependency checking, and model
 weight downloading.
 
-ARCH-001: ``pip_install`` and ``download_weights`` were removed from
+``pip_install`` and ``download_weights`` were removed from
 this module.  The verbatim bodies were previously retained in
 ``archive/asr_setup_dead_code.py`` for reference; that archive file
 has been deleted as part of dead-code cleanup since zero production
 call sites referenced it.  The historical implementation can be
-recovered from git history if needed for the future UX-005 on-demand
+recovered from git history if needed for the future  on-demand
 dependency install feature.
 
-NEW-PAUSE-001: pause/resume flag for in-progress model downloads.
+pause/resume flag for in-progress model downloads.
 ``set_download_paused(True)`` causes the polling loop in
 :meth:`voice_typer.server.service.VoiceTyperService.download_model`
 to freeze its progress reporting (and effectively stop user-visible
@@ -43,7 +43,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
-# ── NEW-PAUSE-001: pause/resume flag ────────────────────────────────
+# pause/resume flag ────────────────────────────────
 
 # A single module-level ``threading.Event`` controls the pause state
 # for ALL in-progress downloads.  We support only one concurrent
@@ -155,13 +155,13 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
 # ``verify_model_integrity()`` hard-fails on every download.
 from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_ALLOW_PATTERNS  # noqa: E402
 
-# NEW-DEAD-027: removed the module-level ``_CONFIG_DIR`` cache.
+# removed the module-level ``_CONFIG_DIR`` cache.
 # It was a one-line indirection over ``config._config_dir()`` that
 # provided no measurable performance benefit (Path construction is
 # ~1 µs) and made the code harder to read.  Callers now use
 # ``config._config_dir()`` directly.
 
-# PROD-004: maximum number of download attempts (1 initial + 3 retries)
+# maximum number of download attempts (1 initial + 3 retries)
 # with exponential backoff.  This value is passed as ``max_attempts=`` to
 # ``_download_with_retry`` (NOT ``max_retries=``), so the name reflects
 # total attempts, not retries-after-the-first.  Previously named
@@ -169,7 +169,7 @@ from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_A
 # 4 total or 5 total); renamed for clarity.
 _MAX_DOWNLOAD_ATTEMPTS = 4
 
-# PROD-005: the local ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES``
+# the local ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES``
 # duplicate was REMOVED. The canonical disk-space check lives in
 # ``transcription.py::_check_disk_space_for_download`` (raises RuntimeError
 # on insufficient space). ``asr_setup.py`` delegates to it (see
@@ -197,26 +197,26 @@ def ensure_hf_env():
 def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[str, Any]]:
     """Verify downloaded model files have valid structure.
 
-    PROD-006: Basic integrity check that the model directory
-    contains expected files and they're not empty.
+    Basic integrity check that the model directory
+        contains expected files and they're not empty.
 
-    SEC-audit-005: Delegates to the centralized
-    ``security.verify_model_integrity()`` which also checks SHA-256
-    hashes against the MODEL_HASHES manifest when available.
+        SEC-audit-005: Delegates to the centralized
+        ``security.verify_model_integrity()`` which also checks SHA-256
+        hashes against the MODEL_HASHES manifest when available.
 
-    Returns ``(ok, details)`` instead of a bare bool so the
-    caller can surface a useful diagnostic when the integrity check
-    fails. ``details`` is a dict with the following keys (any of which
-    may be ``None`` when not applicable):
+        Returns ``(ok, details)`` instead of a bare bool so the
+        caller can surface a useful diagnostic when the integrity check
+        fails. ``details`` is a dict with the following keys (any of which
+        may be ``None`` when not applicable):
 
-    - ``failed_file``: relative path of the file that failed the check.
-    - ``expected_hash``: the manifest-declared SHA-256 for
-      ``failed_file``.
-    - ``actual_hash``: the computed SHA-256 for ``failed_file``.
-    - ``allow_pattern_matched``: whether the download's allow-patterns
-      matched any file in ``local_dir``.
+        - ``failed_file``: relative path of the file that failed the check.
+        - ``expected_hash``: the manifest-declared SHA-256 for
+          ``failed_file``.
+        - ``actual_hash``: the computed SHA-256 for ``failed_file``.
+        - ``allow_pattern_matched``: whether the download's allow-patterns
+          matched any file in ``local_dir``.
 
-    When the integrity check passes, ``details`` is an empty dict.
+        When the integrity check passes, ``details`` is an empty dict.
     """
     from voice_typer.server.security import MODEL_HASHES, verify_model_integrity
 
@@ -328,51 +328,51 @@ def download_parakeet_weights(
 ) -> tuple[bool, str, tuple[type, BaseException, Any] | None]:
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
-    PROD-004: wraps snapshot_download in retry loop with exponential
-    backoff.  Max 4 attempts total (1 initial + 3 retries); the delays
-    tuple passed to ``_download_with_retry`` is ``(1s, 2s, 4s, 8s)``
-    but only the first 3 entries are consumed (one delay before each
-    retry), so the user-visible backoff is 1s, 2s, 4s. Logs each
-    retry attempt.
+    wraps snapshot_download in retry loop with exponential
+        backoff.  Max 4 attempts total (1 initial + 3 retries); the delays
+        tuple passed to ``_download_with_retry`` is ``(1s, 2s, 4s, 8s)``
+        but only the first 3 entries are consumed (one delay before each
+        retry), so the user-visible backoff is 1s, 2s, 4s. Logs each
+        retry attempt.
 
-    PROD-005: checks disk space before attempting download.
+    checks disk space before attempting download.
 
-    Defense-in-depth consent gate.
-    When ``config`` is provided, ``config.huggingface_consent`` MUST be
-    True before any HuggingFace network call.
+        Defense-in-depth consent gate.
+        When ``config`` is provided, ``config.huggingface_consent`` MUST be
+        True before any HuggingFace network call.
 
-    The return type is now a 3-tuple
-    ``(success, reason, exc_info)``.  ``reason`` is a short reason code:
-      - ``"huggingface_consent_false"`` — consent gate blocked download.
-      - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
-      - ``"disk_space_insufficient"`` — canonical disk-space check raised.
-      - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_ATTEMPTS``
-        attempts failed (1 initial + 3 retries with exponential backoff).
-      - ``"integrity_check_failed"`` — post-download integrity check
-        returned False (tampered or corrupted download).
-    Success returns ``(True, "", None)``.
+        The return type is now a 3-tuple
+        ``(success, reason, exc_info)``.  ``reason`` is a short reason code:
+          - ``"huggingface_consent_false"`` — consent gate blocked download.
+          - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
+          - ``"disk_space_insufficient"`` — canonical disk-space check raised.
+          - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_ATTEMPTS``
+            attempts failed (1 initial + 3 retries with exponential backoff).
+          - ``"integrity_check_failed"`` — post-download integrity check
+            returned False (tampered or corrupted download).
+        Success returns ``(True, "", None)``.
 
-    ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
-    ``(type, value, traceback)`` from the most recent exception in this
-    function, or ``None`` when no exception was raised. The IPC layer /
-    diagnostic bundle consumer can format the traceback via
-    ``traceback.format_exception(*exc_info)`` to surface the full chain
-    — HF Hub URL, HTTP status, retry chain, originating frame inside
-    ``snapshot_download`` — without needing to re-raise.
+        ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
+        ``(type, value, traceback)`` from the most recent exception in this
+        function, or ``None`` when no exception was raised. The IPC layer /
+        diagnostic bundle consumer can format the traceback via
+        ``traceback.format_exception(*exc_info)`` to surface the full chain
+        — HF Hub URL, HTTP status, retry chain, originating frame inside
+        ``snapshot_download`` — without needing to re-raise.
 
-    Args:
-        progress_callback: Optional callable(message: str) for progress updates.
-        config: Optional Config object — when provided and
-            ``huggingface_consent`` is True, the consent gate passes.
-            ``None`` is treated as consent NOT given (DE-58 safe default).
-        force: When True, bypass the consent gate entirely (explicit
-            escape hatch for legacy / test paths that verified consent
-            upstream and cannot forward a real Config object).
+        Args:
+            progress_callback: Optional callable(message: str) for progress updates.
+            config: Optional Config object — when provided and
+                ``huggingface_consent`` is True, the consent gate passes.
+    ``None`` is treated as consent NOT given ( safe default).
+            force: When True, bypass the consent gate entirely (explicit
+                escape hatch for legacy / test paths that verified consent
+                upstream and cannot forward a real Config object).
 
-    Returns:
-        ``(success, reason, exc_info)`` — see above.
+        Returns:
+            ``(success, reason, exc_info)`` — see above.
     """
-    # DE-58: defense-in-depth consent gate with safe default.
+    # defense-in-depth consent gate with safe default.
     # When ``force`` is False (the default), the gate refuses unless an
     # explicit Config object with ``huggingface_consent=True`` is
     # forwarded.  ``config=None`` is treated as "consent NOT given"
@@ -420,7 +420,7 @@ def download_parakeet_weights(
             allow_patterns=_HF_ALLOW_PATTERNS,
             local_files_only=True,
         )
-        # PROD-006: Verify model integrity for cached weights
+        # Verify model integrity for cached weights
         if local_dir:
             cached_ok, cached_details = _verify_model_integrity(repo_id, local_dir)
         else:
@@ -448,7 +448,7 @@ def download_parakeet_weights(
             # same tampered files served from local cache.
             _cleanup_failed_cache(repo_id)
     except Exception as exc:
-        # CR-92: previously a bare ``except Exception: pass``.
+        # previously a bare ``except Exception: pass``.
         # Corrupted HF cache (partial download, broken lock file,
         # permissions issue, HF cache schema change) silently triggered
         # a full re-download. The user saw "Downloading Parakeet TDT v3
@@ -468,12 +468,12 @@ def download_parakeet_weights(
             exc,
         )
 
-    # PROD-005 (revised): Use the canonical disk space check from
+    # (revised): Use the canonical disk space check from
     # transcription.py instead of the local _check_disk_space() duplicate.
     # The two implementations had different size tables and different
     # return semantics (bool vs raise RuntimeError), creating a
     # maintenance hazard. Now asr_setup delegates to the canonical version.
-    # See FORENSIC_REVIEW_COMPLETE.md → PROD-005.
+    # See FORENSIC_REVIEW_COMPLETE.md →
     try:
         from voice_typer.server.transcription import _check_disk_space_for_download
 
@@ -485,7 +485,7 @@ def download_parakeet_weights(
             progress_callback(msg)
         return (False, "disk_space_insufficient", sys.exc_info())
     except Exception as e:
-        # PROD-005: If the canonical check can't be imported, log and
+        # If the canonical check can't be imported, log and
         # proceed. The model download itself will fail naturally if
         # there's truly no space — a safer failure mode than running a
         # divergent local size table. Pre-fix this fell back to a local
@@ -499,12 +499,12 @@ def download_parakeet_weights(
     if progress_callback:
         progress_callback(msg)
 
-    # PROD-004 (revised): Use the canonical _download_with_retry from
+    # (revised): Use the canonical _download_with_retry from
     # transcription.py instead of the inline retry loop. The two
     # implementations had different delay tables ([5,15,45] vs 2**attempt)
     # and different API shapes (callable vs inline). Now asr_setup
     # delegates to the canonical version. See FORENSIC_REVIEW_COMPLETE.md
-    # → PROD-004.
+    # →
     try:
         from voice_typer.server.transcription import _download_with_retry
 
@@ -537,7 +537,7 @@ def download_parakeet_weights(
             progress_callback(f"Download failed after {_MAX_DOWNLOAD_ATTEMPTS} attempts: {e}")
         return (False, "download_retry_exhausted", captured_exc_info)
 
-    # PROD-006: Verify model integrity after download
+    # Verify model integrity after download
     # ``_verify_model_integrity`` now returns ``(ok, details)``.
     # Log the details at ERROR before ``_cleanup_failed_cache`` removes
     # the offending files — without these details, support cannot

@@ -9,7 +9,7 @@ circular import on the package ``__init__``, and so
 
 
 def _find_symlink_in_tree(root):
-    """RW-5: return the path of the first symlink found under ``root``,
+    """return the path of the first symlink found under ``root``,
     or ``None`` if there are none.
 
     Used by :meth:`VoiceTyperService.import_model` to reject poisoned

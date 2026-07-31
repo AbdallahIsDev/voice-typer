@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: AudioQualityController -- extracted from VoiceTyperApp.
+"""god-class decomposition: AudioQualityController -- extracted from VoiceTyperApp.
 
 Owns the audio-quality concern: per-chunk quality accumulation, on-the-fly
 filter-chain rebuilds on config change, and the final post-recording
@@ -48,19 +48,19 @@ log = logging.getLogger(__name__)
 class AudioQualityController:
     """Owns per-chunk + post-recording audio-quality analysis + filter rebuilds.
 
-    RW-9: extracted from ``VoiceTyperApp``. The app passes itself
-    (``app``) so ``AudioQualityController`` can:
-    - Read/write ``app._audio_quality`` (the :class:`AudioQualityAnalyzer`
-      instance) -- per-chunk accumulators and post-recording analysis.
-    - Read/write ``app._audio_processor`` (the :class:`AudioProcessor`)
-      -- rebuilt atomically when filter-chain config fields change.
-    - Read ``app.config`` (``audio_quality_warnings`` kill-switch,
-      plus the config consumed by ``rebuild_from_config``).
-    - Read ``app.recorder`` -- refreshes the ``_vad_enabled`` cache
-      after a rebuild via ``recorder.on_config_changed`` (PERF-02 / R8).
-    - (Historically) call ``app.tray.notify`` -- but the post-recording
-      report deliberately never surfaces a tray notification anymore
-      (see :meth:`_finalize_audio_quality_report`).
+    extracted from ``VoiceTyperApp``. The app passes itself
+        (``app``) so ``AudioQualityController`` can:
+        - Read/write ``app._audio_quality`` (the :class:`AudioQualityAnalyzer`
+          instance) -- per-chunk accumulators and post-recording analysis.
+        - Read/write ``app._audio_processor`` (the :class:`AudioProcessor`)
+          -- rebuilt atomically when filter-chain config fields change.
+        - Read ``app.config`` (``audio_quality_warnings`` kill-switch,
+          plus the config consumed by ``rebuild_from_config``).
+        - Read ``app.recorder`` -- refreshes the ``_vad_enabled`` cache
+          after a rebuild via ``recorder.on_config_changed`` (PERF-02 / R8).
+        - (Historically) call ``app.tray.notify`` -- but the post-recording
+          report deliberately never surfaces a tray notification anymore
+          (see :meth:`_finalize_audio_quality_report`).
     """
 
     def __init__(self, app: Any) -> None:
@@ -71,42 +71,42 @@ class AudioQualityController:
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
 
-        Runs inside the PortAudio audio callback (via
-        ``AudioProcessor.process_chunk`` -> ``_run_quality_check``), so
-        it MUST be non-blocking.  We only update cheap running
-        statistics -- no I/O, no allocation of large structures, no
-        logging per chunk.  Full analysis runs in
-        :meth:`_finalize_audio_quality_report` after stop().
+                Runs inside the PortAudio audio callback (via
+                ``AudioProcessor.process_chunk`` -> ``_run_quality_check``), so
+                it MUST be non-blocking.  We only update cheap running
+                statistics -- no I/O, no allocation of large structures, no
+                logging per chunk.  Full analysis runs in
+                :meth:`_finalize_audio_quality_report` after stop().
 
-        The analyzer's :meth:`analyze_chunk` would normally take the
-        raw numpy chunk, but we already have (rms, peak) computed by
-        the AudioProcessor -- reconstructing the chunk just to compute
-        the same metrics again would waste cycles.  Instead we feed
-        the precomputed values into the analyzer's internal accumulators
-        directly.
+                The analyzer's :meth:`analyze_chunk` would normally take the
+                raw numpy chunk, but we already have (rms, peak) computed by
+                the AudioProcessor -- reconstructing the chunk just to compute
+                the same metrics again would waste cycles.  Instead we feed
+                the precomputed values into the analyzer's internal accumulators
+                directly.
 
-        AUDIO-8: the per-chunk ``rms`` value is now fed into the
-        analyzer's :meth:`update_live_rms` EMA accumulator. Previously
-        ``rms`` was dropped on the floor (only ``peak`` was used for
-        clipping detection). When the EMA stays below
-        :attr:`AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD` for
-        :attr:`AudioQualityAnalyzer.LOW_VOLUME_SUSTAINED_CHUNKS`
-        consecutive chunks, a single "low input level -- increase mic
-        gain" WARNING is logged. The warning is latched per episode
-        (suppresses repeats) and resets on recovery.
+        the per-chunk ``rms`` value is now fed into the
+                analyzer's :meth:`update_live_rms` EMA accumulator. Previously
+                ``rms`` was dropped on the floor (only ``peak`` was used for
+                clipping detection). When the EMA stays below
+                :attr:`AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD` for
+                :attr:`AudioQualityAnalyzer.LOW_VOLUME_SUSTAINED_CHUNKS`
+                consecutive chunks, a single "low input level -- increase mic
+                gain" WARNING is logged. The warning is latched per episode
+                (suppresses repeats) and resets on recovery.
         """
         try:
             aq = self._app._audio_quality
             # Mirror analyze_chunk() without the numpy work -- we
             # already have rms and peak from the AudioProcessor.
-            # 17-C-FIX-3: _rms_values was removed (write-only list);
+            # 17-C-: _rms_values was removed (write-only list);
             # we no longer append to it here.
             aq._chunk_count += 1
             if peak > aq._peak:
                 aq._peak = peak
             if peak >= aq.CLIPPING_THRESHOLD:
                 aq._clip_count += 1
-            # AUDIO-8: feed the precomputed rms into the EMA accumulator
+            # feed the precomputed rms into the EMA accumulator
             # and surface a single low-volume warning if sustained. The
             # EMA update is two float multiplies + one add -- well within
             # the PortAudio non-blocking budget.
@@ -130,31 +130,31 @@ class AudioQualityController:
     def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
         """ADR 0007: Rebuild the audio filter chain from current config.
 
-        Called by ``service.apply_config_side_effects`` when any
-        ``noise_filter_*`` or ``audio_preset`` or
-        ``noise_suppression_method`` config field changes. Atomically
-        swaps the filter chain so the next ``process_chunk()`` call
-        uses the new filters -- no restart required.
+                Called by ``service.apply_config_side_effects`` when any
+                ``noise_filter_*`` or ``audio_preset`` or
+                ``noise_suppression_method`` config field changes. Atomically
+                swaps the filter chain so the next ``process_chunk()`` call
+                uses the new filters -- no restart required.
 
-        AUDIO-6 (High) + AUDIO-9 (Medium): ``force_sr`` parameter
-        rebuilds the chain at a specific sample rate before applying
-        config changes. Use this when the device's effective sample
-        rate changes (e.g. on hot-plug or when ``Recorder`` resolves a
-        new ``candidate_sr`` that differs from ``config.sample_rate``).
-        The wiring (calling this method with the new ``candidate_sr``)
-        is owned by FIX-2 in ``recording.py`` -- this method just
-        exposes the API. When ``force_sr`` is None (the default,
-        used by all existing callers), behavior is unchanged.
+        (High) +  (Medium): ``force_sr`` parameter
+                rebuilds the chain at a specific sample rate before applying
+                config changes. Use this when the device's effective sample
+                rate changes (e.g. on hot-plug or when ``Recorder`` resolves a
+                new ``candidate_sr`` that differs from ``config.sample_rate``).
+                The wiring (calling this method with the new ``candidate_sr``)
+        is owned by  in ``recording.py`` -- this method just
+                exposes the API. When ``force_sr`` is None (the default,
+                used by all existing callers), behavior is unchanged.
 
-        Args:
-            force_sr: optional sample rate in Hz. When provided and
-                different from the processor's current rate, the chain
-                is rebuilt at this rate BEFORE the config-driven rebuild
-                runs (so the config rebuild sees the correct rate).
+                Args:
+                    force_sr: optional sample rate in Hz. When provided and
+                        different from the processor's current rate, the chain
+                        is rebuilt at this rate BEFORE the config-driven rebuild
+                        runs (so the config rebuild sees the correct rate).
         """
         try:
             if force_sr is not None:
-                # XV-31 (CRITICAL) / AUDIO-6 / AUDIO-9: update the chain's
+                # (CRITICAL): update the chain's
                 # sample rate first so the subsequent rebuild_from_config
                 # builds filters with coefficients tuned to the actual
                 # device rate. ``AudioProcessor.set_sample_rate`` now
@@ -190,27 +190,27 @@ class AudioQualityController:
     def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
         """Run final audio-quality analysis and surface warnings.
 
-        Called from :meth:`_stop_dictation` after ``recorder.stop()``
-        returns the (already filtered + resampled) audio.
+                Called from :meth:`_stop_dictation` after ``recorder.stop()``
+                returns the (already filtered + resampled) audio.
 
-        FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used to
-        fire here ("Low volume (RMS=...). Increase mic gain or move
-        closer. | High noise (ratio=...). Try a quieter environment")
-        was deemed annoying by users. We now short-circuit at the top of
-        this method so NO tray notification is ever shown -- even if a
-        user manually sets ``audio_quality_warnings = True`` in their
-        config file. The internal ``AudioQualityAnalyzer`` may still
-        run for logging purposes (below), but it MUST NOT surface any
-        user-facing notification.
+                FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used to
+                fire here ("Low volume (RMS=...). Increase mic gain or move
+                closer. | High noise (ratio=...). Try a quieter environment")
+                was deemed annoying by users. We now short-circuit at the top of
+                this method so NO tray notification is ever shown -- even if a
+                user manually sets ``audio_quality_warnings = True`` in their
+                config file. The internal ``AudioQualityAnalyzer`` may still
+                run for logging purposes (below), but it MUST NOT surface any
+                user-facing notification.
 
-        ER-44: the per-chunk accumulator state (clip_count, peak,
-        rms_ema, low_volume_chunks) is now reset in a ``finally:`` block
-        so it ALWAYS runs -- even when ``audio_quality_warnings=False``
-        (the early-return guard used to skip reset, leaking state across
-        recording sessions) or when ``analyze_full_audio`` raises. The
-        per-chunk callback accumulates state regardless of the warnings
-        flag, so failing to reset would carry the previous session's
-        clipping/low-volume stats into the next session's report.
+        the per-chunk accumulator state (clip_count, peak,
+                rms_ema, low_volume_chunks) is now reset in a ``finally:`` block
+                so it ALWAYS runs -- even when ``audio_quality_warnings=False``
+                (the early-return guard used to skip reset, leaking state across
+                recording sessions) or when ``analyze_full_audio`` raises. The
+                per-chunk callback accumulates state regardless of the warnings
+                flag, so failing to reset would carry the previous session's
+                clipping/low-volume stats into the next session's report.
         """
         # Hard short-circuit: NEVER show a tray notification. The
         # ``audio_quality_warnings`` config field is honored here only
@@ -231,7 +231,7 @@ class AudioQualityController:
             except Exception:
                 log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
         finally:
-            # ER-44: reset for the next session ALWAYS runs -- even on
+            # reset for the next session ALWAYS runs -- even on
             # the early-return path (warnings disabled) and on exception
             # from analyze_full_audio. Wrap in suppress so a buggy
             # analyzer.reset() can't break RecordingController.stop().

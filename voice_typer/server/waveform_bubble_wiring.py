@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: WaveformBubbleWiring — extracted from VoiceTyperApp.
+"""god-class decomposition: WaveformBubbleWiring — extracted from VoiceTyperApp.
 
 Owns the wiring between the ``WaveformBubble`` coordinator
 (``voice_typer.server.waveform``) and the IPC server's push-event
@@ -63,33 +63,33 @@ log = logging.getLogger(__name__)
 class WaveformBubbleWiring:
     """Owns wiring of the waveform bubble coordinator → IPC push events.
 
-    RW-9 Phase 6: extracted from ``VoiceTyperApp``. The app passes itself
-    (``app``) as a back-reference so ``WaveformBubbleWiring`` can:
+    Phase 6: extracted from ``VoiceTyperApp``. The app passes itself
+        (``app``) as a back-reference so ``WaveformBubbleWiring`` can:
 
-    - Read ``app._waveform_bubble`` (the ``WaveformBubble`` coordinator
-      owned by the app)
-    - Read ``app._thread_registry`` (the central ``ThreadRegistry`` so
-      the bubble-level-pusher daemon thread is tracked for shutdown)
+        - Read ``app._waveform_bubble`` (the ``WaveformBubble`` coordinator
+          owned by the app)
+        - Read ``app._thread_registry`` (the central ``ThreadRegistry`` so
+          the bubble-level-pusher daemon thread is tracked for shutdown)
 
-    Threading contract (PERF-NEW-001 / BUBBLE-FIX-4.1):
+    Threading contract (PERF- / BUBBLE-):
 
-    The ``on_level`` callback fires from the PortAudio thread at the
-    device's native chunk rate (~31 Hz @ 16 kHz / blocksize 512,
-    ~94 Hz @ 48 kHz). Calling ``_push_event_now`` directly held the IPC
-    server's ``_lock`` for ``json.dumps`` + ``socket.sendall``, which on
-    a slow Electron receive window stalled the audio thread and
-    triggered xruns. The actual IPC send is therefore pushed to a
-    background queue drained by a low-priority daemon thread.
+        The ``on_level`` callback fires from the PortAudio thread at the
+        device's native chunk rate (~31 Hz @ 16 kHz / blocksize 512,
+        ~94 Hz @ 48 kHz). Calling ``_push_event_now`` directly held the IPC
+        server's ``_lock`` for ``json.dumps`` + ``socket.sendall``, which on
+        a slow Electron receive window stalled the audio thread and
+        triggered xruns. The actual IPC send is therefore pushed to a
+        background queue drained by a low-priority daemon thread.
 
-    The queue is bounded (``maxsize=64``) so a stuck Electron client
-    can't cause unbounded memory growth on the Python side; when full,
-    the audio thread drops the sample (the next one will pick up the
-    latest smoothed level from ``update_level``'s low-pass filter).
+        The queue is bounded (``maxsize=64``) so a stuck Electron client
+        can't cause unbounded memory growth on the Python side; when full,
+        the audio thread drops the sample (the next one will pick up the
+        latest smoothed level from ``update_level``'s low-pass filter).
     """
 
     def __init__(self, app: VoiceTyperApp | Any) -> None:
         self._app = app
-        # PERF-NEW-001: dedicated queue + worker thread for bubble level
+        # PERF-: dedicated queue + worker thread for bubble level
         # pushes. Bounded so a stuck Electron client can't cause
         # unbounded memory growth on the Python side. Created lazily in
         # ``_wire_waveform_bubble`` (the original code created them
@@ -100,7 +100,7 @@ class WaveformBubbleWiring:
         self._bubble_level_queue: queue.Queue[dict | None] | None = None
         self._bubble_level_worker_stop: threading.Event | None = None
         self._bubble_level_worker: threading.Thread | None = None
-        # BUBBLE-FIX-4.1: throttle timestamp for the 16 ms / ~60 Hz
+        # BUBBLE-: throttle timestamp for the 16 ms / ~60 Hz
         # ``on_level`` push gate. Lives on the wiring instance so the
         # ``on_level`` closure (which captures ``self``) reads/writes
         # this attribute directly.
@@ -130,7 +130,7 @@ class WaveformBubbleWiring:
             event_bus.publish({"type": "bubble_hide"})
 
         def _push_bubble_level(rms: float, peak: float) -> None:
-            # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
+            # PERF- / PERF-: this callback fires from the
             # PortAudio thread at the device's native chunk rate
             # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
             # Calling _push_event_now directly was holding the IPC
@@ -139,7 +139,7 @@ class WaveformBubbleWiring:
             # and triggered xruns.  We push the actual IPC send to a
             # background queue drained by a low-priority daemon thread.
             #
-            # BUBBLE-FIX-4.1: the previous throttle (33 ms / ~30 Hz) sat
+            # BUBBLE-: the previous throttle (33 ms / ~30 Hz) sat
             # exactly at the 32 ms chunk interval for 16 kHz devices, so
             # PortAudio timing jitter caused irregular accept/drop
             # patterns and the visualizer froze.  Lowered to 16 ms
@@ -147,7 +147,7 @@ class WaveformBubbleWiring:
             # (maxsize=64) and worker thread handle backpressure.  Each
             # message is ~40 bytes JSON, so 60 msg/s is trivial for TCP.
             #
-            # XV-63: 16 ms still dropped ~36% of 48 kHz chunks (94 Hz
+            # 16 ms still dropped ~36% of 48 kHz chunks (94 Hz
             # source vs 60 Hz gate). Lowered to 8 ms (~125 Hz) so every
             # chunk at 48 kHz passes the gate; the bounded queue +
             # PERF-3 drain handle backpressure on the consumer side, so
@@ -170,14 +170,14 @@ class WaveformBubbleWiring:
                     }
                 )
 
-        # PERF-NEW-001: dedicated queue + worker thread for bubble
+        # PERF-: dedicated queue + worker thread for bubble
         # level pushes.  Bounded so a stuck Electron client can't
         # cause unbounded memory growth on the Python side.  Created
         # idempotently — if _wire_waveform_bubble is called twice
         # (e.g. in tests after a stop/start cycle), the existing
         # queue and worker are reused.
         #
-        # XV-62: __init__ pre-declares these attributes (as None), so
+        # __init__ pre-declares these attributes (as None), so
         # the ``hasattr`` guards below are dead branches. Use direct
         # ``is None`` checks instead — clearer intent, fewer ops.
         if self._bubble_level_queue is None:
@@ -224,7 +224,7 @@ class WaveformBubbleWiring:
                 event_bus.publish(item)
                 q.task_done()
 
-        # XV-62: __init__ pre-declares _bubble_level_worker (as None),
+        # __init__ pre-declares _bubble_level_worker (as None),
         # so the ``hasattr`` guard is a dead branch. Direct ``is None``
         # check is sufficient — and re-creating the worker when the
         # previous one has exited (e.g. after stop()) is still handled
@@ -265,19 +265,19 @@ class WaveformBubbleWiring:
             )
 
         def _push_bubble_config(cfg: Any) -> None:
-            """UX-10 / BG-29: push the bubble-relevant subset of config to the
-            Electron bubble renderer so it can decide whether to show the
-            mic button (the bubble is sandboxed and receives NO get_config
-            otherwise). Emits a ``bubble_config`` event carrying the
-            bubble-behavior keys plus the theme triplet (``theme_mode``,
-            ``theme_preset``, ``custom_theme``) so the bubble renderer's
-            ``useThemeSync`` hook (PVT-017) can paint with the same preset
-            as the main app instead of always falling through to the OS
-            ``prefers-color-scheme`` default. Fires once at startup and
-            again on every ``set_config`` that touches any of these keys
-            (see ``config_handlers`` push path — the trigger list there
-            must include the theme keys for the bubble to actually receive
-            theme updates; see BG-29 handoff note in the worklog).
+            """push the bubble-relevant subset of config to the
+                        Electron bubble renderer so it can decide whether to show the
+                        mic button (the bubble is sandboxed and receives NO get_config
+                        otherwise). Emits a ``bubble_config`` event carrying the
+                        bubble-behavior keys plus the theme triplet (``theme_mode``,
+                        ``theme_preset``, ``custom_theme``) so the bubble renderer's
+            ``useThemeSync`` hook () can paint with the same preset
+                        as the main app instead of always falling through to the OS
+                        ``prefers-color-scheme`` default. Fires once at startup and
+                        again on every ``set_config`` that touches any of these keys
+                        (see ``config_handlers`` push path — the trigger list there
+                        must include the theme keys for the bubble to actually receive
+            theme updates; see  handoff note in the worklog).
             """
             event_bus.publish(
                 {
@@ -286,7 +286,7 @@ class WaveformBubbleWiring:
                         "bubble_behavior": getattr(cfg, "bubble_behavior", "show_on_record"),
                         "bubble_click_to_toggle": getattr(cfg, "bubble_click_to_toggle", True),
                         "bubble_mic_button": getattr(cfg, "bubble_mic_button", True),
-                        # BG-29: theme sync. The renderer's useThemeSync hook
+                        # theme sync. The renderer's useThemeSync hook
                         # (bubble-components.tsx) already consumes these three
                         # fields; previously the backend never sent them, so
                         # the bubble always fell through to OS prefs.
@@ -320,10 +320,10 @@ class WaveformBubbleWiring:
         join(timeout=1.0)`` block in ``_do_cleanup`` with a single call
         to ``self.waveform_wiring.stop()`` when wiring the delegate.
         """
-        # PERF-NEW-001: stop the bubble level worker so it doesn't
+        # PERF-: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.
         #
-        # XV-62: __init__ pre-declares all three attributes (as None),
+        # __init__ pre-declares all three attributes (as None),
         # so the ``hasattr`` guards are dead branches. Direct ``is
         # not None`` checks are clearer and faster.
         try:
@@ -336,7 +336,7 @@ class WaveformBubbleWiring:
                     self._bubble_level_worker.join(timeout=1.0)
         except Exception as e:
             log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
-        # DJ-28: break the closure reference cycle
+        # break the closure reference cycle
         # ``app -> app._waveform_bubble (WaveformBubble) -> .on_* (closure)
         # -> closure.__closure__[0] (self=WaveformBubbleWiring)
         # -> self._app (back to app)`` by nulling the 5 callbacks after

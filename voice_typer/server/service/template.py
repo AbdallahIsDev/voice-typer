@@ -1,7 +1,7 @@
 """Template domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Template CRUD delegated to
+( split). Template CRUD delegated to
 :class:`voice_typer.server.templates.TemplateManager`.
 """
 
@@ -23,13 +23,13 @@ log = logging.getLogger(__name__)
 class TemplateMixin(ServiceMixinBase):
     """Template-domain service methods.
 
-    Wraps the persistent :class:`TemplateManager` so the renderer's
-    template store survives reinstalls / app-data resets (NEW-UX-008).
+        Wraps the persistent :class:`TemplateManager` so the renderer's
+    template store survives reinstalls / app-data resets ().
     """
 
-    # ── Templates (#6, NEW-UX-008) ──────────────────────────────
+    # Templates (#6, ) ──────────────────────────────
     #
-    # NEW-UX-008: previously this method read from a non-existent
+    # previously this method read from a non-existent
     # ``config.templates_data`` attribute, so it always returned an
     # empty list — and ``save_templates`` set the attribute on the
     # dataclass instance but never persisted it (``dataclasses.asdict``
@@ -81,10 +81,10 @@ class TemplateMixin(ServiceMixinBase):
     def save_templates(self, templates: list[dict]) -> bool:
         """Replace all templates in the persistent store.
 
-        NEW-UX-008: full-replace semantics — the renderer sends the
-        complete list after each add/edit/delete, and we persist the
-        whole list atomically via TemplateManager._save (which uses
-        _secure_atomic_write — O_NOFOLLOW on POSIX, temp+rename).
+        full-replace semantics — the renderer sends the
+                complete list after each add/edit/delete, and we persist the
+                whole list atomically via TemplateManager._save (which uses
+                _secure_atomic_write — O_NOFOLLOW on POSIX, temp+rename).
         """
         try:
             tm = self._template_manager()

@@ -58,7 +58,7 @@ class ModelManager:
     - Update ``app.tray`` state during loads
     - Schedule the pending-dictation callback via ``app._schedule_timer``
     - Read ``app._shutting_down`` flag and ``self._pending_dictation``
-      (ARCH-REFAC-003: ``_pending_dictation`` now lives on ModelManager
+      (: ``_pending_dictation`` now lives on ModelManager
       directly — accessed via ``app.models._pending_dictation``.)
 
     PERF-015: includes an LRU cache for loaded models. When loading a
@@ -72,7 +72,7 @@ class ModelManager:
 
     def __init__(self, app: Any) -> None:
         self._app = app
-        # ARCH-008: Registry initialized eagerly (was lazy in app.py).
+        # Registry initialized eagerly (was lazy in app.py).
         # Callers can rely on it existing from the start.
         self._registry: AsrBackendRegistry = AsrBackendRegistry(app.config)
 
@@ -88,12 +88,12 @@ class ModelManager:
         self._model_load_thread: threading.Thread | None = None
         self._model_load_attempted: bool = False
         self._pending_dictation: bool = False
-        # ERR-003: When the user changes model during an active recording
+        # When the user changes model during an active recording
         # we save config and notify "will change after current recording",
         # but previously never actually applied the change. We capture
         # the requested model here and apply it on the next _start_dictation.
         self._pending_model_change: str | None = None
-        # UE-11: sibling to ``_pending_model_change`` — captures a
+        # sibling to ``_pending_model_change`` — captures a
         # backend-only change (``set_active_backend``) that was requested
         # while the user was recording or busy. Mirrors the
         # ``_pending_model_change`` deferral pattern: the request is
@@ -105,7 +105,7 @@ class ModelManager:
         # unconditionally ran the unload phase mid-transcription,
         # unloading the ctranslate2 model from underneath the in-flight
         # transcribe thread (crash / heap corruption / stuck thread —
-        # see UE-11 in review.md).
+        # see  in review.md).
         self._pending_backend_change: str | None = None
 
         # PERF-015: LRU tracking for loaded models.
@@ -125,7 +125,7 @@ class ModelManager:
         # before any thread can call ``active_transcriber``.
         self._lazy_init_lock = threading.Lock()
 
-        # HIGH-20 / MODEL-2: reentrant lock guarding the entire body of
+        #  reentrant lock guarding the entire body of
         # ``change_model`` so two concurrent calls cannot both unload +
         # re-register + reload the same backend (which previously left
         # the registry in an inconsistent state with two engines
@@ -134,7 +134,7 @@ class ModelManager:
         # caller further up the stack acquired it.
         self._model_change_lock = threading.RLock()
 
-        # TY-11: idle-unload timer. When ``model_idle_unload_minutes > 0``,
+        # idle-unload timer. When ``model_idle_unload_minutes > 0``,
         # each ``touch_active_model()`` (called after every successful
         # transcribe) arms a ``threading.Timer`` that fires after N
         # minutes of inactivity. When the timer fires, the active
@@ -228,11 +228,11 @@ class ModelManager:
     def active_transcriber(self) -> Any | None:
         """Return the active transcriber (Parakeet, Qwen, or Whisper).
 
-        ARCH-007/008: delegates to AsrBackendRegistry which centralizes
+        008: delegates to AsrBackendRegistry which centralizes
         the backend selection logic. Previously every caller re-checked
         self.config.asr_backend and tested three separate fields.
 
-        CR-78: previously this method called ``_sync_registry_from_fields()``
+        previously this method called ``_sync_registry_from_fields()``
         on every read — which re-imported state from the three legacy
         engine fields into the registry WITHOUT holding
         ``_model_change_lock``.  A concurrent ``change_model`` could
@@ -256,15 +256,15 @@ class ModelManager:
         """
         return self._registry.get_active()
 
-    # ── Engine construction (ARCH-007 single chokepoint) ──────────────
+    # ── Engine construction ( single chokepoint) ──────────────
 
     def _ensure_engine(self, backend_name: str) -> None:
         """Ensure the engine object for ``backend_name`` exists (no load).
 
-        ARCH-007: delegates to AsrBackendRegistry.create() so all backend
+        delegates to AsrBackendRegistry.create() so all backend
         construction goes through one code path.
 
-        ERR-011: previously failures here were swallowed by the registry
+        previously failures here were swallowed by the registry
         and only logged. The user picked Qwen/Parakeet, saw "Ready", and
         got nothing on failure. We now surface init failures via tray
         notification so the user knows the backend didn't initialize.
@@ -299,7 +299,7 @@ class ModelManager:
                         beam_size=self._app.config.beam_size,
                         best_of=self._app.config.best_of,
                         condition_on_previous_text=self._app.config.condition_on_previous_text,
-                        # NEW-PRIV-005: pass the live Config reference so
+                        # pass the live Config reference so
                         # TranscriptionEngine._pre_download_model can
                         # read huggingface_consent without crashing on
                         # AttributeError.  Previously this kwarg was
@@ -311,7 +311,7 @@ class ModelManager:
                 )
         except Exception as exc:
             log.exception("[MODEL] Failed to initialize %s engine: %s", backend_name, exc)
-            # ERR-011: surface to user via tray notification so they
+            # surface to user via tray notification so they
             # don't sit waiting for "Ready" forever. Include the
             # backend name and a short hint.
             try:
@@ -325,7 +325,7 @@ class ModelManager:
                     f"Could not initialize the {backend_name.title()} backend.{hint}",
                 )
             except Exception:
-                # CR-90: previously a bare ``except Exception: pass``.
+                # previously a bare ``except Exception: pass``.
                 # If ``tray.notify`` ALSO fails (e.g. pystray broken on
                 # a headless Linux container), the user was left with
                 # NO visual signal that backend init failed. Log the
@@ -351,7 +351,7 @@ class ModelManager:
         here; if a dictation is pending (user pressed F2 during load), it
         is auto-started once loading succeeds.
         """
-        # CR-18: bail out early if shutdown was signalled while this
+        # bail out early if shutdown was signalled while this
         # loader was queued. Without this guard the loader would proceed
         # to construct + load an ASR backend after ``_do_cleanup`` has
         # already torn down the tray, recorder, hotkeys, etc., touching
@@ -375,7 +375,7 @@ class ModelManager:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
 
             if success:
-                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                #  PERF-015 LRU eviction — touch the
                 # freshly-loaded backend so it's tracked, then evict the
                 # LRU model if more than _MAX_LOADED_MODELS are now loaded.
                 # Guarded so a tracking failure doesn't break the load.
@@ -401,7 +401,7 @@ class ModelManager:
                 # plus a remediation hint. ``available_backends`` returns
                 # the registered backend names; ``active_name`` is the one
                 # that was selected as primary.
-                # WR-14: pyrefly not-callable — ``available_backends`` is a
+                # pyrefly not-callable — ``available_backends`` is a
                 # @property on ASRRegistry (asr_registry.py:534-538) returning
                 # ``list[str]``, NOT a method. Calling it (``()``) raises
                 # ``TypeError: 'list' object is not callable`` at runtime.
@@ -449,7 +449,7 @@ class ModelManager:
     def start_background_load(self) -> None:
         """Spawn the background model-load thread (idempotent).
 
-        CR-18: register the thread with ``app._thread_registry`` so
+        register the thread with ``app._thread_registry`` so
         ``shutdown_all()`` can join it during ``quit()``. Previously
         the ModelLoad thread was a daemon but untracked — it was
         indirectly signalled via ``_shutting_down`` checks inside
@@ -471,7 +471,7 @@ class ModelManager:
             daemon=True,
         )
         self._model_load_thread.start()
-        # CR-18: track the loader centrally so shutdown_all() can
+        # track the loader centrally so shutdown_all() can
         # signal-and-join it. Best-effort — if the registry is missing
         # (e.g. in a stripped-down test fixture) we log and continue;
         # the loader is a daemon and will die on process exit anyway.
@@ -491,14 +491,14 @@ class ModelManager:
     def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
         """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
 
-        ARCH-007/008: Uses the registry to reconfigure and reload.
+        008: Uses the registry to reconfigure and reload.
         Switches config to whisper/tiny.en, ensures the whisper backend
         is registered, and delegates loading to
         AsrBackendRegistry.load_with_fallback().
         """
         self._app.config.model_size = "tiny.en"
         self._app.config.asr_backend = "whisper"
-        # HIGH-21 / MODEL-3: persist the fallback so the next boot
+        #  persist the fallback so the next boot
         # doesn't re-try the failed backend and repeat the failure
         # loop.  Previously the config mutation was in-memory only —
         # if the app crashed after fallback, the next boot read the
@@ -524,14 +524,14 @@ class ModelManager:
                     beam_size=self._app.config.beam_size,
                     best_of=self._app.config.best_of,
                     condition_on_previous_text=self._app.config.condition_on_previous_text,
-                    # NEW-PRIV-005: pass live Config so consent check works.
+                    # pass live Config so consent check works.
                     config=self._app.config,
                 ),
             )
         else:
             existing.model_size = "tiny.en"
             existing._configured_model_size = "tiny.en"
-            # NEW-PRIV-005: also backfill the config reference on the
+            # also backfill the config reference on the
             # existing engine in case it was constructed without one
             # (e.g. by an older code path or a test).  No-op if the
             # engine already has a non-None config.
@@ -543,7 +543,7 @@ class ModelManager:
 
         success = self._registry.load_with_fallback(progress_callback=on_progress)
         if success:
-            # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+            #  PERF-015 LRU eviction — touch the
             # freshly-loaded backend so it's tracked, then evict the
             # LRU model if more than _MAX_LOADED_MODELS are now loaded.
             # Guarded so a tracking failure doesn't break the load.
@@ -563,7 +563,7 @@ class ModelManager:
         else:
             self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
             if notify_on_failure:
-                # NEW-UX-018: critical — bypass toggle (model load failed).
+                # critical — bypass toggle (model load failed).
                 # Use the i18n key so the tray tooltip + OS notification
                 # render in the user's selected UI locale.
                 self._app.tray.notify_safety(
@@ -574,7 +574,7 @@ class ModelManager:
     def try_load(self, notify_on_failure: bool = False) -> None:
         """Attempt to load the transcription model.
 
-        ARCH-007/008: Delegates to AsrBackendRegistry.load_with_fallback()
+        008: Delegates to AsrBackendRegistry.load_with_fallback()
         instead of calling self.transcriber.load() directly.
 
         ADR-0009 Issue 4: waits for the prewarm process to finish before
@@ -626,7 +626,7 @@ class ModelManager:
                 if not prewarm_finished:
                     log.info("[MODEL] prewarm timed out — spawning background prewarm for next launch")
                     try:
-                        # PW-2: pass trigger="manual" so the prewarm log
+                        # pass trigger="manual" so the prewarm log
                         # records that this background re-spawn was
                         # triggered by the app (prewarm timed out).
                         spawn_background_prewarm(force=True, trigger="manual")
@@ -679,7 +679,7 @@ class ModelManager:
 
             success = self._registry.load_with_fallback(progress_callback=on_progress)
             if success:
-                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                #  PERF-015 LRU eviction — touch the
                 # freshly-loaded backend so it's tracked, then evict the
                 # LRU model if more than _MAX_LOADED_MODELS are now loaded.
                 # Guarded so a tracking failure doesn't break the load.
@@ -718,7 +718,7 @@ class ModelManager:
     def change_model(self, model_size: str) -> dict:
         """Apply a model change for future dictation sessions (non-blocking).
 
-        AB-10: Previously this method blocked the calling IPC worker for
+        Previously this method blocked the calling IPC worker for
         5-30s while ``_change_model_load_phase`` ran ``load_active`` (disk
         + torch import + weight load). Now it spawns a background daemon
         thread to do the full setattr+unload+load cycle and returns
@@ -733,16 +733,16 @@ class ModelManager:
         recording — in which case the change is deferred via
         ``_pending_model_change``).
 
-        ARCH-007: Uses the registry to unload/load instead of having
+        Uses the registry to unload/load instead of having
         three separate branches for parakeet/qwen/whisper.
 
-        LOG-001: logs every model change with old/new backend and model size.
+        logs every model change with old/new backend and model size.
 
-        HIGH-20 / MODEL-2: the background thread's body is guarded by
+         the background thread's body is guarded by
         ``self._model_change_lock`` so two concurrent calls cannot both
         unload + re-register + reload the same backend.
 
-        CR-77: the background thread acquires ``_config_mutation_lock``
+        the background thread acquires ``_config_mutation_lock``
         for the setattr+save+unload phase. See ``_change_model_blocking``
         for the lock-order contract.
 
@@ -754,7 +754,7 @@ class ModelManager:
             to complete (e.g. ``apply_pending_model_change``, tests)
             should call ``_change_model_blocking`` instead.
         """
-        # TY-11: cancel any pending idle-unload timer before starting
+        # cancel any pending idle-unload timer before starting
         # the unload/reload cycle — otherwise the timer could fire
         # mid-switch and unload the NEW model.
         self.cancel_idle_unload_timer()
@@ -768,7 +768,7 @@ class ModelManager:
             new_backend = "qwen"
         else:
             new_backend = "whisper"
-        # AB-10: spawn background daemon thread for the full cycle.
+        # spawn background daemon thread for the full cycle.
         self._change_model_background(model_size)
         return {
             "status": "loading",
@@ -777,7 +777,7 @@ class ModelManager:
         }
 
     def _change_model_background(self, model_size: str) -> None:
-        """AB-10: Spawn a daemon thread to run ``_change_model_blocking``.
+        """Spawn a daemon thread to run ``_change_model_blocking``.
 
         The thread holds ``_model_change_lock`` for the duration of the
         setattr+unload+load cycle so concurrent ``change_model`` /
@@ -785,7 +785,7 @@ class ModelManager:
         publishes an ``asr_backend_ready`` event on the event_bus.
 
         Mirrors ``start_background_load``'s thread-registration pattern
-        (CR-18) so ``shutdown_all()`` can join the thread during
+        () so ``shutdown_all()`` can join the thread during
         ``quit()``. Best-effort registration — if the registry is missing
         (e.g. in a stripped-down test fixture) we log and continue; the
         thread is a daemon and will die on process exit anyway.
@@ -797,7 +797,7 @@ class ModelManager:
             daemon=True,
         )
         thread.start()
-        # CR-18: track the thread centrally so shutdown_all() can
+        # track the thread centrally so shutdown_all() can
         # signal-and-join it. Best-effort — re-registering "ModelChange"
         # overwrites the previous entry (with a warning log); the
         # previous thread is still a daemon and will be killed on
@@ -818,7 +818,7 @@ class ModelManager:
     def _change_model_blocking(self, model_size: str) -> None:
         """Synchronous model change (for test compat and direct callers).
 
-        AB-10: This is the original ``change_model`` body, preserved as a
+        This is the original ``change_model`` body, preserved as a
         separate method so callers that need to wait for the load to
         complete (e.g. ``apply_pending_model_change``, tests) can do so.
         The IPC handler uses the non-blocking ``change_model`` instead.
@@ -827,10 +827,10 @@ class ModelManager:
         ``asr_backend_ready`` event on the event_bus so subscribers
         (renderer, diagnostics aggregator) know the load finished.
         """
-        # TY-11: cancel any pending idle-unload timer before starting
+        # cancel any pending idle-unload timer before starting
         # the unload/reload cycle.
         self.cancel_idle_unload_timer()
-        # CR-77: outer = _config_mutation_lock (app-level, governs config
+        # outer = _config_mutation_lock (app-level, governs config
         # setattr + save); inner = _model_change_lock (ModelManager-level,
         # guards the unload/reload cycle).  See change_model docstring.
         with self._model_change_lock:
@@ -848,7 +848,7 @@ class ModelManager:
             # Phase 2: construct + load the new engine OUTSIDE the
             # config lock (see above).
             self._change_model_load_phase(new_backend, model_size)
-        # AB-10: publish asr_backend_ready event on completion so the
+        # publish asr_backend_ready event on completion so the
         # renderer (and any in-process subscribers) know the load
         # finished. Published AFTER the lock is released so subscribers
         # don't block on the lock.
@@ -894,7 +894,7 @@ class ModelManager:
                 model_size,
                 new_backend,
             )
-            # ERR-003: capture the request so the next _start_dictation
+            # capture the request so the next _start_dictation
             # re-runs the unload/load cycle. Without this, the config
             # is saved on disk but the in-memory engine stays as the
             # old backend — the "will change after current recording"
@@ -951,7 +951,7 @@ class ModelManager:
         Caller MUST hold ``_model_change_lock``. Must NOT hold
         ``_config_mutation_lock`` (see above).
 
-        CR-76: ``model_size`` is the user-requested model size (operation
+        ``model_size`` is the user-requested model size (operation
         input) — included in the failure log so a model-load failure
         report shows the input that produced the failure, not just the
         backend name. The underlying exception is already logged one
@@ -967,7 +967,7 @@ class ModelManager:
         try:
             success = self._registry.load_active(progress_callback=on_progress)
             if success:
-                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                #  PERF-015 LRU eviction — touch the
                 # freshly-loaded backend so it's tracked, then evict
                 # the LRU model if more than _MAX_LOADED_MODELS are
                 # now loaded. Guarded so a tracking failure doesn't
@@ -1007,7 +1007,7 @@ class ModelManager:
     def set_active_backend(self, backend: str) -> dict:
         """Switch the active ASR backend WITHOUT changing ``model_size`` (non-blocking).
 
-        AB-10: Previously this method blocked the calling IPC worker for
+        Previously this method blocked the calling IPC worker for
         5-30s while ``load_active`` ran. Now it spawns a background
         daemon thread (mirroring ``change_model``'s pattern) and returns
         immediately with a "loading" ack. On completion the thread
@@ -1021,7 +1021,7 @@ class ModelManager:
         backend swap never happened. Old backends stayed loaded (GPU
         + RAM) until LRU eviction.
 
-        UE-11: if the user is recording or the transcribe thread holds
+        if the user is recording or the transcribe thread holds
         the busy event (mid-transcription), DEFER — persist config +
         capture the requested backend in ``_pending_backend_change`` +
         notify "will change after current recording" + return a
@@ -1031,7 +1031,7 @@ class ModelManager:
         Without this guard, the background thread would run the unload
         phase mid-transcription, unloading the ctranslate2 model from
         underneath the in-flight transcribe thread (crash / heap
-        corruption / stuck thread — see UE-11 in review.md).
+        corruption / stuck thread — see  in review.md).
 
         Parameters
         ----------
@@ -1046,7 +1046,7 @@ class ModelManager:
             "previous": {...}, "pending": {...}}``. ``status == "ready"``
             when the backend is already active (fast-path no-op).
             ``status == "deferred"`` when the change was queued via
-            ``_pending_backend_change`` (UE-11).
+            ``_pending_backend_change`` ().
 
         Raises
         ------
@@ -1060,7 +1060,7 @@ class ModelManager:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
-        # TY-11: cancel any pending idle-unload timer before starting
+        # cancel any pending idle-unload timer before starting
         # the unload/reload cycle.
         self.cancel_idle_unload_timer()
         old_backend = self._app.config.asr_backend
@@ -1075,7 +1075,7 @@ class ModelManager:
                 "previous": {"backend": old_backend, "model_size": old_model_size},
                 "pending": {"backend": backend, "model_size": old_model_size},
             }
-        # UE-11: busy/recording guard, mirroring ``change_model``'s
+        # busy/recording guard, mirroring ``change_model``'s
         # ``_change_model_setattr_phase`` deferral pattern. If the user
         # is recording OR the transcribe thread holds the busy event
         # (mid-transcription), we MUST NOT run the unload phase —
@@ -1094,7 +1094,7 @@ class ModelManager:
             is_busy = not self._app._busy_event.is_set()
         except Exception:
             log.debug(
-                "[UE-11] busy/recording check in set_active_backend failed (non-fatal)",
+                "[MODEL] busy/recording check in set_active_backend failed (non-fatal)",
                 exc_info=True,
             )
             is_recording = False
@@ -1125,7 +1125,7 @@ class ModelManager:
                 "previous": {"backend": old_backend, "model_size": old_model_size},
                 "pending": {"backend": backend, "model_size": old_model_size},
             }
-        # AB-10: spawn background daemon thread for the full cycle.
+        # spawn background daemon thread for the full cycle.
         self._set_active_backend_background(backend)
         return {
             "status": "loading",
@@ -1134,7 +1134,7 @@ class ModelManager:
         }
 
     def _set_active_backend_background(self, backend: str) -> None:
-        """AB-10: Spawn a daemon thread to run ``_set_active_backend_blocking``.
+        """Spawn a daemon thread to run ``_set_active_backend_blocking``.
 
         Mirrors ``_change_model_background``'s thread-registration pattern.
         The thread holds ``_model_change_lock`` for the duration so
@@ -1164,7 +1164,7 @@ class ModelManager:
     def _set_active_backend_blocking(self, backend: str) -> None:
         """Synchronous backend switch (for test compat and direct callers).
 
-        AB-10: This is the original ``set_active_backend`` body,
+        This is the original ``set_active_backend`` body,
         preserved as a separate method so callers that need to wait for
         the load to complete (tests) can do so. The IPC handler uses
         the non-blocking ``set_active_backend`` instead.
@@ -1176,7 +1176,7 @@ class ModelManager:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
-        # TY-11: cancel any pending idle-unload timer before starting
+        # cancel any pending idle-unload timer before starting
         # the unload/reload cycle — otherwise the timer could fire
         # mid-switch and unload the NEW model. The post-load touch_model
         # call below re-arms a fresh timer on the new backend.
@@ -1243,13 +1243,13 @@ class ModelManager:
             except Exception as exc:
                 log.exception("[MODEL] set_active_backend load failed: %s", exc)
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
-        # AB-10: publish asr_backend_ready event on completion so the
+        # publish asr_backend_ready event on completion so the
         # renderer (and any in-process subscribers) know the load
         # finished.
         self._publish_backend_ready_event(backend, self._app.config.model_size)
 
     def _publish_backend_ready_event(self, backend: str, model_size: str) -> None:
-        """AB-10: Publish an ``asr_backend_ready`` event on the event_bus.
+        """Publish an ``asr_backend_ready`` event on the event_bus.
 
         Mirrors the ``asr_backend_disabled`` event pattern in
         ``asr_registry.py``. The event signals to the renderer (and any
@@ -1281,7 +1281,7 @@ class ModelManager:
                 exc_info=True,
             )
 
-    # ERR-003: apply a deferred model change captured during an active
+    # apply a deferred model change captured during an active
     # recording. Called from _start_dictation before the new recording
     # begins so the in-memory engine matches the saved config.
     def apply_pending_model_change(self) -> bool:
@@ -1289,7 +1289,7 @@ class ModelManager:
         re-run change_model now (without the early return) so the new
         backend is actually loaded. Returns True if a change was applied.
 
-        UE-11: also applies a deferred backend-only change
+        also applies a deferred backend-only change
         (``_pending_backend_change``) captured by
         :meth:`set_active_backend` while the user was recording/busy.
         The two pending fields are independent — a single recording
@@ -1315,7 +1315,7 @@ class ModelManager:
         # ``test_recording_and_audio.py::TestPendingModelChange``)
         # construct ModelManager via ``__new__`` and only set
         # ``_pending_model_change`` — they don't know about the new
-        # ``_pending_backend_change`` field added in UE-11. Reading
+        # ``_pending_backend_change`` field added in  Reading
         # via ``getattr(..., None)`` preserves their behaviour (no
         # AttributeError) instead of forcing every test fixture to
         # set the new field.
@@ -1330,7 +1330,7 @@ class ModelManager:
         applied = False
         if pending is not None:
             log.info("[MODEL] Applying deferred model change to %s", pending)
-            # AB-10: use the BLOCKING variant (not the non-blocking
+            # use the BLOCKING variant (not the non-blocking
             # ``change_model``) because the caller —
             # ``recording_controller._start_dictation`` — needs the model
             # fully loaded BEFORE the recorder starts capturing audio. The
@@ -1340,11 +1340,11 @@ class ModelManager:
             applied = True
         if pending_backend is not None:
             log.info("[MODEL] Applying deferred backend change to %s", pending_backend)
-            # AB-10 + UE-11: use the BLOCKING variant for the same
+            #  + : use the BLOCKING variant for the same
             # reason as the model-change branch above. The
             # preconditions (not recording + not busy) hold because
             # ``recording_controller.start`` calls us before recording
-            # starts, so the UE-11 deferral branch in
+            # starts, so the  deferral branch in
             # ``set_active_backend`` is skipped.
             self._set_active_backend_blocking(pending_backend)
             applied = True
@@ -1359,13 +1359,13 @@ class ModelManager:
         where the user changed the backend via Electron UI after startup
         (so the engine wasn't created during __init__).
 
-        ERR-024: previously two threads could both pass the
+        previously two threads could both pass the
         ``registry.get(backend) is None`` check and each call
         ``_ensure_engine``, creating two engine instances (memory leak
         + double GPU allocation). We guard with a dedicated lock so
         the second caller sees the engine created by the first.
 
-        TY-11: this is also the reload-after-idle-unload path. When the
+        this is also the reload-after-idle-unload path. When the
         idle-unload timer has fired (``engine.is_loaded == False``),
         this method reloads the SAME backend via
         ``_registry.load_active(progress_callback=...)`` (not Whisper
@@ -1374,7 +1374,7 @@ class ModelManager:
         latency. After reload, ``touch_model`` re-arms the idle-unload
         timer so the cycle can repeat on the next idle period.
 
-        UE-48: if the active backend is currently busy (inside
+        if the active backend is currently busy (inside
         ``transcribe_with_fallback`` on another thread — e.g. a stuck
         ctranslate2 call that the watchdog hasn't force-recovered yet),
         REJECT this request and mark a pending dictation so the user's
@@ -1388,7 +1388,7 @@ class ModelManager:
         could be created. The caller is responsible for checking
         ``is_loaded`` and calling fallback_to_whisper() if needed.
         """
-        # UE-48: busy-flag rejection. The transcribe thread sets the
+        # busy-flag rejection. The transcribe thread sets the
         # flag via ``registry.busy_context`` / ``transcribe_with_fallback``
         # (or, when the pipeline adopts the wrapper, automatically); the
         # IPC / hotkey thread reads it here. The check is best-effort —
@@ -1411,7 +1411,7 @@ class ModelManager:
             active_name = self._app.config.asr_backend
             if self._registry.is_busy(active_name) is True:
                 log.warning(
-                    "[UE-48] Active backend %s is busy (stuck transcription?) — "
+                    "[MODEL] Active backend %s is busy (stuck transcription?) — "
                     "rejecting ensure_active_engine_loaded and queuing the "
                     "dictation. The watchdog will force-recover and clear "
                     "the busy flag via force_unload_active().",
@@ -1425,15 +1425,15 @@ class ModelManager:
                 return None
         except Exception:
             log.debug(
-                "[UE-48] busy-check in ensure_active_engine_loaded failed (non-fatal)",
+                "[MODEL] busy-check in ensure_active_engine_loaded failed (non-fatal)",
                 exc_info=True,
             )
-        # TY-11: cancel any pending idle-unload timer — the user is
+        # cancel any pending idle-unload timer — the user is
         # actively dictating so the model must NOT be unloaded mid-
         # dictation. This is the canonical "cancel on activity" path.
         self.cancel_idle_unload_timer()
         backend = self._app.config.asr_backend
-        # ERR-024: race-safe lazy init. The check inside _ensure_engine
+        # race-safe lazy init. The check inside _ensure_engine
         # is also guarded, but we need to guard the whole check-then-init
         # sequence so two threads don't both create the engine.
         # _lazy_init_lock is created in __init__ (LAZY-INIT-LOCK-FIX).
@@ -1442,7 +1442,7 @@ class ModelManager:
             if engine is None:
                 self._ensure_engine(backend)
                 engine = self._registry.get(backend)
-            # TY-11: reload-after-idle-unload. If the engine exists but
+            # reload-after-idle-unload. If the engine exists but
             # has been unloaded by the idle-unload timer (is_loaded=False),
             # reload it via load_active so the SAME backend is restored
             # (not silently switched to Whisper fallback). The tray
@@ -1497,7 +1497,7 @@ class ModelManager:
                 return
 
             # Find the oldest (least recently used) backend.
-            # RW-6 (pyrefly): use a lambda instead of passing
+            #  (pyrefly): use a lambda instead of passing
             # ``self._model_access_times.get`` directly. ``dict.get``
             # is typed as returning ``float | None`` (because callers
             # may pass a key that isn't present), but ``min(key=...)``
@@ -1538,7 +1538,7 @@ class ModelManager:
         Called when a model is used for transcription so the LRU eviction
         knows which models are actively being used.
 
-        TY-11: if the touched backend is the ACTIVE backend AND
+        if the touched backend is the ACTIVE backend AND
         ``model_idle_unload_minutes > 0``, (re)arm the idle-unload
         timer. Touching an inactive backend (e.g. via ``touch_model``
         on a non-active name during a load path) does NOT arm the
@@ -1548,7 +1548,7 @@ class ModelManager:
 
         with self._model_lru_lock:
             self._model_access_times[backend_name] = time.monotonic()
-        # TY-11: arm the idle-unload timer only when the touched
+        # arm the idle-unload timer only when the touched
         # backend is the active one (the timer exists to release the
         # ACTIVE backend's VRAM after inactivity). Touching a non-active
         # backend (e.g. during a registry-level pre-warm) is harmless
@@ -1561,7 +1561,7 @@ class ModelManager:
             self._schedule_idle_unload_timer()
 
     def touch_active_model(self) -> None:
-        """PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend.
+        """PERF-015: refresh the LRU timestamp for the active backend.
 
         Public entry point intended to be called from
         :meth:`voice_typer.server.dictation_pipeline.DictationPipeline._transcribe`
@@ -1572,14 +1572,14 @@ class ModelManager:
         Wired into ``DictationPipeline._transcribe``
         (``voice_typer/server/dictation_pipeline.py:636``) — called after
         every successful ``transcribe()`` so the LRU tracking added in
-        HIGH-19 (``touch_model`` after load) has a matching "after
+         (``touch_model`` after load) has a matching "after
         transcribe" entry point.
 
         Safe to call when no backend is active — ``touch_model`` is a
         no-op for unknown backend names (it just records the timestamp;
         eviction only considers names that were touched).
 
-        TY-11: also (re)arms the idle-unload timer via the
+        also (re)arms the idle-unload timer via the
         ``touch_model`` → ``_schedule_idle_unload_timer`` path when the
         active backend is touched (i.e. after every successful
         transcribe the timer is pushed out by N minutes).
@@ -1592,10 +1592,10 @@ class ModelManager:
                 exc_info=True,
             )
 
-    # ── TY-11: idle-unload timer ───────────────────────────────────────
+    # ── : idle-unload timer ───────────────────────────────────────
 
     def cancel_idle_unload_timer(self) -> None:
-        """TY-11: cancel any pending idle-unload timer (idempotent).
+        """cancel any pending idle-unload timer (idempotent).
 
         Safe to call when no timer is armed (no-op). Called from:
         - ``ensure_active_engine_loaded`` (user pressed toggle_dictation)
@@ -1627,7 +1627,7 @@ class ModelManager:
                 )
 
     def _schedule_idle_unload_timer(self) -> None:
-        """TY-11: arm (or re-arm) the idle-unload timer.
+        """arm (or re-arm) the idle-unload timer.
 
         Reads ``app.config.model_idle_unload_minutes``:
         - ``0`` (default) → feature disabled; cancel any existing timer
@@ -1684,7 +1684,7 @@ class ModelManager:
         timer.start()
 
     def _on_idle_unload_fire(self, timer: threading.Timer) -> None:
-        """TY-11: timer callback — identity-check then delegate to ``_do_idle_unload``.
+        """timer callback — identity-check then delegate to ``_do_idle_unload``.
 
         The identity check ensures only the CURRENT timer's callback
         actually unloads. If the timer was cancelled or rescheduled
@@ -1707,7 +1707,7 @@ class ModelManager:
                 self._idle_unload_timer = None
 
     def _do_idle_unload(self) -> None:
-        """TY-11: unload the active backend + release GPU memory.
+        """unload the active backend + release GPU memory.
 
         Called from ``_on_idle_unload_fire`` (the timer's callback) and
         directly from tests. Skips the unload if:
@@ -1771,13 +1771,19 @@ class ModelManager:
             from voice_typer.server.asr_utils import release_gpu_memory
 
             release_gpu_memory()
+            try:
+                from voice_typer.server import vad
+
+                vad.unload()
+            except Exception:
+                log.debug("[TY-11] vad.unload() failed (non-fatal)", exc_info=True)
         except Exception:
             log.debug(
                 "[TY-11] release_gpu_memory() failed (non-fatal)",
                 exc_info=True,
             )
         # Tray state transition: "Idle — model unloaded" (reuses
-        # AppState.IDLE per the TY-11 constraint of not touching
+        # AppState.IDLE per the  constraint of not touching
         # tray.py / tray_types.py — no new enum value).
         try:
             self._app.tray.set_state(AppState.IDLE, "Idle — model unloaded")
@@ -1787,10 +1793,10 @@ class ModelManager:
                 exc_info=True,
             )
 
-    # ── UE-48: force-unload the active backend (watchdog escalation) ──
+    # ── : force-unload the active backend (watchdog escalation) ──
 
     def force_unload_active(self) -> None:
-        """UE-48: force-unload the active backend + clear its busy flag.
+        """force-unload the active backend + clear its busy flag.
 
         Called by the watchdog
         (:meth:`voice_typer.server.recording_controller.RecordingController._force_recover_from_stuck_transcription`)
@@ -1823,13 +1829,13 @@ class ModelManager:
              registered backend out from under us between step 1 and
              step 2.
           3. ``release_gpu_memory()`` — releases PyTorch's CUDA caching
-             allocator blocks back to the OS (matches the TY-11
+             allocator blocks back to the OS (matches the
              idle-unload path's three-layer pattern).
 
         * **Clears the busy flag.** Calls
           :meth:`AsrBackendRegistry.force_clear_busy` so the next
           :meth:`ensure_active_engine_loaded` call isn't rejected by
-          the UE-48 busy-check. Without this, the busy flag would
+          the  busy-check. Without this, the busy flag would
           remain set forever (the stuck transcription never returned
           to clear it) and every subsequent dictation would be
           rejected + queued.
@@ -1845,7 +1851,7 @@ class ModelManager:
         * **Does NOT call ``tray.set_state``.** The watchdog has
           already set the tray to ``AppState.IDLE`` with the
           "recovered" message — we don't want to overwrite that with
-          the TY-11 "Idle — model unloaded" message (which would
+          the  "Idle — model unloaded" message (which would
           confuse the user, since the recovery message is more
           specific).
         """
@@ -1854,7 +1860,7 @@ class ModelManager:
         except Exception:
             active_name = None
         log.warning(
-            "[UE-48] force_unload_active: tearing down active backend %r "
+            "[MODEL] force_unload_active: tearing down active backend %r "
             "(watchdog escalation after stuck transcription)",
             active_name,
         )
@@ -1863,7 +1869,7 @@ class ModelManager:
             self._registry.unload(active_name)
         except Exception:
             log.warning(
-                "[UE-48] registry.unload(%s) failed (non-fatal)",
+                "[MODEL] registry.unload(%s) failed (non-fatal)",
                 active_name,
                 exc_info=True,
             )
@@ -1876,7 +1882,7 @@ class ModelManager:
                 backend.unload()
         except Exception:
             log.warning(
-                "[UE-48] backend.unload() failed (non-fatal)",
+                "[MODEL] backend.unload() failed (non-fatal)",
                 exc_info=True,
             )
         # Layer 3: release GPU memory (CUDA caching allocator blocks).
@@ -1886,11 +1892,11 @@ class ModelManager:
             release_gpu_memory()
         except Exception:
             log.debug(
-                "[UE-48] release_gpu_memory() failed (non-fatal)",
+                "[MODEL] release_gpu_memory() failed (non-fatal)",
                 exc_info=True,
             )
         # Clear the busy flag so the next ensure_active_engine_loaded
-        # isn't rejected by the UE-48 busy-check. Without this, the
+        # isn't rejected by the  busy-check. Without this, the
         # busy flag would remain set forever (the stuck transcription
         # never returned to clear it) and every subsequent dictation
         # would be rejected + queued indefinitely.
@@ -1898,7 +1904,7 @@ class ModelManager:
             self._registry.force_clear_busy(active_name)
         except Exception:
             log.debug(
-                "[UE-48] force_clear_busy(%s) failed (non-fatal)",
+                "[MODEL] force_clear_busy(%s) failed (non-fatal)",
                 active_name,
                 exc_info=True,
             )

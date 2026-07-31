@@ -1,7 +1,7 @@
 """PortAudio stream open/teardown for :class:`Recorder` (extracted from ``recorder.py``).
 
-S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder` to shrink the
-3772-LOC ``recorder.py`` god class (see S3-CR-17 in ``review.md``).
+Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the stream-open candidate-iteration loop, the all-devices
 fallback loop, the PortAudio callback closure construction, and the
 stream teardown body (inside the lifecycle lock).
@@ -69,8 +69,8 @@ if TYPE_CHECKING:
 class StreamLifecycle:
     """PortAudio stream open/teardown for :class:`Recorder`.
 
-    S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. See the module
-    docstring for the collaborator-pattern rationale.
+    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        docstring for the collaborator-pattern rationale.
     """
 
     def __init__(self, recorder: Any) -> None:
@@ -176,7 +176,7 @@ class StreamLifecycle:
                         # headset — it is not a fault or misconfiguration.
                         # Demoted from WARNING to INFO so the default log
                         # isn't littered with a non-error on every BT mic
-                        # connection. RW-15.
+                        # connection.
                         log.info(
                             "[RECORDING] Bluetooth HFP profile detected: actual sample rate "
                             "%d Hz differs from requested %d Hz. Audio quality will be limited. "
@@ -204,7 +204,7 @@ class StreamLifecycle:
                 continue
 
             recorder._stream = stream
-            # ARCH-021: guard _effective_sr writes with the lock because
+            # guard _effective_sr writes with the lock because
             # snapshot() reads it under the lock from another thread.
             with recorder._lock:
                 recorder._effective_sr = candidate_sr
@@ -297,13 +297,13 @@ class StreamLifecycle:
                 continue
 
             recorder._stream = stream
-            # ARCH-021: guard _effective_sr writes with the lock.
+            # guard _effective_sr writes with the lock.
             with recorder._lock:
                 recorder._effective_sr = candidate_sr
             selected_device = candidate
             effective_sr = candidate_sr
             used_fallback = True
-            # RW-6 (pyrefly): ``dev_info_extra`` is typed
+            # (pyrefly): ``dev_info_extra`` is typed
             # ``dict | None`` because ``_resolve_effective_sample_rate``
             # may return None when PortAudio can't enumerate the
             # device. The earlier ``if dev_info_extra:`` gate
@@ -325,25 +325,25 @@ class StreamLifecycle:
     def build_audio_callback(self, recorder: Any) -> Any:
         """Body of :meth:`Recorder._build_audio_callback`.
 
-        Construct the PortAudio callback closure for this session.
+                Construct the PortAudio callback closure for this session.
 
-        RT-SAFE-001: The PortAudio callback is a thin wrapper around
-        :meth:`Recorder._audio_callback_dispatch`. The dispatch method
-        does ONLY pre-roll capture + ring buffer push + worker signal —
-        all heavy work (filter chain, VAD, resample, state machine) is
-        done by the audio worker thread. See
-        ``Recorder._audio_callback_dispatch`` / ``_audio_worker_loop``
-        / ``_process_audio_chunk`` for the full architecture.
+        The PortAudio callback is a thin wrapper around
+                :meth:`Recorder._audio_callback_dispatch`. The dispatch method
+                does ONLY pre-roll capture + ring buffer push + worker signal —
+                all heavy work (filter chain, VAD, resample, state machine) is
+                done by the audio worker thread. See
+                ``Recorder._audio_callback_dispatch`` / ``_audio_worker_loop``
+                / ``_process_audio_chunk`` for the full architecture.
 
-        The closure captures ``recorder`` only — no other start()-locals
-        — so it is safe to extract from ``start()`` into a helper that
-        returns the closure. ``recorder._current_callback`` is set here
-        so :meth:`Recorder._handle_device_disconnect` can re-bind the
-        same callback when restarting the stream.
+                The closure captures ``recorder`` only — no other start()-locals
+                — so it is safe to extract from ``start()`` into a helper that
+                returns the closure. ``recorder._current_callback`` is set here
+                so :meth:`Recorder._handle_device_disconnect` can re-bind the
+                same callback when restarting the stream.
         """
 
         def callback(indata, frames, time_info, status):
-            # AUDIO-009/AUDIO-015: guard flag for in-flight callback.
+            # guard flag for in-flight callback.
             # _teardown_stream() polls this flag for up to 300ms before
             # calling stream.close() to avoid use-after-free if the
             # callback is still running. With the RT-safe refactor, the
@@ -361,48 +361,48 @@ class StreamLifecycle:
 
     def teardown_stream_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._teardown_stream` (inside the
-        ``_stream_lifecycle_lock`` block — the lock acquisition stays on
-        ``Recorder`` for source-inspection contracts).
+                ``_stream_lifecycle_lock`` block — the lock acquisition stays on
+                ``Recorder`` for source-inspection contracts).
 
-        Stop + close the PortAudio stream, draining any in-flight
-        callback.
+                Stop + close the PortAudio stream, draining any in-flight
+                callback.
 
-        17-H-FIX-2: extracted from ``stop()`` so ``discard()`` shares the
-        same callback-drain contract. Without the poll, ``discard()``
-        could call ``stream.close()`` while the audio callback (firing
-        ~16×/s) was still running — risking use-after-free or deadlock
-        when ESC-cancel landed mid-callback.
+        17-H-: extracted from ``stop()`` so ``discard()`` shares the
+                same callback-drain contract. Without the poll, ``discard()``
+                could call ``stream.close()`` while the audio callback (firing
+                ~16×/s) was still running — risking use-after-free or deadlock
+                when ESC-cancel landed mid-callback.
 
-        Behavior:
-          1. If ``recorder._stream`` is None, return immediately (idempotent).
-          2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
-          3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
-             until the in-flight callback (if any) returns.
-          4. Call ``stream.close()`` to free PortAudio resources.
-          5. Set ``recorder._stream = None``.
+                Behavior:
+                  1. If ``recorder._stream`` is None, return immediately (idempotent).
+                  2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
+                  3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
+                     until the in-flight callback (if any) returns.
+                  4. Call ``stream.close()`` to free PortAudio resources.
+                  5. Set ``recorder._stream = None``.
 
-        Idempotent: safe to call when the stream is already None (e.g.
-        when ``discard()`` is invoked twice, or after ``stop()``).
+                Idempotent: safe to call when the stream is already None (e.g.
+                when ``discard()`` is invoked twice, or after ``stop()``).
 
-        GT-24: the caller (``Recorder._teardown_stream``) wraps this body
-        in ``recorder._stream_lifecycle_lock`` (acquired with non-blocking
-        ``acquire(blocking=False)``) so a concurrent
-        ``_handle_device_disconnect`` restart block cannot mutate
-        ``recorder._stream`` mid-teardown (and vice-versa). The lock
-        acquisition stays on ``Recorder`` so the GT-24 source-inspection
-        regression tests (``tests/test_recorder_worker_lifecycle.py``)
-        continue to pin the lock-scope invariant on
-        ``Recorder._teardown_stream``.
+        the caller (``Recorder._teardown_stream``) wraps this body
+                in ``recorder._stream_lifecycle_lock`` (acquired with non-blocking
+                ``acquire(blocking=False)``) so a concurrent
+                ``_handle_device_disconnect`` restart block cannot mutate
+                ``recorder._stream`` mid-teardown (and vice-versa). The lock
+        acquisition stays on ``Recorder`` so the  source-inspection
+                regression tests (``tests/test_recorder_worker_lifecycle.py``)
+                continue to pin the lock-scope invariant on
+                ``Recorder._teardown_stream``.
         """
         if not recorder._stream:
             return
         recorder._stream.stop()
-        # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
+        # wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents
         # PortAudio from calling the callback during/after stream.stop()
         # which can cause use-after-free or deadlock.
         #
-        # PERF-FIX-002 (Round 0): the previous "exponential backoff"
+        # PERF- (Round 0): the previous "exponential backoff"
         # implementation was inverted. It used::
         #
         #     if self._is_in_audio_callback.wait(timeout=_timeout):
@@ -421,9 +421,9 @@ class StreamLifecycle:
         # the original 6×50ms worst case).  On a healthy system the flag
         # is already clear on the first check → 0ms wait.  When the
         # callback genuinely runs past ``stream.stop()``, the poll loop
-        # waits for it to finish (restoring the AUDIO-009/AUDIO-015
+        # waits for it to finish (restoring the
         # safety contract).
-        # DJ-106: magic numbers extracted to module constants
+        # magic numbers extracted to module constants
         # (``_TEARDOWN_CALLBACK_DRAIN_BUDGET_S`` /
         # ``_TEARDOWN_CALLBACK_POLL_INTERVAL_S``) so they can be tuned /
         # referenced from tests without grep-and-replace.

@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 # Short strings (<20) are not redacted to avoid mangling ordinary
 # words in exception messages.
 #
-# G4-L-06: the generic threshold was lowered from 32 to 20 to match
+# the generic threshold was lowered from 32 to 20 to match
 # ``_MIN_REDACT_LEN``. See the comment on ``_KEY_PATTERNS[-1]`` below
 # for the rationale.
 
@@ -50,14 +50,14 @@ _KEY_PATTERNS = [
     # entire run (sk- and everything after that's still word-char).
     re.compile(r"sk-[A-Za-z0-9_\-]+"),
     # Groq-style keys: gsk- followed by 8+ word chars.  Added back
-    # (XZ-2 reviewer feedback) so short 12-19 char gsk_ values are
+    # ( reviewer feedback) so short 12-19 char gsk_ values are
     # redacted even when they don't reach the 20-char generic threshold.
     re.compile(r"gsk_[A-Za-z0-9_\-]+"),
     # Generic long alphanumeric run (>= 20 chars).  This catches
     # bare hex/base64 keys that don't match a known prefix.  Uses
     # \b to avoid partial-word matches inside longer words.
     #
-    # G4-L-06: threshold lowered from 32 to 20 to match
+    # threshold lowered from 32 to 20 to match
     # ``_MIN_REDACT_LEN``. Pre-fix, a 20-31 char bare token (e.g. a
     # 24-char GitLab PAT, a 20-char GitHub PAT, a 24-char Slack
     # legacy token) fell through the generic pattern AND was already
@@ -66,7 +66,7 @@ _KEY_PATTERNS = [
     # length guard closes the gap: any bare alphanumeric run long
     # enough to plausibly be a secret (>= 20 chars) is now redacted.
     #
-    # XE-5-A (High): the negative lookbehind/lookahead on ``/`` and ``\\``
+    # (High): the negative lookbehind/lookahead on ``/`` and ``\\``
     # prevents false-positive redaction of 20+ char filesystem path
     # components (e.g. POSIX usernames like ``username_with_long_name``,
     # pytest tmp_path components like ``test_banner_includes_file_path0``,
@@ -189,54 +189,54 @@ _MIN_REDACT_LEN = 20
 def redact_secret(value: object, *, aggressive: bool = False) -> str:
     """Redact API keys and bearer tokens from a value.
 
-    Parameters
-    ----------
-    value : object
-        Any value; non-strings are stringified via ``str(value)``.
-    aggressive : bool, default False
-        YJ-48: when True, BYPASS the ``_MIN_REDACT_LEN`` short-string
-        guard so bare short secrets (e.g. a 12-char bare API key with
-        no ``Bearer``/``Token``/``--token=`` prefix) are still passed
-        through :func:`redact_api_keys`. Use this only in contexts
-        where short bare secrets are plausible (e.g. the crash
-        excepthook path that dumps arbitrary object repr() into the
-        crash marker, or an env-var audit). Default False so ordinary
-        log lines retain the short-string guard against false positives
-        on ordinary words.
+        Parameters
+        ----------
+        value : object
+            Any value; non-strings are stringified via ``str(value)``.
+        aggressive : bool, default False
+    when True, BYPASS the ``_MIN_REDACT_LEN`` short-string
+            guard so bare short secrets (e.g. a 12-char bare API key with
+            no ``Bearer``/``Token``/``--token=`` prefix) are still passed
+            through :func:`redact_api_keys`. Use this only in contexts
+            where short bare secrets are plausible (e.g. the crash
+            excepthook path that dumps arbitrary object repr() into the
+            crash marker, or an env-var audit). Default False so ordinary
+            log lines retain the short-string guard against false positives
+            on ordinary words.
 
-    Returns
-    -------
-    str
-        The value with likely-secret substrings replaced by
-        ``"<prefix>***"`` (for prefixed patterns like ``Bearer``) or
-        ``"***"`` (for bare keys).  Short strings (under
-        ``_MIN_REDACT_LEN`` characters and not matching any prefix
-        pattern) are returned unchanged so ordinary error messages
-        aren't mangled — UNLESS ``aggressive=True`` is passed, in which
-        case the short-string guard is skipped.
+        Returns
+        -------
+        str
+            The value with likely-secret substrings replaced by
+            ``"<prefix>***"`` (for prefixed patterns like ``Bearer``) or
+            ``"***"`` (for bare keys).  Short strings (under
+            ``_MIN_REDACT_LEN`` characters and not matching any prefix
+            pattern) are returned unchanged so ordinary error messages
+            aren't mangled — UNLESS ``aggressive=True`` is passed, in which
+            case the short-string guard is skipped.
 
-    Notes
-    -----
-    This is a best-effort heuristic.  It will not catch every possible
-    secret format, and it may occasionally redact a non-secret that
-    happens to look like one.  The goal is to make log-grepping for
-    leaked keys reliable, not to provide cryptographic guarantees.
+        Notes
+        -----
+        This is a best-effort heuristic.  It will not catch every possible
+        secret format, and it may occasionally redact a non-secret that
+        happens to look like one.  The goal is to make log-grepping for
+        leaked keys reliable, not to provide cryptographic guarantees.
 
-    SEC-9: explicit flag / key=value forms (``--token=abc``,
-    ``--token abc``, ``token=abc``) are matched BEFORE the
-    ``_MIN_REDACT_LEN`` short-string guard because the keyword
-    constraint makes them specific enough to be safe on short inputs.
+        SEC-9: explicit flag / key=value forms (``--token=abc``,
+        ``--token abc``, ``token=abc``) are matched BEFORE the
+        ``_MIN_REDACT_LEN`` short-string guard because the keyword
+        constraint makes them specific enough to be safe on short inputs.
 
-    YJ-48 — known gap: a BARE short secret (e.g. a 12-char bare API
-    key with no keyword prefix) is NOT redacted when
-    ``aggressive=False``. The ``_MIN_REDACT_LEN`` guard (default 20)
-    skips generic-pattern application on short strings to avoid
-    false-positives on ordinary words (e.g. ``"helloworld"`` would
-    match the 20+ char alphanumeric run pattern but isn't a secret).
-    Callers in security-critical contexts where bare short secrets are
-    plausible SHOULD pass ``aggressive=True`` to bypass the length
-    guard. The crash-excepthook path and env-var audit are the two
-    known callers that benefit from this opt-in.
+    known gap: a BARE short secret (e.g. a 12-char bare API
+        key with no keyword prefix) is NOT redacted when
+        ``aggressive=False``. The ``_MIN_REDACT_LEN`` guard (default 20)
+        skips generic-pattern application on short strings to avoid
+        false-positives on ordinary words (e.g. ``"helloworld"`` would
+        match the 20+ char alphanumeric run pattern but isn't a secret).
+        Callers in security-critical contexts where bare short secrets are
+        plausible SHOULD pass ``aggressive=True`` to bypass the length
+        guard. The crash-excepthook path and env-var audit are the two
+        known callers that benefit from this opt-in.
     """
     if value is None:
         return "None"
@@ -252,14 +252,14 @@ def redact_secret(value: object, *, aggressive: bool = False) -> str:
     # that could false-positive on ordinary short text. The flag
     # patterns above are specific enough to have already run.
     #
-    # YJ-48: the ``aggressive`` opt-in bypasses this guard for
+    # the ``aggressive`` opt-in bypasses this guard for
     # contexts where bare short secrets are plausible (e.g. the crash
     # excepthook path that dumps arbitrary object repr()). When
     # ``aggressive=True``, fall through to ``redact_api_keys`` even
     # for short inputs.
     if not aggressive and len(value) < _MIN_REDACT_LEN:
         return redacted
-    # XV-121: delegate the API-key-pattern application to the shared
+    # delegate the API-key-pattern application to the shared
     # ``redact_api_keys`` helper so the canonical "what an API-key-like
     # substring looks like" knowledge lives in exactly one place
     # (``_KEY_PATTERNS`` above). ``credential_store._redact_sensitive``
@@ -271,68 +271,68 @@ def redact_secret(value: object, *, aggressive: bool = False) -> str:
 def redact_api_keys(text: str, *, replacement: str = "***") -> str:
     """Redact API keys and bearer tokens from ``text`` (configurable marker).
 
-    This is the **canonical API-key redaction helper** for the codebase.
-    It applies :data:`_KEY_PATTERNS` (Bearer / Token / ``sk-`` / generic
-    20+ char alphanumeric run) to ``text`` and substitutes each match
-    with ``replacement``. Patterns that capture a prefix group
-    (``Bearer `` / ``Token ``) preserve the prefix; the secret portion
-    is replaced. Patterns without a prefix group replace the whole
-    match.
+        This is the **canonical API-key redaction helper** for the codebase.
+        It applies :data:`_KEY_PATTERNS` (Bearer / Token / ``sk-`` / generic
+        20+ char alphanumeric run) to ``text`` and substitutes each match
+        with ``replacement``. Patterns that capture a prefix group
+        (``Bearer `` / ``Token ``) preserve the prefix; the secret portion
+        is replaced. Patterns without a prefix group replace the whole
+        match.
 
-    XV-121 (DRY consolidation): prior to this helper, the API-key
-    pattern knowledge was duplicated between this module
-    (:data:`_KEY_PATTERNS`) and ``credential_store._API_KEY_RE``
-    (a separate single-regex with different thresholds). The two
-    representations drifted — the credential_store version missed
-    ``Bearer`` / ``Token`` auth and required 32+ chars for the generic
-    catch-all, while this module's version matched 20+ chars and
-    recognized the auth-header prefixes. ``redact_api_keys`` is now the
-    single source of truth: :func:`redact_secret` (log-message
-    redaction, default ``"***"``) and
-    ``credential_store._redact_sensitive`` (IPC-bound keyring-exception
-    redaction, ``"[redacted]"``) both call it.
+    (DRY consolidation): prior to this helper, the API-key
+        pattern knowledge was duplicated between this module
+        (:data:`_KEY_PATTERNS`) and ``credential_store._API_KEY_RE``
+        (a separate single-regex with different thresholds). The two
+        representations drifted — the credential_store version missed
+        ``Bearer`` / ``Token`` auth and required 32+ chars for the generic
+        catch-all, while this module's version matched 20+ chars and
+        recognized the auth-header prefixes. ``redact_api_keys`` is now the
+        single source of truth: :func:`redact_secret` (log-message
+        redaction, default ``"***"``) and
+        ``credential_store._redact_sensitive`` (IPC-bound keyring-exception
+        redaction, ``"[redacted]"``) both call it.
 
-    Parameters
-    ----------
-    text : str
-        The text to redact. Must already be a string — callers
-        converting from ``object`` should call ``str(value)`` first,
-        or use :func:`redact_secret` which does that automatically.
-    replacement : str
-        The substring to substitute for each redacted secret. Defaults
-        to ``"***"`` (the conventional log-redaction marker used by
-        :func:`redact_secret`). Use ``"[redacted]"`` for IPC-bound
-        messages that the renderer surfaces to the user (matching the
-        convention used by ``credential_store._redact_sensitive``).
+        Parameters
+        ----------
+        text : str
+            The text to redact. Must already be a string — callers
+            converting from ``object`` should call ``str(value)`` first,
+            or use :func:`redact_secret` which does that automatically.
+        replacement : str
+            The substring to substitute for each redacted secret. Defaults
+            to ``"***"`` (the conventional log-redaction marker used by
+            :func:`redact_secret`). Use ``"[redacted]"`` for IPC-bound
+            messages that the renderer surfaces to the user (matching the
+            convention used by ``credential_store._redact_sensitive``).
 
-    Returns
-    -------
-    str
-        ``text`` with every match from :data:`_KEY_PATTERNS` replaced
-        by ``replacement`` (or ``prefix + replacement`` for prefix
-        patterns).
+        Returns
+        -------
+        str
+            ``text`` with every match from :data:`_KEY_PATTERNS` replaced
+            by ``replacement`` (or ``prefix + replacement`` for prefix
+            patterns).
 
-    Notes
-    -----
-    Unlike :func:`redact_secret`, this helper:
+        Notes
+        -----
+        Unlike :func:`redact_secret`, this helper:
 
-    - Does **not** apply the SEC-9 flag / ``key=value`` patterns
-      (:data:`_FLAG_KEY_PATTERNS`). Those patterns are specific to
-      log-message redaction where CLI flag forms (``--token=abc``)
-      are common; IPC-bound keyring exception messages don't contain
-      flag forms, so applying them there would be needless work (and
-      a behavior change for ``credential_store._redact_sensitive``,
-      which never had them).
-    - Does **not** apply the :data:`_MIN_REDACT_LEN` short-string
-      early-exit guard. Short inputs are still effectively pass-through
-      because the generic 20+ char alphanumeric pattern only fires on
-      long runs, and the prefix patterns (``Bearer`` / ``Token`` /
-      ``sk-``) are specific enough to be safe on any length.
-    - Does **not** stringify non-string input. Callers must convert
-      explicitly (or use :func:`redact_secret`).
+        - Does **not** apply the SEC-9 flag / ``key=value`` patterns
+          (:data:`_FLAG_KEY_PATTERNS`). Those patterns are specific to
+          log-message redaction where CLI flag forms (``--token=abc``)
+          are common; IPC-bound keyring exception messages don't contain
+          flag forms, so applying them there would be needless work (and
+          a behavior change for ``credential_store._redact_sensitive``,
+          which never had them).
+        - Does **not** apply the :data:`_MIN_REDACT_LEN` short-string
+          early-exit guard. Short inputs are still effectively pass-through
+          because the generic 20+ char alphanumeric pattern only fires on
+          long runs, and the prefix patterns (``Bearer`` / ``Token`` /
+          ``sk-``) are specific enough to be safe on any length.
+        - Does **not** stringify non-string input. Callers must convert
+          explicitly (or use :func:`redact_secret`).
     """
 
-    # ER-64: hoisted _sub out of the loop (was re-created per pattern per call
+    # hoisted _sub out of the loop (was re-created per pattern per call
     # — 4 function objects per call instead of 1). `replacement` is constant
     # for the whole call, so standard closure capture works correctly.
     def _sub(m: re.Match[str]) -> str:
@@ -351,31 +351,31 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
 def redact_url(url: str) -> str:
     """Redact credentials from a URL.
 
-    Strips the userinfo component (``user:pass@``) — preserving the
-    scheme, host, port, and path so the URL remains useful for
-    debugging — and then chains through :func:`redact_secret` so any
-    secret-bearing substring *elsewhere* in the URL is also masked.
+        Strips the userinfo component (``user:pass@``) — preserving the
+        scheme, host, port, and path so the URL remains useful for
+        debugging — and then chains through :func:`redact_secret` so any
+        secret-bearing substring *elsewhere* in the URL is also masked.
 
-    UE-5-F5: pre-fix, only the userinfo component was stripped. A URL
-    like ``https://api.example.com/?key=sk-…`` or
-    ``https://api.example.com/?access_token=…`` — where the credential
-    lives in the query string rather than the userinfo — survived
-    redaction verbatim. Any caller that logged the URL (e.g.
-    :class:`voice_typer.server._http_safety._NoRedirectHandler` puts
-    the redirect target into ``HTTPError.url`` and the error message)
-    would leak the query-string secret. Chaining through
-    :func:`redact_secret` with ``aggressive=True`` masks query-string
-    ``key=value`` / ``token=value`` / ``access_token=value`` forms
-    (via :data:`_FLAG_KEY_PATTERNS`) AND bare ``sk-…`` / ``Bearer …``
-    / 20+ char alphanumeric runs (via :data:`_KEY_PATTERNS`).
+    pre-fix, only the userinfo component was stripped. A URL
+        like ``https://api.example.com/?key=sk-…`` or
+        ``https://api.example.com/?access_token=…`` — where the credential
+        lives in the query string rather than the userinfo — survived
+        redaction verbatim. Any caller that logged the URL (e.g.
+        :class:`voice_typer.server._http_safety._NoRedirectHandler` puts
+        the redirect target into ``HTTPError.url`` and the error message)
+        would leak the query-string secret. Chaining through
+        :func:`redact_secret` with ``aggressive=True`` masks query-string
+        ``key=value`` / ``token=value`` / ``access_token=value`` forms
+        (via :data:`_FLAG_KEY_PATTERNS`) AND bare ``sk-…`` / ``Bearer …``
+        / 20+ char alphanumeric runs (via :data:`_KEY_PATTERNS`).
 
-    The chained :func:`redact_secret` pass runs with
-    ``aggressive=True`` so short bare secrets (e.g. a 12-char
-    ``?key=abc`` value, or a 16-char ``?t=shorttoken``) are also
-    masked — the short-string guard from :func:`redact_secret` would
-    otherwise skip generic-pattern application on URLs whose total
-    length happens to be < 20 chars (rare, but possible for
-    ``https://a.b/?k=secret``).
+        The chained :func:`redact_secret` pass runs with
+        ``aggressive=True`` so short bare secrets (e.g. a 12-char
+        ``?key=abc`` value, or a 16-char ``?t=shorttoken``) are also
+        masked — the short-string guard from :func:`redact_secret` would
+        otherwise skip generic-pattern application on URLs whose total
+        length happens to be < 20 chars (rare, but possible for
+        ``https://a.b/?k=secret``).
     """
     if not url:
         return url
@@ -389,7 +389,7 @@ def redact_url(url: str) -> str:
         if parsed.port:
             netloc = f"{netloc}:{parsed.port}"
         url = parsed._replace(netloc=netloc).geturl()
-    # UE-5-F5: chain through redact_secret so query-string / path /
+    # chain through redact_secret so query-string / path
     # fragment secrets (?key=sk-…, ?access_token=…, ?api_key=…) are
     # also masked. Pre-fix only the userinfo component was stripped,
     # leaving query-string API keys verbatim. ``aggressive=True``
@@ -401,41 +401,41 @@ def redact_url(url: str) -> str:
 def _redact_home_path(path: str | os.PathLike[str]) -> str:
     """Replace the user-home prefix in ``path`` with ``~``.
 
-    UE-5-F2: filesystem paths embedded in the diagnostic bundle
-    (``sentinel_path``, ``pid_file_path``, ``bundle_path``) leak the
-    OS username via the home-directory prefix
-    (e.g. ``/Users/alice/.voice-typer/…`` on macOS,
-    ``C:\\Users\\alice\\…`` on Windows, ``/home/alice/…`` on Linux).
-    Replacing the home prefix with ``~`` preserves the path structure
-    (so support engineers can still see "this is under the config
-    dir", "this is a relative path", "this is on a different drive")
-    without leaking the username.
+    filesystem paths embedded in the diagnostic bundle
+        (``sentinel_path``, ``pid_file_path``, ``bundle_path``) leak the
+        OS username via the home-directory prefix
+        (e.g. ``/Users/alice/.voice-typer/…`` on macOS,
+        ``C:\\Users\\alice\\…`` on Windows, ``/home/alice/…`` on Linux).
+        Replacing the home prefix with ``~`` preserves the path structure
+        (so support engineers can still see "this is under the config
+        dir", "this is a relative path", "this is on a different drive")
+        without leaking the username.
 
-    The home directory is resolved via :func:`os.path.expanduser` at
-    call time (so a test that monkeypatches ``os.path.expanduser`` or
-    sets ``HOME`` / ``USERPROFILE`` sees the expected result). On
-    platforms where ``expanduser`` cannot determine the home dir it
-    returns the literal ``"~"`` — in that case the path is returned
-    unchanged (we never *introduce* a ``~`` that wasn't a real
-    prefix substitution).
+        The home directory is resolved via :func:`os.path.expanduser` at
+        call time (so a test that monkeypatches ``os.path.expanduser`` or
+        sets ``HOME`` / ``USERPROFILE`` sees the expected result). On
+        platforms where ``expanduser`` cannot determine the home dir it
+        returns the literal ``"~"`` — in that case the path is returned
+        unchanged (we never *introduce* a ``~`` that wasn't a real
+        prefix substitution).
 
-    Comparison is case-insensitive on Windows (NTFS is case-
-    insensitive; ``HOMEDRIVE`` / ``HOMEPATH`` / ``USERPROFILE`` can
-    vary by case between processes) and case-sensitive on POSIX
-    (where the home dir is stable per-user).
+        Comparison is case-insensitive on Windows (NTFS is case-
+        insensitive; ``HOMEDRIVE`` / ``HOMEPATH`` / ``USERPROFILE`` can
+        vary by case between processes) and case-sensitive on POSIX
+        (where the home dir is stable per-user).
 
-    Parameters
-    ----------
-    path : str or os.PathLike
-        The filesystem path to redact. ``PathLike`` inputs are
-        stringified via :func:`os.fspath`.
+        Parameters
+        ----------
+        path : str or os.PathLike
+            The filesystem path to redact. ``PathLike`` inputs are
+            stringified via :func:`os.fspath`.
 
-    Returns
-    -------
-    str
-        ``path`` with the user-home prefix replaced by ``~``. If the
-        home dir cannot be resolved, or ``path`` does not start with
-        it, ``path`` is returned unchanged (stringified).
+        Returns
+        -------
+        str
+            ``path`` with the user-home prefix replaced by ``~``. If the
+            home dir cannot be resolved, or ``path`` does not start with
+            it, ``path`` is returned unchanged (stringified).
     """
     s = os.fspath(path) if not isinstance(path, str) else path
     try:
@@ -466,58 +466,58 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
 def redact_for_export(text: str) -> str:
     """Unified PII + secret redaction pipeline for diagnostic exports.
 
-    UE-5-F4: pre-fix, the codebase ran TWO parallel PII-redaction
-    pipelines. :mod:`voice_typer.server.diagnostics_export` chained
-    ``redact_secret(redact_pii(line))`` for the live ``voice-typer.log``
-    in the diagnostic zip, while :mod:`voice_typer.server.ipc_diagnostics`
-    used :func:`voice_typer.server.security._redact_text` (which runs
-    the same chain internally but with a fast-path trigger). The two
-    pipelines had already drifted once (the diagnostics_export chain
-    did not pass ``aggressive=True`` to :func:`redact_secret`, missing
-    short bare secrets — UE-5-F7).
+    pre-fix, the codebase ran TWO parallel PII-redaction
+        pipelines. :mod:`voice_typer.server.diagnostics_export` chained
+        ``redact_secret(redact_pii(line))`` for the live ``voice-typer.log``
+        in the diagnostic zip, while :mod:`voice_typer.server.ipc_diagnostics`
+        used :func:`voice_typer.server.security._redact_text` (which runs
+        the same chain internally but with a fast-path trigger). The two
+        pipelines had already drifted once (the diagnostics_export chain
+        did not pass ``aggressive=True`` to :func:`redact_secret`, missing
+    short bare secrets — ).
 
-    This helper is the single source of truth for "redact this text
-    before it lands in a diagnostic bundle / startup-error log". Both
-    callers route through it so a future redaction improvement (a new
-    pattern, a new keyword, a tighter threshold) only has to land in
-    one place.
+        This helper is the single source of truth for "redact this text
+        before it lands in a diagnostic bundle / startup-error log". Both
+        callers route through it so a future redaction improvement (a new
+        pattern, a new keyword, a tighter threshold) only has to land in
+        one place.
 
-    Pipeline (UE-5-F7):
-      1. :func:`redact_pii` — applies the PII patterns (email, phone,
-         SSN, CC, IBAN) and then runs :func:`redact_secret` (non-
-         aggressive) + :func:`redact_url` internally.
-      2. :func:`redact_secret(…, aggressive=True)` — a second pass
-         with the short-string guard *bypassed* so bare short secrets
-         (e.g. a 12-char bare API key with no ``Bearer`` / ``--token=``
-         prefix) that survived the non-aggressive pass inside
-         ``redact_pii`` are now masked. Idempotent on already-redacted
-         text — the ``***`` mask doesn't match the secret patterns.
+    Pipeline ():
+          1. :func:`redact_pii` — applies the PII patterns (email, phone,
+             SSN, CC, IBAN) and then runs :func:`redact_secret` (non-
+             aggressive) + :func:`redact_url` internally.
+          2. :func:`redact_secret(…, aggressive=True)` — a second pass
+             with the short-string guard *bypassed* so bare short secrets
+             (e.g. a 12-char bare API key with no ``Bearer`` / ``--token=``
+             prefix) that survived the non-aggressive pass inside
+             ``redact_pii`` are now masked. Idempotent on already-redacted
+             text — the ``***`` mask doesn't match the secret patterns.
 
-    Parameters
-    ----------
-    text : str
-        The text to redact. Must already be a string — callers
-        converting from ``object`` should call ``str(value)`` first.
+        Parameters
+        ----------
+        text : str
+            The text to redact. Must already be a string — callers
+            converting from ``object`` should call ``str(value)`` first.
 
-    Returns
-    -------
-    str
-        ``text`` with PII patterns replaced by token markers
-        (``[EMAIL]``, ``[PHONE]``, …) and secret patterns replaced by
-        ``<prefix>***`` / ``***``.
+        Returns
+        -------
+        str
+            ``text`` with PII patterns replaced by token markers
+            (``[EMAIL]``, ``[PHONE]``, …) and secret patterns replaced by
+            ``<prefix>***`` / ``***``.
 
-    Notes
-    -----
-    :func:`redact_pii` lives in :mod:`voice_typer.server.security`,
-    which imports from this module at module load time
-    (``from voice_typer.server._secrets import redact_secret,
-    redact_url``). Importing :func:`redact_pii` at the top of this
-    module would therefore create a circular import
-    (``_secrets`` → ``security`` → ``_secrets``). The lazy import
-    inside the function body breaks the cycle while preserving the
-    call-time patchability that the tests rely on (they monkeypatch
-    ``voice_typer.server.security.redact_pii`` and expect the patch
-    to take effect on the next call).
+        Notes
+        -----
+        :func:`redact_pii` lives in :mod:`voice_typer.server.security`,
+        which imports from this module at module load time
+        (``from voice_typer.server._secrets import redact_secret,
+        redact_url``). Importing :func:`redact_pii` at the top of this
+        module would therefore create a circular import
+        (``_secrets`` → ``security`` → ``_secrets``). The lazy import
+        inside the function body breaks the cycle while preserving the
+        call-time patchability that the tests rely on (they monkeypatch
+        ``voice_typer.server.security.redact_pii`` and expect the patch
+        to take effect on the next call).
     """
     # Lazy import to break the ``_secrets`` ↔ ``security`` cycle.
     from voice_typer.server.security import redact_pii
@@ -536,7 +536,7 @@ def redact_for_export(text: str) -> str:
 # endpoint), call ``extend_url_allowlist(["my-host.example.com"])``.
 # Extensions are process-global and apply to all HTTP clients.
 
-# ER-64: module-level constant — was a per-call `frozenset({...})` literal
+# module-level constant — was a per-call `frozenset({...})` literal
 # in assert_url_allowed, re-evaluated on every cloud URL validation.
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
@@ -562,28 +562,28 @@ _DEFAULT_ALLOWED_HOSTS = frozenset(
 _user_extensions: set[str] = set()
 
 
-# DEAD-CODE (XZ-SEC-05 / YJ-62, 2026-07-26): ``extend_url_allowlist`` has
+# DEAD-CODE ( / , 2026-07-26): ``extend_url_allowlist`` has
 # ZERO production call sites as of this run (verified by
 # ``rg --no-ignore -n 'extend_url_allowlist' voice_typer/``). The only
 # importers are tests (``tests/test_secrets.py`` and
-# ``tests/test_security_fixes.py``), which exercise the G4-M-55 audit
+# ``tests/test_security_fixes.py``), which exercise the  audit
 # log + the host-normalization path in isolation.
 #
-# The intended production wiring is the XZ-SEC-05 fix proposal: a new
+# The intended production wiring is the  fix proposal: a new
 # ``add_trusted_endpoint`` IPC command (with a paired
 # ``trusted_extra_hosts: list[str]`` config field) that would call
 # ``extend_url_allowlist`` from the IPC dispatch path. That wiring has
 # not landed. The function is RETAINED here (not deleted) because:
 #
-#   (1) The G4-M-55 audit-logging + caller-detection logic is non-
-#       trivial and would have to be re-implemented when XZ-SEC-05
+# (1) The  audit-logging + caller-detection logic is non-
+# trivial and would have to be re-implemented when
 #       lands. Deleting it would lose that work and the test coverage
 #       that pins its behavior.
 #   (2) The tests still exercise the function and serve as a regression
 #       gate for the eventual production wiring.
 #
 # Future readers: do NOT assume this function is live. If you see it
-# called from production code, that means XZ-SEC-05 has landed —
+# called from production code, that means  has landed —
 # remove this notice and the DEAD-CODE marker from the function
 # docstring.
 def extend_url_allowlist(
@@ -593,35 +593,35 @@ def extend_url_allowlist(
 ) -> None:
     """Add hostnames to the runtime URL allowlist.
 
-    DEAD-CODE (XZ-SEC-05 / YJ-62): no production callers as of
-    2026-07-26. Retained pending the XZ-SEC-05 wiring (new
-    ``add_trusted_endpoint`` IPC command + ``trusted_extra_hosts``
-    config field). See module-level DEAD-CODE notice above for
-    rationale.
+    DEAD-CODE ( / ): no production callers as of
+    2026-07-26. Retained pending the  wiring (new
+        ``add_trusted_endpoint`` IPC command + ``trusted_extra_hosts``
+        config field). See module-level DEAD-CODE notice above for
+        rationale.
 
-    Hostnames are normalized to lowercase and stripped of port.
-    Duplicate additions are idempotent.
+        Hostnames are normalized to lowercase and stripped of port.
+        Duplicate additions are idempotent.
 
-    Parameters
-    ----------
-    hosts : Iterable[str]
-        Hostnames (with or without port) to add to the allowlist.
-    caller : str, optional
-        Identifier of the caller adding the hosts (e.g. ``"env_validation"``,
-        ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
-        the caller is auto-detected via :func:`inspect.stack` — the
-        caller's module name + function name + line number. Used in the
-        WARNING-level audit log so operators can trace every allowlist
-        extension back to its origin.
+        Parameters
+        ----------
+        hosts : Iterable[str]
+            Hostnames (with or without port) to add to the allowlist.
+        caller : str, optional
+            Identifier of the caller adding the hosts (e.g. ``"env_validation"``,
+            ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
+            the caller is auto-detected via :func:`inspect.stack` — the
+            caller's module name + function name + line number. Used in the
+            WARNING-level audit log so operators can trace every allowlist
+            extension back to its origin.
 
-    G4-M-55: every call emits a ``WARNING``-level audit log of the
-    form ``[URL-Allowlist] extended by <caller> with hosts: <hosts>``.
-    This surfaces every runtime expansion of the trusted-host set in
-    normal logs, so a malicious or buggy config file that adds an
-    attacker-controlled host is visible without greping for the
-    specific ``extend_url_allowlist`` call site.
+    every call emits a ``WARNING``-level audit log of the
+        form ``[URL-Allowlist] extended by <caller> with hosts: <hosts>``.
+        This surfaces every runtime expansion of the trusted-host set in
+        normal logs, so a malicious or buggy config file that adds an
+        attacker-controlled host is visible without greping for the
+        specific ``extend_url_allowlist`` call site.
     """
-    # G4-M-55: capture the caller for audit logging. Auto-detect via
+    # capture the caller for audit logging. Auto-detect via
     # inspect.stack() when the caller didn't pass an explicit identifier.
     # The frame of interest is the caller of ``extend_url_allowlist`` —
     # i.e. ``stack()[1]`` (frame 0 is this function itself).
@@ -646,7 +646,7 @@ def extend_url_allowlist(
         if host:
             normalized.append(host)
 
-    # YJ-44: calibrate the audit log level. WARNING is reserved for the
+    # calibrate the audit log level. WARNING is reserved for the
     # security-relevant case (actual hosts being added). When the call is
     # a no-op (empty iterable, or every host filtered out), demote to INFO
     # — operators still get an audit trail but no longer see WARNING spam
@@ -672,7 +672,7 @@ def get_url_allowlist() -> frozenset[str]:
     return _DEFAULT_ALLOWED_HOSTS | _user_extensions
 
 
-# ── FR-25: SSRF defense — IP-literal blocklist + best-effort DNS rebinding check ──
+# SSRF defense — IP-literal blocklist + best-effort DNS rebinding check ──
 #
 # The hostname allowlist above only checks the textual hostname.  If a
 # trusted hostname (e.g. ``api.openai.com``) is made to resolve to a
@@ -699,15 +699,15 @@ def get_url_allowlist() -> frozenset[str]:
 def _is_ip_literal(host: str) -> bool:
     """Return True if ``host`` is an IP literal (IPv4 or IPv6).
 
-    FR-25: used by :func:`assert_url_allowed` to decide between the
-    IP-literal blocklist path (host is already an IP) and the DNS-
-    rebinding path (host is a hostname that needs resolution).
+    used by :func:`assert_url_allowed` to decide between the
+        IP-literal blocklist path (host is already an IP) and the DNS-
+        rebinding path (host is a hostname that needs resolution).
 
-    ``urlparse().hostname`` strips brackets from IPv6 literals (e.g.
-    ``"[::1]"`` → ``"::1"``), so the caller passes the bracket-stripped
-    form.  ``ipaddress.ip_address`` accepts both bare IPv4 (``"1.2.3.4"``)
-    and bare IPv6 (``"::1"``, ``"fe80::1"``); it rejects hostnames,
-    empty strings, and malformed IPs with ``ValueError``.
+        ``urlparse().hostname`` strips brackets from IPv6 literals (e.g.
+        ``"[::1]"`` → ``"::1"``), so the caller passes the bracket-stripped
+        form.  ``ipaddress.ip_address`` accepts both bare IPv4 (``"1.2.3.4"``)
+        and bare IPv6 (``"::1"``, ``"fe80::1"``); it rejects hostnames,
+        empty strings, and malformed IPs with ``ValueError``.
     """
     if not host:
         return False
@@ -721,26 +721,26 @@ def _is_ip_literal(host: str) -> bool:
 def _is_private_ip(ip_str: str) -> bool:
     """Return True if ``ip_str`` is a private/reserved IP address.
 
-    FR-25: SSRF defense — rejects IP literals in private/reserved ranges
-    so an attacker cannot use a private-IP endpoint (planted in
-    ``/etc/hosts`` or via :func:`extend_url_allowlist`) to receive cloud
-    API keys.  Covers:
+    SSRF defense — rejects IP literals in private/reserved ranges
+        so an attacker cannot use a private-IP endpoint (planted in
+        ``/etc/hosts`` or via :func:`extend_url_allowlist`) to receive cloud
+        API keys.  Covers:
 
-    * RFC 1918 private: ``10/8``, ``172.16/12``, ``192.168/16``
-      (via ``ip.is_private``).
-    * Link-local: ``169.254/16`` (including the cloud metadata endpoint
-      ``169.254.169.254``) and IPv6 ``fe80::/10`` (via
-      ``ip.is_link_local``).
-    * Loopback: ``127/8`` and ``::1`` (via ``ip.is_loopback``).
-    * Unspecified: ``0.0.0.0`` and ``::`` (via ``ip.is_unspecified``).
-    * IPv6 unique-local: ``fc00::/7`` (covered by ``ip.is_private``).
-    * Reserved ranges: ``240/4``, ``255.255.255.255`` broadcast, etc.
-      (via ``ip.is_reserved``).
+        * RFC 1918 private: ``10/8``, ``172.16/12``, ``192.168/16``
+          (via ``ip.is_private``).
+        * Link-local: ``169.254/16`` (including the cloud metadata endpoint
+          ``169.254.169.254``) and IPv6 ``fe80::/10`` (via
+          ``ip.is_link_local``).
+        * Loopback: ``127/8`` and ``::1`` (via ``ip.is_loopback``).
+        * Unspecified: ``0.0.0.0`` and ``::`` (via ``ip.is_unspecified``).
+        * IPv6 unique-local: ``fc00::/7`` (covered by ``ip.is_private``).
+        * Reserved ranges: ``240/4``, ``255.255.255.255`` broadcast, etc.
+          (via ``ip.is_reserved``).
 
-    Returns ``False`` for non-IP strings (callers should check
-    :func:`_is_ip_literal` first to distinguish "not an IP" from
-    "public IP").  Returns ``True`` for any IP that would let an
-    attacker reach an internal service or the cloud metadata endpoint.
+        Returns ``False`` for non-IP strings (callers should check
+        :func:`_is_ip_literal` first to distinguish "not an IP" from
+        "public IP").  Returns ``True`` for any IP that would let an
+        attacker reach an internal service or the cloud metadata endpoint.
     """
     if not ip_str:
         return False
@@ -786,59 +786,59 @@ def assert_url_allowed(
 ) -> None:
     """Raise ``ValueError`` if ``url`` is not in the allowlist.
 
-    Parameters
-    ----------
-    url : str
-        The URL to check.
-    field_name : str
-        The config field name (for the error message).
-    client_name : str
-        The client name (for the error message).
-    require_https : bool
-        NEW-SEC-003: when True (default), non-loopback hosts must use
-        HTTPS. Loopback hosts (localhost, 127.0.0.1, ::1) are exempt
-        so local development servers can use HTTP. This prevents a
-        loopback IPC attacker from exfiltrating transcribed text to
-        ``http://attacker.example.com/steal`` even if the attacker
-        somehow adds the host to the allowlist.
-    allow_loopback_http : bool
-        G4-M-56: when True, loopback hosts (localhost, 127.0.0.1, ::1)
-        are also exempt from the HTTPS requirement — i.e. plain HTTP
-        to ``http://localhost:11434`` is permitted. Defaults to False
-        so callers must OPT IN to allowing cleartext loopback traffic.
-        Callers that send user-supplied text (``llm_polish``,
-        ``cloud_engines``) should set this to True when the user has
-        explicitly configured a local HTTP endpoint (Ollama, vLLM,
-        LM Studio, etc.). Callers that only validate the URL structure
-        (env var validation) should leave it False.
+        Parameters
+        ----------
+        url : str
+            The URL to check.
+        field_name : str
+            The config field name (for the error message).
+        client_name : str
+            The client name (for the error message).
+        require_https : bool
+    when True (default), non-loopback hosts must use
+            HTTPS. Loopback hosts (localhost, 127.0.0.1, ::1) are exempt
+            so local development servers can use HTTP. This prevents a
+            loopback IPC attacker from exfiltrating transcribed text to
+            ``http://attacker.example.com/steal`` even if the attacker
+            somehow adds the host to the allowlist.
+        allow_loopback_http : bool
+    when True, loopback hosts (localhost, 127.0.0.1, ::1)
+            are also exempt from the HTTPS requirement — i.e. plain HTTP
+            to ``http://localhost:11434`` is permitted. Defaults to False
+            so callers must OPT IN to allowing cleartext loopback traffic.
+            Callers that send user-supplied text (``llm_polish``,
+            ``cloud_engines``) should set this to True when the user has
+            explicitly configured a local HTTP endpoint (Ollama, vLLM,
+            LM Studio, etc.). Callers that only validate the URL structure
+            (env var validation) should leave it False.
 
-        Pre-G4-M-56, loopback was ALWAYS exempt from the HTTPS
-        requirement. This meant a caller that just wanted to verify
-        URL structure would silently allow HTTP loopback, even when
-        the caller's actual data flow never needed cleartext
-        transmission. The opt-in kwarg makes the security posture
-        explicit at every call site.
-    check_dns_rebinding : bool
-        FR-25: when True (default), after the allowlist + HTTPS checks
-        pass, perform an SSRF defense check.  For IP-literal hosts the
-        check is a blocklist lookup via :func:`_is_private_ip` (always
-        run).  For hostname hosts, the check resolves the hostname via
-        :func:`socket.getaddrinfo` and rejects if ANY resolved IP is
-        private/reserved (catches DNS rebinding, ``/etc/hosts``
-        tampering, and compromised-DNS attacks).  The DNS resolution
-        is best-effort: a ``socket.gaierror`` (no DNS, offline,
-        sandboxed test env) is silently swallowed and the URL is
-        allowed — the actual HTTP layer will surface the DNS error in
-        the normal way.  Callers that run in a no-network test
-        environment can set this to False to skip the resolution
-        entirely (the IP-literal blocklist still runs).
+    Pre-, loopback was ALWAYS exempt from the HTTPS
+            requirement. This meant a caller that just wanted to verify
+            URL structure would silently allow HTTP loopback, even when
+            the caller's actual data flow never needed cleartext
+            transmission. The opt-in kwarg makes the security posture
+            explicit at every call site.
+        check_dns_rebinding : bool
+    when True (default), after the allowlist + HTTPS checks
+            pass, perform an SSRF defense check.  For IP-literal hosts the
+            check is a blocklist lookup via :func:`_is_private_ip` (always
+            run).  For hostname hosts, the check resolves the hostname via
+            :func:`socket.getaddrinfo` and rejects if ANY resolved IP is
+            private/reserved (catches DNS rebinding, ``/etc/hosts``
+            tampering, and compromised-DNS attacks).  The DNS resolution
+            is best-effort: a ``socket.gaierror`` (no DNS, offline,
+            sandboxed test env) is silently swallowed and the URL is
+            allowed — the actual HTTP layer will surface the DNS error in
+            the normal way.  Callers that run in a no-network test
+            environment can set this to False to skip the resolution
+            entirely (the IP-literal blocklist still runs).
 
-    Raises
-    ------
-    ValueError
-        If the URL's scheme is not http/https or its host is not in
-        the allowlist.  The error message does NOT include the URL
-        itself, to avoid leaking a potentially-malicious URL into logs.
+        Raises
+        ------
+        ValueError
+            If the URL's scheme is not http/https or its host is not in
+            the allowlist.  The error message does NOT include the URL
+            itself, to avoid leaking a potentially-malicious URL into logs.
     """
     if not url:
         raise ValueError(f"{client_name}: {field_name} is empty")
@@ -857,20 +857,20 @@ def assert_url_allowed(
             f"{client_name}: {field_name} host {host!r} is not in the "
             f"trusted allowlist.  Call extend_url_allowlist() to add it."
         )
-    # NEW-SEC-003: enforce HTTPS for non-loopback hosts to prevent
+    # enforce HTTPS for non-loopback hosts to prevent
     # cleartext exfiltration of transcribed text + API keys.
     #
-    # G4-M-56: the loopback exemption is now gated on
+    # the loopback exemption is now gated on
     # ``allow_loopback_http``. Pre-fix, loopback was ALWAYS exempt —
     # so a caller that just wanted to validate URL structure would
     # silently allow HTTP loopback, even when the caller's actual
     # data flow never needed cleartext transmission. Now callers
     # must opt in via the kwarg, making the security posture
     # explicit.
-    is_loopback = host in _LOOPBACK_HOSTS  # ER-64: was per-call frozenset literal
+    is_loopback = host in _LOOPBACK_HOSTS  # was per-call frozenset literal
     if require_https and parsed.scheme == "http" and (not is_loopback or not allow_loopback_http):
         if is_loopback:
-            # G4-M-56: loopback HTTP rejected because caller didn't opt in
+            # loopback HTTP rejected because caller didn't opt in
             # via ``allow_loopback_http=True``. The error message
             # explicitly mentions the kwarg so the operator knows how
             # to fix the call site.
@@ -887,7 +887,7 @@ def assert_url_allowed(
             f"and transcribed text over the public internet is not permitted."
         )
 
-    # FR-25: SSRF defense — after the allowlist + HTTPS checks pass,
+    # SSRF defense — after the allowlist + HTTPS checks pass,
     # verify the host is not a private/reserved IP literal (and
     # best-effort, that a hostname doesn't resolve to a private IP).
     #
@@ -916,14 +916,14 @@ def assert_url_allowed(
         # in to sending data to localhost).
         return
     if _is_ip_literal(host):
-        # IP-literal blocklist (the minimum FR-25 fix).  Even if the
+        # IP-literal blocklist (the minimum  fix).  Even if the
         # user explicitly added a private IP to the allowlist, refuse
         # to send cloud API keys to internal endpoints.
         if _is_private_ip(host):
             raise ValueError(
                 f"{client_name}: {field_name} host {host!r} is a "
                 f"private/reserved IP literal — refusing to prevent "
-                f"SSRF (FR-25). Even if explicitly allowlisted, "
+                f"SSRF. Even if explicitly allowlisted, "
                 f"private/reserved IP literals are rejected to "
                 f"prevent exfiltration of API keys to internal "
                 f"endpoints (e.g. cloud metadata 169.254.169.254)."
@@ -949,7 +949,7 @@ def assert_url_allowed(
                 raise ValueError(
                     f"{client_name}: {field_name} host {host!r} resolves "
                     f"to private/reserved IP {ip!r} — refusing to "
-                    f"prevent SSRF (FR-25, DNS rebinding defense). If "
+                    f"prevent SSRF (DNS rebinding defense). If "
                     f"this is a legitimate local endpoint, use the IP "
                     f"literal directly (e.g. http://127.0.0.1:port) "
                     f"which is allowlisted for local development."

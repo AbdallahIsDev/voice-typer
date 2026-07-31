@@ -4,7 +4,7 @@
 - Win32 window focus (EnumWindows/AttachThreadInput/SetForegroundWindow)
 - Electron app launch (build-first, dev fallback)
 
-DT-FIX-9 / DT-27 (Phase 4.5 spaghetti split): extended with the
+(Phase 4.5 spaghetti split): extended with the
 remaining window-management + quit-confirmation concerns that were
 still inlined on ``TrayIcon``:
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
-# PROD-003: Track the PID of the Electron subprocess we launched
+# Track the PID of the Electron subprocess we launched
 # so quit() can terminate it explicitly as a safety net.
 _electron_pid: int | None = None
 
@@ -163,7 +163,7 @@ def open_electron_window() -> None:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         client_dir = os.path.join(project_root, "voice_typer", "client")
         log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
-        # NEW-XPLAT-003 / S-7: previously used ``shell=True`` here (which
+        # S-7: previously used ``shell=True`` here (which
         # spawns a shell to find npm, propagating PATH/env to it — a
         # shell-injection risk and breaks on paths with spaces).  We now
         # resolve the npm path explicitly via the shared
@@ -178,7 +178,7 @@ def open_electron_window() -> None:
             log.error("[TRAY] npm not on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH.")
             return
         proc = subprocess.Popen(cmd, cwd=client_dir)
-        # PROD-003: track PID for cleanup on shutdown
+        # track PID for cleanup on shutdown
         set_electron_pid(proc.pid)
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
@@ -188,18 +188,18 @@ def open_electron_window() -> None:
 def open_page(path: str) -> None:
     """Publish a ``navigate`` event so the renderer opens ``path``.
 
-    UX-33 (FIX-10): generalization of :func:`open_models_page` so any
-    in-app route can be opened from the tray menu (Settings / History /
-    Help). Does NOT open the Electron window itself — callers that need
-    the window open (e.g. :func:`open_models_page`) call
-    :func:`open_electron_window` first, then :func:`open_page`.
+    (): generalization of :func:`open_models_page` so any
+        in-app route can be opened from the tray menu (Settings / History /
+        Help). Does NOT open the Electron window itself — callers that need
+        the window open (e.g. :func:`open_models_page`) call
+        :func:`open_electron_window` first, then :func:`open_page`.
 
-    DT-FIX-9 / DT-27: extracted from ``TrayIcon._open_page`` as a
-    pure module-level function (no instance state needed — just
-    publishes via the event bus).
+    extracted from ``TrayIcon._open_page`` as a
+        pure module-level function (no instance state needed — just
+        publishes via the event bus).
 
-    Args:
-        path: The renderer route to navigate to (e.g. ``/settings``).
+        Args:
+            path: The renderer route to navigate to (e.g. ``/settings``).
     """
     from voice_typer.server import event_bus
 
@@ -213,22 +213,22 @@ def open_page(path: str) -> None:
 def open_models_page(tray: "TrayIcon") -> None:
     """Open the Electron window and navigate to the Models page.
 
-    Called from the tray menu's "More models..." item. Opens/focuses
-    the Electron window (same as :func:`open_electron_window`) and then
-    delegates to :func:`open_page` with ``'/models'`` so the renderer
-    navigates to the Models page instead of staying on whatever page
-    was last open.
+        Called from the tray menu's "More models..." item. Opens/focuses
+        the Electron window (same as :func:`open_electron_window`) and then
+        delegates to :func:`open_page` with ``'/models'`` so the renderer
+        navigates to the Models page instead of staying on whatever page
+        was last open.
 
-    DT-FIX-9 / DT-27: extracted from ``TrayIcon._open_models_page``.
-    The delegate on ``TrayIcon`` calls ``tray._open_page('/models')``
-    (NOT this module's :func:`open_page` directly) so tests that do
-    ``monkeypatch.setattr(tray, "_open_page", fake_open_page)`` keep
-    working — the patched instance attribute is consulted at call
-    time, not the module-level function.
+    extracted from ``TrayIcon._open_models_page``.
+        The delegate on ``TrayIcon`` calls ``tray._open_page('/models')``
+        (NOT this module's :func:`open_page` directly) so tests that do
+        ``monkeypatch.setattr(tray, "_open_page", fake_open_page)`` keep
+        working — the patched instance attribute is consulted at call
+        time, not the module-level function.
 
-    Args:
-        tray: The ``TrayIcon`` instance (used to access the
-            ``_open_page`` delegate).
+        Args:
+            tray: The ``TrayIcon`` instance (used to access the
+                ``_open_page`` delegate).
     """
     open_electron_window()
     tray._open_page("/models")
@@ -237,19 +237,19 @@ def open_models_page(tray: "TrayIcon") -> None:
 def confirm_quit_while_recording(tray: "TrayIcon") -> None:
     """Quit immediately, regardless of recording state.
 
-    The old confirmation dialog was removed because crash recovery
-    already protects in-flight transcriptions, and ``quit_app()``
-    handles discarding active recordings and waiting for transcription
-    to finish (with timeout).
+        The old confirmation dialog was removed because crash recovery
+        already protects in-flight transcriptions, and ``quit_app()``
+        handles discarding active recordings and waiting for transcription
+        to finish (with timeout).
 
-    DT-FIX-9 / DT-27: extracted from
-    ``TrayIcon._confirm_quit_while_recording``. The method is a thin
-    delegate to ``tray._controller.quit_app()``; kept as a separate
-    function so the ``TrayIcon`` class is a one-line delegate and the
-    quit policy lives with the rest of the window-management code.
+    extracted from
+        ``TrayIcon._confirm_quit_while_recording``. The method is a thin
+        delegate to ``tray._controller.quit_app()``; kept as a separate
+        function so the ``TrayIcon`` class is a one-line delegate and the
+        quit policy lives with the rest of the window-management code.
 
-    Args:
-        tray: The ``TrayIcon`` instance (used to access
-            ``tray._controller``).
+        Args:
+            tray: The ``TrayIcon`` instance (used to access
+                ``tray._controller``).
     """
     tray._controller.quit_app()

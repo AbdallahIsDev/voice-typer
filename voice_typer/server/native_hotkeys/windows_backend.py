@@ -1,7 +1,7 @@
 """Windows native hotkey backend.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 Spawns ``windows-key-listener.exe`` (C) which uses
 ``WH_KEYBOARD_LL`` (event-driven) instead of ``GetAsyncKeyState``

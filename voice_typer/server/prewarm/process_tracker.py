@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """PID-file + process-liveness + status-query helpers.
 
-Phase 4.5 / ARCH-045 — this module holds the helpers that track whether
+Phase 4.5 /  — this module holds the helpers that track whether
 a prewarm process is currently running, wait for it to finish, spawn a
 detached background prewarm, and report cache status to the UI:
 
@@ -77,7 +77,7 @@ def _write_pid_file() -> None:
 
         pid_file = _pkg._pid_file_path()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
-        # DJ-55: durability=False — the prewarm PID file is a transient
+        # durability=False — the prewarm PID file is a transient
         # marker removed in a finally block; a power-loss window of a
         # few seconds is acceptable. The atomic os.replace still
         # guarantees consistency (no half-written files).
@@ -158,7 +158,7 @@ def _process_alive(pid: int) -> bool:
             if exc.errno == errno.ESRCH:
                 return False
             if exc.errno == errno.EPERM:
-                # XPLAT-05: log a warning so the user can diagnose if
+                # log a warning so the user can diagnose if
                 # an unexpected EPERM is causing wait_for_prewarm() to
                 # block for the full 60s timeout. Best-effort check if
                 # the PID is owned by the same user (Linux only, via
@@ -500,33 +500,33 @@ def _process_is_prewarm(pid: int) -> bool:
 def is_prewarm_running() -> bool:
     """Return True if a prewarm process is currently running.
 
-    ADR-0009 Issue 4: checks for the prewarm PID file written by the
-    prewarm process at startup. If the PID file exists and the process
-    is alive AND looks like prewarm (review fix H4: PID recycling
-    guard), prewarm is running. If the PID file is missing, points at a
-    dead process, or points at a recycled unrelated process, prewarm is
-    not running and the stale PID file is cleaned up.
+        ADR-0009 Issue 4: checks for the prewarm PID file written by the
+        prewarm process at startup. If the PID file exists and the process
+        is alive AND looks like prewarm (review fix H4: PID recycling
+        guard), prewarm is running. If the PID file is missing, points at a
+        dead process, or points at a recycled unrelated process, prewarm is
+        not running and the stale PID file is cleaned up.
 
-    Safe to call from any thread (the app's model_manager.try_load()
-    calls this from a daemon thread).
+        Safe to call from any thread (the app's model_manager.try_load()
+        calls this from a daemon thread).
 
-    CR-12 (Low, informational): there is an inherent TOCTOU race window
-    between this check and any subsequent action that depends on the
-    result. Between the moment ``is_prewarm_running()`` returns True
-    and the caller acts on that, the prewarm process may exit (so
-    ``wait_for_prewarm()`` then sees the PID file gone and returns
-    True immediately — harmless), or a new prewarm process may start
-    and overwrite the PID file (so the caller's snapshot is stale —
-    also harmless, since ``wait_for_prewarm()`` re-reads the PID file
-    before waiting). The residual race that is NOT closeable without a
-    PID-file lock is: prewarm exits AND the OS recycles its PID for an
-    unrelated process between our ``_process_alive(pid)`` check and
-    our ``_process_is_prewarm(pid)`` check. In that case we may
-    falsely return True (the recycled process briefly looks like
-    prewarm) — but ``_process_is_prewarm``'s "voice_typer" +
-    "prewarm" cmdline match makes this practically impossible. No
-    code change is needed; the race is theoretical and the worst case
-    is a spurious 60s wait that the caller can interrupt.
+    (Low, informational): there is an inherent TOCTOU race window
+        between this check and any subsequent action that depends on the
+        result. Between the moment ``is_prewarm_running()`` returns True
+        and the caller acts on that, the prewarm process may exit (so
+        ``wait_for_prewarm()`` then sees the PID file gone and returns
+        True immediately — harmless), or a new prewarm process may start
+        and overwrite the PID file (so the caller's snapshot is stale —
+        also harmless, since ``wait_for_prewarm()`` re-reads the PID file
+        before waiting). The residual race that is NOT closeable without a
+        PID-file lock is: prewarm exits AND the OS recycles its PID for an
+        unrelated process between our ``_process_alive(pid)`` check and
+        our ``_process_is_prewarm(pid)`` check. In that case we may
+        falsely return True (the recycled process briefly looks like
+        prewarm) — but ``_process_is_prewarm``'s "voice_typer" +
+        "prewarm" cmdline match makes this practically impossible. No
+        code change is needed; the race is theoretical and the worst case
+        is a spurious 60s wait that the caller can interrupt.
     """
     pid_file = _pkg._pid_file_path()
     if not pid_file.exists():
@@ -656,7 +656,7 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
     import sys as _sys
     from pathlib import Path as _Path
 
-    # AB-18: use frozen exe via resolver when available (Tauri production
+    # use frozen exe via resolver when available (Tauri production
     # mode). Falls back to the legacy python -m path when the resolver
     # can't find a frozen exe (dev mode) or itself errors out.
     try:
@@ -723,14 +723,14 @@ _CACHE_PROBE_TTL_S: float = 30.0
 def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
     """Return ``(cache_ratio, cached_bytes, total_bytes)`` for *active_dirs*.
 
-    XV-18: results are memoized for ``_CACHE_PROBE_TTL_S`` seconds,
-    keyed on a fingerprint of each active dir's ``(path, mtime_ns,
-    size)``. The fingerprint detects new snapshot downloads (HF hub
-    bumps the model dir's mtime when it writes a new symlink) so a
-    freshly-downloaded model invalidates the cache immediately. Empty
-    ``active_dirs`` returns ``(0.0, 0, 0)`` without polluting the
-    cache (so a transient "no model" state doesn't shadow a
-    subsequent "model present" probe).
+    results are memoized for ``_CACHE_PROBE_TTL_S`` seconds,
+        keyed on a fingerprint of each active dir's ``(path, mtime_ns,
+        size)``. The fingerprint detects new snapshot downloads (HF hub
+        bumps the model dir's mtime when it writes a new symlink) so a
+        freshly-downloaded model invalidates the cache immediately. Empty
+        ``active_dirs`` returns ``(0.0, 0, 0)`` without polluting the
+        cache (so a transient "no model" state doesn't shadow a
+        subsequent "model present" probe).
     """
     if not active_dirs:
         return (0.0, 0, 0)
@@ -787,7 +787,7 @@ def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
 
 
 def _invalidate_cache_probe_cache() -> None:
-    """Clear the ``_probe_cache_status`` TTL cache (XV-18).
+    """Clear the ``_probe_cache_status`` TTL cache ().
 
     Tests call this between assertions to force a re-probe. Production
     code (``get_prewarm_status``) does NOT need to call this — the TTL
@@ -799,13 +799,13 @@ def _invalidate_cache_probe_cache() -> None:
 def get_prewarm_status() -> dict:
     """Return a snapshot of the prewarm cache state for the UI.
 
-    ADR-0009 Issue 3: called by the ``get_prewarm_status`` IPC handler
-    to populate the "Cache Status" card in the About page.
+        ADR-0009 Issue 3: called by the ``get_prewarm_status`` IPC handler
+        to populate the "Cache Status" card in the About page.
 
-    XV-18: the cache-ratio probe is memoized via
-    ``_probe_cache_status`` (30 s TTL keyed on directory mtime) so
-    frequent IPC polls don't re-walk the HF cache and re-probe every
-    weights file each call.
+    the cache-ratio probe is memoized via
+        ``_probe_cache_status`` (30 s TTL keyed on directory mtime) so
+        frequent IPC polls don't re-walk the HF cache and re-probe every
+        weights file each call.
     """
     # ── Sentinel: last_run + elapsed_s ──────────────────────────────
     last_run: str | None = None
@@ -839,7 +839,7 @@ def get_prewarm_status() -> dict:
     except Exception:
         log.debug("[PREWARM] get_prewarm_status sentinel read failed", exc_info=True)
 
-    # ── Cache ratio probe (XV-18: TTL-memoized via _probe_cache_status) ──
+    # Cache ratio probe (: TTL-memoized via _probe_cache_status) ──
     active_dirs: list[Path] = []
     try:
         active_dirs = _pkg._active_model_cache_dirs()

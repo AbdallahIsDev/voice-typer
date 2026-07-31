@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """CPU-04: event-based prewarm completion notification.
 
-Phase 4.5 / ARCH-045 — this module holds the *signal* side (prewarm
+Phase 4.5 /  — this module holds the *signal* side (prewarm
 process) and the *wait* side (the app) of the event-based completion
 notification that replaced the old 500ms poll loop in
 :func:`wait_for_prewarm`.
@@ -18,7 +18,7 @@ notification that replaced the old 500ms poll loop in
 - :func:`_wait_completion_windows` — Windows-specific wait helper.
 - :func:`_wait_completion_linux` — Linux-specific pidfd+poll helper.
 - :func:`_wait_completion_macos` — macOS-specific kqueue+EVFILT_PROC
-  helper (S5-CR-55).
+helper ().
 
 Patch-path compatibility
 ------------------------
@@ -65,7 +65,7 @@ log = logging.getLogger("voice_typer.server.prewarm")
 #     to get a file descriptor that becomes readable when the process
 #     exits, then uses select.poll() to wait on it with timeout.
 #   - macOS: the app uses select.kqueue() + EVFILT_PROC + NOTE_EXIT
-#     (S5-CR-55, available since macOS 10.3+, no extra deps). The kqueue
+# (, available since macOS 10.3+, no extra deps). The kqueue
 #     filter delivers an event when the target process exits, so the
 #     wait is a single kevent() call with the timeout — no 1 Hz poll
 #     loop. Falls back to the polling loop on Python builds without
@@ -172,19 +172,19 @@ def _close_completion_event(handle: int | None) -> None:
 def _wait_for_completion_event(timeout_s: float) -> bool:
     """CPU-04: block (near-zero CPU) until prewarm signals completion.
 
-    Returns True if completion was observed within ``timeout_s``; False if
-    the platform/OS version doesn't support event-based waiting, the PID
-    file vanished in the brief window before we could attach, or the wait
-    timed out. A False return lets ``wait_for_prewarm()`` fall back to the
-    degraded 1s poll loop.
+        Returns True if completion was observed within ``timeout_s``; False if
+        the platform/OS version doesn't support event-based waiting, the PID
+        file vanished in the brief window before we could attach, or the wait
+        timed out. A False return lets ``wait_for_prewarm()`` fall back to the
+        degraded 1s poll loop.
 
-      - Windows: open the PID-scoped named event and WaitForSingleObject
-        (a kernel-side wait — no CPU spin).
-      - Linux: pidfd_open(pid) + select.poll() on the fd (readable when the
-        process exits). Requires Linux 5.3+ / Python 3.9+.
-      - macOS: select.kqueue() + EVFILT_PROC + NOTE_EXIT (S5-CR-55).
-        Available since macOS 10.3+; no extra deps.
-      - Other platforms: return False (poll fallback).
+          - Windows: open the PID-scoped named event and WaitForSingleObject
+            (a kernel-side wait — no CPU spin).
+          - Linux: pidfd_open(pid) + select.poll() on the fd (readable when the
+            process exits). Requires Linux 5.3+ / Python 3.9+.
+    macOS: select.kqueue() + EVFILT_PROC + NOTE_EXIT ().
+            Available since macOS 10.3+; no extra deps.
+          - Other platforms: return False (poll fallback).
     """
     pid = _pkg._read_prewarm_pid()
     if pid is None:
@@ -244,7 +244,7 @@ def _wait_completion_linux(pid: int, timeout_s: float) -> bool:
 
 
 def _wait_completion_macos(pid: int, timeout_s: float) -> bool:
-    """Wait for process exit via kqueue + EVFILT_PROC + NOTE_EXIT (S5-CR-55).
+    """Wait for process exit via kqueue + EVFILT_PROC + NOTE_EXIT ().
 
     macOS lacks ``pidfd_open`` (Linux) and named-event handles (Windows).
     The BSD-native equivalent is ``kqueue()`` + a process filter: the

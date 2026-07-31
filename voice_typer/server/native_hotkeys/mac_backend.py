@@ -1,7 +1,7 @@
 """macOS native hotkey backend.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 Spawns ``macos-key-listener`` (Swift). Supports the FN key via
 ``NSEvent.modifierFlags.contains(.function)``. Requires macOS

@@ -1,7 +1,7 @@
 """Pynput-based hotkey backend (cross-platform fallback).
 
 Split out from the original ``hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 """
 
 import contextlib
@@ -13,7 +13,7 @@ from voice_typer.server import hotkeys as _hotkeys_pkg
 from .base import HotkeyBackend, log
 
 
-# PLAT-030 / patch-target: tests do ``patch("voice_typer.server.hotkeys.is_macos")``
+#  patch-target: tests do ``patch("voice_typer.server.hotkeys.is_macos")``
 # (and is_windows / is_linux).  For the patch to take effect on calls
 # made from *this* submodule, the bare ``is_macos()`` references must
 # resolve to the package-level binding (which is what the patch
@@ -42,7 +42,14 @@ class PynputHotkey(HotkeyBackend):
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
         self._listener = None
-        # AC-26: the redundant redeclarations of
+        # initialize the fallback flag here so that ``diagnose()``
+        # and other accessors don't raise ``AttributeError`` if a caller
+        # inspects the backend before ``_start_fallback()`` has run (which
+        # is the normal path when ``GlobalHotKeys`` succeeds). The value
+        # is flipped to True inside ``_start_fallback()`` exactly as
+        # before, so the runtime semantics are unchanged.
+        self._fallback: bool = False
+        # the redundant redeclarations of
         # ``self._on_release_callback`` and ``self._toggle_on_keyup``
         # that used to live here have been deleted —
         # ``super().__init__(hotkey_str)`` already initializes both
@@ -51,7 +58,7 @@ class PynputHotkey(HotkeyBackend):
         # refactor.
 
     def start(self, callback: Callable[[], None]) -> None:
-        # PERF-012: On Linux/macOS, use pynput's event-driven Listener
+        # On Linux/macOS, use pynput's event-driven Listener
         # instead of polling. The Listener receives key events from the
         # OS, so it uses zero CPU while idle and has zero latency.
         # On Windows, the WindowsNativeHotkey backend is preferred (uses
@@ -63,7 +70,7 @@ class PynputHotkey(HotkeyBackend):
         try:
             self._listener = GlobalHotKeys({self.hotkey_str: callback})
             self._listener.start()
-            # PERF-NEW-017: was 0.5s — the listener thread reaches
+            # PERF- was 0.5s — the listener thread reaches
             # "alive" state within a few ms. 50ms is enough on the
             # slowest machines. With 3 hotkeys (toggle, PTT, repaste)
             # this saves ~1.4s of startup time.
@@ -81,7 +88,7 @@ class PynputHotkey(HotkeyBackend):
         except Exception:
             log.exception("[HOTKEY] GlobalHotKeys failed; trying fallback Listener")
 
-            # PLAT-030: On macOS, pynput failure usually means the
+            # On macOS, pynput failure usually means the
             # Accessibility permission is missing. Show a user-friendly
             # guide so the user knows how to fix it.
             if is_macos():
@@ -103,7 +110,7 @@ class PynputHotkey(HotkeyBackend):
             except Exception:
                 log.exception("[HOTKEY] Fallback Listener also failed")
 
-                # PLAT-030: also warn for the fallback path on macOS
+                # also warn for the fallback path on macOS
                 if is_macos():
                     log.warning(
                         "[HOTKEY] macOS: Both GlobalHotKeys and Listener "
@@ -119,7 +126,7 @@ class PynputHotkey(HotkeyBackend):
         if target is None:
             raise RuntimeError(f"Cannot parse hotkey {self.hotkey_str!r} for fallback")
 
-        # NEW-DEAD-030: for composite hotkeys (tuple), extract BOTH the
+        # for composite hotkeys (tuple), extract BOTH the
         # modifier keys and the target key.  Previously the fallback
         # listener only matched on the target key, ignoring modifiers —
         # so ``<ctrl>+<f2>`` would fire on bare ``<f2>``.  We now track
@@ -134,7 +141,7 @@ class PynputHotkey(HotkeyBackend):
         # Track currently-held modifier keys so we can check the full
         # composite state before firing.
         held_modifiers = set()
-        # UX-001: track whether the matched key is currently held down
+        # track whether the matched key is currently held down
         # so we can fire the on_release callback exactly once per
         # press-release cycle (pynput fires repeated on_press events
         # while a key is held).
@@ -145,7 +152,7 @@ class PynputHotkey(HotkeyBackend):
             if modifier_keys and key in modifier_keys:
                 held_modifiers.add(key)
             if key == match_key:
-                # NEW-DEAD-030: only fire if ALL modifiers are held.
+                # only fire if ALL modifiers are held.
                 if modifier_keys and len(held_modifiers) < len(modifier_keys):
                     return
                 if not held["value"]:
@@ -173,11 +180,11 @@ class PynputHotkey(HotkeyBackend):
                         callback()
 
         def on_release(key):
-            # NEW-DEAD-030: track modifier releases so the held_modifiers
+            # track modifier releases so the held_modifiers
             # set stays accurate.
             if modifier_keys and key in modifier_keys:
                 held_modifiers.discard(key)
-            # UX-001: invoke the on_release callback (used by
+            # invoke the on_release callback (used by
             # push-to-talk mode) when the matched key is released, or
             # fire the toggle on release when toggle_on_keyup is set.
             # The check ``held["value"]`` ensures we only fire on the
@@ -200,7 +207,7 @@ class PynputHotkey(HotkeyBackend):
 
         self._listener = listener(on_press=on_press, on_release=on_release)
         self._listener.start()
-        # PERF-NEW-017: was 0.5s — reduced to 50ms for the same reason.
+        # PERF- was 0.5s — reduced to 50ms for the same reason.
         time.sleep(0.05)
         self._fallback = True
         log.info(
@@ -248,7 +255,7 @@ def _parse_hotkey_to_pynput(hotkey_str, key, key_code):
     Returns a tuple of (modifier_keys, target_key) for composite hotkeys,
     or a single key/KeyCode for simple hotkeys.
 
-    RW-1 (Hotkey parser unification): this now delegates to the
+     (Hotkey parser unification): this now delegates to the
     canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
     tokenisation and alias resolution. The pynput-specific concerns
     that remain in this function are:

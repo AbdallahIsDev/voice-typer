@@ -3,7 +3,7 @@
 Holds the ``_VK_MAP`` lookup table, the ``_MOD_*`` RegisterHotKey bit
 constants, and the :func:`parse_hotkey_to_win32` /
 :func:`parse_hotkey_to_vk` parsers.  Split out from the original
-``hotkeys.py`` god-file in Phase 4.5 (ARCH-045).
+``hotkeys.py`` god-file in Phase 4.5 ().
 """
 
 import threading
@@ -56,7 +56,7 @@ _KEYEVENTF_KEYUP = 0x0002
 
 # Common virtual-key code mappings for function keys and printable keys.
 #
-# ISSUE-3 (key-name maps): this table maps pynput-style lowercase names
+# Key-name maps: this table maps pynput-style lowercase names
 # to Win32 VK codes. It is ONE OF THREE independent key-name tables:
 #
 #   Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput name
@@ -73,7 +73,7 @@ _KEYEVENTF_KEYUP = 0x0002
 # We add a MapVirtualKey fallback that uses the current keyboard layout
 # to resolve VK codes for printable characters when the static map fails.
 _VK_MAP = {}
-# ARCH-019: guard _VK_MAP init so two threads racing on the first call
+# guard _VK_MAP init so two threads racing on the first call
 # don't each insert half the keys. The dict mutation itself is atomic
 # in CPython, but the check-then-fill sequence is not.
 _VK_MAP_LOCK = threading.Lock()
@@ -88,11 +88,11 @@ def _win32_vk(vk_name: str) -> int | None:
 def _init_vk_map():
     """Populate _VK_MAP lazily to avoid issues at import on non-Windows.
 
-    ARCH-019: previously the check-then-populate sequence was racy —
-    two threads could both observe ``_VK_MAP`` as empty and each
-    insert half the keys, with one set overwriting the other. We now
-    guard the init with a module-level lock. The fast-path (map already
-    populated) skips the lock to avoid contention on every hotkey press.
+    previously the check-then-populate sequence was racy —
+        two threads could both observe ``_VK_MAP`` as empty and each
+        insert half the keys, with one set overwriting the other. We now
+        guard the init with a module-level lock. The fast-path (map already
+        populated) skips the lock to avoid contention on every hotkey press.
     """
     if _VK_MAP:
         return
@@ -129,7 +129,7 @@ def _init_vk_map():
         _VK_MAP["down"] = 0x28  # VK_DOWN
         _VK_MAP["left"] = 0x25  # VK_LEFT
         _VK_MAP["right"] = 0x27  # VK_RIGHT
-        # ARCH-041: extend with numpad, media, browser, and special keys.
+        # extend with numpad, media, browser, and special keys.
         # Without these, PTT bindings to e.g. Media_Next silently fail.
         # Numpad 0-9 (VK_NUMPAD0 = 0x60 .. VK_NUMPAD9 = 0x69)
         for i in range(10):
@@ -184,35 +184,35 @@ def parse_hotkey_to_vk(hotkey_str: str) -> int | None:
 def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
     """Convert a hotkey string to ``(virtual_key, RegisterHotKey modifiers)``.
 
-    NEW-CQ-022: previously this returned the LAST non-modifier key found
-    in the ``+``-separated string. For ``f2+ctrl+1+3``, it would set
-    key_name to ``"3"``, missing ``"1"`` and ``"f2"``. The fix uses
-    FIRST-match-wins: the first non-modifier token is the primary key,
-    and any subsequent non-modifier tokens are ignored (with a warning).
-    This matches user expectation: ``<f2>`` is the hotkey, ``ctrl`` is
-    the modifier; writing ``f2+ctrl`` vs ``ctrl+f2`` should produce the
-    same result.
+    previously this returned the LAST non-modifier key found
+        in the ``+``-separated string. For ``f2+ctrl+1+3``, it would set
+        key_name to ``"3"``, missing ``"1"`` and ``"f2"``. The fix uses
+        FIRST-match-wins: the first non-modifier token is the primary key,
+        and any subsequent non-modifier tokens are ignored (with a warning).
+        This matches user expectation: ``<f2>`` is the hotkey, ``ctrl`` is
+        the modifier; writing ``f2+ctrl`` vs ``ctrl+f2`` should produce the
+        same result.
 
-    FIX-HOTKEY-ARCHITECTURE: for modifier-only specs (e.g. ``<alt>``,
-    ``<ctrl>+<shift>``) where no main key is present, this now returns
-    ``(None, modifiers)`` instead of ``None``. Callers can detect the
-    modifier-only case by checking ``vk is None and modifiers != 0``.
-    ``parse_hotkey_to_vk`` still returns ``None`` for these specs (it
-    returns ``parsed[0]`` which is ``None``), preserving the existing
-    contract for callers that only care about the VK code.
+        FIX-HOTKEY-ARCHITECTURE: for modifier-only specs (e.g. ``<alt>``,
+        ``<ctrl>+<shift>``) where no main key is present, this now returns
+        ``(None, modifiers)`` instead of ``None``. Callers can detect the
+        modifier-only case by checking ``vk is None and modifiers != 0``.
+        ``parse_hotkey_to_vk`` still returns ``None`` for these specs (it
+        returns ``parsed[0]`` which is ``None``), preserving the existing
+        contract for callers that only care about the VK code.
 
-    RW-1 (Hotkey parser unification): this now delegates to the
-    canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
-    tokenisation and alias resolution. The Win32-specific concerns
-    that remain in this function are:
+    (Hotkey parser unification): this now delegates to the
+        canonical :func:`voice_typer.server.hotkey_spec.parse_hotkey` for
+        tokenisation and alias resolution. The Win32-specific concerns
+        that remain in this function are:
 
-    - Modifier-bit collapsing: canonical ``win`` / ``super`` / ``cmd``
-      all map to ``_MOD_WIN`` (Windows does not distinguish between
-      them — ``RegisterHotKey`` uses a single bit). Canonical
-      ``alt_gr`` maps to ``_MOD_ALTGR``.
-    - VK-code lookup: ``_VK_MAP`` (and the ``MapVirtualKey`` fallback
-      for non-US layouts) translate the canonical key name to a
-      Windows virtual-key code.
+        - Modifier-bit collapsing: canonical ``win`` / ``super`` / ``cmd``
+          all map to ``_MOD_WIN`` (Windows does not distinguish between
+          them — ``RegisterHotKey`` uses a single bit). Canonical
+          ``alt_gr`` maps to ``_MOD_ALTGR``.
+        - VK-code lookup: ``_VK_MAP`` (and the ``MapVirtualKey`` fallback
+          for non-US layouts) translate the canonical key name to a
+          Windows virtual-key code.
     """
     from voice_typer.server.hotkey_spec import parse_hotkey
 
@@ -240,7 +240,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
         modifiers |= bit
 
     key_name = parsed.main_key
-    # NEW-CQ-022: first non-modifier key wins. Subsequent non-modifier
+    # first non-modifier key wins. Subsequent non-modifier
     # tokens are ignored (they're likely a typo or a multi-key combo
     # that Win32 RegisterHotKey doesn't support). Emit a warning for
     # each extra key, preserving the previous diagnostic behaviour.

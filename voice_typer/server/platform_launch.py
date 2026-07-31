@@ -7,7 +7,7 @@ Re-exported from ``app.py`` so existing callers
 ``_windows_wait_for_process_exit`` / ``_windows_close_process_handle`` /
 ``_systemroot_notepad_path`` keep working unchanged.
 
-XPLAT-01 + SEC-audit-011: ``_windows_open_with_default_app`` uses
++ SEC-audit-011: ``_windows_open_with_default_app`` uses
 ``ShellExecuteEx`` (not ``os.startfile``) so the caller can obtain a
 process handle and block until the editor exits. The fallback path uses
 ``_systemroot_notepad_path`` to resolve a SystemRoot-validated Notepad
@@ -20,7 +20,7 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-# DE-68: finite timeout for ``_windows_wait_for_process_exit``.
+# finite timeout for ``_windows_wait_for_process_exit``.
 #
 # Pre-fix, the function called ``WaitForSingleObject(handle, 0xFFFFFFFF)``
 # (``INFINITE``). If the launched editor (e.g. Notepad opened for the
@@ -113,20 +113,20 @@ def _windows_open_with_default_app(path: str):
 
 def _windows_wait_for_process_exit(handle) -> None:
     """Block until the process behind *handle* exits, or the finite
-    timeout expires.
+        timeout expires.
 
-    DE-68: pre-fix this function called ``WaitForSingleObject(handle,
-    0xFFFFFFFF)`` (``INFINITE``). If the launched editor (e.g. Notepad
-    opened for the config file) hangs — or the user walks away with
-    the editor open — the calling thread blocked forever. The caller
-    (``_open_config_file`` in ``app.py``) holds the server's IPC
-    thread, so a hung editor wedged the entire server.
+    pre-fix this function called ``WaitForSingleObject(handle,
+        0xFFFFFFFF)`` (``INFINITE``). If the launched editor (e.g. Notepad
+        opened for the config file) hangs — or the user walks away with
+        the editor open — the calling thread blocked forever. The caller
+        (``_open_config_file`` in ``app.py``) holds the server's IPC
+        thread, so a hung editor wedged the entire server.
 
-    The function now waits with a finite timeout (30 minutes). If the
-    timeout expires (``WAIT_TIMEOUT``), the function logs a warning
-    and returns control to the caller rather than blocking forever.
-    The function still never raises (the broad ``except Exception``
-    is preserved so the editor flow doesn't crash on edge cases).
+        The function now waits with a finite timeout (30 minutes). If the
+        timeout expires (``WAIT_TIMEOUT``), the function logs a warning
+        and returns control to the caller rather than blocking forever.
+        The function still never raises (the broad ``except Exception``
+        is preserved so the editor flow doesn't crash on edge cases).
     """
     try:
         import ctypes
@@ -135,7 +135,7 @@ def _windows_wait_for_process_exit(handle) -> None:
         kernel32 = ctypes.windll.kernel32
         kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
         kernel32.WaitForSingleObject.restype = DWORD
-        # DE-68: finite timeout — see ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
+        # finite timeout — see ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
         # comment for the rationale.
         result = kernel32.WaitForSingleObject(handle, _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS)
         if result == _WAIT_TIMEOUT:
@@ -183,31 +183,31 @@ def _windows_close_process_handle(handle) -> None:
 def _systemroot_notepad_path():
     """Return the SystemRoot-validated Notepad path, or ``None``.
 
-    SEC-audit-011: prefer the canonical ``C:\\Windows\\System32\\notepad.exe``
-    (existence checked), falling back to ``%SYSTEMROOT%\\System32\\notepad.exe``
-    for non-standard Windows installs. Never resolves a bare ``notepad``
-    from PATH/cwd (which would be tamperable). Returns ``None`` only if
-    neither location exists.
+        SEC-audit-011: prefer the canonical ``C:\\Windows\\System32\\notepad.exe``
+        (existence checked), falling back to ``%SYSTEMROOT%\\System32\\notepad.exe``
+        for non-standard Windows installs. Never resolves a bare ``notepad``
+        from PATH/cwd (which would be tamperable). Returns ``None`` only if
+        neither location exists.
 
-    XZ-R6-AS-07: the candidate order is REVERSED from the historical
-    ``%SYSTEMROOT%``-first order. The previous order trusted
-    ``os.environ.get("SYSTEMROOT")`` first, then fell back to the
-    hardcoded ``C:\\Windows``. An attacker (or a misconfigured parent
-    process) setting ``SYSTEMROOT=C:\\Users\\attacker`` could trick this
-    helper into returning ``C:\\Users\\attacker\\System32\\notepad.exe``
-    (an attacker-controlled binary) AS LONG AS that file existed on
-    disk — which is trivial for an attacker who already controls
-    ``SYSTEMROOT``. The hardcoded ``C:\\Windows\\System32\\notepad.exe``
-    is the OS-installed Notepad (shipped with every Windows install
-    since Windows NT); preferring it FIRST closes the trust gap. The
-    ``%SYSTEMROOT%`` candidate is kept as a fallback for non-standard
-    Windows installs where the system root is on a different drive
-    (e.g. ``D:\\Windows``) — in that scenario, the attacker would
-    ALSO need write access to the SYSTEMROOT path, which is a strictly
-    higher privilege bar than setting an env var.
+    the candidate order is REVERSED from the historical
+        ``%SYSTEMROOT%``-first order. The previous order trusted
+        ``os.environ.get("SYSTEMROOT")`` first, then fell back to the
+        hardcoded ``C:\\Windows``. An attacker (or a misconfigured parent
+        process) setting ``SYSTEMROOT=C:\\Users\\attacker`` could trick this
+        helper into returning ``C:\\Users\\attacker\\System32\\notepad.exe``
+        (an attacker-controlled binary) AS LONG AS that file existed on
+        disk — which is trivial for an attacker who already controls
+        ``SYSTEMROOT``. The hardcoded ``C:\\Windows\\System32\\notepad.exe``
+        is the OS-installed Notepad (shipped with every Windows install
+        since Windows NT); preferring it FIRST closes the trust gap. The
+        ``%SYSTEMROOT%`` candidate is kept as a fallback for non-standard
+        Windows installs where the system root is on a different drive
+        (e.g. ``D:\\Windows``) — in that scenario, the attacker would
+        ALSO need write access to the SYSTEMROOT path, which is a strictly
+        higher privilege bar than setting an env var.
     """
     candidates = [
-        # XZ-R6-AS-07: hardcoded OS path FIRST — never trust env-controlled
+        # hardcoded OS path FIRST — never trust env-controlled
         # SYSTEMROOT ahead of the canonical install location.
         Path(r"C:\Windows") / "System32" / "notepad.exe",
         Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",

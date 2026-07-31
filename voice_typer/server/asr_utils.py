@@ -1,7 +1,7 @@
 """Shared ASR utilities: GPU memory release, download retry, disk-space check, HF cache cleanup.
 
-EC-FIX-8: extracted from ``transcription.py`` to eliminate the DRY
-violations catalogued in EC-17 finding #3 (``release_gpu_memory`` /
+extracted from ``transcription.py`` to eliminate the DRY
+violations catalogued in  finding #3 (``release_gpu_memory``
 ``_download_with_retry`` lived in ``transcription.py`` but were
 imported by ``parakeet_engine`` and ``asr_setup`` — wrong module) and
 finding #2 (``_cleanup_failed_cache`` was duplicated 3x across
@@ -33,7 +33,7 @@ import os
 log = logging.getLogger(__name__)
 
 
-# PROD-004: Approximate model sizes (MB) for disk-space pre-check.
+# Approximate model sizes (MB) for disk-space pre-check.
 # These are the uncompressed sizes of the faster-whisper models.
 _MODEL_SIZE_MB = {
     "tiny.en": 75,
@@ -48,7 +48,7 @@ _MODEL_SIZE_MB = {
     "large-v2": 3000,
     "large-v3": 3000,
     "large": 3000,
-    # NEW-MODEL-001: added turbo + distilled variants.
+    # added turbo + distilled variants.
     # ``large-v3-turbo`` (a.k.a. "turbo") is the fast multilingual model
     # released by OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
     # ``distil-large-v3`` and ``distil-medium.en`` are distilled variants
@@ -67,24 +67,24 @@ _DISK_SPACE_MARGIN_MB = 500
 def release_gpu_memory() -> None:
     """Release GPU memory held by PyTorch's caching allocator.
 
-    NEW-MEM-001: ``del model; gc.collect()`` releases the Python
-    references to the model but PyTorch's CUDA caching allocator
-    retains the freed blocks for reuse by the same process.  After a
-    backend switch (e.g. Whisper → Parakeet → Whisper), the cached
-    blocks from the previous model are never reused (different model
-    architecture), so they accumulate.  On RTX 3060/4060 (8–12 GB
-    VRAM), 2 backend switches can OOM.
+    ``del model; gc.collect()`` releases the Python
+        references to the model but PyTorch's CUDA caching allocator
+        retains the freed blocks for reuse by the same process.  After a
+        backend switch (e.g. Whisper → Parakeet → Whisper), the cached
+        blocks from the previous model are never reused (different model
+        architecture), so they accumulate.  On RTX 3060/4060 (8–12 GB
+        VRAM), 2 backend switches can OOM.
 
-    This helper calls ``torch.cuda.empty_cache()`` to release the
-    cached blocks back to the OS, making VRAM available for the next
-    backend.  Safe to call when:
+        This helper calls ``torch.cuda.empty_cache()`` to release the
+        cached blocks back to the OS, making VRAM available for the next
+        backend.  Safe to call when:
 
-    - torch is not installed (no-op, debug-logged)
-    - CUDA is not initialized (no-op, returns silently)
-    - the current device is CPU (no-op)
+        - torch is not installed (no-op, debug-logged)
+        - CUDA is not initialized (no-op, returns silently)
+        - the current device is CPU (no-op)
 
-    Designed to be called from every ASR engine's ``unload()`` and
-    from every GPU→CPU fallback path in ``TranscriptionEngine``.
+        Designed to be called from every ASR engine's ``unload()`` and
+        from every GPU→CPU fallback path in ``TranscriptionEngine``.
     """
     try:
         import torch
@@ -112,7 +112,7 @@ def _download_with_retry(
     delays: tuple[float, ...] = (5.0, 15.0, 45.0),
     **kwargs,
 ) -> str:
-    """PROD-004: Wrap snapshot_download() with exponential backoff retry.
+    """Wrap snapshot_download() with exponential backoff retry.
 
     Downloads can fail due to transient network issues, HuggingFace
     rate limits, or CDN timeouts.  Retrying with increasing delays
@@ -160,7 +160,7 @@ def _download_with_retry(
                 )
                 _time.sleep(delay)
             else:
-                # CR-41: log.exception preserves the traceback; keep max_attempts arg, drop exc.
+                # log.exception preserves the traceback; keep max_attempts arg, drop exc.
                 log.exception(
                     "[PROD-004] All %d download attempts failed.",
                     max_attempts,
@@ -169,39 +169,39 @@ def _download_with_retry(
 
 
 def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
-    """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
+    """cache cleanup: best-effort delete a tampered HF cache dir.
 
-    EC-FIX-8: canonical version, extracted from
-    ``transcription.py::_cleanup_failed_whisper_cache``.  The local
-    cleanup helpers in ``asr_setup._cleanup_failed_cache`` and
-    ``parakeet_engine._cleanup_hf_cache_dir`` now delegate to this
-    function (single source of truth — previously the same logic was
-    duplicated 3x across the three modules).
+    canonical version, extracted from
+        ``transcription.py::_cleanup_failed_whisper_cache``.  The local
+        cleanup helpers in ``asr_setup._cleanup_failed_cache`` and
+        ``parakeet_engine._cleanup_hf_cache_dir`` now delegate to this
+        function (single source of truth — previously the same logic was
+        duplicated 3x across the three modules).
 
-    Called from each ASR engine's pre-download / verify path when
-    ``verify_model_integrity()`` returns False (either on the cache-hit
-    path or after a fresh download).  Removes the
-    ``models--<org>--<repo>`` directory under
-    ``<config_dir>/huggingface/hub/`` so the next call doesn't
-    re-discover the tampered snapshot.
+        Called from each ASR engine's pre-download / verify path when
+        ``verify_model_integrity()`` returns False (either on the cache-hit
+        path or after a fresh download).  Removes the
+        ``models--<org>--<repo>`` directory under
+        ``<config_dir>/huggingface/hub/`` so the next call doesn't
+        re-discover the tampered snapshot.
 
-    Best-effort: logs but does not raise if the cleanup itself fails
-    (e.g. file is locked on Windows, permission denied on POSIX).  The
-    integrity hard-fail (``raise RuntimeError`` / fall-through to
-    re-download) is the security gate; this cleanup is just hygiene.
+        Best-effort: logs but does not raise if the cleanup itself fails
+        (e.g. file is locked on Windows, permission denied on POSIX).  The
+        integrity hard-fail (``raise RuntimeError`` / fall-through to
+        re-download) is the security gate; this cleanup is just hygiene.
 
-    Parameters
-    ----------
-    repo_id : str
-        HuggingFace repository identifier (e.g.
-        ``"Systran/faster-whisper-small.en"`` or
-        ``"nvidia/parakeet-tdt-0.6b-v3"``).
-    log_prefix : str
-        Prefix tag for log messages so each calling module's logs are
-        identifiable (e.g. ``"[MODEL]"``, ``"[PARAKEET]"``,
-        ``"[ASR_SETUP]"``).  Defaults to ``""`` (no prefix).  A
-        trailing space is added automatically when the prefix is
-        non-empty.
+        Parameters
+        ----------
+        repo_id : str
+            HuggingFace repository identifier (e.g.
+            ``"Systran/faster-whisper-small.en"`` or
+            ``"nvidia/parakeet-tdt-0.6b-v3"``).
+        log_prefix : str
+            Prefix tag for log messages so each calling module's logs are
+            identifiable (e.g. ``"[MODEL]"``, ``"[PARAKEET]"``,
+            ``"[ASR_SETUP]"``).  Defaults to ``""`` (no prefix).  A
+            trailing space is added automatically when the prefix is
+            non-empty.
     """
     import shutil
 
@@ -239,7 +239,7 @@ def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
 
 
 def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
-    """PROD-005: Check available disk space before model download.
+    """Check available disk space before model download.
 
     Compares available space in the HuggingFace cache directory
     against the estimated model size with a 500 MB margin.

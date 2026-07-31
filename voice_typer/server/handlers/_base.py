@@ -1,9 +1,9 @@
-"""Shared base for IPC handler mixins (CR-20 + R4-F3 combined).
+"""Shared base for IPC handler mixins (error envelope + mixin base).
 
 This module is the result of merging two independent improvements:
 
-* **CR-20**: ``HandlerBase`` with the
-  :meth:`_respond_with_error` helper. Prior to CR-20, every IPC
+* Error envelope: ``HandlerBase`` with the
+  :meth:`_respond_with_error` helper. Prior to this, every IPC
   handler mixin caught its own ``Exception`` and returned the Python
   exception text verbatim to the renderer::
 
@@ -23,11 +23,11 @@ This module is the result of merging two independent improvements:
 
   to avoid leaking server internals (file paths, CUDA error strings,
   internal module names, HF repo IDs) to a potentially-compromised
-  renderer. CR-20's ``_respond_with_error`` emits the SAME generic
+  renderer. ``_respond_with_error`` emits the SAME generic
   envelope so the renderer cannot distinguish "handler caught its own
   exception" from "exception propagated to the dispatcher".
 
-* **R4-F3**: ``HandlerMixinBase`` with the three
+* Mixin base: ``HandlerMixinBase`` with the three
   runtime-provided attribute annotations (``service``, ``app``,
   ``_send``). Previously every one of the 14 handler mixins
   re-declared the same 3-line ``Any`` annotation block to keep
@@ -69,7 +69,7 @@ from voice_typer.server.asr_errors import (
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes  # noqa: F401
 
-# XE-14-C: import the recording-pipeline exception hierarchy so the
+# Import the recording-pipeline exception hierarchy so the
 # ``_respond_with_error`` isinstance ladder can map ResampleError /
 # ResampleUnavailableError to dedicated IPC error codes instead of
 # collapsing them into the generic ``server.internal_error`` toast.
@@ -81,7 +81,7 @@ from voice_typer.server.recording.exceptions import (
 
 
 def _legacy_code_from(code: str) -> str:
-    """XE-14-B: derive a legacy (non-namespaced) error code from a
+    """Derive a legacy (non-namespaced) error code from a
     namespaced one by stripping the leading ``client.`` / ``server.``
     prefix. Used by ``_respond_with_error`` to stamp a ``legacy_code``
     alias on every envelope so the renderer (which may still branch on
@@ -96,7 +96,7 @@ def _legacy_code_from(code: str) -> str:
     return code
 
 
-# XE-14-B: explicit namespaced → legacy alias map for codes that have
+# Explicit namespaced → legacy alias map for codes that have
 # a ``LegacyErrorCodes`` counterpart. Entries here take precedence over
 # the prefix-stripping fallback in ``_legacy_code_from`` so the
 # ``legacy_code`` field matches the canonical ``LegacyErrorCodes``
@@ -164,11 +164,11 @@ def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
 
 
 class HandlerMixinBase:
-    """Common base for IPC handler mixins (R4-F3).
+    """Common base for IPC handler mixins.
 
     Declares the three runtime-provided attributes (``service``,
     ``app``, ``_send``) that every handler mixin accesses via
-    ``self.X``. These are typed as ``Any`` (the deliberate R4-F3
+    ``self.X``. These are typed as ``Any`` (the deliberate
     design choice) rather than the :class:`ServiceProtocol` /
     :class:`AppProtocol` structural types declared in
     :mod:`voice_typer.server.providers` because:
@@ -204,14 +204,14 @@ class HandlerMixinBase:
     effects at import time. It is a pure type-annotation container.
     """
 
-    # ARCH-REFAC-002 / TASK-10 / R4-F3: pyrefly null-safety fix.
+    # Pyrefly null-safety fix.
     # Provided at runtime by the IPCServer host class via multiple
     # inheritance. Declared here once so each handler mixin doesn't
     # repeat the 3-line block (the duplicate-block removal refactor
     # also removed the 4 duplicates that had been left behind in
     # history / dictation / model / onboarding handlers).
     #
-    # ``Any`` is the deliberate R4-F3 design choice — see the class
+    # ``Any`` is the deliberate design choice — see the class
     # docstring for the rationale on why the narrower
     # :class:`ServiceProtocol` / :class:`AppProtocol` /
     # ``Callable[[dict | None], None]`` annotations were reverted.
@@ -221,12 +221,12 @@ class HandlerMixinBase:
 
 
 class HandlerBase(HandlerMixinBase):
-    """Base for IPC handler mixins that need the CR-20 error envelope.
+    """Base for IPC handler mixins that need the error envelope.
 
     Inherits the ``service`` / ``app`` / ``_send`` annotations from
-    :class:`HandlerMixinBase` (R4-F3) and adds the
+    :class:`HandlerMixinBase` and adds the
     :meth:`_respond_with_error` helper that emits the generic WS-path
-    error envelope (CR-20). Handler mixins that catch their own
+    error envelope. Handler mixins that catch their own
     ``Exception`` inherit from THIS class so they can call
     ``self._respond_with_error(resp, exc, cmd_name)`` instead of
     constructing the leaky ``{"message": str(e)}`` envelope inline.
@@ -235,9 +235,9 @@ class HandlerBase(HandlerMixinBase):
     pure-validation handlers) inherit directly from
     :class:`HandlerMixinBase` to keep their MRO minimal.
 
-    Migration status (CR-20, complete):
+    Migration status (complete):
 
-    The original review (CR-20) found ~50 copies of the leaky pattern
+    The original review found ~50 copies of the leaky pattern
     across all 14 handler mixins. As of the migration completion,
     ALL 14 handler mixins (``config``, ``dictation``, ``history``,
     ``level_monitor``, ``microphone``, ``microphone_test``, ``model``,
@@ -274,7 +274,7 @@ class HandlerBase(HandlerMixinBase):
             ERROR with ``exc_info=True`` so the full traceback lands
             in ``voice-typer.log`` for server-side diagnosis. The
             exception's ``str()`` is NEVER sent to the renderer —
-            that's the whole point of CR-20.
+            that's the whole point of the generic envelope.
         cmd_name :
             The IPC command name (e.g. ``"download_model"``) — used
             only for the log message so operators can correlate the
@@ -312,7 +312,7 @@ class HandlerBase(HandlerMixinBase):
         documentation/contract; the runtime contract is verified by
         ``tests/test_error_codes_registry.py``.
 
-        DE-38: the log message is scrubbed via
+        The log message is scrubbed via
         :func:`_scrub_traceback` before it lands in
         ``voice-typer.log``. ``export_diagnostics`` ships the log
         file back to the renderer, so any secret (API key, bearer
@@ -365,21 +365,21 @@ class HandlerBase(HandlerMixinBase):
         # Settings). The catch-all ``RuntimeError`` fallback stays as
         # ``server.internal_error`` for non-cloud RuntimeErrors.
         #
-        # XE-14-B: every envelope below carries both the namespaced
+        # Every envelope below carries both the namespaced
         # ``code`` and a matching ``legacy_code`` alias (derived by
         # stripping the ``client.``/``server.`` prefix) so the renderer
         # can switch on either form during the namespacing migration
         # window — mirroring the parity stamp added to
         # ``_validate_dict_payload`` and the TCP/WS rate-limit envelopes
-        # under DE-36.
+        # under
         if isinstance(exc, ConsentRequiredError):
-            # NEW-PRIV-006: structured consent error — pass through the
+            # Structured consent error — pass through the
             # typed fields so the renderer can surface a consent dialog
             # instead of a generic error toast. The structured fields
             # (engine_name, consent_field, model_id) let the renderer
             # deep-link to the exact toggle in Settings.
             #
-            # XE-14-A: construct ``data`` from ``exc.to_dict()`` FIRST,
+            # Construct ``data`` from ``exc.to_dict()`` FIRST,
             # then explicitly overwrite ``code`` and ``message`` AFTER
             # the spread. Pre-fix the literal order was
             # ``{"code": ..., "message": ..., **exc.to_dict()}`` which
@@ -390,13 +390,13 @@ class HandlerBase(HandlerMixinBase):
             data = exc.to_dict()
             data["code"] = ErrorCodes.CONSENT_REQUIRED
             data["message"] = str(exc) or "consent required"
-            # XE-14-B: stamp the legacy alias (``consent_required``)
+            # Stamp the legacy alias (``consent_required``)
             # alongside the namespaced ``client.consent_required`` form.
             data["legacy_code"] = _legacy_code_from(ErrorCodes.CONSENT_REQUIRED)
             resp["data"] = data
             return resp
         if isinstance(exc, ResampleUnavailableError):
-            # XE-14-C: scipy.signal.resample_poly unavailable — the
+            # scipy.signal.resample_poly unavailable — the
             # high-quality resample tier is missing, callers must
             # fall back to linear interpolation. Maps to a distinct
             # code so the renderer can surface "install scipy for
@@ -404,14 +404,14 @@ class HandlerBase(HandlerMixinBase):
             code = ErrorCodes.RECORDING_RESAMPLE_UNAVAILABLE
             message = "high-quality audio resampling unavailable"
         elif isinstance(exc, ResampleError):
-            # XE-14-C: audio cannot be resampled to the target sample
+            # Audio cannot be resampled to the target sample
             # rate. Maps to a distinct code so the renderer can
             # distinguish "audio pipeline misconfiguration" from a
             # generic internal_error toast.
             code = ErrorCodes.RECORDING_RESAMPLE_FAILED
             message = "audio resampling failed"
         elif isinstance(exc, RecordingError):
-            # XE-14-C: catch-all for the typed recording-pipeline base
+            # Catch-all for the typed recording-pipeline base
             # (anything that is not one of the narrow subclasses above).
             # Maps to the resample-failed code rather than the generic
             # ``server.internal_error`` so the renderer can group
@@ -440,7 +440,7 @@ class HandlerBase(HandlerMixinBase):
             code = ErrorCodes.CLOUD_ENGINE_ERROR
             message = "cloud provider error"
         else:
-            # EC-FIX-4: use the namespaced form
+            # Use the namespaced form
             # ``server.internal_error`` rather than the legacy bare
             # ``internal_error``. The renderer's ``usePython.ts`` switch
             # accepts both forms (the legacy alias is documented in
@@ -448,7 +448,7 @@ class HandlerBase(HandlerMixinBase):
             # MUST use the namespaced form.
             code = ErrorCodes.INTERNAL_ERROR
             message = "internal error"
-        # XE-14-B: stamp the matching ``LegacyErrorCodes`` alias when
+        # Stamp the matching ``LegacyErrorCodes`` alias when
         # one exists (e.g. ``internal_error`` for
         # ``server.internal_error``). For codes that have no
         # ``LegacyErrorCodes`` counterpart (the cloud / recording codes
@@ -463,7 +463,7 @@ class HandlerBase(HandlerMixinBase):
         }
         return resp
 
-    # ── DT-45: template-method helper for handler consistency ────
+    # ── Template-method helper for handler consistency ────
     # The 14 handler mixins are inconsistent in (a) try/except usage,
     # (b) pre-coercion of ``data``, (c) error envelope shape. The
     # mechanical fix would convert each of the 60+ ``_handle_<cmd>``

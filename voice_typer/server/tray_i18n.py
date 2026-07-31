@@ -1,4 +1,4 @@
-"""TRAY-008: Localization for tray menu labels.
+"""Localization for tray menu labels.
 
 Extracted from ``tray.py`` to separate the i18n concern (locale state +
 label dicts + translation function) from the TrayIcon class.
@@ -56,7 +56,7 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "update_available_body": "{app} {version} está disponible (tienes {current})",
 }
 
-# S1-CR-47: server-side tray i18n only supported 2 of 8 locales (en, es).
+# server-side tray i18n only supported 2 of 8 locales (en, es).
 # Switching to any of ar/de/fr/hi/ru/zh fell back to English. These dicts
 # provide the fallback so the tray menu, notifications, and tooltip state
 # messages are localized even before the renderer pushes its full label

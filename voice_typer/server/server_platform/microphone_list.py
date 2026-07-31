@@ -1,6 +1,6 @@
 """Microphone enumeration helpers.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Contains:
   - :func:`_sd_dev_as_dict` — coerce a sounddevice device entry to ``dict``.
   - :func:`list_microphones` — enumerate available input devices.
@@ -54,13 +54,13 @@ log = logging.getLogger(__name__)
 def _sd_dev_as_dict(dev: Any) -> dict[str, Any] | None:
     """Coerce a sounddevice device entry to a ``dict``.
 
-    TASK-14: ``sounddevice.query_devices()`` returns a ``DeviceList``
-    (a ``tuple`` subclass) whose entries are dicts at runtime, but the
-    package has no inline type annotations, so pyrefly treats the
-    elements as ``tuple[Unknown, ...] | dict[Unknown, Unknown] | str``.
-    Iterating and indexing through that union triggers a cascade of
-    ``bad-index`` / ``missing-attribute`` errors.  This helper performs
-    an explicit ``isinstance`` narrow so callers get a clean ``dict``.
+    ``sounddevice.query_devices()`` returns a ``DeviceList``
+        (a ``tuple`` subclass) whose entries are dicts at runtime, but the
+        package has no inline type annotations, so pyrefly treats the
+        elements as ``tuple[Unknown, ...] | dict[Unknown, Unknown] | str``.
+        Iterating and indexing through that union triggers a cascade of
+        ``bad-index`` / ``missing-attribute`` errors.  This helper performs
+        an explicit ``isinstance`` narrow so callers get a clean ``dict``.
     """
     if isinstance(dev, dict):
         return dev
@@ -88,7 +88,7 @@ def list_microphones() -> list[dict]:
         default_input_raw = sd.query_devices(kind="input")
         default_input = _sd_dev_as_dict(default_input_raw)
         default_index = default_input["index"] if default_input else -1
-        # PERF-FIX-3: batch the host-API name lookups. Pre-fix, each
+        # PERF-: batch the host-API name lookups. Pre-fix, each
         # input device triggered a separate ``sd.query_hostapis(idx)``
         # syscall. Querying all host APIs once and building an
         # ``idx → name`` dict turns N syscalls into one.

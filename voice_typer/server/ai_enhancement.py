@@ -187,7 +187,7 @@ _RE_PROPER_NOUN = re.compile(
     + r")(?![A-Za-z'])",
 )
 
-# XV-79: hoisted from ``auto_capitalize`` and ``auto_punctuate`` function
+# hoisted from ``auto_capitalize`` and ``auto_punctuate`` function
 # bodies. Re-compiling these patterns (and re-allocating the pronouns
 # frozenset) inside the hot dictation path contradicted the module-level
 # compile pattern documented at the top of this file and added ~1-3 µs
@@ -267,7 +267,7 @@ def auto_capitalize(text: str) -> str:
     #    URL guard: if the text starts with `http://` or `https://`,
     #    we skip this step entirely so we don't mangle the scheme
     #    (capitalizing "h" in "https" would break the URL).
-    # XV-79: pattern hoisted to module level (``_RE_LEADING_URL``).
+    # pattern hoisted to module level (``_RE_LEADING_URL``).
     if not _RE_LEADING_URL.match(result):
         for i, ch in enumerate(result):
             if ch.isalpha():
@@ -373,7 +373,7 @@ def auto_punctuate(text: str) -> str:
     # oranges" alone (no pronoun after "and").  We don't require the
     # word BEFORE the conjunction to be a pronoun because that would
     # miss the common "X-verb-object and I-verb-object" pattern.
-    # XV-79: pattern + pronoun set hoisted to module level
+    # pattern + pronoun set hoisted to module level
     # (``_RE_CONJUNCTION_BREAK`` / ``_PRONOUN_SUBJECTS``).
 
     def _maybe_insert_comma(match: re.Match[str]) -> str:

@@ -44,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Chunk size used by the production audio path: 512 samples at the
-# device-native rate (matches XV-20's "actual is 512 samples at native
+# device-native rate (matches 's "actual is 512 samples at native
 # rate" finding). 16 kHz path uses 512 samples too (one chunk = 32ms).
 DEFAULT_CHUNK_SAMPLES = 512
 DEFAULT_RATE = 16000
@@ -67,8 +67,16 @@ def _make_config(noise_suppression: str = "none") -> object:
     (NoiseGate + the noise-suppressor's degraded path). The degraded
     state is reported in the result so a regression in either path
     (full or degraded) is visible.
+
+    Rationale: previously this function imported a parallel ``_DEFAULTS``
+    dict from ``audio_chain_builder`` and used a ``_DictConfig`` shim
+    that fell back to ``_DEFAULTS`` for any unspecified field — a DRY
+    violation (Rule P2) that duplicated every ``Config`` default. The
+    dict was deleted; this function now constructs a real
+    ``Config()`` instance and applies overrides via ``setattr`` so
+    there is exactly one source of truth for each default.
     """
-    from voice_typer.server.audio_chain_builder import _DEFAULTS
+    from voice_typer.server.config import Config
 
     try:
         import scipy  # noqa: F401
@@ -77,31 +85,25 @@ def _make_config(noise_suppression: str = "none") -> object:
     except ImportError:
         scipy_available = False
 
-    overrides: dict = {"noise_suppression_method": noise_suppression}
+    # Construct a real Config() so every default comes from the single
+    # source of truth (Config dataclass). Overrides are applied via
+    # setattr — same pattern build_chain_from_dict uses.
+    cfg = Config()
+    cfg.noise_suppression_method = noise_suppression
     if not scipy_available:
         # Disable every IIR / scipy-dependent filter so the chain
         # still produces non-None output. NoiseGate is sample-by-sample
         # Python (no scipy) so it stays on.
-        overrides.update(
-            {
-                "noise_filter_highpass": False,
-                "noise_filter_notch": False,
-                "noise_filter_eq": False,
-                "noise_filter_compressor": False,
-                "noise_filter_limiter": False,
-            }
-        )
+        for flag in (
+            "noise_filter_highpass",
+            "noise_filter_notch",
+            "noise_filter_eq",
+            "noise_filter_compressor",
+            "noise_filter_limiter",
+        ):
+            setattr(cfg, flag, False)
 
-    class _DictConfig:
-        def __init__(self, overrides: dict) -> None:
-            self._overrides = overrides
-
-        def __getattr__(self, name: str):
-            if name in self._overrides:
-                return self._overrides[name]
-            return _DEFAULTS.get(name)
-
-    return _DictConfig(overrides)
+    return cfg
 
 
 def generate_test_audio(num_samples: int) -> np.ndarray:

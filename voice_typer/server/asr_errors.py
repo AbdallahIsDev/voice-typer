@@ -1,9 +1,9 @@
 """Shared ASR error types.
 
-EC-FIX-8: extracted from ``cloud_engines.py`` to break the layering
+Extracted from ``cloud_engines.py`` to break the layering
 violation where local ASR engines (``parakeet_engine``,
 ``transcription``) imported ``ConsentRequiredError`` from the cloud-
-engines module (EC-30 finding #12 / EC-B4).
+engines module ( finding #12 / ).
 
 This module is intentionally dependency-free (no imports from
 ``voice_typer.server.*``) so any engine can import it without risk of
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 
 class ConsentRequiredError(RuntimeError):
-    """NEW-PRIV-006: raised when an ASR engine is asked to transcribe
+    """Raised when an ASR engine is asked to transcribe
     or download model files but the user hasn't granted consent for
     that provider.
 
@@ -34,7 +34,7 @@ class ConsentRequiredError(RuntimeError):
     fields are keyword-only so existing callers continue to work
     unchanged.
 
-    DE-30: ``provider`` and ``scope`` are class attributes (defaulting
+    ``provider`` and ``scope`` are class attributes (defaulting
     to empty string) so the IPC layer can read them off any instance
     via ``getattr(exc, "provider", "")`` without ``isinstance``
     branching. The typed subclasses (``HuggingFaceConsentRequiredError``
@@ -65,7 +65,7 @@ class ConsentRequiredError(RuntimeError):
       repeat events within a session.
     """
 
-    # DE-30: class-level defaults so ``getattr(exc, "provider", "")``
+    # Class-level defaults so ``getattr(exc, "provider", "")``
     # on ANY instance (base or subclass) always returns a string.
     provider: str = ""
     scope: str = ""
@@ -98,7 +98,7 @@ class ConsentRequiredError(RuntimeError):
 
 
 class HuggingFaceConsentRequiredError(ConsentRequiredError):
-    """DE-30: typed subclass for HuggingFace *download* consent denial.
+    """Typed subclass for HuggingFace *download* consent denial.
 
     ``provider`` / ``scope`` are class attributes (not per-instance) —
     every HuggingFace consent denial is a download-scope denial for
@@ -112,7 +112,7 @@ class HuggingFaceConsentRequiredError(ConsentRequiredError):
 
 
 class CloudConsentRequiredError(ConsentRequiredError):
-    """DE-30: typed subclass for cloud-provider *transcribe* consent
+    """Typed subclass for cloud-provider *transcribe* consent
     denial.
 
     ``scope`` is a class attribute (always ``"transcribe"`` — every
@@ -127,7 +127,7 @@ class CloudConsentRequiredError(ConsentRequiredError):
     each cloud engine (openai / groq / deepgram) can carry its own
     provider value without a separate subclass per provider.
 
-    XE-14-G: ``__init__`` now accepts the parent's structured fields
+    ``__init__`` now accepts the parent's structured fields
     (``engine_name`` / ``consent_field`` / ``model_id``) as explicit
     keyword arguments instead of a generic ``**kwargs: object`` +
     ``# type: ignore[arg-type]`` — type-checkers can verify the
@@ -135,7 +135,7 @@ class CloudConsentRequiredError(ConsentRequiredError):
     """
 
     scope = "transcribe"
-    # XE-14-H: explicit class-attribute declaration (mirrors the base
+    # Explicit class-attribute declaration (mirrors the base
     # class default of ``""``) documenting that subclasses or instances
     # should override this to surface the specific cloud vendor.
     provider: str = ""

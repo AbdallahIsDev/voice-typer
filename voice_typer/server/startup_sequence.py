@@ -1,6 +1,6 @@
 """Startup sequence orchestration for VoiceTyperApp.
 
-RW-9 Phase 5: extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
+Phase 5: extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
 to reduce the god-class size. Each phase is gated by
 ``app._shutting_down`` so a ``quit()`` during startup short-circuits
 cleanly.
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# XZ-R12-08: name of the onboarding-fail-counter persistence file
+# name of the onboarding-fail-counter persistence file
 # (lives in the config dir alongside config.json). The file holds a
 # tiny JSON document: ``{"count": <int>, "last_fail_ts": <epoch-float>}``.
 # The counter survives process restarts so the "after 3 failures"
@@ -178,7 +178,7 @@ class StartupSequence:
             if crash_summary:
                 # Log at WARNING so it appears prominently in voice-typer.log
                 log.warning("[STARTUP] Previous session crashed! See log lines above for full diagnostics.")
-                # NEW-UX-018: critical — bypass notification toggle so the
+                # critical — bypass notification toggle so the
                 # user always sees crash alerts.
                 try:
                     app.tray.notify_safety(
@@ -195,7 +195,7 @@ class StartupSequence:
                 # Also publish an event to the in-process event bus so
                 # the Electron frontend can show an in-app notification
                 # (toast / snackbar) if the UI window is open.
-                # CR-8: event name was renamed from "electron_notification"
+                # event name was renamed from "electron_notification"
                 # to the platform-agnostic "notification" — the Tauri
                 # Rust host passes the event through unchanged (the old
                 # rename match arm was removed). A Rust-side backward-
@@ -267,7 +267,7 @@ class StartupSequence:
                         app.config.onboarding_completed = True
                         onboarding.mark_complete()
                         app.config.save()
-                        # XZ-R12-08: clear the persisted fail counter
+                        # clear the persisted fail counter
                         # — the auto-heal path means onboarding is now
                         # complete (no longer failing), so a future
                         # transient failure should start fresh instead
@@ -283,7 +283,7 @@ class StartupSequence:
                         )
                         app.config.save()
             except Exception as e:
-                # ERR-010: previously this was log.debug, which is
+                # previously this was log.debug, which is
                 # invisible at default log levels. If onboarding check
                 # persistently fails the user is stuck on first-run
                 # forever with no indication of why. Promote to
@@ -292,7 +292,7 @@ class StartupSequence:
                 # flag so the app remains usable.
                 log.exception("[STARTUP] Onboarding check failed: %s", e)
                 try:
-                    # XZ-R12-08: persist the fail counter to disk so
+                    # persist the fail counter to disk so
                     # the "after 3 failures" circuit breaker actually
                     # trips across process restarts. Pre-fix the
                     # counter lived only on ``app._onboarding_fail_count``
@@ -332,13 +332,13 @@ class StartupSequence:
                             app.config.save()
                         except Exception:
                             log.exception("[STARTUP] Could not save onboarding_failed flag")
-                        # XZ-R12-08: reset the persisted counter once
+                        # reset the persisted counter once
                         # the circuit breaker trips so a future
                         # onboarding reset (user clears
                         # onboarding_completed in settings) starts
                         # fresh instead of immediately re-tripping.
                         _reset_onboarding_fail_count()
-                        # NEW-UX-018: critical — bypass show_notifications toggle.
+                        # critical — bypass show_notifications toggle.
                         with contextlib.suppress(Exception):
                             app.tray.notify_safety(
                                 APP_NAME,
@@ -356,12 +356,12 @@ class StartupSequence:
                     log.exception("[STARTUP] Onboarding failure-handler itself failed")
 
         # Load external text corrections (if available) before any transcription
-        # ARCH-004: surface load errors to the user via tray notification
+        # surface load errors to the user via tray notification
         # so they know why their corrections aren't taking effect.
         try:
             err = configure_corrections(config_dir=app.config.config_dir)
             if err is not None:
-                # NEW-UX-018: critical — bypass toggle (broken corrections file).
+                # critical — bypass toggle (broken corrections file).
                 try:
                     app.tray.notify_safety(
                         f"{APP_NAME} — Corrections Error",
@@ -378,7 +378,7 @@ class StartupSequence:
                 unpasted = app._crash_recovery.check_on_startup()
                 if unpasted:
                     log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
-                    # NEW-UX-018: critical — bypass toggle (recovered user data).
+                    # critical — bypass toggle (recovered user data).
                     app.tray.notify_safety(
                         APP_NAME,
                         f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
@@ -389,7 +389,7 @@ class StartupSequence:
                 # diagnose why crash-recovery check failed.
                 log.warning("[STARTUP] Crash recovery check failed", exc_info=True)
 
-        # DEAD-012: apply history retention policy at startup.
+        # apply history retention policy at startup.
         # Previously the config keys were saved but never read.
         # PERF-14: spawn a daemon thread so the SQLite DELETEs (which
         # can take 100ms+ on a large history DB with index rebuilds)
@@ -455,7 +455,7 @@ class StartupSequence:
                     exc_info=True,
                 )
 
-        # ER-36: schedule PERIODIC retention sweeps so the DB doesn't
+        # schedule PERIODIC retention sweeps so the DB doesn't
         # grow monotonically during long sessions. The one-shot
         # ``_apply_retention_bg`` above only prunes at startup; an 8-hour
         # dictation session at ~1 transcription/minute accumulates ~480
@@ -485,11 +485,11 @@ class StartupSequence:
                 exc_info=True,
             )
 
-        # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
+        # PLAT-WAYLAND: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
         if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland" and not app.config.wayland_warned:
             log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
-            # XPLAT-004: check if wtype or ydotool is available as a fallback
+            # check if wtype or ydotool is available as a fallback
             import shutil
 
             wtype_available = shutil.which("wtype") is not None
@@ -500,7 +500,7 @@ class StartupSequence:
                     "Install one for hotkey support on Wayland: "
                     "'sudo apt install wtype' or 'sudo apt install ydotool'"
                 )
-                # NEW-UX-018: critical — bypass toggle (hotkeys broken).
+                # critical — bypass toggle (hotkeys broken).
                 app.tray.notify_safety(
                     f"{APP_NAME} — Wayland Hotkeys",
                     "Global hotkeys may not work on Wayland. "
@@ -515,20 +515,20 @@ class StartupSequence:
             app.config.wayland_warned = True
             app.config.save()
 
-        # XPLAT-002 / PLAT-030: macOS accessibility permission check.
+        # macOS accessibility permission check.
         # On macOS, global hotkeys require Accessibility permission.
         # The app can't request it directly, but we can detect it's
         # missing and notify the user.
         _has_accessibility = False
         if is_macos():
             try:
-                # PLAT-030: Use AXIsProcessTrusted() via ctypes for the
+                # Use AXIsProcessTrusted() via ctypes for the
                 # definitive check.  AXIsProcessTrusted() is the official
                 # API — it returns True iff the process has Accessibility
                 # permission.  We load it from ApplicationServices.framework
                 # via ctypes (no PyObjC dependency required).
                 #
-                # ER-6: the prior fallback to `osascript -e 'tell
+                # the prior fallback to `osascript -e 'tell
                 # application "System Events" to keystroke " "'` was
                 # removed because:
                 #   1. It runs on the critical startup thread (before
@@ -569,7 +569,7 @@ class StartupSequence:
                     )
                     _has_accessibility = bool(app_services.AXIsProcessTrusted())
                 except Exception as exc:
-                    # ER-6: drop the osascript fallback entirely. Treat
+                    # drop the osascript fallback entirely. Treat
                     # ctypes-load failure as "permission not granted"
                     # (False) — the A11yPulse task (started below at
                     # line 406) will re-probe within 60s and update
@@ -587,7 +587,7 @@ class StartupSequence:
 
                 if not _has_accessibility:
                     log.warning("[STARTUP] macOS Accessibility permission not granted")
-                    # NEW-UX-018: critical — bypass toggle (hotkeys broken).
+                    # critical — bypass toggle (hotkeys broken).
                     app.tray.notify_safety(
                         f"{APP_NAME} — Accessibility Permission",
                         "Global hotkeys require Accessibility permission. "
@@ -600,11 +600,11 @@ class StartupSequence:
                 # diagnose why the macOS accessibility check failed.
                 log.warning("[STARTUP] macOS accessibility check failed", exc_info=True)
 
-            # PLAT-009: Start a periodic accessibility health monitor.
+            # Start a periodic accessibility health monitor.
             # If the user grants permission AFTER startup, the app will
             # detect it within 60 seconds and clear the warning. If the
             # user revokes permission mid-session, the app will re-warn.
-            # RW-9 Phase 2: invoke startup_tasks directly. The
+            # Phase 2: invoke startup_tasks directly. The
             # ``app._start_accessibility_pulse`` delegate was removed; callers
             # now target startup_tasks (and tests monkeypatch startup_tasks).
             from voice_typer.server import startup_tasks
@@ -613,16 +613,16 @@ class StartupSequence:
 
         # 1. Sync autostart config with platform
         log.debug("[STARTUP] Syncing autostart")
-        # RW-9 Phase 2: invoke startup_tasks directly. The
+        # Phase 2: invoke startup_tasks directly. The
         # ``app._sync_autostart`` delegate was removed; callers now target
         # startup_tasks (and tests monkeypatch startup_tasks).
         from voice_typer.server import startup_tasks
 
-        # ER-73(a): sync_autostart returns a result dict whose
+        # (a): sync_autostart returns a result dict whose
         # ``actual_post_sync`` field carries the post-sync OS-level
         # autostart state (True iff the OS-level autostart entry is
         # currently registered). Use that field instead of calling
-        # ``is_autostart_enabled()`` a second time — the pre-ER-73 path
+        # ``is_autostart_enabled()`` a second time — the pre- path
         # called the platform helper twice back-to-back on every startup,
         # and the second call always returned the same value as the one
         # sync_autostart already read internally. Falling back to a direct
@@ -650,11 +650,11 @@ class StartupSequence:
         #     schtasks /Query) and self-healing: if the user deleted the task
         #     or moved machines, it gets re-registered.
         #
-        # PERF-NEW-030: prewarm sync + mic enumeration are independent
+        # PERF-: prewarm sync + mic enumeration are independent
         # I/O-bound tasks. Run them in parallel so the total startup
         # time is max(t_prewarm, t_mics) instead of t_prewarm + t_mics.
         #
-        # AB-31: the previous implementation used ``ThreadPoolExecutor``,
+        # the previous implementation used ``ThreadPoolExecutor``,
         # whose worker threads are NON-daemon on Python 3.9+ (CPython's
         # ``_python_exit`` atexit handler joins them with no timeout).
         # If ``sync_prewarm_task`` got stuck inside ``subprocess.run``
@@ -683,7 +683,7 @@ class StartupSequence:
         # can abort early if the app is quitting during startup.
         _shutdown_event = app._shutting_down_event if hasattr(app, "_shutting_down_event") else None
 
-        # PW-2: log the trigger regime that will be registered, so
+        # log the trigger regime that will be registered, so
         # operators can verify from the app-start logs which triggers
         # are in effect.  On Windows the XML task uses BootTrigger +
         # EventTrigger (both system-start), and the Run-key fallback
@@ -700,7 +700,7 @@ class StartupSequence:
         )
 
         def _startup_parallel_work() -> None:
-            # DJ-4: split the parallel pool. Pre-fix, both ``sync_prewarm_task``
+            # split the parallel pool. Pre-fix, both ``sync_prewarm_task``
             # and ``load_microphones`` ran in parallel with a 10s per-task
             # timeout, and hotkey registration (line 777) ran AFTER both
             # completed. So if ``sync_prewarm_task`` hung (Windows Task
@@ -761,7 +761,7 @@ class StartupSequence:
                     # whatever the task function returned — typically
                     # ``None`` for these two startup tasks).
                     pass
-            # PERF-FIX-2: the 30s ``sd.query_devices()`` device-change
+            # PERF-: the 30s ``sd.query_devices()`` device-change
             # poller (``_start_device_change_poller``) was removed from
             # startup because it is fully redundant with the
             # event-driven ``MicrophoneDeviceWatcher`` started in
@@ -770,7 +770,7 @@ class StartupSequence:
             # on macOS). The watcher is the sole source of truth; the
             # 30s poller was a defence-in-depth fallback that cost
             # ~1-5ms of CPU every 30s and allocated a fresh
-            # ``threading.Event()`` object every second. RW-9 Phase 1
+            # ``threading.Event()`` object every second.  Phase 1
             # also deleted the now-orphaned ``_start_device_change_poller``
             # delegate from this class — see test_bugfix_regressions.py
             # ``TestAudioMicDeviceChangePoller`` for the full history.
@@ -779,7 +779,7 @@ class StartupSequence:
         # (Run before parallel work so the shortcut exists before mic
         # enumeration — they're independent but shortcut creation is
         # fast and quick to fail.)
-        # RW-9 Phase 2: call startup_tasks directly.
+        # Phase 2: call startup_tasks directly.
         startup_tasks.ensure_desktop_shortcut(app)
 
         log.debug("[STARTUP] Running prewarm sync + mic enumeration")
@@ -792,7 +792,7 @@ class StartupSequence:
 
         # 3. Register hotkey BEFORE model load so F2 works even if model fails
         log.debug("[STARTUP] Registering hotkey")
-        # RW-9 Phase 2: invoke HotkeyDispatcher directly. The
+        # Phase 2: invoke HotkeyDispatcher directly. The
         # ``app._register_hotkey`` delegate was removed; callers now target
         # ``app.hotkeys`` (and tests monkeypatch app.hotkeys.register).
         app.hotkeys.register()
@@ -845,7 +845,7 @@ class StartupSequence:
                 log.info("[STARTUP] Bubble shown at startup (always_visible mode)")
             except Exception as e:
                 log.warning("[STARTUP] Failed to show bubble at startup: %s", e)
-            # UX-10: push the bubble-relevant config (bubble_behavior /
+            # push the bubble-relevant config (bubble_behavior
             # bubble_click_to_toggle / bubble_mic_button) so the bubble
             # renderer knows whether to show its mic button. The bubble
             # is sandboxed and cannot call get_config itself.

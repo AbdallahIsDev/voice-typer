@@ -46,13 +46,13 @@ MAX_RECOVERY_ENTRIES = 10
 _SAVE_QUEUE_MAXSIZE = 32
 
 
-# FT-2: module-level WeakSet tracking all live CrashRecovery instances.
+# module-level WeakSet tracking all live CrashRecovery instances.
 # Tests that construct CrashRecovery via ``_MockApp`` helpers frequently
 # leak the instance (and its ``crash-recovery-saver`` daemon thread)
 # because the test fixture only calls ``IPCServer.stop()``, which does NOT
 # shut down ``app._crash_recovery``. On Windows the accumulated daemon
 # threads eventually trip a native limit and crash the whole pytest
-# process mid-suite (FT-2). ``tests/conftest.py`` iterates this set after
+# process mid-suite (). ``tests/conftest.py`` iterates this set after
 # each test and calls ``shutdown()`` on any still-alive instance.
 _LIVE_INSTANCES: "weakref.WeakSet[CrashRecovery]" = weakref.WeakSet()
 
@@ -75,7 +75,7 @@ def _atexit_flush_all() -> None:
     doesn't skip the others. Mirrors the original per-instance handler's
     contract — atexit must never raise.
 
-    XZ-R17-13: ``_stopped`` is set to ``True`` before ``_save_sync``
+    ``_stopped`` is set to ``True`` before ``_save_sync``
     so the worker drain path (if any) knows to exit. After the save,
     ``_final_save_done`` is set to ``True`` so the subsequent
     ``__del__`` (which fires later during GC) observes the flag and
@@ -89,7 +89,7 @@ def _atexit_flush_all() -> None:
     still persist (regression-tested by
     ``test_del_saves_unpersisted_post_shutdown_mutations``).
 
-    XE-16-6: each ``_save_sync()`` is now wrapped in a bounded-wait
+    each ``_save_sync()`` is now wrapped in a bounded-wait
     helper using a separate thread + ``Event.wait(timeout=2.0)``. Pre-fix
     a hung ``_save_sync`` (e.g. an NFS hang on the atomic write, an
     antivirus lock on Windows, fsync on a dying SSD) blocked atexit
@@ -105,11 +105,11 @@ def _atexit_flush_all() -> None:
     for inst in list(_LIVE_INSTANCES):
         with contextlib.suppress(Exception):
             inst._stopped = True
-            # XE-16-6: bounded-wait helper. Run ``_save_sync`` in a
+            # bounded-wait helper. Run ``_save_sync`` in a
             # short-lived daemon thread; if it doesn't return within
             # ``_ATEXIT_FLUSH_TIMEOUT_S`` seconds, log WARNING and
             # move on so a hung save doesn't block interpreter exit.
-            # AB-44: pass ``durability=True`` so the final shutdown
+            # pass ``durability=True`` so the final shutdown
             # save runs both fsyncs (file data + parent dir). The
             # per-dictation path uses ``durability=False`` (5+ saves/sec
             # under streaming — fsync cost not worth it for non-critical
@@ -117,7 +117,7 @@ def _atexit_flush_all() -> None:
             # guarantee matters (a crash immediately after exit must
             # not lose the final state).
             _run_save_with_timeout(inst, _ATEXIT_FLUSH_TIMEOUT_S, durability=True)
-            # XZ-R17-13: mark the final save as done so the subsequent
+            # mark the final save as done so the subsequent
             # __del__ (fired by GC) skips the redundant write. Set
             # under no lock here — atexit is single-threaded by
             # definition (the interpreter only fires it once, after
@@ -133,7 +133,7 @@ def _atexit_flush_all() -> None:
 
 
 def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability: bool = False) -> None:
-    """XE-16-6: run ``inst._save_sync()`` with a bounded wait.
+    """run ``inst._save_sync()`` with a bounded wait.
 
     Spawns a daemon thread to invoke ``_save_sync``; if the call
     doesn't return within ``timeout`` seconds, logs WARNING and
@@ -150,7 +150,7 @@ def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability:
     doesn't, the recovery state for that instance is lost (acceptable
     — atexit is a safety net, not a guarantee).
 
-    AB-44: ``durability`` is forwarded to ``_save_sync``. The atexit
+    ``durability`` is forwarded to ``_save_sync``. The atexit
     caller passes ``durability=True`` (one-time final shutdown save —
     durability guarantee matters there); other callers use the
     default ``False``.
@@ -191,7 +191,7 @@ def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability:
         raise worker_exc[0]
 
 
-# XE-16-6: bounded-wait timeout for ``_atexit_flush_all``. 2.0 s is
+# bounded-wait timeout for ``_atexit_flush_all``. 2.0 s is
 # generous for a healthy SSD save (~10 ms) and tight enough that the
 # interpreter doesn't appear to hang on a stuck disk. Tunable for tests
 # via monkeypatch.
@@ -239,7 +239,7 @@ class CrashRecovery:
         self._save_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_SAVE_QUEUE_MAXSIZE)
         self._save_thread: threading.Thread | None = None
         self._stopped = False
-        # XZ-R17-08: ``_dir_ensured`` guards the per-save ``os.chmod``
+        # ``_dir_ensured`` guards the per-save ``os.chmod``
         # on ``self._path.parent``. The chmod is idempotent (setting
         # 0o700 on an already-0o700 dir is a no-op) but it's still a
         # syscall per transcription — under rapid dictation (5+ saves /
@@ -251,7 +251,7 @@ class CrashRecovery:
         # failure case. Guarded by ``_save_lock`` (acquired in
         # ``_save_sync``) so the flag is race-free.
         self._dir_ensured = False
-        # XZ-R17-13: ``_final_save_done`` deduplicates the final
+        # ``_final_save_done`` deduplicates the final
         # shutdown save between the atexit handler
         # (``_atexit_flush_all``) and ``__del__``. Both paths call
         # ``_save_sync()`` during interpreter shutdown; without the
@@ -394,10 +394,10 @@ class CrashRecovery:
         This is called only from the background save thread.  All
         other callers go through ``_enqueue_save()``.
 
-        SEC-007: on POSIX, restricts file permissions to 0o600 so
+        on POSIX, restricts file permissions to 0o600 so
         transcription text in the recovery file is not world-readable.
 
-        NEW-SEC-008: uses the shared _secure_atomic_write which applies
+        uses the shared _secure_atomic_write which applies
         O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
 
         a-review Finding A1: ``_save_lock`` serializes the disk write
@@ -413,14 +413,14 @@ class CrashRecovery:
         lazy import would silently fail and the final recovery state
         would be lost.
 
-        XZ-R17-08: ``_dir_ensured`` guards the per-save
+        ``_dir_ensured`` guards the per-save
         ``os.chmod(self._path.parent, 0o700)``. The chmod is
         idempotent but it's still a syscall per transcription; the
         flag is set after the first successful mkdir+chmod and
         subsequent saves skip it. If the chmod fails (logged at
         warning), the flag is NOT set so the next save retries.
 
-        AB-44: ``_dir_ensured`` now ALSO gates the per-save ``mkdir``
+        ``_dir_ensured`` now ALSO gates the per-save ``mkdir``
         on ``self._path.parent`` (same idempotent-syscall rationale
         as the chmod). The flag is set after the first successful
         mkdir+chmod; subsequent saves skip BOTH.  ``durability``
@@ -432,7 +432,7 @@ class CrashRecovery:
         shutdown save (one-time cost, durability guarantee matters
         there).
 
-        XZ-R17-13: ``_final_save_done`` deduplicates the final
+        ``_final_save_done`` deduplicates the final
         shutdown save. ``__del__`` and the atexit handler both call
         ``_save_sync()`` during interpreter shutdown; the flag
         (guarded by ``_save_lock``) makes the second call a no-op
@@ -443,7 +443,7 @@ class CrashRecovery:
         for post-shutdown mutations. The flag is reset to ``False``
         by ``_enqueue_save`` when a new mutation arrives post-shutdown.
 
-        XE-16-4: the lock acquisition is now INSIDE a top-level
+        the lock acquisition is now INSIDE a top-level
         ``try/except Exception:`` so a lock-acquisition failure (e.g.
         a ``RuntimeError`` from a re-entrant acquire attempt during
         interpreter shutdown, or a ``BrokenPipeError``-style failure
@@ -455,7 +455,7 @@ class CrashRecovery:
         """
         try:
             with self._save_lock:
-                # XZ-R17-13: short-circuit if the atexit handler already
+                # short-circuit if the atexit handler already
                 # persisted the final state. The flag is set ONLY by
                 # ``_atexit_flush_all`` (NOT by ``shutdown()`` or this
                 # function) — so ``shutdown()``'s final save does NOT
@@ -469,13 +469,13 @@ class CrashRecovery:
                 if self._final_save_done:
                     return
                 try:
-                    # AB-44: skip the mkdir on subsequent saves. The flag
+                    # skip the mkdir on subsequent saves. The flag
                     # is set after the first successful mkdir+chmod; later
                     # saves only do the atomic write. The flag is cleared
                     # on any mkdir/chmod failure so the next save retries.
                     if not self._dir_ensured:
                         self._path.parent.mkdir(parents=True, exist_ok=True)
-                        # XZ-R17-08: skip the chmod on subsequent saves.
+                        # skip the chmod on subsequent saves.
                         # First save does the mkdir + chmod; later saves
                         # only do the atomic write. The flag is cleared on
                         # any chmod failure so the next save retries.
@@ -502,11 +502,11 @@ class CrashRecovery:
                             indent=2,
                             ensure_ascii=False,
                         )
-                    # AB-44: durability=False (default) for the per-dictation
+                    # durability=False (default) for the per-dictation
                     # path.  The atexit handler and __del__ may pass
                     # durability=True for the final shutdown save.
                     _secure_atomic_write(self._path, snapshot, durability=durability)
-                    # XZ-R17-13: NOTE — the flag is NOT set here. Only
+                    # NOTE — the flag is NOT set here. Only
                     # ``_atexit_flush_all`` sets the flag (after its own
                     # successful save). This ensures:
                     #   • ``shutdown()``'s final save does NOT suppress a
@@ -523,7 +523,7 @@ class CrashRecovery:
                 except Exception:
                     log.exception("[RECOVERY] Failed to save")
         except Exception:
-            # XE-16-4: lock-acquisition failure (or any other exception
+            # lock-acquisition failure (or any other exception
             # escaping the inner try/except). Log and swallow so the
             # caller (the worker thread, ``shutdown()``, ``__del__``,
             # ``_atexit_flush_all``) is not crashed by a save failure.
@@ -546,7 +546,7 @@ class CrashRecovery:
         "After shutdown, any further calls to ``add()`` /
         ``mark_pasted()`` / etc. will fall back to synchronous saves".
 
-        XZ-R17-13: before the post-shutdown synchronous save, RESET
+        before the post-shutdown synchronous save, RESET
         ``_final_save_done`` to ``False``. The flag may have been
         set by the previous atexit save; without this reset, the new
         mutation would be silently dropped by ``_save_sync``'s
@@ -558,7 +558,7 @@ class CrashRecovery:
             # Worker has exited (or never started) — persist on the
             # caller's thread.  ``_save_sync`` takes ``_save_lock``
             # so concurrent post-shutdown callers serialize cleanly.
-            # XZ-R17-13: a previous atexit save may have set
+            # a previous atexit save may have set
             # ``_final_save_done``; this new mutation MUST be
             # persisted, so clear the flag before the save.
             self._final_save_done = False
@@ -620,7 +620,7 @@ class CrashRecovery:
     def _save_loop(self) -> None:
         """Background worker: drain the save queue, writing to disk.
 
-        DJ-42: the per-call ``timeout=1.0`` was a 1 Hz wakeup on a tray
+        the per-call ``timeout=1.0`` was a 1 Hz wakeup on a tray
         app that should sit quietly between dictations. The timeout only
         exists as a safety net so the loop re-checks ``self._stopped``
         if ``shutdown()`` fails to push the ``None`` sentinel (the
@@ -631,7 +631,7 @@ class CrashRecovery:
         normal shutdown — the 30s timeout is ONLY for the rare
         queue.Full failure mode.
 
-        XE-16-4: the loop body is now wrapped in a top-level
+        the loop body is now wrapped in a top-level
         ``try/except Exception:`` that logs and continues. Pre-fix, an
         unexpected exception (e.g. ``OSError`` from a transient disk
         failure that ``_save_sync``'s inner try/except didn't catch,
@@ -665,7 +665,7 @@ class CrashRecovery:
                     self._save_queue.task_done()
                     break
                 if isinstance(item, dict) and "flush_event" in item:
-                    # RW-4: flush barrier sentinel.  All saves queued
+                    # flush barrier sentinel.  All saves queued
                     # before this sentinel have now been processed, so
                     # signal the waiting flush() caller.  Do NOT treat
                     # this as a save — it is a barrier, not a snapshot
@@ -679,13 +679,25 @@ class CrashRecovery:
                     continue
                 self._save_sync()
                 self._save_queue.task_done()
-            except BaseException:
-                # XE-16-4: ``BaseException`` (``KeyboardInterrupt``,
-                # ``SystemExit``) must propagate so the worker dies
-                # cleanly during interpreter shutdown. Re-raise.
+            except (KeyboardInterrupt, SystemExit, GeneratorExit):
+                # only the "exit" ``BaseException`` subclasses
+                # must propagate so the worker dies cleanly during
+                # interpreter shutdown. Re-raise.
+                #
+                # This clause was previously ``except BaseException:``,
+                # which also matched every ``Exception`` subclass —
+                # making the ``except Exception:`` log-and-continue
+                # clause below unreachable dead code. Any regular
+                # exception that escaped ``_save_sync`` (or any other
+                # line in the loop body) was re-raised, killing the
+                # worker thread silently; subsequent ``add()`` calls
+                # enqueued saves that were never drained. The explicit
+                # tuple restricts propagation to the three "exit"
+                # signals so ordinary ``Exception`` subclasses fall
+                # through to the log-and-continue handler.
                 raise
             except Exception:
-                # XE-16-4: log and continue. Pre-fix the worker would
+                # log and continue. Pre-fix the worker would
                 # die silently on an unexpected exception, leaving
                 # subsequent saves un-processed. The ``task_done()``
                 # for the current item may not have fired yet — the
@@ -713,7 +725,7 @@ class CrashRecovery:
         ``restart_app()``) to ensure the final state is persisted
         before the process exits.
 
-        RW-4: previously this called ``Queue.join()``, which has no
+        previously this called ``Queue.join()``, which has no
         ``timeout`` parameter in the stdlib — if the worker stalled
         (disk full, NFS hang, fsync on a dying SSD, antivirus lock
         on Windows), ``flush()`` blocked forever, preventing clean
@@ -820,7 +832,7 @@ class CrashRecovery:
         Returns:
             True if the entry was found and marked, False otherwise.
 
-        XE-16-1: ``_enqueue_save()`` is now called OUTSIDE the
+        ``_enqueue_save()`` is now called OUTSIDE the
         ``with self._lock:`` block. Pre-fix, the in-line call could
         deadlock when invoked post-shutdown: ``_enqueue_save()`` falls
         back to ``_save_sync()`` which acquires ``_save_lock`` and then
@@ -954,7 +966,7 @@ class CrashRecovery:
         in-flight worker save.  The whole body stays wrapped in
         try/except so interpreter shutdown never raises from GC.
 
-        XZ-R12-16: the previous ``if self._entries:`` read
+        the previous ``if self._entries:`` read
         ``_entries`` WITHOUT holding ``_lock``. A concurrent
         ``add()`` could mutate the deque mid-check, leaving the
         GC path reading a stale (empty) view and skipping the
@@ -966,7 +978,7 @@ class CrashRecovery:
         GC save), but at least the check itself is no longer
         torn.
 
-        XZ-R17-13: ``_final_save_done`` (set by ``_atexit_flush_all``
+        ``_final_save_done`` (set by ``_atexit_flush_all``
         after a successful atexit save) makes this ``__del__`` save a
         no-op if atexit already persisted the final state —
         eliminating the redundant atomic-write + rename on the
@@ -981,7 +993,7 @@ class CrashRecovery:
             # Signal the worker to stop, then do one final
             # synchronous save to capture any pending state.
             self._stopped = True
-            # XZ-R12-16: acquire ``_lock`` for the empty-check so a
+            # acquire ``_lock`` for the empty-check so a
             # concurrent ``add()`` can't mutate ``_entries`` mid-read.
             # The check is best-effort: even with the lock, a
             # concurrent ``add()`` that arrives AFTER this check
@@ -997,30 +1009,39 @@ class CrashRecovery:
             # Finding A3 regression).  If _entries is empty, this
             # is a no-op (matches the original behavior — saves
             # are only triggered by state changes, not by GC).
-            # XZ-R17-13: if ``_atexit_flush_all`` already set
+            # if ``_atexit_flush_all`` already set
             # ``_final_save_done``, ``_save_sync``'s short-circuit
             # returns immediately — no redundant atomic-write +
             # rename on the shutdown path.
-            # AB-44: pass ``durability=True`` for this final GC save
+            # pass ``durability=True`` for this final GC save
             # (one-time cost, durability guarantee matters there).
             # The per-dictation path uses ``durability=False`` (5+
             # saves/sec under streaming — fsync cost not worth it).
             if has_entries:
                 self._save_sync(durability=True)
-        except Exception:
-            pass  # __del__ must never raise
+        except BaseException:
+            # ``__del__`` must NEVER raise — including for
+            # ``BaseException`` subclasses (``KeyboardInterrupt``,
+            # ``SystemExit``, ``GeneratorExit``) that ``except Exception:``
+            # would NOT catch. A ``KeyboardInterrupt`` raised during
+            # interpreter shutdown while ``__del__`` is mid-save would
+            # otherwise propagate out of GC, which can crash the
+            # interpreter or leave dangling state. Catching
+            # ``BaseException`` (rather than just ``Exception``) honors
+            # the documented "never raise" contract in full.
+            pass
 
     def entries_metadata_snapshot(self) -> list[dict]:
         """Return a metadata-only snapshot of the recovery entries.
 
-        Used by the diagnostic bundle export (PROD-010 / CR-39) so
+        Used by the diagnostic bundle export ( / ) so
         support engineers can see entry counts + timestamps without
         leaking transcription text. Exposed as a public accessor so
         :mod:`voice_typer.server.diagnostics_export` can read entry
         metadata without reaching into ``_entries`` directly elsewhere
         in the codebase.
 
-        DR-27: this method exists alongside the delegate
+        this method exists alongside the delegate
         :meth:`create_diagnostic_bundle` so callers that only need
         the metadata (e.g. tests, future telemetry) don't have to
         build a full zip just to inspect entry counts.
@@ -1036,18 +1057,18 @@ class CrashRecovery:
             ]
 
     def create_diagnostic_bundle(self) -> str | None:
-        """PROD-010: Create a diagnostic bundle zip file.
+        """Create a diagnostic bundle zip file.
 
         Collects:
           - voice-typer.log
           - config.json (redacted — API keys removed)
           - System info (platform, Python version, GPU info)
           - Model info (loaded model, device)
-          - Crash recovery entries (metadata only — CR-39)
+          - Crash recovery entries (metadata only — )
 
         Returns the path to the created zip file, or None on failure.
 
-        DR-27: the body of this method was extracted to
+        the body of this method was extracted to
         :mod:`voice_typer.server.diagnostics_export` so
         ``crash_recovery.py`` can focus on its core concern (storing /
         flushing / replaying recovery entries). This delegate keeps

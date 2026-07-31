@@ -1,7 +1,7 @@
 """macOS volume backend — CoreAudio (pyobjc) with osascript fallback.
 
 Extracted from the original ``voice_typer/server/volume_backends.py``
-monolith per PVT-24.  See ``voice_typer/server/volume_backends/__init__.py``
+monolith per   See ``voice_typer/server/volume_backends/__init__.py``
 for the package-level docstring and re-exports.
 """
 
@@ -16,7 +16,7 @@ from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
 
-# UE-25: number of consecutive backend failures before a WARNING is
+# number of consecutive backend failures before a WARNING is
 # surfaced.  See ``voice_typer/server/volume_backends/windows.py`` for
 # the full rationale.  macOS's ``_osascript_run`` and
 # ``_osascript_get_state`` swallow errors and return safe defaults
@@ -67,7 +67,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
             kAudioObjectSystemObject,
         )
 
-        # RW-6 (pyrefly): build the namespace inside the try-block so
+        # (pyrefly): build the namespace inside the try-block so
         # the imported names are obviously bound. Pyrefly 1.x does not
         # propagate "the except branch always raises" into "the names
         # from the import are bound on the success path", so building
@@ -135,9 +135,9 @@ class MacVolumeBackend(VolumeBackend):
         # the module imports cleanly on Linux/Windows.  ``None`` when
         # pyobjc is unavailable OR ``initialize()`` has not been called.
         self._ca: SimpleNamespace | None = None
-        # UE-25: consecutive-error counter for ``_osascript_run`` and
+        # consecutive-error counter for ``_osascript_run`` and
         # ``_osascript_get_state`` (the only error-tracked methods on
-        # this backend per UE-25 — the CoreAudio path already logs at
+        # this backend per  — the CoreAudio path already logs at
         # WARNING on failure and falls through to osascript, so its
         # errors are tracked via the osascript counter).  See
         # ``WinVolumeBackend._consecutive_errors`` for the full
@@ -194,7 +194,7 @@ class MacVolumeBackend(VolumeBackend):
         becomes available later (e.g. user installs it); ``_use_coreaudio``
         is reset on each ``initialize()`` call.
         """
-        # UE-25: reset the error counter on a fresh initialize() attempt.
+        # reset the error counter on a fresh initialize() attempt.
         self._consecutive_errors = 0
         try:
             self._ca = _try_import_coreaudio()
@@ -212,11 +212,11 @@ class MacVolumeBackend(VolumeBackend):
             )
         return True  # osascript is always available on macOS
 
-    # ── UE-25 error-tracking helpers ──────────────────────────────────
+    # error-tracking helpers ──────────────────────────────────
     # See ``WinVolumeBackend._record_error`` / ``_record_success`` for
     # the full rationale.  The counter is shared across this backend's
     # error-tracked methods (``_osascript_run`` and
-    # ``_osascript_get_state`` per UE-25 scope).  To avoid
+    # ``_osascript_get_state`` per  scope).  To avoid
     # double-counting, ``_osascript_get_state`` only records errors for
     # parsing failures (``ValueError``) — subprocess failures are
     # already recorded by ``_osascript_run``.
@@ -606,7 +606,7 @@ class MacVolumeBackend(VolumeBackend):
             )
             if result.returncode != 0:
                 log.debug("[VOLUME-MAC] osascript error: %s", result.stderr.strip())
-                # UE-25: track non-zero exit as an error (osascript ran
+                # track non-zero exit as an error (osascript ran
                 # but returned an error — e.g. revoked AppleScript
                 # permission on macOS 13+).  The safe-default ``None``
                 # return is preserved.
@@ -615,12 +615,12 @@ class MacVolumeBackend(VolumeBackend):
                     RuntimeError(f"osascript exit {result.returncode}: {result.stderr.strip()}"),
                 )
                 return None
-            # UE-25: success — reset the counter.
+            # success — reset the counter.
             self._record_success()
             return result.stdout.strip()
         except Exception as exc:
             log.debug("[VOLUME-MAC] osascript failed: %s", exc)
-            # UE-25: surface a WARNING after N consecutive failures so a
+            # surface a WARNING after N consecutive failures so a
             # persistently broken osascript path doesn't degrade ducking
             # to a silent no-op.  The safe-default ``None`` return is
             # preserved.
@@ -641,13 +641,13 @@ class MacVolumeBackend(VolumeBackend):
                 exc,
                 vol_str,
             )
-            # UE-25: parsing failure is a distinct error from a
+            # parsing failure is a distinct error from a
             # subprocess failure (tracked in ``_osascript_run``).
             self._record_error("_osascript_get_state", exc)
             return None
         mute_str = self._osascript_run("output muted of (get volume settings)")
         muted = mute_str is not None and mute_str.lower() == "true"
-        # UE-25: only reset the counter if BOTH queries succeeded.  If
+        # only reset the counter if BOTH queries succeeded.  If
         # the mute query failed, ``_osascript_run`` already recorded the
         # error — don't double-count or reset.
         if mute_str is not None:

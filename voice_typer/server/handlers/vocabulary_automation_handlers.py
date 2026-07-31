@@ -1,4 +1,4 @@
-"""Vocabulary-automation IPC handler mixin (STUB — UE-15, 2026-07-30).
+"""Vocabulary-automation IPC handler mixin (STUB — , 2026-07-30).
 
 Historically this module defined three IPC handler methods —
 ``_handle_get_vocabulary_suggestions``,
@@ -7,7 +7,7 @@ Historically this module defined three IPC handler methods —
 ``VocabularyAutomation`` instance (confidence-score-based correction
 suggestions) to the renderer.
 
-UE-15 (2026-07-30): all three handler methods were REMOVED — the
+(2026-07-30): all three handler methods were REMOVED — the
 feature was deferred pending UX redesign and the renderer's
 ``allowed-commands.ts`` dropped the three entries in lockstep with
 the matching ``_COMMAND_REGISTRY`` cleanup. The service-layer
@@ -31,18 +31,18 @@ from voice_typer.server.handlers._base import HandlerBase  # noqa: F401
 
 
 class VocabularyAutomationHandlersMixin(HandlerBase):
-    """Mixin: vocabulary-automation IPC handlers (STUB — UE-15).
+    """Mixin: vocabulary-automation IPC handlers (STUB — ).
 
-    UE-15 (2026-07-30): the three handler methods that previously
-    lived here (``_handle_get_vocabulary_suggestions``,
-    ``_handle_apply_vocabulary_suggestion``,
-    ``_handle_dismiss_vocabulary_suggestion``) were removed — the
-    feature was deferred pending UX redesign and the renderer
-    allowlist + ``_COMMAND_REGISTRY`` entries were dropped in
-    lockstep. The class is retained as an empty placeholder so the
-    ``IPCServer`` MRO and the
-    ``from voice_typer.server.handlers import VocabularyAutomationHandlersMixin``
-    re-export continue to resolve.
+    (2026-07-30): the three handler methods that previously
+        lived here (``_handle_get_vocabulary_suggestions``,
+        ``_handle_apply_vocabulary_suggestion``,
+        ``_handle_dismiss_vocabulary_suggestion``) were removed — the
+        feature was deferred pending UX redesign and the renderer
+        allowlist + ``_COMMAND_REGISTRY`` entries were dropped in
+        lockstep. The class is retained as an empty placeholder so the
+        ``IPCServer`` MRO and the
+        ``from voice_typer.server.handlers import VocabularyAutomationHandlersMixin``
+        re-export continue to resolve.
     """
 
 

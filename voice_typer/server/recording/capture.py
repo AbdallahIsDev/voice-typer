@@ -1,7 +1,7 @@
 """Audio callback dispatch and worker loop for :class:`Recorder` (extracted from ``recorder.py``).
 
-S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder` to shrink the
-3772-LOC ``recorder.py`` god class (see S3-CR-17 in ``review.md``).
+Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the audio callback dispatch body, the audio worker thread main
 loop body, and the four worker-lifecycle method bodies
 (:meth:`AudioCallbackDispatcher.start_audio_worker_body`,
@@ -33,7 +33,7 @@ Source-inspection contract
 ``tests/test_recording_and_audio.py::test_callback_does_not_do_heavy_processing``
 pins the source of ``Recorder._audio_callback_dispatch`` and asserts
 that it CONTAINS the literals ``_ring_buffer.append`` and
-``_worker_wake_event`` (RT-SAFE-001: the callback's RT-safe ops must
+``_worker_wake_event`` (: the callback's RT-safe ops must
 stay visible in the Recorder's source) and that it does NOT contain
 the heavy-pipeline operations (``compute_vad_prob``, ``_get_resample_poly``,
 ``process_chunk``, ``_vad_update``).
@@ -52,7 +52,7 @@ operations itself. Instead it returns either:
 The thin delegator on ``Recorder._audio_callback_dispatch`` therefore
 retains the literal ``self._ring_buffer.append(...)`` and
 ``self._worker_wake_event.set()`` calls — those are pinned by the
-source-inspection test (Option C from the S3-CR-17 plan). The PRIMARY
+source-inspection test (Option C from the  plan). The PRIMARY
 AGENT (not this module) owns the delegator wiring in :mod:`.recorder`.
 
 Patch-path compatibility
@@ -62,7 +62,7 @@ The two original methods on this module (``dispatch_callback_body`` and
 callback is invoked by PortAudio (via the delegator on
 ``Recorder._audio_callback_dispatch``) and the worker only consumes
 from the ring buffer. The four worker-lifecycle bodies added by
-S3-CR-17 also do not touch ``sounddevice``. Patches of the form
+also do not touch ``sounddevice``. Patches of the form
 ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` therefore
 target :mod:`.recorder` / the package ``__init__.py`` (where ``sd``
 still lives) and need no indirection here.
@@ -84,7 +84,7 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
 
-# AB-2: how many ring-buffer chunks the audio worker drains between
+# how many ring-buffer chunks the audio worker drains between
 # stop-event checks. Without this, the drain loop burns up to 3.2s of
 # solid CPU (64 chunks × ~50ms RNNoise each) before noticing a stop
 # signal, delaying ``stop()`` and orphaning the worker. Checking every
@@ -99,10 +99,10 @@ if TYPE_CHECKING:
 class AudioCallbackDispatcher:
     """Audio callback dispatch + worker loop body for :class:`Recorder`.
 
-    S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. See the module
-    docstring for the collaborator-pattern rationale and the
-    source-inspection contract that constrains the shape of
-    :meth:`dispatch_callback_body`.
+    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        docstring for the collaborator-pattern rationale and the
+        source-inspection contract that constrains the shape of
+        :meth:`dispatch_callback_body`.
     """
 
     def __init__(self, recorder: Any) -> None:
@@ -120,42 +120,42 @@ class AudioCallbackDispatcher:
         status: Any,
     ) -> Any:
         """Body of :meth:`Recorder._audio_callback_dispatch` (excluding
-        the ``_ring_buffer.append`` + ``_worker_wake_event.set`` literal
-        operations that stay on Recorder for the RT-SAFE-001
-        source-inspection contract in
-        ``tests/test_recording_and_audio.py::test_callback_does_not_do_heavy_processing``).
+                the ``_ring_buffer.append`` + ``_worker_wake_event.set`` literal
+        operations that stay on Recorder for the
+                source-inspection contract in
+                ``tests/test_recording_and_audio.py::test_callback_does_not_do_heavy_processing``).
 
-        This method is invoked by PortAudio from the real-time audio
-        thread (via the 1-line delegator on Recorder). It must complete
-        well before the next buffer arrives (~32ms at 512 blocksize /
-        16kHz). To meet this deadline, it does ONLY:
+                This method is invoked by PortAudio from the real-time audio
+                thread (via the 1-line delegator on Recorder). It must complete
+                well before the next buffer arrives (~32ms at 512 blocksize /
+                16kHz). To meet this deadline, it does ONLY:
 
-        1. Pre-roll capture when not recording (small, fast: ~10µs for
-           copy + mono downmix + deque append).
-        2. Copy the indata buffer into a local ``chunk_copy`` (the deque
-           append itself stays on Recorder so the source-inspection
-           check continues to pin the ``_ring_buffer.append`` literal).
-        3. Detect ring-buffer overflow (worker can't keep up) and bump
-           the dropped-chunk / skipped-frames counters.
-        4. Capture the perf timestamp for silence-timer calculations.
+                1. Pre-roll capture when not recording (small, fast: ~10µs for
+                   copy + mono downmix + deque append).
+                2. Copy the indata buffer into a local ``chunk_copy`` (the deque
+                   append itself stays on Recorder so the source-inspection
+                   check continues to pin the ``_ring_buffer.append`` literal).
+                3. Detect ring-buffer overflow (worker can't keep up) and bump
+                   the dropped-chunk / skipped-frames counters.
+                4. Capture the perf timestamp for silence-timer calculations.
 
-        Returns
-        -------
-        ``None`` if the early-bailout (pre-roll) path was taken — the
-        caller must NOT append to the ring buffer or signal the worker
-        in this case.
+                Returns
+                -------
+                ``None`` if the early-bailout (pre-roll) path was taken — the
+                caller must NOT append to the ring buffer or signal the worker
+                in this case.
 
-        Otherwise a 5-tuple ``(chunk_copy, frames, time_info, status,
-        perf_ts)`` ready to be passed to
-        ``recorder._ring_buffer.append(payload)``. The caller is
-        expected to follow up with ``recorder._worker_wake_event.set()``.
+                Otherwise a 5-tuple ``(chunk_copy, frames, time_info, status,
+                perf_ts)`` ready to be passed to
+                ``recorder._ring_buffer.append(payload)``. The caller is
+                expected to follow up with ``recorder._worker_wake_event.set()``.
 
-        Heavy work (filter chain, Silero VAD, scipy resample, VAD state
-        machine, silence timer, callbacks, AUDIO-CLIP IPC event push)
-        is done by the audio worker thread (see
-        :meth:`audio_worker_loop` / ``_process_audio_chunk``).
+                Heavy work (filter chain, Silero VAD, scipy resample, VAD state
+                machine, silence timer, callbacks, AUDIO-CLIP IPC event push)
+                is done by the audio worker thread (see
+                :meth:`audio_worker_loop` / ``_process_audio_chunk``).
         """
-        # ARCH-026: PortAudio can deliver a callback before start()
+        # PortAudio can deliver a callback before start()
         # finishes setting self._recording_start_time and other
         # per-session state. Bail out early so the silence/max-
         # duration callbacks don't compute against a None timestamp.
@@ -175,7 +175,7 @@ class AudioCallbackDispatcher:
         # worker thread to process. The callback's only job is to copy
         # + enqueue.
         #
-        # PERF-RT-001: the indata buffer is owned by PortAudio and
+        # PERF-: the indata buffer is owned by PortAudio and
         # reused for the next callback, so we MUST copy. ~2KB
         # allocation for 512 float32 samples — negligible compared to
         # the 32ms deadline.
@@ -190,12 +190,12 @@ class AudioCallbackDispatcher:
         # before dropping.
         ring_maxlen = recorder._ring_buffer.maxlen
         if ring_maxlen is not None and len(recorder._ring_buffer) >= ring_maxlen:
-            # AUDIO-1: increment counters only (atomic under GIL). The
+            # increment counters only (atomic under GIL). The
             # log.warning() was removed from this PortAudio RT callback
             # — logging I/O here can take ms and risks an overrun against
             # the 32ms deadline. The counters are surfaced later by the
             # worker thread / diagnostics paths (e.g. _finalize_audio_quality_report
-            # and the AUDIO-019 backpressure warning in _process_audio_chunk).
+            # and the  backpressure warning in _process_audio_chunk).
             recorder._dropped_ring_chunks += 1
             recorder._skipped_frames += 1  # preserve old counter for diagnostics
 
@@ -204,7 +204,7 @@ class AudioCallbackDispatcher:
         # so silence-timer calculations reflect when the audio arrived,
         # not when the worker happened to process it. The deque-append
         # itself is performed by the caller (Recorder._audio_callback_dispatch)
-        # so the RT-SAFE-001 source-inspection literal stays pinned on
+        # so the  source-inspection literal stays pinned on
         # the Recorder's source (see the module docstring §Source-inspection
         # contract).
         perf_ts = time.perf_counter()
@@ -239,7 +239,7 @@ class AudioCallbackDispatcher:
             # Drain all available chunks. Each chunk is processed by
             # _process_audio_chunk which does the heavy lifting.
             #
-            # AB-2: check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
+            # check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
             # chunks so a stop signal during a long catch-up drain (the ring
             # buffer holds up to 64 chunks ≈ 1s of audio, each chunk takes
             # ~50ms in RNNoise → up to 3.2s of solid CPU) is noticed within
@@ -278,7 +278,7 @@ class AudioCallbackDispatcher:
                 _drain_count += 1
                 if _drain_count % _DRAIN_STOP_CHECK_INTERVAL == 0:
                     if recorder._worker_stop_event.is_set():
-                        return  # AB-2: bail out early when stop signaled
+                        return  # bail out early when stop signaled
                     time.sleep(0)  # yield GIL to reduce CPU burn
 
             # Check for shutdown. We drain the ring buffer fully before
@@ -288,19 +288,19 @@ class AudioCallbackDispatcher:
             if recorder._worker_stop_event.is_set():
                 return
 
-    # ── S3-CR-17 / Phase 4.5: worker-lifecycle bodies (Option C) ──────
+    # Phase 4.5: worker-lifecycle bodies (Option C) ──────
     #
     # The four methods below contain the BODIES of
     # ``Recorder._start_audio_worker`` / ``_stop_audio_worker`` /
     # ``_start_event_worker`` / ``_stop_event_worker`` (the part INSIDE
     # the ``_worker_lifecycle_lock`` block). The lock acquisition
-    # STAYS on the Recorder methods so the GT-23 source-inspection
+    # STAYS on the Recorder methods so the  source-inspection
     # contracts in ``tests/test_recorder_worker_lifecycle.py`` continue
     # to see ``_worker_lifecycle_lock`` acquired via a ``with`` block
     # on the Recorder's source. The bodies themselves must NOT acquire
     # ``_worker_lifecycle_lock`` (the lock stays on the Recorder) and
     # the two ``stop_*_body`` methods must NOT acquire ``self._lock``
-    # (GT-23 negative contract — see
+    # ( negative contract — see
     # ``test_stop_audio_worker_does_not_hold_self_lock_across_join`` and
     # ``test_stop_event_worker_does_not_hold_self_lock_across_join``).
     #
@@ -317,44 +317,44 @@ class AudioCallbackDispatcher:
 
     def start_audio_worker_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._start_audio_worker` (inside the
-        ``_worker_lifecycle_lock`` block).
+                ``_worker_lifecycle_lock`` block).
 
-        S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. The lock
-        acquisition STAYS on ``Recorder._start_audio_worker`` for the
-        GT-23 source-inspection contract (see
-        ``tests/test_recorder_worker_lifecycle.py::test_start_audio_worker_holds_lock``);
-        this method is the body inside the lock. Idempotent: if the
-        worker is already running, returns early.
+        Phase 4.5 — extracted from :mod:`.recorder`. The lock
+                acquisition STAYS on ``Recorder._start_audio_worker`` for the
+        source-inspection contract (see
+                ``tests/test_recorder_worker_lifecycle.py::test_start_audio_worker_holds_lock``);
+                this method is the body inside the lock. Idempotent: if the
+                worker is already running, returns early.
 
-        Called by ``start()`` AFTER the PortAudio stream is successfully
-        opened and the pre-roll buffer has been prepended, but BEFORE
-        ``_recording_event.set()`` is... actually, it's called AFTER
-        ``_recording_event.set()`` because the callback needs the event
-        to be set before it will push to the ring buffer. The worker
-        thread is a daemon so it never blocks process exit.
+                Called by ``start()`` AFTER the PortAudio stream is successfully
+                opened and the pre-roll buffer has been prepended, but BEFORE
+                ``_recording_event.set()`` is... actually, it's called AFTER
+                ``_recording_event.set()`` because the callback needs the event
+                to be set before it will push to the ring buffer. The worker
+                thread is a daemon so it never blocks process exit.
 
-        THREAD-REGISTRY: when a registry was provided to ``__init__``,
-        the worker thread is registered so ``shutdown_all()`` can
-        signal and join it during ``VoiceTyperApp.quit()``. The
-        registry entry is removed by :meth:`stop_audio_worker_body`
-        after the join completes (or times out) so a subsequent
-        ``start()`` re-registers cleanly without triggering the
-        "Re-registering name" warning.
+                THREAD-REGISTRY: when a registry was provided to ``__init__``,
+                the worker thread is registered so ``shutdown_all()`` can
+                signal and join it during ``VoiceTyperApp.quit()``. The
+                registry entry is removed by :meth:`stop_audio_worker_body`
+                after the join completes (or times out) so a subsequent
+                ``start()`` re-registers cleanly without triggering the
+                "Re-registering name" warning.
 
-        GT-23: the entire read-check-create-start sequence is wrapped
-        in ``_worker_lifecycle_lock`` (acquired by the caller on
-        ``Recorder._start_audio_worker``) so concurrent
-        ``start()`` / ``stop()`` / ``discard()`` callers cannot race
-        on ``_worker_thread`` (both readers seeing ``None``, the
-        starter creating+assigning a fresh worker, the stopper
-        returning early and leaving that worker untracked).
+        the entire read-check-create-start sequence is wrapped
+                in ``_worker_lifecycle_lock`` (acquired by the caller on
+                ``Recorder._start_audio_worker``) so concurrent
+                ``start()`` / ``stop()`` / ``discard()`` callers cannot race
+                on ``_worker_thread`` (both readers seeing ``None``, the
+                starter creating+assigning a fresh worker, the stopper
+                returning early and leaving that worker untracked).
         """
         from .recorder import (
             _AUDIO_WORKER_JOIN_TIMEOUT_S,
             _AUDIO_WORKER_THREAD_NAME,
         )
 
-        # GT-23: the caller holds ``_worker_lifecycle_lock`` across the
+        # the caller holds ``_worker_lifecycle_lock`` across the
         # entire read-check-create-start sequence so a concurrent
         # ``_stop_audio_worker`` cannot observe a stale ``None``
         # mid-create.
@@ -384,48 +384,48 @@ class AudioCallbackDispatcher:
 
     def stop_audio_worker_body(self, recorder: Any, *, timeout: float, drain: bool = True) -> None:
         """Body of :meth:`Recorder._stop_audio_worker` (inside the
-        ``_worker_lifecycle_lock`` block).
+                ``_worker_lifecycle_lock`` block).
 
-        S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. The lock
-        acquisition STAYS on ``Recorder._stop_audio_worker`` for the
-        GT-23 source-inspection contracts (see
-        ``tests/test_recorder_worker_lifecycle.py::test_stop_audio_worker_holds_lock``
-        and
-        ``tests/test_recorder_worker_lifecycle.py::test_stop_audio_worker_does_not_hold_self_lock_across_join``);
-        this method is the body inside the lock.
+        Phase 4.5 — extracted from :mod:`.recorder`. The lock
+                acquisition STAYS on ``Recorder._stop_audio_worker`` for the
+        source-inspection contracts (see
+                ``tests/test_recorder_worker_lifecycle.py::test_stop_audio_worker_holds_lock``
+                and
+                ``tests/test_recorder_worker_lifecycle.py::test_stop_audio_worker_does_not_hold_self_lock_across_join``);
+                this method is the body inside the lock.
 
-        Parameters
-        ----------
-        timeout : float
-            Maximum seconds to wait for the worker to exit.
-        drain : bool
-            If True (default, used by ``stop()``), the worker drains the
-            ring buffer fully before exiting so no in-flight audio is
-            lost. If False (used by ``discard()``), the ring buffer is
-            cleared first so the worker exits immediately after its
-            current chunk.
+                Parameters
+                ----------
+                timeout : float
+                    Maximum seconds to wait for the worker to exit.
+                drain : bool
+                    If True (default, used by ``stop()``), the worker drains the
+                    ring buffer fully before exiting so no in-flight audio is
+                    lost. If False (used by ``discard()``), the ring buffer is
+                    cleared first so the worker exits immediately after its
+                    current chunk.
 
-        Safe to call when the worker is not running (no-op).
+                Safe to call when the worker is not running (no-op).
 
-        THREAD-REGISTRY: unregisters the worker after the join so a
-        subsequent :meth:`start_audio_worker_body` re-registers cleanly.
+                THREAD-REGISTRY: unregisters the worker after the join so a
+                subsequent :meth:`start_audio_worker_body` re-registers cleanly.
 
-        GT-23: the entire read-check-clear-join-unregister sequence is
-        wrapped in ``_worker_lifecycle_lock`` (acquired by the caller
-        on ``Recorder._stop_audio_worker``) (NOT ``self._lock``) so
-        concurrent ``stop()`` / ``discard()`` callers cannot both read
-        ``_worker_thread is None`` and both return early leaving a
-        fresh worker untracked. ``self._lock`` is intentionally NOT
-        held across ``thread.join()`` — the worker thread acquires
-        ``self._lock`` inside ``_process_audio_chunk`` for the buffer
-        append, so holding it across ``join()`` would deadlock. This
-        body does NOT acquire ``self._lock`` (the GT-23 negative
-        contract would otherwise propagate the lock acquisition to
-        the Recorder's source via the delegator).
+        the entire read-check-clear-join-unregister sequence is
+                wrapped in ``_worker_lifecycle_lock`` (acquired by the caller
+                on ``Recorder._stop_audio_worker``) (NOT ``self._lock``) so
+                concurrent ``stop()`` / ``discard()`` callers cannot both read
+                ``_worker_thread is None`` and both return early leaving a
+                fresh worker untracked. ``self._lock`` is intentionally NOT
+                held across ``thread.join()`` — the worker thread acquires
+                ``self._lock`` inside ``_process_audio_chunk`` for the buffer
+                append, so holding it across ``join()`` would deadlock. This
+        body does NOT acquire ``self._lock`` (the  negative
+                contract would otherwise propagate the lock acquisition to
+                the Recorder's source via the delegator).
         """
         from .recorder import _AUDIO_WORKER_THREAD_NAME
 
-        # GT-23: the caller holds ``_worker_lifecycle_lock`` across the
+        # the caller holds ``_worker_lifecycle_lock`` across the
         # entire read-check-clear-join-unregister sequence. This is a
         # separate lock from ``self._lock`` — see the docstring above.
         if recorder._worker_thread is None:
@@ -468,7 +468,7 @@ class AudioCallbackDispatcher:
 
     @staticmethod
     def _drain_event_queue(recorder: Any) -> None:
-        """Drain ``recorder._event_queue`` non-blockingly (DJ-108).
+        """Drain ``recorder._event_queue`` non-blockingly ().
 
         Previously this loop was duplicated between
         :meth:`start_event_worker_body` (drain stale events before start)
@@ -486,49 +486,49 @@ class AudioCallbackDispatcher:
 
     def start_event_worker_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._start_event_worker` (inside the
-        ``_worker_lifecycle_lock`` block).
+                ``_worker_lifecycle_lock`` block).
 
-        S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. The lock
-        acquisition STAYS on ``Recorder._start_event_worker`` for the
-        GT-23 source-inspection contract (see
-        ``tests/test_recorder_worker_lifecycle.py::test_start_event_worker_holds_lock``);
-        this method is the body inside the lock. Idempotent: if the
-        event worker is already running, returns early.
+        Phase 4.5 — extracted from :mod:`.recorder`. The lock
+                acquisition STAYS on ``Recorder._start_event_worker`` for the
+        source-inspection contract (see
+                ``tests/test_recorder_worker_lifecycle.py::test_start_event_worker_holds_lock``);
+                this method is the body inside the lock. Idempotent: if the
+                event worker is already running, returns early.
 
-        RW-8: called by ``start()`` AFTER the audio worker is started
-        so the audio worker can enqueue IPC events (e.g. ``audio_clip``)
-        as soon as it begins processing chunks. The event worker is a
-        daemon so it never blocks process exit.
+        called by ``start()`` AFTER the audio worker is started
+                so the audio worker can enqueue IPC events (e.g. ``audio_clip``)
+                as soon as it begins processing chunks. The event worker is a
+                daemon so it never blocks process exit.
 
-        Any stale events left in the queue from a previous session are
-        drained before the worker starts so they are not re-published
-        (matches the audio worker's ring-buffer clear in
-        :meth:`start_audio_worker_body`).
+                Any stale events left in the queue from a previous session are
+                drained before the worker starts so they are not re-published
+                (matches the audio worker's ring-buffer clear in
+                :meth:`start_audio_worker_body`).
 
-        THREAD-REGISTRY: when a registry was provided to ``__init__``,
-        the event worker thread is registered so ``shutdown_all()`` can
-        signal and join it during ``VoiceTyperApp.quit()``.
+                THREAD-REGISTRY: when a registry was provided to ``__init__``,
+                the event worker thread is registered so ``shutdown_all()`` can
+                signal and join it during ``VoiceTyperApp.quit()``.
 
-        GT-23: the entire read-check-create-start sequence is wrapped
-        in ``_worker_lifecycle_lock`` (acquired by the caller on
-        ``Recorder._start_event_worker``) (the same lock used by the
-        audio worker lifecycle methods) so concurrent
-        ``start()`` / ``stop()`` / ``discard()`` callers cannot race on
-        ``_event_worker_thread``.
+        the entire read-check-create-start sequence is wrapped
+                in ``_worker_lifecycle_lock`` (acquired by the caller on
+                ``Recorder._start_event_worker``) (the same lock used by the
+                audio worker lifecycle methods) so concurrent
+                ``start()`` / ``stop()`` / ``discard()`` callers cannot race on
+                ``_event_worker_thread``.
         """
         from .recorder import (
             _EVENT_WORKER_JOIN_TIMEOUT_S,
             _EVENT_WORKER_THREAD_NAME,
         )
 
-        # GT-23: the caller holds ``_worker_lifecycle_lock`` across the
+        # the caller holds ``_worker_lifecycle_lock`` across the
         # entire read-check-create-start sequence so a concurrent
         # ``_stop_event_worker`` cannot observe a stale ``None``
         # mid-create.
         if recorder._event_worker_thread is not None and recorder._event_worker_thread.is_alive():
             return
         recorder._event_stop_event.clear()
-        # Drain any stale events from a previous session (DJ-108: shared helper).
+        # Drain any stale events from a previous session (: shared helper).
         self._drain_event_queue(recorder)
         recorder._event_worker_thread = threading.Thread(
             target=recorder._event_worker_loop,
@@ -546,50 +546,50 @@ class AudioCallbackDispatcher:
 
     def stop_event_worker_body(self, recorder: Any, *, timeout: float, drain: bool = True) -> None:
         """Body of :meth:`Recorder._stop_event_worker` (inside the
-        ``_worker_lifecycle_lock`` block).
+                ``_worker_lifecycle_lock`` block).
 
-        S3-CR-17 / Phase 4.5 — extracted from :mod:`.recorder`. The lock
-        acquisition STAYS on ``Recorder._stop_event_worker`` for the
-        GT-23 source-inspection contracts (see
-        ``tests/test_recorder_worker_lifecycle.py::test_stop_event_worker_holds_lock``
-        and
-        ``tests/test_recorder_worker_lifecycle.py::test_stop_event_worker_does_not_hold_self_lock_across_join``);
-        this method is the body inside the lock.
+        Phase 4.5 — extracted from :mod:`.recorder`. The lock
+                acquisition STAYS on ``Recorder._stop_event_worker`` for the
+        source-inspection contracts (see
+                ``tests/test_recorder_worker_lifecycle.py::test_stop_event_worker_holds_lock``
+                and
+                ``tests/test_recorder_worker_lifecycle.py::test_stop_event_worker_does_not_hold_self_lock_across_join``);
+                this method is the body inside the lock.
 
-        Parameters
-        ----------
-        timeout : float
-            Maximum seconds to wait for the worker to exit.
-        drain : bool
-            If True (default, used by ``stop()``), the worker drains the
-            event queue fully (publishing every queued event) before
-            exiting so no in-flight IPC event is lost. If False (used by
-            ``discard()``), the queue is cleared first so the worker
-            exits immediately after its current publish (if any) —
-            cancelled recordings don't need their queued events
-            published.
+                Parameters
+                ----------
+                timeout : float
+                    Maximum seconds to wait for the worker to exit.
+                drain : bool
+                    If True (default, used by ``stop()``), the worker drains the
+                    event queue fully (publishing every queued event) before
+                    exiting so no in-flight IPC event is lost. If False (used by
+                    ``discard()``), the queue is cleared first so the worker
+                    exits immediately after its current publish (if any) —
+                    cancelled recordings don't need their queued events
+                    published.
 
-        THREAD-REGISTRY: unregisters the worker after the join so a
-        subsequent :meth:`start_event_worker_body` re-registers cleanly.
+                THREAD-REGISTRY: unregisters the worker after the join so a
+                subsequent :meth:`start_event_worker_body` re-registers cleanly.
 
-        Safe to call when the worker is not running (no-op).
+                Safe to call when the worker is not running (no-op).
 
-        GT-23: the entire read-check-clear-join-unregister sequence is
-        wrapped in ``_worker_lifecycle_lock`` (acquired by the caller on
-        ``Recorder._stop_event_worker``) so concurrent
-        ``stop()`` / ``discard()`` callers cannot both read
-        ``_event_worker_thread is None`` and both return early leaving
-        a fresh worker untracked. This body does NOT acquire
-        ``self._lock`` (the GT-23 negative contract would otherwise
-        propagate the lock acquisition to the Recorder's source via
-        the delegator).
+        the entire read-check-clear-join-unregister sequence is
+                wrapped in ``_worker_lifecycle_lock`` (acquired by the caller on
+                ``Recorder._stop_event_worker``) so concurrent
+                ``stop()`` / ``discard()`` callers cannot both read
+                ``_event_worker_thread is None`` and both return early leaving
+                a fresh worker untracked. This body does NOT acquire
+        ``self._lock`` (the  negative contract would otherwise
+                propagate the lock acquisition to the Recorder's source via
+                the delegator).
         """
         from .recorder import (
             _EVENT_WORKER_STOP_SENTINEL,
             _EVENT_WORKER_THREAD_NAME,
         )
 
-        # GT-23: the caller holds ``_worker_lifecycle_lock`` across the
+        # the caller holds ``_worker_lifecycle_lock`` across the
         # entire read-check-clear-join-unregister sequence.
         if recorder._event_worker_thread is None:
             # Still reset the stop event so the next start() is clean.

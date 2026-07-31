@@ -1,6 +1,6 @@
-"""Shared logger for the IPC handler mixin package (CR-63).
+"""Shared logger for the IPC handler mixin package ().
 
-ARCH-REFAC-002 / CR-63: prior to this module, every handler mixin
+prior to this module, every handler mixin
 under ``voice_typer/server/handlers/`` opened its own copy of::
 
     log = logging.getLogger("voice_typer.server.ipc_server")
@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import logging
 
-# CR-63: single source of truth for the IPC handler logger name.
+# single source of truth for the IPC handler logger name.
 # Keep this name in sync with the dispatcher's logger
 # (``voice_typer/server/ipc_server.py``) so handler and dispatcher log
 # records are emitted under the same logger in ``voice-typer.log``.

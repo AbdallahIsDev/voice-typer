@@ -128,13 +128,13 @@ class ThreadRegistry:
         entry. Re-registering the same name with the same thread object
         is silent (used to update ``stop_event`` / ``join_timeout``).
 
-        UE-11-F3 (auto-prune): dead entries are removed from the
+        (auto-prune): dead entries are removed from the
         registry at the start of every ``register()`` call. Threads
         that exited naturally but were never ``unregister()``'d would
         otherwise accumulate; pruning here keeps ``self._entries`` from
         growing without bound.
 
-        UE-11-F3 (optional join-previous): if *join_previous_timeout* >
+        (optional join-previous): if *join_previous_timeout* >
         0 and *name* is already registered with a DIFFERENT thread
         object, the previous thread's ``stop_event`` (if any) is set
         and the thread is joined with up to *join_previous_timeout*
@@ -163,7 +163,7 @@ class ThreadRegistry:
             behavior).
         """
         with self._lock:
-            # UE-11-F3: auto-prune dead entries.
+            # auto-prune dead entries.
             self._prune_dead_locked()
 
             existing = self._entries.get(name)
@@ -177,7 +177,7 @@ class ThreadRegistry:
                     existing.thread.is_alive(),
                     thread.is_alive(),
                 )
-                # UE-11-F3: optionally signal + join the previous
+                # optionally signal + join the previous
                 # thread before overwriting.
                 if join_previous_timeout > 0 and existing.thread.is_alive():
                     if existing.stop_event is not None:
@@ -227,7 +227,7 @@ class ThreadRegistry:
     ) -> threading.Thread:
         """Create, start, and register a worker thread in one call.
 
-        UE-11-F3: closes the "forgot to register" gap. The typical
+        closes the "forgot to register" gap. The typical
         pattern at spawn sites is::
 
             stop = threading.Event()
@@ -290,13 +290,13 @@ class ThreadRegistry:
     def _prune_dead_locked(self) -> int:
         """Remove dead entries from ``self._entries``.
 
-        UE-11-F3: threads that exited naturally but were never
+        threads that exited naturally but were never
         ``unregister()``'d would otherwise accumulate. This is called
         from ``register()`` (under ``self._lock``) and at the end of
         ``shutdown_all()`` (under ``self._lock``) to keep the registry
         from growing without bound.
 
-        AB-45: returns the number of entries removed so the public
+        Returns the number of entries removed so the public
         ``reap_dead()`` wrapper (and tests) can assert on the count.
 
         Caller MUST hold ``self._lock``.
@@ -313,7 +313,7 @@ class ThreadRegistry:
         return len(dead_names)
 
     def reap_dead(self) -> int:
-        """AB-45: Remove entries whose threads have exited naturally.
+        """Remove entries whose threads have exited naturally.
 
         Returns the number of entries removed. Safe to call at any time.
         Called automatically at the start of ``register()`` (via
@@ -381,7 +381,7 @@ class ThreadRegistry:
         loop exits when all threads are dead or when the total
         elapsed time exceeds the maximum per-thread ``join_timeout``.
 
-        UE-11-F3 (auto-prune): at the start of each join-loop slice,
+        (auto-prune): at the start of each join-loop slice,
         dead entries are pruned from the local iteration set so we
         don't keep re-checking threads that have already exited. At
         the very end (after Phase 3 logging), ``self._entries`` is
@@ -400,7 +400,7 @@ class ThreadRegistry:
             ", ".join(entry.name for entry in entries),
         )
 
-        # PERF-23 Phase 1: signal ALL stop_events first (no join).
+        # signal ALL stop_events first (no join).
         # This lets every thread begin its shutdown sequence in
         # parallel; we don't block on the slowest thread before
         # signaling the next.
@@ -415,7 +415,7 @@ class ThreadRegistry:
                         exc_info=True,
                     )
 
-        # PERF-23 Phase 2: bounded join loop.
+        # bounded join loop.
         # Each thread has its OWN deadline (``start + entry.join_timeout``).
         # We loop, joining each still-alive thread with a short slice
         # (0.1s) per iteration, until either:
@@ -431,13 +431,13 @@ class ThreadRegistry:
         start = _time.monotonic()
         # Per-thread deadline: ``start + entry.join_timeout``.
         deadlines = {id(entry): start + entry.join_timeout for entry in entries}
-        # UE-11-F3: work on a mutable ``pending`` list so we can prune
+        # work on a mutable ``pending`` list so we can prune
         # dead entries at the start of each slice without losing the
         # original ``entries`` snapshot (which Phase 3 iterates for
         # per-entry "exited cleanly" / "did not exit" logging).
         pending = list(entries)
         while True:
-            # UE-11-F3: prune dead entries at the start of each slice
+            # prune dead entries at the start of each slice
             # so we don't keep re-checking threads that have already
             # exited.
             pending = [e for e in pending if e.thread.is_alive()]
@@ -494,7 +494,7 @@ class ThreadRegistry:
                     entry.join_timeout,
                 )
 
-        # UE-11-F3: auto-prune dead entries from self._entries so the
+        # auto-prune dead entries from self._entries so the
         # registry doesn't accumulate stale entries across repeated
         # shutdown_all() calls. Phase 3 above already logged each dead
         # entry as "exited cleanly" using the original snapshot, so

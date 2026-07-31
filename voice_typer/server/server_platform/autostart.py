@@ -1,6 +1,6 @@
 """Public autostart API + cross-platform helpers.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Contains:
   - :func:`_desktop_quote` — freedesktop Desktop Entry Spec Exec-quoting.
   - :func:`_autostart_command` — builds the OS-agnostic autostart command.
@@ -81,7 +81,7 @@ def _desktop_quote(arg: str) -> str:
     Within a quoted string, the characters ``" \\ ` $`` must be escaped
     with a backslash.
 
-    NEW-XPLAT-007: previously the code just wrapped paths in double
+    previously the code just wrapped paths in double
     quotes without escaping backslashes or quotes — so a path like
     ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
     field.  We now do proper spec-compliant quoting.
@@ -122,7 +122,7 @@ def _autostart_command() -> str:
     faster than prewarm can finish, the app's model loader waits for
     prewarm to complete (up to 60s) rather than fighting it for disk.
 
-    NEW-XPLAT-007: the result is properly quoted per the freedesktop
+    the result is properly quoted per the freedesktop
     Desktop Entry Spec's Exec-quoting rules so paths containing
     spaces, apostrophes, or other reserved characters (e.g.
     ``/home/john doe/voice-typer``) survive XFCE's and KDE's
@@ -153,7 +153,7 @@ def _autostart_command() -> str:
     # PyInstaller builds have sys.prefix == sys.base_prefix so this
     # only affects development setups.
     #
-    # PVT-010/LINUX-VENV-AUTOSTART: previously the code swapped to the
+    # LINUX-VENV-AUTOSTART: previously the code swapped to the
     # system Python unconditionally when running in a venv, WITHOUT
     # checking whether the system Python can actually import
     # ``voice_typer.server.autostart_launcher``. If the user installed
@@ -193,7 +193,7 @@ def _autostart_command() -> str:
 
 
 def _system_python_can_import_launcher(system_python: str) -> bool:
-    """PVT-010 — probe whether the system Python can import the launcher.
+    """probe whether the system Python can import the launcher.
 
     Runs ``<system_python> -c "import voice_typer.server.autostart_launcher"``
     with a short timeout. Returns True if the import succeeds (exit
@@ -248,6 +248,19 @@ def _install_hash_suffix() -> str:
 
 
 def get_autostart_dir() -> Path:
+    """Return the platform-specific autostart directory.
+
+    on Linux we previously used
+    ``os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))``
+    which returns the empty string when the env var is set but empty
+    (per the XDG Base Directory Spec, empty values must be treated as
+    "unset"). ``Path("") / "autostart"`` then produces a RELATIVE
+    ``PosixPath("autostart")`` and the .desktop file ends up in the
+    process's CWD — autostart never fires. The same bug was already
+    fixed in ``prewarm_scheduler_posix._linux_unit_dir`` via an
+    ``if not xdg:`` guard; we mirror that pattern here so both code
+    paths agree.
+    """
     if _pkg.SYSTEM == "win32":
         return (
             Path(os.environ.get("APPDATA", Path.home()))
@@ -260,7 +273,10 @@ def get_autostart_dir() -> Path:
     elif _pkg.SYSTEM == "darwin":
         return Path.home() / "Library" / "LaunchAgents"
     else:
-        return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "autostart"
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        if not xdg:  # handles both None (unset) and "" (empty string)
+            xdg = str(Path.home() / ".config")
+        return Path(xdg) / "autostart"
 
 
 # ─── Public autostart facade ─────────────────────────────────────────
@@ -269,7 +285,7 @@ def get_autostart_dir() -> Path:
 def enable_autostart() -> bool:
     """Public autostart facade — returns True on success.
 
-    PVT-060: this function is preserved as a bool-returning shim for
+    this function is preserved as a bool-returning shim for
     backwards compatibility (existing tests and call sites assert
     ``enable_autostart() is True`` / ``is False``). New callers that
     need the failure reason should use :func:`enable_autostart_ex`,
@@ -281,14 +297,14 @@ def enable_autostart() -> bool:
 def disable_autostart() -> bool:
     """Public autostart facade — returns True on success.
 
-    PVT-060: see :func:`enable_autostart` for the bool-vs-dict rationale.
+    see :func:`enable_autostart` for the bool-vs-dict rationale.
     New callers should use :func:`disable_autostart_ex`.
     """
     return disable_autostart_ex()["registered"]
 
 
 def enable_autostart_ex() -> dict:
-    """PVT-060 — rich-result variant of :func:`enable_autostart`.
+    """rich-result variant of :func:`enable_autostart`.
 
     Returns
     -------
@@ -320,7 +336,7 @@ def enable_autostart_ex() -> dict:
 
 
 def disable_autostart_ex() -> dict:
-    """PVT-060 — rich-result variant of :func:`disable_autostart`.
+    """rich-result variant of :func:`disable_autostart`.
 
     Returns
     -------
@@ -356,7 +372,7 @@ def disable_autostart_ex() -> dict:
 
 
 def is_autostart_enabled() -> bool:
-    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # import subprocess BEFORE the try block so the
     # ``except subprocess.CalledProcessError`` clause has a guaranteed-bound
     # name (matches the pattern at line ~826).
     import subprocess

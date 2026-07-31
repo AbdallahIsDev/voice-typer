@@ -1,7 +1,7 @@
 """Config-mutation domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(DT-26 / Phase 4.5 spaghetti split). Owns the cross-cutting config
+( / Phase 4.5 spaghetti split). Owns the cross-cutting config
 surface that doesn't belong to a single domain mixin:
 
 * :meth:`ConfigMutationMixin.get_config`                — sanitized config read
@@ -14,7 +14,7 @@ surface that doesn't belong to a single domain mixin:
 * :meth:`ConfigMutationMixin._keyring_status`           — shared keychain probe helper
 
 These previously lived on :class:`VoiceTyperService` itself because
-they delegate to :class:`ConfigApplier` (PVT-21 / CR-18 / CR-65) and
+they delegate to :class:`ConfigApplier` ( /  / ) and
 touch the cross-cutting config-mutation lock. They are extracted here
 as a :class:`ConfigMutationMixin` so :class:`VoiceTyperService`
 shrinks back to a thin composition root (``__init__`` + ``restart`` /
@@ -38,22 +38,22 @@ log = logging.getLogger(__name__)
 class ConfigMutationMixin(ServiceMixinBase):
     """Config read / mutate / side-effects surface.
 
-    Most mutating methods delegate to ``self._config_applier`` (the
-    :class:`ConfigApplier` instance bound in
-    :meth:`VoiceTyperService.__init__`) so the config-mutation lock
-    (``_config_mutation_lock``) lives in exactly one place — see
-    PVT-21 / CR-18 for the rationale and
-    ``tests/regressions/concurrency_test.py`` for the regression
-    guard that introspects ``ConfigApplier.apply_config`` for the
-    lock acquisition.
+        Most mutating methods delegate to ``self._config_applier`` (the
+        :class:`ConfigApplier` instance bound in
+        :meth:`VoiceTyperService.__init__`) so the config-mutation lock
+        (``_config_mutation_lock``) lives in exactly one place — see
+    for the rationale and
+        ``tests/regressions/concurrency_test.py`` for the regression
+        guard that introspects ``ConfigApplier.apply_config`` for the
+        lock acquisition.
 
-    The exception is :meth:`reset_config_to_defaults`, which is a
-    whole-config factory reset: it cannot go through
-    ``ConfigApplier`` (which validates and applies an *update* dict
-    to the live config) because it constructs a fresh
-    :class:`Config` from scratch. It still acquires
-    ``_config_mutation_lock`` directly so a concurrent
-    ``set_config`` IPC call can't interleave with the reset.
+        The exception is :meth:`reset_config_to_defaults`, which is a
+        whole-config factory reset: it cannot go through
+        ``ConfigApplier`` (which validates and applies an *update* dict
+        to the live config) because it constructs a fresh
+        :class:`Config` from scratch. It still acquires
+        ``_config_mutation_lock`` directly so a concurrent
+        ``set_config`` IPC call can't interleave with the reset.
     """
 
     # ── Config ──────────────────────────────────────────────────
@@ -86,13 +86,13 @@ class ConfigMutationMixin(ServiceMixinBase):
     def get_config(self) -> dict[str, object]:
         """Return the sanitized config (API keys redacted).
 
-        RW-01: also includes a ``keyring_status`` field describing the
-        OS keychain backend state, so the renderer can show
-        "Stored securely in your OS keychain" indicators next to API
-        key inputs (or a warning when only the plaintext fallback is
-        available).
+        also includes a ``keyring_status`` field describing the
+                OS keychain backend state, so the renderer can show
+                "Stored securely in your OS keychain" indicators next to API
+                key inputs (or a warning when only the plaintext fallback is
+                available).
         """
-        # EC-FIX-15 / EC-22: import the canonical sanitizer from the
+        # import the canonical sanitizer from the
         # transport-neutral ``config_sanitizer`` module instead of
         # reaching DOWN into the IPC transport layer (``ipc_server``),
         # which created a real import cycle (ipc_server imports
@@ -107,13 +107,13 @@ class ConfigMutationMixin(ServiceMixinBase):
     def get_defaults(self) -> dict[str, object]:
         """Return default config values (sanitized).
 
-        RW-01: includes the same ``keyring_status`` field as
-        :meth:`get_config` so the renderer's "Reset to Defaults" flow
-        can show the same keychain indicators.
+        includes the same ``keyring_status`` field as
+                :meth:`get_config` so the renderer's "Reset to Defaults" flow
+                can show the same keychain indicators.
         """
         from voice_typer.server.config import Config
 
-        # EC-FIX-15 / EC-22: import the canonical sanitizer from the
+        # import the canonical sanitizer from the
         # transport-neutral ``config_sanitizer`` module — see
         # :meth:`get_config` for rationale.
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
@@ -123,7 +123,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         sanitized["keyring_status"] = self._keyring_status()
         return sanitized
 
-    # PVT-G5-024 (High, partial): ``set_config`` and ``save_config``
+    # (High, partial): ``set_config`` and ``save_config``
     # were REMOVED from this service layer.
     #
     # Rationale:
@@ -134,7 +134,7 @@ class ConfigMutationMixin(ServiceMixinBase):
     #     delegates to ``service.apply_config`` (NOT this method).
     #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
     #     production callers; the IPC ``save_config`` command was
-    #     removed in ERR-IPC-003.  ``Config.save()`` is now invoked
+    # removed in   ``Config.save()`` is now invoked
     #     inside ``service.apply_config`` under the config-mutation
     #     lock so disk writes can't race.
     #
@@ -151,18 +151,18 @@ class ConfigMutationMixin(ServiceMixinBase):
     # is declared on ``ServiceProtocol``) need follow-up updates —
     # see the FA11-retry return summary.
 
-    # ── Config side effects (ARCH-005) ──────────────────────────
+    # Config side effects () ──────────────────────────
 
     def apply_config_side_effects(self, updates: dict) -> dict:
-        """Apply side effects after config changes. Delegates to ConfigApplier (CR-61 + CR-97, PVT-21).
+        """Apply side effects after config changes. Delegates to ConfigApplier ( + , ).
 
-        Returns
-        -------
-        dict
-            PVT-060 (session-3): side-effect status dict from
-            :meth:`ConfigApplier.apply_config_side_effects` (shape
-            ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
-            Callers that previously discarded the return value still work.
+                Returns
+                -------
+                dict
+        (session-3): side-effect status dict from
+                    :meth:`ConfigApplier.apply_config_side_effects` (shape
+                    ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
+                    Callers that previously discarded the return value still work.
         """
         return self._config_applier.apply_config_side_effects(updates)
 
@@ -185,20 +185,20 @@ class ConfigMutationMixin(ServiceMixinBase):
         self._app.models.set_active_backend(backend)
 
     def apply_config(self, updates: dict) -> dict:
-        """Apply validated config updates atomically. Delegates to ConfigApplier (CR-61 + CR-97, PVT-21).
+        """Apply validated config updates atomically. Delegates to ConfigApplier ( + , ).
 
-        Returns
-        -------
-        dict
-            PVT-060 (session-3): side-effect status dict from
-            :meth:`ConfigApplier.apply_config` (shape
-            ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
-            Callers that previously discarded the return value still work.
+                Returns
+                -------
+                dict
+        (session-3): side-effect status dict from
+                    :meth:`ConfigApplier.apply_config` (shape
+                    ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
+                    Callers that previously discarded the return value still work.
         """
         return self._config_applier.apply_config(updates)
 
     def reset_config_to_defaults(self, *, preserve_api_keys: bool = True) -> dict:
-        """G4-L-25: factory-reset the in-memory + on-disk config to defaults.
+        """factory-reset the in-memory + on-disk config to defaults.
 
         Snapshots the current ``config.json`` to ``config.json.bak``
         (so the user can recover their settings if they clicked

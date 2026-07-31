@@ -7,7 +7,7 @@ static byte parts.
 
 No mutable state lives here — only constants. The pre-allocated
 ``_crash_msg_buf`` bytearray that USED to live here was moved to the
-``crash_handler`` facade (``__init__.py``) in UE-2-F9 alongside the
+``crash_handler`` facade (``__init__.py``) in  alongside the
 other mutable runtime state (kernel32 pointers, file paths, the
 rate-limit flag, the rate-limit lock). The buffer's contents ARE
 mutated in place by ``_veh_callback``; keeping it next to the other
@@ -25,7 +25,7 @@ from __future__ import annotations
 # Archive + retention constants for crash diagnostics.
 _CRASH_DIAGNOSTICS_ARCHIVE = "crash_diagnostics_archive"
 _ARCHIVE_RETENTION_KEEP = 5
-# YJ-47: sidecar marker suffix used by ``report_pending_crash`` to
+# sidecar marker suffix used by ``report_pending_crash`` to
 # track which archive-subdir files have already been surfaced to the
 # user. Pre-fix, VEH wrote to the config_dir root and
 # ``report_pending_crash`` MOVED the file to the archive (so the next
@@ -49,8 +49,8 @@ STATUS_ACCESS_VIOLATION = 0xC0000005
 STATUS_STACK_BUFFER_OVERRUN = 0xC0000409
 STATUS_FATAL_APP_EXIT = 0x40000015
 
-# YJ-42: extended coverage for additional fatal Windows exception codes.
-# The original ``_CRASH_CODES`` set (added in XZ-R17-04) only covered 4
+# extended coverage for additional fatal Windows exception codes.
+# The original ``_CRASH_CODES`` set (added in ) only covered 4
 # codes — ~11 other fatal exception codes were silently bypassed by the
 # VEH handler, producing no crash_diagnostics.<PID>.txt file for triage.
 # The codes below extend the set to cover the most common fatal SEH
@@ -68,11 +68,11 @@ STATUS_INVALID_HANDLE = 0xC0000008
 STATUS_DATATYPE_MISALIGNMENT = 0xC0000002
 STATUS_GUARD_PAGE_VIOLATION = 0x80000001
 
-# FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately
+# STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately
 # OMITTED from ``_CRASH_CODES``. It is a warning-level status code
 # (high bit set = ``severity=warning`` per the Windows NTSTATUS
 # layout), used by the OS for stack-growth probe pages and C-extension
-# guard-page probes — it does NOT terminate the process. Pre-FR-13,
+# guard-page probes — it does NOT terminate the process. Pre-,
 # the VEH callback treated it as a crash, set ``_crash_written = True``
 # (which is never reset within the process lifetime), and permanently
 # silenced the VEH for the rest of the session — real crashes during
@@ -86,7 +86,7 @@ _CRASH_CODES = frozenset(
         STATUS_ACCESS_VIOLATION,
         STATUS_STACK_BUFFER_OVERRUN,
         STATUS_FATAL_APP_EXIT,
-        # YJ-42: extended fatal codes. See _NAME_* constants below for
+        # extended fatal codes. See _NAME_* constants below for
         # the human-readable diagnostic messages mapped to each code.
         STATUS_ILLEGAL_INSTRUCTION,
         STATUS_INT_DIVIDE_BY_ZERO,
@@ -96,7 +96,7 @@ _CRASH_CODES = frozenset(
         STATUS_NONCONTINUABLE_EXCEPTION,
         STATUS_INVALID_HANDLE,
         STATUS_DATATYPE_MISALIGNMENT,
-        # FR-13: STATUS_GUARD_PAGE_VIOLATION intentionally NOT listed —
+        # STATUS_GUARD_PAGE_VIOLATION intentionally NOT listed —
         # it is a warning-level code (stack growth / probe), not a
         # fatal crash. Including it caused the VEH rate-limit flag to
         # permanently silence the VEH after a single non-fatal event.
@@ -117,7 +117,7 @@ FILE_ATTRIBUTE_NORMAL = 0x00000080
 # still capturing the long tail of C-extension / package names that
 # are most likely to be implicated in a silent crash.
 #
-# YJ-47: previously 500. The 500-module fingerprint was a PII /
+# previously 500. The 500-module fingerprint was a PII
 # install-fingerprint exposure in the config_dir root during the
 # window between crash (T0) and next startup (T1). Capped at 100
 # to bound the exposure while still capturing the long-tail packages.
@@ -164,7 +164,7 @@ _CRASH_MSG_BUF_SIZE = sum(width for _, width in _CRASH_MSG_LAYOUT) + 256
 
 # Pre-encoded static message parts (ASCII)
 #
-# UE-2-F9: the pre-allocated ``_crash_msg_buf`` bytearray that used
+# the pre-allocated ``_crash_msg_buf`` bytearray that used
 # to live here has been MOVED to ``crash_handler/__init__.py`` (the
 # facade) alongside the other mutable runtime state. The buffer's
 # contents are mutated in place by ``_vectored_handler_impl`` (via
@@ -191,7 +191,7 @@ _NAME_HEAP = b"STATUS_HEAP_CORRUPTION: the process heap has been corrupted."
 _NAME_ACCESS = b"STATUS_ACCESS_VIOLATION: the process tried to access invalid memory."
 _NAME_STACK = b"STATUS_STACK_BUFFER_OVERRUN: a stack buffer overrun was detected."
 _NAME_FATAL = b"STATUS_FATAL_APP_EXIT: the application requested termination."
-# YJ-42: friendly names for the extended fatal exception codes. Each
+# friendly names for the extended fatal exception codes. Each
 # message is pre-encoded ASCII bytes (no heap allocations in the VEH
 # callback). The ``name`` slot in ``_CRASH_MSG_LAYOUT`` is 80 bytes;
 # each message below is ≤ 80 bytes to respect that constraint.
@@ -206,14 +206,14 @@ _NAME_MISALIGNMENT = b"STATUS_DATATYPE_MISALIGNMENT: a misaligned memory access 
 _NAME_GUARD_PAGE = b"STATUS_GUARD_PAGE_VIOLATION: a guard page was touched (stack growth or probe)."
 _NAME_UNKNOWN = b"Unknown fatal exception."
 
-# AC-88: unified exception-code → (name_bytes, summary_str) lookup table.
+# unified exception-code → (name_bytes, summary_str) lookup table.
 # Replaces the 13-clause if/elif chain that previously lived in
 # ``_vehtored_handler_impl``. Each entry maps an NTSTATUS code to the
 # pre-encoded friendly-name bytes and a human-readable summary string.
 # The VEH callback reads ``[0]`` (the name bytes) for the crash
 # diagnostics message; ``[1]`` is reserved for diagnostic UI or logs.
 #
-# UE-2-F3: ``_diagnostics_archive._summarize_crash_file`` ALSO uses
+# ``_diagnostics_archive._summarize_crash_file`` ALSO uses
 # this table (via the ``_CODE_TO_USER_SUMMARY`` mapping below) to
 # replace its own 13-clause if/elif chain. Drift between the VEH
 # write-side and the report-side is now impossible: adding a new code
@@ -238,7 +238,7 @@ _CODE_TO_INFO: dict[int, tuple[bytes, str]] = {
 # Lookup table for hex digit encoding (pre-computed)
 _HEX_CHARS = b"0123456789ABCDEF"
 
-# UE-2-F3: user-facing summary strings keyed by NTSTATUS code.
+# user-facing summary strings keyed by NTSTATUS code.
 # Replaces the 13-clause if/elif chain in
 # ``_diagnostics_archive._summarize_crash_file`` that previously
 # duplicated the code → message mapping. Each value is a single-line

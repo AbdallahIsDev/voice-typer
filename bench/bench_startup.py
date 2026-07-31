@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""NEW-DOC-007: Startup and model-size benchmark for README perf claims.
+"""Startup and model-size benchmark for README perf claims.
 
 Measures:
 1. Tray icon appearance time (cold start to first tray paint).

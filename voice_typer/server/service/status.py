@@ -1,7 +1,7 @@
 """Status / health-check domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Read-only queries that surface app state
+( split). Read-only queries that surface app state
 (tray status, xruns, audio filter chain, volume backend).
 """
 
@@ -13,7 +13,7 @@ from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
-    # WR-14: ``StatusResponse`` is a TypedDict defined in
+    # ``StatusResponse`` is a TypedDict defined in
     # ``voice_typer/server/service/__init__.py`` (which imports this
     # mixin via ``from voice_typer.server.service.status import
     # StatusMixin``). Importing it at runtime would create a circular
@@ -32,7 +32,7 @@ class StatusMixin(ServiceMixinBase):
     mutate config or trigger side effects.
     """
 
-    # XZ-EH-021: notify-once guard for volume_ducker.initialize failures.
+    # notify-once guard for volume_ducker.initialize failures.
     # The status endpoint is polled ~every 2s; log first occurrence at
     # WARNING, subsequent at DEBUG.
     _volume_ducker_init_warned: bool = False
@@ -42,11 +42,11 @@ class StatusMixin(ServiceMixinBase):
     def get_status(self) -> "StatusResponse":  # noqa: F821 (forward ref resolved in __init__)
         """Return the current app state plus audio-quality telemetry.
 
-        ERR-021: previously returned only the tray state string. The
-        xrun counter was tracked in the recorder but never reached the
-        IPC layer, so the UI couldn't warn the user of degraded audio.
-        We now return a dict with ``status``, ``xruns_since_start``,
-        and other useful fields.
+        previously returned only the tray state string. The
+                xrun counter was tracked in the recorder but never reached the
+                IPC layer, so the UI couldn't warn the user of degraded audio.
+                We now return a dict with ``status``, ``xruns_since_start``,
+                and other useful fields.
         """
         app = self._app
         status_str = app.tray.state.value
@@ -56,7 +56,7 @@ class StatusMixin(ServiceMixinBase):
             xruns = int(getattr(app.recorder, "_xruns", 0) or 0)
         except Exception:
             log.debug("[SERVICE] could not read xrun counter", exc_info=True)
-        # NEW-UX-038: read the active engine's loaded_via property.
+        # read the active engine's loaded_via property.
         loaded_via = ""
         try:
             active = app.models._registry.get_active() if hasattr(app, "models") and app.models else None
@@ -70,7 +70,7 @@ class StatusMixin(ServiceMixinBase):
             "loaded_via": loaded_via,
         }
 
-    # ── Volume / Model status (ARCH-005) ────────────────────────
+    # Volume / Model status () ────────────────────────
 
     def get_volume_backend_status(self) -> dict[str, object]:
         """Return the volume ducking backend status."""
@@ -87,10 +87,10 @@ class StatusMixin(ServiceMixinBase):
             # merely because nothing has ducked yet).
             try:
                 ducker.initialize()
-                # XZ-EH-021: reset notify-once guard on success.
+                # reset notify-once guard on success.
                 StatusMixin._volume_ducker_init_warned = False
             except Exception:
-                # XZ-EH-021: notify-once — log first failure at WARNING,
+                # notify-once — log first failure at WARNING,
                 # subsequent at DEBUG (status endpoint polled ~every 2s).
                 if not StatusMixin._volume_ducker_init_warned:
                     log.warning(
@@ -110,7 +110,7 @@ class StatusMixin(ServiceMixinBase):
                 "backend": type(ducker).__name__,
             }
         except Exception as exc:
-            # XZ-EH-001: redact exc string before returning to IPC layer.
+            # redact exc string before returning to IPC layer.
             # Sister methods (delete_model, test_llm_connection, etc.) all
             # call redact_secret(redact_url(str(exc))) to avoid leaking
             # secrets / URLs / file paths via the renderer.

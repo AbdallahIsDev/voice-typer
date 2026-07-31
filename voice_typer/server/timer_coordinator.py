@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: TimerCoordinator — extracted from VoiceTyperApp.
+"""god-class decomposition: TimerCoordinator — extracted from VoiceTyperApp.
 
 Owns the lifecycle of fire-and-forget ``threading.Timer`` instances
 scheduled by the application:
@@ -8,7 +8,7 @@ scheduled by the application:
       cancel) from firing after ``_cancel_pending_timers`` has bumped
       the generation counter.
     - ``_cancel_pending_timers`` — cancel and clear all pending timers.
-      The pending list is guarded by ``_pending_timers_lock`` (ARCH-022)
+The pending list is guarded by ``_pending_timers_lock`` ()
       so concurrent appends from the tray / transcription / timer
       threads can't race with the snapshot-and-clear iteration.
 
@@ -48,36 +48,36 @@ log = logging.getLogger(__name__)
 class TimerCoordinator:
     """Owns creation/tracking/cancellation of scheduled timers.
 
-    RW-9 Phase 6: extracted from ``VoiceTyperApp``. The app passes
-    itself (``app``) as a back-reference so ``TimerCoordinator`` can be
-    extended later to call back into the app if needed (currently the
-    two methods are self-contained and don't use ``self._app`` — but
-    the back-reference is kept for parity with ``SettingsController``
-    and to support future wiring such as ``app._shutting_down_event``
-    gating).
+    Phase 6: extracted from ``VoiceTyperApp``. The app passes
+        itself (``app``) as a back-reference so ``TimerCoordinator`` can be
+        extended later to call back into the app if needed (currently the
+        two methods are self-contained and don't use ``self._app`` — but
+        the back-reference is kept for parity with ``SettingsController``
+        and to support future wiring such as ``app._shutting_down_event``
+        gating).
 
-    Threading contract (ARCH-022):
+    Threading contract ():
 
-    ``_pending_timers`` is appended to from the tray thread, the
-    transcription thread, and the timer thread itself; the
-    ``for timer in self._pending_timers`` iteration in
-    ``_cancel_pending_timers`` can race with concurrent appends and
-    raise ``RuntimeError("list changed size during iteration")``.
-    The list is therefore guarded by ``_pending_timers_lock``.
+        ``_pending_timers`` is appended to from the tray thread, the
+        transcription thread, and the timer thread itself; the
+        ``for timer in self._pending_timers`` iteration in
+        ``_cancel_pending_timers`` can race with concurrent appends and
+        raise ``RuntimeError("list changed size during iteration")``.
+        The list is therefore guarded by ``_pending_timers_lock``.
 
-    Generation guard (stale-callback prevention):
+        Generation guard (stale-callback prevention):
 
-    Every scheduled timer captures the *current* value of
-    ``_timer_generation`` at scheduling time. ``_cancel_pending_timers``
-    *increments* the counter (under the lock). When a timer fires, the
-    guarded callback compares its captured generation against the
-    current one and skips the user callback if they differ — i.e. the
-    timer was scheduled before the most recent cancel and is now stale.
+        Every scheduled timer captures the *current* value of
+        ``_timer_generation`` at scheduling time. ``_cancel_pending_timers``
+        *increments* the counter (under the lock). When a timer fires, the
+        guarded callback compares its captured generation against the
+        current one and skips the user callback if they differ — i.e. the
+        timer was scheduled before the most recent cancel and is now stale.
     """
 
     def __init__(self, app: Any) -> None:
         self._app = app
-        # ARCH-022: _pending_timers is appended to from the tray thread,
+        # _pending_timers is appended to from the tray thread,
         # the transcription thread, and the timer thread itself; the
         # `for timer in self._pending_timers` iteration in
         # _cancel_pending_timers can race with concurrent appends and
@@ -101,7 +101,7 @@ class TimerCoordinator:
             cleanup, thread-safety) for no measurable user-visible gain
           - The generation-guard pattern already prevents stale callbacks
 
-        PERF-26: ``gen = self._timer_generation`` is now captured INSIDE
+        ``gen = self._timer_generation`` is now captured INSIDE
         the ``_pending_timers_lock`` critical section. Previously the
         read happened outside the lock, so a concurrent
         ``_cancel_pending_timers`` could bump the generation between
@@ -117,7 +117,7 @@ class TimerCoordinator:
               no cancel happens before it fires (legitimate run).
         The previous race let a timer escape cancellation entirely.
 
-        XV-129: when a timer fires (the guarded callback runs),
+        when a timer fires (the guarded callback runs),
         ``guarded_func`` removes it from ``_pending_timers`` under
         the lock. Previously fired timers stayed in the list forever
         — a long-running app that schedules ~5 timers per dictation
@@ -130,7 +130,7 @@ class TimerCoordinator:
             gen = self._timer_generation
 
             def guarded_func():
-                # GT-72: the generation check is a check-then-act TOCTOU.
+                # the generation check is a check-then-act TOCTOU.
                 # ``threading.Timer.cancel()`` only prevents a timer that
                 # hasn't fired yet. If this ``guarded_func`` has already
                 # been invoked by the Timer thread (and passed the
@@ -162,7 +162,7 @@ class TimerCoordinator:
                 with self._pending_timers_lock:
                     if gen != self._timer_generation:
                         return
-                    # XV-129: evict this timer from ``_pending_timers``
+                    # evict this timer from ``_pending_timers``
                     # BEFORE invoking ``func()`` so the list doesn't
                     # accumulate fired-timer shells. Lock is held only
                     # for the mutation, released before ``func()`` so a
@@ -185,7 +185,7 @@ class TimerCoordinator:
     def _cancel_pending_timers(self):
         """Cancel and clear all pending scheduled timers.
 
-        ARCH-022: take the lock so concurrent appends from the tray /
+        Take the lock so concurrent appends from the tray
         transcription / timer threads can't race with our iteration.
         The actual ``timer.cancel()`` calls happen outside the lock to
         avoid holding it longer than necessary.

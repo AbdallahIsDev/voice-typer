@@ -77,7 +77,7 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
             # fresh deque so the worker iterates the snapshot even if
             # the caller ``.clear()``s the original deque before the
             # worker picks it up. This preserves the deque identity +
-            # maxlen the caller needs (MEM-02 invariant) while still
+            # maxlen the caller needs ( invariant) while still
             # letting the worker zero the chunks.
             snapshot = collections.deque(list(d))
             _secure_clear_array_background(snapshot)
@@ -184,7 +184,7 @@ def start_test_recording(
             _state._test_mode = True
             _state._test_start_time = time.perf_counter()
             _state._test_duration = max(1.0, min(30.0, duration))
-            # MEM-02: (re)create bounded deques sized to this start's
+            # (re)create bounded deques sized to this start's
             # duration + device sample rate. Must run AFTER _test_duration
             # is finalized above (the helper reads it). We are still
             # holding _monitor_lock here, so pass locked=True.
@@ -239,7 +239,7 @@ def start_test_recording(
         _state._test_mode = True
         _state._test_start_time = time.perf_counter()
         _state._test_duration = max(1.0, min(30.0, duration))
-        # MEM-02: (re)create bounded deques sized to this start's
+        # (re)create bounded deques sized to this start's
         # duration + device sample rate. Must run AFTER _test_duration
         # is finalized above (the helper reads it). Still holding
         # _monitor_lock here, so pass locked=True.
@@ -301,7 +301,7 @@ def stop_test_recording() -> dict:
         # - ``_test_filtered_chunks``: FILTERED audio (post-``process_chunk``)
         #   captured by the worker — source for the "after" WAV when
         #   populated, eliminating the 7-70s synchronous re-filter that
-        #   previously blocked the IPC thread at stop time (PVT-013).
+        # previously blocked the IPC thread at stop time ().
         raw_chunks = list(_state._test_raw_chunks)
         filtered_chunks = list(_state._test_filtered_chunks)
         filters = dict(_state._test_filters)
@@ -313,12 +313,12 @@ def stop_test_recording() -> dict:
         silence_blocks = _state._test_silence_blocks
 
         # Clear test state
-        # MEM-02: use .clear() (NOT reassignment to []) so the
+        # use .clear() (NOT reassignment to []) so the
         # bounded deque + its maxlen are preserved across the test.
         # A plain ``_test_chunks = []`` would clobber the deque back
         # to an unbounded list and reintroduce the leak.
         #
-        # XZ-PRIV-03: BEFORE ``.clear()``, hand the chunks off to
+        # BEFORE ``.clear()``, hand the chunks off to
         # ``_secure_clear_test_chunks`` so the np.ndarray buffers
         # containing potentially-biometric voice data are zeroed on
         # the background worker. This matches the recording.py
@@ -391,7 +391,7 @@ def stop_test_recording() -> dict:
             "quality": {},
         }
 
-    # PVT-013: Build ``audio`` (the "after" WAV) from
+    # Build ``audio`` (the "after" WAV) from
     # ``_test_filtered_chunks`` when the worker populated it. This is
     # the audio that already went through the live ``_level_processor``
     # filter chain during recording — concatenating it directly avoids
@@ -416,7 +416,7 @@ def stop_test_recording() -> dict:
     raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float32)))))
     raw_peak = float(raw_abs.max())
 
-    # TASK-14: annotate ``quality`` as ``dict[str, Any]`` so that
+    # annotate ``quality`` as ``dict[str, Any]`` so that
     # downstream assignments like ``quality["detected_issues"] = [...str]``
     # do not trigger bad-assignment.  Without the annotation pyrefly
     # infers the dict's value type from the literal (str | bool | int |
@@ -473,7 +473,7 @@ def stop_test_recording() -> dict:
     quality["estimated_transcription_quality"] = max(0, min(100, est_score))
 
     # ── Apply audio enhancement filters ─────────────────────────────
-    # PVT-013: skip the post-hoc filter when ``filtered_chunks`` was
+    # skip the post-hoc filter when ``filtered_chunks`` was
     # already populated by the worker (the live ``_level_processor``
     # already filtered each chunk during recording). Running it again
     # here would double-filter AND reintroduce the 7-70s synchronous
@@ -628,7 +628,7 @@ def _do_auto_stop_test() -> None:
             },
         )
     except Exception:
-        # NF-R20-2: this is load-bearing — if the publish fails, the
+        # this is load-bearing — if the publish fails, the
         # frontend UI hangs in "test running" state forever with no
         # indication the test completed. Log a warning so the user can
         # diagnose why the mic test isn't completing.
@@ -668,7 +668,7 @@ def _cancel_test_locked() -> bool:
             return False
         was_active = _state._test_mode
         _state._test_mode = False
-        # MEM-02: .clear() preserves the bounded deque (and its maxlen).
+        # .clear() preserves the bounded deque (and its maxlen).
         # reassigning to [] would make it an unbounded list again.
         _state._test_chunks.clear()
         _state._test_raw_chunks.clear()

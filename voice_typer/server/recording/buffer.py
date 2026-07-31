@@ -1,8 +1,8 @@
 """Securely zero audio buffers on a background worker thread.
 
-Phase 4.5 / ARCH-045 — extracted from the original ``recording.py``
+Phase 4.5 /  — extracted from the original ``recording.py``
 god-module.  Owns the long-lived buffer-clear worker thread and its
-bounded queue (CR-10).
+bounded queue ().
 
 The public names ``_secure_clear_array``,
 ``_ensure_buffer_clear_worker``, ``_buffer_clear_worker_loop``,
@@ -53,7 +53,7 @@ def _secure_clear_array(arr: np.ndarray) -> None:
         arr.fill(0)  # best-effort; some array types may not support fill
 
 
-# CR-10: A single long-lived "buffer-clear" worker thread replaces the
+# A single long-lived "buffer-clear" worker thread replaces the
 # previous per-call ``threading.Thread(name="buffer-clear-bg", daemon=True)``
 # spawn. Under rapid hotkey toggling (e.g. user mashing the record key),
 # ``stop()`` / ``discard()`` could be invoked several times per second, and
@@ -83,7 +83,7 @@ _buffer_clear_queue: queue.Queue = queue.Queue(maxsize=_BUFFER_CLEAR_QUEUE_MAXSI
 _buffer_clear_worker_lock = threading.Lock()
 _buffer_clear_worker: threading.Thread | None = None
 
-# R4-F8: worker thread name (re-exported for tests / ThreadRegistry).
+# worker thread name (re-exported for tests / ThreadRegistry).
 BUFFER_CLEAR_WORKER_NAME = "buffer-clear-bg"
 
 # Test-only join timeout for the buffer-clear worker. Generous because
@@ -91,7 +91,7 @@ BUFFER_CLEAR_WORKER_NAME = "buffer-clear-bg"
 # sentinel arrives.
 _BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S = 5.0
 
-# R4-F8: optional central ThreadRegistry for shutdown coordination.
+# optional central ThreadRegistry for shutdown coordination.
 # When set via ``set_thread_registry``, the lazily-started buffer-clear
 # worker registers itself so ``shutdown_all()`` can signal/join it during
 # ``VoiceTyperApp.quit()``. Mirrors the scipy-preloader pattern in
@@ -103,29 +103,29 @@ _thread_registry: Any | None = None
 
 
 def set_thread_registry(registry: Any | None) -> None:
-    """R4-F8: install a central ThreadRegistry for shutdown coordination.
+    """install a central ThreadRegistry for shutdown coordination.
 
-    When called BEFORE the worker is started, the next
-    ``_ensure_buffer_clear_worker`` call will register the new worker.
+        When called BEFORE the worker is started, the next
+        ``_ensure_buffer_clear_worker`` call will register the new worker.
 
-    When called AFTER the worker is already running, the running worker
-    is registered immediately (mirrors the scipy-preloader pattern in
-    ``recorder.py``). This is needed because the worker may have been
-    lazily started by an earlier ``_secure_clear_array_background`` call
-    that ran before the registry was set.
+        When called AFTER the worker is already running, the running worker
+        is registered immediately (mirrors the scipy-preloader pattern in
+        ``recorder.py``). This is needed because the worker may have been
+        lazily started by an earlier ``_secure_clear_array_background`` call
+        that ran before the registry was set.
 
-    Passing ``None`` clears the registry — subsequent worker starts will
-    not register. The already-running worker (if any) is left alone.
+        Passing ``None`` clears the registry — subsequent worker starts will
+        not register. The already-running worker (if any) is left alone.
 
-    GT-47: the read of ``_buffer_clear_worker`` and the subsequent call
-    to ``registry.register(...)`` are now performed under
-    ``_buffer_clear_worker_lock``. Previously the read happened outside
-    the lock — a concurrent ``_stop_buffer_clear_worker`` could clear
-    the global to ``None`` and the underlying worker thread could exit
-    between our read and the ``register`` call, leaving the central
-    ThreadRegistry with a stale/dead thread reference that
-    ``shutdown_all()`` would later try to join (no-op join on a dead
-    thread, but the registry entry would never be cleaned up).
+    the read of ``_buffer_clear_worker`` and the subsequent call
+        to ``registry.register(...)`` are now performed under
+        ``_buffer_clear_worker_lock``. Previously the read happened outside
+        the lock — a concurrent ``_stop_buffer_clear_worker`` could clear
+        the global to ``None`` and the underlying worker thread could exit
+        between our read and the ``register`` call, leaving the central
+        ThreadRegistry with a stale/dead thread reference that
+        ``shutdown_all()`` would later try to join (no-op join on a dead
+        thread, but the registry entry would never be cleaned up).
     """
     global _thread_registry
     _thread_registry = registry
@@ -134,7 +134,7 @@ def set_thread_registry(registry: Any | None) -> None:
         # ``shutdown_all()`` can join it. Mirrors the scipy-preloader
         # pattern in ``recorder.py`` __init__.
         #
-        # GT-47: hold ``_buffer_clear_worker_lock`` across the read +
+        # hold ``_buffer_clear_worker_lock`` across the read +
         # ``register`` call so a concurrent
         # ``_stop_buffer_clear_worker`` cannot clear the global between
         # the read and the register (which would register a stale/dead
@@ -152,7 +152,7 @@ def set_thread_registry(registry: Any | None) -> None:
 
 
 def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:
-    """R4-F8 (test-only helper): signal the buffer-clear worker to stop
+    """(test-only helper): signal the buffer-clear worker to stop
     and join it.
 
     Sends the ``None`` sentinel through ``_buffer_clear_queue`` so the
@@ -202,18 +202,18 @@ def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:
 def _ensure_buffer_clear_worker() -> threading.Thread:
     """Lazily start the single long-lived buffer-clear worker thread.
 
-    CR-10: idempotent — repeated calls return the same running thread.
-    The worker is a daemon so it never blocks process exit. Acquired
-    under ``_buffer_clear_worker_lock`` to make the lazy-start race-free
-    under concurrent ``stop()``/``discard()`` calls.
+    idempotent — repeated calls return the same running thread.
+        The worker is a daemon so it never blocks process exit. Acquired
+        under ``_buffer_clear_worker_lock`` to make the lazy-start race-free
+        under concurrent ``stop()``/``discard()`` calls.
 
-    R4-F8: when ``set_thread_registry`` was previously called with a
-    non-None registry, the freshly-started worker is registered so
-    ``shutdown_all()`` can signal/join it during ``VoiceTyperApp.quit()``.
-    The registry entry is removed by ``_stop_buffer_clear_worker`` after
-    the join completes (or times out) so a subsequent lazy-start
-    re-registers cleanly without triggering the
-    "Re-registering name" warning.
+    when ``set_thread_registry`` was previously called with a
+        non-None registry, the freshly-started worker is registered so
+        ``shutdown_all()`` can signal/join it during ``VoiceTyperApp.quit()``.
+        The registry entry is removed by ``_stop_buffer_clear_worker`` after
+        the join completes (or times out) so a subsequent lazy-start
+        re-registers cleanly without triggering the
+        "Re-registering name" warning.
     """
     global _buffer_clear_worker
     # Fast path: worker already running. ``threading.Thread.is_alive``
@@ -231,7 +231,7 @@ def _ensure_buffer_clear_worker() -> threading.Thread:
             )
             _buffer_clear_worker = worker
             worker.start()
-            # R4-F8: register the freshly-started worker with the
+            # register the freshly-started worker with the
             # central ThreadRegistry (if one was set). Best-effort —
             # if register() raises, the worker is still running and
             # tracked via the module-global.
@@ -247,7 +247,7 @@ def _ensure_buffer_clear_worker() -> threading.Thread:
 
 
 def _buffer_clear_worker_loop() -> None:
-    """CR-10: drain ``_buffer_clear_queue`` and zero each deque's chunks.
+    """drain ``_buffer_clear_queue`` and zero each deque's chunks.
 
     Loops until a ``None`` sentinel is popped from the queue (sent by
     ``_stop_buffer_clear_worker``). Each non-None item popped is a
@@ -267,7 +267,7 @@ def _buffer_clear_worker_loop() -> None:
             continue
         try:
             if buffer is None:
-                # R4-F8: sentinel from ``_stop_buffer_clear_worker`` —
+                # sentinel from ``_stop_buffer_clear_worker`` —
                 # exit the loop cleanly so the worker thread can be
                 # joined by tests / shutdown_all().
                 return
@@ -281,22 +281,22 @@ def _buffer_clear_worker_loop() -> None:
 
 
 def _secure_clear_array_background(buffer: collections.deque) -> None:
-    """SEC-audit-008 / MEM-04: Zero all chunks in a buffer on a background worker.
+    """SEC-audit-008: Zero all chunks in a buffer on a background worker.
 
-    CR-10: previously this function spawned a fresh daemon thread per
-    call. Under rapid hotkey toggling that produced unbounded thread
-    churn. It now enqueues the deque onto ``_buffer_clear_queue`` and a
-    single long-lived daemon worker (``_buffer_clear_worker``) drains
-    the queue and zeros each chunk.
+    previously this function spawned a fresh daemon thread per
+        call. Under rapid hotkey toggling that produced unbounded thread
+        churn. It now enqueues the deque onto ``_buffer_clear_queue`` and a
+        single long-lived daemon worker (``_buffer_clear_worker``) drains
+        the queue and zeros each chunk.
 
-    The old buffer reference is passed in; the caller has already
-    replaced it with a fresh deque, so the worker can zero the chunks
-    at its leisure without blocking the hot path.
+        The old buffer reference is passed in; the caller has already
+        replaced it with a fresh deque, so the worker can zero the chunks
+        at its leisure without blocking the hot path.
 
-    If the queue is full (worker starved for an extended period — should
-    not happen in practice), we fall back to a synchronous clear on the
-    caller's thread with a single warning, preserving the secure-clear
-    guarantee rather than dropping it silently.
+        If the queue is full (worker starved for an extended period — should
+        not happen in practice), we fall back to a synchronous clear on the
+        caller's thread with a single warning, preserving the secure-clear
+        guarantee rather than dropping it silently.
     """
     _ensure_buffer_clear_worker()
     try:

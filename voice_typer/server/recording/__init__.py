@@ -1,6 +1,6 @@
 """Session-based audio recording.
 
-Phase 4.5 / ARCH-045 — this file was previously a 3,215-line god-module
+Phase 4.5 /  — this file was previously a 3,215-line god-module
 (``voice_typer/server/recording.py``); it has been split into a package
 with one module per concern:
 
@@ -19,7 +19,7 @@ module exposed so existing imports of the form
 ``from voice_typer.server.recording import X`` keep working without
 modification.
 
-CR-67 / TECH-DEBT: custom module class for test-patch compatibility
+TECH-DEBT: custom module class for test-patch compatibility
 -------------------------------------------------------------------
 This package installs a custom module subclass (``_RecordingModule``,
 defined at the bottom of this file) whose ``__getattr__`` and
@@ -46,9 +46,9 @@ names via ``_pkg.X`` at call time).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+TODO (2026-07-25,  / TECH-DEBT — OPEN, awaiting migration):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once CR-67 is complete, this
+during the package reorganization.  Once  is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
 then remove this class.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
@@ -58,7 +58,7 @@ with
 has been migrated, ``_RecordingModule`` and the ``_MUTABLE_*``
 frozensets below can be deleted.  Estimated scope: 30-50 test files
 per package (so 90-150 test files total across the three packages).
-Tracked as CR-67 / TECH-DEBT.
+Tracked as  / TECH-DEBT.
 
 Patch-path compatibility
 ------------------------
@@ -105,11 +105,11 @@ for several names ``X``:
       # _rms_callback_error_count: counter for RMS-callback exceptions
       # % 100 == 0: re-log with exc_info every 100th occurrence
       # traceback suppressed: log message for intermediate occurrences
-      # np.dot(flat, flat): vectorized RMS computation (AUDIO-007)
+# np.dot(flat, flat): vectorized RMS computation ()
       # rms_callback(chunk_rms, chunk_peak, filtered): 3-arg callback signature
       #   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered
       #    audio chunk so WaveformBubble can run Silero VAD on the live
-      #    stream. G4-L-04 temporarily removed it, but BUBBLE-FIX-4.1's
+#    stream.  temporarily removed it, but BUBBLE-'s
       #    VAD gate was re-enabled after the Silero model learned to
       #    resample native-rate audio internally.)
 """
@@ -117,7 +117,7 @@ for several names ``X``:
 from __future__ import annotations
 
 # ─── Top-of-module imports ──────────────────────────────────────────────
-# RW-8: ``event_bus`` and ``compute_vad_prob`` MUST be imported at module
+# ``event_bus`` and ``compute_vad_prob`` MUST be imported at module
 # top (before the first class/def) so the static-source check in
 # tests/test_audio_callback.py::TestRW8HoistedImports passes.
 # Both are re-exported for backward compatibility.
@@ -183,11 +183,11 @@ from .buffer import (  # noqa: E402
     set_thread_registry,
 )
 
-# S3-CR-17 / Phase 4.5 split — three new collaborator modules.
-from .capture import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+# Phase 4.5 split — three new collaborator modules.
+from .capture import (  # noqa: E402 —  / Phase 4.5 split
     AudioCallbackDispatcher,
 )
-from .device_manager import (  # noqa: E402 — PVT-22 / Phase 4.5 split
+from .device_manager import (  # noqa: E402 —  / Phase 4.5 split
     DeviceManager,
 )
 from .exceptions import (  # noqa: E402
@@ -221,10 +221,10 @@ from .resampling import (  # noqa: E402
     _start_scipy_preloader,
     resample_audio,
 )
-from .session_state import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+from .session_state import (  # noqa: E402 —  / Phase 4.5 split
     SessionState,
 )
-from .stream_lifecycle import (  # noqa: E402 — S3-CR-17 / Phase 4.5 split
+from .stream_lifecycle import (  # noqa: E402 —  / Phase 4.5 split
     StreamLifecycle,
 )
 
@@ -256,13 +256,13 @@ __all__ = [
     "_XRUN_ALERT_PERIOD",
     "_XRUN_ALERT_THRESHOLD",
     "_XRUN_WINDOW_MAXLEN",
-    # device_manager (PVT-22 / Phase 4.5 split)
+    # device_manager ( / Phase 4.5 split)
     "DeviceManager",
-    # capture (S3-CR-17 / Phase 4.5 split)
+    # capture ( / Phase 4.5 split)
     "AudioCallbackDispatcher",
-    # stream_lifecycle (S3-CR-17 / Phase 4.5 split)
+    # stream_lifecycle ( / Phase 4.5 split)
     "StreamLifecycle",
-    # session_state (S3-CR-17 / Phase 4.5 split)
+    # session_state ( / Phase 4.5 split)
     "SessionState",
     # exceptions
     "ResampleError",
@@ -324,7 +324,7 @@ __all__ = [
 #                               # (suppressed after first occurrence)
 #   % 100 == 0                  # re-log with exc_info every 100th occurrence
 #   "traceback suppressed"      # log message for intermediate occurrences
-#   np.dot(flat, flat)          # vectorized RMS computation (AUDIO-007)
+# np.dot(flat, flat)          # vectorized RMS computation ()
 #   rms_callback(chunk_rms, chunk_peak, filtered)  # 3-arg callback signature
 #   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered audio
 #    chunk so WaveformBubble can run Silero VAD on the live stream)
@@ -345,7 +345,7 @@ __all__ = [
 #   self._preroll_buffer.clear()  # then release the deque
 
 # ── Custom module class for mutable-state routing ───────────────────────
-# CR-67 / TECH-DEBT: this entire block exists for test-patch
+# TECH-DEBT: this entire block exists for test-patch
 # compatibility — see the docstring at the top of this file for the
 # full rationale.  In short: tests do
 # ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
@@ -355,9 +355,9 @@ __all__ = [
 # ``__setattr__`` overrides that route the mutable names through to
 # the owning submodule.
 #
-# TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+# TODO (2026-07-25,  / TECH-DEBT — OPEN, awaiting migration):
 # This ``__init__.py`` boilerplate exists for test-patch compatibility
-# during the package reorganization.  Once CR-67 is complete, this
+# during the package reorganization.  Once  is complete, this
 # file will be simplified.  Migrate tests to patch submodules directly,
 # then remove this class.  Replace
 # ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
@@ -366,7 +366,7 @@ __all__ = [
 # (and similarly for the other names in ``_MUTABLE_RESAMPLING`` /
 # ``_MUTABLE_BUFFER``).  Once every test site has been migrated,
 # ``_RecordingModule`` and the ``_MUTABLE_*`` frozensets below can be
-# deleted.  Tracked as CR-67 / TECH-DEBT (estimated 30-50 test files
+# deleted.  Tracked as  / TECH-DEBT (estimated 30-50 test files
 # per package; ~90-150 total across recording / prewarm /
 # server_platform).
 #
@@ -408,13 +408,13 @@ _MUTABLE_BUFFER = frozenset(
     }
 )
 
-# NOTE (2026-07-20, updated XS-FIX-15): ``set_thread_registry`` was
-# previously removed as merge damage, but the R4-F8 contract
+# NOTE (2026-07-20, updated ): ``set_thread_registry`` was
+# previously removed as merge damage, but the  contract
 # (``tests/test_i5_retry_fixes.py::TestR4F8BufferClearWorkerRegistry``)
 # pins on its existence: the buffer-clear worker must register with a
 # central ThreadRegistry so ``shutdown_all()`` can join it during
 # ``VoiceTyperApp.quit()``. The function + ``_thread_registry`` global
-# have been re-added to ``buffer.py`` per the R4-F8 contract. The
+# have been re-added to ``buffer.py`` per the  contract. The
 # setter is called by tests directly (``buffer.set_thread_registry(reg)``);
 # ``recorder.py`` does NOT call it (the buffer worker is lazily started
 # by ``_secure_clear_array_background``, not by ``Recorder.__init__``).

@@ -1,6 +1,6 @@
 """RDP / SSH remote-session detection + non-microphone device predicate.
 
-Phase 4.5 / ARCH-045 — extracted from the original
+Phase 4.5 /  — extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  The two helpers in
 this file have no cross-submodule state: they only read ``SYSTEM`` (the
 package-level ``sys.platform`` snapshot) and stdlib ``os`` / ``ctypes``.
@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 # ─── RDP / remote session detection ──────────────────────────────────
 
 
-# FR-40: POSIX env vars that indicate a remote-desktop session. Each
+# POSIX env vars that indicate a remote-desktop session. Each
 # entry is checked via ``os.environ.get(name)`` — a truthy value means
 # we're inside that remote-session backend. The list covers the major
 # Linux/POSIX remote-desktop technologies that the pre-fix code missed:
@@ -70,7 +70,7 @@ log = logging.getLogger(__name__)
 # The list is intentionally NOT exhaustive — there are dozens of
 # niche remote-desktop tools (Sun Ray, SPICE, Guacamole, X11-forwarding
 # over SSH without SSH_TTY, etc.). The goal is to cover the major
-# technologies that the original finding (FR-40) called out by name.
+# technologies that the original finding () called out by name.
 _POSIX_REMOTE_SESSION_ENV_VARS: tuple[str, ...] = (
     "SSH_CLIENT",
     "SSH_TTY",
@@ -82,7 +82,7 @@ _POSIX_REMOTE_SESSION_ENV_VARS: tuple[str, ...] = (
 
 
 def _posix_proc_has_remote_desktop() -> bool:
-    """FR-40 — scan /proc/*/comm for remote-desktop daemon processes.
+    """scan /proc/*/comm for remote-desktop daemon processes.
 
     Some VNC/NX setups don't export an env var to the user's shell (e.g.
     when the session was started by a system service or when the user
@@ -130,30 +130,30 @@ def _posix_proc_has_remote_desktop() -> bool:
 def is_remote_session() -> bool:
     """PLAT-RDP: Detect if the app is running in an RDP/remote session.
 
-    On Windows, uses GetSystemMetrics(SM_REMOTESESSION = 0x1000). FR-40
-    additionally attempts ``WTSQuerySessionInformation`` (WTSConnectState)
-    via wtsapi32 — Microsoft docs note that SM_REMOTESESSION is not
-    updated for Windows Virtual Desktop / Azure RemoteApp sessions, so
-    the WTS API is the authoritative probe when available.
+    On Windows, uses GetSystemMetrics(SM_REMOTESESSION = 0x1000).
+        additionally attempts ``WTSQuerySessionInformation`` (WTSConnectState)
+        via wtsapi32 — Microsoft docs note that SM_REMOTESESSION is not
+        updated for Windows Virtual Desktop / Azure RemoteApp sessions, so
+        the WTS API is the authoritative probe when available.
 
-    On Linux/macOS (POSIX), checks (in order):
-      1. SSH session env vars (``$SSH_CLIENT`` / ``$SSH_TTY``).
-      2. VNC env var (``$VNCDESKTOP``).
-      3. X2GO session env var (``$X2GO_SESSION``).
-      4. NoMachine / NX env var (``$NX_TEMP``).
-      5. Citrix session env var (``$CITRIX_SESSION``).
-      6. Chrome Remote Desktop env var (``$TERM_PROGRAM == "Hyper"``).
-      7. /proc/*/comm scan for Xvnc / x2goagent / nxagent processes
-         (covers sessions that don't export an env var to the user's
-         shell — e.g. re-attached VNC sessions).
+        On Linux/macOS (POSIX), checks (in order):
+          1. SSH session env vars (``$SSH_CLIENT`` / ``$SSH_TTY``).
+          2. VNC env var (``$VNCDESKTOP``).
+          3. X2GO session env var (``$X2GO_SESSION``).
+          4. NoMachine / NX env var (``$NX_TEMP``).
+          5. Citrix session env var (``$CITRIX_SESSION``).
+          6. Chrome Remote Desktop env var (``$TERM_PROGRAM == "Hyper"``).
+          7. /proc/*/comm scan for Xvnc / x2goagent / nxagent processes
+             (covers sessions that don't export an env var to the user's
+             shell — e.g. re-attached VNC sessions).
 
-    RDP/VNC clipboard may be redirected, so clipboard operations may
-    behave differently (e.g. clipboard sync delays, missing formats).
-    Keystroke injection via XTest may not propagate to the remote
-    display on VNC/xrdp — the app now logs a warning when a remote
-    session is detected so the user understands the degraded behavior.
+        RDP/VNC clipboard may be redirected, so clipboard operations may
+        behave differently (e.g. clipboard sync delays, missing formats).
+        Keystroke injection via XTest may not propagate to the remote
+        display on VNC/xrdp — the app now logs a warning when a remote
+        session is detected so the user understands the degraded behavior.
 
-    Returns True if a remote session is detected.
+        Returns True if a remote session is detected.
     """
     if _pkg.SYSTEM == "win32":
         return _is_windows_remote_session()
@@ -162,22 +162,22 @@ def is_remote_session() -> bool:
 
 
 def _is_windows_remote_session() -> bool:
-    """FR-40 — Windows remote-session detection.
+    """Windows remote-session detection.
 
-    Primary: ``GetSystemMetrics(SM_REMOTESESSION = 0x1000)``. This is
-    the legacy RDP probe; Microsoft docs note it's NOT updated for
-    Windows Virtual Desktop / Azure RemoteApp sessions.
+        Primary: ``GetSystemMetrics(SM_REMOTESESSION = 0x1000)``. This is
+        the legacy RDP probe; Microsoft docs note it's NOT updated for
+        Windows Virtual Desktop / Azure RemoteApp sessions.
 
-    Secondary (FR-40): ``WTSQuerySessionInformation`` via wtsapi32,
-    requesting ``WTSConnectState`` for the current session. If the
-    connect state is ``WTSActive`` AND the session is NOT the physical
-    console session (``WTSGetActiveConsoleSessionId`` differs from the
-    current session ID), we're in a remote session. This catches WVD /
-    Azure RemoteApp that SM_REMOTESESSION misses.
+    Secondary (): ``WTSQuerySessionInformation`` via wtsapi32,
+        requesting ``WTSConnectState`` for the current session. If the
+        connect state is ``WTSActive`` AND the session is NOT the physical
+        console session (``WTSGetActiveConsoleSessionId`` differs from the
+        current session ID), we're in a remote session. This catches WVD /
+        Azure RemoteApp that SM_REMOTESESSION misses.
 
-    The WTS API is gated behind try/except so the probe never takes
-    down the caller — on Windows Home editions or stripped-down
-    Windows containers, wtsapi32 may not be present.
+        The WTS API is gated behind try/except so the probe never takes
+        down the caller — on Windows Home editions or stripped-down
+        Windows containers, wtsapi32 may not be present.
     """
     try:
         import ctypes
@@ -194,7 +194,7 @@ def _is_windows_remote_session() -> bool:
     except Exception:
         log.debug("[PLATFORM] SM_REMOTESESSION probe failed", exc_info=True)
 
-    # Secondary (FR-40): WTSQuerySessionInformation for WVD / Azure
+    # Secondary (): WTSQuerySessionInformation for WVD / Azure
     # RemoteApp sessions that SM_REMOTESESSION misses.
     try:
         wtsapi32 = ctypes.windll.wtsapi32
@@ -246,7 +246,7 @@ def _is_windows_remote_session() -> bool:
 
 
 def _is_posix_remote_session() -> bool:
-    """FR-40 — POSIX remote-session detection.
+    """POSIX remote-session detection.
 
     Checks (in order): SSH env vars → VNC env var → X2GO env var → NX
     env var → Citrix env var → Chrome Remote Desktop (TERM_PROGRAM ==

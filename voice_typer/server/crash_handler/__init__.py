@@ -104,7 +104,7 @@ else:
     _ft = None
     _st = None
 
-# Pre-allocated crash-message buffer (UE-2-F9: moved here from
+# Pre-allocated crash-message buffer (: moved here from
 # ``_constants`` so all mutable runtime state lives on the facade).
 # Mutated in place by ``_vectored_handler_impl`` via bytearray slice
 # assignment — no heap allocation in the VEH callback. The reference
@@ -117,7 +117,7 @@ else:
 # import, since ``_CRASH_MSG_BUF_SIZE`` is defined there.)
 _crash_msg_buf: bytearray = bytearray(0)
 
-# UE-2-F2: rate-limit lock for the VEH callback's compare-and-set on
+# rate-limit lock for the VEH callback's compare-and-set on
 # ``_crash_written``. Held briefly (from the flag check through the
 # kernel32 write) so two concurrent VEH callbacks (e.g. cascading
 # access violations on two threads) cannot BOTH pass the check and
@@ -167,7 +167,7 @@ _handler_handle: int | None = None
 # ``_crash_excepthook`` can chain to it after logging the crash.
 _original_excepthook = sys.excepthook
 
-# FR-14: original ``threading.excepthook`` saved by
+# original ``threading.excepthook`` saved by
 # ``install_threading_excepthook`` so ``_thread_crash_excepthook`` can
 # chain to it after logging the daemon-thread crash. Set on first
 # ``install_threading_excepthook`` call; ``None`` until then.
@@ -179,7 +179,7 @@ _original_threading_excepthook = None
 # it. Set at module-load time by ``_veh_callback`` (on Windows).
 _vectored_handler = None
 
-# AB-33: cached active ASR backend name. Populated at install time by
+# cached active ASR backend name. Populated at install time by
 # ``_refresh_cached_asr_backend`` (a single ``Config.load()`` disk
 # read). The excepthooks read this cached value via
 # ``_get_cached_asr_backend`` (NO disk I/O) instead of re-reading
@@ -253,7 +253,7 @@ from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402
     STATUS_STACK_OVERFLOW,
 )
 
-# UE-2-F9: allocate the mutable crash-message buffer HERE (after the
+# allocate the mutable crash-message buffer HERE (after the
 # ``_constants`` import provides ``_CRASH_MSG_BUF_SIZE``) so it lives
 # on the facade alongside the other mutable runtime state. The
 # placeholder assignment in the state block above is overwritten with

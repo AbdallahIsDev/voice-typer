@@ -1,6 +1,6 @@
 """Dictation IPC handler mixin: toggle_dictation, undo_last.
 
-ARCH-REFAC-002: extracted verbatim from ``voice_typer/server/ipc_server.py``.
+extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
@@ -12,21 +12,21 @@ from voice_typer.server.ipc.validation import ResponseEnvelope, _validate_dict_p
 class DictationHandlersMixin(HandlerBase):
     """Mixin: dictation IPC handlers (toggle_dictation / undo_last).
 
-    CR-20: this mixin is one of the four "representative" handlers
-    migrated to :meth:`HandlerBase._respond_with_error` for the
-    catch-all ``except Exception`` path. See
-    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    this mixin is one of the four "representative" handlers
+        migrated to :meth:`HandlerBase._respond_with_error` for the
+        catch-all ``except Exception`` path. See
+        ``voice_typer/server/handlers/_base.py`` for the migration plan.
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
     # inherited from :class:`HandlerMixinBase` — no per-mixin
     # re-declaration needed (the duplicate block removed here was one
-    # of four that the R4-F3 centralization refactor missed).
+    # of four that the  centralization refactor missed).
 
     def _handle_toggle_dictation(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``toggle_dictation`` IPC command."""
         try:
-            # IPC-3: even though ``toggle_dictation`` reads no fields
+            # even though ``toggle_dictation`` reads no fields
             # from ``data``, invoke ``_validate_dict_payload`` with an
             # empty schema so the ADR-0020 §2 claim ("every handler
             # re-validates via _validate_dict_payload") holds and a
@@ -50,25 +50,25 @@ class DictationHandlersMixin(HandlerBase):
             self.service.toggle_dictation()
             resp["type"] = "ack"
         except Exception as exc:
-            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "toggle_dictation")
         return resp
 
     def _handle_undo_last(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``undo_last`` IPC command."""
-        # UX-003: undo last transcription via backspace keystrokes
+        # undo last transcription via backspace keystrokes
         try:
             self.service.undo_last()
             resp["type"] = "ack"
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "undo_last")
         return resp
 
     def _handle_force_cancel_transcription(
         self, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope | None:
-        """Handle the ``force_cancel_transcription`` IPC command (PR-2 Finding #3).
+        """Handle the ``force_cancel_transcription`` IPC command ( Finding #3).
 
         Calls ``service.force_cancel_transcription()`` which invokes
         ``_force_recover_from_stuck_transcription(force=True)`` to
@@ -81,6 +81,6 @@ class DictationHandlersMixin(HandlerBase):
             resp["type"] = "force_cancel_transcription_result"
             resp["data"] = result
         except Exception as exc:
-            # CR-20: generic WS-path envelope.
+            # generic WS-path envelope.
             self._respond_with_error(resp, exc, "force_cancel_transcription")
         return resp

@@ -1,5 +1,5 @@
 {
-  "_comment": "CR-46 + CR-002: Native binary integrity manifest. Each entry maps a binary file name (as produced by scripts/build/compile_native.sh and discovered by voice_typer.server.native_hotkeys.binary_path._BINARY_NAMES) to its expected SHA-256, build version, and minimum wire-protocol version. CR-002 fix: keys are now the arch-suffixed names that the build actually emits (linux-key-listener-x86_64, linux-key-listener-aarch64, windows-key-listener-x86_64.exe, windows-key-listener-aarch64.exe, macos-key-listener). The pre-CR-002 keys (linux-key-listener, windows-key-listener.exe) are GONE — they did not match the actual built filenames, so get_expected_sha256(path.name) returned None for every arch-suffixed name and verify_native_binary_or_skip silently trusted every binary. At runtime, binary_path.verify_native_binary() hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch (or on a missing/empty manifest entry — CR-002 fail-closed), the factory logs an error and falls back to the legacy backend (pynput / WindowsNativeHotkey / WaylandHotkey). Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_native_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all five sha256 fields via scripts/build/update_native_manifests.py (run by CI after compile_native.sh). The min_proto_version field is reserved for future wire-protocol version gating (CR-46 follow-up); the loader does not yet enforce it.",
+  "_comment": "Native binary integrity manifest. Each entry maps a binary file name (as produced by scripts/build/compile_native.sh and discovered by voice_typer.server.native_hotkeys.binary_path._BINARY_NAMES) to its expected SHA-256, build version, and minimum wire-protocol version. The keys include the arch-suffixed names (linux-key-listener-x86_64, linux-key-listener-aarch64, windows-key-listener-x86_64.exe, windows-key-listener-aarch64.exe, macos-key-listener). The manifest ALSO includes legacy non-arch-suffixed entries (linux-key-listener, windows-key-listener.exe) as ALIASES, because scripts/build/compile_native.sh still emits those legacy names on Linux/Windows (the build script was not retrofitted to emit arch-suffixed names — the chosen fix was to widen the manifest rather than rename the build outputs). The legacy entries carry the SAME sha256 as their arch-suffixed x86_64 counterparts (where the binary exists), so verify_native_binary_or_skip works regardless of which name form is on disk. Additionally, binary_path.get_expected_sha256 falls back to equivalent names (legacy <-> arch-suffixed x86_64 only — aarch64 has NO legacy equivalent because aarch64 builds are new) if the direct lookup misses; see _LEGACY_TO_ARCH_SUFFIX / _ARCH_SUFFIX_TO_LEGACY in binary_path.py. At runtime, binary_path.verify_native_binary() hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch (or on a missing/empty manifest entry — fail-closed), the factory logs an error and falls back to the legacy backend (pynput / WindowsNativeHotkey / WaylandHotkey). Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_native_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all sha256 fields via scripts/build/update_native_manifests.py (run by CI after compile_native.sh). The min_proto_version field is reserved for future wire-protocol version gating (a follow-up); the loader does not yet enforce it.",
   "version": 1,
   "binaries": {
     "linux-key-listener-x86_64": {
@@ -23,6 +23,16 @@
       "min_proto_version": 1
     },
     "macos-key-listener": {
+      "sha256": "",
+      "version": "1.0.0",
+      "min_proto_version": 1
+    },
+    "linux-key-listener": {
+      "sha256": "4e39df2bd257df99b47c7e566c1f91bd9252053bb4eee881504e6fd1c461fc4d",
+      "version": "1.0.0",
+      "min_proto_version": 1
+    },
+    "windows-key-listener.exe": {
       "sha256": "",
       "version": "1.0.0",
       "min_proto_version": 1

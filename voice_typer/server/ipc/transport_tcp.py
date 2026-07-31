@@ -27,7 +27,7 @@ from voice_typer.server.ipc.transport import _TCPLineIO
 from voice_typer.server.ipc.validation import ErrorCodes
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
-# ─── DR-21 (S1-CR-78): IPC wire protocol versioning ──────────────────
+# ─── IPC wire protocol versioning ──────────────────
 #
 # Single source of truth for the IPC wire protocol version. Bump on any
 # wire-incompatible change to the auth frame shape or any command's
@@ -43,7 +43,7 @@ from voice_typer.server.keyboard_ownership import keyboard_ownership
 # compatible — new senders opt in by sending ``"protocol_version": 1``
 # and get a structured rejection on mismatch.
 IPC_PROTOCOL_VERSION: int = 1
-# DR-21: error code emitted on the version-mismatch path. Registered in
+# Error code emitted on the version-mismatch path. Registered in
 # the central ``ErrorCodes`` registry (``ipc/validation.py``) so the
 # renderer's TS ``ErrorCodes`` union and the cross-language parity test
 # can verify all three language constants agree. The module-level alias
@@ -67,7 +67,7 @@ class TCPTransportMixin:
     def start_tcp(self, port) -> None:
         """Start a TCP server that accepts one Electron connection.
 
-        CR-7 fix: ``port`` may be either:
+         fix: ``port`` may be either:
 
         - an ``int`` (legacy / backward-compatible) — this method will
           create and bind its own socket to ``127.0.0.1:port``.  There
@@ -81,7 +81,7 @@ class TCPTransportMixin:
           the probe and the listen.
         """
         self._tcp_mode = True
-        # SEC-8: lazily create the worker pool that handles accepted
+        # lazily create the worker pool that handles accepted
         # TCP connections off the accept-loop thread. A small pool is
         # sufficient — production has a single Electron client, and the
         # auth handshake's 5s timeout ensures slow/malicious clients
@@ -102,7 +102,7 @@ class TCPTransportMixin:
     def _accept_tcp(self, port) -> None:
         """Accept one connection, then run the TCP IPC loop.
 
-        SEC-018: the first line from the client must be a JSON object
+        the first line from the client must be a JSON object
         with ``{"type": "auth", "token": "<session-token>"}`` matching
         the ``VOICE_TYPER_IPC_TOKEN`` env var set by the Electron
         parent.  If the token is missing or doesn't match, the
@@ -116,14 +116,14 @@ class TCPTransportMixin:
         Both sides see the same random per-launch value; no other
         process can know it.
 
-        CR-7: ``port`` may be either an ``int`` (legacy) or a
+        ``port`` may be either an ``int`` (legacy) or a
         ``(port_int, bound_socket)`` tuple (gold-standard — eliminates
         the probe-then-bind race window).  See :meth:`start_tcp`.
         """
         # Read the expected token from the env var set by Electron.
         expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
         if not expected_token:
-            # SEC-2: mirror the WS path (sidecar_ws._authenticate) — refuse
+            # mirror the WS path (sidecar_ws._authenticate) — refuse
             # ALL connections when the token is unset. The host must always
             # set this env var; an unset token means any local process
             # could otherwise connect to 127.0.0.1:9876 and dispatch
@@ -138,7 +138,7 @@ class TCPTransportMixin:
                 "(the host must always set this env var)."
             )
 
-        # CR-7: unpack the (port, bound_socket) tuple if provided — the
+        # unpack the (port, bound_socket) tuple if provided — the
         # socket is already bound, so we skip the bind() call entirely
         # and go straight to listen().  This eliminates the race window
         # where another local process could grab the port between the
@@ -173,11 +173,11 @@ class TCPTransportMixin:
                     server.close()
                 return
 
-        # NEW-IPC-001: store the listening socket on the instance so
+        # store the listening socket on the instance so
         # stop() can close it to unblock the accept() call below.
         self._tcp_server_socket = server
 
-        # NEW-IPC-001: accept connections in a loop so that a network
+        # accept connections in a loop so that a network
         # blip, sleep/resume, or Electron crash+restart doesn't brick
         # the Python IPC forever. Previously `server.close()` was
         # called after the first accept, so a single disconnect meant
@@ -197,7 +197,7 @@ class TCPTransportMixin:
                 # Server socket closed during shutdown (stop() called
                 # server_sock.close()).
                 break
-            # SEC-8: hand the connection off to a worker thread
+            # hand the connection off to a worker thread
             # IMMEDIATELY so a slow/malicious client cannot block the
             # accept loop. Previously _handle_tcp_connection was called
             # inline here, so a client that opened a connection and sent
@@ -216,7 +216,7 @@ class TCPTransportMixin:
                 with contextlib.suppress(OSError):
                     conn.close()
                 continue
-            # S1-CR-80: wrap pool.submit in try/except RuntimeError so a
+            # wrap pool.submit in try/except RuntimeError so a
             # race between accept-loop read of _tcp_worker_pool and stop()'s
             # pool.shutdown(wait=False, cancel_futures=True) does not kill
             # the accept thread with "cannot schedule new futures after
@@ -230,7 +230,7 @@ class TCPTransportMixin:
                 break
             # Loop back to accept the next connection
 
-        # SEC-8: shut down the worker pool now that no new connections
+        # shut down the worker pool now that no new connections
         # will arrive. cancel_futures=True drops queued (not-yet-started)
         # submissions; in-flight workers are responsible for their own
         # teardown (the auth timeout + dispatch loop's OSError handling
@@ -259,7 +259,7 @@ class TCPTransportMixin:
             self._tcp_server_socket = None
 
     def _run_tcp_handler_safely(self, conn, addr, expected_token: str) -> None:
-        """SEC-8: run ``_handle_tcp_connection`` on a worker thread.
+        """run ``_handle_tcp_connection`` on a worker thread.
 
         Wraps the handler with the same exception handling that the
         accept loop used to apply inline, so an unexpected exception
@@ -285,10 +285,10 @@ class TCPTransportMixin:
     def _handle_tcp_connection(self, conn, addr, expected_token: str) -> None:
         """Handle a single TCP client connection (auth + dispatch loop).
 
-        Extracted from _accept_tcp by NEW-IPC-001 so the accept loop
+        Extracted from _accept_tcp by  so the accept loop
         can handle reconnections.
 
-        PR-3-FIX-1: the auth handshake is now performed OUTSIDE
+        The auth handshake is now performed OUTSIDE
         ``self._lock`` to prevent a single-connection DoS. Previously,
         a client that opened a TCP connection and sent nothing would
         block the dispatcher thread AND hold ``self._lock``
@@ -300,14 +300,14 @@ class TCPTransportMixin:
         constant-time comparison so a timing side-channel cannot recover
         the token byte-by-byte.
         """
-        # PR-3-FIX-1: set a read timeout BEFORE the auth readline so a
+        # Set a read timeout BEFORE the auth readline so a
         # malicious client that connects but sends nothing can't hold
         # the thread indefinitely.
         _tcp_auth_timeout_seconds = 5.0
         with contextlib.suppress(OSError, AttributeError):
             conn.settimeout(_tcp_auth_timeout_seconds)  # socket may be a mock in tests
 
-        # DJ-80: enable TCP_NODELAY on the accepted server-side socket so
+        # enable TCP_NODELAY on the accepted server-side socket so
         # small push events (bubble_level at 15-50 Hz, heartbeat_ack) are
         # not delayed by Nagle's algorithm coalescing them into larger
         # segments. Nagle defaults to up to 40ms of coalescing delay on
@@ -321,7 +321,7 @@ class TCPTransportMixin:
         with contextlib.suppress(OSError, AttributeError):
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-        # SEC-2: mirror the WS path — if the token is unset, refuse the
+        # mirror the WS path — if the token is unset, refuse the
         # connection immediately. We log ERROR once at bind time (above)
         # and once per connection so a misconfigured launch surfaces in
         # either spot. Closing the conn unblocks the accept loop so the
@@ -336,7 +336,7 @@ class TCPTransportMixin:
                 conn.close()
             return
 
-        # PR-3-FIX-1: perform the auth handshake OUTSIDE self._lock so
+        # Perform the auth handshake OUTSIDE self._lock so
         # a stalled auth read doesn't block push() events from other
         # threads.
         if expected_token:
@@ -348,7 +348,7 @@ class TCPTransportMixin:
                     auth_client.close()
                     return
                 auth_msg = json.loads(auth_line.strip())
-                # DR-21 (S1-CR-78): validate-if-present the IPC wire
+                # Validate-if-present the IPC wire
                 # protocol version BEFORE the token check. A stale client
                 # that explicitly sends ``protocol_version`` with a value
                 # that doesn't equal :data:`IPC_PROTOCOL_VERSION` gets a
@@ -386,11 +386,15 @@ class TCPTransportMixin:
                             + "\n"
                         )
                         auth_client.flush()
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001 — best-effort error frame to a client that's about to be closed
+                        log.debug(
+                            "[TCP] failed to send protocol_version_mismatch error frame: %s",
+                            type(exc).__name__,
+                            exc_info=True,
+                        )
                     auth_client.close()
                     return
-                # PR-3-FIX-1: use hmac.compare_digest for constant-time
+                # Use hmac.compare_digest for constant-time
                 # token comparison so a timing side-channel cannot
                 # recover the token byte-by-byte.
                 # Check isinstance FIRST so .get() doesn't raise on
@@ -409,7 +413,7 @@ class TCPTransportMixin:
                                 {
                                     "type": "error",
                                     "data": {
-                                        # IPC-5 (2026-07-18): add
+                                        # Add
                                         # ``code: "auth_failed"`` for
                                         # envelope consistency with
                                         # the other TCP/WS error
@@ -434,8 +438,12 @@ class TCPTransportMixin:
                             + "\n"
                         )
                         auth_client.flush()
-                    except Exception:
-                        pass
+                    except Exception as exc:  # noqa: BLE001 — best-effort auth_failed error frame to a client that's about to be closed
+                        log.debug(
+                            "[TCP] failed to send auth_failed error frame: %s",
+                            type(exc).__name__,
+                            exc_info=True,
+                        )
                     auth_client.close()
                     return
                 log.info("[TCP] auth OK")
@@ -471,10 +479,10 @@ class TCPTransportMixin:
         with contextlib.suppress(OSError, AttributeError):
             conn.settimeout(None)  # blocking; socket may be a mock in tests
 
-        # PR-3-FIX-1: now acquire the lock ONLY for the post-auth setup
+        # Now acquire the lock ONLY for the post-auth setup
         # (installing the client + snapshotting pending events). This is
         # a short critical section that can't block on unbounded I/O.
-        # PERF-13: the pending-event flush is performed OUTSIDE the lock
+        # the pending-event flush is performed OUTSIDE the lock
         # (mirrors the ``_send`` snapshot-then-flush pattern at the
         # ``pending = list(self._pending_tcp); self._pending_tcp.clear()``
         # block). Pre-fix the lock was held across every
@@ -498,7 +506,7 @@ class TCPTransportMixin:
                     log.debug("[TCP] pending flush write failed on connect")
                     break
 
-        # ERR-017: emit a state_changed event on connect so the
+        # emit a state_changed event on connect so the
         # renderer immediately knows the current app state (was
         # previously left stale until the next state transition).
         try:
@@ -517,9 +525,9 @@ class TCPTransportMixin:
         except Exception:
             log.debug("[TCP] failed to emit initial state_changed on connect")
 
-        # RELIABILITY-006 + CR-11: per-process rate limiter. A buggy or
+        # RELIABILITY-006 + : per-process rate limiter. A buggy or
         # malicious Electron client that flood-dispatches commands would
-        # otherwise starve the tray thread. CR-11: the limiter is shared
+        # otherwise starve the tray thread. : the limiter is shared
         # across all TCP connections to this server (looked up via
         # ``_get_rate_limiter(self)``) so a local attacker can no longer
         # reset the 200-message burst budget by disconnecting and
@@ -527,7 +535,7 @@ class TCPTransportMixin:
         # timestamps across reconnects.
         rate_limiter = _get_rate_limiter(self)
 
-        # SEC-8: capture a LOCAL reference to the authenticated client.
+        # capture a LOCAL reference to the authenticated client.
         # With the worker-pool fix, multiple handlers can run
         # concurrently (e.g. a slow-auth client still in its 5s auth
         # window while a fast-auth client connects and authenticates).
@@ -543,7 +551,7 @@ class TCPTransportMixin:
                 line = line.strip()
                 if not line:
                     continue
-                # PVT-G5-012: parse JSON BEFORE the rate-limit check so
+                # parse JSON BEFORE the rate-limit check so
                 # the request ``id`` (when present) is available for the
                 # rate-limit error response — clients using id-based
                 # JSON-RPC-style correlation can then match the rejection
@@ -553,15 +561,15 @@ class TCPTransportMixin:
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    # IPC-5 (2026-07-18): the error envelope now
+                    # The error envelope now
                     # includes a ``code: "invalid_payload"`` field to
                     # match the WS path so the client can distinguish
                     # invalid JSON from rate-limit and dispatch errors.
-                    # PVT-G5-011: pass the LOCAL ``client`` (captured at
+                    # pass the LOCAL ``client`` (captured at
                     # the top of the dispatch loop) so a concurrent
                     # fast-auth reconnect that reassigns ``self._tcp_client``
                     # doesn't redirect this error to the wrong socket.
-                    # PVT-G5-012: ``id`` is unavailable here (json.loads
+                    # ``id`` is unavailable here (json.loads
                     # failed before we could parse it) — match the WS path
                     # which also omits ``id`` on invalid_payload.
                     self._send(
@@ -580,7 +588,7 @@ class TCPTransportMixin:
                         _client=client,
                     )
                     continue
-                # G4-M-09: pass ``command=msg_type`` so the per-command
+                # Pass ``command=msg_type`` so the per-command
                 # cost map (``COMMAND_COSTS``) is applied — e.g.
                 # ``download_model`` consumes 50 of the 200 burst units,
                 # so a buggy client can fire at most 4 expensive commands
@@ -589,7 +597,7 @@ class TCPTransportMixin:
                 # The legacy ``rate_limiter.allow()`` form (no ``command``
                 # kwarg) is still supported and treats the call as cost 1.
                 msg_type = msg.get("type") if isinstance(msg, dict) else ""
-                # XE-2-1: heartbeat fast-path. Handle heartbeat INLINE in
+                # Heartbeat fast-path. Handle heartbeat INLINE in
                 # the read loop BEFORE ``self._dispatch(msg)`` so the
                 # heartbeat-ack is not delayed by an in-flight long
                 # dispatch (e.g. ``download_model``,
@@ -611,12 +619,12 @@ class TCPTransportMixin:
                     self._send(ack, _client=client)
                     continue
                 if not rate_limiter.allow(command=msg_type):
-                    # SEC-6: ``allow()`` increments the rejected counter
+                    # ``allow()`` increments the rejected counter
                     # atomically when it returns False — no separate
                     # ``reject()`` call needed (and calling it would
                     # double-count under the new atomic semantics).
                     #
-                    # IPC-5 (2026-07-18): the error envelope now
+                    # The error envelope now
                     # includes a ``code: "rate_limited"`` field to
                     # match the WS path (``sidecar_ws._make_dispatch``)
                     # so a client can distinguish rate-limit rejections
@@ -624,10 +632,10 @@ class TCPTransportMixin:
                     # without substring-matching the message text. The
                     # ADR-0020 §2 envelope contract is
                     # ``{"type":"error","data":{"code":<str>,"message":<str>}}``.
-                    # PVT-G5-011: pass the LOCAL ``client`` so the error
+                    # pass the LOCAL ``client`` so the error
                     # reaches the originating socket, not a concurrently-
                     # reconnected ``self._tcp_client``.
-                    # PVT-G5-012: include ``id`` (when present in the
+                    # include ``id`` (when present in the
                     # parsed msg) so the client can correlate the
                     # rejection to the originating request.
                     rate_err: dict[str, object] = {
@@ -648,71 +656,31 @@ class TCPTransportMixin:
                         rate_limiter.rejected_count,
                     )
                     continue
-                # ERR-018: isolate handler exceptions from socket I/O
-                # errors.  Previously, ANY exception raised by
-                # ``self._dispatch(msg)`` (other than JSONDecodeError,
-                # which only fires for ``json.loads``) bubbled up to
-                # the outer ``except Exception:`` clause below, which
-                # logs "client connection closed" at DEBUG and
-                # disconnects the client.  Handler bugs were therefore
-                # silently swallowed and a single bad handler killed
-                # the entire IPC session.  We now log the exception at
-                # ERROR with ``exc_info`` and send a structured error
-                # response so the client gets a clear signal and the
-                # connection survives.  The outer ``except Exception:``
-                # is now reserved for genuine socket I/O errors.
-                try:
-                    result = self._dispatch(msg)
-                except Exception as dispatch_exc:
-                    log.error(
-                        "[TCP] unhandled exception in dispatch for message type %r: %s",
-                        msg.get("type") if isinstance(msg, dict) else None,
-                        dispatch_exc,
-                        exc_info=True,
-                    )
-                    # B-6: preserve the request ``id`` on the error
-                    # response so clients using ``id``-based
-                    # request/response correlation (the standard
-                    # JSON-RPC-like pattern) can match the error back
-                    # to the originating request.  Without this, a
-                    # buggy handler effectively orphaned every pending
-                    # request — the client received an ``{"type":
-                    # "error"}`` with no ``id`` and could not tell
-                    # which request failed.  The message stays the
-                    # generic ``"internal error"`` (we deliberately do
-                    # NOT leak ``str(dispatch_exc)`` to avoid exposing
-                    # server internals over IPC).
-                    # ADR-0020 round-2 fix: add `code: "internal_error"`
-                    # for consistency with other error envelopes
-                    # (invalid_payload, rate_limited, etc. all carry a
-                    # `code` field). The NEW-IPC-107 fix in usePython.ts
-                    # and the Rust dispatch() command both read `code`
-                    # with a `"unknown"` fallback, so this is backward-
-                    # compatible but now consistent.
-                    # PVT-G5-011: pass the LOCAL ``client`` so the error
-                    # reaches the originating socket, not a concurrently-
-                    # reconnected ``self._tcp_client``.
-                    # EC-FIX-2 / EC-10: align to the namespaced
-                    # ``server.internal_error`` form so the renderer's
-                    # ``ErrorEvent.code`` narrowing switches on a single
-                    # canonical prefix (``server.*``) across the TCP /
-                    # stdin / WS transports.
-                    err: dict[str, object] = {
-                        "type": "error",
-                        "data": {
-                            "code": "server.internal_error",
-                            "message": "internal error",
-                        },
-                    }
-                    if isinstance(msg, dict) and "id" in msg:
-                        err["id"] = msg["id"]
-                    self._send(err, _client=client)
-                    continue
-                if result is not None:
-                    # PVT-G5-011: route the dispatch response to the LOCAL
-                    # client that issued the request, not the (possibly
-                    # reassigned) ``self._tcp_client``.
-                    self._send(result, _client=client)
+                # Offload ``_dispatch`` to the worker pool so a
+                # slow handler (e.g. ``download_model``, up to 120s) does
+                # NOT block the read loop from reading subsequent commands
+                # from the same Electron client (head-of-line blocking).
+                # Mirrors the WS path's ``run_in_executor`` pattern at
+                # ``sidecar_ws.py:572`` — but TCP is thread-based (not
+                # asyncio), so we use ``ThreadPoolExecutor.submit`` instead
+                # of ``loop.run_in_executor``. The Future is discarded
+                # because the response is sent from within
+                # ``_tcp_dispatch_and_respond`` itself (not returned) —
+                # this preserves the existing dispatch + ``_send`` pairing
+                # that non-``run_in_executor`` callers depend on (some
+                # handlers return ``None`` and send their own response
+                # internally, e.g. ``restart_app`` / ``quit_app``; others
+                # return a dict that the caller sends).
+                # The Electron client already correlates responses to
+                # requests out-of-order via the ``id`` field
+                # (``sendToPython`` → ``pendingRequests.get(id)`` in
+                # ``client/src/main/ipc/tcp-connect.ts``), so dispatching
+                # concurrently is safe even though responses may arrive in
+                # a different order than requests.
+                # heartbeats bypass this entirely (handled inline
+                # above) so the heartbeat-ack is never delayed by an
+                # in-flight long dispatch.
+                self._tcp_worker_pool.submit(self._tcp_dispatch_and_respond, msg, client)
         except OSError:
             # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
@@ -722,7 +690,7 @@ class TCPTransportMixin:
             # and was previously swallowed at DEBUG. Surface it.
             log.warning("[TCP] unexpected error in connection loop", exc_info=True)
         finally:
-            # SEC-8: close the LOCAL client reference (not
+            # close the LOCAL client reference (not
             # ``self._tcp_client``) and only clear the instance field
             # if it still points to us. Another handler may have
             # already replaced ``self._tcp_client`` with a newer
@@ -733,7 +701,7 @@ class TCPTransportMixin:
                 if self._tcp_client is client:
                     self._tcp_client = None
             log.info("[TCP] client disconnected")
-            # TASK-0010: if the frontend crashed mid-capture (before
+            # if the frontend crashed mid-capture (before
             # sending ``set_esc_cancel_paused: false``), the backend
             # would otherwise be stuck in ``"hotkey_capture"`` state
             # forever, suppressing all hotkey interactions until
@@ -742,10 +710,92 @@ class TCPTransportMixin:
             # so an active recording isn't interrupted by teardown.
             self._on_ipc_client_disconnect("IPC client disconnected")
 
+    def _tcp_dispatch_and_respond(self, msg, client) -> None:
+        """Run ``_dispatch`` on the worker pool and send the response.
+
+        This method is submitted to ``_tcp_worker_pool`` by
+        the TCP read loop (see ``_handle_tcp_connection``) so a
+        long-running handler (e.g. ``download_model``, up to 120s) does
+        NOT block the read loop from reading subsequent commands from
+        the same Electron client. This mirrors the WS path's
+        ``run_in_executor(ws_dispatch_pool, server._dispatch, msg)``
+        pattern at ``sidecar_ws.py:572`` — adapted for the thread-based
+        TCP transport by wrapping the dispatch + response-send in a
+        single callable so the read loop can discard the Future.
+
+        The response is sent from WITHIN this method (not returned) so
+        the read loop can submit-and-forget. The Electron client
+        correlates responses to requests out-of-order via the ``id``
+        field (``sendToPython`` → ``pendingRequests.get(id)``), so
+        concurrent dispatch is safe even though responses may arrive in
+        a different order than requests.
+
+        isolate handler exceptions from socket I/O errors.
+        Previously, ANY exception raised by ``self._dispatch(msg)``
+        bubbled up to the outer ``except Exception:`` clause in the
+        read loop, which logged "client connection closed" at DEBUG and
+        disconnected the client. Handler bugs were therefore silently
+        swallowed and a single bad handler killed the entire IPC
+        session. We now log the exception at ERROR with ``exc_info``
+        and send a structured error response so the client gets a clear
+        signal and the connection survives. The outer ``except
+        Exception:`` in the read loop is now reserved for genuine
+        socket I/O errors.
+        """
+        try:
+            result = self._dispatch(msg)
+        except Exception as dispatch_exc:
+            log.error(
+                "[TCP] unhandled exception in dispatch for message type %r: %s",
+                msg.get("type") if isinstance(msg, dict) else None,
+                dispatch_exc,
+                exc_info=True,
+            )
+            # B-6: preserve the request ``id`` on the error response so
+            # clients using ``id``-based request/response correlation
+            # (the standard JSON-RPC-like pattern) can match the error
+            # back to the originating request. Without this, a buggy
+            # handler effectively orphaned every pending request — the
+            # client received an ``{"type": "error"}`` with no ``id``
+            # and could not tell which request failed. The message
+            # stays the generic ``"internal error"`` (we deliberately
+            # do NOT leak ``str(dispatch_exc)`` to avoid exposing
+            # server internals over IPC).
+            # ADR-0020 round-2 fix: add ``code: "internal_error"`` for
+            # consistency with other error envelopes (invalid_payload,
+            # rate_limited, etc. all carry a ``code`` field). The
+            #  fix in usePython.ts and the Rust dispatch()
+            # command both read ``code`` with a ``"unknown"`` fallback,
+            # so this is backward-compatible but now consistent.
+            # pass the LOCAL ``client`` so the error
+            # reaches the originating socket, not a concurrently-
+            # reconnected ``self._tcp_client``.
+            #  align to the namespaced
+            # ``server.internal_error`` form so the renderer's
+            # ``ErrorEvent.code`` narrowing switches on a single
+            # canonical prefix (``server.*``) across the TCP / stdin /
+            # WS transports.
+            err: dict[str, object] = {
+                "type": "error",
+                "data": {
+                    "code": "server.internal_error",
+                    "message": "internal error",
+                },
+            }
+            if isinstance(msg, dict) and "id" in msg:
+                err["id"] = msg["id"]
+            self._send(err, _client=client)
+            return
+        if result is not None:
+            # route the dispatch response to the LOCAL
+            # client that issued the request, not the (possibly
+            # reassigned) ``self._tcp_client``.
+            self._send(result, _client=client)
+
     def _on_ipc_client_disconnect(self, reason: str) -> None:
         """Reset keyboard ownership when the IPC client disconnects.
 
-        TASK-0010 (backend ownership watchdog): if the frontend
+         (backend ownership watchdog): if the frontend
         crashes mid-capture (before sending
         ``set_esc_cancel_paused: false``), the backend would
         otherwise be stuck in ``"hotkey_capture"`` state forever,
@@ -770,11 +820,11 @@ class TCPTransportMixin:
             log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
             return
         keyboard_ownership().reset()
-        # ISSUE-8 / M-94: also clear the ESC-pending-capture-exit Event
+        # Also clear the ESC-pending-capture-exit Event
         # on the hotkey dispatcher. If the frontend crashed mid-capture
         # (ESC pressed but not yet released), the flag would remain set
         # and cause a spurious ``hotkey_capture_cancel`` event on the
-        # next ESC press after reconnect. M-94 replaced the plain bool
+        # next ESC press after reconnect. A prior refactor replaced the plain bool
         # with a ``threading.Event`` so the 3 threads that touch this
         # flag (ESC listener / ESC release handler / this IPC worker)
         # cannot race on the read-modify-write cycle. ``.clear()`` is

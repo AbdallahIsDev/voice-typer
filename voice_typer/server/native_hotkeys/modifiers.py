@@ -1,7 +1,7 @@
 """Modifier name canonicalisation helpers.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+().
 
 This module owns:
 

@@ -11,10 +11,10 @@ This benchmark measures the steady-state throughput of add_words +
 committed_text read across a long dictation session (1K-10K words). It
 catches regressions in:
 
-  * The deque-based word storage (AUDIO-019 eviction).
+* The deque-based word storage ( eviction).
   * The seen-timestamps set (RACE-031 contention approximation).
   * The cached committed_text property (PERF-018 invalidation).
-  * The word-key index for overlap dedup (PERF-NEW-004).
+* The word-key index for overlap dedup (PERF-).
 
 Usage:
     python bench/bench_streaming.py

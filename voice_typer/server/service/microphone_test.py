@@ -1,7 +1,7 @@
 """Microphone-test / level-monitor domain mixin for VoiceTyperService.
 
 Extracted verbatim from the original ``service.py`` god class
-(ARCH-005 split). Mic enumeration, refresh + caching, RMS level,
+( split). Mic enumeration, refresh + caching, RMS level,
 mic-test recording lifecycle, and continuous level monitoring.
 """
 
@@ -22,20 +22,20 @@ class MicrophoneTestMixin(ServiceMixinBase):
     """
 
     def __init__(self) -> None:
-        """AC-67: initialize MicrophoneTestMixin's own state.
+        """initialize MicrophoneTestMixin's own state.
 
-        Previously ``_microphones_cache`` / ``_microphones_cache_ts``
-        were initialised in ``VoiceTyperService.__init__`` even
-        though they are used ONLY by MicrophoneTestMixin (the
-        fat-base-class smell called out in AC-67). They are now
-        owned by MicrophoneTestMixin so each mixin is the single
-        source of truth for its own state.
+                Previously ``_microphones_cache`` / ``_microphones_cache_ts``
+                were initialised in ``VoiceTyperService.__init__`` even
+                though they are used ONLY by MicrophoneTestMixin (the
+        fat-base-class smell called out in ). They are now
+                owned by MicrophoneTestMixin so each mixin is the single
+                source of truth for its own state.
 
-        XV-5: initialised to ``None`` (not ``[]``) so the cache check
-        can distinguish "never queried" from "queried and got 0 mics"
-        via an ``is not None`` guard. A bare-truthiness check would
-        bypass the cache when PortAudio legitimately returned an empty
-        list, re-querying PortAudio on every refresh call.
+        initialised to ``None`` (not ``[]``) so the cache check
+                can distinguish "never queried" from "queried and got 0 mics"
+                via an ``is not None`` guard. A bare-truthiness check would
+                bypass the cache when PortAudio legitimately returned an empty
+                list, re-querying PortAudio on every refresh call.
         """
         self._microphones_cache: list | None = None
         self._microphones_cache_ts: float = 0.0
@@ -50,30 +50,30 @@ class MicrophoneTestMixin(ServiceMixinBase):
     def refresh_microphones(self, force: bool = False) -> list[dict]:
         """AUDIO-MIC: Re-query PortAudio for available microphones.
 
-        Called when the user clicks "Refresh Microphones" in the UI
-        after plugging in a new USB/BT device. Updates the cached list
-        and the tray menu.
+                Called when the user clicks "Refresh Microphones" in the UI
+                after plugging in a new USB/BT device. Updates the cached list
+                and the tray menu.
 
-        PERF-FIX-1: a 5s short-TTL cache avoids re-querying PortAudio
-        on rapid refresh clicks. The first call after the TTL elapses
-        re-queries and refreshes the cache; subsequent calls within
-        the window return the cached list. Errors fall back to the
-        previously-known list (or the cache if available).
+        PERF-: a 5s short-TTL cache avoids re-querying PortAudio
+                on rapid refresh clicks. The first call after the TTL elapses
+                re-queries and refreshes the cache; subsequent calls within
+                the window return the cached list. Errors fall back to the
+                previously-known list (or the cache if available).
 
-        SVC-8: ``force=True`` bypasses the TTL cache so callers that
-        *know* a hot-plug event happened (e.g. the OS device-change
-        watcher) can refresh immediately without waiting up to 5 s.
+                SVC-8: ``force=True`` bypasses the TTL cache so callers that
+                *know* a hot-plug event happened (e.g. the OS device-change
+                watcher) can refresh immediately without waiting up to 5 s.
 
-        XV-5: use ``is not None`` (not bare truthiness) so a cached
-        empty list (PortAudio returned 0 mics) is still served from
-        cache instead of re-querying PortAudio on every call.
+        use ``is not None`` (not bare truthiness) so a cached
+                empty list (PortAudio returned 0 mics) is still served from
+                cache instead of re-querying PortAudio on every call.
         """
         import time
 
         from voice_typer.server.server_platform import list_microphones
 
         now = time.monotonic()
-        # PERF-FIX-1: serve from cache if fresher than 5s.
+        # PERF-: serve from cache if fresher than 5s.
         # SVC-8: skip the cache check when force=True.
         if not force and self._microphones_cache is not None and (now - self._microphones_cache_ts) < 5.0:
             return self._microphones_cache
@@ -81,7 +81,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
         try:
             mics = list_microphones()
             self._app._microphones = mics
-            # PERF-FIX-1: update the short-TTL cache.
+            # PERF-: update the short-TTL cache.
             self._microphones_cache = mics
             self._microphones_cache_ts = now
             with contextlib.suppress(Exception):
@@ -243,7 +243,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
                 }
             )
         except Exception:
-            # XZ-EH-005: previously pass — silently swallowed update_level_processor failures
+            # previously pass — silently swallowed update_level_processor failures
             log.debug(
                 "[SERVICE] level_monitor_start: update_level_processor failed",
                 exc_info=True,

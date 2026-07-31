@@ -14,6 +14,7 @@ for back-compat with callers (settings window, tests).
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import logging
 import threading
@@ -44,7 +45,7 @@ class HotkeyDispatcher:
         self._hotkey_backend: HotkeyBackend | None = None
         self._esc_backend: HotkeyBackend | None = None
         self._repaste_backend: HotkeyBackend | None = None
-        # XE-12-3: track the last-registered ESC and repaste specs so
+        # track the last-registered ESC and repaste specs so
         # ``register()`` can skip the teardown+rebuild cycle when the
         # spec hasn't changed. Previously ``register()`` unconditionally
         # rebuilt both backends on every call (including the
@@ -53,19 +54,19 @@ class HotkeyDispatcher:
         # plus unnecessary OS grab churn on Windows / macOS.
         self._esc_spec: str | None = None
         self._repaste_spec: str | None = None
-        # CR-85 + M-94 (combined): threading.Event for atomic cross-
+        #  + M-94 (combined): threading.Event for atomic cross-
         # thread access. Both sessions independently identified the
         # plain-bool race; session-2's attribute name
         # ``_esc_pending_capture_exit_event`` is adopted because it is
         # already used at ``ipc_server._on_ipc_client_disconnect``.
-        # XZ-R17-12: the stale TODO Fix-A comment referencing the
+        # the stale TODO Fix-A comment referencing the
         # non-existent ``ipc/server.py`` file has been deleted. The
         # OLD ``_esc_pending_capture_exit`` bool attribute was never
         # referenced anywhere in the codebase (the file was renamed
         # to ``ipc_server.py`` and the attribute was updated to the
         # Event form). The ``_esc_pending_capture_exit_event``
         # threading.Event is the sole, canonical implementation.
-        # CR-85 + M-94: threading.Event for atomic cross-thread
+        #  + M-94: threading.Event for atomic cross-thread
         # ESC-cancel signaling. See _on_esc_release for the consumer side.
         self._esc_pending_capture_exit_event: threading.Event = threading.Event()
 
@@ -74,7 +75,7 @@ class HotkeyDispatcher:
     def register(self) -> bool:
         """Register global hotkey using the platform-appropriate backend.
 
-        UX-002: when registration fails (typically because another app
+        when registration fails (typically because another app
         has already claimed the same hotkey via Win32 ``RegisterHotKey``
         or X11 grab), surface a tray notification that names the hotkey
         so the user can pick a different one in Settings.
@@ -85,7 +86,7 @@ class HotkeyDispatcher:
         ``set_toggle_on_keyup(True)`` for the main dictation hotkey in
         toggle mode; push-to-talk keeps start-on-press / stop-on-release.
 
-        CR-15 (atomic register): ``self._hotkey_backend`` is assigned the
+         (atomic register): ``self._hotkey_backend`` is assigned the
         NEW backend only AFTER ``start()`` succeeds. If ``create_hotkey_backend``
         or ``start()`` raises, the OLD backend (if any) is left in place
         so the user is never left without a working hotkey. This is the
@@ -101,7 +102,7 @@ class HotkeyDispatcher:
         app = self._app
         hotkey_str = app.config.hotkey
 
-        # G4-H-13 (partial, session-4): validate the configured hotkey
+        #  (partial, session-4): validate the configured hotkey
         # before attempting to register it. Config.load() bypasses the
         # denylist, so a stale/hand-edited config could contain an
         # OS-reserved shortcut. On rejection, fall back to the platform
@@ -123,12 +124,12 @@ class HotkeyDispatcher:
         success = False
         try:
             new_backend = self._create_and_start_main_backend(hotkey_str)
-            # CR-15: assign only after start() succeeded. A failure
+            # assign only after start() succeeded. A failure
             # mid-way leaves the OLD backend in self._hotkey_backend.
             self._hotkey_backend = new_backend
             success = True
         except Exception as exc:
-            # UX-002: name the hotkey in the notification so the user
+            # name the hotkey in the notification so the user
             # knows which one to rebind.  Common cause: another app
             # (Snipping Tool, GeForce Overlay, etc.) already claimed it.
             log.warning("[HOTKEY] Registration FAILED -- %s: %s", hotkey_str, exc)
@@ -141,7 +142,7 @@ class HotkeyDispatcher:
             )
 
         # Feature: ESC to cancel -- register ESC hotkey when enabled
-        # XE-12-3: skip the teardown+rebuild if the ESC backend is
+        # skip the teardown+rebuild if the ESC backend is
         # already alive with the same spec ("<esc>"). Previously
         # ``register()`` unconditionally called ``register_esc()``, which
         # stops and recreates the backend on every call — causing a
@@ -160,7 +161,7 @@ class HotkeyDispatcher:
             self._esc_spec = None
 
         # Feature: Repaste hotkey
-        # XE-12-3: skip the teardown+rebuild if the repaste backend is
+        # skip the teardown+rebuild if the repaste backend is
         # already alive with the same spec. When repaste is disabled
         # (empty / None), tear down any existing backend.
         if app.config.repaste_hotkey:
@@ -195,7 +196,7 @@ class HotkeyDispatcher:
           because another app already claimed it).
 
         Wiring applied to the new backend before ``start()``:
-        - ``_tray`` attribute (GAP-2/GAP-4): so the backend can show
+        - ``_tray`` attribute (/): so the backend can show
           permission / fallback / recovery notifications.
         - ``set_toggle_on_keyup(True)`` in toggle mode: so the toggle
           fires on key-UP and a press-and-hold cannot start-then-stop
@@ -205,7 +206,7 @@ class HotkeyDispatcher:
         app = self._app
         new_backend = create_hotkey_backend(hotkey_str)
         log.info("[HOTKEY] Backend created: %s", type(new_backend).__name__)
-        # GAP-2/GAP-4: give the backend a reference to the tray so
+        # give the backend a reference to the tray so
         # it can show permission/fallback/recovery notifications.
         # The _NativeBackendAdapter uses this for its notifications;
         # other backends ignore it.
@@ -230,21 +231,21 @@ class HotkeyDispatcher:
     def _make_dictation_callback(self):
         """Create a dictation hotkey callback that respects keyboard ownership.
 
-        HOTKEY-FIX-001: the dictation callback previously called
+        HOTKEY- the dictation callback previously called
         ``app.toggle_dictation`` directly with NO ownership check. This meant
         that pressing any key during a hotkey capture session (e.g. re-assigning
         the current hotkey, or capturing a new key like Tab) would immediately
         trigger recording — because the OS-level listener sees the same keypress
         the frontend capture handler sees, and there was no guard.
 
-        This mirrors the ESC callback's ownership check (ARCH-ESC-001 at line
+        This mirrors the ESC callback's ownership check ( at line
         ~142): if the frontend is in hotkey capture mode
         (``is_hotkey_capture_active()`` returns True), the dictation callback
         is a no-op. This fixes sub-tasks 2.4 (Race A) and 2.5 entirely.
         """
 
         def _dictation_callback() -> None:
-            # XZ-R17-02: guard against hotkey callbacks firing during
+            # guard against hotkey callbacks firing during
             # shutdown. The shutdown controller stops hotkey backends
             # with a 5s timeout each — if stop() times out, the listener
             # thread may still fire callbacks that call toggle_dictation()
@@ -263,12 +264,12 @@ class HotkeyDispatcher:
     def _make_repaste_callback(self):
         """Create a repaste hotkey callback that respects keyboard ownership.
 
-        HOTKEY-FIX-001: same defense-in-depth as the dictation
+        HOTKEY- same defense-in-depth as the dictation
         callback. Prevents the repaste hotkey from firing during capture.
         """
 
         def _repaste_callback() -> None:
-            # XZ-R17-02: shutdown guard (see _dictation_callback).
+            # shutdown guard (see _dictation_callback).
             if getattr(self._app, "_shutting_down", False):
                 log.debug("[HOTKEY] repaste ignored — app shutting down")
                 return
@@ -282,7 +283,7 @@ class HotkeyDispatcher:
     def register_esc(self) -> None:
         """Register the ESC hotkey for cancelling dictation.
 
-        ARCH-ESC-001: the ESC callback is wrapped to consult the
+        the ESC callback is wrapped to consult the
         KeyboardOwnership singleton. If the frontend is in hotkey
         capture mode (``is_hotkey_capture_active()`` returns True),
         the ESC callback defers to key-up instead of acting
@@ -304,7 +305,7 @@ class HotkeyDispatcher:
             self._esc_backend = None
             self._esc_spec = None
 
-        # ESC-KEYUP-FIX / M-94 + CR-85 (combined): Event (initially
+        # ESC-KEYUP-FIX / M-94 +  (combined): Event (initially
         # not-set, equivalent to the old ``False``) set on ESC key-down
         # during capture, cleared after the release callback fires on
         # key-up. ``threading.Event`` provides atomic ``is_set`` / ``set``
@@ -315,7 +316,7 @@ class HotkeyDispatcher:
 
         try:
             self._esc_backend = create_hotkey_backend("<esc>")
-            # AB-35: prefer the event-driven WM_HOTKEY message loop over
+            # prefer the event-driven WM_HOTKEY message loop over
             # the per-keystroke WH_KEYBOARD_LL hook for the ESC backend.
             # Only the main dictation hotkey installs an LL hook (was 3).
             # If RegisterHotKey fails for ESC (some keys are reserved),
@@ -326,17 +327,17 @@ class HotkeyDispatcher:
                 self._esc_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
 
             def _esc_callback() -> None:
-                # XZ-R17-02: shutdown guard (see _dictation_callback).
+                # shutdown guard (see _dictation_callback).
                 if getattr(self._app, "_shutting_down", False):
                     log.debug("[HOTKEY] ESC ignored — app shutting down")
                     return
-                # ARCH-ESC-001: centralized ownership check.
+                # centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
                     log.info("[HOTKEY] ESC pressed during hotkey capture — waiting for key-up")
                     # ESC-KEYUP-FIX: set the pending flag and install
                     # a release callback. The actual cancel happens on
                     # key-up (release), not key-down (press).
-                    # CR-85 + M-94 (combined): ``threading.Event.set()``
+                    #  + M-94 (combined): ``threading.Event.set()``
                     # is atomic — no race vs. a concurrent ``.clear()``
                     # from the IPC disconnect worker.
                     self._esc_pending_capture_exit_event.set()
@@ -349,7 +350,7 @@ class HotkeyDispatcher:
             self._esc_spec = "<esc>"
             log.info("[HOTKEY] ESC cancel hotkey registered")
         except Exception:
-            # XE-12-4: null the failed backend reference so a subsequent
+            # null the failed backend reference so a subsequent
             # ``register()`` / ``register_esc()`` doesn't try to ``stop()``
             # a partially-started backend (which may have acquired OS
             # resources via ``create_hotkey_backend`` even if ``start()``
@@ -363,6 +364,16 @@ class HotkeyDispatcher:
             self._esc_backend = None
             self._esc_spec = None
             log.warning("[HOTKEY] ESC cancel hotkey registration failed")
+            # surface the failure to the user via the tray's
+            # safety channel (bypasses the notification toggle) so they
+            # know ESC cancel is unavailable. Previously this branch
+            # only emitted a ``log.warning`` — the user had no signal
+            # until they pressed ESC and nothing happened.
+            with contextlib.suppress(Exception):
+                self._app.tray.notify_safety(
+                    APP_NAME,
+                    "ESC cancel hotkey could not be registered. Another app may have claimed it.",
+                )
 
     def _on_esc_release(self) -> None:
         """ESC-KEYUP-FIX: release callback fired on key-up.
@@ -390,7 +401,7 @@ class HotkeyDispatcher:
         would re-arm the flag and the next release would fire the
         cancel again — idempotent via ``keyboard_ownership().reset()``).
         """
-        # CR-85 + M-94 (combined): threading.Event.is_set() / .clear()
+        #  + M-94 (combined): threading.Event.is_set() / .clear()
         if not self._esc_pending_capture_exit_event.is_set():
             return
         self._esc_pending_capture_exit_event.clear()
@@ -403,7 +414,7 @@ class HotkeyDispatcher:
 
         # Keep the legacy alias in sync with the canonical owner so readers
         # that still consult _esc_cancel_paused cannot see a stale "paused"
-        # state. ESC-FIX-001 divergence fix: the alias was only cleared by a
+        # state. ESC- divergence fix: the alias was only cleared by a
         # frontend round-trip, so a missed IPC left ESC permanently dead.
         self._app._esc_cancel_paused = False
 
@@ -435,11 +446,11 @@ class HotkeyDispatcher:
             self._repaste_backend = None
             self._repaste_spec = None
         if self._app.config.repaste_hotkey:
-            # XE-12-2: validate the configured repaste hotkey BEFORE
+            # validate the configured repaste hotkey BEFORE
             # attempting to register it. ``Config.load()`` bypasses the
             # denylist, so a stale/hand-edited config could contain an
             # OS-reserved shortcut (e.g. ``<win>+<l>``) or — after
-            # XE-12-1 — ``<caps_lock>+<v>`` (caps_lock is now correctly
+            # ``<caps_lock>+<v>`` (caps_lock is now correctly
             # rejected by Stage 5 as a non-modifier key in a multi-
             # non-modifier combo, instead of being silently accepted
             # because it was incorrectly listed as a modifier). On
@@ -461,7 +472,7 @@ class HotkeyDispatcher:
                 return
             try:
                 self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey)
-                # AB-35: same WM_HOTKEY-preference flag as the ESC backend
+                # same WM_HOTKEY-preference flag as the ESC backend
                 # (see register_esc for the full rationale).
                 with contextlib.suppress(AttributeError, TypeError):
                     self._repaste_backend._prefer_message_loop_first = True  # type: ignore[attr-defined]
@@ -469,7 +480,7 @@ class HotkeyDispatcher:
                 self._repaste_spec = self._app.config.repaste_hotkey
                 log.info("[HOTKEY] Repaste hotkey registered: %s", self._app.config.repaste_hotkey)
             except Exception:
-                # XE-12-4: null the failed backend reference so a
+                # null the failed backend reference so a
                 # subsequent ``register()`` / ``register_repaste()``
                 # doesn't try to ``stop()`` a partially-started backend.
                 # ``stop()`` is safe to call on a partially-started
@@ -481,13 +492,22 @@ class HotkeyDispatcher:
                 self._repaste_backend = None
                 self._repaste_spec = None
                 log.warning("[HOTKEY] Repaste hotkey registration failed")
+                # surface the failure to the user via the tray's
+                # safety channel. Mirrors the ESC path: a silent
+                # ``log.warning`` left the user with no way to know the
+                # repaste hotkey was unavailable.
+                with contextlib.suppress(Exception):
+                    self._app.tray.notify_safety(
+                        APP_NAME,
+                        "Repaste hotkey could not be registered. Another app may have claimed it.",
+                    )
 
     def restart(self, hotkey: str) -> None:
         """Re-register the global hotkey after settings change.
 
-        CR-105: validate hotkey before mutating config.
+        validate hotkey before mutating config.
 
-        PVT-G5-027: stop the OLD backend BEFORE starting the NEW one.
+        stop the OLD backend BEFORE starting the NEW one.
         Previously ``register()`` brought up the new backend first and
         the old backend was only stopped AFTER ``register()`` returned
         success — leaving a window where BOTH backends were running on
@@ -501,11 +521,11 @@ class HotkeyDispatcher:
         another app claimed it), the OLD backend's hotkey spec is
         restored to ``app.config.hotkey`` and a fresh backend is
         created with the OLD spec so the user is never left without a
-        working dictation hotkey. This preserves the CR-15 user-facing
+        working dictation hotkey. This preserves the  user-facing
         contract ("restart failure keeps the previous hotkey working")
         while eliminating the double-backend window.
 
-        UX-002: on failure, ``register()`` already shows the tray
+        on failure, ``register()`` already shows the tray
         notification naming the rejected hotkey; we don't duplicate
         it here. If fallback restore ALSO fails, the user is left
         without a hotkey and a separate ERROR-level log line is
@@ -523,7 +543,7 @@ class HotkeyDispatcher:
                     f"Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey.",
                 )
             return
-        # PVT-G5-027: capture the OLD hotkey spec BEFORE mutating
+        # capture the OLD hotkey spec BEFORE mutating
         # config so we can restore it (and recreate a backend with
         # the OLD spec) if register() fails.
         old_hotkey_str = app.config.hotkey
@@ -537,7 +557,7 @@ class HotkeyDispatcher:
                 "Failed to save hotkey to disk. Check disk space or permissions.",
             )
 
-        # PVT-G5-027: stop the OLD backend BEFORE calling register()
+        # stop the OLD backend BEFORE calling register()
         # so there is no window where both old and new backends are
         # running. The OLD backend's listener thread is joined (best-
         # effort) so its callback can no longer fire on the old spec.
@@ -598,17 +618,87 @@ class HotkeyDispatcher:
     # ── Cleanup ────────────────────────────────────────────────────────
 
     def stop_all(self) -> None:
-        """Stop all hotkey backends (called during app shutdown)."""
-        for backend_attr in ("_hotkey_backend", "_esc_backend", "_repaste_backend"):
-            backend = getattr(self, backend_attr)
-            if backend is not None:
-                try:
-                    backend.stop()
-                except Exception:
-                    log.debug("[HOTKEY] Failed to stop %s", backend_attr, exc_info=True)
-                setattr(self, backend_attr, None)
-        # XE-12-3: clear the spec trackers so a post-shutdown register()
+        """Stop all hotkey backends (called during app shutdown).
+
+        each backend's ``stop()`` runs in a worker thread under
+        a hard 3s budget shared across all three backends. Previously
+        ``stop_all`` called ``backend.stop()`` sequentially with no
+        timeout — a single hung native backend (Win32
+        ``UnregisterHotKey`` + listener-thread join, Wayland
+        ``wl_display`` teardown, pynput listener join) could block the
+        shutdown sequence for up to ~15s (3 backends × 5s join each).
+        Backends that miss the 3s budget are leaked (their worker
+        thread keeps running) and a warning is logged; every native
+        listener thread is a daemon, so process exit still terminates
+        it. ``stop()`` failures inside the budget are swallowed (logged
+        at debug) so a poisoned backend doesn't abort the rest of
+        shutdown — same contract as before.
+
+        Implementation note: we do NOT use the ``with`` block on the
+        ``ThreadPoolExecutor`` because ``__exit__`` calls
+        ``shutdown(wait=True)`` which would block until every submitted
+        future completes — defeating the 3s budget. Instead we call
+        ``shutdown(wait=False, cancel_futures=True)`` so already-running
+        workers are left to finish (or hang) in the background and the
+        method returns as soon as ``concurrent.futures.wait`` does.
+        """
+        backend_attrs = ("_hotkey_backend", "_esc_backend", "_repaste_backend")
+        live_attrs = [a for a in backend_attrs if getattr(self, a) is not None]
+        if live_attrs:
+            # NOT using ``with`` — see docstring: ``__exit__`` would
+            # block on ``shutdown(wait=True)`` and defeat the budget.
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(live_attrs))
+            try:
+                futures = {pool.submit(self._stop_one_backend, a): a for a in live_attrs}
+                done, not_done = concurrent.futures.wait(futures, timeout=3.0)
+                for fut in not_done:
+                    log.warning(
+                        "[HOTKEY] %s did not stop within 3s budget — proceeding anyway",
+                        futures[fut],
+                    )
+                # Surface any exception raised by a completed stop so
+                # operators can diagnose poisoned backends (debug-level
+                # — the user-visible contract is "stop_all never raises"
+                # and that is preserved by swallowing here).
+                for fut in done:
+                    exc = fut.exception()
+                    if exc is not None:
+                        log.debug(
+                            "[HOTKEY] %s stop() raised: %r",
+                            futures[fut],
+                            exc,
+                            exc_info=True,
+                        )
+            finally:
+                # wait=False: do NOT block on still-running workers
+                # (that would defeat the 3s budget). cancel_futures=True
+                # drops any not-yet-started submissions (defensive —
+                # with max_workers==len(live_attrs) every submission
+                # starts immediately, so this is a no-op in practice).
+                pool.shutdown(wait=False, cancel_futures=True)
+        # clear the spec trackers so a post-shutdown register()
         # call (e.g. from a test or a hot restart) does NOT skip the
         # rebuild under the "same spec" fast-path.
         self._esc_spec = None
         self._repaste_spec = None
+
+    def _stop_one_backend(self, backend_attr: str) -> None:
+        """stop a single backend and clear its attribute.
+
+        Runs inside a ``concurrent.futures.ThreadPoolExecutor`` worker
+        so a hung ``stop()`` cannot block the 3s budget in
+        :meth:`stop_all`. ``stop()`` failures are swallowed (logged at
+        debug) so a poisoned backend doesn't abort the rest of shutdown.
+        The attribute is cleared UNCONDITIONALLY after ``stop()`` returns
+        or raises — the post-stop code paths (and the test suite) treat
+        ``None`` as "no backend", so leaving a partially-stopped backend
+        in place would be worse than a clean None.
+        """
+        backend = getattr(self, backend_attr)
+        if backend is None:
+            return
+        try:
+            backend.stop()
+        except Exception:
+            log.debug("[HOTKEY] Failed to stop %s", backend_attr, exc_info=True)
+        setattr(self, backend_attr, None)

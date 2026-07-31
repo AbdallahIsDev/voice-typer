@@ -11,20 +11,13 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
 
-# DJ-71: hoisted from per-call `from scipy.signal import lfilter`
-# (was inside process() — 6 imports/chunk × 16 Hz = 96 lookups/sec on
-# the audio worker thread). Module-top import under try/except so the
-# module still loads when scipy is missing (tests with mock filters).
-try:
-    from scipy.signal import lfilter
-except ImportError:  # pragma: no cover — scipy is a hard dep in prod
-    lfilter = None  # type: ignore[assignment]
-
-from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
-from voice_typer.server.audio_filters.base import (
+np = lazy_module("numpy")
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE  # noqa: E402
+from voice_typer.server.audio_filters.base import (  # noqa: E402
     AudioFilter,
+    _get_lfilter,
     one_pole_coeff,
 )
 
@@ -54,7 +47,7 @@ class Limiter(AudioFilter):
         self._attack_coeff = one_pole_coeff(self._sample_rate, _ATTACK_TIME_SECONDS)
         self._release_coeff = one_pole_coeff(self._sample_rate, release_ms / 1000.0)
         self._envelope: float = 0.0
-        # DJ-72: pre-allocate the b/a coefficient arrays and the zi
+        # pre-allocate the b/a coefficient arrays and the zi
         # state buffer in __init__ so process() does not allocate
         # fresh Python lists + 1-element ndarrays per call. The b/a
         # arrays are constant after __init__; the zi buffer is
@@ -67,7 +60,7 @@ class Limiter(AudioFilter):
         self._release_b = np.array([1.0 - self._release_coeff], dtype=np.float64)
         self._release_a = np.array([1.0, -self._release_coeff], dtype=np.float64)
         self._zi_buf = np.zeros(1, dtype=np.float64)
-        # DJ-73: pre-allocated float64 working buffer for the
+        # pre-allocated float64 working buffer for the
         # safe_env -> env_db -> gain_db pipeline. Lazy-resized to the
         # largest chunk seen so the first call allocates and subsequent
         # calls reuse. Eliminates 3 fresh array allocations per chunk.
@@ -85,30 +78,30 @@ class Limiter(AudioFilter):
 
         abs_x = np.abs(samples).astype(np.float64)
 
-        # DJ-72: reuse the pre-allocated zi buffer — set the initial
+        # reuse the pre-allocated zi buffer — set the initial
         # state to the current envelope, then pass the buffer to
         # lfilter. lfilter reads but does not mutate the caller's zi
         # array (it returns the final state as a new array).
         self._zi_buf[0] = self._envelope
-        attack_env, _ = lfilter(
+        attack_env, _ = _get_lfilter()(
             self._attack_b,
             self._attack_a,
             abs_x,
             zi=self._zi_buf,
         )
         self._zi_buf[0] = self._envelope
-        release_env, _ = lfilter(
+        release_env, _ = _get_lfilter()(
             self._release_b,
             self._release_a,
             abs_x,
             zi=self._zi_buf,
         )
-        # DJ-73: in-place element-wise maximum into attack_env (avoids
+        # in-place element-wise maximum into attack_env (avoids
         # one fresh allocation per chunk).
         env = np.maximum(attack_env, release_env, out=attack_env)
 
         above_floor = env > 1e-10
-        # DJ-73: reuse a pre-allocated buffer for the safe_env / env_db /
+        # reuse a pre-allocated buffer for the safe_env / env_db
         # gain_db pipeline — 3 ops collapsed into a single buffer.
         if self._env_db_buf is None or self._env_db_buf.shape[0] < n:
             cap = max(n, 1024)

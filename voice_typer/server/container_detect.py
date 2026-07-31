@@ -1,4 +1,4 @@
-"""PLAT-021: Container/cgroup detection for Linux deployments.
+"""Container/cgroup detection for Linux deployments.
 
 When running inside a container (Docker, Podman, LXC, Flatpak, Snap),
 certain features don't work: no system tray (no D-Bus session bus),
@@ -16,7 +16,7 @@ from pathlib import Path
 _log = __import__("logging").getLogger(__name__)
 
 
-# DE-66: container-signature substrings looked for in ``/proc/1/cgroup``.
+# container-signature substrings looked for in ``/proc/1/cgroup``.
 # Used for the legacy cgroup v1 detection path. On cgroup v2 (the
 # default on modern Linux kernels 5.15+) the per-process cgroup path
 # is typically just ``0::/`` for host processes and ``0::/`` for
@@ -41,7 +41,7 @@ def _read_proc_file(path: str) -> str | None:
 
 
 def _detect_via_mountinfo_overlay() -> bool:
-    """DE-66: detect containers via overlayfs rooted at ``/``.
+    """detect containers via overlayfs rooted at ``/``.
 
     On cgroup v2 (and on cgroup v1 hybrid hosts that don't write a
     container-runtime signature into ``/proc/1/cgroup``), most OCI
@@ -85,7 +85,7 @@ def _detect_via_mountinfo_overlay() -> bool:
 
 
 def _detect_via_proc1_environ() -> bool:
-    """DE-66: detect containers via ``container=`` in ``/proc/1/environ``.
+    """detect containers via ``container=`` in ``/proc/1/environ``.
 
     Most modern container runtimes (systemd-nspawn, Podman, Docker
     with ``--env container=oci``, Kubernetes-managed containers) set
@@ -117,26 +117,26 @@ def _detect_via_proc1_environ() -> bool:
 def is_in_container() -> bool:
     """Detect if the process is running inside a container.
 
-    Checks multiple indicators:
-    1. ``/.dockerenv`` file (Docker)
-    2. ``/run/.containerenv`` file (Podman)
-    3. ``container`` environment variable (systemd-nspawn)
-    4. ``/proc/1/cgroup`` contains container runtime signatures (cgroup v1)
-    5. DE-66: ``container=`` set on PID 1's environment (cgroup v2 / Podman)
-    6. DE-66: overlayfs rooted at ``/`` in ``/proc/self/mountinfo``
-       (cgroup v2 / rootless Podman / OCI runtimes)
+        Checks multiple indicators:
+        1. ``/.dockerenv`` file (Docker)
+        2. ``/run/.containerenv`` file (Podman)
+        3. ``container`` environment variable (systemd-nspawn)
+        4. ``/proc/1/cgroup`` contains container runtime signatures (cgroup v1)
+    5. : ``container=`` set on PID 1's environment (cgroup v2 / Podman)
+    6. : overlayfs rooted at ``/`` in ``/proc/self/mountinfo``
+           (cgroup v2 / rootless Podman / OCI runtimes)
 
-    Returns True if any indicator is positive, False otherwise.
-    On non-Linux platforms, always returns False.
+        Returns True if any indicator is positive, False otherwise.
+        On non-Linux platforms, always returns False.
 
-    XV-13: the result is memoized for the lifetime of the process.
-    Container membership is invariant during a process lifetime (the
-    cgroup namespace can't change without ``unshare``/``setns``, which
-    would already be a different process). The cache is bypassed when
-    running under pytest so tests that monkeypatch ``sys.platform`` /
-    ``Path.exists`` between scenarios keep working without needing a
-    cache-clear fixture (which would otherwise have to live in
-    ``tests/conftest.py`` — owned by another agent).
+    the result is memoized for the lifetime of the process.
+        Container membership is invariant during a process lifetime (the
+        cgroup namespace can't change without ``unshare``/``setns``, which
+        would already be a different process). The cache is bypassed when
+        running under pytest so tests that monkeypatch ``sys.platform`` /
+        ``Path.exists`` between scenarios keep working without needing a
+        cache-clear fixture (which would otherwise have to live in
+        ``tests/conftest.py`` — owned by another agent).
     """
     if _is_in_container_cached.cache_info().currsize > 0 and _should_bypass_cache():
         _is_in_container_cached.cache_clear()
@@ -158,7 +158,7 @@ def _should_bypass_cache() -> bool:
 
 @functools.lru_cache(maxsize=1)
 def _is_in_container_cached() -> bool:
-    """Memoized body of :func:`is_in_container` (XV-13)."""
+    """Memoized body of :func:`is_in_container` ()."""
     import sys
 
     if not sys.platform.startswith("linux"):
@@ -184,11 +184,11 @@ def _is_in_container_cached() -> bool:
             if sig in cgroup:
                 return True
 
-    # 5. DE-66: cgroup v2-aware — check /proc/1/environ for ``container=``.
+    # 5. : cgroup v2-aware — check /proc/1/environ for ``container=``.
     if _detect_via_proc1_environ():
         return True
 
-    # 6. DE-66: cgroup v2-aware — check /proc/self/mountinfo for overlayfs
+    # 6. : cgroup v2-aware — check /proc/self/mountinfo for overlayfs
     #    rooted at ``/`` (catches rootless Podman and other OCI runtimes
     #    that don't write a recognizable cgroup signature on v2).
     return bool(_detect_via_mountinfo_overlay())
@@ -197,13 +197,13 @@ def _is_in_container_cached() -> bool:
 def _reset_container_cache() -> None:
     """Test-only: clear the memoized container-detection results.
 
-    XV-13: production callers should NEVER need this — container
-    membership doesn't change during a process lifetime. Tests that
-    patch ``sys.platform`` or filesystem state need it so the next
-    :func:`is_in_container` / :func:`get_container_type` call re-probes.
-    The autouse ``_should_bypass_cache`` check above handles most test
-    scenarios automatically; this helper is kept for explicit test
-    pinning of the caching contract itself.
+    production callers should NEVER need this — container
+        membership doesn't change during a process lifetime. Tests that
+        patch ``sys.platform`` or filesystem state need it so the next
+        :func:`is_in_container` / :func:`get_container_type` call re-probes.
+        The autouse ``_should_bypass_cache`` check above handles most test
+        scenarios automatically; this helper is kept for explicit test
+        pinning of the caching contract itself.
     """
     _is_in_container_cached.cache_clear()
     _get_container_type_cached.cache_clear()
@@ -212,8 +212,8 @@ def _reset_container_cache() -> None:
 def get_container_type() -> str | None:
     """Return a human-readable container type if detected, None otherwise.
 
-    XV-13: the result is memoized alongside :func:`is_in_container` —
-    the underlying probe is identical, so the two callers always agree.
+    the result is memoized alongside :func:`is_in_container` —
+        the underlying probe is identical, so the two callers always agree.
     """
     if not is_in_container():
         return None
@@ -224,7 +224,7 @@ def get_container_type() -> str | None:
 
 @functools.lru_cache(maxsize=1)
 def _get_container_type_cached() -> str | None:
-    """Memoized body of :func:`get_container_type` (XV-13).
+    """Memoized body of :func:`get_container_type` ().
 
     Assumes :func:`is_in_container` has already returned True — callers
     must gate on that before invoking this helper.
@@ -236,7 +236,7 @@ def _get_container_type_cached() -> str | None:
     if os.environ.get("CONTAINER"):
         return f"systemd-nspawn ({os.environ['CONTAINER']})"
 
-    # DE-66: check /proc/1/environ for the ``container=`` value (e.g.
+    # check /proc/1/environ for the ``container=`` value (e.g.
     # ``container=oci``, ``container=podman``, ``container=lxc``).
     # When present, the value is a useful human-readable runtime name.
     environ_text = _read_proc_file("/proc/1/environ")
@@ -259,7 +259,7 @@ def _get_container_type_cached() -> str | None:
     except (OSError, PermissionError):
         pass
 
-    # DE-66: overlayfs-at-root indicator catches rootless Podman and
+    # overlayfs-at-root indicator catches rootless Podman and
     # other OCI runtimes; report a recognizable name instead of "unknown".
     if _detect_via_mountinfo_overlay():
         return "container (overlayfs root)"

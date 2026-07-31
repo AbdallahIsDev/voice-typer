@@ -1,7 +1,7 @@
-# ARCH-045 / SPLIT-4: extracted from the original ``prewarm.py`` god-module.
+# SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """Config-root, sentinel, PID-file, and boot-session dedup helpers.
 
-Phase 4.5 / ARCH-045 — this module holds the path-resolution and
+Phase 4.5 /  — this module holds the path-resolution and
 boot-session dedup helpers:
 
 - :func:`_config_root` — return the voice-typer config directory (parent
@@ -173,7 +173,7 @@ def _mark_warmed(elapsed_s: float) -> None:
         from voice_typer.server.config import _secure_atomic_write
 
         now_iso = _dt.datetime.now().isoformat(timespec="seconds")
-        # DJ-55: durability=False — prewarm sentinels are advisory
+        # durability=False — prewarm sentinels are advisory
         # "last run" timestamps, recreated on every prewarm completion.
         # A power-loss window of a few seconds is acceptable; the
         # atomic os.replace still guarantees consistency.

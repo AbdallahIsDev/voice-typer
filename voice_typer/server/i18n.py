@@ -1,6 +1,6 @@
 """Server-side i18n for tray notifications and tooltip state messages.
 
-NF-R16-1 / NF-R16-2: centralized registry so server-side notifications
+centralized registry so server-side notifications
 and ``set_state`` messages can be localized. The renderer pushes the
 full label dict via the ``set_tray_locale`` IPC on locale change. Until
 then, we use the English fallback defined here in ``_INITIAL_LABELS``.
@@ -30,7 +30,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-# DR-38: single source of truth for the server-side default locale.
+# single source of truth for the server-side default locale.
 # Previously the literal ``"en"`` was duplicated as the fallback locale
 # in i18n.py (4 sites), tray_i18n.py (3 sites), and as the default
 # ``language`` argument to every ASR engine constructor
@@ -47,14 +47,14 @@ _REGISTRY: dict[str, dict[str, str]] = {DEFAULT_LOCALE: {}}
 
 
 # ─── English fallback ───────────────────────────────────────────────────────
-# NF-R16-1: server-side notification strings (kept verbatim from the original
+# server-side notification strings (kept verbatim from the original
 # hard-coded literals so source-level regression tests that grep for the
 # English text continue to find the substring — see test_notifications.py).
 # Long lines use implicit string concatenation ("foo" "bar") which Python
 # joins at compile time; ruff's line-length rule still flags each fragment
 # individually so we keep every source line ≤ 120 chars.
 _INITIAL_LABELS: dict[str, str] = {
-    # ── AppState value labels (NF-R16-2) ────────────────────────────────
+    # AppState value labels () ────────────────────────────────
     # Lowercase to match AppState.<X>.value and preserve existing tooltip
     # behavior (``title += f" — {state.value}"`` →
     # ``i18n.t(f"state.{state.value}")``).
@@ -171,7 +171,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Voice biometric consent is required to start recording.\n"
         "Enable it in Settings > Privacy > Voice Biometric Consent."
     ),
-    # NH-5 / DE-51 (session NH): the start_failed notification no longer
+    # (session NH): the start_failed notification no longer
     # interpolates {error} into the user-facing message — exception text
     # can leak absolute paths, device names, and hostnames. The full
     # exception is still logged via log.exception() above; the tray
@@ -203,7 +203,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Could not load the speech model.\n{error}\n\nThe app will keep running. Press F2 to retry loading."
     ),
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
-    # ── tray.py update-check notification (NF-R16-4) ─────────────────────
+    # tray.py update-check notification () ─────────────────────
     "notify.update_available_body": "{app} {version} is available (you have {current})",
 }
 
@@ -246,7 +246,7 @@ def t(key: str, **fmt: Any) -> str:
         try:
             return text.format(**fmt)
         except (KeyError, IndexError, ValueError):
-            # AC-22: also catch ValueError — str.format() raises it for
+            # also catch ValueError — str.format() raises it for
             # bad format specs (e.g. "{name:bad}" in a translation).
             # The docstring promises "a bad translation never crashes a
             # notification path"; broaden the catch so it actually holds.
@@ -258,6 +258,6 @@ def t(key: str, **fmt: Any) -> str:
 _ = t
 
 
-# NF-R16-1: register the English fallback at import time so the first
+# register the English fallback at import time so the first
 # notification emits real text instead of the raw key.
 register_locale(DEFAULT_LOCALE, _INITIAL_LABELS)

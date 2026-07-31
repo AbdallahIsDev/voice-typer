@@ -11,8 +11,8 @@ Provides platform-aware hotkey listening with these implementations:
   fallback).
 - :class:`_NativeBackendAdapter` — wraps a native
   ``SubprocessHotkeyBackend`` to satisfy the ``HotkeyBackend``
-  interface; implements the GAP-4 runtime fallback chain (native →
-  legacy) and the GAP-2 macOS Accessibility permission onboarding.
+interface; implements the  runtime fallback chain (native →
+legacy) and the  macOS Accessibility permission onboarding.
 
 The factory function :func:`create_hotkey_backend` picks the best
 available backend for the current platform.
@@ -24,7 +24,7 @@ All backends share a common interface:
     - ``is_alive() -> bool``
     - ``diagnose() -> str``
 
-Phase 4.5 / ARCH-045 — this file was previously a 2,939-line god-module
+Phase 4.5 /  — this file was previously a 2,939-line god-module
 (``voice_typer/server/hotkeys.py``); it has been split into a package
 with one module per backend.  This ``__init__.py`` re-exports every
 public name that the original module exposed so existing imports of the
@@ -83,7 +83,7 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 # call, and so ``monkeypatch.setattr("...sys.platform", "linux")`` propagates
 # through ``sys.platform`` lookups to every submodule caller.
 # =====================================================================
-# AC-27: previously these were ``is_windows = lambda: sys.platform == "win32"``
+# previously these were ``is_windows = lambda: sys.platform == "win32"``
 # assignments with ``noqa: E731`` suppressions (PEP 8 E731 discourages
 # assigning lambdas to names). Replaced with regular ``def``s — same
 # call-site behaviour (zero-arg callable), no lint suppression.

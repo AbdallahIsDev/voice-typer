@@ -1,4 +1,4 @@
-"""ARCH-REFAC-004: dependency-injection boundary for ``IPCServer``.
+"""dependency-injection boundary for ``IPCServer``.
 
 This module is the **composition root** for the IPC server.  It defines
 two :class:`typing.Protocol` classes — :class:`AppProtocol` and
@@ -81,41 +81,41 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 class AppProtocol(Protocol):
     """Structural type for the ``app`` object consumed by ``IPCServer``.
 
-    ``IPCServer`` and its handler mixins (under
-    ``voice_typer/server/handlers/``) access a handful of attributes
-    and methods on ``app``.  This protocol enumerates that surface so:
+        ``IPCServer`` and its handler mixins (under
+        ``voice_typer/server/handlers/``) access a handful of attributes
+        and methods on ``app``.  This protocol enumerates that surface so:
 
-    - Tests can build a focused fake (see
-      ``tests/fixtures/ipc_test_helpers.py:make_fake_app``) without
-      guessing which attributes are read.
-    - A regression test (``tests/test_di_providers.py``) introspects
-      the handlers and asserts this protocol declares every attribute
-      they touch, catching drift if a new handler starts reading a
-      new ``self.app.X`` field that the protocol doesn't list.
+        - Tests can build a focused fake (see
+          ``tests/fixtures/ipc_test_helpers.py:make_fake_app``) without
+          guessing which attributes are read.
+        - A regression test (``tests/test_di_providers.py``) introspects
+          the handlers and asserts this protocol declares every attribute
+          they touch, catching drift if a new handler starts reading a
+          new ``self.app.X`` field that the protocol doesn't list.
 
-    Members are typed as ``Any`` to avoid forcing the protocol module
-    to import every concrete dependency.  Structural typing means any
-    object with these attributes satisfies the protocol — including
-    ``MagicMock`` instances, which respond to every attribute access.
+        Members are typed as ``Any`` to avoid forcing the protocol module
+        to import every concrete dependency.  Structural typing means any
+        object with these attributes satisfies the protocol — including
+        ``MagicMock`` instances, which respond to every attribute access.
 
-    The members below are the post-ADR-0008-§3.1 surface: handlers
-    reach the app only through public domain objects (``config``,
-    ``history_db``, ``models``, ``recording``, ``hotkeys``,
-    ``recorder``, ``tray``) and a small set of private attributes
-    that are still accessed by ``ipc_server.py`` itself
-    (``_ipc_server``, ``_shutting_down``) or by handlers not yet
-    refactored (``_esc_cancel_paused``, ``_vocabulary_automation``,
-    ``_waveform_bubble`` — the last two were promoted in CR-59
-    because four handler sites read them via ``getattr``; see the
-    per-attribute docstrings below).
+        The members below are the post-ADR-0008-§3.1 surface: handlers
+        reach the app only through public domain objects (``config``,
+        ``history_db``, ``models``, ``recording``, ``hotkeys``,
+        ``recorder``, ``tray``) and a small set of private attributes
+        that are still accessed by ``ipc_server.py`` itself
+        (``_ipc_server``, ``_shutting_down``) or by handlers not yet
+        refactored (``_esc_cancel_paused``, ``_vocabulary_automation``,
+    ``_waveform_bubble`` — the last two were promoted in
+        because four handler sites read them via ``getattr``; see the
+        per-attribute docstrings below).
 
-    The private attributes ``_audio_processor``, ``_volume_ducker``,
-    and ``_config_mutation_lock`` were removed in TASK-2: the
-    ``get_audio_status`` and ``apply_config`` IPC paths now go
-    through :class:`ServiceProtocol` methods (``get_audio_status``,
-    ``apply_config``, ``change_model``, ``set_active_backend``)
-    which encapsulate the private-attribute access inside the
-    service layer.
+        The private attributes ``_audio_processor``, ``_volume_ducker``,
+    and ``_config_mutation_lock`` were removed in : the
+        ``get_audio_status`` and ``apply_config`` IPC paths now go
+        through :class:`ServiceProtocol` methods (``get_audio_status``,
+        ``apply_config``, ``change_model``, ``set_active_backend``)
+        which encapsulate the private-attribute access inside the
+        service layer.
     """
 
     # ── Public application state ───────────────────────────────────
@@ -156,7 +156,7 @@ class AppProtocol(Protocol):
     # added here, forcing an explicit decision about whether the new
     # access is a smell or an accepted widening of the surface.
 
-    # TASK-2 (ADR 0008 §3.1) removed ``_audio_processor``,
+    # (ADR 0008 §3.1) removed ``_audio_processor``,
     # ``_volume_ducker``, and ``_config_mutation_lock`` from this
     # list — the service layer now wraps those accesses via
     # ``get_audio_status``, ``get_volume_backend_status``, and
@@ -325,20 +325,20 @@ class AppProtocol(Protocol):
     def push_bubble_config(self, config: Any) -> None:
         """Push a config-changed event to the waveform bubble renderer.
 
-        DR-51 (S5-CR-26): replaces the private ``getattr(self.app,
-        "_waveform_bubble", None)`` access in
-        :mod:`voice_typer.server.handlers.config_handlers` with a
-        public method on the app. The implementation on
-        :class:`voice_typer.server.app.VoiceTyperApp` preserves the
-        exact behavior of the prior inline block: it reads
-        ``self._waveform_bubble`` (which may be ``None`` before
-        ``_wire_waveform_bubble`` runs) and, if both the bubble and
-        its ``on_config`` callback are non-None, invokes
-        ``bubble.on_config(config)`` so the sandboxed bubble renderer
-        re-reads ``bubble_behavior`` / ``bubble_click_to_toggle`` /
-        ``bubble_mic_button`` and redraws. The ``config`` argument is
-        the app's :class:`Config` object (the same value the prior
-        inline block passed as ``self.app.config``).
+        (): replaces the private ``getattr(self.app,
+                "_waveform_bubble", None)`` access in
+                :mod:`voice_typer.server.handlers.config_handlers` with a
+                public method on the app. The implementation on
+                :class:`voice_typer.server.app.VoiceTyperApp` preserves the
+                exact behavior of the prior inline block: it reads
+                ``self._waveform_bubble`` (which may be ``None`` before
+                ``_wire_waveform_bubble`` runs) and, if both the bubble and
+                its ``on_config`` callback are non-None, invokes
+                ``bubble.on_config(config)`` so the sandboxed bubble renderer
+                re-reads ``bubble_behavior`` / ``bubble_click_to_toggle`` /
+                ``bubble_mic_button`` and redraws. The ``config`` argument is
+                the app's :class:`Config` object (the same value the prior
+                inline block passed as ``self.app.config``).
         """
         ...
 
@@ -407,7 +407,7 @@ class ServiceProtocol(Protocol):
     def refresh_microphones(self) -> list: ...
 
     # ── Microphone test ────────────────────────────────────────────
-    # YJ-7: narrowed from ``Any`` to concrete unions matching the
+    # narrowed from ``Any`` to concrete unions matching the
     # ``VoiceTyperService`` impl signatures in
     # ``voice_typer/server/service/microphone_test.py:113-115`` and
     # ``service/microphone_test.py:214``. The renderer's
@@ -476,7 +476,7 @@ class ServiceProtocol(Protocol):
     def export_diagnostics(self) -> dict[str, object]: ...
 
     # ── Privacy / GDPR ────────────────────────────────────────────
-    # CR-87 (GDPR Art. 17 right-to-erasure) and CR-88 (Art. 20
+    # (GDPR Art. 17 right-to-erasure) and  (Art. 20
     # right-to-data-portability).  Both are implemented on
     # :class:`voice_typer.server.service.VoiceTyperService`; the IPC
     # handlers in ``voice_typer/server/handlers/privacy_handlers.py``

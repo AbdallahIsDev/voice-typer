@@ -1,7 +1,7 @@
 """Windows-native hotkey backend (Win32 RegisterHotKey + GetAsyncKeyState polling).
 
 The big one — ~1,420 LOC god-class in the original ``hotkeys.py``.
-Split out in Phase 4.5 (ARCH-045) without any semantic changes.
+Split out in Phase 4.5 () without any semantic changes.
 """
 
 import contextlib
@@ -38,7 +38,7 @@ from .win32_vk import (
 )
 
 
-# PLAT-020 / patch-target: tests patch
+#  patch-target: tests patch
 # ``voice_typer.server.hotkeys.is_windows`` and expect the patch to take
 # effect on ``WindowsNativeHotkey._is_ime_composing()`` (a static method
 # on the class defined here).  The wrapper delegates to the package's
@@ -76,7 +76,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._ready_event = threading.Event()  # signalled when registration completes
         self._hotkey_id = 1  # arbitrary ID for RegisterHotKey
         self._registered = False
-        # TASK-10: typed as Any — these are populated inside _register()
+        # typed as Any — these are populated inside _register()
         # via ctypes.windll (Windows-only). They remain None on non-Windows
         # platforms, but the methods that touch them (the message-pump
         # loop, _unregister) are only invoked from Windows-only code paths.
@@ -102,7 +102,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # The polling loop skips processing while this is set so the
         # synthetic events don't re-trigger the callback.
         self._caps_lock_suppressing: bool = False
-        # PERF-FIX-1: throttled IME composition check. The underlying
+        # PERF- throttled IME composition check. The underlying
         # ``_is_ime_composing()`` staticmethod makes 5 syscalls per call
         # (GetForegroundWindow, ImmGetContext, ImmGetOpenStatus,
         # ImmGetCompositionStringW, ImmReleaseContext). At the polling
@@ -113,14 +113,14 @@ class WindowsNativeHotkey(HotkeyBackend):
         # 50ms latency is invisible to the user.
         self._last_ime_check_time: float = 0.0
         self._last_ime_composing: bool = False
-        # PERF-FIX-1: throttled non-modifier key scan.
+        # PERF- throttled non-modifier key scan.
         # ``_any_non_modifier_key_pressed()`` calls GetAsyncKeyState for
         # each VK in 0x08-0xFF (248 codes) — O(248) per iteration. The
         # throttled wrapper re-scans at most every 50ms, reducing the
         # idle-state syscall rate from ~248k/sec to ~5k/sec.
         self._last_nonmod_check_time: float = 0.0
         self._last_nonmod_pressed: bool = False
-        # AB-35: when True, ``start()`` prefers the event-driven WM_HOTKEY
+        # when True, ``start()`` prefers the event-driven WM_HOTKEY
         # message loop over the per-keystroke WH_KEYBOARD_LL hook. Set by
         # ``HotkeyDispatcher`` on the ESC and repaste backends so the
         # main dictation hotkey is the ONLY backend installing a system-
@@ -131,17 +131,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         # of 3, still an improvement. The main dictation hotkey leaves
         # this False (default) so it keeps the robust LL-hook-first path.
         self._prefer_message_loop_first: bool = False
-        # AB-35: when True, ``start()`` prefers the event-driven WM_HOTKEY
-        # message loop over the per-keystroke WH_KEYBOARD_LL hook. Set by
-        # ``HotkeyDispatcher`` on the ESC and repaste backends so the
-        # main dictation hotkey is the ONLY backend installing a system-
-        # wide LL hook (reduces per-keystroke system-wide CPU from 3× to
-        # 1×). If RegisterHotKey fails for the ESC/repaste key (some keys
-        # are reserved by the OS or already claimed), the backend falls
-        # back to the LL hook for that single backend — 2 hooks instead
-        # of 3, still an improvement. The main dictation hotkey leaves
-        # this False (default) so it keeps the robust LL-hook-first path.
-        self._prefer_message_loop_first: bool = False
+        # Initialize here (in __init__) rather than only inside
+        # ``start()`` so attribute access before ``start()`` (e.g. from
+        # tests, diagnostics, or ``HotkeyDispatcher`` wiring) does not
+        # raise ``AttributeError``. ``start()`` still resets these before
+        # the registration attempt so the per-run semantics are unchanged.
+        self._last_error: int | None = None
+        self._is_caps_lock_hotkey: bool = False
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -292,7 +288,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # async key state and breaks key-up detection). Other simple
                 # non-PTT hotkeys also prefer the hook for robust delivery.
                 simple_key = self._on_release_callback is None and not self._is_modifier_only
-                # AB-35: when ``_prefer_message_loop_first`` is set (ESC and
+                # when ``_prefer_message_loop_first`` is set (ESC and
                 # repaste backends), prefer the event-driven WM_HOTKEY
                 # message loop over the per-keystroke LL hook. This reduces
                 # the number of system-wide WH_KEYBOARD_LL hooks from 3
@@ -302,7 +298,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # case is 2 hooks instead of 3 — still an improvement.
                 prefer_message_loop = self._prefer_message_loop_first and self._registered and not is_caps_lock_hotkey
                 if prefer_message_loop:
-                    # AB-35: WM_HOTKEY message loop — event-driven, ~0% CPU
+                    # WM_HOTKEY message loop — event-driven, ~0% CPU
                     # while idle (no per-keystroke hook proc).
                     log.info(
                         "[HOTKEY] Starting hotkey detection via WM_HOTKEY message loop "
@@ -402,7 +398,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
     @staticmethod
     def _is_ime_composing() -> bool:
-        """PLAT-020: Detect if the IME is currently composing.
+        """Detect if the IME is currently composing.
 
         When the IME is in composition mode (e.g. typing CJK characters),
         GetAsyncKeyState may fire hotkey triggers for keys that are part
@@ -443,7 +439,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
 
     def _is_ime_composing_throttled(self) -> bool:
-        """PERF-FIX-1: throttled wrapper around ``_is_ime_composing()``.
+        """PERF- throttled wrapper around ``_is_ime_composing()``.
 
         The underlying staticmethod makes 5 syscalls per call (see
         ``__init__`` for the rationale). The polling loop runs at 8ms
@@ -549,7 +545,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             self._ensure_caps_lock_off()
 
         # Iteration counter for periodic caps lock state checks (~200ms cadence).
-        # AB-36: the loop body sleeps ~8ms per iteration (PERF-01/CPU-01), so
+        # the loop body sleeps ~8ms per iteration (PERF-01/CPU-01), so
         # a check every 25 iterations fires every 25 × 8ms = 200ms — matching
         # the documented cadence. Previously this was ``% 200``, which (with
         # the 8ms sleep) gave 200 × 8ms = 1600ms — an 8× discrepancy with the
@@ -575,15 +571,15 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # The reactive suppression on key press can fail due to timing
                 # (OS toggles caps before we can undo it). A periodic ~200ms
                 # check catches any missed toggles and re-silences caps lock.
-                # AB-36: ``% 25`` matches the documented 200ms cadence
+                # ``% 25`` matches the documented 200ms cadence
                 # (25 iterations × 8ms sleep = 200ms). Previously ``% 200``
                 # delivered 1.6s — see the comment at the ``_caps_check_iter``
                 # declaration above for the root-cause analysis.
                 _caps_check_iter += 1
                 if is_caps_lock_hotkey and _caps_check_iter % 25 == 0 and not self._caps_lock_suppressing:
                     self._ensure_caps_lock_off()
-                # PLAT-020: suppress hotkey triggers during IME composition.
-                # PERF-FIX-1: use the throttled wrapper so we don't make 5
+                # suppress hotkey triggers during IME composition.
+                # PERF- use the throttled wrapper so we don't make 5
                 # syscalls per 8ms iteration.
                 if self._is_ime_composing_throttled():
                     was_pressed = False
@@ -622,7 +618,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 if not is_pressed and was_pressed:
                     if is_ptt:
                         log.info("[HOTKEY] Key released (PTT on_release)")
-                        # WR-14: pyrefly not-callable — ``_on_release_callback``
+                        # pyrefly not-callable — ``_on_release_callback``
                         # is typed as ``Callable[[], None] | None`` and pyrefly
                         # can't propagate the narrowing from ``is_ptt =
                         # self._on_release_callback is not None`` (line 559)
@@ -729,7 +725,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 try:
                     callback()
                 except Exception:
-                    # ERR-020: shield the callback so a single failure
+                    # shield the callback so a single failure
                     # doesn't kill the message loop (mirrors polling loop).
                     log.exception("[HOTKEY] Callback raised in WM_HOTKEY loop; hotkey still armed for next press")
             # Always translate/dispatch so any other messages (timers, etc.)
@@ -889,7 +885,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             # hMod must be NULL for a low-level hook (it runs in this process).
             handle = self._user32.SetWindowsHookExW(_WHC_KEYBOARD_LL, self._hook_proc, 0, 0)
             if not handle:
-                # PVT-G5-043: previously this log line claimed "(GetLastError)"
+                # previously this log line claimed "(GetLastError)"
                 # but never fetched the error code. Mirror the RegisterHotKey
                 # pattern at line 198-205 — fetch immediately and include both
                 # decimal and hex so the user can look up the Win32 error.
@@ -1041,10 +1037,10 @@ class WindowsNativeHotkey(HotkeyBackend):
 
         try:
             while not self._stop_event.is_set():
-                # PLAT-020: suppress hotkey triggers during IME composition.
+                # suppress hotkey triggers during IME composition.
                 # Reset all per-cycle state so a stray IME composition doesn't
                 # leak into the next press cycle.
-                # PERF-FIX-1: use the throttled wrapper so we don't make 5
+                # PERF- use the throttled wrapper so we don't make 5
                 # syscalls per 8ms iteration.
                 if self._is_ime_composing_throttled():
                     modifier_was_pressed = False
@@ -1104,7 +1100,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # they were using a combo (e.g. Alt+C for copy) — we'll
                 # suppress the fire on release.
                 #
-                # PERF-FIX-1: the scan is O(248) per iteration
+                # PERF- the scan is O(248) per iteration
                 # (GetAsyncKeyState for every VK in 0x08-0xFF). At the
                 # polling loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01)
                 # that's up to ~31k syscalls/sec while the modifier is held.
@@ -1238,7 +1234,7 @@ class WindowsNativeHotkey(HotkeyBackend):
 
         Returns False on non-Windows or if no non-modifier key is held.
 
-        PERF-FIX-1: this scan is O(248) per iteration (one
+        PERF- this scan is O(248) per iteration (one
         ``GetAsyncKeyState`` per VK code). The modifier-only polling
         loop runs at 8ms cadence (~125 Hz, see PERF-01/CPU-01), so
         calling this every iteration while the modifier is held would
@@ -1268,7 +1264,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         return False
 
     def _any_non_modifier_key_pressed_throttled(self, modifier_vks: "frozenset[int]") -> bool:
-        """PERF-FIX-1: throttled wrapper around
+        """PERF- throttled wrapper around
         ``_any_non_modifier_key_pressed()``.
 
         The underlying scan is O(248) per call (see the docstring on
@@ -1421,7 +1417,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             log.exception("[HOTKEY] Failed to force caps lock off")
 
     def _modifiers_pressed(self) -> bool:
-        # AC-25: defensive guard — sibling methods (``_other_modifiers_pressed``
+        # defensive guard — sibling methods (``_other_modifiers_pressed``
         # at line 1263, ``_is_altgr_pressed`` at line 1387) already early-return
         # ``False`` when ``self._user32`` is None (non-Windows test host).
         # Without this guard, ``_key_pressed`` (below) would raise
@@ -1464,7 +1460,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             return False
 
     def _key_pressed(self, vk: int) -> bool:
-        # AC-25: defensive guard — sibling methods (``_other_modifiers_pressed``
+        # defensive guard — sibling methods (``_other_modifiers_pressed``
         # at line 1263, ``_is_altgr_pressed`` at line 1397, and now
         # ``_modifiers_pressed`` above) already early-return ``False``
         # when ``self._user32`` is None. Add the same guard here so a
@@ -1478,7 +1474,7 @@ class WindowsNativeHotkey(HotkeyBackend):
     def stop(self) -> None:
         """Stop the hotkey listener.
 
-        PERF-NEW-016: previously posted WM_QUIT to the polling thread
+        PERF- previously posted WM_QUIT to the polling thread
         via PostThreadMessageW, but the thread uses GetAsyncKeyState
         polling (not a message loop) so it never reads WM_QUIT.  The
         join(timeout=3.0) waited 3 seconds for nothing.  Now we just
@@ -1495,7 +1491,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         polling-only path ignores WM_QUIT (it has no message loop) and
         relies on the ``_stop_event`` poll as before.
 
-        ERR-QUIT-001 (fix): early-return if already stopped so the
+         (fix): early-return if already stopped so the
         duplicate log lines don't appear when quit_app and quit()
         both call stop().
         """
@@ -1530,7 +1526,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 log.debug("[HOTKEY] UnhookWindowsHookEx failed", exc_info=True)
             self._hook_handle = None
             self._hook_proc = None
-        # PERF-NEW-016: skip the useless PostThreadMessageW call on the
+        # PERF- skip the useless PostThreadMessageW call on the
         # polling path — the polling loop checks _stop_event.is_set()
         # every 100ms.
         if self._thread is not None:

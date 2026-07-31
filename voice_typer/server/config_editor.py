@@ -1,6 +1,6 @@
 """Config editor launcher (extracted from VoiceTyperApp._open_config_file).
 
-XPLAT-01 / SEC-audit-011 / B-4 / CR-015: opens ``config.json`` in the
+ SEC-audit-011 / B-4: opens ``config.json`` in the
 user's default editor and holds ``_config_mutation_lock`` for the full
 editor session so a concurrent IPC ``set_config`` cannot atomically
 clobber the file mid-edit (TOCTOU race). After the editor exits the
@@ -12,7 +12,7 @@ bare PATH-resolved ``notepad``). macOS uses ``open -W``; Linux uses
 ``xdg-open``. All three branches block on the editor and reload
 afterwards.
 
-DR-19: the three platform branches previously each duplicated the
+the three platform branches previously each duplicated the
 ``with self.app._config_mutation_lock: save() → [launch] → reload()``
 scaffold with only the middle ``[launch]`` call differing. The
 per-platform launch logic is now factored into a strategy table
@@ -25,17 +25,17 @@ out to the outer try/except and triggered a tray notification, while
 the other two branches silently swallowed subprocess errors. The
 three branches are now consistent.
 
-XZ-EH-018: the inner ``contextlib.suppress(Exception)`` wrapper was
+the inner ``contextlib.suppress(Exception)`` wrapper was
 replaced with an explicit ``try/except`` that re-raises
 ``TimeoutError`` (so a 30-minute editor-session timeout surfaces as
 a tray notification with a recovery hint) but still swallows other
-launch errors (preserving the DR-19 contract). The notepad fallback
+launch errors (preserving the  contract). The notepad fallback
 in ``_launch_windows_editor`` and the POSIX branches
 (``_launch_macos_editor`` / ``_launch_linux_editor``) now use a
 bounded ``wait(timeout=...)`` / ``subprocess.run(timeout=...)``
 respectively — pre-fix these were unbounded and could wedge the IPC
 thread forever if the editor hung. The primary Windows
-``ShellExecuteEx`` path was already bounded by DE-68 in
+``ShellExecuteEx`` path was already bounded by  in
 ``voice_typer.server.platform_launch._windows_wait_for_process_exit``.
 
 The platform helpers (``is_windows``/``is_macos``/``is_linux``) and the
@@ -59,7 +59,7 @@ from voice_typer.server.branding import APP_NAME
 log = logging.getLogger(__name__)
 
 
-# XZ-EH-018: bounded timeout for editor subprocess waits.
+# bounded timeout for editor subprocess waits.
 #
 # Pre-fix, the notepad fallback (``_launch_windows_editor``) called
 # ``subprocess.Popen([...]).wait()`` with no timeout, and the POSIX
@@ -80,7 +80,7 @@ log = logging.getLogger(__name__)
 # Windows via ``Popen.kill``) and a clear ``TimeoutError`` is raised
 # so the caller can notify the user — never silently return.
 #
-# This mirrors the DE-68 fix on ``_windows_wait_for_process_exit``
+# This mirrors the  fix on ``_windows_wait_for_process_exit``
 # (``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS = 30 * 60 * 1000`` in
 # ``voice_typer.server.platform_launch``), which used the same
 # 30-minute rationale for the primary Windows ``ShellExecuteEx``
@@ -93,7 +93,7 @@ _EDITOR_SESSION_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 def _raise_editor_timeout(config_path: Any) -> None:
     """Raise a clear ``TimeoutError`` for an editor session timeout.
 
-    XZ-EH-018: called by the platform launchers when the editor
+    called by the platform launchers when the editor
     subprocess exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``. The
     message tells the user what happened and how to recover — never
     silently return, because the caller holds ``_config_mutation_lock``
@@ -115,7 +115,7 @@ def _raise_editor_timeout(config_path: Any) -> None:
 def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> None:
     """Wait for *proc* to exit, bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``.
 
-    XZ-EH-018: pre-fix the notepad fallback in
+    pre-fix the notepad fallback in
     ``_launch_windows_editor`` called ``proc.wait()`` with no
     timeout, blocking the IPC thread forever if the editor hung.
 
@@ -193,7 +193,7 @@ def _current_platform() -> str:
     return "linux"
 
 
-# ── Platform launch strategies (DR-19) ─────────────────────────────────
+# ── Platform launch strategies () ─────────────────────────────────
 
 
 def _launch_windows_editor(config_path: Any) -> None:
@@ -219,7 +219,7 @@ def _launch_windows_editor(config_path: Any) -> None:
     else:
         notepad = _systemroot_notepad_path()
         if notepad is not None:
-            # XZ-EH-018: bounded wait — see ``_wait_for_editor_subprocess``.
+            # bounded wait — see ``_wait_for_editor_subprocess``.
             # Pre-fix this was ``subprocess.Popen([...]).wait()`` with no
             # timeout, blocking the IPC thread forever if Notepad hung.
             proc = subprocess.Popen([str(notepad), str(config_path)])
@@ -231,7 +231,7 @@ def _launch_windows_editor(config_path: Any) -> None:
 def _launch_macos_editor(config_path: Any) -> None:
     """macOS-specific editor launch — uses ``open -W`` (blocking).
 
-    XZ-EH-018: bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
+    bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
     this was ``subprocess.run(..., check=False)`` with no timeout,
     blocking the IPC thread forever if ``open -W`` hung.
     """
@@ -252,7 +252,7 @@ def _launch_macos_editor(config_path: Any) -> None:
 def _launch_linux_editor(config_path: Any) -> None:
     """Linux-specific editor launch — uses ``xdg-open`` (blocking).
 
-    XZ-EH-018: bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
+    bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
     this was ``subprocess.run(..., check=False)`` with no timeout,
     blocking the IPC thread forever if ``xdg-open`` hung.
     """
@@ -296,23 +296,23 @@ class ConfigEditorLauncher:
         """Open ``config_path`` in the user's default editor.
 
         Holds ``app._config_mutation_lock`` for the full editor session
-        (XPLAT-01 / SEC-audit-011 / B-4 / CR-015) and reloads the config
+        ( / SEC-audit-011 / B-4 / ) and reloads the config
         from disk after the editor exits.
 
-        DR-19: the per-platform launch logic is delegated to a strategy
+        the per-platform launch logic is delegated to a strategy
         function from ``_PLATFORM_LAUNCHERS``. All three platform
         branches now wrap the launch call in
         ``contextlib.suppress(Exception)`` — the Windows branch
         previously lacked this wrapper (inconsistent with macOS / Linux
         which already had it).
 
-        XZ-EH-018: ``TimeoutError`` raised by the platform launcher
+        ``TimeoutError`` raised by the platform launcher
         (when the editor exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``)
         is NOT swallowed by the inner suppress — it propagates to the
         outer ``except`` block so the user gets a tray notification
         explaining what happened. Other launch exceptions (e.g. the
         editor binary not found) are still silently swallowed to
-        preserve the DR-19 contract.
+        preserve the  contract.
         """
 
         try:
@@ -323,16 +323,16 @@ class ConfigEditorLauncher:
                 if launcher is None:
                     log.warning("[CONFIG] No editor launcher for platform")
                     return
-                # XZ-EH-018: ``TimeoutError`` must propagate so the outer
+                # ``TimeoutError`` must propagate so the outer
                 # except can notify the user. Other launch exceptions
                 # (e.g. editor binary not found) are still suppressed
-                # (DR-19 contract).
+                # ( contract).
                 try:
                     launcher(config_path)
                 except TimeoutError:
                     raise
                 except Exception:
-                    # DR-19: silently swallow non-timeout launch errors
+                    # silently swallow non-timeout launch errors
                     # so a transient launch failure doesn't surface as a
                     # tray notification (the historical behavior on
                     # macOS / Linux).
@@ -341,8 +341,25 @@ class ConfigEditorLauncher:
                     self.app.config = type(self.app.config).load()
                 except Exception as exc:
                     log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
+                else:
+                    # re-wire the in-process mutation
+                    # lock on the freshly reloaded ``Config`` instance.
+                    # ``Config.load()`` returns a brand-new object whose
+                    # ``_mutation_lock`` instance attribute is unset
+                    # (falls back to the ``ClassVar`` default of
+                    # ``None`` — see config.py:1081), so without this
+                    # re-wiring every subsequent ``config.save()`` would
+                    # run unlocked until the next app restart, re-opening
+                    # the torn-snapshot race that the
+                    # ``VoiceTyperApp.__init__`` wiring closed. The lock
+                    # object itself is owned by ``VoiceTyperApp`` and
+                    # survives the config reload, so we just re-register
+                    # the same ``RLock`` reference on the new Config.
+                    mutation_lock = getattr(self.app, "_config_mutation_lock", None)
+                    if mutation_lock is not None:
+                        self.app.config.set_mutation_lock(mutation_lock)
         except TimeoutError as e:
-            # XZ-EH-018: editor session exceeded the bounded timeout.
+            # editor session exceeded the bounded timeout.
             # The platform launcher already killed the subprocess.
             # Notify the user with a helpful recovery message.
             log.warning("[CONFIG] Editor session timed out: %s", e)

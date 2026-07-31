@@ -1,6 +1,6 @@
 """Win32 SECURITY_ATTRIBUTES builder for the single-instance mutex.
 
-Extracted from ``voice_typer.server.app`` (RW-00) so the 90+ lines of
+Extracted from ``voice_typer.server.app`` () so the 90+ lines of
 raw Win32 ctypes live in a focused, security-reviewable module instead
 of inside the 2300-line god-class.  Public surface is unchanged:
 
@@ -30,7 +30,7 @@ SID.  Any other principal (including other SIDs in the same session)
 is implicitly denied by the absence of a matching ACE — DACLs are
 allow-lists, so anything not explicitly allowed is denied.
 
-Failure mode (CR-003 fix, IMPROVE-mode run 2026-07-21)
+Failure mode ( fix, IMPROVE-mode run 2026-07-21)
 ------------------------------------------------------
 If anything goes wrong (token query fails, SID extraction fails,
 ``SetEntriesInAclW`` fails, etc.), we return ``None``.  The caller
@@ -39,22 +39,22 @@ uses the **default per-user DACL** from the process token.  This is
 the safe fallback: it preserves the original per-user protection
 level rather than WIDENING access to world-open.
 
-**Pre-CR-003 bug**: the fallback installed a NULL DACL via
+**Pre- bug**: the fallback installed a NULL DACL via
 ``SetSecurityDescriptorDacl(sd, True, None, False)``.  Win32 semantics:
 a NULL DACL is NOT the same as an empty DACL — it grants EVERY token
-``MUTEX_ALL_ACCESS``.  Combined with CR-001/CR-002 (struct offset bugs
+``MUTEX_ALL_ACCESS``.  Combined with / (struct offset bugs
 that made ``SetEntriesInAclW`` always fail), the fallback was always
 taken, so every single-instance mutex on Windows effectively had a
 NULL DACL — allowing any process in any session to ``OpenMutex`` and
 either hold it (DoS) or release it prematurely (second-instance
-corruption).  CR-003 removes the NULL-DACL fallback entirely.
+corruption).   removes the NULL-DACL fallback entirely.
 
-CR-001 / CR-002 fix (struct offset bugs)
+fix (struct offset bugs)
 ----------------------------------------
-The pre-CR-001 code used manual ``addressof(buf) + sizeof(LPVOID)``
+The pre- code used manual ``addressof(buf) + sizeof(LPVOID)``
 arithmetic to extract the SID pointer from ``TOKEN_USER`` — but
 ``TOKEN_USER.User.Sid`` is at offset 0, not ``sizeof(LPVOID)`` (which
-lands on the ``Attributes`` DWORD on x64).  The pre-CR-002 code used
+lands on the ``Attributes`` DWORD on x64).  The pre- code used
 manual byte-array + ``memmove`` to build ``TRUSTEE_W`` — but the
 manual offset calculation skipped the 4-byte alignment pad before
 ``ptstrName`` on x64, so ``ptstrName`` ended up NULL and
@@ -76,7 +76,7 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-# XZ-SEC-01 (this session): the pre-fix code used
+# (this session): the pre-fix code used
 # ``ctypes.POINTER(wintypes.VOID)`` for the ``SID_AND_ATTRIBUTES.Sid``
 # field. Two problems:
 #   1. ``wintypes.VOID`` does NOT exist on non-Windows Python builds
@@ -93,7 +93,7 @@ log = logging.getLogger(__name__)
 #      type was semantically wrong and would have broken any
 #      downstream code that dereferenced ``tu.User.Sid``.
 #
-# The pre-fix ``XS-101`` shim (module-level ``VOID`` symbol bound to
+# The pre-fix ```` shim (module-level ``VOID`` symbol bound to
 # ``wintypes.VOID`` on Windows or ``ctypes.c_void_p`` on Linux)
 # patched the ``AttributeError`` but kept the wrong indirection level.
 # The proper fix uses ``ctypes.c_void_p`` directly in the
@@ -125,10 +125,10 @@ def _create_restrictive_security_attributes():
         advapi32 = ctypes.windll.advapi32
         kernel32 = ctypes.windll.kernel32
 
-        # CR-001 / CR-002 (IMPROVE-mode run, 2026-07-21): proper ctypes
+        # (IMPROVE-mode run, 2026-07-21): proper ctypes
         # Structure definitions replace the manual byte-array + memmove
         # construction that had wrong offsets on x64.
-        # XZ-SEC-01 (this session): ``Sid`` is ``PSID`` (= ``PVOID``),
+        # (this session): ``Sid`` is ``PSID`` (= ``PVOID``),
         # so the correct ctypes type is ``c_void_p`` (NOT
         # ``POINTER(c_void_p)`` — that would be one indirection too
         # many). ``c_void_p`` is importable on every Python build
@@ -153,7 +153,7 @@ def _create_restrictive_security_attributes():
         #   ptstrName               @ 24  (8 bytes — pointer)
         # Total: 32 bytes.
         #
-        # XE-1-D: ``ptstrName`` is ``PVOID`` (a single pointer) —
+        # ``ptstrName`` is ``PVOID`` (a single pointer) —
         # previously declared as ``POINTER(c_void_p)`` (pointer-to-
         # pointer-to-void), which was one indirection too many.  The
         # layout was still correct on x64 (both types are 8 bytes), so
@@ -198,7 +198,7 @@ def _create_restrictive_security_attributes():
             if not advapi32.GetTokenInformation(token, 1, buf, ret_len.value, ctypes.byref(ret_len)):
                 return None
 
-            # CR-001: extract SID from TOKEN_USER via proper Structure.
+            # extract SID from TOKEN_USER via proper Structure.
             # ``TOKEN_USER.User.Sid`` is at offset 0 (was: ``addressof(buf)
             # + sizeof(LPVOID)`` which landed on the ``Attributes`` DWORD).
             tu = TOKEN_USER.from_buffer_copy(buf)
@@ -223,9 +223,9 @@ def _create_restrictive_security_attributes():
             ea.Trustee.MultipleTrusteeOperation = 0  # NO_MULTIPLE_TRUSTEE
             ea.Trustee.TrusteeForm = 0  # TRUSTEE_IS_SID
             ea.Trustee.TrusteeType = 1  # TRUSTEE_IS_USER
-            # CR-002: ptstrName is now at the correct offset (24 on x64)
+            # ptstrName is now at the correct offset (24 on x64)
             # via the TRUSTEE_W Structure's _pack_ = 8 layout.
-            # XE-1-D: ptstrName is now ``c_void_p`` (a single pointer),
+            # ptstrName is now ``c_void_p`` (a single pointer),
             # matching the Win32 ``PVOID`` type for ``TRUSTEE_W.ptstrName``.
             # The previous ``POINTER(c_void_p)`` field type was one
             # indirection too many and required a ``ctypes.cast`` here
@@ -237,11 +237,11 @@ def _create_restrictive_security_attributes():
             # Set the DACL
             new_acl = wintypes.LPVOID()
             if advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)) != 0:
-                # CR-003: NO NULL DACL fallback. Pre-fix, this branch
+                # NO NULL DACL fallback. Pre-fix, this branch
                 # installed a NULL DACL via SetSecurityDescriptorDacl(sd,
                 # True, None, False) — Win32 semantics: NULL DACL grants
                 # EVERY token MUTEX_ALL_ACCESS (world-open). Combined with
-                # CR-001/CR-002 (which made SetEntriesInAclW always fail),
+                # (which made SetEntriesInAclW always fail),
                 # the fallback was always taken, so every mutex had a NULL
                 # DACL. Now we return None and let CreateMutexW use the
                 # default per-user DACL from the process token (the safe
@@ -253,7 +253,7 @@ def _create_restrictive_security_attributes():
                 )
                 return None
             if not advapi32.SetSecurityDescriptorDacl(sd, True, new_acl, False):
-                # CR-134: free the ACL on the SetSecurityDescriptorDacl
+                # free the ACL on the SetSecurityDescriptorDacl
                 # failure path too (LocalAlloc-allocated).
                 with contextlib.suppress(Exception):
                     kernel32.LocalFree(new_acl)
@@ -274,7 +274,7 @@ def _create_restrictive_security_attributes():
             # Keep references alive so they don't get GC'd while the mutex holds them.
             sa._sd_ref = sd
             sa._acl_ref = new_acl
-            # CR-134 (IMPROVE-mode run, 2026-07-21): SetEntriesInAclW
+            # (IMPROVE-mode run, 2026-07-21): SetEntriesInAclW
             # allocates the ACL via LocalAlloc(LMEM_FIXED, ...). The
             # caller is responsible for freeing it with LocalFree. Since
             # ``sa`` is held for the process lifetime (the mutex is held
@@ -291,9 +291,9 @@ def _create_restrictive_security_attributes():
         finally:
             kernel32.CloseHandle(token)
     except Exception as exc:
-        # PVT-G5-044: previously this swallowed the exception silently.
+        # previously this swallowed the exception silently.
         # The fallback (default per-user DACL) is documented as safe, but
-        # the failure itself was invisible — a regression of the CR-001/CR-002
+        # the failure itself was invisible — a regression of the
         # struct-offset kind (which made ``SetEntriesInAclW`` always fail)
         # would be undetectable. Log at WARNING so operators notice.
         log.warning(

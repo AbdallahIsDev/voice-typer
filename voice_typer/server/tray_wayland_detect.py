@@ -1,6 +1,6 @@
 """Wayland-without-SNI detection extracted from ``tray.py``.
 
-NEW-XPLAT-002: detects Linux Wayland compositors that don't implement
+detects Linux Wayland compositors that don't implement
 the StatusNotifierItem D-Bus interface (Sway, Hyprland, dwl, river,
 bare wlroots). On these compositors, pystray's GTK backend hangs
 forever on ``icon.run()`` because there's no tray to attach to.
