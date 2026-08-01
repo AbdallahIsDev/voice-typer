@@ -275,30 +275,30 @@ voice-typer = "voice_typer.server.ipc_server:main"
 # pytest-cov: coverage reporting.
 # pytest-mock: MagicMock fixture.
 test = [
-    "pytest>=7",
+    "pytest>=7,<9",
     # WR-1: pytest-mock removed — verified zero usages of `mocker` fixture
     # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
-    "pytest-asyncio>=0.23",
-    "pytest-timeout>=2.3",
-    "pytest-cov>=4.1",
+    "pytest-asyncio>=0.23,<1",
+    "pytest-timeout>=2.3,<3",
+    "pytest-cov>=4.1,<8",
     # TEST-009: hypothesis for property-based testing
-    "hypothesis>=6.0",
+    "hypothesis>=6.0,<7",
     # TEST-012: pytest-benchmark for performance benchmarks
-    "pytest-benchmark>=4.0",
+    "pytest-benchmark>=4.0,<6",
     # XS-84: pytest-xdist so the 309-file test suite can run in
     # parallel on multi-core CI runners (cuts the per-leg wall time
     # from ~25 min to ~5-7 min on a 4-core runner). Local single-
     # core invocations are unaffected — pytest-xdist only activates
     # when ``-n auto`` (or similar) is passed. CI's pytest step
     # passes ``-n auto`` explicitly (see .github/workflows/build.yml).
-    "pytest-xdist>=3.5",
+    "pytest-xdist>=3.5,<4",
 ]
 # BUILD-N05: PyInstaller spec file lives at scripts/build/voice-typer.spec
 # but the tool itself wasn't declared. Make it an optional extra so
 # `pip install .[build]` produces a buildable environment.
 build = [
-    "pyinstaller>=6.0",
-    "setuptools>=68.0",
+    "pyinstaller>=6.0,<7",
+    "setuptools>=68.0,<84",
     "wheel",
 ]
 # Windows volume ducking — kept as alias for explicit pip install .[windows]
@@ -313,7 +313,7 @@ build = [
 # [project].dependencies because it's only needed for shortcut creation,
 # not for the core volume-ducking path).
 windows = [
-    "pywin32>=306; sys_platform == 'win32'",
+    "pywin32>=306,<313; sys_platform == 'win32'",
 ]
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
 # S1-CR-117: all pyobjc-* deps are NO LONGER duplicated here — they are
@@ -328,24 +328,24 @@ macos = []
 # install would break minimal/container installs, and tray.py already
 # degrades gracefully when it's absent. Install explicitly on Linux
 # desktops that want proper SNI tray detection: pip install .[linux]
-linux = ["dbus-python>=1.3; sys_platform == 'linux'"]
+linux = ["dbus-python>=1.3,<2; sys_platform == 'linux'"]
 # NEW-CQ-009: Qwen3-ASR-0.6B optional backend. Lazy-imported in
 # qwen_engine.py — the module can be imported without this package,
 # but the QwenEngine.load() will raise ImportError if not installed.
-qwen = ["qwen-asr>=0.1"]
+qwen = ["qwen-asr>=0.1,<1"]
 # ADR 0007: Noise filtering — RNNoise is now a default dep (above).
 # noisereduce is removed (post-capture denoise deleted per ADR 0007 §3.8).
 # DeepFilterNet is offered as a premium alternative to RNNoise (requires torch).
 deepfilternet = [
-    "deepfilternet>=0.5",
+    "deepfilternet>=0.5,<1",
 ]
 # BUILD-N14/dev: dev tooling for local contributors.
 dev = [
-    "ruff>=0.6",
-    "mypy>=1.10",
-    "pre-commit>=3.7",
+    "ruff>=0.6,<1",
+    "mypy>=1.10,<3",
+    "pre-commit>=3.7,<5",
     # TEST-010: mutmut for mutation testing
-    "mutmut>=2.4",
+    "mutmut>=2.4,<4",
     # XZ-CC-15(part a): pin pyrefly to the exact 1.1.1 release used by CI
     # (see `.github/workflows/build.yml` → "Run pyrefly type check" step,
     # which installs `pyrefly==1.1.1` via `uv pip install --system`).

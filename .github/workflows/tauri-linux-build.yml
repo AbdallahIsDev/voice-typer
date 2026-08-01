@@ -51,6 +51,15 @@ on:
           - x86_64
           - aarch64
           - both
+      # TX-23: surface the sign flag on direct dispatch (the tauri-build.yml
+      # orchestrator already passes it through as a workflow_call input).
+      # Linux bundles are unsigned by design (ADR-0020 §13.3), so sign=true
+      # fails fast in the build job rather than silently skipping.
+      sign:
+        description: "Code-sign + notarize the bundle (Linux: always unsigned — sign=true fails fast)"
+        required: false
+        default: false
+        type: boolean
   # S2-CR-12 / S4-CR-20: enable push/PR triggers ONLY for the smoke-cargo-check
   # job below (gated by `if:` on that job). The full bundle build job remains
   # `if: false` until Phase 0-L host validation passes. This gives us
@@ -238,6 +247,18 @@ jobs:
           # drift in the config file before it surfaces at bundle time.
           cargo check --target ${{ env.RUST_TARGET }} --all-targets
 
+      # TX-22: run the Rust unit tests — 331 tests across 16 source
+      # files previously NEVER executed in CI (cargo check only compiled
+      # them, so Rust-side bugs went undetected). `--lib` covers the
+      # unit tests in src-tauri/src/*.rs without paying the cost of any
+      # integration-test crates. The placeholder stubs above satisfy the
+      # tauri-build resource/icon validation at compile time, so the
+      # same stub set works for the test build.
+      - name: cargo test (Tauri Rust host unit tests)
+        working-directory: src-tauri
+        run: |
+          cargo test --target ${{ env.RUST_TARGET }} --lib
+
       - name: Validate tauri.conf.json (parse-only)
         working-directory: src-tauri
         run: |
@@ -261,7 +282,8 @@ jobs:
     # `id-token: write` lets the job mint an OIDC token for the attestation
     # signing identity; `attestations: write` lets it write the attestation
     # record to the repo. Both are no-ops on PR/fork builds (the `if:` gate
-    # on the attestation step below restricts it to tag pushes only).
+    # on the attestation step below restricts it to workflow_dispatch +
+    # inputs.sign — TX-24).
     permissions:
       contents: read
       id-token: write
@@ -285,6 +307,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # TX-23: honor the `sign` workflow_call input. Linux bundles are
+      # unsigned by design (ADR-0020 §13.3 — no Linux signing secrets
+      # exist), so sign=true is a misconfiguration and must fail fast
+      # rather than silently producing an unsigned "release" build.
+      - name: Fail fast — sign=true is not supported on Linux
+        if: ${{ inputs.sign == 'true' }}
+        run: |
+          echo "::error::sign=true is not supported on Linux — Linux bundles are unsigned by design (ADR-0020 §13.3). Dispatch with sign=false."
+          exit 1
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v7
@@ -673,14 +705,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # WR-17: SLSA build provenance attestation. Mirrors
-      # tauri-windows-build.yml:395-401 and tauri-macos-build.yml:467-479.
-      # Gated on tag pushes so PR/fork builds (which lack the job-level
-      # id-token:write permission grant in fork contexts) don't fail.
-      # subject-path covers all three installer formats across both arch
-      # target dirs (target/<triple>/release/bundle/ and target/release/bundle/).
+      # TX-24: gate SLSA attestation on a manual signed release build
+      # (workflow_dispatch + sign=true) instead of tag pushes — the tag
+      # push trigger is commented out, so the old
+      # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.
+      # PR/fork builds (which lack the job-level id-token:write
+      # permission grant in fork contexts) are excluded.
       - name: Attest build provenance (SLSA)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |

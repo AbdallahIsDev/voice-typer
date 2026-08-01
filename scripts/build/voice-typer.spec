@@ -153,6 +153,9 @@ if _linux_scripts_dir.is_dir():
 # PLAT-037: Windows application manifest to set requestedExecutionLevel
 # to asInvoker. This prevents UAC elevation prompts on launch and
 # ensures the app runs with the user's normal privileges.
+# DRY: the manifest XML is the single source of truth. The
+# standalone voice-typer.manifest file (which duplicated this
+# XML verbatim) has been removed — see TX-36.
 _manifest_xml = """\
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">

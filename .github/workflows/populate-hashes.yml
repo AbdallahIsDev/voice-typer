@@ -73,7 +73,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
 
-      # XS-FIX-4: explicit setup-python@v5 for parity with build.yml /
+      # XS-FIX-4: explicit setup-python@v7 for parity with build.yml /
       # tauri-*-build.yml. The `uv pip install --system` step below
       # writes into the system Python, so we need a known Python version
       # pinned (3.12 = the project's target). Without this, the runner's
