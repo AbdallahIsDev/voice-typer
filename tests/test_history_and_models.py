@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -79,45 +78,6 @@ class TestSearchHistoryEdgeCases:
         assert [row["text"] for row in results] == ["snake_case_token"]
 
 
-class TestCloudEngineUlopenTimeout:
-    """The cloud engine passes timeout=30 to urlopen."""
-
-    def test_openai_compatible_uses_30s_timeout(self):
-        from voice_typer.server import cloud_engines
-
-        engine = cloud_engines.CloudEngine(
-            provider="openai",
-            api_key="test-key",
-            consent_given=True,
-        )
-
-        captured: dict = {}
-
-        class _FakeCtxManager:
-            def __enter__(self):
-                fake_resp = MagicMock()
-                body = b'{"text": "hello"}'
-                fake_resp.read.side_effect = [body, b""]
-                return fake_resp
-
-            def __exit__(self, *args):
-                return False
-
-        def _fake_open(req, timeout=None, **kwargs):
-            captured["timeout"] = timeout
-            return _FakeCtxManager()
-
-        fake_opener = MagicMock()
-        fake_opener.open.side_effect = _fake_open
-
-        with patch.object(cloud_engines, "_opener", fake_opener):
-            audio = np.zeros(16000, dtype=np.float32)
-            result = engine.transcribe(audio)
-
-        assert result == "hello"
-        assert captured.get("timeout") == 30
-
-
 class TestVocabularySaveRetry:
     """_save_user retries on PermissionError."""
 
@@ -175,36 +135,10 @@ class TestSharedVocabConstants:
         assert text_cleanup._BUNDLED_CORRECTIONS_PATH is vocabulary.BUNDLED_CORRECTIONS_PATH
 
 
-class TestResampleUnavailable:
-    """ResampleUnavailable is a typed exception for missing scipy."""
-
-    def test_resample_unavailable_is_runtime_error(self):
-        from voice_typer.server.recording import ResampleUnavailable
-
-        assert issubclass(ResampleUnavailable, RuntimeError)
-
-
-class TestPruneOldEntries:
-    """_prune_old_entries does not rebuild _word_key_index."""
-
-    def test_word_key_index_preserved_after_prune(self):
-        from voice_typer.server.streaming import StreamingTextAssembler, WordTiming
-
-        assembler = StreamingTextAssembler()
-        assembler.add_words(
-            [WordTiming("hello", start_seconds=0.0, end_seconds=0.5)],
-            commit_horizon_seconds=2.0,
-        )
-        index_before = dict(assembler._word_key_index)
-        assembler._prune_old_entries(1.0)
-        assert assembler._word_key_index == index_before
-
-
 class TestBuildModelsSubmenuConfigProvider:
     """build_models_menu_items accepts config_provider kwarg."""
 
     def test_accepts_config_provider(self, tmp_path):
-        from unittest.mock import MagicMock
 
         from voice_typer.server.tray_models import build_models_submenu_data
 
@@ -316,23 +250,6 @@ class TestCancelModelDownloadMechanism:
         service = VoiceTyperService(FakeApp())
         assert service._download_cancel_events == {}
         assert service._active_download_id is None
-
-
-class TestAsrSetupHasNoConfigDirCache:
-    """asr_setup no longer has _CONFIG_DIR cache."""
-
-    def test_no_config_dir_cache(self):
-        from voice_typer.server import asr_setup
-
-        assert not hasattr(asr_setup, "_CONFIG_DIR")
-        assert not hasattr(asr_setup, "_config_dir")
-
-    def test_parakeet_uses_config_directly(self):
-        from voice_typer.server.parakeet_engine import ParakeetEngine
-
-        source = inspect.getsource(ParakeetEngine._is_cached)
-        assert "from voice_typer.server.config import _config_dir" in source
-        assert "from voice_typer.server.asr_setup import _config_dir" not in source
 
 
 class TestValidateNonNumericFieldsHasClarifyingDocstring:
@@ -896,7 +813,6 @@ class TestOnboardingUsesServiceChangeModel:
         monkeypatch.setattr(event_bus_mod, "publish", lambda msg: True)
 
         import contextlib
-        from unittest.mock import MagicMock
 
         from voice_typer.server.service import VoiceTyperService
 
@@ -954,7 +870,6 @@ class TestApplyConfigPersistsOnSideEffectFailure:
 
     def _make_service_and_app(self):
         import contextlib
-        from unittest.mock import MagicMock
 
         from voice_typer.server.service import VoiceTyperService
 
@@ -1044,7 +959,6 @@ class TestApplyConfigPersistsOnSideEffectFailure:
         """CR-97: if save_strict() raises (e.g. save() returned False →
         RuntimeError, or underlying OSError propagates), the error is
         surfaced to the caller. G4-H-12: in-memory Config is rolled back."""
-        from unittest.mock import MagicMock
 
         import pytest
 
@@ -1072,113 +986,6 @@ class TestApplyConfigPersistsOnSideEffectFailure:
 
         with pytest.raises(OSError, match="disk full"):
             service.apply_config({"hotkey": "<f4>"})
-
-
-class TestConfigSideEffectDispatcher:
-    """SVC-2: ``apply_config_side_effects`` is a thin dispatcher over
-    :data:`_CONFIG_SIDE_EFFECTS`. Behavior is preserved 1:1 (per-handler
-    try/except, same log messages, same call order)."""
-
-    def test_registry_is_non_empty_tuple_of_config_side_effect(self):
-        """``_CONFIG_SIDE_EFFECTS`` is a non-empty tuple of
-        :class:`ConfigSideEffect` instances."""
-        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS, ConfigSideEffect
-
-        assert isinstance(_CONFIG_SIDE_EFFECTS, tuple)
-        assert len(_CONFIG_SIDE_EFFECTS) >= 10, (
-            f"Expected at least 10 registered side effects, got {len(_CONFIG_SIDE_EFFECTS)}"
-        )
-        for entry in _CONFIG_SIDE_EFFECTS:
-            assert isinstance(entry, ConfigSideEffect)
-            assert isinstance(entry.name, str) and entry.name
-            assert isinstance(entry.keys, tuple) and len(entry.keys) >= 1
-            assert callable(entry.apply)
-
-    def test_audio_preset_handler_registered_before_filter_chain(self):
-        """Ordering invariant: ``audio_preset`` MUST appear before
-        ``filter_chain`` in the registry (the preset handler mutates
-        ``config.noise_filter_enabled`` which the filter_chain handler
-        then reads)."""
-        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS
-
-        names = [entry.name for entry in _CONFIG_SIDE_EFFECTS]
-        audio_preset_idx = names.index("audio_preset")
-        filter_chain_idx = names.index("filter_chain")
-        assert audio_preset_idx < filter_chain_idx, (
-            f"audio_preset (idx {audio_preset_idx}) must come before "
-            f"filter_chain (idx {filter_chain_idx}) — the preset handler "
-            f"mutates noise_filter_enabled which the filter_chain handler reads"
-        )
-
-    def test_dispatcher_invokes_handler_when_key_present(self, tmp_config_dir, monkeypatch):
-        """The dispatcher triggers a handler when ANY of its keys
-        appears in the validated updates dict."""
-        from voice_typer.server import service as svc_mod
-        from voice_typer.server.service import VoiceTyperService
-
-        class FakeApp:
-            config = type("FakeConfig", (), {})()
-            tray = type(
-                "FakeTray",
-                (),
-                {"set_notifications_enabled": staticmethod(lambda v: None)},
-            )()
-
-        service = VoiceTyperService(FakeApp())
-
-        called: list[bool] = []
-        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
-
-        new_entries = []
-        for entry in original_registry:
-            if entry.name == "show_notifications":
-
-                def _spy(app, config, updates, _orig=entry.apply):
-                    called.append(updates["show_notifications"])
-                    _orig(app, config, updates)
-
-                new_entries.append(svc_mod.ConfigSideEffect(name=entry.name, keys=entry.keys, apply=_spy))
-            else:
-                new_entries.append(entry)
-        svc_mod._CONFIG_SIDE_EFFECTS = tuple(new_entries)
-        try:
-            service.apply_config_side_effects({"show_notifications": True})
-            assert called == [True], f"show_notifications handler should have been called once with True, got: {called}"
-        finally:
-            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
-
-    def test_handler_exception_does_not_block_subsequent_handlers(self, tmp_config_dir, monkeypatch):
-        """When one handler raises, the dispatcher catches the exception
-        and continues to the next handler (per-handler isolation)."""
-        from voice_typer.server import service as svc_mod
-        from voice_typer.server.service import VoiceTyperService
-
-        class FakeApp:
-            config = type("FakeConfig", (), {})()
-
-        service = VoiceTyperService(FakeApp())
-
-        call_log: list[str] = []
-
-        def _raise(app, config, updates):
-            call_log.append("raising")
-            raise RuntimeError("boom")
-
-        def _ok(app, config, updates):
-            call_log.append("ok")
-
-        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
-        svc_mod._CONFIG_SIDE_EFFECTS = (
-            svc_mod.ConfigSideEffect("raising", ("hotkey",), _raise),
-            svc_mod.ConfigSideEffect("ok", ("hotkey",), _ok),
-        )
-        try:
-            service.apply_config_side_effects({"hotkey": "<f4>"})
-            assert call_log == ["raising", "ok"], (
-                f"Both handlers should have run despite the first raising; got: {call_log}"
-            )
-        finally:
-            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
 
 
 class TestDownloadPollScopedToModelDir:

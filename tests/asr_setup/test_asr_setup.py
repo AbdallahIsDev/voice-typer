@@ -3,7 +3,7 @@
 Domain: ASR backend setup + recording infrastructure — asr_setup
 no longer caches _config_dir, ResampleUnavailable typed exception,
 StreamingTextAssembler._prune_old_entries invariant, and the
-CloudEngine urlopen 30 s timeout.
+CloudEngine urlopen timeout (``_REQUEST_TIMEOUT_SECONDS`` = 10 s).
 
 Class/method names + assertions are preserved verbatim from the
 original monolith — only file location has changed.
@@ -18,9 +18,14 @@ import numpy as np
 
 
 class TestCloudEngineUlopenTimeout:
-    """The cloud engine passes timeout=30 to urlopen."""
+    """The cloud engine passes timeout=10 to urlopen.
 
-    def test_openai_compatible_uses_30s_timeout(self):
+    ``CloudEngine._REQUEST_TIMEOUT_SECONDS`` was reduced from 30s to
+    10s so a single stuck request cannot block the transcription
+    thread for up to 35s (30s request + retry backoff).
+    """
+
+    def test_openai_compatible_uses_10s_timeout(self):
         from voice_typer.server import cloud_engines
 
         engine = cloud_engines.CloudEngine(
@@ -53,7 +58,7 @@ class TestCloudEngineUlopenTimeout:
             result = engine.transcribe(audio)
 
         assert result == "hello"
-        assert captured.get("timeout") == 30
+        assert captured.get("timeout") == cloud_engines.CloudEngine._REQUEST_TIMEOUT_SECONDS
 
 
 class TestAsrSetupHasNoConfigDirCache:

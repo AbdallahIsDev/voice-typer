@@ -1,10 +1,13 @@
 """Config side-effect dispatcher tests split out of the former ``tests/test_history_and_models.py``.
 
 Domain: config-apply side effects — ``apply_config`` persists via
-``save_strict()`` (SVC-11 / PVT-21 / G4-H-12 rollback pattern), and
-``apply_config_side_effects`` is a thin dispatcher over
-``_CONFIG_SIDE_EFFECTS`` (SVC-2) with per-handler try/except
-isolation and ordering invariants.
+``save_strict()`` (SVC-11 / PVT-21 / G4-H-12 rollback pattern).
+
+The former ``TestConfigSideEffectDispatcher`` class (SVC-2, which
+asserted on the ``_CONFIG_SIDE_EFFECTS`` registry) is NOT carried
+over: the registry was deleted when side-effect dispatch moved into
+``config_applier.ConfigApplier.apply_config_side_effects`` (covered
+by ``tests/test_config_applier.py``).
 
 Class/method names + assertions are preserved verbatim from the
 original monolith — only file location has changed.
@@ -155,110 +158,3 @@ class TestApplyConfigPersistsOnSideEffectFailure:
 
         with pytest.raises(OSError, match="disk full"):
             service.apply_config({"hotkey": "<f4>"})
-
-
-class TestConfigSideEffectDispatcher:
-    """SVC-2: ``apply_config_side_effects`` is a thin dispatcher over
-    :data:`_CONFIG_SIDE_EFFECTS`. Behavior is preserved 1:1 (per-handler
-    try/except, same log messages, same call order)."""
-
-    def test_registry_is_non_empty_tuple_of_config_side_effect(self):
-        """``_CONFIG_SIDE_EFFECTS`` is a non-empty tuple of
-        :class:`ConfigSideEffect` instances."""
-        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS, ConfigSideEffect
-
-        assert isinstance(_CONFIG_SIDE_EFFECTS, tuple)
-        assert len(_CONFIG_SIDE_EFFECTS) >= 10, (
-            f"Expected at least 10 registered side effects, got {len(_CONFIG_SIDE_EFFECTS)}"
-        )
-        for entry in _CONFIG_SIDE_EFFECTS:
-            assert isinstance(entry, ConfigSideEffect)
-            assert isinstance(entry.name, str) and entry.name
-            assert isinstance(entry.keys, tuple) and len(entry.keys) >= 1
-            assert callable(entry.apply)
-
-    def test_audio_preset_handler_registered_before_filter_chain(self):
-        """Ordering invariant: ``audio_preset`` MUST appear before
-        ``filter_chain`` in the registry (the preset handler mutates
-        ``config.noise_filter_enabled`` which the filter_chain handler
-        then reads)."""
-        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS
-
-        names = [entry.name for entry in _CONFIG_SIDE_EFFECTS]
-        audio_preset_idx = names.index("audio_preset")
-        filter_chain_idx = names.index("filter_chain")
-        assert audio_preset_idx < filter_chain_idx, (
-            f"audio_preset (idx {audio_preset_idx}) must come before "
-            f"filter_chain (idx {filter_chain_idx}) — the preset handler "
-            f"mutates noise_filter_enabled which the filter_chain handler reads"
-        )
-
-    def test_dispatcher_invokes_handler_when_key_present(self, tmp_config_dir, monkeypatch):
-        """The dispatcher triggers a handler when ANY of its keys
-        appears in the validated updates dict."""
-        from voice_typer.server import service as svc_mod
-        from voice_typer.server.service import VoiceTyperService
-
-        class FakeApp:
-            config = type("FakeConfig", (), {})()
-            tray = type(
-                "FakeTray",
-                (),
-                {"set_notifications_enabled": staticmethod(lambda v: None)},
-            )()
-
-        service = VoiceTyperService(FakeApp())
-
-        called: list[bool] = []
-        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
-
-        new_entries = []
-        for entry in original_registry:
-            if entry.name == "show_notifications":
-
-                def _spy(app, config, updates, _orig=entry.apply):
-                    called.append(updates["show_notifications"])
-                    _orig(app, config, updates)
-
-                new_entries.append(svc_mod.ConfigSideEffect(name=entry.name, keys=entry.keys, apply=_spy))
-            else:
-                new_entries.append(entry)
-        svc_mod._CONFIG_SIDE_EFFECTS = tuple(new_entries)
-        try:
-            service.apply_config_side_effects({"show_notifications": True})
-            assert called == [True], f"show_notifications handler should have been called once with True, got: {called}"
-        finally:
-            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
-
-    def test_handler_exception_does_not_block_subsequent_handlers(self, tmp_config_dir, monkeypatch):
-        """When one handler raises, the dispatcher catches the exception
-        and continues to the next handler (per-handler isolation)."""
-        from voice_typer.server import service as svc_mod
-        from voice_typer.server.service import VoiceTyperService
-
-        class FakeApp:
-            config = type("FakeConfig", (), {})()
-
-        service = VoiceTyperService(FakeApp())
-
-        call_log: list[str] = []
-
-        def _raise(app, config, updates):
-            call_log.append("raising")
-            raise RuntimeError("boom")
-
-        def _ok(app, config, updates):
-            call_log.append("ok")
-
-        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
-        svc_mod._CONFIG_SIDE_EFFECTS = (
-            svc_mod.ConfigSideEffect("raising", ("hotkey",), _raise),
-            svc_mod.ConfigSideEffect("ok", ("hotkey",), _ok),
-        )
-        try:
-            service.apply_config_side_effects({"hotkey": "<f4>"})
-            assert call_log == ["raising", "ok"], (
-                f"Both handlers should have run despite the first raising; got: {call_log}"
-            )
-        finally:
-            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
