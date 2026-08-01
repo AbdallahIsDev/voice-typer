@@ -755,3 +755,648 @@ class TestCrossPlatformImportSafety:
 
         b = MacVolumeBackend()
         assert b._consecutive_errors == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# XS-80: WinVolumeBackend ducking logic — behavioral coverage with mocked pycaw.
+#
+# The existing TestWinBackendSmoke only verifies the 'pycaw not installed →
+# graceful failure' path. These tests mock pycaw.pycaw.AudioUtilities,
+# IAudioEndpointVolume, and IAudioMeterInformation so initialize() succeeds
+# and the ducking logic (is_speaker_active peak threshold, get_other_sessions
+# PROC-FILTER-FIX regex, duck/restore round-trip) is exercised on Linux.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestWinBackendPycaw:
+    """XS-80: WinVolumeBackend ducking logic with mocked pycaw."""
+
+    @staticmethod
+    def _install_fake_pycaw(
+        monkeypatch,
+        *,
+        peak_value=0.0,
+        scalar=0.5,
+        mute=0,
+        sessions=None,
+    ):
+        """Inject a fake ``pycaw.pycaw`` + ``comtypes`` module into sys.modules.
+
+        Returns ``(vol_ptr, meter_ptr, audio_utilities)`` for assertions.
+        """
+        from unittest.mock import MagicMock
+
+        # Fake IAudioEndpointVolume / IAudioMeterInformation — the source
+        # uses them only as type markers (accesses ``_iid_`` on the legacy
+        # Activate path; we exercise the modern EndpointVolume path).
+        class FakeIAudioEndpointVolume:
+            _iid_ = "fake-iid"
+
+        class FakeIAudioMeterInformation:
+            pass
+
+        # Fake vol_ptr (the IAudioEndpointVolume COM pointer).
+        vol_ptr = MagicMock()
+        vol_ptr.GetMasterVolumeLevelScalar.return_value = scalar
+        vol_ptr.GetMute.return_value = mute
+        vol_ptr.SetMasterVolumeLevelScalar.return_value = None
+        vol_ptr.SetMute.return_value = None
+
+        # Fake meter_ptr (IAudioMeterInformation COM pointer).
+        meter_ptr = MagicMock()
+        meter_ptr.GetPeakValue.return_value = peak_value
+        vol_ptr.QueryInterface.return_value = meter_ptr
+
+        # Fake speakers device — pycaw >= 20251023 path: EndpointVolume
+        # property returns the vol_ptr directly.
+        speakers = MagicMock()
+        speakers.EndpointVolume = vol_ptr
+
+        # Fake AudioUtilities.
+        audio_utilities = MagicMock()
+        audio_utilities.GetSpeakers.return_value = speakers
+        audio_utilities.GetAllSessions.return_value = sessions if sessions is not None else []
+
+        # Build the fake pycaw.pycaw module.
+        fake_pycaw_mod = MagicMock()
+        fake_pycaw_mod.AudioUtilities = audio_utilities
+        fake_pycaw_mod.IAudioEndpointVolume = FakeIAudioEndpointVolume
+        fake_pycaw_mod.IAudioMeterInformation = FakeIAudioMeterInformation
+
+        # Build the fake comtypes module (only CLSCTX_ALL is needed).
+        fake_comtypes = MagicMock()
+        fake_comtypes.CLSCTX_ALL = 23
+
+        # Inject into sys.modules so the in-function imports resolve.
+        import sys
+
+        monkeypatch.setitem(sys.modules, "pycaw", MagicMock())
+        monkeypatch.setitem(sys.modules, "pycaw.pycaw", fake_pycaw_mod)
+        monkeypatch.setitem(sys.modules, "comtypes", fake_comtypes)
+
+        return vol_ptr, meter_ptr, audio_utilities
+
+    @staticmethod
+    def _make_session(pid, name):
+        """Build a fake pycaw AudioSession whose Process has pid + name()."""
+        from unittest.mock import MagicMock
+
+        proc = MagicMock()
+        proc.pid = pid
+        proc.name.return_value = name
+        session = MagicMock()
+        session.Process = proc
+        return session
+
+    def test_initialize_succeeds_with_pycaw(self, monkeypatch):
+        """initialize() happy path: pycaw imports cleanly, _vol + _meter bound."""
+        vol_ptr, meter_ptr, _ = self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        assert b.initialize() is True
+        assert b._vol is vol_ptr
+        assert b._meter is meter_ptr
+        assert b._com_initialized is True
+
+    def test_initialize_is_idempotent(self, monkeypatch):
+        """Second initialize() returns True without redoing setup."""
+        self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        assert b.initialize() is True
+        sentinel = object()
+        b._vol = sentinel
+        assert b.initialize() is True
+        assert b._vol is sentinel
+
+    def test_initialize_returns_false_when_no_speakers(self, monkeypatch):
+        """If GetSpeakers() returns None, initialize() returns False."""
+        import sys
+        from unittest.mock import MagicMock
+
+        fake_pycaw_mod = MagicMock()
+        fake_pycaw_mod.AudioUtilities.GetSpeakers.return_value = None
+        fake_pycaw_mod.IAudioEndpointVolume = type("X", (), {"_iid_": "x"})
+        fake_pycaw_mod.IAudioMeterInformation = type("Y", (), {})
+        monkeypatch.setitem(sys.modules, "pycaw", MagicMock())
+        monkeypatch.setitem(sys.modules, "pycaw.pycaw", fake_pycaw_mod)
+        monkeypatch.setitem(sys.modules, "comtypes", MagicMock())
+        b = WinVolumeBackend()
+        assert b.initialize() is False
+
+    def test_get_state_reads_scalar_and_mute(self, monkeypatch):
+        """get_state returns VolumeState(linear, muted) from pycaw calls."""
+        self._install_fake_pycaw(monkeypatch, scalar=0.6, mute=1)
+        b = WinVolumeBackend()
+        b.initialize()
+        state = b.get_state()
+        assert state is not None
+        assert state.linear == 0.6
+        assert state.muted is True
+
+    def test_get_state_clamps_above_1(self, monkeypatch):
+        """Driver-bug defense: scalar > 1.0 clamps to 1.0."""
+        self._install_fake_pycaw(monkeypatch, scalar=1.5)
+        b = WinVolumeBackend()
+        b.initialize()
+        state = b.get_state()
+        assert state is not None
+        assert state.linear == 1.0
+
+    def test_set_linear_calls_setmastervolumelevelscalar(self, monkeypatch):
+        """set_linear invokes SetMasterVolumeLevelScalar with clamped level."""
+        vol_ptr, _, _ = self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        b.initialize()
+        assert b.set_linear(0.4) is True
+        vol_ptr.SetMasterVolumeLevelScalar.assert_called_once_with(0.4, None)
+
+    def test_set_linear_clamps(self, monkeypatch):
+        """set_linear clamps to [0.0, 1.0] before calling pycaw."""
+        vol_ptr, _, _ = self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        b.initialize()
+        b.set_linear(1.5)
+        assert vol_ptr.SetMasterVolumeLevelScalar.call_args[0][0] == 1.0
+        b.set_linear(-0.3)
+        assert vol_ptr.SetMasterVolumeLevelScalar.call_args[0][0] == 0.0
+
+    def test_set_linear_sets_mute(self, monkeypatch):
+        """When muted kwarg is passed, SetMute is invoked."""
+        vol_ptr, _, _ = self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        b.initialize()
+        b.set_linear(0.5, muted=True)
+        vol_ptr.SetMute.assert_called_once_with(1, None)
+
+    def test_is_speaker_active_below_threshold_returns_false(self, monkeypatch):
+        """Peak < 0.01 (~ -40 dBFS) → no audible audio → False (skip ducking)."""
+        self._install_fake_pycaw(monkeypatch, peak_value=0.005)
+        b = WinVolumeBackend()
+        b.initialize()
+        assert b.is_speaker_active() is False
+
+    def test_is_speaker_active_at_or_above_threshold_returns_true(self, monkeypatch):
+        """Peak >= 0.01 → audio is playing → True (duck)."""
+        self._install_fake_pycaw(monkeypatch, peak_value=0.01)
+        b = WinVolumeBackend()
+        b.initialize()
+        assert b.is_speaker_active() is True
+
+    def test_is_speaker_active_no_meter_returns_true(self, monkeypatch):
+        """If _meter is None (meter init failed), default True (duck anyway)."""
+        self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        b.initialize()
+        b._meter = None
+        assert b.is_speaker_active() is True
+
+    def test_get_other_sessions_excludes_own_pid(self, monkeypatch):
+        """PROC-FILTER-FIX: own process excluded by PID backstop (name-independent)."""
+        import os
+
+        own_pid = os.getpid()
+        own = self._make_session(own_pid, "totally-unrelated-name.exe")
+        foreign = self._make_session(own_pid + 1, "spotify.exe")
+        self._install_fake_pycaw(monkeypatch, sessions=[own, foreign])
+        b = WinVolumeBackend()
+        b.initialize()
+        result = b.get_other_sessions()
+        assert own not in result
+        assert foreign in result
+
+    def test_get_other_sessions_excludes_voice_typer_names(self, monkeypatch):
+        """PROC-FILTER-FIX: substring match excludes voice_typer / voice-typer / voicetyper."""
+        import os
+
+        own_pid = os.getpid()
+        voice_typer = self._make_session(own_pid + 100, "voice_typer.exe")
+        voice_typer_hyphen = self._make_session(own_pid + 101, "voice-typer.exe")
+        voicetyper_camel = self._make_session(own_pid + 102, "VoiceTyper.exe")
+        foreign = self._make_session(own_pid + 103, "chrome.exe")
+        self._install_fake_pycaw(
+            monkeypatch,
+            sessions=[voice_typer, voice_typer_hyphen, voicetyper_camel, foreign],
+        )
+        b = WinVolumeBackend()
+        b.initialize()
+        result = b.get_other_sessions()
+        assert voice_typer not in result
+        assert voice_typer_hyphen not in result
+        assert voicetyper_camel not in result
+        assert foreign in result
+
+    def test_get_other_sessions_excludes_python_interpreter_names(self, monkeypatch):
+        """PROC-FILTER-FIX: exact + regex match excludes python / python3 / pythonw + versioned."""
+        import os
+
+        own_pid = os.getpid()
+        python = self._make_session(own_pid + 200, "python")
+        python3 = self._make_session(own_pid + 201, "python3")
+        pythonw = self._make_session(own_pid + 202, "pythonw.exe")
+        python312 = self._make_session(own_pid + 203, "python3.12")
+        foreign = self._make_session(own_pid + 204, "firefox.exe")
+        self._install_fake_pycaw(
+            monkeypatch,
+            sessions=[python, python3, pythonw, python312, foreign],
+        )
+        b = WinVolumeBackend()
+        b.initialize()
+        result = b.get_other_sessions()
+        assert python not in result
+        assert python3 not in result
+        assert pythonw not in result
+        assert python312 not in result
+        assert foreign in result
+
+    def test_get_other_sessions_skips_none_process(self, monkeypatch):
+        """Sessions with Process=None are silently skipped."""
+        import os
+        from unittest.mock import MagicMock
+
+        own_pid = os.getpid()
+        none_proc_session = MagicMock()
+        none_proc_session.Process = None
+        foreign = self._make_session(own_pid + 300, "zoom.exe")
+        self._install_fake_pycaw(monkeypatch, sessions=[none_proc_session, foreign])
+        b = WinVolumeBackend()
+        b.initialize()
+        result = b.get_other_sessions()
+        assert none_proc_session not in result
+        assert foreign in result
+
+    def test_duck_and_restore_round_trip(self, monkeypatch):
+        """duck_other_sessions saves original volume; restore_other_sessions restores it."""
+        import os
+        from unittest.mock import MagicMock
+
+        own_pid = os.getpid()
+        sa_vol = MagicMock()
+        sa_vol.GetMasterVolume.return_value = 0.8
+        sa_vol.SetMasterVolume.return_value = None
+        foreign = self._make_session(own_pid + 400, "chrome.exe")
+        foreign.SimpleAudioVolume = sa_vol
+        self._install_fake_pycaw(monkeypatch, sessions=[foreign])
+        b = WinVolumeBackend()
+        b.initialize()
+
+        # Duck to 0.2.
+        assert b.duck_other_sessions(0.2) is True
+        sa_vol.GetMasterVolume.assert_called_once()
+        assert sa_vol.SetMasterVolume.call_args[0][0] == 0.2
+        assert len(b._sessions) == 1
+        saved_vol, saved_orig = b._sessions[0]
+        assert saved_vol is sa_vol
+        assert saved_orig == 0.8
+
+        # Restore.
+        assert b.restore_other_sessions() is True
+        assert sa_vol.SetMasterVolume.call_args[0][0] == 0.8
+        assert b._sessions == []
+
+    def test_duck_clamps_level(self, monkeypatch):
+        """duck_other_sessions clamps level to [0.0, 1.0]."""
+        import os
+        from unittest.mock import MagicMock
+
+        own_pid = os.getpid()
+        sa_vol = MagicMock()
+        sa_vol.GetMasterVolume.return_value = 0.5
+        sa_vol.SetMasterVolume.return_value = None
+        foreign = self._make_session(own_pid + 500, "x.exe")
+        foreign.SimpleAudioVolume = sa_vol
+        self._install_fake_pycaw(monkeypatch, sessions=[foreign])
+        b = WinVolumeBackend()
+        b.initialize()
+        b.duck_other_sessions(1.5)
+        assert sa_vol.SetMasterVolume.call_args[0][0] == 1.0
+        b.duck_other_sessions(-0.2)
+        assert sa_vol.SetMasterVolume.call_args[0][0] == 0.0
+
+    def test_duck_returns_false_when_no_foreign_sessions(self, monkeypatch):
+        """No foreign sessions → nothing to duck → returns False."""
+        self._install_fake_pycaw(monkeypatch, sessions=[])
+        b = WinVolumeBackend()
+        b.initialize()
+        assert b.duck_other_sessions(0.2) is False
+        assert b._sessions == []
+
+    def test_restore_returns_false_when_nothing_ducked(self, monkeypatch):
+        """_sessions empty → nothing to restore → returns False."""
+        self._install_fake_pycaw(monkeypatch)
+        b = WinVolumeBackend()
+        b.initialize()
+        assert b.restore_other_sessions() is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# XS-80: MacVolumeBackend CoreAudio path — mocked CoreAudio module.
+#
+# The existing TestMacBackendOsascript patches CoreAudio to None to force the
+# osascript fallback. These tests patch sys.platform='darwin' and install a
+# fake CoreAudio module so initialize() switches to the in-process CoreAudio
+# path, then exercise the get_state / set_linear / is_speaker_active CoreAudio
+# methods (which the osascript tests never reach).
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestMacBackendCoreAudio:
+    """XS-80: MacVolumeBackend CoreAudio (pyobjc) path with mocked CoreAudio."""
+
+    @staticmethod
+    def _install_fake_coreaudio(monkeypatch):
+        """Patch sys.platform='darwin' + install fake CoreAudio module.
+
+        Returns the fake module so tests can assert on
+        ``AudioObjectGetPropertyData`` / ``AudioObjectSetPropertyData`` calls.
+        """
+        import sys
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(sys, "platform", "darwin")
+        fake_ca = MagicMock()
+        # Pin the constant values used as selectors / object IDs.
+        fake_ca.kAudioDevicePropertyDeviceIsRunning = "kDeviceIsRunning"
+        fake_ca.kAudioHardwarePropertyDefaultOutputDevice = "kDefaultOutput"
+        fake_ca.kAudioHardwareServiceDeviceProperty_VirtualMasterMute = "kMasterMute"
+        fake_ca.kAudioHardwareServiceDeviceProperty_VirtualMasterVolume = "kMasterVolume"
+        fake_ca.kAudioHardwareServiceSystemObject = "kHwsSystem"
+        fake_ca.kAudioObjectPropertyElementMaster = "kElementMaster"
+        fake_ca.kAudioObjectPropertyScopeGlobal = "kScopeGlobal"
+        fake_ca.kAudioObjectPropertyScopeOutput = "kScopeOutput"
+        fake_ca.kAudioObjectSystemObject = "kSystemObject"
+        monkeypatch.setitem(sys.modules, "CoreAudio", fake_ca)
+        return fake_ca
+
+    @staticmethod
+    def _make_get_property_side_effect(fake_ca, *, default_device=42, is_running=1, volume=0.6, mute=0, status=0):
+        """Build a side_effect for AudioObjectGetPropertyData that writes through
+        ``ctypes.byref(...)`` data pointers and returns a status code.
+        """
+
+        def fake_get_property(obj_id, address, qual_size, qual_data, size_ptr, data_ptr):
+            selector = address[0]
+            # ctypes.byref(obj) exposes the underlying object via _obj.
+            data_obj = getattr(data_ptr, "_obj", None)
+            if selector == fake_ca.kAudioHardwarePropertyDefaultOutputDevice:
+                if data_obj is not None:
+                    data_obj.value = default_device
+            elif selector == fake_ca.kAudioDevicePropertyDeviceIsRunning:
+                if data_obj is not None:
+                    data_obj.value = is_running
+            elif selector == fake_ca.kAudioHardwareServiceDeviceProperty_VirtualMasterVolume:
+                if data_obj is not None:
+                    data_obj.value = volume
+            elif selector == fake_ca.kAudioHardwareServiceDeviceProperty_VirtualMasterMute and data_obj is not None:
+                data_obj.value = mute
+            return status
+
+        return fake_get_property
+
+    def test_initialize_with_coreaudio_succeeds(self, monkeypatch):
+        """initialize() loads CoreAudio → _use_coreaudio = True."""
+        self._install_fake_coreaudio(monkeypatch)
+        b = MacVolumeBackend()
+        assert b.initialize() is True
+        assert b._use_coreaudio is True
+        assert b._ca is not None
+        assert b.name == "CoreAudio (pyobjc)"
+
+    def test_initialize_resets_error_counter(self, monkeypatch):
+        """initialize() resets _consecutive_errors to 0 on a fresh init."""
+        self._install_fake_coreaudio(monkeypatch)
+        b = MacVolumeBackend()
+        b._consecutive_errors = 5
+        b.initialize()
+        assert b._consecutive_errors == 0
+
+    def test_recommended_poll_interval_100ms_with_coreaudio(self, monkeypatch):
+        """CoreAudio path uses 100ms poll; osascript uses 500ms."""
+        self._install_fake_coreaudio(monkeypatch)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.recommended_poll_interval_ms == 100
+        assert b._set_linear_is_subprocess is False
+
+    def test_supports_per_session_is_false_with_coreaudio(self, monkeypatch):
+        """macOS has no per-app volume API even with CoreAudio."""
+        self._install_fake_coreaudio(monkeypatch)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.supports_per_session is False
+
+    def test_get_default_output_device_returns_id(self, monkeypatch):
+        """_get_default_output_device resolves the AudioDeviceID via CoreAudio."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(
+            fake_ca, default_device=99, status=0
+        )
+        b = MacVolumeBackend()
+        b.initialize()
+        dev = b._get_default_output_device()
+        assert dev == 99
+        assert b._default_device_id == 99
+
+    def test_get_default_output_device_returns_none_on_status_error(self, monkeypatch):
+        """Non-zero status from AudioObjectGetPropertyData → None."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._get_default_output_device() is None
+
+    def test_ca_is_device_running_true(self, monkeypatch):
+        """kAudioDevicePropertyDeviceIsRunning == 1 → True."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, is_running=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_is_device_running(42) is True
+
+    def test_ca_is_device_running_false(self, monkeypatch):
+        """kAudioDevicePropertyDeviceIsRunning == 0 → False."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, is_running=0)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_is_device_running(42) is False
+
+    def test_ca_is_device_running_returns_none_on_status_error(self, monkeypatch):
+        """Non-zero status → None (caller falls back)."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_is_device_running(42) is None
+
+    def test_ca_get_volume(self, monkeypatch):
+        """_ca_get_volume reads Float32 in [0.0, 1.0] via CoreAudio."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        # 0.75 is exactly representable in float32 (avoids c_float quantization).
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, volume=0.75)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_get_volume() == 0.75
+
+    def test_ca_get_volume_clamps_above_1(self, monkeypatch):
+        """Driver-bug defense: volume > 1.0 clamps to 1.0."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, volume=1.5)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_get_volume() == 1.0
+
+    def test_ca_get_mute_true(self, monkeypatch):
+        """_ca_get_mute reads UInt32 (0/1) via CoreAudio."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, mute=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_get_mute() is True
+
+    def test_ca_get_mute_false(self, monkeypatch):
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, mute=0)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_get_mute() is False
+
+    def test_ca_set_volume_success(self, monkeypatch):
+        """_ca_set_volume returns True on status==0."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 0
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_set_volume(0.45) is True
+        fake_ca.AudioObjectSetPropertyData.assert_called_once()
+
+    def test_ca_set_volume_failure(self, monkeypatch):
+        """_ca_set_volume returns False on non-zero status."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 1
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_set_volume(0.45) is False
+
+    def test_ca_set_mute_success(self, monkeypatch):
+        """_ca_set_mute returns True on status==0."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 0
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_set_mute(True) is True
+
+    def test_ca_set_mute_failure(self, monkeypatch):
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 1
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b._ca_set_mute(True) is False
+
+    def test_get_state_via_coreaudio(self, monkeypatch):
+        """get_state reads volume + mute via CoreAudio (no osascript subprocess)."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        # 0.75 is exactly representable in float32 (avoids c_float quantization).
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(
+            fake_ca, volume=0.75, mute=0
+        )
+        b = MacVolumeBackend()
+        b.initialize()
+        # Spy: osascript must NOT be called when CoreAudio succeeds.
+        b._osascript_get_state = lambda: (_ for _ in ()).throw(
+            AssertionError("osascript should not be called when CoreAudio succeeds")
+        )
+        state = b.get_state()
+        assert state is not None
+        assert state.linear == 0.75
+        assert state.muted is False
+
+    def test_get_state_detects_muted_via_coreaudio(self, monkeypatch):
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(
+            fake_ca, volume=0.5, mute=1
+        )
+        b = MacVolumeBackend()
+        b.initialize()
+        state = b.get_state()
+        assert state is not None
+        assert state.muted is True
+
+    def test_get_state_falls_back_to_osascript_on_coreaudio_failure(self, monkeypatch):
+        """If CoreAudio get_state returns None, falls back to osascript."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        # Non-zero status on the volume query → _ca_get_volume returns None
+        # → _coreaudio_get_state returns None → fall through to osascript.
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        b._osascript_get_state = lambda: VolumeState(linear=0.3, muted=True)
+        state = b.get_state()
+        assert state is not None
+        assert state.linear == 0.3
+        assert state.muted is True
+
+    def test_set_linear_via_coreaudio(self, monkeypatch):
+        """set_linear calls AudioObjectSetPropertyData with the new volume."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 0
+        b = MacVolumeBackend()
+        b.initialize()
+        b._osascript_set = lambda level, muted: (_ for _ in ()).throw(
+            AssertionError("osascript should not be called when CoreAudio succeeds")
+        )
+        assert b.set_linear(0.45) is True
+        fake_ca.AudioObjectSetPropertyData.assert_called()
+
+    def test_set_linear_clamps_via_coreaudio(self, monkeypatch):
+        """set_linear clamps to [0.0, 1.0] before calling CoreAudio."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 0
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.set_linear(1.5) is True
+        assert b.set_linear(-0.2) is True
+
+    def test_set_linear_falls_back_to_osascript_on_coreaudio_failure(self, monkeypatch):
+        """If CoreAudio set returns False, falls back to osascript."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectSetPropertyData.return_value = 1  # failure
+        b = MacVolumeBackend()
+        b.initialize()
+        called = {"yes": False}
+
+        def fake_osascript_set(level, muted):
+            called["yes"] = True
+            return True
+
+        b._osascript_set = fake_osascript_set
+        assert b.set_linear(0.5) is True
+        assert called["yes"] is True
+
+    def test_is_speaker_active_returns_true_when_running(self, monkeypatch):
+        """kAudioDevicePropertyDeviceIsRunning == 1 → True (audio playing)."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(
+            fake_ca, default_device=42, is_running=1
+        )
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.is_speaker_active() is True
+
+    def test_is_speaker_active_returns_false_when_idle(self, monkeypatch):
+        """kAudioDevicePropertyDeviceIsRunning == 0 → False (skip ducking)."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(
+            fake_ca, default_device=42, is_running=0
+        )
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.is_speaker_active() is False
+
+    def test_is_speaker_active_safe_default_on_query_failure(self, monkeypatch):
+        """If CoreAudio query fails, returns True (safe default — duck anyway)."""
+        fake_ca = self._install_fake_coreaudio(monkeypatch)
+        # Non-zero status on the device-is-running query → None → raise →
+        # fall through to safe-default True.
+        fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
+        b = MacVolumeBackend()
+        b.initialize()
+        assert b.is_speaker_active() is True

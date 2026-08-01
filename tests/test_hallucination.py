@@ -34,6 +34,7 @@ from voice_typer.server.hallucination import (
     normalize_hallucination_key,
     should_reject_low_audio_hallucination,
 )
+from voice_typer.server.security import redact_pii as _redact_pii
 
 LOGGER_NAME = "voice_typer.server.hallucination"
 
@@ -101,8 +102,26 @@ def test_cr87_truncation_to_40_chars_after_redaction(caplog):
     ``_HALLUCINATION_LOG_MAX_CHARS`` (40) AFTER redaction. The redaction
     tokens themselves are short (≤7 chars), so a long input with no PII
     is cut to 40 chars.
+
+    The input must be a realistic long transcription-style phrase (with
+    spaces) rather than a long run of a single alphanumeric char. A
+    200-char run of ``"a"`` would match ``redact_pii``'s 20+ char bare-
+    token secret pattern (``_KEY_PATTERNS[-1]`` in
+    ``voice_typer.server._secrets``) and be redacted wholesale to
+    ``"***"``, which would defeat the test's purpose of verifying
+    truncation on no-PII text. Spaces break up the run so the bare-token
+    pattern doesn't fire and the text reaches the truncation step intact.
     """
-    long_text = "a" * 200  # 200 chars, no PII
+    # 225 chars (45-char phrase × 5) — no PII, no 20+ char bare-token run.
+    long_text = "the quick brown fox jumps over the lazy dog. " * 5
+    expected_truncated = long_text[:_HALLUCINATION_LOG_MAX_CHARS]
+    # Sanity check the test input itself: redact_pii must be a no-op here
+    # (otherwise the test is asserting truncation on text that doesn't
+    # survive redaction, which was the original bug).
+    assert _redact_pii(long_text) == long_text, (
+        "test input should survive redact_pii unchanged; if this fails the "
+        "test input accidentally matches a PII/secret pattern"
+    )
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
         log_hallucination_rejection("[TEST]", long_text, reason="hallucination", log_transcriptions=True)
     # Find the WARNING record (avoid picking up other log lines)
@@ -110,13 +129,19 @@ def test_cr87_truncation_to_40_chars_after_redaction(caplog):
     assert warning_records, "expected a WARNING log record"
     # The formatted message should contain the truncated text
     msg = warning_records[-1].getMessage()
-    # The 'a'*200 input has no PII, so redact_pii returns it unchanged.
-    # After truncation, exactly 40 'a's should appear (the rest is the
-    # boilerplate "Rejected likely hallucination: ..." prefix/suffix).
-    assert "a" * 40 in msg, f"expected 40 'a's (truncated from 200) in log message; got: {msg!r}"
-    # The full 200 'a's must NOT appear (truncation happened)
-    assert "a" * 41 not in msg, (
-        f"truncation to {_HALLUCINATION_LOG_MAX_CHARS} failed; got > 40 consecutive 'a's in: {msg!r}"
+    # The input has no PII, so redact_pii returns it unchanged.
+    # After truncation, the first 40 chars should appear verbatim.
+    assert expected_truncated in msg, (
+        f"expected first {_HALLUCINATION_LOG_MAX_CHARS} chars of long_text "
+        f"(truncated from {len(long_text)}) in log message; got: {msg!r}"
+    )
+    # Chars beyond the truncation limit must NOT appear (truncation happened).
+    # Check a slice just past the boundary so the assertion isn't trivially
+    # satisfied by a single missing char.
+    overflow_slice = long_text[_HALLUCINATION_LOG_MAX_CHARS : _HALLUCINATION_LOG_MAX_CHARS + 10]
+    assert overflow_slice not in msg, (
+        f"truncation to {_HALLUCINATION_LOG_MAX_CHARS} failed; got text "
+        f"beyond the limit ({overflow_slice!r}) in: {msg!r}"
     )
 
 

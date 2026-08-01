@@ -176,7 +176,7 @@ class TestLiveRetryBehaviourPreserved:
         """
         call_count = 0
 
-        def fake_write(path, content):
+        def fake_write(path, content, *, durability=True):
             nonlocal call_count
             call_count += 1
             path.write_text(content, encoding="utf-8")

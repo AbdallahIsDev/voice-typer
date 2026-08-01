@@ -54,6 +54,8 @@ import pytest
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
+from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
+
 # ── Helpers (mirrors tests/test_ipc_dispatch_errors.py) ─────────────────
 
 
@@ -300,19 +302,6 @@ class TestTcpErrorEnvelopes:
 
 
 # ── WS-side envelope assertions (parity baseline) ───────────────────────
-
-
-def _make_fake_server():
-    """Build a MagicMock server for ``sidecar_ws._make_dispatch`` tests.
-
-    Mirrors the helper in ``tests/tauri/test_sidecar_ws_unit.py``.
-    """
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {}})
-    server.app = MagicMock()
-    # _ready_emitted is checked via getattr with default False.
-    server._ready_emitted = True  # skip the ready-event emission path
-    return server
 
 
 class TestWsErrorEnvelopes:

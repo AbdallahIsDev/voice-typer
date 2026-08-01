@@ -155,3 +155,387 @@ class TestAvailableBackendsPropertyNoParens:
             "with parens. The fixed code must reach the diagnostic "
             "log.warning without raising."
         )
+
+
+# ─── Dedicated coverage for ModelManager lifecycle paths ───────────────
+#
+# These tests exercise the constructor wiring and the high-level
+# methods (``fallback_to_whisper``, ``change_model``, ``_evict_lru_model``)
+# that previously had NO direct test file — every other test site used
+# ``ModelManager.__new__(ModelManager)`` to bypass ``__init__``, so the
+# constructor wiring and these specific code paths were never
+# exercised end-to-end.
+
+
+def _make_mm_with_mock_registry():
+    """Build a ModelManager via the real ``__init__`` with a MagicMock
+    app, then swap the registry for a MagicMock.
+
+    The real ``__init__`` runs so its wiring (locks, LRU state,
+    ``_model_load_thread = None``, etc.) is exercised. The registry
+    is then replaced because constructing a real ``AsrBackendRegistry``
+    is fine (it doesn't load any engines) but every method we want to
+    assert on (``load_with_fallback``, ``create``, ``unload``...) is
+    easier to verify via mocks.
+    """
+    import threading
+
+    app = MagicMock(name="app")
+    app.config.asr_backend = "whisper"
+    app.config.model_size = "tiny.en"
+    app.config.device = "cpu"
+    app.config.language = "en"
+    app.config.beam_size = 1
+    app.config.best_of = 1
+    app.config.condition_on_previous_text = False
+    app._shutting_down = False
+    app._pending_dictation = False
+    app._thread_registry = MagicMock()
+    # ``_config_mutation_lock`` is acquired as a context manager by
+    # ``_change_model_blocking``. A MagicMock context manager works
+    # but a real RLock is more faithful (and exposes ``_is_owned``
+    # for the re-entrancy assertion).
+    app._config_mutation_lock = threading.RLock()
+
+    mm = ModelManager(app)
+
+    # Swap the real registry for a mock — but keep its ``available_backends``
+    # as a list (it's a @property on the real registry, so MagicMock's
+    # auto-attribute would be a MagicMock, which the ``callable()`` branch
+    # in ``load_background`` would try to invoke).
+    mock_registry = MagicMock(name="registry")
+    mock_registry.available_backends = ["whisper", "parakeet"]
+    mock_registry.active_name = "whisper"
+    mock_registry.get_active.return_value = None
+    mm._registry = mock_registry
+
+    # Stub the LRU-touch + eviction helpers so the load paths don't
+    # actually try to track / evict (those are tested directly below).
+    mm.touch_model = MagicMock()
+    mm._evict_lru_model = MagicMock()
+
+    return mm, app
+
+
+class TestInitWiring:
+    """``ModelManager.__init__`` must wire the registry, all locks, and
+    the LRU / pending-state fields. Previously every test site used
+    ``__new__`` so this wiring was never asserted.
+    """
+
+    def test_init_creates_registry_and_locks(self):
+        """``__init__`` must construct an ``AsrBackendRegistry`` and the
+        four locks (``_model_change_lock`` is an RLock so
+        ``apply_pending_model_change`` can re-enter ``change_model``)."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.asr_registry import AsrBackendRegistry
+
+        app = MagicMock()
+        app.config.asr_backend = "whisper"
+        app.config.model_size = "tiny.en"
+        app.config.device = "cpu"
+        app.config.language = "en"
+        app.config.beam_size = 1
+        app.config.best_of = 1
+        app.config.condition_on_previous_text = False
+
+        mm = ModelManager(app)
+
+        # Registry is constructed eagerly (not lazy).
+        assert isinstance(mm._registry, AsrBackendRegistry), "__init__ must construct an AsrBackendRegistry eagerly"
+        # _model_change_lock must be an RLock (re-entrant for
+        # apply_pending_model_change -> change_model).
+        assert hasattr(mm._model_change_lock, "_is_owned"), "_model_change_lock must be an RLock (re-entrant)"
+        # _model_lru_lock is a plain Lock (no re-entrancy needed).
+        assert not hasattr(mm._model_lru_lock, "_is_owned"), "_model_lru_lock must be a plain Lock"
+        # _lazy_init_lock is a plain Lock (was a hasattr-based lazy
+        # init before the LAZY-INIT-LOCK-FIX — must now exist on
+        # __init__).
+        assert hasattr(mm, "_lazy_init_lock"), "__init__ must set _lazy_init_lock (LAZY-INIT-LOCK-FIX)"
+
+    def test_init_initializes_lru_and_pending_state(self):
+        """``__init__`` must zero out the LRU tracking dict and the
+        pending-state fields so the first ``change_model`` /
+        ``toggle_dictation`` doesn't read stale state from a previous
+        instance."""
+        from unittest.mock import MagicMock
+
+        app = MagicMock()
+        app.config.asr_backend = "whisper"
+        app.config.model_size = "tiny.en"
+        app.config.device = "cpu"
+        app.config.language = "en"
+        app.config.beam_size = 1
+        app.config.best_of = 1
+        app.config.condition_on_previous_text = False
+
+        mm = ModelManager(app)
+
+        assert mm._model_access_times == {}, "__init__ must start with an empty LRU tracking dict"
+        assert mm._model_load_thread is None
+        assert mm._model_load_attempted is False
+        assert mm._pending_dictation is False
+        assert mm._pending_model_change is None
+        assert mm._pending_backend_change is None
+        assert mm._idle_unload_timer is None
+
+
+class TestFallbackToWhisper:
+    """``fallback_to_whisper`` must mutate config + persist it, construct
+    the whisper backend if missing, load via the registry, and update
+    tray state for both success and failure paths.
+    """
+
+    def test_success_path_creates_whisper_and_sets_idle_tray(self):
+        from voice_typer.server.tray_types import AppState
+
+        mm, app = _make_mm_with_mock_registry()
+        # Whisper not yet registered -> registry.create must be called.
+        mm._registry.get.return_value = None
+        mm._registry.load_with_fallback.return_value = MagicMock(name="active")
+
+        mm.fallback_to_whisper(notify_on_failure=False)
+
+        # Config mutated to whisper/tiny.en and persisted.
+        assert app.config.asr_backend == "whisper"
+        assert app.config.model_size == "tiny.en"
+        app.config.save.assert_called_once()
+        # Whisper backend was missing -> registry.create invoked.
+        mm._registry.create.assert_called_once()
+        create_kwargs = mm._registry.create.call_args
+        assert create_kwargs.args[0] == "whisper"
+        # load_with_fallback invoked with a progress_callback.
+        assert mm._registry.load_with_fallback.called
+        # LRU touched + eviction considered on success.
+        mm.touch_model.assert_called_once()
+        mm._evict_lru_model.assert_called_once()
+        # Tray transitioned to IDLE on success.
+        tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
+        assert AppState.IDLE in tray_states, f"fallback_to_whisper success must set tray to IDLE; got {tray_states}"
+
+    def test_failure_path_sets_error_tray_and_notifies(self):
+        from voice_typer.server.tray_types import AppState
+
+        mm, app = _make_mm_with_mock_registry()
+        # Whisper already registered -> create NOT called.
+        existing = MagicMock(name="existing-whisper")
+        mm._registry.get.return_value = existing
+        # Load fails.
+        mm._registry.load_with_fallback.return_value = None
+
+        mm.fallback_to_whisper(notify_on_failure=True)
+
+        # No create when backend already exists — just model_size backfill.
+        mm._registry.create.assert_not_called()
+        assert existing.model_size == "tiny.en"
+        # Tray transitioned to ERROR on failure.
+        tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
+        assert AppState.ERROR in tray_states, f"fallback_to_whisper failure must set tray to ERROR; got {tray_states}"
+        # notify_on_failure=True -> tray.notify_safety fired.
+        app.tray.notify_safety.assert_called_once()
+
+
+class TestChangeModelBlocking:
+    """``_change_model_blocking`` is the synchronous body of
+    ``change_model``. Must run the setattr + unload + load cycle in
+    order, holding ``_model_change_lock`` throughout, and publish the
+    ``asr_backend_ready`` event on completion.
+    """
+
+    def test_blocking_change_runs_unload_then_load_and_publishes(self):
+        mm, app = _make_mm_with_mock_registry()
+        # Not recording, not busy -> change executes immediately (not deferred).
+        app.recorder.recording = False
+        app._busy_event.is_set.return_value = True  # not busy
+        app.config.save.return_value = True
+        # Load succeeds.
+        mm._registry.load_active.return_value = True
+        active = MagicMock(name="active-engine")
+        active.device_info = "cpu"
+        mm._registry.get_active.return_value = active
+        # Stub _ensure_engine so it doesn't actually construct a backend.
+        mm._ensure_engine = MagicMock()
+        # Stub the event publish so we can assert it ran.
+        mm._publish_backend_ready_event = MagicMock()
+        # Stub cancel_idle_unload_timer (called at the top).
+        mm.cancel_idle_unload_timer = MagicMock()
+
+        mm._change_model_blocking("parakeet")
+
+        # setattr phase: config was mutated to parakeet.
+        assert app.config.asr_backend == "parakeet"
+        assert app.config.model_size == "parakeet"
+        app.config.save.assert_called_once()
+        # unload phase: registry.unload + unregister for the OLD backend ("whisper").
+        # ``unregister`` is called twice for the whisper branch — once
+        # directly in ``_change_model_unload_phase`` and once via the
+        # ``self.transcriber = None`` setter (which delegates to
+        # ``registry.unregister("whisper")``). Both calls are correct.
+        mm._registry.unload.assert_called_once_with("whisper")
+        unregister_calls = [c.args[0] for c in mm._registry.unregister.call_args_list]
+        assert unregister_calls == ["whisper", "whisper"], (
+            f"Expected unregister('whisper') twice (direct + via setter); got {unregister_calls}"
+        )
+        # load phase: _ensure_engine called with the NEW backend ("parakeet").
+        mm._ensure_engine.assert_called_once_with("parakeet")
+        mm._registry.load_active.assert_called_once()
+        # LRU touched for the new backend, eviction considered.
+        mm.touch_model.assert_called_once_with("parakeet")
+        mm._evict_lru_model.assert_called_once()
+        # Event published with the new backend + model_size.
+        mm._publish_backend_ready_event.assert_called_once_with("parakeet", "parakeet")
+
+    def test_blocking_change_defers_when_recording(self):
+        """When a recording is in progress, ``_change_model_setattr_phase``
+        returns ``deferred=True`` and the load phase is skipped — the
+        change is captured in ``_pending_model_change`` for
+        ``apply_pending_model_change`` to apply later."""
+        mm, app = _make_mm_with_mock_registry()
+        app.recorder.recording = True  # recording in progress
+        app._busy_event.is_set.return_value = True
+        app.config.save.return_value = True
+
+        mm._ensure_engine = MagicMock()
+        mm._registry.load_active = MagicMock()
+        mm._publish_backend_ready_event = MagicMock()
+        mm.cancel_idle_unload_timer = MagicMock()
+
+        mm._change_model_blocking("qwen")
+
+        # Config still mutated + saved (so the next boot reflects the request).
+        assert app.config.asr_backend == "qwen"
+        app.config.save.assert_called_once()
+        # But load phase skipped — _ensure_engine NOT called.
+        mm._ensure_engine.assert_not_called()
+        mm._registry.load_active.assert_not_called()
+        # Pending change captured.
+        assert mm._pending_model_change == "qwen"
+        # Event NOT published (load didn't happen).
+        mm._publish_backend_ready_event.assert_not_called()
+
+
+class TestChangeModelAckShape:
+    """``change_model`` (the IPC entry point) must return an ack dict
+    shaped ``{"status": "loading", "previous": {...}, "pending": {...}}``
+    and spawn the background thread — it must NOT block on the load.
+    """
+
+    def test_returns_loading_ack_with_previous_and_pending(self):
+        mm, app = _make_mm_with_mock_registry()
+        app.config.asr_backend = "whisper"
+        app.config.model_size = "tiny.en"
+        mm.cancel_idle_unload_timer = MagicMock()
+
+        # Swap _change_model_background for a no-op so we don't spawn a
+        # real thread (we only care about the ack shape here).
+        mm._change_model_background = MagicMock()
+
+        ack = mm.change_model("parakeet")
+
+        assert ack["status"] == "loading"
+        assert ack["previous"] == {"backend": "whisper", "model_size": "tiny.en"}
+        assert ack["pending"] == {"backend": "parakeet", "model_size": "parakeet"}
+        # Background spawn invoked exactly once.
+        mm._change_model_background.assert_called_once_with("parakeet")
+
+    def test_change_model_size_routing(self):
+        """``change_model`` routes ``model_size`` to a backend name:
+        ``"parakeet"`` -> parakeet, ``"qwen"`` -> qwen, anything else
+        -> whisper. Verifies the routing for all three branches."""
+        mm, app = _make_mm_with_mock_registry()
+        mm.cancel_idle_unload_timer = MagicMock()
+        mm._change_model_background = MagicMock()
+
+        # parakeet
+        ack = mm.change_model("parakeet")
+        assert ack["pending"]["backend"] == "parakeet"
+        # qwen
+        ack = mm.change_model("qwen")
+        assert ack["pending"]["backend"] == "qwen"
+        # anything else -> whisper
+        ack = mm.change_model("base.en")
+        assert ack["pending"]["backend"] == "whisper"
+        assert ack["pending"]["model_size"] == "base.en"
+
+
+class TestLRUEviction:
+    """``_evict_lru_model`` must unload the oldest backend when more than
+    ``_MAX_LOADED_MODELS`` are loaded. Previously this path was only
+    exercised incidentally via ``load_background`` — no test asserted
+    the eviction trigger directly.
+    """
+
+    def test_no_eviction_when_at_or_below_max(self):
+        """When ``len(_model_access_times) <= _MAX_LOADED_MODELS``,
+        ``_evict_lru_model`` is a no-op — no engine is unloaded."""
+        import time
+        from unittest.mock import MagicMock
+
+        mm, _app = _make_mm_with_mock_registry()
+        # Restore the real ``_evict_lru_model`` (the helper stubs it so
+        # the load/change tests don't actually evict). We're testing
+        # the real method here.
+        del mm._evict_lru_model
+        # Exactly _MAX_LOADED_MODELS entries -> no eviction.
+        mm._model_access_times = {
+            "whisper": time.monotonic(),
+            "parakeet": time.monotonic(),
+        }
+        mm._registry.get = MagicMock(return_value=MagicMock())
+
+        mm._evict_lru_model()
+
+        mm._registry.get.assert_not_called()
+
+    def test_evicts_oldest_backend_when_over_max(self):
+        """When ``len(_model_access_times) > _MAX_LOADED_MODELS``, the
+        entry with the OLDEST timestamp is unloaded + removed."""
+        import time
+        from unittest.mock import MagicMock
+
+        mm, _app = _make_mm_with_mock_registry()
+        del mm._evict_lru_model  # restore real method (helper stubs it)
+        # Three entries — whisper is the oldest (timestamp in the past).
+        now = time.monotonic()
+        mm._model_access_times = {
+            "whisper": now - 100.0,  # oldest
+            "parakeet": now - 10.0,
+            "qwen": now,
+        }
+        oldest_engine = MagicMock(name="oldest-engine")
+        mm._registry.get = MagicMock(return_value=oldest_engine)
+
+        mm._evict_lru_model()
+
+        # Oldest backend was looked up + unloaded.
+        mm._registry.get.assert_called_once_with("whisper")
+        oldest_engine.unload.assert_called_once()
+        # Oldest backend removed from tracking.
+        assert "whisper" not in mm._model_access_times
+        assert "parakeet" in mm._model_access_times
+        assert "qwen" in mm._model_access_times
+
+    def test_eviction_survives_engine_without_unload_method(self):
+        """If the engine for the oldest backend doesn't expose
+        ``unload()`` (e.g. a stub backend in tests), eviction still
+        removes it from tracking — the missing method is not fatal."""
+        import time
+        from unittest.mock import MagicMock
+
+        mm, _app = _make_mm_with_mock_registry()
+        del mm._evict_lru_model  # restore real method (helper stubs it)
+        now = time.monotonic()
+        mm._model_access_times = {
+            "whisper": now - 100.0,
+            "parakeet": now - 10.0,
+            "qwen": now,
+        }
+        # Engine with no ``unload`` attribute.
+        bare_engine = MagicMock(spec=[])  # spec=[] -> no attributes
+        mm._registry.get = MagicMock(return_value=bare_engine)
+
+        # Must NOT raise AttributeError.
+        mm._evict_lru_model()
+
+        assert "whisper" not in mm._model_access_times

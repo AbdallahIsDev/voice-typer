@@ -462,42 +462,48 @@ class TestQuarantineCorruptUsesOsReplace:
         assert "config.json.corrupt-" in dst
 
     def test_quarantine_overwrites_existing_dst(self, tmp_path, monkeypatch):
-        """FR-51: if a previous quarantine file with the same
-        timestamp already exists (extremely unlikely — would need
-        two corruptions within the same second), the fix's
-        ``os.replace`` overwrites it (rather than failing on Windows).
+        """FR-51 (updated): the new ``_quarantine_corrupt`` implementation
+        embeds PID + sub-second nanoseconds in the filename so two
+        concurrent quarantine events produce DISTINCT filenames (no
+        clobber).  This is STRICTLY BETTER than the previous
+        ``os.replace``-overwrites-existing-dst behaviour (which lost
+        forensic history when two processes corrupted the same file
+        in the same second).
 
-        We mock ``time.time`` to return a fixed timestamp and pre-
-        create the matching ``.corrupt-<ts>`` file.  We also patch
-        ``Path.exists`` to return False for the corrupt path,
-        simulating the TOCTOU race where the dst file is created
-        BETWEEN the exists() check and the rename/replace call.
+        The test pre-creates a stale ``.corrupt-<ts>-<pid>-<ns>`` file
+        matching the EXACT filename the new implementation would
+        produce (we mock ``time.time``, ``time.time_ns`` and ``os.getpid``
+        to fixed values).  With the new PID+ns suffix, the implementation
+        does NOT probe for an existing dst, so the pre-created file IS
+        overwritten by ``os.replace`` (which is still the safety net for
+        the essentially-impossible case where two calls pick the same
+        PID+ns).  This test pins that ``os.replace`` safety-net
+        behaviour — but note that the realistic common case is now
+        distinct filenames (covered by
+        ``test_quarantine_disambiguates_same_ts_dst_exists``).
         """
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
         config_path.write_text("new corrupt content", encoding="utf-8")
 
-        # Mock time.time to return a fixed timestamp.
+        # Mock time.time, time.time_ns and os.getpid to fixed values
+        # so we can predict the EXACT dst filename the new
+        # implementation will produce.
         fixed_ts = 12345
+        fixed_pid = 99999
+        fixed_ns = 777777
         monkeypatch.setattr(time, "time", lambda: fixed_ts)
+        monkeypatch.setattr(time, "time_ns", lambda: fixed_ns)
+        monkeypatch.setattr(os, "getpid", lambda: fixed_pid)
 
-        # Pre-create the dst file (simulating a previous quarantine
-        # at the same timestamp).
-        dst = tmp_path / f"config.json.corrupt-{fixed_ts}"
+        # Pre-create the dst file at the EXACT filename the new
+        # implementation will produce (ts-pid-ns pattern).  This
+        # simulates the essentially-impossible case where two calls
+        # pick the same PID+ns — the os.replace safety-net must
+        # overwrite it.
+        dst = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-{fixed_ns}"
         dst.write_text("previous quarantine content", encoding="utf-8")
-
-        # Patch Path.exists to return False for the corrupt path,
-        # simulating the TOCTOU race where the dst file is created
-        # BETWEEN the exists() check and the rename/replace call.
-        original_exists = type(config_path).exists
-
-        def mocked_exists(self):
-            if self == dst:
-                return False  # pretend dst doesn't exist (race window)
-            return original_exists(self)
-
-        monkeypatch.setattr("pathlib.Path.exists", mocked_exists)
 
         pj = PersistedJSON(config_path, default=None)
         # Must NOT raise — os.replace overwrites the dst file.
@@ -516,34 +522,63 @@ class TestQuarantineCorruptUsesOsReplace:
         assert not config_path.exists()
 
     def test_quarantine_disambiguates_same_ts_dst_exists(self, tmp_path, monkeypatch):
-        """Sanity check: when ``time.time`` returns a fixed timestamp
-        and the matching ``.corrupt-<ts>`` file already exists, the
-        ``while corrupt_path.exists()`` loop finds a unique name
-        (``.corrupt-<ts>.1``).  This is the non-race common case
-        (the loop correctly disambiguates)."""
+        """Sanity check (updated): the new ``_quarantine_corrupt``
+        implementation embeds PID + sub-second nanoseconds in the
+        filename, so even when ``time.time`` returns a fixed timestamp,
+        two back-to-back quarantine calls produce DISTINCT filenames
+        (the previous counter-loop ``.corrupt-<ts>.<N>`` pattern is
+        gone — the PID+ns suffix makes collision essentially impossible
+        without an ``exists()`` probe loop, closing the TOCTOU race).
+
+        We mock ``time.time`` to a fixed timestamp, mock ``os.getpid``
+        to a fixed PID, and use TWO distinct ``time.time_ns`` values to
+        simulate two back-to-back quarantine calls (the second call's
+        ``time.time_ns()`` reading will naturally differ from the
+        first's).  Both calls produce distinct ``.corrupt-<ts>-<pid>-<ns>``
+        filenames — neither is clobbered.
+        """
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
-        config_path.write_text("corrupt content", encoding="utf-8")
 
         fixed_ts = 12345
+        fixed_pid = 99999
+        ns_values = iter([111111, 222222])  # distinct ns for each call
+
         monkeypatch.setattr(time, "time", lambda: fixed_ts)
+        monkeypatch.setattr(time, "time_ns", lambda: next(ns_values))
+        monkeypatch.setattr(os, "getpid", lambda: fixed_pid)
 
-        # Pre-create the .corrupt-<ts> file (loop will find .1).
-        dst1 = tmp_path / f"config.json.corrupt-{fixed_ts}"
-        dst1.write_text("previous quarantine", encoding="utf-8")
-
+        # First quarantine.
+        config_path.write_text("first corrupt content", encoding="utf-8")
         pj = PersistedJSON(config_path, default=None)
         pj._quarantine_corrupt()
-
-        # The new corrupt file must be at .corrupt-<ts>.1 (the loop
-        # disambiguated because dst1 already existed).
-        dst2 = tmp_path / f"config.json.corrupt-{fixed_ts}.1"
-        assert dst2.exists()
-        assert dst2.read_text() == "corrupt content"
-        # dst1 must be untouched.
-        assert dst1.read_text() == "previous quarantine"
+        dst1 = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-111111"
+        assert dst1.exists()
+        assert dst1.read_text() == "first corrupt content"
         assert not config_path.exists()
+
+        # Second quarantine with a DIFFERENT corrupt file at the same
+        # path (e.g. the user kept using the app and it corrupted
+        # again).  With the new PID+ns suffix, this produces a DISTINCT
+        # filename — no clobber, no overwrite.
+        config_path.write_text("second corrupt content", encoding="utf-8")
+        pj._quarantine_corrupt()
+        dst2 = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-222222"
+        assert dst2.exists()
+        assert dst2.read_text() == "second corrupt content"
+
+        # dst1 must be untouched (no clobber).
+        assert dst1.read_text() == "first corrupt content"
+        assert not config_path.exists()
+
+        # No counter-loop pattern filenames should exist.
+        import re as _re
+
+        for f in tmp_path.glob("config.json.corrupt-*"):
+            assert not _re.match(r"^config\.json\.corrupt-\d+\.\d+$", f.name), (
+                f"Quarantine filename must NOT match the old counter-loop pattern (.corrupt-<ts>.<N>). Got: {f.name}"
+            )
 
     def test_quarantine_handles_missing_file_gracefully(self, tmp_path):
         """Sanity check: if the file disappeared between the

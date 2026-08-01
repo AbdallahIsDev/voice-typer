@@ -11,8 +11,11 @@ path.
 
 Constraint summary (from the fix sub-agent task description):
 
-1. ``model_idle_unload_minutes = 0`` MUST preserve current behaviour
-   — no idle unload by default.
+1. ``model_idle_unload_minutes = 0`` DISABLES the feature (preserves
+   the legacy "model always resident" behaviour for users who
+   explicitly opt out). The default is 30 minutes — keeps the model
+   warm for short conversational gaps while still reclaiming VRAM
+   for genuinely long idle periods.
 2. The idle-unload timer must be cancellable — when toggle_dictation
    is pressed, the timer must be cancelled and the model reloaded.
    Race conditions handled via a lock.
@@ -105,15 +108,19 @@ def _make_mm_with_mock_backend(
     return mm, app, engine, mock_registry
 
 
-# ─── Constraint #1: model_idle_unload_minutes = 0 preserves current behaviour ──
+# ─── Constraint #1: model_idle_unload_minutes = 0 disables the feature (default is 30) ──
 
 
-class TestIdleUnloadDisabledByDefault:
+class TestIdleUnloadZeroDisables:
     """TY-11 constraint #1: ``model_idle_unload_minutes = 0`` MUST
-    preserve current behaviour — no idle unload by default.
+    disable the idle-unload feature (preserve the legacy "model
+    always resident" behaviour for users who explicitly opt out).
 
-    The default config value is 0; users with abundant VRAM can leave
-    it at 0; users who want the feature set it to e.g. 10 or 15."""
+    The default config value is 30 minutes — keeps the model warm
+    for short conversational gaps while still reclaiming VRAM for
+    genuinely long idle periods (lunch breaks, meetings, overnight).
+    Users with abundant VRAM who want the model resident for the
+    lifetime of the process can set this to 0."""
 
     def test_zero_config_never_starts_timer(self):
         """When ``model_idle_unload_minutes == 0``, calling
@@ -134,16 +141,24 @@ class TestIdleUnloadDisabledByDefault:
         engine.unload.assert_not_called()
         mm._registry.unload.assert_not_called()
 
-    def test_default_config_value_is_zero(self):
+    def test_default_config_value_is_thirty(self):
         """The Config dataclass default for
-        ``model_idle_unload_minutes`` must be 0 (disabled)."""
+        ``model_idle_unload_minutes`` must be 30 minutes.
+
+        30 minutes keeps the model warm for short conversational gaps
+        (sub-30-minute silences) while still unloading it for genuinely
+        long idle periods — the right tradeoff for the typical
+        tray-app usage pattern on laptops. Users who want always-loaded
+        behaviour can set it to 0."""
         from voice_typer.server.config import Config
 
         cfg = Config()
-        assert cfg.model_idle_unload_minutes == 0, (
+        assert cfg.model_idle_unload_minutes == 30, (
             "TY-11: the default value of model_idle_unload_minutes "
-            "must be 0 (disabled) to preserve current behaviour. Users "
-            "who want the feature set it to e.g. 10 or 15."
+            "must be 30 minutes (sensible production default for memory "
+            "management — keeps the model warm for short gaps, unloads "
+            "for long ones). Users who need always-loaded behaviour "
+            "can set it to 0."
         )
 
     def test_zero_config_setting_to_zero_cancels_existing_timer(self):
@@ -547,13 +562,13 @@ class TestConfigField:
 
     def test_field_exists_on_config_dataclass(self):
         """``Config()`` must have a ``model_idle_unload_minutes``
-        attribute (default 0)."""
+        attribute (default 30 minutes)."""
         from voice_typer.server.config import Config
 
         cfg = Config()
         assert hasattr(cfg, "model_idle_unload_minutes")
         assert isinstance(cfg.model_idle_unload_minutes, int)
-        assert cfg.model_idle_unload_minutes == 0
+        assert cfg.model_idle_unload_minutes == 30
 
     def test_field_in_int_fields_coercion_set(self):
         """The field must be in the ``int_fields`` set inside

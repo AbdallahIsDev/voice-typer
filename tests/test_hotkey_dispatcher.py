@@ -275,7 +275,7 @@ class TestShutdownGuards:
         mock_backend = MagicMock()
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda spec: mock_backend,
+            lambda spec, **kwargs: mock_backend,
         )
 
         dispatcher._app._shutting_down = True
@@ -411,7 +411,7 @@ class TestRegistrationFailureSurfacesToTray:
 
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda spec: mock_backend,
+            lambda spec, **kwargs: mock_backend,
         )
 
         dispatcher.register_esc()  # must not raise
@@ -429,7 +429,7 @@ class TestRegistrationFailureSurfacesToTray:
         mock_backend = MagicMock()
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda spec: mock_backend,
+            lambda spec, **kwargs: mock_backend,
         )
 
         dispatcher.register_esc()
@@ -474,7 +474,7 @@ class TestRegistrationFailureSurfacesToTray:
 
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda spec: mock_backend,
+            lambda spec, **kwargs: mock_backend,
         )
 
         dispatcher.register_repaste()  # must not raise
@@ -494,7 +494,7 @@ class TestRegistrationFailureSurfacesToTray:
         mock_backend = MagicMock()
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda spec: mock_backend,
+            lambda spec, **kwargs: mock_backend,
         )
 
         dispatcher.register_repaste()

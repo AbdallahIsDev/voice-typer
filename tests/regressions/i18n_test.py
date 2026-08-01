@@ -81,7 +81,14 @@ class TestSpanishTranslationComplete:
         # Spanish label appears, which is heavy (requires a renderer test
         # harness); the file-content check catches removal of the import
         # or registration directly.
-        i18n_path = (
+        # the 745-LOC ``i18n.ts`` monolith was split into a focused
+        # ``i18n/`` package (locale.ts / store.ts / translate.ts / etc.).
+        # ``i18n.ts`` is now a thin re-export shim. The ``"es"`` literal
+        # lives in ``i18n/locale.ts`` (the SUPPORTED_LOCALES array); the
+        # ``ensureLocaleLoaded`` function lives in ``i18n/store.ts`` and
+        # is re-exported via ``i18n/index.ts``. Read both leaf modules
+        # so the test stays green on the split package.
+        i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
             / "client"
@@ -89,9 +96,10 @@ class TestSpanishTranslationComplete:
             / "renderer"
             / "src"
             / "i18n"
-            / "i18n.ts"
         )
-        src = i18n_path.read_text(encoding="utf-8")
+        src = "\n".join(
+            (i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "locale.ts", "store.ts")
+        )
         # non-English locales are now dynamically imported via
         # ensureLocaleLoaded() rather than static `import es from ...`.
         # Verify "es" is listed in SUPPORTED_LOCALES and that the dynamic
@@ -102,7 +110,9 @@ class TestSpanishTranslationComplete:
     def test_i18n_ts_exports_locale_helpers(self):
         # KEEP — pins  (i18n.ts exports SUPPORTED_LOCALES and
         # getLocaleLabel). Same rationale as test_i18n_ts_registers_spanish.
-        i18n_path = (
+        # ``i18n.ts`` is now a re-export shim; the actual exports live in
+        # ``i18n/locale.ts`` and are re-exported via ``i18n/index.ts``.
+        i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
             / "client"
@@ -110,9 +120,8 @@ class TestSpanishTranslationComplete:
             / "renderer"
             / "src"
             / "i18n"
-            / "i18n.ts"
         )
-        src = i18n_path.read_text(encoding="utf-8")
+        src = "\n".join((i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "locale.ts"))
         assert "export { SUPPORTED_LOCALES }" in src, "UX-015: i18n.ts must export SUPPORTED_LOCALES"
         assert "export function getLocaleLabel" in src, "UX-015: i18n.ts must export getLocaleLabel"
 
@@ -151,7 +160,10 @@ class TestSpanishTranslationComplete:
     def test_i18n_ts_restores_locale_from_local_storage(self):
         # KEEP — pins  (i18n.ts restores locale from localStorage
         # on startup). Same rationale as test_i18n_ts_registers_spanish.
-        i18n_path = (
+        # ``i18n.ts`` is now a re-export shim; the localStorage read lives
+        # in ``i18n/index.ts`` (initI18n auto-restore) and ``i18n/store.ts``
+        # (setLocale persistence). Read both leaf modules.
+        i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
             / "client"
@@ -159,9 +171,8 @@ class TestSpanishTranslationComplete:
             / "renderer"
             / "src"
             / "i18n"
-            / "i18n.ts"
         )
-        src = i18n_path.read_text(encoding="utf-8")
+        src = "\n".join((i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "store.ts"))
         assert "localStorage" in src, "UX-015: i18n.ts must restore locale from localStorage on startup"
         assert "voice-typer-ui-locale" in src
 

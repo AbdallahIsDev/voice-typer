@@ -517,9 +517,9 @@ class TestRegistryExtraction:
         assert registry._COMMAND_REGISTRY["shutdown"] == "_handle_shutdown"
         assert registry._COMMAND_REGISTRY["tray_click"] == "_handle_tray_click"
         assert registry._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
-        # The  reconciliation comment documents 63 commands.
-        assert len(registry._COMMAND_REGISTRY) == 63, (
-            f"UE-32: registry._COMMAND_REGISTRY must contain 63 entries "
+        # The  reconciliation comment documents 64 commands.
+        assert len(registry._COMMAND_REGISTRY) == 64, (
+            f"UE-32: registry._COMMAND_REGISTRY must contain 64 entries "
             f"(IPC-1 reconciliation); got {len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

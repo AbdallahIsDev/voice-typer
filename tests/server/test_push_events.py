@@ -20,7 +20,7 @@ from tests.server.conftest import (  # noqa: F401
     ipc_server,
     mock_app,
     server,
-    server_with_mock_app__006,
+    server_with_mock_app_for_push_events,
 )
 
 # ── Push events ────────────────────────────────────────────────────────
@@ -254,10 +254,10 @@ class TestConsoleModePushVisibility:
     """NEW-IPC-008: push events must be visible at INFO level when no
     client is connected (console mode)."""
 
-    def test_non_waveform_push_logged_at_info(self, server_with_mock_app__006, caplog):
+    def test_non_waveform_push_logged_at_info(self, server_with_mock_app_for_push_events, caplog):
         """A status_change push event with no client must produce an
         INFO-level log entry, not just DEBUG."""
-        srv = server_with_mock_app__006
+        srv = server_with_mock_app_for_push_events
         # No TCP client, no TCP mode → falls into the "no client" branch.
         srv._tcp_client = None
         srv._tcp_mode = False
@@ -273,10 +273,10 @@ class TestConsoleModePushVisibility:
             f"Expected an INFO-level log for dropped push event, got: {[r.getMessage() for r in caplog.records]}"
         )
 
-    def test_waveform_push_kept_at_debug(self, server_with_mock_app__006, caplog):
+    def test_waveform_push_kept_at_debug(self, server_with_mock_app_for_push_events, caplog):
         """High-frequency waveform events must stay at DEBUG to avoid
         log flooding."""
-        srv = server_with_mock_app__006
+        srv = server_with_mock_app_for_push_events
         srv._tcp_client = None
         srv._tcp_mode = False
 
@@ -296,8 +296,8 @@ class TestGetInstancePushFnTracking:
     """NEW-IPC-013: each IPCServer tracks its own push callable so
     stop() can unregister just that one without affecting others."""
 
-    def test_start_registers_instance_push_fn(self, server_with_mock_app__006):
-        srv = server_with_mock_app__006
+    def test_start_registers_instance_push_fn(self, server_with_mock_app_for_push_events):
+        srv = server_with_mock_app_for_push_events
         # Avoid the real _hook_tray_set_state + _run thread.
         srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None
@@ -311,8 +311,8 @@ class TestGetInstancePushFnTracking:
         finally:
             srv.stop()
 
-    def test_stop_clears_instance_push_fn(self, server_with_mock_app__006):
-        srv = server_with_mock_app__006
+    def test_stop_clears_instance_push_fn(self, server_with_mock_app_for_push_events):
+        srv = server_with_mock_app_for_push_events
         srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None
         srv._stdin_thread = MagicMock()

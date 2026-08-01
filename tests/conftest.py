@@ -472,8 +472,31 @@ def _reset_log_rate_limit():
 
 @pytest.fixture
 def tmp_config_dir(tmp_path, monkeypatch):
-    """Temporary config directory with _config_dir monkeypatched."""
+    """Temporary config directory with ``_config_dir`` monkeypatched.
+
+    Patches BOTH ``voice_typer.server.config._config_dir`` (the
+    canonical accessor) AND ``voice_typer.server.app._config_dir`` (the
+    bound reference inside ``app.py``).
+
+    ``app.py`` imports ``_config_dir`` via
+    ``from voice_typer.server.config import ... _config_dir``, which
+    binds the function object into the ``app`` module's namespace at
+    import time. Patching only ``config._config_dir`` leaves
+    ``app._config_dir`` pointing at the original function — so code
+    paths inside ``app.py`` that call ``_config_dir()`` directly (e.g.
+    ``DuckCrashRecovery(config_dir=_config_dir())`` near the standalone
+    launch path) silently write to the real
+    ``~/.local/share/voice-typer/`` directory instead of ``tmp_path``.
+
+    Previously 4 test files (``test_app_restart.py``,
+    ``test_app_cleanup.py``, ``test_shutdown_controller.py``,
+    ``test_shutdown_posix_release.py``) shadowed this fixture locally
+    with a version that patched both references. Those local shadows
+    have been deleted in favour of this single canonical fixture so
+    the project-wide fixture is the source of truth.
+    """
     monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
     return tmp_path
 
 

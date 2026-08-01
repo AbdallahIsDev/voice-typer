@@ -472,8 +472,27 @@ class TestRatchetHolds:
         redefinition) was introduced. Fix it immediately; do NOT update
         any baseline.
         """
+        # Scope expanded from `voice_typer/server/` only to the full CI
+        # scope `voice_typer/ tests/ scripts/ conftest.py` so this test
+        # matches the `Ruff (F-rules hard-fail)` step in
+        # .github/workflows/build.yml. Previously the test ran ruff
+        # against `voice_typer/server/` only and could pass locally
+        # while CI failed on an F-rule violation in tests/, scripts/,
+        # or conftest.py.
         ruff_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "voice_typer/server/", "--select", "F", "--no-fix"],
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "voice_typer/",
+                "tests/",
+                "scripts/",
+                "conftest.py",
+                "--select",
+                "F",
+                "--no-fix",
+            ],
             capture_output=True,
             text=True,
             cwd=PROJECT_ROOT,

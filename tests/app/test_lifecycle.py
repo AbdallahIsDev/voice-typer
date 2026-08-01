@@ -461,7 +461,7 @@ class TestAppStartupIntegration:
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         # Make transcriber.load() a no-op (don't actually load a model)
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -491,7 +491,7 @@ class TestAppStartupIntegration:
 
         from tests.test_tray import _FakeIcon, _FakeMenu, _FakeMenuItem
 
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         # Ensure voice_typer.tray uses our fakes
         import voice_typer.server.tray as tray_mod
@@ -656,7 +656,7 @@ class TestStartupNoCrash:
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -675,7 +675,7 @@ class TestStartupNoCrash:
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-        monkeypatch.setattr("voice_typer.server.app.TranscriptionEngine", MagicMock())
+        monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", MagicMock())
 
         # Ensure tray module uses fakes
         import voice_typer.server.tray as tray_mod

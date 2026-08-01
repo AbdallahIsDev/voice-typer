@@ -320,7 +320,7 @@ class TestWhisperSkipWhenQwenActive:
         mock_transcriber.device_info = "cpu (int8)"
         mock_transcriber.loaded_via = "cpu/int8/small.en"
         monkeypatch.setattr(
-            "voice_typer.server.app.TranscriptionEngine",
+            "voice_typer.server.transcription.TranscriptionEngine",
             MagicMock(return_value=mock_transcriber),
         )
         app.models.transcriber = mock_transcriber

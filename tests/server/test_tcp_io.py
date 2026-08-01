@@ -22,8 +22,8 @@ from tests.server.conftest import (  # noqa: F401
     IPCServer,
     mock_app,
     server,
-    server_with_mock_app__006,
-    server_with_mock_app__014,
+    server_with_mock_app_for_push_events,
+    server_with_mock_app_for_tcp_io,
 )
 
 # ── SEC-008: _pending_tcp cap ────────────────────────────────────────────
@@ -76,11 +76,11 @@ class TestAckShapeConsistency:
             "clear_history",
         ],
     )
-    def test_ack_commands_include_data_field(self, server_with_mock_app__006, cmd):
+    def test_ack_commands_include_data_field(self, server_with_mock_app_for_push_events, cmd):
         """Commands that previously returned ``{type: "ack"}`` with no
         data must now include ``data: {}`` for shape consistency.
         """
-        srv = server_with_mock_app__006
+        srv = server_with_mock_app_for_push_events
         # Stub the service methods these commands call so they succeed.
         srv.service.toggle_dictation = lambda: None
         srv.service.undo_last = lambda: None
@@ -99,20 +99,20 @@ class TestAckShapeConsistency:
         assert "data" in result, f"ack response for {cmd} missing `data` field: {result}"
         assert isinstance(result["data"], dict), f"`data` must be a dict for {cmd}: {result}"
 
-    def test_ack_with_payload_keeps_data(self, server_with_mock_app__006):
+    def test_ack_with_payload_keeps_data(self, server_with_mock_app_for_push_events):
         """toggle_favorite returns ``{type: "ack", data: {favorite: bool}}``
         — the existing data must NOT be overwritten by the empty-default
         fallback."""
-        srv = server_with_mock_app__006
+        srv = server_with_mock_app_for_push_events
         srv.service.toggle_favorite = lambda rec_id: True
 
         result = srv._dispatch({"id": 1, "type": "toggle_favorite", "data": {"id": 42}})
         assert result["type"] == "ack"
         assert result["data"] == {"favorite": True}
 
-    def test_error_responses_keep_data(self, server_with_mock_app__006):
+    def test_error_responses_keep_data(self, server_with_mock_app_for_push_events):
         """Error responses must keep their existing ``data`` field."""
-        srv = server_with_mock_app__006
+        srv = server_with_mock_app_for_push_events
         srv.service.toggle_dictation = MagicMock(side_effect=RuntimeError("boom"))
 
         result = srv._dispatch({"id": 1, "type": "toggle_dictation"})
@@ -147,7 +147,7 @@ Fix:
 class TestSendDoesNotHoldLockDuringWrite:
     """NEW-IPC-014: ``sendall`` must run OUTSIDE ``self._lock``."""
 
-    def test_concurrent_send_and_dispatch_do_not_serialize(self, server_with_mock_app__014):
+    def test_concurrent_send_and_dispatch_do_not_serialize(self, server_with_mock_app_for_tcp_io):
         """A slow ``_send`` (simulated via a blocking socket) must NOT
         block another thread from acquiring ``self._lock`` for an
         unrelated operation.
@@ -155,7 +155,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         Previously _send held the lock through sendall, so a slow
         client could stall every other dispatcher.
         """
-        srv = server_with_mock_app__014
+        srv = server_with_mock_app_for_tcp_io
 
         # Build a fake TCP client whose write() blocks for 500ms.
         # We don't need a real socket — just an object whose write()
@@ -210,13 +210,13 @@ class TestSendDoesNotHoldLockDuringWrite:
             f"Lock took {lock_grab_latency:.3f}s to acquire — _send is still holding the lock during the slow write"
         )
 
-    def test_settimeout_called_on_tcp_socket(self, server_with_mock_app__014):
+    def test_settimeout_called_on_tcp_socket(self, server_with_mock_app_for_tcp_io):
         """NEW-CONC-003 / CR-2: _send must call settimeout before sendall so a
         stalled client can't block the worker forever, and must restore the
         PREVIOUS timeout (NOT clobber to None) so the dispatch-loop readline
         keeps its auth-read deadline and the connection can be reaped on
         cleanup."""
-        srv = server_with_mock_app__014
+        srv = server_with_mock_app_for_tcp_io
 
         fake_conn = MagicMock()
         fake_conn.settimeout = MagicMock()
@@ -267,11 +267,11 @@ class TestSendDoesNotHoldLockDuringWrite:
             "deadlock."
         )
 
-    def test_write_failure_drops_client(self, server_with_mock_app__014):
+    def test_write_failure_drops_client(self, server_with_mock_app_for_tcp_io):
         """NEW-CONC-003: when sendall raises (timeout or OSError), the
         client must be marked dead so the accept loop can pick up the
         next reconnect."""
-        srv = server_with_mock_app__014
+        srv = server_with_mock_app_for_tcp_io
 
         fake_conn = MagicMock()
         fake_conn.settimeout = lambda x: None
@@ -313,8 +313,8 @@ class TestWriteTimeoutConstant:
 class TestSendStillDeliversMessages:
     """Regression: the lock-split refactor must not break delivery."""
 
-    def test_message_reaches_tcp_client(self, server_with_mock_app__014):
-        srv = server_with_mock_app__014
+    def test_message_reaches_tcp_client(self, server_with_mock_app_for_tcp_io):
+        srv = server_with_mock_app_for_tcp_io
         received: list = []
 
         class CapturingClient:
@@ -341,10 +341,10 @@ class TestSendStillDeliversMessages:
         assert msg["type"] == "test_event"
         assert msg["data"] == {"x": 1}
 
-    def test_pending_drained_after_message(self, server_with_mock_app__014):
+    def test_pending_drained_after_message(self, server_with_mock_app_for_tcp_io):
         """When _pending_tcp has entries, the next _send must drain them
         after the new message."""
-        srv = server_with_mock_app__014
+        srv = server_with_mock_app_for_tcp_io
         received: list = []
 
         class CapturingClient:

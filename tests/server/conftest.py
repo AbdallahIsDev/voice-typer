@@ -15,8 +15,8 @@ Pytest fixtures provided:
 - :func:`mock_app`                  — fresh MockApp()
 - :func:`server`                    — IPCServer(mock_app)
 - :func:`server_with_mock_app`      — IPCServer backed by a MagicMock app
-- :func:`server_with_mock_app__006` — same, scoped for NEW-IPC-006 tests
-- :func:`server_with_mock_app__014` — same, scoped for NEW-IPC-014 tests
+- :func:`server_with_mock_app_for_push_events` — same, scoped for push-event / ack-shape tests
+- :func:`server_with_mock_app_for_tcp_io`     — same, scoped for TCP send-lock-split / write-timeout tests
 - :func:`clean_registry`            — snapshot/clear/restore the push-event
                                        registry around a test
 - :func:`tmp_config_dir`            — tmp_path with config._config_dir patched
@@ -186,13 +186,28 @@ def server_with_mock_app():
 
 
 @pytest.fixture
-def server_with_mock_app__006():
+def server_with_mock_app_for_push_events():
+    """IPCServer with a mocked app — scoped to push-event / ack-shape tests.
+
+    Renamed from the previous task-ID-suffixed form to comply with
+    C-STYLE-1 (no ticket numbers in source identifiers). Same
+    implementation as :func:`server_with_mock_app` — the domain-suffix
+    is purely for test-suite readability.
+    """
     app = MagicMock()
     return IPCServer(app)
 
 
 @pytest.fixture
-def server_with_mock_app__014():
+def server_with_mock_app_for_tcp_io():
+    """IPCServer with a mocked app — scoped to TCP send-lock-split /
+    write-timeout tests.
+
+    Renamed from the previous task-ID-suffixed form to comply with
+    C-STYLE-1 (no ticket numbers in source identifiers). Same
+    implementation as :func:`server_with_mock_app` — the domain-suffix
+    is purely for test-suite readability.
+    """
     app = MagicMock()
     return IPCServer(app)
 
@@ -234,8 +249,8 @@ __all__ = [
     "mock_app",
     "server",
     "server_with_mock_app",
-    "server_with_mock_app__006",
-    "server_with_mock_app__014",
+    "server_with_mock_app_for_push_events",
+    "server_with_mock_app_for_tcp_io",
     "clean_registry",
     "tmp_config_dir",
 ]

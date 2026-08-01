@@ -193,6 +193,15 @@ class TestTranscriptionLoggingRedactsPii:
         engine.language = "en"
         engine.condition_on_previous_text = False
         engine._lock = threading.Lock()
+        # ``_transcribe_unlocked`` checks ``self._abort_event.is_set()``
+        # between segment iterations so a cooperative cancel request
+        # can interrupt a long-running transcription. The attribute is
+        # initialised by ``TranscriptionEngine.__init__`` (which we skip
+        # via ``__new__`` above to avoid loading the real model), so we
+        # create a fresh ``threading.Event`` here. The test never sets
+        # it, so ``is_set()`` always returns False and the loop runs to
+        # completion.
+        engine._abort_event = threading.Event()
 
         # Segment stub: provides .start, .end, .text, .avg_logprob,
         # .no_speech_prob — the attributes consumed by the loop.
@@ -269,6 +278,11 @@ class TestTranscriptionLoggingRedactsPii:
         engine.language = "en"
         engine.condition_on_previous_text = False
         engine._lock = threading.Lock()
+        # ``_transcribe_unlocked`` checks ``self._abort_event.is_set()``
+        # between segment iterations. Initialise the attribute (normally
+        # set by ``__init__``, which we skipped via ``__new__``) so the
+        # loop runs to completion instead of raising ``AttributeError``.
+        engine._abort_event = threading.Event()
 
         seg_text = "My SSN is 123-45-6789 and card 4111-1111-1111-1111."
         seg = types.SimpleNamespace(

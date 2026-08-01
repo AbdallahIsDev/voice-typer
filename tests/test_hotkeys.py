@@ -147,7 +147,7 @@ class TestAutouseFixturePatchesBothHotkeyNamespaces:
         original = hd_mod.create_hotkey_backend
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
-            lambda hotkey_str: PynputHotkey(hotkey_str),
+            lambda hotkey_str, **kwargs: PynputHotkey(hotkey_str),
         )
         assert hd_mod.create_hotkey_backend is not original
 

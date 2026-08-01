@@ -561,6 +561,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.downloadEta",
 }
 
+
 def _load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as f:
         return json.load(f)

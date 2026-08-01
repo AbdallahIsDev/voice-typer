@@ -251,37 +251,162 @@ class TestWaitForPrewarm:
         assert result is True
 
     def test_poll_fallback_after_event_wait_timeout(self, monkeypatch, tmp_path):
-        """Event wait returns False → poll loop takes over and finishes."""
+        """Event wait returns False → poll loop takes over and finishes.
+
+        XV-17: the poll loop now uses a cheap ``_process_alive(pid)``
+        liveness probe (``os.kill(pid, 0)`` on POSIX) instead of
+        re-invoking ``is_prewarm_running()`` on every iteration (which
+        on macOS forks ``ps`` up to 60×/call). The PID-recycling guard
+        (``_process_is_prewarm``) is only re-run when the PID file
+        rotates to a different PID. This test sets up a real PID file
+        pointing at the current process so the poll loop has something
+        to probe, then makes ``_process_alive`` flip to False after the
+        first poll to simulate prewarm exiting.
+        """
         pid_file = tmp_path / ".prewarm.pid"
+        # Write the current process's PID so ``_read_prewarm_pid`` returns
+        # a stable value and the poll loop's "same PID → cheap liveness"
+        # branch is exercised.
+        pid_file.write_text(str(os.getpid()))
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
 
-        # State: first poll says still running, second poll says done.
-        # The poll loop sleeps 1s between checks; to keep the test fast
-        # we replace time.sleep with a no-op AND make is_prewarm_running
-        # flip to False after the first call from the poll loop.
-        #
-        # Note: wait_for_prewarm calls is_prewarm_running once at the top
-        # (the guard) and then again from inside the poll loop. The
-        # guard call returns True so we reach the poll loop. The first
-        # poll-loop call returns True (still running), the second
-        # returns False (finished).
-        call_count = {"n": 0}
-
-        def fake_running():
-            call_count["n"] += 1
-            # Guard call (#1) → True. Poll-loop call #1 (after first
-            # sleep) → True. Poll-loop call #2 (after second sleep) →
-            # False, which exits the loop with True.
-            return call_count["n"] < 3
-
-        monkeypatch.setattr(prewarm, "is_prewarm_running", fake_running)
+        # Initial guard: patch ``is_prewarm_running`` to True so we reach
+        # the poll loop. (``_process_is_prewarm`` is patched to True so the
+        # guard's PID-recycling check passes for the pytest PID.)
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: True)
+        monkeypatch.setattr(prewarm, "_process_is_prewarm", lambda pid: True)
         monkeypatch.setattr(prewarm, "_wait_for_completion_event", lambda timeout: False)
+
+        # ``_process_alive``: True for the guard call (inside
+        # ``is_prewarm_running``) and the first poll-loop probe, then False
+        # so the second poll iteration sees the prewarm as exited and
+        # returns True.
+        alive_calls = {"n": 0}
+
+        def fake_alive(pid):
+            alive_calls["n"] += 1
+            # Guard call (#1, inside is_prewarm_running) → True.
+            # Poll-loop probe #1 → True (still running).
+            # Poll-loop probe #2 → False (exited) → loop returns True.
+            return alive_calls["n"] < 3
+
+        monkeypatch.setattr(process_tracker, "_process_alive", fake_alive)
         # Patch sleep so the test is fast.
         monkeypatch.setattr(time, "sleep", lambda *_a, **_kw: None)
 
         result = process_tracker.wait_for_prewarm(timeout_s=60.0)
         assert result is True
-        assert call_count["n"] >= 3
+        # The poll loop must have actually executed at least one liveness
+        # probe (beyond the guard's call).
+        assert alive_calls["n"] >= 2, (
+            f"poll loop must call _process_alive at least once after the guard; got {alive_calls['n']} total calls"
+        )
+
+    def test_poll_loop_skips_is_prewarm_when_pid_unchanged(self, monkeypatch, tmp_path):
+        """XV-17: when the PID file points at the same PID across poll
+        iterations, the poll loop must NOT re-invoke
+        ``_process_is_prewarm`` (which forks ``ps`` on macOS). The guard
+        runs it once at entry; subsequent polls use the cheap
+        ``_process_alive`` liveness probe only.
+        """
+        pid_file = tmp_path / ".prewarm.pid"
+        pid_file.write_text(str(os.getpid()))
+        monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
+
+        # Guard passes (PID file exists, PID alive, looks like prewarm).
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: True)
+        monkeypatch.setattr(prewarm, "_wait_for_completion_event", lambda timeout: False)
+
+        # Count calls to _process_is_prewarm. The guard calls it once;
+        # the poll loop must NOT call it again as long as the PID is
+        # unchanged.
+        prewarm_check_calls = {"n": 0}
+        original_is_prewarm = process_tracker._process_is_prewarm
+
+        def counting_is_prewarm(pid):
+            prewarm_check_calls["n"] += 1
+            return original_is_prewarm(pid)
+
+        monkeypatch.setattr(prewarm, "_process_is_prewarm", counting_is_prewarm)
+
+        # Make _process_alive return True for several polls, then False
+        # so the loop exits without timing out.
+        alive_calls = {"n": 0}
+
+        def fake_alive(pid):
+            alive_calls["n"] += 1
+            return alive_calls["n"] < 5  # True for 4 calls, then False
+
+        monkeypatch.setattr(process_tracker, "_process_alive", fake_alive)
+        monkeypatch.setattr(time, "sleep", lambda *_a, **_kw: None)
+
+        result = process_tracker.wait_for_prewarm(timeout_s=60.0)
+        assert result is True
+        # XV-17 contract: across multiple poll iterations with an
+        # unchanged PID, ``_process_is_prewarm`` is called at most once
+        # (by the guard). The poll loop must use the cheap liveness
+        # probe instead.
+        assert prewarm_check_calls["n"] <= 1, (
+            "XV-17: _process_is_prewarm must NOT be re-invoked on every "
+            "poll iteration when the PID hasn't changed (would fork ps "
+            f"60×/call on macOS); got {prewarm_check_calls['n']} calls"
+        )
+        assert alive_calls["n"] >= 2, f"poll loop must have executed multiple liveness probes; got {alive_calls['n']}"
+
+    def test_poll_loop_revalidates_when_pid_rotates(self, monkeypatch, tmp_path):
+        """XV-17: when the PID file rotates to a different PID mid-wait,
+        the poll loop must re-run ``_process_is_prewarm`` on the new PID
+        (PID-recycling guard still applies on rotation).
+        """
+        pid_file = tmp_path / ".prewarm.pid"
+        pid_file.write_text("11111")
+        monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
+
+        monkeypatch.setattr(prewarm, "is_prewarm_running", lambda: True)
+        monkeypatch.setattr(prewarm, "_wait_for_completion_event", lambda timeout: False)
+
+        # Sequence of PIDs returned by _read_prewarm_pid across iterations:
+        # - Initial verified_pid capture: 11111
+        # - Poll iter 1: 22222 (rotated → re-validate via _process_is_prewarm)
+        # - Poll iter 2: 22222 (same → cheap liveness probe → exit)
+        pid_sequence = iter([11111, 22222, 22222])
+
+        def fake_read_pid():
+            try:
+                return next(pid_sequence)
+            except StopIteration:
+                return None
+
+        monkeypatch.setattr(prewarm, "_read_prewarm_pid", fake_read_pid)
+
+        # Track _process_is_prewarm invocations.
+        prewarm_check_calls = {"pids": []}
+
+        def tracking_is_prewarm(pid):
+            prewarm_check_calls["pids"].append(pid)
+            return True  # treat both PIDs as prewarm
+
+        monkeypatch.setattr(prewarm, "_process_is_prewarm", tracking_is_prewarm)
+
+        # _process_alive: True for all calls except the last (so the loop
+        # exits cleanly when the rotated PID exits).
+        alive_calls = {"n": 0}
+
+        def fake_alive(pid):
+            alive_calls["n"] += 1
+            return alive_calls["n"] < 3
+
+        monkeypatch.setattr(process_tracker, "_process_alive", fake_alive)
+        monkeypatch.setattr(time, "sleep", lambda *_a, **_kw: None)
+
+        result = process_tracker.wait_for_prewarm(timeout_s=60.0)
+        assert result is True
+        # The rotated PID (22222) must have been re-validated via
+        # _process_is_prewarm. (11111 was validated by the guard.)
+        assert 22222 in prewarm_check_calls["pids"], (
+            "XV-17: PID rotation must trigger re-validation via "
+            f"_process_is_prewarm; saw PIDs {prewarm_check_calls['pids']}"
+        )
 
     def test_poll_loop_times_out(self, monkeypatch, tmp_path):
         """If prewarm never finishes, ``wait_for_prewarm`` returns False."""

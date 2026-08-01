@@ -6,6 +6,7 @@ real audio hardware, so tests run on any platform (CI included).
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
@@ -120,7 +121,23 @@ def backend() -> FakeBackend:
 
 @pytest.fixture
 def ducker(backend: FakeBackend) -> VolumeDucker:
-    return VolumeDucker(backend=backend)
+    """A ``VolumeDucker`` wrapping ``backend``.
+
+    Teardown: ``VolumeDucker.__init__`` allocates a ``threading.Lock``
+    and a ``threading.Event`` (the smart-duck monitor stop signal). The
+    monitor thread itself is only started by ``duck()`` (when smart-duck
+    skips the actual volume change because no audio is playing) — not by
+    ``__init__``. Calling ``_stop_smart_duck_monitor()`` in teardown is
+    a defensive no-op when no monitor is running, and ensures that if a
+    test DID start the monitor (and didn't explicitly stop it via
+    ``restore()``) the daemon thread is signalled to exit before the
+    next test starts.
+    """
+    d = VolumeDucker(backend=backend)
+    yield d
+    # Idempotent: early-returns when ``_monitor_thread is None``.
+    with contextlib.suppress(Exception):
+        d._stop_smart_duck_monitor()
 
 
 @pytest.fixture
@@ -130,7 +147,21 @@ def recovery_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def crash_recovery(recovery_dir: Path) -> DuckCrashRecovery:
-    return DuckCrashRecovery(config_dir=recovery_dir)
+    """A ``DuckCrashRecovery`` rooted at ``recovery_dir``.
+
+    Teardown: ``DuckCrashRecovery`` persists the pre-duck volume state
+    to a JSON file inside ``config_dir``. ``clear()`` deletes the file
+    so a test that called ``save()`` but not ``restore()`` doesn't leave
+    a stale ``ducked_volume.json`` behind in ``tmp_path`` (which would
+    be visible to the next test that constructs a ``DuckCrashRecovery``
+    pointed at the same dir, causing ``load_stale()`` to return a bogus
+    cached state).
+    """
+    cr = DuckCrashRecovery(config_dir=recovery_dir)
+    yield cr
+    # Idempotent: suppresses ``OSError`` if the file is already gone.
+    with contextlib.suppress(Exception):
+        cr.clear()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
