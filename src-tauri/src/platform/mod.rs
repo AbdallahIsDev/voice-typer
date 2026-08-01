@@ -1,6 +1,6 @@
 //! Platform-specific code: per-OS paths + file logging (ADR-0020 §8 + §11).
 //!
-//! AC-105: ``open_path`` hosts the per-OS "open path in file manager"
+//! ``open_path`` hosts the per-OS "open path in file manager"
 //! dispatch (``explorer.exe`` / ``open`` / ``xdg-open``). Previously
 //! this lived in ``commands/system_cmds.rs``, mixing the Tauri command
 //! facade concern with the per-OS binary-dispatch concern. Moved here

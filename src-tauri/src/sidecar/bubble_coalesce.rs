@@ -3,7 +3,7 @@
 //! ~60 Hz `bubble_level` event stream to ≤30 Hz before emitting to the
 //! bubble renderer.
 //!
-//! ## DT-53 — extraction rationale
+//! ## extraction rationale
 //!
 //! Previously this helper lived in `sidecar/supervisor.rs:474-482`. The
 //! supervisor module accreted 3 unrelated responsibilities: respawn /
@@ -15,14 +15,14 @@
 //! import graph misleading + forced a recompile of supervisor.rs whenever
 //! the coalesce logic changed.
 //!
-//! DT-53 moves the predicate here (its own focused module) so
+//! moves the predicate here (its own focused module) so
 //! `supervisor.rs` owns ONLY respawn/backoff logic. The signature +
 //! behavior is preserved EXACTLY — only the module path changes.
 //!
 //! The min interval is `Duration::from_nanos(1_000_000_000 / hz)` — for the
 //! default `BUBBLE_LEVEL_COALESCE_HZ = 30`, that's 33.333ms (nanosecond
 //! precision), so a 60 Hz input stream emits every other event = 30 Hz.
-//! UE-3-F12: previously used `Duration::from_millis(1000 / hz)`, which for
+//! previously used `Duration::from_millis(1000 / hz)`, which for
 //! `hz > 1000` integer-divided to 0 → coalescing was silently disabled.
 //! `from_nanos` keeps the interval non-zero for any `hz` up to `u64::MAX`
 //! (sub-nanosecond precision is not representable in `Duration`, so the
@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 /// default `BUBBLE_LEVEL_COALESCE_HZ = 30`, that's 33.333ms (nanosecond
 /// precision), so a 60 Hz input stream emits every other event = 30 Hz.
 ///
-/// UE-3-F12: previously used `Duration::from_millis(1000 / hz)`, which
+/// previously used `Duration::from_millis(1000 / hz)`, which
 /// for `hz > 1000` integer-divided to 0 (`1000 / 2000 == 0` in Rust's
 /// integer division), silently disabling coalescing for any rate above
 /// 1 kHz. The `from_nanos` form keeps a non-zero interval for any
@@ -53,7 +53,7 @@ pub(crate) fn bubble_coalesce_should_emit(
     now: Instant,
     hz: u64,
 ) -> bool {
-    // UE-3-F12: use `from_nanos(1_000_000_000 / hz)` instead of
+    // use `from_nanos(1_000_000_000 / hz)` instead of
     // `from_millis(1000 / hz)`. The millis form integer-divided to 0 for
     // any `hz > 1000`, silently disabling coalescing. The nanos form
     // keeps a non-zero interval up to `hz == 999_999_999` (well above any
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_bubble_coalesce_should_emit_respects_min_interval() {
         // With hz=30, min_interval = 1_000_000_000 / 30 = 33_333_333 ns ≈ 33.333 ms
-        // (UE-3-F12 changed the unit from `from_millis(33)` to `from_nanos(33_333_333)`,
+        // (changed the unit from `from_millis(33)` to `from_nanos(33_333_333)`,
         // adding 333 µs of precision). An event 33 ms after the last emit is
         // BELOW the 33.333 ms threshold → suppressed; an event 34 ms after is
         // ABOVE → emitted. The 100 ms "well_after" case is unaffected.
@@ -120,7 +120,7 @@ mod tests {
     fn test_bubble_level_coalesce_respects_30hz_cap() {
         // Simulate a 60 Hz event stream for ~1 second (60 events, ~16.67ms
         // apart). With BUBBLE_LEVEL_COALESCE_HZ=30 (min interval ≈ 33.333 ms
-        // under UE-3-F12's from_nanos form), every other event passes the
+        // from_nanos form), every other event passes the
         // filter → exactly 30 emits per simulated second, hitting the cap
         // without exceeding it.
         let hz = BUBBLE_LEVEL_COALESCE_HZ;
@@ -152,11 +152,11 @@ mod tests {
         );
     }
 
-    // ── UE-3-F12: hz > 1000 no longer silently disables coalescing ──
+    // hz > 1000 no longer silently disables coalescing ──
 
     #[test]
     fn test_ue3_f12_hz_above_1000_does_not_silently_disable_coalescing() {
-        // UE-3-F12: with the old `Duration::from_millis(1000 / hz)` form,
+        // with the old `Duration::from_millis(1000 / hz)` form,
         // hz=2000 produced `1000 / 2000 == 0` (Rust integer division) →
         // `from_millis(0)` → coalescing silently disabled (every event
         // passes). The fix uses `Duration::from_nanos(1_000_000_000 / hz)`

@@ -7,13 +7,13 @@
 //! Mirrors the Python side's `os.umask(0o077)` + `os.chmod(log_file,
 //! 0o600)` pattern in `voice_typer/server/log.py`.
 //!
-//! # UE-31 deferral: proposed split (NOT done this session)
+//! deferral: proposed split (NOT done this session)
 //!
 //! This file is a 2161-line monolith mixing 6 concerns: init
 //! orchestration, `CombinedLogger` multi-sink dispatch, a 515-LOC PII
 //! redaction engine (`redact_pii` + 5+ `try_match_*` state machines),
 //! `install_panic_hook`, `EarlyLogger` + `EARLY_LOGGER_HANDLE`, and
-//! `RotatingFileWriter`. UE-31 (GROUP 5 mandatory spaghetti split)
+//! `RotatingFileWriter`.
 //! proposes decomposing into:
 //!
 //! ```text
@@ -27,15 +27,7 @@
 //!   rotating.rs     // RotatingFileWriter
 //!   tests/          // co-located per sub-module
 //! ```
-//!
-//! **Deferred** because the UE-6 fix (this session) edits the redaction
-//! engine (`redact_pii` + new `try_match_flag_or_bare_key` +
-//! `try_match_long_alphanumeric_run`), which would conflict with a
-//! simultaneous file split. The split should be done in a follow-up
-//! session AFTER the UE-6 redaction expansion has been validated.
-//! High regression risk: the redaction engine runs inside the panic
-//! hook, so a move/rename mistake would silently disable PII scrubbing
-//! in crash reports.
+
 
 use crate::util::{ROTATE_MAX_BYTES, ROTATE_MAX_FILES, now_timestamp};
 use std::fs::OpenOptions;
@@ -89,7 +81,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
             std::fs::Permissions::from_mode(0o700),
         );
     }
-    // FR-97: rename Rust's log basename to `voice-typer-rust` so the
+    // rename Rust's log basename to `voice-typer-rust` so the
     // final path is `<config_dir>/logs/voice-typer-rust.log`. Pre-fix
     // the basename was `voice-typer`, producing
     // `<config_dir>/logs/voice-typer.log` — the SAME basename as the
@@ -104,7 +96,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // layout change. Mirrors the Python side's
     // `RotatingFileHandler(filename=...)` at log.py:891-893.
     let writer = RotatingFileWriter::new(logs_dir, "voice-typer-rust");
-    // PVT-G5-082: honor `RUST_LOG` runtime log-level override. Parsed
+    // honor `RUST_LOG` runtime log-level override. Parsed
     // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
     // Default to `Info` if the var is unset OR unparseable so a typo
     // (e.g. `RUST_LOG=debog`) doesn't silently disable all logging.
@@ -114,7 +106,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // `level_filter` is consulted inside `CombinedLogger::enabled`
     // (which `log::log!` calls as a second filter).
     //
-    // G4-M-31 (session 4) fallback: if `RUST_LOG` is unset, also honor
+    // fallback: if `RUST_LOG` is unset, also honor
     // the Voice Typer-specific `VOICE_TYPER_DEBUG` env var. When
     // truthy ("1", "true", "yes", case-insensitive), set the level to
     // Debug so developers get verbose logs in the file + stderr. This
@@ -127,7 +119,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
         .ok()
         .and_then(|s| s.parse::<log::LevelFilter>().ok())
         .or_else(|| {
-            // G4-M-31: RUST_LOG unset/unparseable — try VOICE_TYPER_DEBUG.
+            // RUST_LOG unset/unparseable — try VOICE_TYPER_DEBUG.
             if is_debug_env_truthy(std::env::var("VOICE_TYPER_DEBUG").ok().as_deref()) {
                 Some(log::LevelFilter::Debug)
             } else {
@@ -135,26 +127,28 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
             }
         })
         .unwrap_or(log::LevelFilter::Info);
-    // TY-34: gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
+    // gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
     // Release builds with no env var skip the per-line `eprintln!`
     // syscall (saves 1 `write(2)` per log line). The env var is the
     // release-build escape hatch for operators who want stderr tailing
     // (`journalctl -u voice-typer` etc.).
-    let stderr_verbose_init = cfg!(debug_assertions)
-        || std::env::var("RUST_LOG_STDERR")
-            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+    //
+    // use the shared `is_truthy_env_var` helper so the truthy
+    // contract ("1" / "true" / "yes", case-insensitive, trimmed) is
+    // defined in exactly one place. The same helper is used by
+    // `install_early_logger` and `is_debug_env_truthy`.
+    let stderr_verbose_init = cfg!(debug_assertions) || is_truthy_env_var("RUST_LOG_STDERR");
     let combined = CombinedLogger {
         file_writer: Some(writer),
         level_filter: max_level,
-        // FR-96: `AtomicBool` so future code (e.g. a Tauri command)
+        // `AtomicBool` so future code (e.g. a Tauri command)
         // can toggle stderr verbosity at runtime. The per-line cost
         // is a single `AtomicBool::load(Relaxed)` — same as a `bool`
         // load on x86/ARM (Relaxed loads compile to a plain MOV).
         stderr_verbose: AtomicBool::new(stderr_verbose_init),
     };
 
-    // FR-16: prefer the swap pattern when an `EarlyLogger` is already
+    // prefer the swap pattern when an `EarlyLogger` is already
     // installed as the process-global `log` sink (the standard path —
     // `install_early_logger` runs as the first line of `main()`).
     // `log::set_logger` can only be called ONCE per process, so we
@@ -181,7 +175,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // Fallback: EarlyLogger was NOT installed (e.g. tests, or a host
     // entrypoint that skipped `install_early_logger`). Install the
     // `CombinedLogger` directly via `log::set_logger`. This path
-    // preserves the pre-FR-16 behavior so existing tests that depend
+    // preserves the behavior so existing tests that depend
     // on `init_file_logger` calling `set_logger` continue to compile
     // and run.
     log::set_logger(Box::leak(Box::new(combined)))
@@ -190,15 +184,64 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     Ok(())
 }
 
-/// G4-M-31: predicate form of the VOICE_TYPER_DEBUG env-var check,
-/// extracted for unit testing. Truthy values: "1", "true", "yes"
-/// (case-insensitive). Anything else (including unset / empty) is
-/// falsy → production Info-level logging.
+/// Host entrypoint convenience wrapper: try the rotating file logger
+/// first, and if that fails (e.g. config-dir not writable), fall back
+/// to a stderr-only `env_logger` sink so early startup diagnostics
+/// still land somewhere visible. Both failures are surfaced to stderr
+/// via `eprintln!` (the global `log` sink may not be installed yet).
+///
+/// Extracted from `main.rs` so the host entrypoint stays wiring-only
+//(C-) — no `env_logger::Builder` plumbing inline.
+///
+/// # Error handling
+///
+/// This function NEVER panics:
+/// - `init_file_logger` failure -> log to stderr, try env_logger.
+/// - env_logger `try_init` failure (e.g. another logger already
+///   installed) -> log to stderr, return. The host continues with NO
+///   logger; all `log::*!` calls become no-ops (the `log` crate's
+///   default sink is a no-op until `set_logger` is called).
+pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) {
+    if let Err(e) = init_file_logger(config_dir) {
+        eprintln!(
+            "[MAIN] file logger init failed (falling back to stderr-only env_logger): {}",
+            e
+        );
+        // Best-effort: env_logger for stderr only (no file sink).
+        // `try_init` avoids panic if `log::set_logger` was already
+        // called (e.g. by the EarlyLogger swap path above).
+        if let Err(e2) = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or("info"),
+        )
+        .format_timestamp_millis()
+        .try_init()
+        {
+            eprintln!(
+                "[MAIN] env_logger fallback ALSO failed: {} — running with NO logger; all log::*! calls will be dropped",
+                e2
+            );
+        }
+    }
+}
+
+/// shared truthy matcher for boolean environment variables.
+/// Truthy values: `"1"`, `"true"`, `"yes"` (case-insensitive, after
+/// trimming leading/trailing whitespace). Anything else — including
+/// unset, empty, `"0"`, `"false"`, `"no"`, or a typo like `"yess"` —
+/// is falsy.
+///
+/// This is the single source of truth for the truthy contract across
+/// the Voice Typer Rust host. It is wrapped by two thin callers:
+/// - `is_truthy_env_var(name)` — looks up an env var by name and
+///   applies this matcher (used by both `stderr_verbose` sites).
+/// - `is_debug_env_truthy(value)` — applies this matcher to a
+///   caller-supplied value (kept for unit-testability without env
+///   mutation).
 ///
 /// Mirrors the Python side's `env_validation.py` boolean-var pattern
 /// (pattern: `^(1|0|true|false|yes|no)$`, case-insensitive) so the
 /// Rust + Python hosts respond identically to the same env var.
-pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
+fn is_truthy_value(value: Option<&str>) -> bool {
     match value {
         Some(v) => matches!(
             v.trim().to_ascii_lowercase().as_str(),
@@ -208,12 +251,36 @@ pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
     }
 }
 
+/// env-var form of the truthy predicate. Looks up `name` in
+/// the process environment and applies `is_truthy_value` to the
+/// result. Unset vars are falsy (not an error). Used by both
+/// `stderr_verbose` computation sites (`init_file_logger` +
+/// `install_early_logger`) so the truthy contract lives in exactly
+/// one place.
+pub(crate) fn is_truthy_env_var(name: &str) -> bool {
+    is_truthy_value(std::env::var(name).ok().as_deref())
+}
+
+//predicate form of the VOICE_TYPER_DEBUG env-var check,
+/// extracted for unit testing. now delegates to the shared
+/// `is_truthy_value` matcher (the same one `is_truthy_env_var` uses)
+/// so the truthy contract is defined in exactly one place. Truthy
+/// values: "1", "true", "yes" (case-insensitive). Anything else
+/// (including unset / empty) is falsy → production Info-level logging.
+///
+/// Mirrors the Python side's `env_validation.py` boolean-var pattern
+/// (pattern: `^(1|0|true|false|yes|no)$`, case-insensitive) so the
+/// Rust + Python hosts respond identically to the same env var.
+pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
+    is_truthy_value(value)
+}
+
 /// Combined stderr + rotating-file logger. Replaces `env_logger` so
 /// we can add the file sink without a multiplexer crate.
 pub(crate) struct CombinedLogger {
     file_writer: Option<RotatingFileWriter>,
     level_filter: log::LevelFilter,
-    /// TY-34: cached predicate — `true` if log lines should ALSO be
+    //cached predicate — `true` if log lines should ALSO be
     /// written to stderr. Computed ONCE at logger init from
     /// `cfg!(debug_assertions)` (always true in debug builds) OR the
     /// `RUST_LOG_STDERR=1` env var (opt-in for release builds via
@@ -225,7 +292,7 @@ pub(crate) struct CombinedLogger {
     /// Caching the predicate here means the per-line cost is a single
     /// bool load, not an `env::var` lookup.
     ///
-    /// FR-96: changed from `bool` to `AtomicBool` so the predicate
+    // changed from `bool` to `AtomicBool` so the predicate
     /// becomes runtime-toggleable. Future code (e.g. a Tauri command
     /// that flips stderr verbosity without restarting the host) can
     /// `store(true/false, Ordering::Relaxed)` at any time. The per-
@@ -246,7 +313,7 @@ impl log::Log for CombinedLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        // XZ-LOG-02: redact PII from the log message before writing
+        // redact PII from the log message before writing
         // to file or stderr. The redactor is intentionally MINIMAL —
         // it covers the highest-signal patterns (Bearer/Token/sk- prefix
         // tokens, user:pass@host URL credentials, basic email addresses)
@@ -257,7 +324,7 @@ impl log::Log for CombinedLogger {
         let raw_msg = record.args().to_string();
         let msg = redact_pii(&raw_msg);
         let ts = now_timestamp();
-        // PVT-G5-084: include `file:line` so operators can jump
+        // include `file:line` so operators can jump
         // directly to the source location from a log line. Both
         // `record.file()` and `record.line()` return `Option` (they
         // are `None` for log records emitted from non-`#[track_caller]`
@@ -272,7 +339,7 @@ impl log::Log for CombinedLogger {
             record.line().unwrap_or(0),
             msg
         );
-        // TY-34: gate the per-line `eprintln!` on the cached
+        // gate the per-line `eprintln!` on the cached
         // `stderr_verbose` flag (computed once at logger init from
         // `cfg!(debug_assertions)` OR `RUST_LOG_STDERR=1`). The prior
         // unconditional `eprintln!` was a wasted `write(2)` syscall
@@ -280,7 +347,7 @@ impl log::Log for CombinedLogger {
         // Always emit in debug builds so `cargo tauri dev` shows live
         // logs in the launching terminal; opt-in for release builds.
         //
-        // FR-96: `AtomicBool::load(Relaxed)` — runtime-toggleable
+        // `AtomicBool::load(Relaxed)` — runtime-toggleable
         // without restart. Same per-line cost as a `bool` load.
         if self.stderr_verbose.load(Ordering::Relaxed) {
             eprintln!("{}", line);
@@ -291,18 +358,18 @@ impl log::Log for CombinedLogger {
         // rather than a broad `msg.contains("bubble_level")` substring
         // — the old substring filter risked false-positives on unrelated
         // log lines that happened to mention "bubble_level".
-        // GT-B4-11: the WS reader doesn't currently log bubble_level
+        // the WS reader doesn't currently log bubble_level
         // events to the file (they go via `app.emit()` to the webview,
         // not `log::*!`), so this filter is defensive.
         //
-        // FR-33: preserve WARNING+ records even when they start with
+        // preserve WARNING+ records even when they start with
         // the bubble_level prefix. Pre-fix this dropped ANY record
         // matching the prefix regardless of level — a future
         // `log::error!("[WS-READER] bubble_level event handler
         // crashed: ...")` would be SILENTLY LOST from the file log.
         // Mirrors Python's `_BubbleLevelExclusionFilter` short-circuit
         // at `log.py:216-219`:
-        //   `if record.levelno >= logging.WARNING: return True`
+        // `if record.levelno >= logging.WARNING: return True`
         // (filter returning True = "do NOT filter out" in Python's
         // logging API). The Rust equivalent is the level-guarded
         // early-skip below.
@@ -322,36 +389,36 @@ impl log::Log for CombinedLogger {
     }
 }
 
-// ─── XZ-LOG-02 / UE-6: PII redaction ────────────────────────────────────
+// PII redaction ────────────────────────────────────
 //
 // PII redactor for log output. Ports the Python `PIIRedactionFilter`
 // pattern set to Rust using std-only substring scanning (no `regex`
 // crate dependency). Covered patterns (checked at each byte position
 // in the order listed; first match wins):
 //
-//   Prefix / keyword patterns (Python `_KEY_PATTERNS` + `_FLAG_KEY_PATTERNS`):
-//   - Bearer <token>           → `Bearer ***`   (Python `_KEY_PATTERNS[0]`)
-//   - Token <token>            → `Token ***`    (Python `_KEY_PATTERNS[1]`)
-//   - sk-<token> (8+ chars)    → `sk-***`       (Python `_KEY_PATTERNS[2]`)
-//   - gsk_<token> (8+ chars)   → `gsk_***`      (Python `_KEY_PATTERNS[3]`)
-//   - --keyword=value          → `--keyword=***` (Python `_FLAG_VALUE_PATTERN`, UE-6)
-//   - --keyword value          → `--keyword ***` (Python `_FLAG_VALUE_PATTERN`, UE-6)
-//   - keyword=value            → `keyword=***`   (Python `_BARE_KEY_VALUE_PATTERN`, UE-6)
+// Prefix / keyword patterns (Python `_KEY_PATTERNS` + `_FLAG_KEY_PATTERNS`):
+// - Bearer <token>           → `Bearer ***`   (Python `_KEY_PATTERNS[0]`)
+// - Token <token>            → `Token ***`    (Python `_KEY_PATTERNS[1]`)
+// - sk-<token> (8+ chars)    → `sk-***`       (Python `_KEY_PATTERNS[2]`)
+// - gsk_<token> (8+ chars)   → `gsk_***`      (Python `_KEY_PATTERNS[3]`)
+// keyword=value          → `--keyword=***` (Python `_FLAG_VALUE_PATTERN`, )
+// keyword value          → `--keyword ***` (Python `_FLAG_VALUE_PATTERN`, )
+// keyword=value            → `keyword=***`   (Python `_BARE_KEY_VALUE_PATTERN`, )
 //
-//   PII patterns (Python `_PATTERNS`):
-//   - user:pass@host      → `***@host`     (Python `redact_url`)
-//   - <local>@<dom>.<tld> → `[EMAIL]`      (Python `_PATTERNS[0]`)
-//   - IBAN                → `[IBAN]`       (Python `_PATTERNS[1]`)
-//   - Intl phone (+cc…)   → `[PHONE]`      (Python `_PATTERNS[3]`)
-//   - US phone (3-3-4)    → `[PHONE]`      (Python `_PATTERNS[2]`)
-//   - SSN (3-2-4)         → `[SSN]`        (Python `_PATTERNS[4]`)
-//   - Credit card (4-4-4-4) → `[CC]`      (Python `_PATTERNS[5]`)
+// PII patterns (Python `_PATTERNS`):
+// - user:pass@host      → `***@host`     (Python `redact_url`)
+// - <local>@<dom>.<tld> → `[EMAIL]`      (Python `_PATTERNS[0]`)
+// - IBAN                → `[IBAN]`       (Python `_PATTERNS[1]`)
+// - Intl phone (+cc…)   → `[PHONE]`      (Python `_PATTERNS[3]`)
+// - US phone (3-3-4)    → `[PHONE]`      (Python `_PATTERNS[2]`)
+// - SSN (3-2-4)         → `[SSN]`        (Python `_PATTERNS[4]`)
+// - Credit card (4-4-4-4) → `[CC]`      (Python `_PATTERNS[5]`)
 //
-//   Catch-all (Python `_KEY_PATTERNS[4]`, UE-6):
-//   - 20+ char alphanumeric run → `***`   (`\b[A-Za-z0-9_\-]{20,}\b`)
+//Catch-all (Python `_KEY_PATTERNS[4]`, ):
+// - 20+ char alphanumeric run → `***`   (`\b[A-Za-z0-9_\-]{20,}\b`)
 //
 // The fast path mirrors Python's `_FAST_TRIGGER` (security.py:63):
-//   `[@+]|\d{3,}|Bearer|Token|sk-|key=|[A-Za-z0-9_\-]{20,}`
+// `[@+]|\d{3,}|Bearer|Token|sk-|key=|[A-Za-z0-9_\-]{20,}`
 // We check the substrings directly (no regex), a 3+ consecutive
 // digit scan for the numeric patterns, and a 20+ char alphanumeric
 // run scan for the catch-all. A miss on ALL triggers lets us return
@@ -366,22 +433,22 @@ pub(crate) fn redact_pii(input: &str) -> String {
     // the Python side's `_FAST_TRIGGER` shortcut (security.py:63). Each
     // trigger is a *necessary* condition for at least one downstream
     // pattern:
-    //   `@`      — email / URL credentials
-    //   `+`      — international phone (`+<cc>…`)
-    //   `Bearer` — bearer token
-    //   `Token`  — token keyword
-    //   `sk-`    — OpenAI-style key
-    //   `gsk_`   — Groq-style key
-    //   `://`    — URL credentials (`https://user:pass@host`)
-    //   3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (BBAN
-    //     portion always contains 3+ consecutive digits)
-    //   `key=`   — bare `key=value` flag form (Python `_FAST_TRIGGER`);
-    //     also a substring of `--key=`, `--api_key=`, `--api-key=`, and
-    //     any `--<keyword>=` flag whose keyword ends in `key`. Case-
-    //     sensitive (mirrors Python). UE-6.
-    //   20+ char alphanumeric run — the generic 20+ char bare-token
-    //     pattern (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`).
-    //     UE-6.
+    // `@`      — email / URL credentials
+    // `+`      — international phone (`+<cc>…`)
+    // `Bearer` — bearer token
+    // `Token`  — token keyword
+    // `sk-`    — OpenAI-style key
+    // `gsk_`   — Groq-style key
+    // `://`    — URL credentials (`https://user:pass@host`)
+    // 3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (BBAN
+    // portion always contains 3+ consecutive digits)
+    // `key=`   — bare `key=value` flag form (Python `_FAST_TRIGGER`);
+    // also a substring of `--key=`, `--api_key=`, `--api-key=`, and
+    // any `--<keyword>=` flag whose keyword ends in `key`. Case-
+    //sensitive (mirrors Python).
+    // 20+ char alphanumeric run — the generic 20+ char bare-token
+    // pattern (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`).
+    //
     if !input.contains('@')
         && !input.contains('+')
         && !input.contains("Bearer")
@@ -402,10 +469,10 @@ pub(crate) fn redact_pii(input: &str) -> String {
         let rest = &input[i..];
 
         // 1. `Bearer <token>` — token runs until a char that's NOT in
-        //    the Python `_KEY_PATTERNS[0]` charset `[A-Za-z0-9_\-\.=]`.
-        //    Pre-fix the token ran until whitespace, which consumed
-        //    trailing punctuation (e.g. the comma in `Bearer abc123,`)
-        //    and broke `test_redact_pii_multiple_patterns_in_one_line`.
+        // the Python `_KEY_PATTERNS[0]` charset `[A-Za-z0-9_\-\.=]`.
+        // Pre-fix the token ran until whitespace, which consumed
+        // trailing punctuation (e.g. the comma in `Bearer abc123,`)
+        // and broke `test_redact_pii_multiple_patterns_in_one_line`.
         if let Some(stripped) = rest.strip_prefix("Bearer ") {
             let token_len = stripped
                 .find(|c: char| !is_api_token_char(c))
@@ -424,7 +491,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
             continue;
         }
         // 3. `sk-<token>` — token runs until non-alphanumeric / non
-        //    dash / non underscore (the typical API-key charset).
+        // dash / non underscore (the typical API-key charset).
         if let Some(stripped) = rest.strip_prefix("sk-") {
             let token_len = stripped
                 .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
@@ -439,7 +506,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
             }
         }
         // 4. `gsk_<token>` — Groq-style API key. Same charset and
-        //    length threshold as `sk-` (8+ chars after the prefix).
+        // length threshold as `sk-` (8+ chars after the prefix).
         if let Some(stripped) = rest.strip_prefix("gsk_") {
             let token_len = stripped
                 .find(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
@@ -451,18 +518,18 @@ pub(crate) fn redact_pii(input: &str) -> String {
             }
         }
 
-        // 5. Flag-form and bare-keyword secret patterns (UE-6). Mirrors
-        //    Python's `_FLAG_VALUE_PATTERN` (Pattern A: `--keyword=value`
-        //    or `--keyword value`) and `_BARE_KEY_VALUE_PATTERN`
-        //    (Pattern B: `keyword=value`). Checked AFTER the prefix
-        //    patterns (Bearer/Token/sk-/gsk_) so those specific prefixes
-        //    win, but BEFORE the PII patterns (email/IBAN/phone/SSN/CC)
-        //    so a secret-bearing flag value containing `@` or digits
-        //    (e.g. `token=alice@example.com`) is redacted as a secret
-        //    (`token=***`) rather than as PII (`token=[EMAIL]`).
+        //5. Flag-form and bare-keyword secret patterns (). Mirrors
+        // Python's `_FLAG_VALUE_PATTERN` (Pattern A: `--keyword=value`
+        // or `--keyword value`) and `_BARE_KEY_VALUE_PATTERN`
+        // (Pattern B: `keyword=value`). Checked AFTER the prefix
+        // patterns (Bearer/Token/sk-/gsk_) so those specific prefixes
+        // win, but BEFORE the PII patterns (email/IBAN/phone/SSN/CC)
+        // so a secret-bearing flag value containing `@` or digits
+        // (e.g. `token=alice@example.com`) is redacted as a secret
+        // (`token=***`) rather than as PII (`token=[EMAIL]`).
         //
-        //    See `SECRET_KEYWORDS` below for the keyword list and
-        //    `try_match_flag_or_bare_key` for the matching logic.
+        // See `SECRET_KEYWORDS` below for the keyword list and
+        // `try_match_flag_or_bare_key` for the matching logic.
         if let Some((total_len, prefix_len)) = try_match_flag_or_bare_key(rest, input, i) {
             out.push_str(&rest[..prefix_len]);
             out.push_str("***");
@@ -471,8 +538,8 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 6. `user:pass@host` — strip everything up to and including
-        //    the `@` IF the prefix contains a `:` (the URL-credential
-        //    marker). The host part is preserved.
+        // the `@` IF the prefix contains a `:` (the URL-credential
+        // marker). The host part is preserved.
         if rest.contains('@') {
             if let Some(at_pos) = rest.find('@') {
                 let prefix = &rest[..at_pos];
@@ -482,8 +549,8 @@ pub(crate) fn redact_pii(input: &str) -> String {
                     continue;
                 }
                 // 7. Basic email: `<name>@<domain>.<tld>`. We require
-                //    a `.` in the domain part (after the `@`) to avoid
-                //    false-positives on `user@host` (no TLD).
+                // a `.` in the domain part (after the `@`) to avoid
+                // false-positives on `user@host` (no TLD).
                 let after_at = &rest[at_pos + 1..];
                 let domain_end = after_at
                     .find(|c: char| c.is_whitespace() || c == ',' || c == ';')
@@ -504,11 +571,11 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 8. IBAN: 2 uppercase ASCII letters + 2 digits + 10-30 BBAN
-        //    chars (uppercase letters or digits). MUST be checked
-        //    before phone/SSN/CC so the digit portion of an IBAN
-        //    (e.g. `GB82WEST12345698765432`) isn't partially matched
-        //    as a phone number. Mirrors Python `_PATTERNS[1]`:
-        //    `\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b`.
+        // chars (uppercase letters or digits). MUST be checked
+        // before phone/SSN/CC so the digit portion of an IBAN
+        // (e.g. `GB82WEST12345698765432`) isn't partially matched
+        // as a phone number. Mirrors Python `_PATTERNS[1]`:
+        // `\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b`.
         if let Some(iban_len) = try_match_iban(rest, input, i) {
             out.push_str("[IBAN]");
             i += iban_len;
@@ -516,11 +583,11 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 9. International phone: `+` followed by country code (1-3
-        //    digits) and subscriber number. Mirrors Python
-        //    `_PATTERNS[3]`: `\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b`.
-        //    Checked before US phone so `+1 (415) 555-2671` matches
-        //    the international pattern (not the US pattern on the
-        //    `415 555 2671` tail).
+        // digits) and subscriber number. Mirrors Python
+        // `_PATTERNS[3]`: `\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b`.
+        // Checked before US phone so `+1 (415) 555-2671` matches
+        // the international pattern (not the US pattern on the
+        // `415 555 2671` tail).
         if rest.starts_with('+') {
             if let Some(phone_len) = try_match_intl_phone(rest, input, i) {
                 out.push_str("[PHONE]");
@@ -530,8 +597,8 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 10. US phone: 3-3-4 digits with optional `-` or `.`
-        //    separators. Mirrors Python `_PATTERNS[2]`:
-        //    `\b\d{3}[-.]?\d{3}[-.]?\d{4}\b`.
+        // separators. Mirrors Python `_PATTERNS[2]`:
+        // `\b\d{3}[-.]?\d{3}[-.]?\d{4}\b`.
         if let Some(phone_len) = try_match_us_phone(rest, input, i) {
             out.push_str("[PHONE]");
             i += phone_len;
@@ -539,10 +606,10 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 11. SSN: 3-2-4 digits with `-` separators (the canonical
-        //     `123-45-6789` form). Mirrors Python `_PATTERNS[4]`:
-        //     `\b\d{3}-\d{2}-\d{4}\b`. The dashes are REQUIRED (not
-        //     optional) so a 9-digit run like `123456789` is NOT
-        //     matched as an SSN (matches Python behaviour).
+        // `123-45-6789` form). Mirrors Python `_PATTERNS[4]`:
+        // `\b\d{3}-\d{2}-\d{4}\b`. The dashes are REQUIRED (not
+        // optional) so a 9-digit run like `123456789` is NOT
+        // matched as an SSN (matches Python behaviour).
         if let Some(ssn_len) = try_match_ssn(rest, input, i) {
             out.push_str("[SSN]");
             i += ssn_len;
@@ -550,20 +617,20 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // 12. Credit card: 4-4-4-4 digits with optional `-` or space
-        //     separators. Mirrors Python `_PATTERNS[5]`:
-        //     `\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`.
+        // separators. Mirrors Python `_PATTERNS[5]`:
+        // `\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`.
         if let Some(cc_len) = try_match_credit_card(rest, input, i) {
             out.push_str("[CC]");
             i += cc_len;
             continue;
         }
 
-        // 13. 20+ char alphanumeric catch-all (UE-6). Mirrors Python's
-        //     `_KEY_PATTERNS[4]`: `\b[A-Za-z0-9_\-]{20,}\b`. Catches
-        //     bare GitLab/GitHub/Slack PATs with no prefix. Checked LAST
-        //     (after all PII patterns) so an IBAN like
-        //     `GB82WEST12345698765432` (20 chars) is redacted as `[IBAN]`
-        //     rather than `***`.
+        //13. 20+ char alphanumeric catch-all (). Mirrors Python's
+        // `_KEY_PATTERNS[4]`: `\b[A-Za-z0-9_\-]{20,}\b`. Catches
+        // bare GitLab/GitHub/Slack PATs with no prefix. Checked LAST
+        // (after all PII patterns) so an IBAN like
+        // `GB82WEST12345698765432` (20 chars) is redacted as `[IBAN]`
+        // rather than `***`.
         if let Some(run_len) = try_match_long_alphanumeric_run(rest, input, i) {
             out.push_str("***");
             i += run_len;
@@ -571,7 +638,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
         }
 
         // No pattern matched at this position — copy the char and
-        // advance by its UTF-8 length. UE-44: use `if let Some` instead
+        //advance by its UTF-8 length. : use `if let Some` instead
         // of `unwrap()` — defense-in-depth. The loop invariant
         // (`i < input.len()`) guarantees `rest` is non-empty, so the
         // `else { break; }` branch is unreachable today. But a future
@@ -619,11 +686,11 @@ fn is_api_token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '='
 }
 
-// ─── UE-6: flag-form + bare-keyword + 20+ char catch-all helpers ────────
+//flag-form + bare-keyword + 20+ char catch-all helpers ────────
 
 /// Secret-bearing keywords for the flag-form and bare-keyword patterns.
 /// Mirrors Python's `_SECRET_KEYWORDS` in `voice_typer/server/_secrets.py:88-115`,
-/// plus `bearer` and `credential` (UE-6 task-specified additions not in
+//plus `bearer` and `credential` ( task-specified additions not in
 /// Python's list but unambiguously secret-bearing).
 ///
 /// **Order matters**: most-specific first, `key` last — so `api_key=`
@@ -653,7 +720,7 @@ const SECRET_KEYWORDS: &[&str] = &[
     "client-secret",
     "private_key",
     "private-key",
-    // UE-6 task-specified additions (not in Python's _SECRET_KEYWORDS
+    //task-specified additions (not in Python's _SECRET_KEYWORDS
     // but unambiguously secret-bearing).
     "bearer",
     "credential",
@@ -1098,7 +1165,7 @@ fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
     Some(idx)
 }
 
-// ─── PVT-G5-083: panic hook ─────────────────────────────────────────────
+//panic hook ─────────────────────────────────────────────
 //
 // Install a panic hook that writes the panic payload + source location
 // to BOTH stderr (via `eprintln!`) and the file log (via `log::error!`).
@@ -1109,7 +1176,26 @@ fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
 // fire). The hook chains to the previous hook (if any) so existing
 // panic behavior is preserved.
 
-/// Install the Voice Typer panic hook (PVT-G5-083).
+/// re-entrancy guard for `install_panic_hook`'s closure.
+///
+/// The panic hook calls `redact_pii` (which itself may panic — e.g. on
+/// a malformed state-machine transition, or via a poisoned mutex
+/// inside `RotatingFileWriter`). Without this guard, a panic DURING
+/// `redact_pii` would re-enter the hook → call `redact_pii` again →
+/// panic again → infinite recursion → the runtime's own panic-in-hook
+/// detector aborts the process with no useful breadcrumb.
+///
+/// The guard is `swap(true, SeqCst)` at hook entry. If the swap
+/// returns `true`, we're already inside the hook — bail out (skip
+/// `redact_pii` + `log::error!`) and chain directly to the previous
+/// hook so the default abort path still fires. On normal hook exit we
+/// reset to `false` so a LATER unrelated panic in the same process
+/// still gets the full redact+log treatment (matters under
+/// `panic=unwind`; under `panic=abort` the reset is moot — the process
+/// is going down anyway).
+static PANIC_HOOK_REENTRY: AtomicBool = AtomicBool::new(false);
+
+//Install the Voice Typer panic hook ().
 ///
 /// Writes the panic payload + `file:line:col` location to BOTH:
 /// - stderr (via `eprintln!`) — so `cargo tauri dev` / `journalctl`
@@ -1130,15 +1216,29 @@ fn try_match_credit_card(rest: &str, input: &str, pos: usize) -> Option<usize> {
 /// by the `log` crate's default no-op logger). Calling before
 /// `init_file_logger` is still safe — the `eprintln!` half still fires.
 ///
-/// FR-16: if `install_early_logger` has already been called (the new
+//if `install_early_logger` has already been called (the new
 /// standard path — `install_early_logger` is the FIRST line of
 /// `main()`), then the global `log` sink is the `EarlyLogger` (a
 /// stderr-only fallback) and `log::error!` from the panic hook will
 /// land on stderr even before `init_file_logger` upgrades the
 /// EarlyLogger to the combined file+stderr sink.
+///
+/// the closure installed here is guarded by
+/// `PANIC_HOOK_REENTRY` (see its doc comment for the re-entrancy
+/// contract). If `redact_pii` panics, the re-entered hook bails out
+/// at the `swap` and chains to `prev` — no infinite recursion.
 pub fn install_panic_hook() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // re-entrancy guard. If we're already inside the hook
+        // (a prior frame is mid-`redact_pii` and panicked), bail out
+        // immediately — do NOT call `redact_pii` or `log::error!`
+        // (either could re-panic and recurse). Chain to `prev` so the
+        // default abort path still fires.
+        if PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst) {
+            prev(info);
+            return;
+        }
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
@@ -1153,14 +1253,23 @@ pub fn install_panic_hook() {
             .copied()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("<non-string panic payload>");
-        // XZ-LOG-02: redact the payload before emitting — panic
+        //redact the payload before emitting — panic
         // messages can carry arbitrary user-supplied strings (e.g. a
         // serde_json error containing a fragment of the request body,
         // which can include an email / API key) and we don't want
         // those to land in `voice-typer.log` unredacted.
+        //
+        // if `redact_pii` panics here, the runtime unwinds
+        // (or aborts under `panic=abort`). Under unwind, the
+        // `PANIC_HOOK_REENTRY` flag is still `true`, so the
+        // re-entered hook bails out at the `swap` above — no
+        // infinite recursion.
         let payload_redacted = redact_pii(payload);
         eprintln!("[PANIC] {} -- {}", location, payload_redacted);
         log::error!("panic at {} -- {}", location, payload_redacted);
+        // Reset the guard so a later unrelated panic in the same
+        // process still gets the full redact+log treatment.
+        PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
         // Chain to the previous hook so any prior behavior (e.g. the
         // default "print panic message + abort" path under
         // `panic=abort`) is preserved.
@@ -1168,7 +1277,7 @@ pub fn install_panic_hook() {
     }));
 }
 
-// ─── FR-16: EarlyLogger (lastResort-equivalent for the Rust host) ──────
+//EarlyLogger (lastResort-equivalent for the Rust host) ──────
 //
 // Python's `logging` module ships with `logging.lastResort` — a
 // stderr-only handler of level WARNING that fires when no other
@@ -1179,13 +1288,13 @@ pub fn install_panic_hook() {
 // returns, every `log::*!` call is silently dropped by the default
 // no-op logger.
 //
-// Pre-FR-16, `main.rs` called `config_dir_from_env(...)` BEFORE
+//Pre-, `main.rs` called `config_dir_from_env(...)` BEFORE
 // `init_file_logger`, and `paths.rs` had to work around the silent
 // drop with manual `eprintln!("{}", warn_msg); log::warn!("{}", warn_msg);`
 // pairs (paths.rs:165-166). Any NEW pre-init `log::*!` call would be
 // silently lost with no workaround.
 //
-// FR-16 fix: install an `EarlyLogger` as the FIRST line of `main()`.
+//fix: install an `EarlyLogger` as the FIRST line of `main()`.
 // The EarlyLogger is a minimal stderr-only `log::Log` impl that runs
 // until `init_file_logger` upgrades it to the combined file+stderr
 // sink via a swap pattern (the global `log::set_logger` can only be
@@ -1198,7 +1307,7 @@ pub fn install_panic_hook() {
 /// time (which would fail — `set_logger` is process-global one-shot).
 static EARLY_LOGGER_HANDLE: OnceLock<&'static EarlyLogger> = OnceLock::new();
 
-/// FR-16: minimal stderr-only `log::Log` impl installed as the FIRST
+//minimal stderr-only `log::Log` impl installed as the FIRST
 /// line of `main()` (before `install_panic_hook`, before
 /// `config_dir_from_env`, before `init_file_logger`). Until
 /// `init_file_logger` runs, all `log::*!` records go to stderr only
@@ -1218,7 +1327,7 @@ pub(crate) struct EarlyLogger {
     /// path. `OnceLock::set` is called exactly once (init_file_logger
     /// returns Err if called twice).
     inner: OnceLock<CombinedLogger>,
-    /// Pre-init fallback state: stderr verbosity flag. FR-96: AtomicBool
+    //Pre-init fallback state: stderr verbosity flag. : AtomicBool
     /// so future code can toggle at runtime. After `init_file_logger`
     /// upgrades the EarlyLogger, this field is no longer consulted —
     /// the CombinedLogger's own `stderr_verbose` takes over.
@@ -1235,7 +1344,7 @@ impl EarlyLogger {
     /// `install_early_logger` has been called. Returns `None` in
     /// tests / host entrypoints that skip the early-logger install
     /// (in which case `init_file_logger` falls back to the
-    /// pre-FR-16 path of calling `log::set_logger` directly).
+    //pre- path of calling `log::set_logger` directly).
     fn instance() -> Option<&'static EarlyLogger> {
         EARLY_LOGGER_HANDLE.get().copied()
     }
@@ -1275,7 +1384,7 @@ impl log::Log for EarlyLogger {
             record.line().unwrap_or(0),
             msg
         );
-        // FR-96: AtomicBool::load(Relaxed) — runtime-toggleable.
+        //AtomicBool::load(Relaxed) — runtime-toggleable.
         if self.stderr_verbose.load(Ordering::Relaxed) {
             eprintln!("{}", line);
         }
@@ -1295,7 +1404,7 @@ impl log::Log for EarlyLogger {
     }
 }
 
-/// FR-16: install the `EarlyLogger` as the process-global `log` sink.
+//install the `EarlyLogger` as the process-global `log` sink.
 /// MUST be the FIRST line of `main()` — before `install_panic_hook`,
 /// before `config_dir_from_env`, before any other code that might
 /// call `log::*!`. Mirrors Python's `logging.lastResort` pattern.
@@ -1309,6 +1418,17 @@ impl log::Log for EarlyLogger {
 /// the `platform::logging` module. Calling more than once is safe —
 /// the second call is a no-op (the EarlyLogger is already installed
 /// in `EARLY_LOGGER_HANDLE` and `log::set_logger` was already called).
+///
+/// if `log::set_logger` returns `Err` (another logger is
+/// already installed as the process-global sink — e.g. a test that
+/// called `log::set_logger` before `install_early_logger`), this
+/// function does NOT set `EARLY_LOGGER_HANDLE`. Pre-fix it set the
+/// handle unconditionally, which orphaned the EarlyLogger:
+/// `init_file_logger` would later swap a `CombinedLogger` into the
+/// handle's `inner`, but the global `log` dispatch still routed to
+/// the OTHER logger → silent log loss. Now `init_file_logger` takes
+/// its fallback path (direct `log::set_logger`) which propagates the
+/// failure to the caller.
 pub fn install_early_logger() {
     if EARLY_LOGGER_HANDLE.get().is_some() {
         // Already installed — no-op. Allows `main()` to call this
@@ -1316,15 +1436,13 @@ pub fn install_early_logger() {
         // path) without panicking on the second `log::set_logger`.
         return;
     }
-    // TY-34 / FR-96: same stderr_verbose computation as
-    // `init_file_logger` — debug builds OR `RUST_LOG_STDERR=1`. We
-    // recompute here (rather than inheriting from a shared helper)
-    // because env vars don't change between the two calls and the
-    // duplication is only 4 lines.
-    let stderr_verbose = cfg!(debug_assertions)
-        || std::env::var("RUST_LOG_STDERR")
-            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+    //same stderr_verbose computation as
+    // `init_file_logger` — debug builds OR `RUST_LOG_STDERR=1`. Now
+    // delegates to the shared `is_truthy_env_var` helper so the
+    // truthy contract is defined in exactly one place (the prior
+    // 4-line `matches!` block was duplicated at lines 143-146 of
+    // `init_file_logger`; both sites now go through the same helper).
+    let stderr_verbose = cfg!(debug_assertions) || is_truthy_env_var("RUST_LOG_STDERR");
     let logger = Box::leak(Box::new(EarlyLogger {
         inner: OnceLock::new(),
         stderr_verbose: AtomicBool::new(stderr_verbose),
@@ -1334,13 +1452,38 @@ pub fn install_early_logger() {
         // `log::set_max_level` once it parses `RUST_LOG`.
         level_filter: log::LevelFilter::Info,
     }));
-    // `log::set_logger` is a one-shot — returns Err if a logger is
-    // already installed. We `let _ =` the result so this function is
-    // idempotent (a test that already set its own logger doesn't
-    // panic). The `EARLY_LOGGER_HANDLE` is still set below so
-    // `init_file_logger` can find the EarlyLogger and swap in the
-    // file sink.
-    let _ = log::set_logger(logger);
+    // `log::set_logger` is a one-shot — returns Err if a
+    // logger is already installed. Pre-fix this code did `let _ =` and
+    // unconditionally set `EARLY_LOGGER_HANDLE` below, which ORPHANED
+    // the EarlyLogger: `init_file_logger` would later find the handle,
+    // swap a `CombinedLogger` into the EarlyLogger's `inner`, but the
+    // global `log` dispatch still routed to the OTHER (pre-installed)
+    // logger → silent log loss (the swapped-in `CombinedLogger` never
+    // received records).
+    //
+    // Fix: if `set_logger` failed, do NOT set `EARLY_LOGGER_HANDLE`.
+    // `init_file_logger` will then take its fallback path (call
+    // `log::set_logger` directly with the `CombinedLogger`), which
+    // also fails — but that failure is propagated to the caller as an
+    // `Err`, which is the correct outcome (the caller can fall back
+    // to `env_logger` for stderr-only output). Emit a stderr warning
+    // so operators see the orphan in `journalctl` output.
+    if log::set_logger(logger).is_err() {
+        eprintln!(
+            "[EarlyLogger] install_early_logger: log::set_logger failed \
+             (another logger is already installed as the process-global \
+             log sink). EARLY_LOGGER_HANDLE NOT set — init_file_logger \
+             will fall back to direct log::set_logger. Subsequent \
+             log::*! records route to the pre-installed logger until \
+             init_file_logger runs."
+        );
+        // Note: the leaked `EarlyLogger` is now orphaned (no handle,
+        // no global registration). This is a one-time ~200-byte leak
+        // on an error path that should never fire in production
+        // (only in tests that install their own logger before calling
+        // install_early_logger). Acceptable.
+        return;
+    }
     log::set_max_level(log::LevelFilter::Info);
     let _ = EARLY_LOGGER_HANDLE.set(logger);
 }
@@ -1353,7 +1496,7 @@ pub(crate) struct RotatingFileWriter {
     dir: std::path::PathBuf,
     base_name: String,
     inner: Mutex<Option<std::fs::File>>,
-    /// TY-34: in-memory byte counter — replaces the per-line
+    //in-memory byte counter — replaces the per-line
     /// `file.metadata()?.len()` stat() syscall. Incremented by
     /// `line.len() + 1` (for the newline) on each successful
     /// `write_all`. Reset to 0 on rotation (the file is renamed and
@@ -1380,12 +1523,12 @@ impl RotatingFileWriter {
     }
 
     fn write_line(&self, line: &str) -> std::io::Result<()> {
-        // PVT-G5-018: recover from a poisoned mutex rather than
+        //recover from a poisoned mutex rather than
         // panicking inside the logger. A prior panic while holding
         // this lock would poison it; re-panicking here would recurse
         // through the panic hook (which itself calls `log::error!` →
         // this writer) and abort the process. Use the shared poison-safe
-        // `crate::state::lock` helper (G4-H-27) for consistency with
+        //`crate::state::lock` helper () for consistency with
         // `state.rs` + `supervisor.rs` + `ws.rs`.
         let mut guard = crate::state::lock(&self.inner);
         // Open the file lazily so we don't create `voice-typer.log`
@@ -1400,7 +1543,7 @@ impl RotatingFileWriter {
             // default `OpenOptions::create(true).append(true).open(...)`
             // inherits the process umask (typically 0o022), producing
             // `0o644` — readable by group + others. The dictation log
-            // may contain raw transcription text + PII (XZ-LOG-02),
+            //may contain raw transcription text + PII (),
             // so tighten to owner-only. On Windows `OpenOptionsExt::mode`
             // is unavailable; the OS uses ACLs instead (configured at
             // install time, not per-file).
@@ -1425,7 +1568,7 @@ impl RotatingFileWriter {
                 );
             }
             *guard = Some(file);
-            // TY-34: seed the in-memory byte counter from the on-disk
+            //seed the in-memory byte counter from the on-disk
             // file size on first open. The file is opened in
             // `create(true).append(true)` mode — if a prior run left a
             // stale `voice-typer.log`, its bytes are still on disk
@@ -1447,7 +1590,7 @@ impl RotatingFileWriter {
         // calls below. The match returns early with `Err` if the slot
         // is somehow still None (shouldn't happen — we just initialized
         // it above — but the type system can't prove that, and a
-        // panic-free `Option::unwrap` is exactly what G4-H-27 forbids).
+        //panic-free `Option::unwrap` is exactly what  forbids).
         let file = match guard.as_mut() {
             Some(f) => f,
             None => {
@@ -1457,7 +1600,7 @@ impl RotatingFileWriter {
                 ));
             }
         };
-        // TY-34: combine the line payload + the trailing newline into a
+        //combine the line payload + the trailing newline into a
         // single `write_all` call. The prior version did two separate
         // `write_all` calls (`line.as_bytes()` then `b"\n"`), which is
         // two `write(2)` syscalls per log line. Coalescing into one
@@ -1470,13 +1613,13 @@ impl RotatingFileWriter {
         buf.push(b'\n');
         let written = buf.len() as u64;
         file.write_all(&buf)?;
-        // TY-34: in-memory byte counter — increment by the bytes we
+        //in-memory byte counter — increment by the bytes we
         // just wrote. Replaces the per-line `file.metadata()?.len()`
         // stat() syscall. The counter is reset to 0 below when the
         // file rotates.
         self.current_size
             .fetch_add(written, std::sync::atomic::Ordering::Relaxed);
-        // TY-34: `std::fs::File::flush` is a documented no-op ("File
+        //`std::fs::File::flush` is a documented no-op ("File
         // doesn't have a buffer"), so the prior `file.flush()?` call
         // was a wasted method dispatch with no syscall savings. Drop
         // it. The OS write buffer is flushed by the kernel on its own
@@ -1503,7 +1646,7 @@ impl RotatingFileWriter {
     /// Rotate: `.log.(N-1)` → `.log.N`, …, `.log` → `.log.1`.
     /// Files at index `ROTATE_MAX_FILES - 1` (the oldest) are deleted.
     ///
-    /// GT-67: the previous loop bound was `(1..ROTATE_MAX_FILES).rev()`
+    //the previous loop bound was `(1..ROTATE_MAX_FILES).rev()`
     /// (= 1,2,3,4) with delete check `i + 1 >= ROTATE_MAX_FILES` (=
     /// `5 >= 5`). That kept 6 files total (`.log`, `.log.1`..`.log.5`),
     /// one MORE than `ROTATE_MAX_FILES=5` — an off-by-one that grew
@@ -1559,7 +1702,7 @@ impl RotatingFileWriter {
     }
 
     fn flush(&self) -> std::io::Result<()> {
-        // PVT-G5-018 / G4-H-27: same poison-recovery rationale as
+        //same poison-recovery rationale as
         // `write_line`, using the shared `crate::state::lock` helper.
         if let Some(f) = crate::state::lock(&self.inner).as_mut() {
             f.flush()?;
@@ -1571,7 +1714,7 @@ impl RotatingFileWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // PVT-G5-018 merge note: tests call `logger.log(&record)` and
+    //merge note: tests call `logger.log(&record)` and
     // `logger.flush()` directly on a `CombinedLogger` value. Those
     // methods belong to the `log::Log` trait, which is NOT auto-
     // imported by `use super::*;` (trait methods need the trait in
@@ -1623,7 +1766,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    // ── GT-67: pin the exact file count after N rotations ────────────
+    //pin the exact file count after N rotations ────────────
     //
     // The previous rotation loop kept `ROTATE_MAX_FILES + 1` files on
     // disk (off-by-one). This test writes enough data to trigger MANY
@@ -1661,7 +1804,7 @@ mod tests {
             }
         }
 
-        // GT-67 invariant: total file count must be EXACTLY
+        //invariant: total file count must be EXACTLY
         // ROTATE_MAX_FILES (=5). Pre-fix this was 6 (off-by-one).
         assert_eq!(
             file_count,
@@ -1723,11 +1866,11 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    // ── PVT-G5-018: poison-recovery (Mutex .unwrap_or_else) ──────────
+    //poison-recovery (Mutex .unwrap_or_else) ──────────
 
     #[test]
     fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
-        // PVT-G5-018: a prior panic while holding `inner`'s lock
+        //a prior panic while holding `inner`'s lock
         // poisons the mutex. The pre-fix code called `.lock().unwrap()`
         // here, which would re-panic. The post-fix code uses
         // `.lock().unwrap_or_else(|e| e.into_inner())`, which recovers
@@ -1763,7 +1906,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    // ── PVT-G5-082: RUST_LOG parsing ─────────────────────────────────
+    //RUST_LOG parsing ─────────────────────────────────
     //
     // We can't call `init_file_logger` from a test (it calls
     // `log::set_logger`, which is process-global and can only be set
@@ -1791,7 +1934,7 @@ mod tests {
 
     #[test]
     fn test_rust_log_parsing_unparseable_falls_back_to_info() {
-        // PVT-G5-082: a typo like "debog" should fall back to Info
+        //a typo like "debog" should fall back to Info
         // rather than silently disabling all logging. We mirror the
         // exact parse chain (without setting the env var, which would
         // race with other tests in the same process) by feeding the
@@ -1806,7 +1949,7 @@ mod tests {
 
     #[test]
     fn test_rust_log_parsing_known_levels() {
-        // PVT-G5-082: pin the parse behavior for the common
+        //pin the parse behavior for the common
         // `RUST_LOG=debug` / `=trace` / `=warn` / `=off` values so a
         // future `log` crate upgrade can't silently break the
         // override (e.g. by renaming a variant).
@@ -1838,22 +1981,141 @@ mod tests {
         );
     }
 
-    // ── PVT-G5-083: install_panic_hook ───────────────────────────────
+    //install_panic_hook ───────────────────────────────
 
     #[test]
     fn test_install_panic_hook_does_not_panic_on_install() {
-        // PVT-G5-083: the hook installer itself must not panic. Calling
+        //the hook installer itself must not panic. Calling
         // it twice is also safe (each call replaces the previous hook
         // via take_hook chaining).
         install_panic_hook();
         install_panic_hook();
     }
 
-    // ── PVT-G5-084: CombinedLogger::log format ───────────────────────
+    // ── panic hook re-entrancy guard ──────────────────────────
+
+    #[test]
+    fn test_si11_panic_hook_reentry_swap_semantics() {
+        // verify the swap semantics of `PANIC_HOOK_REENTRY`
+        // without triggering a real panic (which would race with
+        // parallel tests). The first `swap(false→true)` returns false
+        // (proceed with hook body). A second `swap(true→true)` returns
+        // true (bail out — re-entrant call). After `store(false)`, a
+        // subsequent swap returns false again (guard reset).
+        PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
+        let first = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
+        assert!(!first, "first swap (false→true) must return false");
+        let second = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
+        assert!(second, "second swap (true→true) must return true (re-entered)");
+        PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
+        let third = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
+        assert!(!third, "swap after reset must return false");
+        PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn test_si11_panic_hook_does_not_abort_and_resets_guard() {
+        // a normal panic must not abort, and the guard must be
+        // reset to false afterward so a later panic gets full treatment.
+        install_panic_hook();
+        PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
+        let result = std::panic::catch_unwind(|| {
+            panic!("si11 normal panic test payload");
+        });
+        assert!(result.is_err(), "catch_unwind must catch the panic");
+        assert!(!PANIC_HOOK_REENTRY.load(Ordering::SeqCst), "guard must be reset");
+    }
+
+    // ── is_truthy_env_var / is_truthy_value ─────────────────
+
+    #[test]
+    fn test_si15_5_is_truthy_value_truthy_cases() {
+        assert!(is_truthy_value(Some("1")));
+        assert!(is_truthy_value(Some("true")));
+        assert!(is_truthy_value(Some("TRUE")));
+        assert!(is_truthy_value(Some("True")));
+        assert!(is_truthy_value(Some("yes")));
+        assert!(is_truthy_value(Some("YES")));
+        assert!(is_truthy_value(Some("  yes  ")));
+        assert!(is_truthy_value(Some("\t1\n")));
+        assert!(is_truthy_value(Some("  TrUe  ")));
+    }
+
+    #[test]
+    fn test_si15_5_is_truthy_value_falsy_cases() {
+        assert!(!is_truthy_value(None));
+        assert!(!is_truthy_value(Some("")));
+        assert!(!is_truthy_value(Some("0")));
+        assert!(!is_truthy_value(Some("false")));
+        assert!(!is_truthy_value(Some("no")));
+        assert!(!is_truthy_value(Some("FALSE")));
+        assert!(!is_truthy_value(Some("yess")));
+        assert!(!is_truthy_value(Some("2")));
+        assert!(!is_truthy_value(Some("   ")));
+        assert!(!is_truthy_value(Some("on")));
+        assert!(!is_truthy_value(Some("enabled")));
+    }
+
+    #[test]
+    fn test_si15_5_is_truthy_env_var_unset_is_falsy() {
+        let name = "VOICE_TYPER_TEST_UNSET_ENV_VAR_2026_SI15_5";
+        std::env::remove_var(name);
+        assert!(!is_truthy_env_var(name));
+    }
+
+    #[test]
+    fn test_si15_5_is_truthy_env_var_truthy_when_set() {
+        let name = "VOICE_TYPER_TEST_TRUTHY_ENV_VAR_2026_SI15_5";
+        std::env::set_var(name, "1");
+        assert!(is_truthy_env_var(name));
+        std::env::set_var(name, "true");
+        assert!(is_truthy_env_var(name));
+        std::env::set_var(name, "yes");
+        assert!(is_truthy_env_var(name));
+        std::env::set_var(name, "  YES  ");
+        assert!(is_truthy_env_var(name));
+        std::env::set_var(name, "0");
+        assert!(!is_truthy_env_var(name));
+        std::env::set_var(name, "false");
+        assert!(!is_truthy_env_var(name));
+        std::env::remove_var(name);
+        assert!(!is_truthy_env_var(name));
+    }
+
+    #[test]
+    fn test_si15_5_is_debug_env_truthy_delegates_to_shared_matcher() {
+        let cases: [Option<&str>; 9] = [
+            None, Some(""), Some("1"), Some("true"), Some("YES"),
+            Some("  yes  "), Some("0"), Some("false"), Some("yess"),
+        ];
+        for case in cases {
+            assert_eq!(
+                is_debug_env_truthy(case),
+                is_truthy_value(case),
+                "is_debug_env_truthy({:?}) must match is_truthy_value({:?})",
+                case, case
+            );
+        }
+    }
+
+    // ── install_early_logger orphan-handle guard ───────────
+
+    #[test]
+    fn test_si15_3_install_early_logger_does_not_orphan_handle() {
+        // smoke test — calling install_early_logger must not
+        // panic regardless of whether log::set_logger succeeds. The
+        // actual set_logger-failure path is verified by code
+        // inspection: EARLY_LOGGER_HANDLE.set is now inside the
+        // success branch of `if log::set_logger(logger).is_err() { return; }`.
+        install_early_logger();
+        let _ = EARLY_LOGGER_HANDLE.get();
+    }
+
+    //CombinedLogger::log format ───────────────────────
 
     #[test]
     fn test_combined_logger_log_format_includes_file_and_line() {
-        // PVT-G5-084: verify the format string includes the file:line
+        //verify the format string includes the file:line
         // segment by constructing a logger and calling `log()` with a
         // synthetic Record. We can't capture stderr (eprintln! goes to
         // fd 2) but we CAN capture the file write and assert the
@@ -1867,9 +2129,9 @@ mod tests {
         let logger = CombinedLogger {
             file_writer: Some(writer),
             level_filter: log::LevelFilter::Info,
-            // TY-34: stderr_verbose=true in tests so the eprintln! path
+            //stderr_verbose=true in tests so the eprintln! path
             // is exercised (mirrors debug-build behavior).
-            // FR-96: AtomicBool (was `bool`) so the predicate is
+            //AtomicBool (was `bool`) so the predicate is
             // runtime-toggleable.
             stderr_verbose: AtomicBool::new(true),
         };
@@ -1906,7 +2168,7 @@ mod tests {
 
     #[test]
     fn test_combined_logger_log_format_falls_back_when_file_line_absent() {
-        // PVT-G5-084: when `record.file()` / `record.line()` return
+        //when `record.file()` / `record.line()` return
         // None (e.g. release builds with debuginfo stripped, or
         // records built without `#[track_caller]`), the format string
         // must still render cleanly (no panic, no `Option` debug
@@ -1920,9 +2182,9 @@ mod tests {
         let logger = CombinedLogger {
             file_writer: Some(writer),
             level_filter: log::LevelFilter::Info,
-            // TY-34: stderr_verbose=true in tests so the eprintln! path
+            //stderr_verbose=true in tests so the eprintln! path
             // is exercised (mirrors debug-build behavior).
-            // FR-96: AtomicBool (was `bool`) so the predicate is
+            //AtomicBool (was `bool`) so the predicate is
             // runtime-toggleable.
             stderr_verbose: AtomicBool::new(true),
         };
@@ -1956,7 +2218,7 @@ mod tests {
         // Pre-fix the file inherited the process umask (typically
         // 0o022), producing `0o644` — readable by group + others.
         // The dictation log may contain raw transcription text + PII
-        // (XZ-LOG-02), so it must be owner-only.
+        //(), so it must be owner-only.
         use std::os::unix::fs::PermissionsExt;
         let tmp = std::env::temp_dir().join(format!(
             "voice-typer-test-{}-pi7-mode",
@@ -2071,12 +2333,12 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    // ── FR-33: bubble_level filter preserves WARNING+ records ─────────
+    //bubble_level filter preserves WARNING+ records ─────────
     //
-    // Pre-FR-33 the filter dropped ANY record whose message started
+    //Pre- the filter dropped ANY record whose message started
     // with `[WS-READER] bubble_level event`, regardless of level.
     // A future `log::error!("[WS-READER] bubble_level event handler
-    // crashed: ...")` would be SILENTLY LOST. Post-FR-33 the filter
+    //crashed: ...")` would be SILENTLY LOST. Post- the filter
     // short-circuits for WARNING+ records (mirrors Python's
     // `_BubbleLevelExclusionFilter` at log.py:216-219).
 
@@ -2116,7 +2378,7 @@ mod tests {
 
     #[test]
     fn test_fr33_bubble_level_filter_preserves_warn_record() {
-        // FR-33: WARN-level bubble_level record must be PRESERVED in
+        //WARN-level bubble_level record must be PRESERVED in
         // the file log even though the message starts with the
         // filtered prefix. Pre-fix this was silently dropped.
         let tmp = std::env::temp_dir().join(format!(
@@ -2150,7 +2412,7 @@ mod tests {
 
     #[test]
     fn test_fr33_bubble_level_filter_preserves_error_record() {
-        // FR-33: ERROR-level bubble_level record must be PRESERVED.
+        //ERROR-level bubble_level record must be PRESERVED.
         // This is the most important case — a future
         // `log::error!("[WS-READER] bubble_level event handler crashed")`
         // would be silently lost without the level guard.
@@ -2183,11 +2445,11 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    // ── FR-96: AtomicBool stderr_verbose is runtime-toggleable ────────
+    //AtomicBool stderr_verbose is runtime-toggleable ────────
 
     #[test]
     fn test_fr96_stderr_verbose_atomic_toggle_at_runtime() {
-        // FR-96: the `stderr_verbose` field is now an `AtomicBool`,
+        //the `stderr_verbose` field is now an `AtomicBool`,
         // allowing future code (e.g. a Tauri command) to flip the
         // predicate at runtime without re-creating the logger. This
         // test verifies the field is constructed + loaded + stored
@@ -2201,7 +2463,7 @@ mod tests {
         assert!(!flag.load(std::sync::atomic::Ordering::Relaxed));
     }
 
-    // ── FR-16: EarlyLogger idempotent install ──────────────────────────
+    //EarlyLogger idempotent install ──────────────────────────
     //
     // We can't call `install_early_logger` from a test that runs in
     // the same process as other tests (it calls `log::set_logger`
@@ -2212,7 +2474,7 @@ mod tests {
 
     #[test]
     fn test_fr16_install_early_logger_idempotent() {
-        // FR-16: calling `install_early_logger` more than once must
+        //calling `install_early_logger` more than once must
         // not panic (the function's idempotency guard short-circuits
         // when `EARLY_LOGGER_HANDLE` is already set). The first call
         // may or may not have been made by another test in the same
@@ -2227,7 +2489,7 @@ mod tests {
 
     #[test]
     fn test_fr16_early_logger_pre_init_fallback_does_not_panic() {
-        // FR-16: construct an EarlyLogger directly (bypassing
+        //construct an EarlyLogger directly (bypassing
         // `install_early_logger`) and call `log()` on it in the
         // pre-init fallback state (inner = None). Must not panic and
         // must produce no file output (no file_writer in pre-init).
@@ -2249,7 +2511,7 @@ mod tests {
         early.flush();
     }
 
-    // ── XZ-LOG-02: redact_pii unit tests ──────────────────────────────
+    //redact_pii unit tests ──────────────────────────────
 
     #[test]
     fn test_redact_pii_no_trigger_returns_input_unchanged() {
@@ -2342,7 +2604,7 @@ mod tests {
         );
     }
 
-    // ── XZ-LOG-02 extended coverage: gsk_, IBAN, phone, SSN, CC ───────
+    //extended coverage: gsk_, IBAN, phone, SSN, CC ───────
 
     #[test]
     fn test_redact_pii_gsk_prefix_api_key() {
@@ -2485,7 +2747,7 @@ mod tests {
         // first non-token char (comma), matching Python's
         // `[A-Za-z0-9_\-\.=]+` charset.
         //
-        // UE-6: the bare-keyword pattern (`auth=`) now fires BEFORE the
+        //the bare-keyword pattern (`auth=`) now fires BEFORE the
         // Bearer prefix pattern, so the value `Bearer` is redacted as
         // part of the `auth=***` substitution (matching Python's
         // `_FLAG_KEY_PATTERNS`-before-`_KEY_PATTERNS` ordering). The
@@ -2497,7 +2759,7 @@ mod tests {
         assert_eq!(out, "auth=*** abc123, next field");
     }
 
-    // ── UE-6: flag-form / bare-keyword / 20+ char catch-all parity ──────
+    //flag-form / bare-keyword / 20+ char catch-all parity ──────
     //
     // These tests assert that the Rust `redact_pii` redacts the same
     // secret-bearing strings as the Python `_redact_text` /
@@ -2728,7 +2990,7 @@ mod tests {
 
     #[test]
     fn test_ue6_bearer_keyword_added() {
-        // `bearer=abc123` — `bearer` is a UE-6 task-specified addition
+        //`bearer=abc123` — `bearer` is a  task-specified addition
         // (not in Python's `_SECRET_KEYWORDS`). The bare-keyword pattern
         // matches → `bearer=***`. Python would NOT redact this (no
         // `bearer` keyword), but the task explicitly requests it.
@@ -2739,7 +3001,7 @@ mod tests {
 
     #[test]
     fn test_ue6_credential_keyword_added() {
-        // `credential=abc123` — `credential` is a UE-6 task-specified
+        //`credential=abc123` — `credential` is a  task-specified
         // addition. Same rationale as `bearer=`.
         let input = "credential=abc123";
         let out = redact_pii(input);
@@ -2787,7 +3049,7 @@ mod tests {
 
     #[test]
     fn test_ue6_redact_pii_empty_string_no_panic() {
-        // UE-44 defense-in-depth: `redact_pii("")` must not panic. The
+        //defense-in-depth: `redact_pii("")` must not panic. The
         // fast path returns early (no triggers), but this test pins
         // that behavior so a future refactor can't introduce a panic
         // on empty input.

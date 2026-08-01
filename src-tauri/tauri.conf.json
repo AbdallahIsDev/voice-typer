@@ -84,8 +84,8 @@
           "xclip"
         ],
         "desktopTemplate": "voice-typer.desktop.template",
-        "postInstallScript": "../scripts/linux/postinst",
-        "preRemoveScript": "../scripts/linux/prerm"
+        "postInstall": "../scripts/linux/postinst",
+        "preRemove": "../scripts/linux/prerm"
       },
       "rpm": {
         "depends": [
@@ -95,8 +95,8 @@
           "wl-clipboard",
           "xclip"
         ],
-        "postInstallScript": "../scripts/linux/postinst.rpm",
-        "preRemoveScript": "../scripts/linux/prerm.rpm"
+        "postInstall": "../scripts/linux/postinst.rpm",
+        "preRemove": "../scripts/linux/prerm.rpm"
       }
     },
     "windows": {

@@ -1,4 +1,4 @@
-//! Per-OS "open path in file manager" dispatch (AC-105).
+//! Per-OS "open path in file manager" dispatch ().
 //!
 //! Previously this code lived in ``commands/system_cmds.rs`` alongside
 //! Tauri command facades (``open_logs``, ``open_host_logs``,
@@ -15,7 +15,7 @@
 //! resolution) and ``logging.rs`` (per-OS file logging) — this module
 //! is the natural home for per-OS file-manager dispatch.
 //!
-//! # AC-34: pre-flight existence check
+//! pre-flight existence check
 //!
 //! The prior implementation returned ``Ok(())`` based solely on whether
 //! ``Command::spawn()`` succeeded — it did NOT verify the path existed,
@@ -37,13 +37,13 @@ use std::path::Path;
 /// returns an error string on failure (the caller surfaces it to the
 /// UI). Mirrors Electron's ``shell.openPath()`` semantics.
 ///
-/// # AC-34 pre-flight
+/// pre-flight
 ///
 /// Returns ``Err`` if ``path`` does not exist — the OS binary would
 /// otherwise spawn and pop a "path not found" dialog to the user
 /// while the caller believed the open succeeded.
 pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
-    // AC-34: pre-check existence BEFORE spawning the OS binary so a
+    // pre-check existence BEFORE spawning the OS binary so a
     // missing path surfaces as a structured error string (which the
     // caller puts in the ``{"success": false, "error": ...}`` envelope)
     // rather than a silent Ok(()) followed by an OS error dialog.
@@ -89,7 +89,7 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    // AC-34: pre-flight existence check rejects a missing path with a
+    // pre-flight existence check rejects a missing path with a
     // structured error string. The error is what the caller puts in the
     // ``{"success": false, "error": ...}`` envelope — without this
     // check, the OS binary would spawn and pop a "path not found"
@@ -114,10 +114,10 @@ mod tests {
         );
     }
 
-    // AC-34: an existing path is accepted (the OS-binary spawn is
+    // an existing path is accepted (the OS-binary spawn is
     // platform-gated, so we can't easily assert success here without
     // depending on a file manager being installed in CI — but the
-    // pre-flight existence check is the AC-34 contract, and that's
+    // pre-flight existence check is the contract, and that's
     // what we exercise). The temp dir always exists.
     #[test]
     fn test_open_path_accepts_existing_path() {

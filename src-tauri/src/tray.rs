@@ -15,7 +15,7 @@
 //! ```
 //!
 //! On item click we dispatch `{"cmd":"tray_click","data":{"id": <id>}}`
-//! back to the sidecar via the shared `dispatch_frame` helper (CR-14:
+//! back to the sidecar via the shared `dispatch_frame` helper (:
 //! previously the click was forwarded by emitting a Tauri event named
 //! `"dispatch"` that had no listener — `app.emit("dispatch", payload)`
 //! was dead code, so the click was silently dropped). Left-click (no
@@ -31,10 +31,10 @@ use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Listener, Manager};
 use tauri::image::Image;
 
-// CR-5: use `dispatch_inner` (no allowlist gate — `tray_click` is a
+//use `dispatch_inner` (no allowlist gate — `tray_click` is a
 // Rust-only command not in the renderer `ALLOWED_COMMANDS` set) which
 // internally delegates to session-2's shared `dispatch_frame` helper
-// (CR-14). This combines both sessions' fixes for the dropped-tray-click
+//(). This combines both sessions' fixes for the dropped-tray-click
 // bug: session-1 added the typed `dispatch_inner`/`DispatchArgs` path
 // for trusted Rust callers; session-2 extracted the WS-send body into
 // `dispatch_frame` so the public `dispatch` command and the tray
@@ -66,7 +66,7 @@ struct TrayMenuPayload {
     items: Vec<MenuItemData>,
 }
 
-/// CR-6: payload shape for the `tray_state` event emitted by the
+//payload shape for the `tray_state` event emitted by the
 /// Python sidecar. `icon` is a logical name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) that the Rust host maps to a bundled
 /// tray icon resource. `tooltip` is the new tooltip string (e.g.
@@ -88,7 +88,7 @@ struct TrayStatePayload {
 const TRAY_TOOLTIP: &str = crate::branding::APP_NAME;
 const TRAY_ID: &str = "voice-typer-tray";
 
-/// CR-6: map a logical icon name (`"idle"`, `"recording"`,
+//map a logical icon name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) emitted by the Python sidecar to a
 /// bundled Tauri image resource. Returns `None` if the name is unknown
 /// (caller logs and skips the icon update — non-fatal).
@@ -132,7 +132,7 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
 
 /// Build the list of `IsMenuItem` boxed items for `items`. Each entry is
 /// either a separator, a leaf `MenuItem` (or `CheckMenuItem` when
-/// `checked` is `Some` — PVT-16: native checkmark, not accelerator
+//`checked` is `Some` — : native checkmark, not accelerator
 /// text), or a nested `Submenu`.
 fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec<Box<dyn IsMenuItem<R>>>> {
     let mut out: Vec<Box<dyn IsMenuItem<R>>> = Vec::with_capacity(items.len());
@@ -152,7 +152,7 @@ fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec
             out.push(Box::new(submenu));
             continue;
         }
-        // PVT-16: use the native `CheckMenuItemBuilder` (Tauri v2) for
+        //use the native `CheckMenuItemBuilder` (Tauri v2) for
         // items with a `checked` state instead of faking the checkmark
         // via `.accelerator("✓")` (accelerators are keyboard shortcuts,
         // not visual state — the old hack rendered as a literal "✓"
@@ -198,7 +198,7 @@ fn empty_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<R>> {
     MenuBuilder::new(app).items(&[&item]).build()
 }
 
-/// S3-CR-8: predicate that decides whether a tray icon event should
+//predicate that decides whether a tray icon event should
 /// trigger the show + focus main-window path. Extracted from the
 /// `on_tray_icon_event` closure so the button filter is unit-testable
 /// (constructing a `TrayIconEvent` and asserting on the predicate is
@@ -238,7 +238,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
-            // CR-5: invoke the `tray_click` command on the Python
+            //invoke the `tray_click` command on the Python
             // sidecar DIRECTLY via `dispatch_inner` — the previous
             // implementation emitted a Tauri event named `dispatch`
             // that nobody listened to (events ≠ commands in Tauri).
@@ -247,23 +247,23 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // `tray_click` is a Rust-only command — the renderer never
             // invokes it — so it is NOT in the renderer-side
             // `ALLOWED_COMMANDS` allowlist. The public `dispatch`
-            // Tauri command (CR-4) enforces the allowlist and would
+            //Tauri command () enforces the allowlist and would
             // reject `tray_click`. We therefore call `dispatch_inner`
             // directly, which is the WS-send path WITHOUT the
             // allowlist gate (callers are trusted Rust code).
             let id = event.id().as_ref().to_string();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                // CR-5 + CR-14 (combined): previously emitted a Tauri event
+                //+  (combined): previously emitted a Tauri event
                 // named "dispatch" via `app.emit("dispatch", payload)` — but
                 // no listener was registered for that event (the renderer
                 // invokes the `dispatch` *command* via `invoke('dispatch',
                 // ...)`, not by listening to a "dispatch" event). The emit
                 // was dead code, so tray clicks were silently dropped. Now
-                // call `dispatch_inner` (CR-5) which delegates to the shared
-                // `dispatch_frame` helper (CR-14) — the same WS-send path
+                //call `dispatch_inner` () which delegates to the shared
+                //`dispatch_frame` helper () — the same WS-send path
                 // the renderer's `invoke('dispatch', ...)` takes, but
-                // without the ALLOWED_COMMANDS gate (CR-4) since
+                //without the ALLOWED_COMMANDS gate () since
                 // `tray_click` is a Rust-only command.
                 let state: tauri::State<'_, Arc<SidecarState>> = app.state();
                 let args = DispatchArgs {
@@ -276,10 +276,10 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             });
         })
         .on_tray_icon_event(|tray, event| {
-            // GT-B4-7: log the raw event at debug so a future regression
+            //log the raw event at debug so a future regression
             // in tray click handling surfaces in the rotating log.
             log::debug!("[TRAY] icon click event: {:?}", event);
-            // S3-CR-8 fix: only show + focus the main window on LEFT
+            //fix: only show + focus the main window on LEFT
             // click. The previous `TrayIconEvent::Click { .. }` pattern
             // matched left, right, AND middle click without filtering,
             // so right-clicking the tray icon (which the OS uses to open
@@ -328,7 +328,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         };
         let app_inner = app_clone.clone();
-        // ER-66: `rebuild_tray_menu` is fully synchronous (no `.await`
+        //`rebuild_tray_menu` is fully synchronous (no `.await`
         // points), so wrapping it in `tauri::async_runtime::spawn(async
         // move { ... })` paid Tokio task-scheduler overhead for no async
         // benefit. Switched to `std::thread::spawn` so the work runs on
@@ -345,12 +345,12 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         });
     });
 
-    // CR-6 (Rust side): listen for `tray_state` events from the Python
+    //(Rust side): listen for `tray_state` events from the Python
     // sidecar and update the tray icon + tooltip.
     //
-    // GT-E3-7 (option b — preferred): the Python-side publish path
+    //(option b — preferred): the Python-side publish path
     // (`tray.py::set_state` emitting `tray_state` via the WS bridge) is
-    // NOT YET WIRED — it's owned by Fix-E (GT-FIX-13 owns `tray.py`).
+    //NOT YET WIRED — it's owned by Fix-E ( owns `tray.py`).
     // Until Fix-E lands, this listener is a no-op but is kept DEFENSIVELY
     // so the moment Fix-E adds the publish path, the Rust side starts
     // moving the icon + tooltip with no further host changes. The
@@ -369,7 +369,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         };
         let app_inner = app_clone_state.clone();
-        // ER-66: the body below is fully synchronous (no `.await`s —
+        //the body below is fully synchronous (no `.await`s —
         // `tray_by_id`, `load_tray_icon`, `tray.set_icon`, and
         // `tray.set_tooltip` are all blocking Tauri APIs). Wrapping the
         // body in `tauri::async_runtime::spawn(async move { ... })` paid
@@ -425,7 +425,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // ── CR-6: TrayStatePayload parsing ───────────────────────────────
+    //TrayStatePayload parsing ───────────────────────────────
 
     #[test]
     fn test_tray_state_payload_parses_icon_only() {
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(p.tooltip.as_deref(), Some("ok"));
     }
 
-    // ── CR-6: TrayMenuPayload still parses (regression guard) ────────
+    //TrayMenuPayload still parses (regression guard) ────────
 
     #[test]
     fn test_tray_menu_payload_parses_items() {
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(sub[0].id, "m1");
     }
 
-    // ── CR-6: load_tray_icon name whitelist (defense in depth) ──────
+    //load_tray_icon name whitelist (defense in depth) ──────
 
     const ALLOWED_ICON_NAMES: &[&str] = &["idle", "recording", "transcribing", "error"];
 
@@ -561,7 +561,7 @@ mod tests {
         }
     }
 
-    // ── CR-5: DispatchArgs construction shape (regression guard) ────
+    //DispatchArgs construction shape (regression guard) ────
 
     #[test]
     fn test_dispatch_args_tray_click_shape() {
@@ -587,7 +587,7 @@ mod tests {
         assert!(serialized.contains("\"id\":\"\""));
     }
 
-    // ── S3-CR-8: tray click button filter (left-click only) ──────────
+    //tray click button filter (left-click only) ──────────
     //
     // The `on_tray_icon_event` closure delegates to
     // `is_focus_main_window_event` to decide whether to show + focus

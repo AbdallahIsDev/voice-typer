@@ -69,7 +69,7 @@ MANIFEST_DIR = Path("/var/lib/voice-typer")
 MANIFEST_PATH = MANIFEST_DIR / "permissions-manifest.json"
 
 # Root directory scanned as a defensive fallback when removing the
-# per-user autostart ``.desktop`` file during uninstall (S2-CR-69).
+# per-user autostart ``.desktop`` file during uninstall ().
 # Defaults to ``/home`` (typical Linux multi-user layout); tests
 # monkeypatch this constant to redirect the scan at a temp dir.
 HOME_ROOT_SCAN = Path("/home")
@@ -594,7 +594,7 @@ def install() -> None:
     log("")
 
 
-# ─── Autostart .desktop cleanup (S2-CR-69) ─────────────────────────────────
+# Autostart .desktop cleanup () ─────────────────────────────────
 
 
 def _unlink_autostart_desktop_at(home_dir: Path) -> None:
@@ -697,7 +697,7 @@ def uninstall() -> None:
         except json.JSONDecodeError:
             log("WARNING: manifest is corrupt — removing known paths unconditionally")
 
-    # S2-CR-69: remove the per-user autostart .desktop entry so the DE
+    # remove the per-user autostart .desktop entry so the DE
     # doesn't keep trying to launch the (now-deleted) binary on every
     # login. Runs after the manifest is read (so we know the
     # ``target_user``) and before backups are restored (so a failure

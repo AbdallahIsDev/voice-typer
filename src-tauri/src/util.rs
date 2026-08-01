@@ -13,9 +13,9 @@ pub(crate) const TOKEN_BYTES: usize = 32;
 /// ADR-0020 §10: supervisor backoff schedule (ms). Cap 5 retries
 /// before falling back to full-app relaunch.
 pub(crate) const SUPERVISOR_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
-// PVT-G5-089: SUPERVISOR_MAX_RETRIES moved into the `#[cfg(test)] mod tests`
+//SUPERVISOR_MAX_RETRIES moved into the `#[cfg(test)] mod tests`
 // block below — no runtime code path reads it (the in-loop retry cap
-// was removed in NF-R19-2), so keeping it at module scope triggered
+//was removed in ), so keeping it at module scope triggered
 // `#[allow(dead_code)]`. It's still `pub(crate)` inside the test
 // module so the Python source-inspection regex
 // `pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES` (test_shutdown_windows.py)
@@ -45,7 +45,7 @@ pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// within this window or the host returns a timeout error to the webview
 /// (so the UI can show a retry banner instead of hanging indefinitely).
 ///
-/// DT-44: this is now the LONG-RUNNING timeout — used only for model
+//this is now the LONG-RUNNING timeout — used only for model
 /// lifecycle commands (download/import/delete/cancel/pause/resume) that
 /// can legitimately take >15s (tens-of-MB-to-GB download + LFS clone,
 /// file copy + validation, filesystem rmtree). All other commands use
@@ -53,7 +53,7 @@ pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// `commands/sidecar_cmds.rs` for the per-command routing.
 pub(crate) const DISPATCH_TIMEOUT_SECS: u64 = 120;
 
-/// DT-44: short per-dispatch response timeout (15s). Used for every
+//short per-dispatch response timeout (15s). Used for every
 /// command NOT in `_LONG_RUNNING_COMMANDS` (i.e. everything except
 /// model lifecycle commands). The prior uniform 120s timeout let a
 /// hung `get_status` poll block the UI for 2 minutes before rejecting;
@@ -78,7 +78,7 @@ pub(crate) const ROTATE_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 /// Total disk cap ≈ 5 MB × 5 files = 25 MB.
 pub(crate) const ROTATE_MAX_FILES: usize = 5;
 
-// ─── DT-44: heartbeat / kill-tree / paste / poll / flush constants ──────
+//heartbeat / kill-tree / paste / poll / flush constants ──────
 //
 // Previously these were inline `Duration::from_secs(N)` / `from_millis(N)`
 // literals scattered across `sidecar/ws.rs`, `state.rs`, `commands/paste.rs`,
@@ -88,19 +88,19 @@ pub(crate) const ROTATE_MAX_FILES: usize = 5;
 // grep lands on the canonical value, and so the unit tests in
 // `util.rs::tests` can pin the values.
 
-/// PVT-1 (session 1) + ADR-0020 §10: Tauri-side heartbeat dispatches a
+//(session 1) + ADR-0020 §10: Tauri-side heartbeat dispatches a
 /// `heartbeat` command every 10s to detect application-level sidecar
 /// hangs (GIL contention, infinite loop, blocking C call) that keep the
 /// WS socket open but don't respond to dispatches.
 pub(crate) const HEARTBEAT_INTERVAL_SECS: u64 = 10;
 
-/// PVT-1: per-heartbeat-dispatch response timeout. The sidecar must
+//per-heartbeat-dispatch response timeout. The sidecar must
 /// respond within 15s or this heartbeat counts as a miss. Generous
 /// enough to ride out a brief GIL stall; tight enough that 3 misses
 /// (45s total) reliably indicate a hang rather than transient load.
 pub(crate) const HEARTBEAT_RESPONSE_TIMEOUT_SECS: u64 = 15;
 
-/// PVT-1: consecutive heartbeat misses before triggering supervisor
+//consecutive heartbeat misses before triggering supervisor
 /// respawn. 3 misses × 10s interval ≈ 30s of unresponsiveness before
 /// the sidecar is killed + restarted.
 pub(crate) const HEARTBEAT_MAX_MISSES: u32 = 3;
@@ -123,7 +123,7 @@ pub(crate) const KILL_TREE_SIGTERM_GRACE_MS: u64 = 200;
 /// `server_started` JSON on the sidecar's stdout. 500ms balances
 /// startup latency (a fast sidecar acks in ~50ms, so we sleep ~450ms
 /// of that) against CPU cost (polling at 10ms would burn a core for
-/// the entire 30s startup window). DT-44: previously duplicated at
+//the entire 30s startup window). : previously duplicated at
 /// `spawn.rs:280` and `spawn.rs:495` — now sourced from this single
 /// constant.
 pub(crate) const SERVER_STARTED_POLL_INTERVAL_MS: u64 = 500;
@@ -145,7 +145,7 @@ pub(crate) fn generate_token() -> String {
 }
 
 pub(crate) mod hex {
-    /// XV-146: write each byte directly into the pre-allocated String
+    //write each byte directly into the pre-allocated String
     /// buffer via `core::fmt::Write`. The `expect` is safe (the
     /// `fmt::Write` impl for `String` is infallible — it never returns
     /// `Err`).
@@ -157,7 +157,7 @@ pub(crate) mod hex {
             // `std::fmt::Write::write_str` for `String` unconditionally
             // returns `Ok(())` because the underlying `Vec<u8>` push
             // cannot fail (it aborts on OOM rather than returning Err).
-            // (GT-D3-3: was `.unwrap()` with a `SAFETY:` comment —
+            //(: was `.unwrap()` with a `SAFETY:` comment —
             // switched to `.expect` with a `Rationale:` prefix since
             // this is not an `unsafe` block and `SAFETY:` is reserved
             // for `unsafe` rationale.)
@@ -177,7 +177,7 @@ pub(crate) mod hex {
 /// minimal deps" guidance). UTC is fine for log timestamps — the
 /// Python side also logs in UTC (`log.py` uses `gmtime()`).
 ///
-/// FR-34: format changed from `YYYY-MM-DD HH:MM:SS.mmm` (space sep,
+//format changed from `YYYY-MM-DD HH:MM:SS.mmm` (space sep,
 /// no tz indicator) to `YYYY-MM-DDTHH:MM:SS.mmmZ` (T sep + Z suffix)
 /// to match Python JSON + TS `new Date().toISOString()` (both produce
 /// ISO-8601 with T separator + Z suffix). Pre-fix the space-separated
@@ -192,11 +192,11 @@ pub(crate) fn now_timestamp() -> String {
         .unwrap_or_default();
     let secs = now.as_secs();
     let millis = now.subsec_millis();
-    // GT-D3-7: use `i64::try_from(...).unwrap_or(i64::MAX)` for the
+    //use `i64::try_from(...).unwrap_or(i64::MAX)` for the
     // `u64 → i64` cast instead of `as i64`. The `as i64` cast silently
     // wraps any u64 value above `i64::MAX`. The saturating `try_from`
     // keeps the value at `i64::MAX` instead of wrapping negative,
-    // matching PVT-G5-051's pattern. In practice both produce the same
+    //matching 's pattern. In practice both produce the same
     // output for any real timestamp.
     let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX);
     let rem = secs % 86_400;
@@ -208,7 +208,7 @@ pub(crate) fn now_timestamp() -> String {
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
-    // GT-D3-7: same `i64::try_from` saturating cast for `yoe → i64`.
+    //same `i64::try_from` saturating cast for `yoe → i64`.
     // `yoe` is in `[0, 399]` so it always fits, but the explicit
     // `try_from` documents the invariant and is consistent with the
     // `days` cast above.
@@ -218,7 +218,7 @@ pub(crate) fn now_timestamp() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
-    // FR-34: ISO-8601 format with T separator + Z suffix (UTC). The
+    //ISO-8601 format with T separator + Z suffix (UTC). The
     // prior `" "` separator + missing tz indicator was non-ISO-8601-
     // compliant and broke log-aggregator timestamp parsers.
     format!(
@@ -232,7 +232,7 @@ pub(crate) fn now_timestamp() -> String {
 /// Write `contents` to `path` atomically (temp + fsync + rename).
 ///
 /// Originally implemented in `migrate.rs` for the Electron→Tauri
-/// config migration; promoted from `fn` to `pub(crate) fn` in PVT-G5-033
+//config migration; promoted from `fn` to `pub(crate) fn` in
 /// so the supervisor (`supervisor.rs::write_restart_counter`) could reuse
 /// it for atomic persistence of the restart counter. Previously the
 /// counter used `std::fs::write` (non-atomic: truncate-then-write),
@@ -256,7 +256,7 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     // directory listings and is prefixed with the target's filename
     // so a human inspecting the dir can tell what it's for.
     //
-    // FR-49: include a unique suffix (PID + 4 random bytes hex) so
+    //include a unique suffix (PID + 4 random bytes hex) so
     // concurrent invocations on the same target path don't race on
     // the same temp filename. Pre-fix the deterministic name
     // `.NAME.tmp.migrate` meant two concurrent `atomic_write_bytes`
@@ -328,19 +328,128 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     Ok(())
 }
 
+// ─── atomic_copy / atomic_copy_file ( moved from migrate.rs) ──
+//
+// these two helpers previously lived in `migrate.rs` next to
+//the (now-removed) `atomic_write_bytes` impl.  already moved
+// `atomic_write_bytes` here because it's a generic fs-write helper
+// with no coupling to Electron-migration logic; the same reasoning
+// applies to `atomic_copy` / `atomic_copy_file` — they're generic
+// fs-copy helpers. Co-locating all three atomic-fs helpers in
+// `util.rs` lets the `migrate.rs` callers reach them via a single
+// `util::` qualification and drops the bridge
+// `use crate::util::atomic_write_bytes;` import that lived in
+// `migrate.rs` solely to let `atomic_copy` call `atomic_write_bytes`
+// unqualified. Pure refactor — no behavior change.
+
+/// M-65: atomically copy `src` to `dst` by reading src into memory
+/// then writing via `atomic_write_bytes`. Suitable for small-to-
+/// medium files (config.json, history.db, WAL sidecars). For very
+/// large files (model weights) use `atomic_copy_file` instead — it
+/// streams via `std::fs::copy` to a sibling temp file then renames,
+/// avoiding the memory doubling that `atomic_copy`'s read-into-memory
+/// would impose on multi-GB model weights.
+pub(crate) fn atomic_copy(src: &Path, dst: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(src)
+        .map_err(|e| format!("read src {}: {}", src.display(), e))?;
+    atomic_write_bytes(dst, &bytes)
+}
+
+//atomically copy a (potentially large) file from `src` to
+/// `dst` by streaming to a sibling temp file then renaming. Unlike
+/// `atomic_copy` (which reads the entire source into memory), this
+/// streams the bytes via `std::fs::copy` so it's suitable for multi-GB
+/// model weight files. The temp file lives in the SAME directory as
+/// `dst` (so `rename` is an atomic same-filesystem op on POSIX), is
+/// fsync'd before the rename (so the data is durable), and is
+/// best-effort cleaned up on failure (so we don't leak temp files).
+///
+/// On a crash mid-copy, the temp file is left behind (best-effort
+/// cleanup only runs on the Err path of THIS function); a future
+/// launch's `atomic_copy_file` call to the same `dst` will simply
+/// create a NEW temp file (unique suffix via PID + random) and the
+/// stale temp file will be orphaned. The orphan is harmless (it's a
+/// dotfile in the user's config dir) and the destination is never
+/// left in a partial state.
+pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
+    use rand::RngCore;
+
+    let dir = dst
+        .parent()
+        .ok_or_else(|| format!("dst has no parent: {}", dst.display()))?;
+    // Same uniqueness scheme as `atomic_write_bytes` in util.rs —
+    // PID + 4 random bytes hex so concurrent invocations on the same
+    // dst don't race on the same temp filename.
+    let tmp_name = match dst.file_name().and_then(|n| n.to_str()) {
+        Some(n) => {
+            let mut rng_bytes = [0u8; 4];
+            rand::rng().fill_bytes(&mut rng_bytes);
+            let suffix = u32::from_le_bytes(rng_bytes);
+            format!("{}.tmp.copy.{}.{:08x}", n, std::process::id(), suffix)
+        }
+        None => return Err(format!("dst has no file_name: {}", dst.display())),
+    };
+    let tmp = dir.join(&tmp_name);
+
+    // Stream-copy src → tmp via std::fs::copy (kernel-level splice on
+    // Linux, no userspace buffering — efficient for large files).
+    if let Err(e) = std::fs::copy(src, &tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "copy {} → {}: {}",
+            src.display(),
+            tmp.display(),
+            e
+        ));
+    }
+
+    // fsync the temp file so the data is durable before the rename.
+    // Without this, a crash after rename but before the kernel flushes
+    // the temp file's data could leave the renamed file with zero
+    // bytes (ext4's auto-no-csum mode) — corrupting the destination.
+    {
+        let f = std::fs::File::open(&tmp)
+            .map_err(|e| format!("open tmp for fsync {}: {}", tmp.display(), e))?;
+        // Best-effort fsync — not all filesystems support it (tmpfs,
+        // network FS), and a failure here doesn't invalidate the copy
+        // (the data is still in the page cache and will be flushed
+        // eventually). Log and continue.
+        if let Err(e) = f.sync_all() {
+            // kept the historical `[MIGRATE]` log prefix
+            // (this helper was originally in `migrate.rs`) so log
+            // aggregators / test fixtures that match on the prefix
+            // keep working — pure refactor, no log-output change.
+            log::warn!("[MIGRATE] fsync of tmp {} failed (non-fatal): {}", tmp.display(), e);
+        }
+    }
+
+    // Atomic rename (same-filesystem on POSIX; on Windows the dst is
+    // absent so rename succeeds).
+    if let Err(e) = std::fs::rename(&tmp, dst) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "rename {} → {}: {}",
+            tmp.display(),
+            dst.display(),
+            e
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // PVT-G5-089: was at module scope with `#[allow(dead_code)]` (no
-    // runtime code path reads it after NF-R19-2 — the in-loop retry
+    //was at module scope with `#[allow(dead_code)]` (no
+    //runtime code path reads it after  — the in-loop retry
     // cap was removed). Moved here so the dead-code lint doesn't fire
     // at module scope. Still `pub(crate)` so the Python source-
     // inspection regex `pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES`
     // (test_shutdown_windows.py) keeps matching.
     pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5;
 
-    // ── CR-13: generate_token (ADR-0020 §3) ──────────────────────────
+    //generate_token (ADR-0020 §3) ──────────────────────────
 
     #[test]
     fn test_generate_token_is_64_char_hex() {
@@ -373,18 +482,18 @@ mod tests {
     #[test]
     fn test_now_timestamp_format() {
         let ts = now_timestamp();
-        // FR-34: ISO-8601 format `YYYY-MM-DDTHH:MM:SS.mmmZ` → 24 chars.
-        // (Pre-FR-34 was 23 chars: `YYYY-MM-DD HH:MM:SS.mmm` — space
+        //ISO-8601 format `YYYY-MM-DDTHH:MM:SS.mmmZ` → 24 chars.
+        //(Pre- was 23 chars: `YYYY-MM-DD HH:MM:SS.mmm` — space
         // separator, no tz indicator.)
         assert_eq!(ts.len(), 24, "unexpected timestamp length: \"{}\"", ts);
         assert_eq!(ts.chars().nth(4), Some('-'), "year-month sep: {}", ts);
         assert_eq!(ts.chars().nth(7), Some('-'), "month-day sep: {}", ts);
-        // FR-34: 'T' separator (was ' ' pre-FR-34).
+        //'T' separator (was ' ' pre-).
         assert_eq!(ts.chars().nth(10), Some('T'), "date-time sep (FR-34 ISO-8601 T): {}", ts);
         assert_eq!(ts.chars().nth(13), Some(':'), "hour-min sep: {}", ts);
         assert_eq!(ts.chars().nth(16), Some(':'), "min-sec sep: {}", ts);
         assert_eq!(ts.chars().nth(19), Some('.'), "sec-ms sep: {}", ts);
-        // FR-34: 'Z' suffix (UTC indicator, was absent pre-FR-34).
+        //'Z' suffix (UTC indicator, was absent pre-).
         assert_eq!(ts.chars().nth(23), Some('Z'), "tz suffix (FR-34 ISO-8601 Z): {}", ts);
     }
 
@@ -398,7 +507,7 @@ mod tests {
         assert!(t2 >= t1, "timestamp went backwards: t1={} t2={}", t1, t2);
     }
 
-    // ── CR-13: supervisor backoff constants (ADR-0020 §10) ─────────────────
+    //supervisor backoff constants (ADR-0020 §10) ─────────────────
 
     #[test]
     fn test_supervisor_backoff_constants() {
@@ -443,7 +552,7 @@ mod tests {
         // ADR-0020 §10: cooperative shutdown hard timeout. The sidecar
         // must ack `{"type":"shutdown"}` and exit within this window;
         // if it doesn't, the host force-kills the process tree.
-        // CR-2 polls `CommandEvent::Terminated` against this same
+        //polls `CommandEvent::Terminated` against this same
         // deadline via `tokio::time::timeout`.
         assert_eq!(
             SHUTDOWN_ACK_TIMEOUT_MS, 2000,
@@ -480,10 +589,10 @@ mod tests {
             "sanity: contents must match"
         );
         // The temp file must NOT exist after the rename (cleanup).
-        // FR-49: the temp name is now randomized (`.NAME.tmp.PID.HEX`)
+        //the temp name is now randomized (`.NAME.tmp.PID.HEX`)
         // so we scan the parent dir for any leftover temp file matching
         // the `.config.json.tmp.*` prefix instead of hardcoding the
-        // pre-FR-49 deterministic name.
+        //pre- deterministic name.
         let mut leaked: Vec<String> = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&tmp) {
             for entry in entries.flatten() {

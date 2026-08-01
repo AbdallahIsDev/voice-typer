@@ -1,12 +1,11 @@
 //! WebSocket reconnect + reader/writer tasks (ADR-0020 §1 + §9 + §10).
 //!
-//! UE-30 (DEFERRED — future session): this file is a 1454-line monolith
+//! this file is a 1454-line monolith
 //! co-locating 8+ concerns. Proposed split into sidecar/ws/ subdirectory
 //! tracked for a future session (NOT done here due to high regression
-//! risk on a hot reliability path). The UE-7/UE-8/UE-8-F9/UE-8-F10/
-//! UE-8-F11 correctness fixes below are applied in-place this session.
+//! risk on a hot reliability path).
 
-// PVT-1 (session 1): Tauri-side heartbeat dispatches a `heartbeat`
+// Tauri-side heartbeat dispatches a `heartbeat`
 // command every 10s; on 3 consecutive misses it triggers supervisor respawn
 // to detect application-level sidecar hangs (GIL contention, infinite
 // loop, blocking C call) that keep the WS socket open but don't
@@ -21,15 +20,15 @@
 // internally — same WS-send path, same response semantics.
 use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
 use crate::state::SidecarState;
-// G4-H-27 (session 4): poison-safe Mutex helper for the cleanup block.
+// poison-safe Mutex helper for the cleanup block.
 use crate::state::lock as mutex_lock;
-// DT-53: `bubble_coalesce_should_emit` moved out of `supervisor.rs` into
+// `bubble_coalesce_should_emit` moved out of `supervisor.rs` into
 // its own `sidecar/bubble_coalesce.rs` module — it's a pure UI-rate-
 // limiting predicate with nothing to do with sidecar supervision. The
 // supervisor module now owns ONLY respawn/backoff logic.
 use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
 use crate::sidecar::supervisor::respawn;
-// DT-44: heartbeat interval / response timeout / max misses are now named
+// heartbeat interval / response timeout / max misses are now named
 // constants in `util.rs` (previously inline `Duration::from_secs(10)` /
 // `Duration::from_secs(15)` / `>= 3` literals below).
 use crate::util::{
@@ -52,14 +51,14 @@ use tokio_tungstenite::{
     connect_async_with_config, tungstenite::Message, MaybeTlsStream, WebSocketStream,
 };
 
-// XZ-11: type alias for the WebSocket stream returned by
+// type alias for the WebSocket stream returned by
 // `connect_async_with_config`. Used by the `ws_connect`, `wait_for_auth_ok`,
 // `spawn_writer_task`, and `spawn_reader_task` helpers so the split
 // sink/stream halves can be passed between them without restating the
 // full generic signature everywhere.
 type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
-// ─── G4-H-32: server-initiated event-type allowlist ──────────────────────
+// server-initiated event-type allowlist ──────────────────────
 //
 // ADR-0020 §9: only known server-initiated event types may be emitted
 // to the renderer as Tauri events. An unknown `type` field on an
@@ -69,7 +68,7 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 // the renderer's `usePythonEvent(type, ...)` listeners might be
 // tricked into handling.
 //
-// The first block below is the G4-H-32 spec list (verbatim). The
+// The first block below is the spec list (verbatim). The
 // second block is the set of additional events the Python sidecar
 // ACTUALLY publishes today (`rg '"type":\s*"<name>"' voice_typer/server`)
 // — without these, the host would silently drop `ready`, `bubble_show`,
@@ -78,13 +77,13 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 // call sites. Drop the legacy `electron_notification` alias after
 // one release cycle with no rolling-upgrade traffic.
 const ALLOWED_EVENT_TYPES: &[&str] = &[
-    // ── G4-H-32 spec list (verbatim) ──
+    // spec list (verbatim) ──
     "status_change", "bubble_level", "notification", "relaunch_app",
     "tray_menu", "tray_state", "supervisor_relaunching", "supervisor_reconnected", "crash_recovery",
     "transcription_partial", "transcription_final", "transcription_interim",
     "recording_state", "vocabulary_suggestion", "model_download_progress",
     "audio_status", "server_started",
-    // ── Additional known server-published events (G4-H-32 extension) ──
+    // Additional known server-published events ──
     // Lifecycle / window management:
     "ready", "quit_app", "show_window", "navigate",
     // Bubble UI:
@@ -110,37 +109,50 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
     // list above. Each is published via `event_bus.publish(...)` in the
     // Python sidecar; keep this slice in sync with the server's publish
     // call sites (see `voice_typer/server/*.py`).
-    //   - `state_changed`: emitted on every authenticated WS connection
-    //     (sidecar_ws.py) — the renderer hydrates connection state from
-    //     it on startup.
-    //   - `error`: server-initiated error notification (e.g. recording-
-    //     start failure in recording_controller.py). NOTE: dispatch
-    //     *responses* with `type:"error"` AND an `id` field take a
-    //     different branch earlier in the reader (fulfilled via the
-    //     pending-id map) and never reach this allowlist; this entry
-    //     covers only the no-id server-event variant.
-    //   - `mic_level`: continuously published by level_monitor.py while
-    //     level monitoring is active; drives the Microphone page's live
-    //     level meter.
-    //   - `llm_polish_failed`: emitted by dictation_pipeline.py when the
-    //     LLM polish step fails (typed in TS push_events.ts; latent
-    //     subscriber today).
-    //   - `device_lost`: emitted by level_monitor.py when the audio
-    //     input device disappears (typed in TS; latent subscriber).
-    //   - `asr_backend_disabled`: emitted by asr_registry.py when an ASR
-    //     backend is disabled at runtime (typed in TS; latent).
-    //   - `asr_last_resort_unloaded`: emitted by asr_registry.py when the
-    //     last-resort ASR backend unloads (typed in TS; latent).
-    //   - `audio_clip`: registered in `event_bus._KNOWN_EVENTS` (typed in
-    //     TS push_events.ts; latent subscriber today).
-    //   - `dictation_lost`: emitted by crash_recovery.py on startup when
-    //     it detects the previous process crashed mid-dictation (the
-    //     `.dictation-in-flight` sentinel was left behind). The renderer
-    //     shows a notification so the user knows their dictation was lost.
+    // - `state_changed`: emitted on every authenticated WS connection
+    // (sidecar_ws.py) — the renderer hydrates connection state from
+    // it on startup.
+    // - `error`: server-initiated error notification (e.g. recording-
+    // start failure in recording_controller.py). NOTE: dispatch
+    // *responses* with `type:"error"` AND an `id` field take a
+    // different branch earlier in the reader (fulfilled via the
+    // pending-id map) and never reach this allowlist; this entry
+    // covers only the no-id server-event variant.
+    // - `mic_level`: continuously published by level_monitor.py while
+    // level monitoring is active; drives the Microphone page's live
+    // level meter.
+    // - `llm_polish_failed`: emitted by dictation_pipeline.py when the
+    // LLM polish step fails (typed in TS push_events.ts; latent
+    // subscriber today).
+    // - `device_lost`: emitted by level_monitor.py when the audio
+    // input device disappears (typed in TS; latent subscriber).
+    // - `asr_backend_disabled`: emitted by asr_registry.py when an ASR
+    // backend is disabled at runtime (typed in TS; latent).
+    // - `asr_last_resort_unloaded`: emitted by asr_registry.py when the
+    // last-resort ASR backend unloads (typed in TS; latent).
+    // - `audio_clip`: registered in `event_bus._KNOWN_EVENTS` (typed in
+    // TS push_events.ts; latent subscriber today).
+    // - `dictation_lost`: emitted by crash_recovery.py on startup when
+    // it detects the previous process crashed mid-dictation (the
+    // `.dictation-in-flight` sentinel was left behind). The renderer
+    // shows a notification so the user knows their dictation was lost.
+    // - `tray_fallback_notification`: emitted by tray_manager.py when
+    // the native system-tray icon is unavailable (headless build,
+    // Linux without a systray compositor, sandboxed mac App Store
+    // build, etc.) and the renderer should surface a fallback
+    // in-app notification banner instead. this was
+    // published by the Python sidecar but missing from the
+    // allowlist, so the WS reader was silently dropping the frame
+    // (logged at `[WS-READER] dropping unknown event type:`) and
+    // the renderer's fallback listener never fired — users on
+    // tray-less systems had NO indication that tray features were
+    // degraded. Adding it here lets the frame through to the
+    // renderer's `usePythonEvent("tray_fallback_notification", ...)`
+    // handler.
     "state_changed", "error", "mic_level", "llm_polish_failed",
     "device_lost", "asr_backend_disabled", "asr_last_resort_unloaded",
-    "audio_clip", "dictation_lost",
-    // GT-E3-6: legacy aliases `relaunch_electron` and
+    "audio_clip", "dictation_lost", "tray_fallback_notification",
+    // legacy aliases `relaunch_electron` and
     // `electron_notification` REMOVED. The Python sidecar has published
     // the canonical `relaunch_app` and `notification` event names for
     // more than one release cycle; the rolling-upgrade grace period is
@@ -168,34 +180,34 @@ fn is_allowed_event_type(event_type: &str) -> bool {
         .contains(event_type)
 }
 
-// G4-M-64: bound the WS connect attempt so a hung sidecar that
+// bound the WS connect attempt so a hung sidecar that
 // accepts the TCP connection but never completes the WS handshake
 // doesn't stall the supervisor forever.
 const WS_CONNECT_TIMEOUT_SECS: u64 = 5;
 
-// S1-CR-78: IPC protocol version this host implements. The Python
+// IPC protocol version this host implements. The Python
 // sidecar emits the same integer in its `server_started` stdout JSON
 // (see `voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION`). We also
 // send it in our auth frame so the sidecar can detect skew at handshake
 // time even when stdout parsing is bypassed (dev mode, manual restart).
 // Bump in lockstep with the Python constant. History:
-//   - 1 (SA-6): initial protocol-version negotiation.
+// initial protocol-version negotiation.
 const EXPECTED_PROTOCOL_VERSION: u64 = 1;
 
-// G4-L-02: bound the wait for the `auth_ok` frame so a sidecar that
+// bound the wait for the `auth_ok` frame so a sidecar that
 // never sends one (e.g. crashed between TCP accept and WS auth, or a
 // malicious server holding the connection open) doesn't stall the
 // reconnect path.
 const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 
-// G4-L-02: helper for the auth-failed / auth-timeout path. Clears
+// helper for the auth-failed / auth-timeout path. Clears
 // `state.ws_tx` (so the writer task exits when its channel drains and
 // new dispatch calls fail fast with "sidecar not connected"), drains
 // `state.pending` so in-flight dispatches don't wait the full 120s
 // timeout, and spawns supervisor respawn on a separate thread (same
 // pattern as the reader task's cleanup at the bottom of `reconnect_ws`).
 //
-// UE-8: the prior comment claimed "at auth time no dispatch requests
+// the prior comment claimed "at auth time no dispatch requests
 // have been queued yet" — this assumption is FALSE. `queue_auth_and_
 // store_ws_tx` stores `ws_tx` BEFORE `wait_for_auth_ok` runs. Any
 // `dispatch` Tauri command invoked in that window (up to 3s auth
@@ -207,12 +219,12 @@ const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 // `sidecar_disconnected` error response instead of timing out at
 // 120s.
 //
-// UE-8-F9: the drain uses the shared `drain_pending_with_disconnect_
+// the drain uses the shared `drain_pending_with_disconnect_
 // error` helper (defined below) which collects all entries out of
 // the lock first, then sends outside the lock — the AsyncMutex is
 // not held across the oneshot sends.
 //
-// UE-8 (made `async fn`): all 10 call sites are inside `wait_for_
+// (made `async fn`): all 10 call sites are inside `wait_for_
 // auth_ok`'s async block / outer async fn, so the `.await` promotion
 // is local to this file. The drain requires the AsyncMutex on
 // `state.pending` (no sync lock available), so the function must be
@@ -222,14 +234,14 @@ async fn cleanup_and_trigger_respawn(
     state: &Arc<SidecarState>,
 ) {
     {
-        // G4-H-27 rule: no `unwrap()` on new code. Recover from a
+        // rule: no `unwrap()` on new code. Recover from a
         // poisoned mutex by taking the inner guard (the data inside
         // may be stale but clearing `ws_tx` to `None` is safe even
         // on a poisoned lock).
         let mut ws_tx_guard = mutex_lock(&state.ws_tx);
         *ws_tx_guard = None;
     }
-    // UE-8: drain pending dispatch requests with a sidecar_disconnected
+    // drain pending dispatch requests with a sidecar_disconnected
     // error so callers don't wait the full 120s dispatch timeout.
     let drained = drain_pending_with_disconnect_error(state).await;
     if drained > 0 {
@@ -245,7 +257,7 @@ async fn cleanup_and_trigger_respawn(
     trigger_respawn_off_thread(app.clone(), state.clone());
 }
 
-/// UE-8 / UE-8-F9: drain all pending dispatch requests with a
+/// drain all pending dispatch requests with a
 /// `sidecar_disconnected` error response so in-flight dispatches don't
 /// wait the full 120s timeout for a response that will never come.
 ///
@@ -253,7 +265,7 @@ async fn cleanup_and_trigger_respawn(
 ///   - `cleanup_and_trigger_respawn` (auth-failure / auth-timeout path)
 ///   - the WS reader's cleanup block (normal disconnect / panic path)
 ///
-/// UE-8-F9: collect all entries out of the lock FIRST, then send outside
+/// collect all entries out of the lock FIRST, then send outside
 /// the lock. `oneshot::Sender::send` is non-blocking (it returns Err
 /// immediately if the receiver was already dropped), but holding the
 /// AsyncMutex across N sends is still an anti-pattern — a concurrent
@@ -280,7 +292,7 @@ async fn drain_pending_with_disconnect_error(state: &Arc<SidecarState>) -> usize
     count
 }
 
-/// UE-8-F10: shared heartbeat-abort helper. Idempotent — a no-op if
+/// shared heartbeat-abort helper. Idempotent — a no-op if
 /// `heartbeat_handle` is already `None`.
 ///
 /// Used by BOTH shutdown paths so the in-flight heartbeat task is
@@ -317,50 +329,50 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
     }
 }
 
-// EC-FIX-5 (EC-18): extracted helper for the respawn trigger
+// extracted helper for the respawn trigger
 // pattern that was duplicated at the WS-reader cleanup site and the
 // two heartbeat-miss arms (`Ok(Err(_))` and `Err(_)` from the 15s
 // timeout). All three sites had the identical block:
 //
-//   let app_clone = <handle>.clone();
-//   let state_clone = <state>.clone();
-//   std::thread::spawn(move || {
-//       tauri::async_runtime::block_on(async move {
-//           let _ = respawn(&app_clone, &state_clone).await;
-//       });
-//   });
+// let app_clone = <handle>.clone();
+// let state_clone = <state>.clone();
+// std::thread::spawn(move || {
+// tauri::async_runtime::block_on(async move {
+// let _ = respawn(&app_clone, &state_clone).await;
+// });
+// });
 //
 // The thread + `block_on` bridge is required because `respawn`
 // awaits `reconnect_ws`, whose future is `!Send` (tokio-tungstenite
 // holds a `!Send` across an await). `tokio::spawn` requires `Send`
 // futures, so we drive the `!Send` future on a dedicated std thread
-// with its own `block_on` runtime. NF-R19-1 documents the failed
+// with its own `block_on` runtime. documents the failed
 // attempt to use a direct `tokio::spawn` here.
 //
 // This helper takes ownership (`app: AppHandle`, `state: Arc<SidecarState>`)
 // so callers pass `.clone()`d handles in and the helper moves them
 // into the spawned thread. Returns nothing — the supervisor is best-effort.
 fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
-    // GT-C4-4: send on the long-lived supervisor channel instead of
+    // send on the long-lived supervisor channel instead of
     // spawning a new OS thread per call. The supervisor thread is
     // lazily spawned on first use via `respawn_supervisor_sender()`.
     //
-    // FR-11 + FR-12: two failure modes are handled explicitly here so
+    // two failure modes are handled explicitly here so
     // the resilience layer is never permanently dead:
-    //   1. `respawn_supervisor_sender()` returns `None` — the long-lived
-    //      supervisor thread could not be spawned (low memory, RLIMIT_NPROC,
-    //      sandbox restrictions, etc.). Fall back to a one-shot
-    //      `std::thread::spawn` per trigger (FR-11).
-    //   2. `tx.send(...)` returns `SendError` — the supervisor thread has
-    //      panicked (its receiver was dropped). Fall back to a one-shot
-    //      `std::thread::spawn` per trigger (FR-12). Subsequent calls will
-    //      also fall back here — the `OnceLock` holds a dead-but-not-cleared
-    //      sender, so we keep using the per-trigger fallback. Best-effort.
+    // 1. `respawn_supervisor_sender()` returns `None` — the long-lived
+    // supervisor thread could not be spawned (low memory, RLIMIT_NPROC,
+    // sandbox restrictions, etc.). Fall back to a one-shot
+    //`std::thread::spawn` per trigger.
+    // 2. `tx.send(...)` returns `SendError` — the supervisor thread has
+    // panicked (its receiver was dropped). Fall back to a one-shot
+    //`std::thread::spawn` per trigger. Subsequent calls will
+    // also fall back here — the `OnceLock` holds a dead-but-not-cleared
+    // sender, so we keep using the per-trigger fallback. Best-effort.
     match respawn_supervisor_sender() {
         Some(tx) => match tx.try_send((app, state)) {
             Ok(()) => {}
             Err(std::sync::mpsc::TrySendError::Full((_app, _state))) => {
-                // UE-8-F11: supervisor queue is full (capacity=8) — the
+                // supervisor queue is full (capacity=8) — the
                 // long-lived supervisor thread is already processing a
                 // respawn (or has stalled mid-respawn). DROP the request:
                 // the in-flight respawn will observe the same sidecar-down
@@ -381,28 +393,46 @@ fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
                 log::error!(
                     "[SUPERVISOR] failed to enqueue respawn request to supervisor \
                      thread (it may have panicked): disconnected — falling back to \
-                     one-shot std::thread::spawn (FR-12)"
+                     one-shot std::thread::spawn (fallback after supervisor disconnect)"
                 );
+                // Clear the cached sender so the next
+                // `respawn_supervisor_sender()` call re-attempts the
+                // long-lived supervisor thread spawn. Without this, the
+                // `OnceLock<Mutex<Option<SyncSender>>>` keeps holding a
+                // dead sender (whose receiver was dropped when the
+                // supervisor thread panicked), so every subsequent
+                // respawn trigger pays the cost of cloning the dead
+                // sender + a failed `try_send` + a fresh
+                // `std::thread::spawn` fallback — instead of recovering
+                // to the steady-state long-lived-thread path.
+                if let Some(mutex) = RESPAWN_SUPERVISOR_TX.get() {
+                    if let Ok(mut guard) = mutex.lock() {
+                        *guard = None;
+                    }
+                    // A poisoned lock here is benign: the next
+                    // `respawn_supervisor_sender()` call will recover
+                    //via its `poisoned.into_inner()` path ()
+                    // and re-attempt the spawn.
+                }
                 spawn_oneshot_respawn_thread(app, state);
             }
         },
         None => {
-            // FR-11: long-lived supervisor thread is unavailable. Fall
+            // long-lived supervisor thread is unavailable. Fall
             // back to a per-trigger one-shot spawn.
             log::warn!(
                 "[SUPERVISOR] long-lived supervisor thread unavailable — using \
-                 one-shot std::thread::spawn fallback (FR-11)"
+                 one-shot std::thread::spawn fallback (long-lived thread unavailable)"
             );
             spawn_oneshot_respawn_thread(app, state);
         }
     }
 }
 
-/// FR-11 / FR-12 fallback: spawn a fresh OS thread that drives a
-/// `block_on(respawn)` future to completion. This is the pre-GT-C4-4
+/// fallback: spawn a fresh OS thread that drives a
+/// `block_on(respawn)` future to completion. This is the
 /// pattern, retained as a fallback for the rare case where the
-/// long-lived supervisor thread is either uninitializable (FR-11) or
-/// has died (FR-12).
+/// long-lived supervisor thread is either uninitializable or has died.
 ///
 /// The thread + `block_on` bridge is required because `respawn` awaits
 /// `reconnect_ws`, whose future is `!Send` (tokio-tungstenite holds a
@@ -431,7 +461,7 @@ fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>)
     }
 }
 
-// GT-C4-4: single long-lived supervisor thread, lazily spawned on
+// single long-lived supervisor thread, lazily spawned on
 // first use via a `OnceLock<mpsc::Sender>`. Replaces the prior
 // pattern of spawning a NEW OS thread per trigger (WS reader
 // cleanup, heartbeat miss #3, auth failure). Thread creation is
@@ -445,7 +475,7 @@ fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>)
 // lifetime (parked on `rx.recv()` when idle, ~8KB stack, zero CPU).
 type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 
-// UE-8-F11: the supervisor queue is now a bounded `sync_channel(8)`
+// the supervisor queue is now a bounded `sync_channel(8)`
 // instead of an unbounded `channel()`. An unbounded channel has no
 // backpressure — a stalled supervisor (stuck in a long `respawn`
 // backoff) combined with a flapping sidecar (reader exits every 1-2s
@@ -461,7 +491,7 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 // `respawn_in_progress` compare_exchange would no-op the duplicate
 // anyway.
 //
-// FR-11: the `OnceLock` now holds an `Option<SyncSender>` instead of
+// the `OnceLock` now holds an `Option<SyncSender>` instead of
 // a bare `SyncSender`. `Some(tx)` means the long-lived supervisor
 // thread spawned successfully; `None` means it failed (low memory,
 // RLIMIT_NPROC, sandbox restrictions, etc.) and callers should fall
@@ -471,7 +501,7 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
 // `.expect()` form). All subsequent callers read the cached `None` and
 // use the fallback path without re-attempting the spawn (and without
 // re-panicking).
-// XE-15-3: pre-fix this was `OnceLock<Option<SyncSender>>`. The
+// pre-fix this was `OnceLock<Option<SyncSender>>`. The
 // ``get_or_init`` closure cached ``None`` permanently on transient
 // thread-spawn failure (RLIMIT_NPROC, sandbox, low memory), so a
 // single startup-time failure degraded the resilience layer to
@@ -487,10 +517,10 @@ static RESPAWN_SUPERVISOR_TX: OnceLock<
 > = OnceLock::new();
 
 fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequest>> {
-    // XE-15-3: lazily initialise the outer ``Mutex``. ``OnceLock``
+    // lazily initialise the outer ``Mutex``. ``OnceLock``
     // guarantees the ``Mutex`` is created exactly once; the inner
     // ``Option<Sender>`` is mutable under the mutex so we can retry
-    // the spawn after a transient failure (closes the FR-11
+    // the spawn after a transient failure (closes the
     // regression where ``OnceLock<Option<Sender>>`` cached ``None``
     // permanently).
     let mutex: &'static std::sync::Mutex<Option<std::sync::mpsc::SyncSender<RespawnRequest>>> =
@@ -503,7 +533,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
     let mut guard = match mutex.lock() {
         Ok(g) => g,
         Err(poisoned) => {
-            // G4-H-27: recover from a poisoned mutex — the inner
+            // recover from a poisoned mutex — the inner
             // data may be stale but we can still attempt a fresh
             // spawn.
             log::warn!(
@@ -545,7 +575,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             log::error!(
                 "[SUPERVISOR] failed to spawn long-lived respawn-supervisor \
                  thread: {} — will retry on next call; using per-trigger \
-                 std::thread::spawn fallback this call (FR-11, XE-15-3)",
+                 std::thread::spawn fallback this call (long-lived thread spawn failed)",
                 e
             );
             None
@@ -553,9 +583,9 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
     }
 }
 
-// ─── XZ-11: phase helpers extracted from `reconnect_ws` ──────────────────
+// phase helpers extracted from `reconnect_ws` ──────────────────
 //
-// `reconnect_ws` was a 585-line god function (Finding EC-18) covering
+// `reconnect_ws` was a 585-line god function (Finding ) covering
 // five distinct phases: (1) WS connect with timeout, (2) writer
 // channel + auth-frame queue + writer task spawn, (3) auth handshake
 // (wait for `auth_ok` / `ready`), (4) reader task spawn with
@@ -565,9 +595,9 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
 // same retry/backoff semantics, same logging, same panic-safety
 // wrappers, same supervisor trigger pattern.
 
-/// XZ-11 (was inline in `reconnect_ws`): TCP-connect to the sidecar's
+/// (was inline in `reconnect_ws`): TCP-connect to the sidecar's
 /// WS endpoint and complete the WS handshake with a bounded timeout
-/// (G4-M-64). Enforces the ADR-0020 §10 1 MiB frame cap via
+/// Enforces the ADR-0020 §10 1 MiB frame cap via
 /// `WebSocketConfig`. Returns the split sink/stream halves so the
 /// caller can hand them off to the writer and reader tasks.
 ///
@@ -581,7 +611,7 @@ async fn ws_connect(
 ) -> Result<(SplitSink<WsStream, Message>, SplitStream<WsStream>), String> {
     let url = format!("ws://127.0.0.1:{}", port);
     // ADR-0020 §10: enforce 1 MiB WS frame cap.
-    // XZ-CC-10: tungstenite 0.27 marked `WebSocketConfig` as
+    // tungstenite 0.27 marked `WebSocketConfig` as
     // `#[non_exhaustive]`, so we can no longer construct it with a
     // struct expression. Use `Default::default()` and then set the
     // two fields we care about.
@@ -606,11 +636,11 @@ async fn ws_connect(
     Ok(ws.split())
 }
 
-/// XZ-11 (was inline in `reconnect_ws`): set up the WS writer channel
+/// (was inline in `reconnect_ws`): set up the WS writer channel
 /// and queue the auth frame on it. Returns the receiver for the writer
 /// task to drain.
 ///
-/// PVT-G5-059: previously `mpsc::unbounded_channel::<Message>()`.
+/// previously `mpsc::unbounded_channel::<Message>()`.
 /// An unbounded channel provides NO backpressure — a runaway
 /// renderer (or a stuck WS writer task) could enqueue unbounded
 /// frames, each holding a `Message::Text(Utf8Bytes)` of up to
@@ -632,10 +662,10 @@ async fn ws_connect(
 fn queue_auth_and_store_ws_tx(
     state: &Arc<SidecarState>,
     token: &str,
-) -> Result<mpsc::Receiver<Message>, String> {
+) -> Result<(mpsc::Receiver<Message>, u64), String> {
     let (ws_tx, ws_rx) = mpsc::channel::<Message>(256);
     // Send the auth frame via the channel so the writer task sends it.
-    // S1-CR-78: include `protocol_version` so the sidecar can detect
+    // include `protocol_version` so the sidecar can detect
     // host/sidecar version skew at handshake time. The field is
     // additive — older Python sidecars that don't yet parse it continue
     // to function (the sidecar's `_authenticate` ignores unknown fields).
@@ -644,7 +674,7 @@ fn queue_auth_and_store_ws_tx(
         "token": token,
         "protocol_version": EXPECTED_PROTOCOL_VERSION,
     });
-    // PVT-G5-059: use `try_send` (bounded channel) instead of `send`
+    // use `try_send` (bounded channel) instead of `send`
     // (which would await on a full channel). The auth frame is the
     // very first frame queued — the channel is empty so `try_send`
     // cannot return `Full`. `Closed` is possible only if the writer
@@ -668,13 +698,28 @@ fn queue_auth_and_store_ws_tx(
         let mut ws_tx_guard = mutex_lock(&state.ws_tx);
         *ws_tx_guard = Some(ws_tx);
     }
-    Ok(ws_rx)
+    // bump the generation counter AFTER storing
+    // the new `ws_tx`, returning the new generation so the caller can
+    // pass it to the spawned reader/writer tasks. Their cleanup blocks
+    // compare this captured value against `state.ws_generation` at
+    // cleanup time: if they differ, a newer reconnect has already
+    // stored its own `ws_tx` and the cleanup must NOT clobber it.
+    //
+    // The fetch_add uses `Ordering::SeqCst` to pair with the cleanup
+    // block's `SeqCst` load — we want a total order between the
+    // "store ws_tx + bump gen" pair on the producer side and the
+    // "load gen + clear ws_tx" pair on the consumer side. The
+    // `state.ws_tx` Mutex already serializes the actual store/clear,
+    // but the generation load happens BEFORE acquiring that Mutex in
+    // the cleanup path, so SeqCst on both sides is the safe choice.
+    let my_generation = state.ws_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    Ok((ws_rx, my_generation))
 }
 
-/// XZ-11 (was inline in `reconnect_ws`): spawn the WS writer task.
+/// (was inline in `reconnect_ws`): spawn the WS writer task.
 ///
 /// Drains `ws_rx` into `write.send`. The body is wrapped in
-/// `AssertUnwindSafe(...).catch_unwind()` (G4-H-26) so a panic inside
+/// `AssertUnwindSafe(...).catch_unwind()` () so a panic inside
 /// `write.send()` (e.g. a tungstenite internal invariant violation)
 /// doesn't tear down the task without cleanup. The writer has no
 /// post-panic cleanup beyond dropping `write` (which `catch_unwind`
@@ -687,8 +732,12 @@ fn spawn_writer_task(
     state: Arc<SidecarState>,
     write: SplitSink<WsStream, Message>,
     mut ws_rx: mpsc::Receiver<Message>,
+    // generation captured at reconnect time so the cleanup block
+    // can skip clearing `ws_tx` if a newer reconnect has already stored
+    // its own sender (race — see `SidecarState::ws_generation`).
+    my_generation: u64,
 ) {
-    // XE-15-1: clone handles for the cleanup block, mirroring
+    // clone handles for the cleanup block, mirroring
     // ``spawn_reader_task``'s pattern. The originals are moved into
     // the ``AssertUnwindSafe`` body; the cleanup clones are used
     // AFTER ``catch_unwind`` so the cleanup runs even if the body
@@ -720,14 +769,35 @@ fn spawn_writer_task(
                  (write half dropped, WS connection will close)"
             );
         }
-        // XE-15-1: symmetric cleanup block — clear ws_tx + drain
+        // symmetric cleanup block — clear ws_tx + drain
         // pending + trigger supervisor respawn (gated on
         // ``!shutting_down`` so a graceful shutdown doesn't fire a
         // spurious respawn). Mirrors ``spawn_reader_task``'s
         // post-catch_unwind cleanup block at lines ~1086-1128.
+        //
+        // only clear `ws_tx` if the current
+        // generation matches `my_generation`. If a newer reconnect has
+        // bumped the generation (i.e. `state.ws_generation` > my_generation),
+        // the stored `ws_tx` belongs to the NEW connection — clearing it
+        // would clobber the new sender and force a flap loop. The drain
+        // and respawn trigger still run unconditionally: draining our
+        // pending entries is safe (they're keyed by id, not by ws_tx),
+        // and the respawn trigger is idempotent (the supervisor's
+        // `respawn_in_progress` compare_exchange will no-op if a newer
+        // reconnect is already in flight).
         {
+            let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
             let mut ws_tx_guard = mutex_lock(&state_for_cleanup.ws_tx);
-            *ws_tx_guard = None;
+            if current_generation == my_generation {
+                *ws_tx_guard = None;
+            } else {
+                log::info!(
+                    "[WS-WRITER] cleanup skipping ws_tx clear — generation mismatch \
+                     (mine={}, current={}); a newer reconnect owns ws_tx ()",
+                    my_generation,
+                    current_generation
+                );
+            }
         }
         {
             let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
@@ -754,14 +824,14 @@ fn spawn_writer_task(
     });
 }
 
-/// XZ-11 (was inline in `reconnect_ws`): wait for the `auth_ok` frame
+/// (was inline in `reconnect_ws`): wait for the `auth_ok` frame
 /// (with a 3s timeout) before handing the read stream off to the
 /// reader task. On success returns `read` so the caller can pass it
 /// to `spawn_reader_task`. On any failure (timeout, stream close,
 /// error, invalid frame, `auth_failed`) calls
 /// `cleanup_and_trigger_respawn` and returns `Err`.
 ///
-/// G4-L-02: the Python sidecar's `_handle_connection` flow is:
+/// the Python sidecar's `_handle_connection` flow is:
 /// (1) accept WS, (2) call `_authenticate` (validates the auth frame
 /// we just sent), (3) on success, emit `{"type":"ready"}` and start
 /// the dispatch loop.
@@ -784,13 +854,13 @@ async fn wait_for_auth_ok(
     state: &Arc<SidecarState>,
     mut read: SplitStream<WsStream>,
 ) -> Result<SplitStream<WsStream>, String> {
-    // XZ-R4-012: wrap the auth-read path (timeout + JSON parse + emit)
+    // wrap the auth-read path (timeout + JSON parse + emit)
     // in `AssertUnwindSafe(...).catch_unwind()` so a panic inside any
     // of those steps doesn't propagate up to the supervisor's
     // `block_on` driver and permanently kill the long-lived
     // supervisor thread (which would degrade resilience to per-trigger
-    // one-shot fallbacks — FR-11 path). The reader/writer/heartbeat
-    // task bodies are already wrapped (G4-H-26 / AC-98); this closes
+    // one-shot fallbacks). The reader/writer/heartbeat
+    // task bodies are already wrapped; this closes
     // the asymmetry. On caught panic: log, call
     // `cleanup_and_trigger_respawn`, return a descriptive error.
     let app_for_body = app.clone();
@@ -828,7 +898,7 @@ async fn wait_for_auth_ok(
         }
         Ok(Some(Ok(msg))) => {
             let text = match msg {
-                // XZ-CC-10: tungstenite 0.27 changed `Message::Text`'s
+                // tungstenite 0.27 changed `Message::Text`'s
                 // inner type from `String` to `Utf8Bytes` (a smart
                 // pointer over `str`). `Utf8Bytes: Deref<Target=str>`,
                 // so `t.to_string()` works via the `str` impl and
@@ -881,7 +951,7 @@ async fn wait_for_auth_ok(
                 cleanup_and_trigger_respawn(app, state).await;
                 return Err("WS auth rejected by server".to_string());
             }
-            // FR-42: tighten the auth-success contract. Accept ONLY
+            // tighten the auth-success contract. Accept ONLY
             // `auth_ok` (future contract) or `ready` (current Python
             // sidecar contract — see sidecar_ws.py:503) as the
             // auth-success signal. Any other frame type at auth time is
@@ -906,7 +976,7 @@ async fn wait_for_auth_ok(
                      re-emitting as Tauri event"
                 );
                 let payload = v.get("data").cloned().unwrap_or(json!({}));
-                // FR-82: surface emit failures instead of silently
+                // surface emit failures instead of silently
                 // dropping them. A failed `app.emit` here means the
                 // renderer won't see the `ready` event — log it so the
                 // miss is observable in diagnostics.
@@ -923,7 +993,7 @@ async fn wait_for_auth_ok(
                     );
                 }
             } else {
-                // FR-42: protocol violation — reject, clean up, and
+                // protocol violation — reject, clean up, and
                 // trigger supervisor respawn. Do NOT proceed.
                 log::warn!(
                     "[WS-AUTH] expected auth_ok or ready, got: {} — \
@@ -952,11 +1022,11 @@ async fn wait_for_auth_ok(
     }
 }
 
-/// XZ-11 (was inline in `reconnect_ws`): spawn the WS reader task.
+/// (was inline in `reconnect_ws`): spawn the WS reader task.
 ///
 /// Parses incoming frames, fulfills pending dispatch requests by id,
 /// emits Tauri events for server-initiated events. The body is wrapped
-/// in `AssertUnwindSafe(...).catch_unwind()` (G4-H-26) so a panic
+/// in `AssertUnwindSafe(...).catch_unwind()` so a panic
 /// inside `read.next()` / `serde_json::from_str` / `app.emit()` /
 /// `bubble_coalesce_should_emit()` / the `last_bubble_payload.take()`
 /// line doesn't tear down the task without running cleanup. Without
@@ -972,10 +1042,14 @@ fn spawn_reader_task(
     app: tauri::AppHandle,
     state: Arc<SidecarState>,
     mut read: SplitStream<WsStream>,
+    // generation captured at reconnect time so the cleanup block
+    // can skip clearing `ws_tx` if a newer reconnect has already stored
+    // its own sender (race — see `SidecarState::ws_generation`).
+    my_generation: u64,
 ) {
     let app_for_reader = app.clone();
     let state_for_reader = state.clone();
-    // G4-H-26: clone handles for the cleanup block, which runs OUTSIDE
+    // clone handles for the cleanup block, which runs OUTSIDE
     // the `catch_unwind` wrapper so it runs even if the reader body
     // panics. The originals are moved INTO the `AssertUnwindSafe`
     // body and consumed by the inner async block.
@@ -986,7 +1060,7 @@ fn spawn_reader_task(
             let mut last_bubble_level: Option<Instant> = None;
             #[allow(unused_assignments)]
             let mut last_bubble_payload: Option<Value> = None;
-            // XZ-LOG-09: per-task counters for the flood-prone warning
+            // per-task counters for the flood-prone warning
             // sites (invalid JSON + dropped unknown events + non-numeric
             // id fields). A misbehaving sidecar (or an attacker who has
             // compromised it) could otherwise log-spam at the ~60 Hz
@@ -1016,7 +1090,7 @@ fn spawn_reader_task(
                         // If the frame has an `id`, it's a dispatch
                         // response — fulfill the pending oneshot.
                         //
-                        // UE-8-F9: take the sender out of the map under the
+                        // take the sender out of the map under the
                         // lock, then send OUTSIDE the lock. `oneshot::send`
                         // is non-blocking (returns Err immediately if the
                         // receiver was already dropped), but holding the
@@ -1061,7 +1135,7 @@ fn spawn_reader_task(
                         let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
                         let payload = v.get("data").cloned().unwrap_or(json!({}));
 
-                        // G4-H-32: drop unknown event types BEFORE
+                        // drop unknown event types BEFORE
                         // emitting (defense-in-depth against a
                         // compromised sidecar process injecting
                         // arbitrary event names that the renderer's
@@ -1089,7 +1163,7 @@ fn spawn_reader_task(
                             let now = Instant::now();
                             if bubble_coalesce_should_emit(last_bubble_level, now, BUBBLE_LEVEL_COALESCE_HZ) {
                                 last_bubble_level = Some(now);
-                                // PVT-G5-049: previously
+                                // previously
                                 // `last_bubble_payload.take().unwrap()` —
                                 // a panic if `take()` returned None. While
                                 // in the current control flow `take()` is
@@ -1113,7 +1187,7 @@ fn spawn_reader_task(
                             continue;
                         }
 
-                        // PVT-G5-062: extracted the event-name translation
+                        // extracted the event-name translation
                         // into `translate_event_name` so it can be unit-
                         // tested without a Tauri runtime, and so additional
                         // bubble-related event renames can be added in one
@@ -1127,7 +1201,7 @@ fn spawn_reader_task(
                         let _ = app_for_reader.emit(emit_name, payload.clone());
                         let _ = app_for_reader.emit("python-event", json!({"type": emit_name, "data": payload}));
 
-                        // GT-E3-6: the legacy `electron_notification` →
+                        // the legacy `electron_notification` →
                         // `notification` alias block was REMOVED. The
                         // Python sidecar now publishes `notification`
                         // directly (and `electron_notification` is no
@@ -1146,7 +1220,7 @@ fn spawn_reader_task(
                     }
                 }
             }
-            // FR-81: log the silent stream-end explicitly. `read.next()`
+            // log the silent stream-end explicitly. `read.next()`
             // returning `None` (vs an `Err`) means the WS stream ended
             // cleanly with no error frame — without this log line the
             // transition from "reader active" to "reader cleanup running"
@@ -1176,15 +1250,36 @@ fn spawn_reader_task(
         // `state_for_cleanup` / `app_for_cleanup` handles (not the
         // originals, which were moved into the `AssertUnwindSafe`
         // body and may have been partially consumed before the panic).
+        //
+        // only clear `ws_tx` if the current
+        // generation matches `my_generation`. The race window is:
+        // supervisor kills old sidecar → old reader's `read.next()`
+        // returns None → meanwhile `reconnect_ws` runs and stores a
+        // NEW `ws_tx` (bumping the generation) → old reader's cleanup
+        // runs `*state.ws_tx = None`, destroying the new sender. The
+        // generation check makes the old reader's cleanup a no-op on
+        // the ws_tx clear, so the new sender survives. The drain +
+        // respawn trigger still run (drain is id-keyed and safe;
+        // respawn is idempotent via `respawn_in_progress`).
         {
             // Clear ws_tx first so new dispatch calls return
             // "sidecar not connected" immediately.
-            // G4-H-27: poison-safe lock helper.
+            // poison-safe lock helper.
+            let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
             let mut ws_tx_guard = mutex_lock(&state_for_cleanup.ws_tx);
-            *ws_tx_guard = None;
+            if current_generation == my_generation {
+                *ws_tx_guard = None;
+            } else {
+                log::info!(
+                    "[WS-READER] cleanup skipping ws_tx clear — generation mismatch \
+                     (mine={}, current={}); a newer reconnect owns ws_tx ()",
+                    my_generation,
+                    current_generation
+                );
+            }
         }
         {
-            // UE-8-F9: drain pending requests via the shared
+            // drain pending requests via the shared
             // `drain_pending_with_disconnect_error` helper (collect out
             // of the lock first, then send outside the lock). Reject
             // each with a `sidecar_disconnected` error so callers don't
@@ -1195,7 +1290,7 @@ fn spawn_reader_task(
             }
         }
         if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
-            // CR-5 (ADR-0020 §10): emit `supervisor_relaunching` IMMEDIATELY
+            // (ADR-0020 §10): emit `supervisor_relaunching` IMMEDIATELY
             // at disconnect start so the UI can show a "reconnecting…"
             // banner before the backoff schedule runs. The eventual
             // `supervisor_reconnected` (on success) or second `supervisor_relaunching`
@@ -1205,12 +1300,12 @@ fn spawn_reader_task(
                 json!({"reason": "disconnected"}),
             );
             log::warn!("[WS-READER] unexpected close — triggering supervisor");
-            // EC-FIX-5 (EC-18): spawn supervisor respawn on a separate thread via the
+            // spawn supervisor respawn on a separate thread via the
             // shared `trigger_respawn_off_thread` helper. The thread
             // + `block_on` bridge is required because `respawn`
             // awaits `reconnect_ws`, whose future is `!Send`
             // (tokio-tungstenite holds a `!Send` across an await), and
-            // `tokio::spawn` requires `Send` futures. NF-R19-1
+            // `tokio::spawn` requires `Send` futures.
             // documents the failed attempt to use a direct
             // `tokio::spawn` here. See the helper's doc comment for
             // the full rationale.
@@ -1222,8 +1317,8 @@ fn spawn_reader_task(
     });
 }
 
-/// XZ-11 (was inline in `reconnect_ws`): spawn the Tauri-side heartbeat
-/// task (PVT-1).
+/// (was inline in `reconnect_ws`): spawn the Tauri-side heartbeat
+/// task.
 ///
 /// Detects application-level sidecar hangs (GIL contention, infinite
 /// loop, blocking C call) that keep the WS socket open but don't
@@ -1259,7 +1354,7 @@ fn spawn_reader_task(
 /// budget — see tokio-rs/tokio#3716). The `async fn` + `lock().await`
 /// form is the canonical Tokio pattern and avoids the panic risk.
 async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
-    // GT-8 / GT-C4-3: abort any previous heartbeat task before spawning
+    //abort any previous heartbeat task before spawning
     // the new one. `reconnect_ws` is called on every successful
     // supervisor respawn (and on initial cold start), so without this abort the
     // PRIOR heartbeat task would leak — it loops forever on a 10s
@@ -1267,16 +1362,16 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     // heartbeat tasks all dispatching `heartbeat` frames at 10s
     // intervals, multiplying sidecar load N×.
     //
-    // GT-C4-1: the heartbeat's pending dispatch id is allocated INSIDE
+    // the heartbeat's pending dispatch id is allocated INSIDE
     // `dispatch_inner` (in `dispatch_frame` — `sidecar_cmds.rs`, owned
-    // by GT-FIX-20). The heartbeat task here does NOT know the id, so
+    // The heartbeat task here does NOT know the id, so
     // it can't manually remove the pending entry from `state.pending`
     // on the 15s timeout. Mitigation (existing behavior, preserved):
-    //   - On miss #3, supervisor respawn kills the sidecar → WS socket
-    //     drops → WS reader's drain loop clears ALL pending entries.
-    //   - On miss #1/#2, `dispatch_frame`'s internal 120s timeout
-    //     eventually removes the entry. Bounded leak.
-    // GT-FIX-20 will add a Drop guard on the dispatch path (GT-49) so
+    // - On miss #3, supervisor respawn kills the sidecar → WS socket
+    // drops → WS reader's drain loop clears ALL pending entries.
+    // - On miss #1/#2, `dispatch_frame`'s internal 120s timeout
+    // eventually removes the entry. Bounded leak.
+    //will add a Drop guard on the dispatch path so
     // the pending entry is removed immediately when the dispatch
     // future is dropped (which happens when the 15s outer timeout
     // cancels `dispatch_inner`).
@@ -1285,7 +1380,7 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     // task`; the original `heartbeat_state` is still referenced inside the
     // lock scope below to acquire `heartbeat_state.heartbeat_handle`.
     let heartbeat_state_for_task = heartbeat_state.clone();
-    // UE-7: hold the `heartbeat_handle` lock across the take + spawn +
+    // hold the `heartbeat_handle` lock across the take + spawn +
     // store sequence. The prior code released the lock between `take()`
     // and `*hb_guard = Some(handle)` — the window spanned the entire
     // `tauri::async_runtime::spawn(...)` call. `reconnect_ws` is called
@@ -1294,10 +1389,10 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     // flag). A reader-exit during cold-start auth can trigger
     // `trigger_respawn_off_thread`, and the two reconnects can interleave
     // their take/store:
-    //   cold-start: takes None → (releases lock)
-    //   respawn:    takes None → (releases lock)
-    //   cold-start: stores H1
-    //   respawn:    stores H2 (overwrites H1 — H1 is NEVER aborted, leaks)
+    // cold-start: takes None → (releases lock)
+    // respawn:    takes None → (releases lock)
+    // cold-start: stores H1
+    // respawn:    stores H2 (overwrites H1 — H1 is NEVER aborted, leaks)
     // After N reconnects up to N leaked heartbeat tasks run indefinitely,
     // each dispatching `heartbeat` frames every 10s to a dead WS.
     //
@@ -1328,16 +1423,16 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                     cmd: "heartbeat".to_string(),
                     data: None,
                 };
-                // AC-98: wrap the dispatch + timeout in `catch_unwind`
+                //wrap the dispatch + timeout in `catch_unwind`
                 // so a panic inside `dispatch_inner` (e.g. a serde
                 // invariant violation, or a future-proofing regression
                 // in `dispatch_frame`'s pending-map insert path) is
                 // caught, logged at ERROR, and treated as a miss —
                 // instead of silently killing the heartbeat task and
-                // losing FT-1 detection entirely. The reader + writer
+                //losing  detection entirely. The reader + writer
                 // tasks already wrap their bodies in `catch_unwind`
-                // (G4-H-26); the heartbeat task was added later
-                // (PVT-1) and missed the same treatment.
+                //the heartbeat task was added later
+                //and missed the same treatment.
                 let dispatch_result = AssertUnwindSafe(async {
                     tokio::time::timeout(
                         Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
@@ -1391,7 +1486,7 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                             break;
                         }
                     }
-                    // AC-98: catch_unwind returned Err(_panic_payload).
+                    //catch_unwind returned Err(_panic_payload).
                     // Treat the panic as a miss and continue the loop so
                     // the heartbeat task stays alive (mirrors the
                     // existing timeout / dispatch-error arms). After
@@ -1421,14 +1516,14 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                 }
             }
         });
-        // GT-8 / GT-C4-3 / UE-7: store the new handle INSIDE the lock
+        // store the new handle INSIDE the lock
         // so the take+spawn+store sequence is atomic with respect to
         // other callers. The next reconnect (or `abort_heartbeat` /
         // `shutdown_sidecar_for_exit`) can abort it.
         *hb_guard = Some(handle);
         prev
     };
-    // UE-7: abort the previous handle AFTER releasing the lock. `abort()`
+    // abort the previous handle AFTER releasing the lock. `abort()`
     // posts a cancellation signal to the task's waker; it does not
     // synchronously join the task, so this is fast and lock-free.
     if let Some(prev) = prev_handle_opt {
@@ -1439,8 +1534,8 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     }
 }
 
-// XZ-11: thin orchestrator extracted from the original 585-line
-// `reconnect_ws` god function (Finding EC-18). The five phases —
+// thin orchestrator extracted from the original 585-line
+// `reconnect_ws` god function (Finding). The five phases —
 // WS connect, writer channel + auth frame + writer task spawn,
 // auth handshake, reader task spawn, heartbeat task spawn — are now
 // focused helpers above. This function calls them in sequence,
@@ -1454,22 +1549,25 @@ pub(crate) async fn reconnect_ws(
     port: u16,
     token: &str,
 ) -> Result<(), String> {
-    // PVT-G5-088: the parameter was previously named `_app` (underscore
+    //the parameter was previously named `_app` (underscore
     // prefix implies unused), but it IS used below at `app.clone()` for
     // the reader/writer tasks. Renamed to `app` to reflect actual use
     // and silence the misleading-underscore lint.
     let (write, read) = ws_connect(port).await?;
-    let ws_rx = queue_auth_and_store_ws_tx(state, token)?;
-    // XE-15-1: pass ``app`` + ``state`` so ``spawn_writer_task`` can
+    let (ws_rx, my_generation) = queue_auth_and_store_ws_tx(state, token)?;
+    //pass ``app`` + ``state`` so ``spawn_writer_task`` can
     // run the symmetric cleanup block (clear ws_tx, drain pending,
     // trigger respawn) on write-half failure — previously the writer
     // task had no cleanup block, leaving dead writes blocking
     // dispatch callers for up to 30s.
-    spawn_writer_task(app.clone(), state.clone(), write, ws_rx);
+    // pass `my_generation` so the writer cleanup block can
+    // skip clearing `ws_tx` if a newer reconnect has already stored
+    // its own sender (race guard).
+    spawn_writer_task(app.clone(), state.clone(), write, ws_rx, my_generation);
     let state_clone = state.clone();
     let app_handle = app.clone();
     let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;
-    spawn_reader_task(app_handle.clone(), state_clone.clone(), read);
+    spawn_reader_task(app_handle.clone(), state_clone.clone(), read, my_generation);
     // `spawn_heartbeat_task` is now `async fn` — `.await` it
     // instead of fire-and-forget. The function only holds the
     // `AsyncMutex` guard for the brief synchronous take/store sections
@@ -1479,7 +1577,7 @@ pub(crate) async fn reconnect_ws(
     Ok(())
 }
 
-/// PVT-G5-062: translate Python-sidecar event names to the renderer's
+// translate Python-sidecar event names to the renderer's
 /// canonical event names. The Python sidecar publishes some events
 /// under snake_case names inherited from the Electron era (e.g.
 /// `bubble_set_state`) that the renderer expects as kebab-case
@@ -1493,7 +1591,7 @@ pub(crate) async fn reconnect_ws(
 /// and so future renames are localized to one place.
 pub(crate) fn translate_event_name(event_type: &str) -> &str {
     match event_type {
-        // PVT-2 cleanup (session 1): the `relaunch_electron` →
+        // cleanup the `relaunch_electron` →
         // `relaunch_app` rename arm was REMOVED here — the Python
         // sidecar now publishes the event under the canonical
         // `relaunch_app` name directly (see `app.py::restart_app`),
@@ -1504,7 +1602,7 @@ pub(crate) fn translate_event_name(event_type: &str) -> &str {
         // (`test_ws_reader_does_not_rename_relaunch_app`) lock this
         // in: re-adding the arm will fail that test.
         //
-        // PVT-G5-062: bubble lifecycle events. The Python sidecar
+        // bubble lifecycle events. The Python sidecar
         // still publishes these under the snake_case names that the
         // Electron bridge used; the Tauri renderer's `bubble.ts`
         // preload + `bubble-runtime.json` capability file use the
@@ -1529,11 +1627,11 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
-    // ── CR-13: pending-dispatch map (ADR-0020 §7) ────────────────────
+    // pending-dispatch map (ADR-0020 §7) ────────────────────
 
     #[tokio::test]
     async fn test_pending_dispatch_map_fulfill_by_id() {
-        // GT-E3-5: PendingMap no longer wrapped in outer Arc —
+        // PendingMap no longer wrapped in outer Arc —
         // construct directly via `AsyncMutex::new(HashMap::new())`.
         let pending: PendingMap = AsyncMutex::new(HashMap::new());
         let id = 42u64;
@@ -1571,7 +1669,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pending_dispatch_map_unfulfilled_id_leaves_entry() {
-        // GT-E3-5: PendingMap no longer wrapped in outer Arc.
+        // PendingMap no longer wrapped in outer Arc.
         let pending: PendingMap = AsyncMutex::new(HashMap::new());
         let id = 99u64;
         let (tx, _rx) = oneshot::channel::<Value>();
@@ -1601,11 +1699,11 @@ mod tests {
         );
     }
 
-    // ── PVT-G5-062: translate_event_name ────────────────────────────
+    // translate_event_name ────────────────────────────
 
     #[test]
     fn test_translate_event_name_relaunch_app_passes_through() {
-        // PVT-2 cleanup (session 1): the `relaunch_electron` →
+        // cleanup the `relaunch_electron` →
         // `relaunch_app` rename arm was REMOVED. The Python sidecar
         // publishes `relaunch_app` directly (see `app.py::restart_app`),
         // and `main.rs::setup` listens for `relaunch_app` via
@@ -1622,7 +1720,7 @@ mod tests {
 
     #[test]
     fn test_translate_event_name_bubble_lifecycle_kebab() {
-        // PVT-G5-062: snake_case bubble events from the Python sidecar
+        // snake_case bubble events from the Python sidecar
         // must be translated to the kebab-case `bubble:*` names the
         // renderer's preload + capability file expect.
         assert_eq!(translate_event_name("bubble_set_state"), "bubble:set-state");
@@ -1651,11 +1749,11 @@ mod tests {
         assert_eq!(translate_event_name("bubble_level"), "bubble_level");
     }
 
-    // ── GT-E3-6: legacy event aliases removed from ALLOWED_EVENT_TYPES ─
+    // legacy event aliases removed from ALLOWED_EVENT_TYPES ─
 
     #[test]
     fn test_gt_e3_6_legacy_aliases_not_in_allowlist() {
-        // GT-E3-6: `relaunch_electron` and `electron_notification` were
+        // `relaunch_electron` and `electron_notification` were
         // removed from `ALLOWED_EVENT_TYPES`. Old Python sidecars that
         // still emit these legacy names will have their frames DROPPED
         // by the WS reader's allowlist check.
@@ -1678,7 +1776,7 @@ mod tests {
         );
     }
 
-    // ── GT-8: heartbeat task abort on reconnect ────────────────────
+    // heartbeat task abort on reconnect ────────────────────
 
     #[tokio::test]
     async fn test_gt8_heartbeat_handle_slot_round_trips_take_abort_replace() {
@@ -1715,7 +1813,7 @@ mod tests {
         }
     }
 
-    /// GT-8: `shutdown_sidecar_for_exit` must abort any in-flight
+    /// `shutdown_sidecar_for_exit` must abort any in-flight
     /// heartbeat task stored on `state.heartbeat_handle`.
     #[tokio::test]
     async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
@@ -1741,9 +1839,9 @@ mod tests {
         );
     }
 
-    // ── UE-8 / UE-8-F9: drain_pending_with_disconnect_error ─────────
+    // drain_pending_with_disconnect_error ─────────
 
-    /// UE-8: the drain helper must send a `sidecar_disconnected` error
+    /// the drain helper must send a `sidecar_disconnected` error
     /// response to EVERY orphaned oneshot, and clear the pending map.
     /// This pins the contract used by both `cleanup_and_trigger_respawn`
     /// (auth-failure path) and the WS reader's cleanup block (normal
@@ -1788,7 +1886,7 @@ mod tests {
         }
     }
 
-    /// UE-8-F9: the drain helper must be a no-op on an empty pending map
+    /// the drain helper must be a no-op on an empty pending map
     /// (returns 0, map stays empty). Both cleanup paths call the helper
     /// unconditionally, so the empty case must not panic or log.
     #[tokio::test]
@@ -1800,7 +1898,7 @@ mod tests {
         assert_eq!(state.pending.lock().await.len(), 0);
     }
 
-    /// UE-8-F9: the drain helper must handle a receiver that was already
+    /// the drain helper must handle a receiver that was already
     /// dropped (the dispatch caller timed out / was cancelled). `oneshot::
     /// Sender::send` returns Err in that case — the helper must swallow
     /// the error (it already uses `let _ =`) and continue draining the
@@ -1831,9 +1929,9 @@ mod tests {
         assert_eq!(state.pending.lock().await.len(), 0);
     }
 
-    // ── UE-8-F10: abort_heartbeat helper ────────────────────────────
+    // abort_heartbeat helper ────────────────────────────
 
-    /// UE-8-F10: `abort_heartbeat` must clear the `heartbeat_handle`
+    /// `abort_heartbeat` must clear the `heartbeat_handle`
     /// slot and abort the in-flight task. Verifies the helper is
     /// callable and idempotent — the two shutdown paths
     /// (`shutdown_sidecar_for_exit` in state.rs, `shutdown_sidecar` in
@@ -1872,7 +1970,7 @@ mod tests {
         );
     }
 
-    /// UE-8-F10: `abort_heartbeat` on a fresh state (handle is None)
+    /// `abort_heartbeat` on a fresh state (handle is None)
     /// must be a no-op without panicking. Pins the "idempotent on empty"
     /// contract for the cold-start path where no heartbeat has been
     /// spawned yet but a shutdown is initiated.
@@ -1888,6 +1986,179 @@ mod tests {
         assert!(
             state.heartbeat_handle.lock().await.is_none(),
             "UE-8-F10: abort_heartbeat on fresh state must leave handle as None"
+        );
+    }
+
+    // ── tray_fallback_notification allowlist ───────────────
+
+    /// `tray_fallback_notification` must be in the
+    /// server-event allowlist. The Python sidecar publishes this event
+    /// when the native system-tray icon is unavailable; without it in
+    /// `ALLOWED_EVENT_TYPES` the WS reader's `is_allowed_event_type`
+    /// gate drops the frame, leaving tray-less users with no
+    /// indication that tray features are degraded.
+    #[test]
+    fn test_si14_tray_fallback_notification_is_allowed() {
+        assert!(
+            is_allowed_event_type("tray_fallback_notification"),
+            "tray_fallback_notification must be in ALLOWED_EVENT_TYPES ()"
+        );
+        // Sanity: the slice itself must list the entry (defends against
+        // a future HashSet-only addition that would diverge from the
+        // commented source-of-truth list).
+        assert!(
+            ALLOWED_EVENT_TYPES.contains(&"tray_fallback_notification"),
+            "ALLOWED_EVENT_TYPES slice must contain tray_fallback_notification"
+        );
+    }
+
+    // ── ws_generation race guard ──────────────────────
+
+    /// a fresh `SidecarState` must have `ws_generation == 0`
+    /// (distinguishable from any live generation ≥1, which is bumped
+    /// by the first `queue_auth_and_store_ws_tx`).
+    #[test]
+    fn test_si15_fresh_state_has_ws_generation_zero() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        assert_eq!(
+            state.ws_generation.load(Ordering::SeqCst),
+            0,
+            "fresh SidecarState must start at ws_generation=0"
+        );
+    }
+
+    /// `queue_auth_and_store_ws_tx` must (a) store a `ws_tx`
+    /// into `state.ws_tx`, (b) bump `ws_generation` by exactly 1 per
+    /// call, and (c) return the new generation so the caller can pass
+    /// it to the reader/writer cleanup blocks. Verifies the producer
+    /// side of the race guard.
+    #[tokio::test]
+    async fn test_si15_queue_auth_increments_ws_generation_and_stores_ws_tx() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        assert_eq!(state.ws_generation.load(Ordering::SeqCst), 0);
+        assert!(
+            mutex_lock(&state.ws_tx).is_none(),
+            "precondition: fresh state must have ws_tx = None"
+        );
+
+        // First reconnect — bumps generation 0 → 1, stores ws_tx.
+        let (_ws_rx1, gen1) = queue_auth_and_store_ws_tx(&state, "token-1")
+            .expect("first queue_auth must succeed");
+        assert_eq!(gen1, 1, "first reconnect must return generation 1");
+        assert_eq!(
+            state.ws_generation.load(Ordering::SeqCst),
+            1,
+            "state must reflect generation 1 after first reconnect"
+        );
+        assert!(
+            mutex_lock(&state.ws_tx).is_some(),
+            "ws_tx must be Some after queue_auth"
+        );
+
+        // Second reconnect — bumps generation 1 → 2, stores a NEW ws_tx
+        // (replacing the old one). This mirrors the supervisor's
+        // reconnect-after-kill path.
+        let (_ws_rx2, gen2) = queue_auth_and_store_ws_tx(&state, "token-2")
+            .expect("second queue_auth must succeed");
+        assert_eq!(gen2, 2, "second reconnect must return generation 2");
+        assert_eq!(
+            state.ws_generation.load(Ordering::SeqCst),
+            2,
+            "state must reflect generation 2 after second reconnect"
+        );
+
+        // Generations must be strictly monotonic.
+        assert!(gen2 > gen1, "generations must be monotonic");
+    }
+
+    /// the reader/writer cleanup "generation guard" contract —
+    /// if the current `ws_generation` does NOT match the captured
+    /// `my_generation`, the cleanup must NOT clear `ws_tx`. This is
+    /// the core invariant of the race fix. We simulate the race
+    /// directly by manipulating the atomic + Mutex (no real WS needed).
+    #[tokio::test]
+    async fn test_si15_cleanup_generation_guard_skips_clear_on_mismatch() {
+        let state = Arc::new(crate::state::SidecarState::new());
+
+        // Simulate: old reconnect (gen=1) stored a ws_tx, then a NEW
+        // reconnect (gen=2) replaced it. The old reader's cleanup is
+        // now running with my_generation=1.
+        let (_old_ws_rx, _gen1) = queue_auth_and_store_ws_tx(&state, "old-token")
+            .expect("old queue_auth must succeed");
+        let (new_ws_rx, gen2) = queue_auth_and_store_ws_tx(&state, "new-token")
+            .expect("new queue_auth must succeed");
+        let my_generation = 1u64; // the OLD reader's captured generation
+        assert_eq!(gen2, 2, "precondition: new reconnect must be generation 2");
+        assert_eq!(
+            state.ws_generation.load(Ordering::SeqCst),
+            2,
+            "precondition: current generation must be 2"
+        );
+        // Keep the new ws_rx alive so the new sender isn't dropped
+        // prematurely (mirrors the real writer task holding the rx).
+        let _new_ws_rx_guard = new_ws_rx;
+
+        // The NEW ws_tx is currently stored. Verify it's present.
+        assert!(
+            mutex_lock(&state.ws_tx).is_some(),
+            "precondition: ws_tx must be Some (belongs to the new reconnect)"
+        );
+
+        // Run the OLD reader's cleanup logic (inlined here to mirror
+        // the spawn_reader_task cleanup block at ws.rs ~1234-1250).
+        {
+            let current_generation = state.ws_generation.load(Ordering::SeqCst);
+            let mut ws_tx_guard = mutex_lock(&state.ws_tx);
+            if current_generation == my_generation {
+                *ws_tx_guard = None;
+            }
+            // else: SKIP the clear (this is the race guard).
+        }
+
+        // The new ws_tx must STILL be present — the old cleanup did NOT
+        // clobber it because the generations mismatched (mine=1, current=2).
+        assert!(
+            mutex_lock(&state.ws_tx).is_some(),
+            "ws_tx must survive an old-generation cleanup (race guard)"
+        );
+    }
+
+    /// when the generations DO match (the normal, non-racy
+    /// disconnect case), the cleanup MUST clear `ws_tx`. This pins
+    /// that the generation guard doesn't accidentally skip the clear
+    /// on the happy path (which would leave a dead sender in place
+    /// and break dispatch's "fail fast" contract).
+    #[tokio::test]
+    async fn test_si15_cleanup_generation_guard_clears_on_match() {
+        let state = Arc::new(crate::state::SidecarState::new());
+
+        // Single reconnect — generation 1, no newer reconnect has run.
+        let (_ws_rx, gen1) = queue_auth_and_store_ws_tx(&state, "token")
+            .expect("queue_auth must succeed");
+        let my_generation = gen1;
+        assert_eq!(
+            state.ws_generation.load(Ordering::SeqCst),
+            my_generation,
+            "precondition: current generation must match the captured one"
+        );
+        assert!(
+            mutex_lock(&state.ws_tx).is_some(),
+            "precondition: ws_tx must be Some before cleanup"
+        );
+
+        // Run the cleanup logic with matching generations.
+        {
+            let current_generation = state.ws_generation.load(Ordering::SeqCst);
+            let mut ws_tx_guard = mutex_lock(&state.ws_tx);
+            if current_generation == my_generation {
+                *ws_tx_guard = None;
+            }
+        }
+
+        // ws_tx must have been cleared (generations matched → no race).
+        assert!(
+            mutex_lock(&state.ws_tx).is_none(),
+            "ws_tx must be cleared when generations match (normal disconnect path)"
         );
     }
 }

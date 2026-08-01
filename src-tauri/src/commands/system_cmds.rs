@@ -1,8 +1,8 @@
 //! System-level window commands: open_logs, open_model_import_dialog,
-//! export_templates, export_config (CR-33 + UX-008 + MODEL-IMPORT +
-//! NEW-PRIV-007).
+//! export_templates, export_config ( +  + MODEL-IMPORT +
+//! ).
 //!
-//! CR-33: these 4 commands were missing from the Tauri host — the
+//! : these 4 commands were missing from the Tauri host — the
 //! renderer's `window.window_` bridge declared them as optional
 //! (`openLogs?`, `openModelImportDialog?`, `exportTemplates?`,
 //! `exportConfig?`) so the type system allowed them to be undefined
@@ -25,12 +25,12 @@ use crate::commands::export::{export_data, require_main_window};
 use crate::platform::open_path::open_path_in_file_manager;
 use crate::platform::paths::config_dir;
 
-// ─── DE-73: defense-in-depth config redaction ─────────────────────────
+//defense-in-depth config redaction ─────────────────────────
 //
 // The Python sidecar is contractually responsible for redacting API
 // keys / secrets / tokens BEFORE the config payload reaches the Rust
 // `export_config` command (see `voice_typer/server/credential_store.py`
-// `_redact_sensitive`). DE-73 adds a Rust-side redaction pass as
+//`_redact_sensitive`).  adds a Rust-side redaction pass as
 // defense-in-depth: if a future sidecar refactor or a custom build of
 // the renderer forgets to redact, the Rust host still scrubs obvious
 // secret-shaped keys before writing the JSON to disk. Without this,
@@ -56,7 +56,7 @@ use crate::platform::paths::config_dir;
 /// consistent regardless of which layer did the redaction.
 pub(crate) const REDACTED_MARKER: &str = "***REDACTED***";
 
-/// DE-73: return `true` if `key` matches the redaction pattern
+//return `true` if `key` matches the redaction pattern
 /// `(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|auth)`
 /// (case-insensitive substring match — the regex is unanchored).
 pub(crate) fn is_sensitive_key(key: &str) -> bool {
@@ -84,7 +84,7 @@ pub(crate) fn is_sensitive_key(key: &str) -> bool {
         || k.contains("auth")
 }
 
-/// DE-73: walk a JSON `Value` recursively and replace every value
+//walk a JSON `Value` recursively and replace every value
 /// whose key matches [`is_sensitive_key`] with the
 /// [`REDACTED_MARKER`] literal. Mutates `value` in place. Returns the
 /// count of redactions performed so the caller can log a single
@@ -165,9 +165,9 @@ fn redact_config_secrets_inner(
     }
 }
 
-// ─── Tauri command: open_logs (UX-008) ────────────────────────────────
+//Tauri command: open_logs () ────────────────────────────────
 
-/// UX-008: open the Voice Typer log directory in the OS file manager.
+//open the Voice Typer log directory in the OS file manager.
 ///
 /// Mirrors the Electron `window:open-logs` IPC handler in
 /// `voice_typer/client/src/main/ipc/window-handlers.ts:57-76` which
@@ -184,7 +184,7 @@ fn redact_config_secrets_inner(
 /// the Tauri host writes to the platform-canonical config dir per
 /// ADR-0020 §8).
 ///
-/// DE-72: the response no longer includes the `path` field — the
+//the response no longer includes the `path` field — the
 /// absolute path can contain the user's home directory / username
 /// (PII leak in shared logs / crash reports), and no renderer call
 /// site consumes it (`window-namespace.ts::openLogs` strips `path`
@@ -192,7 +192,7 @@ fn redact_config_secrets_inner(
 /// `{"success": true}` on success or `{"success": false, "error":
 /// "<msg>"}` on failure.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
+//`window` is auto-injected by Tauri at runtime — the
 /// renderer's `invoke('open_logs')` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger OS file-manager opens.
@@ -203,7 +203,7 @@ pub async fn open_logs(
 ) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir();
-    // AC-34: capture mkdir failure rather than silently discarding it
+    //capture mkdir failure rather than silently discarding it
     // with `let _ = ...`. If the config_dir is unwritable (permission
     // denied, read-only mount, etc.), the prior implementation
     // returned `{"success": true}` based solely on whether
@@ -225,7 +225,7 @@ pub async fn open_logs(
     }
 }
 
-/// GT-83: open the Rust host log directory (`<config_dir>/logs/`) in
+//open the Rust host log directory (`<config_dir>/logs/`) in
 /// the OS file manager. Distinct from `open_logs` which opens the
 /// parent `<config_dir>/` root.
 ///
@@ -236,7 +236,7 @@ pub async fn open_logs(
 /// landed in the config root and had to navigate into `logs/` manually.
 /// This command opens `logs/` directly.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime.
+//`window` is auto-injected by Tauri at runtime.
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger OS file-manager opens.
 #[tauri::command]
@@ -246,7 +246,7 @@ pub async fn open_host_logs(
 ) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir().join("logs");
-    // AC-34: capture mkdir failure (see `open_logs` above for the full
+    //capture mkdir failure (see `open_logs` above for the full
     // rationale — silently discarding the error led to a triple failure
     // mode where the UI showed "logs opened" while the OS file manager
     // popped a "path not found" dialog).
@@ -264,7 +264,7 @@ pub async fn open_host_logs(
     }
 }
 
-/// GT-35: sink for renderer-side error logs. The React UI's
+//sink for renderer-side error logs. The React UI's
 /// `__tauriLog.error(...)` invokes this command so uncaught UI errors
 /// land in the host-side rotating log file (`<config_dir>/logs/voice-typer-rust.log`
 /// via the existing `log::error!` global logger) for operator triage
@@ -277,11 +277,11 @@ pub async fn open_host_logs(
 /// resolves so its `__tauriLog.error` call doesn't itself become an
 /// unhandled rejection.
 ///
-/// FR-97: the doc path above was updated from `voice-typer.log` to
-/// `voice-typer-rust.log` to match the FR-97 rename in
+//the doc path above was updated from `voice-typer.log` to
+//`voice-typer-rust.log` to match the  rename in
 /// `platform::logging`.
 ///
-/// FR-44: payload size is capped at 8 KiB after serialization. The
+//payload size is capped at 8 KiB after serialization. The
 /// React UI's `__tauriLog.error(...)` is called with arbitrary
 /// `Value` payloads — a runaway renderer could pass a multi-MB
 /// object (e.g. an entire Redux state dump, a circular-ref retry,
@@ -298,7 +298,7 @@ pub async fn renderer_log_error(
     window: tauri::Window,
     _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    // XE-4-1: main-window-origin guard. Without this, a compromised
+    //main-window-origin guard. Without this, a compromised
     // bubble renderer (withGlobalTauri: true) could invoke
     // `invoke('renderer_log_error', payload)` directly and flood the
     // 25 MiB rotating log at 60 Hz × 8 KiB ≈ 480 KiB/s, evicting real
@@ -307,7 +307,7 @@ pub async fn renderer_log_error(
     require_main_window(&window)?;
     let mut serialized =
         serde_json::to_string(&payload).unwrap_or_else(|_| "<unserializable>".to_string());
-    // FR-44: cap serialized payload at 8 KiB so a runaway renderer
+    //cap serialized payload at 8 KiB so a runaway renderer
     // can't bloat the rotating file log with a multi-MB error report.
     // The cap matches the typical rich-error-report size (message +
     // stack + componentStack + location); larger payloads are
@@ -338,7 +338,7 @@ pub async fn renderer_log_error(
 /// Electron handler's shape so `Models.tsx`'s import handler is
 /// unchanged on both runtimes.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
+//`window` is auto-injected by Tauri at runtime — the
 /// renderer's `invoke('open_model_import_dialog')` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger a folder-picker dialog.
@@ -348,7 +348,7 @@ pub async fn open_model_import_dialog(
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    // PVT-048: use the async folder-pick pattern instead of blocking.
+    //use the async folder-pick pattern instead of blocking.
     // tauri-plugin-dialog v2.7.2's ``pick_folder()`` is callback-based
     // (not async), so we bridge it via a oneshot channel.
     let (tx, rx) = oneshot::channel();
@@ -369,9 +369,9 @@ pub async fn open_model_import_dialog(
     }))
 }
 
-// ─── Tauri commands: export_templates / export_config (NEW-PRIV-007) ──
+//Tauri commands: export_templates / export_config () ──
 
-/// NEW-PRIV-007: GDPR right-to-export for templates. Opens a save-file
+//GDPR right-to-export for templates. Opens a save-file
 /// dialog (JSON only — no CSV shape for templates) and writes the data
 /// as pretty-printed JSON. Mirrors the Electron `templates:export` IPC
 /// handler in `voice_typer/client/src/main/ipc/export-handlers.ts`.
@@ -381,7 +381,7 @@ pub async fn open_model_import_dialog(
 /// (Tauri `canceled:true` → Electron `{success:false}` parity) works
 /// identically.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
+//`window` is auto-injected by Tauri at runtime — the
 /// renderer's `invoke('export_templates', { data })` call is
 /// unchanged. `require_main_window(&window)?` runs FIRST.
 #[tauri::command]
@@ -396,9 +396,9 @@ pub async fn export_templates(
     export_data(data, "json".to_string(), app, "voice-typer-templates", "Export Templates").await
 }
 
-/// NEW-PRIV-007: GDPR right-to-export for the full app config. The
+//GDPR right-to-export for the full app config. The
 /// Python sidecar is contractually responsible for redacting API keys
-/// BEFORE the data reaches this command. DE-73 adds a Rust-side
+//BEFORE the data reaches this command.  adds a Rust-side
 /// defense-in-depth redaction pass via [`redact_config_secrets`] — if
 /// the Python path regresses, the Rust host still scrubs obvious
 /// secret-shaped keys (api_key / secret / token / password / passwd /
@@ -408,7 +408,7 @@ pub async fn export_templates(
 ///
 /// Same return shape as `export_templates`.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
+//`window` is auto-injected by Tauri at runtime — the
 /// renderer's `invoke('export_config', { data })` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST.
 #[tauri::command]
@@ -418,7 +418,7 @@ pub async fn export_config(
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    // DE-73: defense-in-depth redaction. Walk the JSON tree and
+    //defense-in-depth redaction. Walk the JSON tree and
     // replace any value whose key matches the sensitive-key pattern
     // with `***REDACTED***`. Logs a `warn` per redaction so a
     // regression in the Python-side redaction is visible in the
@@ -438,7 +438,7 @@ pub async fn export_config(
 mod tests {
     use super::*;
 
-    // ── DE-73: is_sensitive_key ───────────────────────────────────────
+    //is_sensitive_key ───────────────────────────────────────
     //
     // Pins the key-matching pattern: `(?i)(api[_-]?key|secret|token|
     // password|passwd|pwd|credential|auth)` as a case-insensitive
@@ -490,7 +490,7 @@ mod tests {
         assert!(!is_sensitive_key(""));
     }
 
-    // ── DE-73: redact_config_secrets ──────────────────────────────────
+    //redact_config_secrets ──────────────────────────────────
 
     #[test]
     fn test_redact_config_secrets_flat_object() {

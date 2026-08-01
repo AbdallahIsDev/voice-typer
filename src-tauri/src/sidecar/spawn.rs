@@ -7,7 +7,7 @@
 //! `OPENAI_API_KEY`, `http_proxy`) exported from the user's shell.
 
 use crate::state::SidecarHandle;
-// DT-44: 500ms server-started poll interval is now the named constant
+// 500ms server-started poll interval is now the named constant
 // `SERVER_STARTED_POLL_INTERVAL_MS` in `util.rs` (was duplicated inline
 // at `spawn.rs:280` and `spawn.rs:495`).
 use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
@@ -35,7 +35,7 @@ pub(crate) async fn spawn_sidecar_and_get_port(
     // instead of the frozen `externalBin` binary. This lets UI/
     // transport iterate in seconds (no Nuitka recompile) during dev.
     //
-    // CR-2: only the release path (`spawn_sidecar_release`) returns a
+    // only the release path (`spawn_sidecar_release`) returns a
     // `CommandEvent` receiver — the dev-mode path spawns via
     // `tokio::process::Command` which has no equivalent stream, so we
     // return `None` and `shutdown_sidecar` falls back to bounded sleep
@@ -291,7 +291,7 @@ pub(crate) async fn spawn_sidecar_release(
                 // Stdout lines for the server_started JSON.
                 let line = match event {
                     CommandEvent::Stdout(bytes) => {
-                        // ER-66: `.into_owned()` reuses the inner String
+                        // `.into_owned()` reuses the inner String
                         // when the Cow is Owned (invalid UTF-8 case —
                         // Python sidecar stderr can contain non-UTF-8
                         // bytes from a C extension traceback). The prior
@@ -301,8 +301,8 @@ pub(crate) async fn spawn_sidecar_release(
                     }
                     CommandEvent::Stderr(bytes) => {
                         // Log stderr but don't parse it as server_started.
-                        // ER-66: same `.into_owned()` rationale as above.
-                        // UE-3-F9: demoted from `info!` to `debug!`. The
+                        // same `.into_owned()` rationale as above.
+                        // demoted from `info!` to `debug!`. The
                         // sidecar's stderr can be extremely chatty (Python
                         // warning frames, native hotkey binary debug
                         // prints, ctranslate2 device-info dumps). Logging
@@ -319,7 +319,7 @@ pub(crate) async fn spawn_sidecar_release(
                         continue;
                     }
                     CommandEvent::Terminated(payload) => {
-                        // G4-M-61: kill the child before returning Err so
+                        // kill the child before returning Err so
                         // a sidecar that sent Terminated but didn't
                         // actually exit doesn't leak as a zombie. The
                         // Tauri shell-plugin child handle is single-use
@@ -328,7 +328,7 @@ pub(crate) async fn spawn_sidecar_release(
                         // Best-effort: errors are logged but don't
                         // replace the original spawn-failure error.
                         //
-                        // PVT-G5-030 (session 5): also reap grandchildren
+                        // also reap grandchildren
                         // via `kill_process_tree` BEFORE `child.kill()`
                         // so the root is still alive when we walk
                         // `pgrep -P <pid>` (on Unix, killing the root
@@ -341,7 +341,7 @@ pub(crate) async fn spawn_sidecar_release(
                         // dev-mode path below). The shell-plugin child
                         // always has a pid once spawned.
                         //
-                        // XV-136 (High): wrap the blocking
+                        // (High): wrap the blocking
                         // `kill_process_tree` (which on Unix spawns
                         // `pgrep` + `kill -TERM` per descendant +
                         // `std::thread::sleep(200ms)` + `kill -KILL` per
@@ -368,7 +368,7 @@ pub(crate) async fn spawn_sidecar_release(
                         ));
                     }
                     CommandEvent::Error(err) => {
-                        // G4-M-61: kill the child before returning Err.
+                        // kill the child before returning Err.
                         // Without this, the sidecar process leaks — the
                         // shell-plugin CommandChild doesn't kill on Drop,
                         // so a sidecar that errored at startup but is
@@ -376,12 +376,12 @@ pub(crate) async fn spawn_sidecar_release(
                         // Best-effort: kill errors are logged but don't
                         // replace the original CommandEvent::Error.
                         //
-                        // PVT-G5-030 (session 5): reap grandchildren
+                        // reap grandchildren
                         // first.
                         //
                         // NOTE: same as the Terminated arm above —
                         // `child.pid()` here is `u32`, not `Option<u32>`.
-                        // XV-136 (High): spawn_blocking wrap — see the
+                        // (High): spawn_blocking wrap — see the
                         // comment in the Terminated arm above.
                         let pid = child.pid();
                         let _ = tauri::async_runtime::spawn_blocking(
@@ -402,7 +402,7 @@ pub(crate) async fn spawn_sidecar_release(
                 // Try to parse as the server_started event.
                 if let Some(port) = parse_server_started(&line) {
                     log::info!("[SIDECAR] server_started port={}", port);
-                    // CR-2: hand the event receiver back to the caller so
+                    // hand the event receiver back to the caller so
                     // `shutdown_sidecar` can poll for `Terminated` instead
                     // of sleeping the full SHUTDOWN_ACK_TIMEOUT_MS.
                     return Ok((port, SidecarHandle::ShellPlugin(child), rx));
@@ -422,14 +422,14 @@ pub(crate) async fn spawn_sidecar_release(
         }
     }
     let pid = child.pid();
-    // PVT-G5-030: reap grandchildren too — the bare `child.kill()` only
+    // reap grandchildren too — the bare `child.kill()` only
     // kills the sidecar root, leaving grandchildren (native hotkey
     // binary, model subprocesses) orphaned. Call `kill_process_tree`
     // BEFORE `child.kill()` so the root is still alive when we walk
     // `pgrep -P <pid>` (on Unix, killing the root first would reparent
     // the children to init and break the descendant walk).
     //
-    // XV-136 (High): spawn_blocking wrap — see the comment in the
+    // (High): spawn_blocking wrap — see the comment in the
     // Terminated arm above. The blocking `pgrep` + `kill` walk +
     // 200ms `std::thread::sleep` inside `kill_process_tree` must not
     // stall a Tokio worker thread.
@@ -437,14 +437,14 @@ pub(crate) async fn spawn_sidecar_release(
         crate::platform::process::kill_process_tree(pid)
     })
     .await;
-    // G4-M-61: log the kill error for visibility (mirrors the dev-mode
+    // log the kill error for visibility (mirrors the dev-mode
     // path's kill-error logging below). The previous `let _ = child.kill();`
     // silently dropped the kill error — a stuck sidecar that won't die
     // was invisible in the log.
     if let Err(e) = child.kill() {
         log::warn!("[SIDECAR] failed to kill child after deadline: {}", e);
     }
-    // UE-3-F4: reap the zombie. `child.kill()` sends the kill signal but
+    // reap the zombie. `child.kill()` sends the kill signal but
     // does NOT itself waitpid — the Tauri shell-plugin's internal exit
     // watcher delivers a `CommandEvent::Terminated` to `rx` once the OS
     // reports the process has died. Without draining `rx` here, the
@@ -464,7 +464,7 @@ pub(crate) async fn spawn_sidecar_release(
     ))
 }
 
-/// XZ-R4-011: dev-mode counterpart of `prewarm_resource_path` (which
+/// dev-mode counterpart of `prewarm_resource_path` (which
 /// needs an `AppHandle` and so can't be called from
 /// `spawn_sidecar_dev_mode`). Resolves the prewarm exe path relative
 /// to the source-tree root (the dev-mode cwd under `cargo tauri dev`)
@@ -533,7 +533,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
-        // XZ-R4-011: mirror the release-path env-var set so dev mode
+        // mirror the release-path env-var set so dev mode
         // doesn't silently diverge. Previously dev mode was missing
         // `VOICE_TYPER_PREWARM_EXE` (so the prewarm scheduled-task
         // integration couldn't be exercised under `cargo tauri dev`)
@@ -548,7 +548,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         // logs a warning so the developer knows prewarm is disabled
         // in this dev session.
         .env("VOICE_TYPER_PREWARM_EXE", dev_prewarm_exe())
-        // GT-20: set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
+        // set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
         // verbose debug logging (its `log.py` checks this env var).
         // Previously this set only `RUST_LOG=debug`, which is
         // meaningless for a Python child (Python doesn't read
@@ -556,7 +556,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         // sidecar might spawn. Keep `RUST_LOG=debug` too so those
         // native children stay verbose in dev mode.
         //
-        // XZ-R4-011: only set `RUST_LOG=debug` when the env var is
+        // only set `RUST_LOG=debug` when the env var is
         // unset, so a developer who exports `RUST_LOG=warn` (or any
         // other level) from their shell to silence a noisy crate
         // doesn't have their preference clobbered by the dev spawn
@@ -573,8 +573,8 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         // tracebacks in the `cargo tauri dev` console.
         .stderr(std::process::Stdio::inherit())
         // Ensure the dev sidecar dies with the host (no zombie python).
-        // GT-A2-4: dev-mode equivalent of the release-mode kill-on-drop
-        // requirement (see the GT-A2-4 note on `spawn_sidecar_release`).
+        // dev-mode equivalent of the release-mode kill-on-drop
+        // requirement (see the note on `spawn_sidecar_release`).
         .kill_on_drop(true);
 
     let mut child = cmd
@@ -612,12 +612,12 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
             Err(_) => continue, // per-iteration timeout — retry until deadline
         }
     }
-    // PVT-G5-030: same fix as the release path — reap grandchildren
+    // same fix as the release path — reap grandchildren
     // before killing the root. `tokio::process::Child::id()` returns
     // `Option<u32>` (None if the child has already been reaped).
     let pid_opt = child.id();
     if let Some(pid) = pid_opt {
-        // XV-136 (High): spawn_blocking wrap — see the comment in the
+        // (High): spawn_blocking wrap — see the comment in the
         // release-path Terminated arm above. Mirrors the
         // `SidecarHandle::kill_tree` pattern in `state.rs:148`.
         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -625,12 +625,12 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         })
         .await;
     }
-    // G4-M-61: log the kill error for visibility (mirrors the release
+    // log the kill error for visibility (mirrors the release
     // path's kill-error logging above).
     if let Err(e) = child.kill().await {
         log::warn!("[SIDECAR-DEV] failed to kill child after deadline: {}", e);
     }
-    // UE-3-F4: reap the zombie. `tokio::process::Child::kill(&mut self)`
+    // reap the zombie. `tokio::process::Child::kill(&mut self)`
     // sends SIGKILL but does NOT call waitpid — the killed child remains
     // a zombie in the OS process table until `wait()` (or `try_wait()`)
     // is invoked. `kill_on_drop(true)` ensures Drop will eventually reap,
@@ -653,7 +653,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
 /// stdout-reading loops. Returns the port if `line` is the
 /// `{"event":"server_started","port":N}` JSON line, else `None`.
 ///
-/// GT-D3-2: the port field is parsed via `u16::try_from(p).ok()` instead
+/// the port field is parsed via `u16::try_from(p).ok()` instead
 /// of `p as u16`. The previous `as u16` cast silently truncated any port
 /// value above 65535 (e.g. a corrupted `port: 70000` JSON would wrap to
 /// `70000_u32 as u16 = 4464`). `try_from` returns `Err` for out-of-range
@@ -663,9 +663,9 @@ pub(crate) fn parse_server_started(line: &str) -> Option<u16> {
     if v.get("event").and_then(|e| e.as_str()) == Some("server_started") {
         v.get("port")
             .and_then(|p| p.as_u64())
-            // GT-D3-2: try_from instead of truncating `as u16`.
+            // try_from instead of truncating `as u16`.
             .and_then(|p| u16::try_from(p).ok())
-            // UE-3-F7: reject port 0. A sidecar that has successfully
+            // reject port 0. A sidecar that has successfully
             // bound a real port never reports 0 in its `server_started`
             // handshake (the value comes from `socket.getsockname()[1]`
             // AFTER bind succeeds). A `port: 0` is therefore always a
@@ -741,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_parse_server_started_port_zero() {
-        // UE-3-F7: port 0 must be rejected (return None). A sidecar that
+        //port 0 must be rejected (return None). A sidecar that
         // has successfully bound a real port never reports 0 in the
         // `server_started` handshake (the value comes from
         // `socket.getsockname()[1]` AFTER bind succeeds). A `port: 0` is
@@ -757,11 +757,11 @@ mod tests {
         );
     }
 
-    // ── GT-D3-2: u16::try_from instead of truncating `as u16` ────────
+    // u16::try_from instead of truncating `as u16` ────────
 
     #[test]
     fn test_parse_server_started_port_above_u16_max_returns_none() {
-        // GT-D3-2: a port value above u16::MAX (65535) must return None
+        // a port value above u16::MAX (65535) must return None
         // instead of silently truncating. Previously `p as u16` would
         // wrap 70000 → 4464.
         let line = r#"{"event":"server_started","port":70000}"#;
@@ -812,7 +812,7 @@ mod tests {
         assert!(is_dev_mode_for(Some("1")), "\"1\" → dev mode");
     }
 
-    // ── CR-13: target_triple_for (ADR-0020 §4.1) ─────────────────────
+    // target_triple_for (ADR-0020 §4.1) ─────────────────────
 
     #[test]
     fn test_target_triple_for_all_known_combos() {

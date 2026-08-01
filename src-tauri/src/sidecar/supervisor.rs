@@ -1,6 +1,6 @@
 //! Sidecar supervisor: respawn + backoff (ADR-0020 §10).
 //!
-//! DT-53: the bubble-level coalesce predicate that previously lived here
+//! the bubble-level coalesce predicate that previously lived here
 //! (`bubble_coalesce_should_emit` at line 474) has been moved to its own
 //! `sidecar/bubble_coalesce.rs` module. It was called only from
 //! `sidecar/ws.rs:599` (never from supervisor.rs itself) — a pure UI-
@@ -11,7 +11,7 @@
 use crate::state::SidecarState;
 #[cfg(all(test, target_os = "linux"))]
 use crate::state::SidecarHandle;
-// G4-H-27 (session 4): poison-safe Mutex helper. Replacing
+// poison-safe Mutex helper. Replacing
 // `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
 // mutex (a prior panic while holding the lock) doesn't re-panic and
 // brick the resilience layer.
@@ -19,13 +19,13 @@ use crate::state::lock as mutex_lock;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port;
 use crate::sidecar::ws::reconnect_ws;
 use crate::util::{generate_token, atomic_write_bytes, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
-// PVT-G5-033: reuse the canonical atomic write helper so the
+// reuse the canonical atomic write helper so the
 // restart counter is durable against mid-write crashes (see
-// `write_restart_counter` below). FZ-20: previously imported from
+// `write_restart_counter` below). previously imported from
 // `crate::migrate::atomic_write_bytes` (a backward-compat re-export);
 // now imports directly from `crate::util` so the re-export shim can
 // eventually be removed once `migrate.rs` itself is deleted.
-// GT-9: `AssertUnwindSafe` + `catch_unwind` for the respawn_inner
+// `AssertUnwindSafe` + `catch_unwind` for the respawn_inner
 // panic-safety wrapper. `FutureExt` brings `.catch_unwind()` into scope.
 use std::panic::AssertUnwindSafe;
 use futures_util::FutureExt;
@@ -35,7 +35,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::Emitter;
 
-/// CR-29: max number of `app.restart()` attempts before the supervisor
+/// max number of `app.restart()` attempts before the supervisor
 /// gives up and emits `supervisor_failed` instead of looping
 /// forever. Each `respawn` call increments a disk-persisted
 /// counter; on successful `supervisor_reconnected` the counter resets to 0.
@@ -43,7 +43,7 @@ use tauri::Emitter;
 /// masking a permanently-broken install (missing binary, corrupt env).
 const MAX_RESTART_ATTEMPTS: u32 = 3;
 
-/// G4-H-28: stale-count cutoff. The disk-persisted restart
+/// stale-count cutoff. The disk-persisted restart
 /// counter now carries a Unix timestamp (seconds). If the timestamp
 /// is older than this many seconds, the count is treated as 0 — a
 /// stale counter from a previous session (e.g., the user had 2
@@ -53,7 +53,7 @@ const MAX_RESTART_ATTEMPTS: u32 = 3;
 /// short enough to not accumulate across sessions.
 const COUNTER_STALE_SECS: u64 = 10 * 60;
 
-/// G4-H-28 helper: current Unix time in seconds. Returns 0 on
+/// helper: current Unix time in seconds. Returns 0 on
 /// pre-epoch clock skew (won't happen in practice but the
 /// `duration_since` API requires handling it).
 fn now_unix_secs() -> u64 {
@@ -63,7 +63,7 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// PVT-G5-051: parse the restart counter from a JSON value with
+/// parse the restart counter from a JSON value with
 /// a SATURATING cast. Previously the reader used `c as u32` after
 /// `as_u64()`, which silently truncates any u64 value above `u32::MAX`
 /// (e.g., a corrupted counter file with an absurdly large `count`
@@ -80,20 +80,20 @@ pub(crate) fn parse_restart_counter(v: &serde_json::Value) -> u32 {
         .unwrap_or(0)
 }
 
-/// CR-29: read the disk-persisted restart counter. Returns 0 on
+/// read the disk-persisted restart counter. Returns 0 on
 /// any error (missing file, parse error, etc.) — fail-open is safer
 /// than blocking recovery on a transient disk issue.
 ///
-/// PVT-G5-087: dropped the unused `_state: &Arc<SidecarState>`
+/// dropped the unused `_state: &Arc<SidecarState>`
 /// parameter — the function only reads a disk file and never touches
 /// the shared state. All call sites updated.
 ///
-/// G4-H-28: the counter file now carries a `ts` field (Unix seconds).
+/// the counter file now carries a `ts` field (Unix seconds).
 /// If `ts` is older than `COUNTER_STALE_SECS` (10 minutes), the
 /// count is treated as 0 — a stale count from a previous session
 /// doesn't trip the circuit breaker on a single new crash.
 fn read_restart_counter() -> u32 {
-    // ER-59: route through the cached `config_dir()` (OnceLock-backed)
+    // route through the cached `config_dir()` (OnceLock-backed)
     // instead of re-resolving 4 env vars on every call. The prior
     // inline `config_dir_from_env(...)` form was duplicated here + in
     // `write_restart_counter` below — both call sites now share the
@@ -108,7 +108,7 @@ fn read_restart_counter() -> u32 {
                 Ok(v) => v,
                 Err(_) => return 0,
             };
-            // G4-H-28: stale-count cutoff. If the timestamp is missing
+            // stale-count cutoff. If the timestamp is missing
             // (legacy file from before this fix) or older than
             // COUNTER_STALE_SECS, treat the count as 0.
             let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
@@ -134,34 +134,34 @@ fn read_restart_counter() -> u32 {
     }
 }
 
-/// CR-29: write the disk-persisted restart counter. Best-effort
+/// write the disk-persisted restart counter. Best-effort
 /// — if the write fails, log and continue (the counter is a safety
 /// gate, not a correctness requirement).
 ///
-/// PVT-G5-087: dropped the unused `_state: &Arc<SidecarState>`
+/// dropped the unused `_state: &Arc<SidecarState>`
 /// parameter — the function only writes a disk file and never touches
 /// the shared state. All call sites updated.
 ///
-/// PVT-G5-033: switched from non-atomic `std::fs::write` (truncate-
+/// switched from non-atomic `std::fs::write` (truncate-
 /// then-write) to `atomic_write_bytes` (temp + fsync + rename). A
 /// crash mid-write previously could leave a partially-written
 /// counter file that fails to parse on next launch — `read_restart_counter`
 /// then returns 0, silently bypassing the circuit breaker. Atomic
 /// write guarantees the counter is either fully-old or fully-new.
 ///
-/// G4-H-28 (session 4): the counter file now includes a `ts` field
+/// the counter file now includes a `ts` field
 /// (Unix seconds) so `read_restart_counter` can detect + ignore
 /// stale counts from previous sessions. `write_restart_counter(0)`
-/// is called both on successful reconnect (the existing CR-29
-/// path) AND on successful cold start (the new G4-H-28 path) so the
+/// is called both on successful reconnect (the existing
+/// path) AND on successful cold start (the new path) so the
 /// counter doesn't accumulate stale failures across sessions.
 pub(crate) fn write_restart_counter(count: u32) {
-    // ER-59: route through the cached `config_dir()` (OnceLock-backed).
+    // route through the cached `config_dir()` (OnceLock-backed).
     let path = match crate::platform::paths::config_dir() {
         p if p.as_os_str().is_empty() => return,
         p => p.join("restart_counter.json"),
     };
-    // G4-H-28: include `ts` so future reads can detect staleness.
+    //include `ts` so future reads can detect staleness.
     let payload = json!({"count": count, "ts": now_unix_secs()});
     if let Err(e) = atomic_write_bytes(&path, payload.to_string().as_bytes()) {
         log::warn!("[SUPERVISOR] failed to persist restart counter to {:?}: {}", path, e);
@@ -185,7 +185,7 @@ pub(crate) async fn respawn(
         log::info!("[SUPERVISOR] respawn already in progress — skipping");
         return Ok(());
     }
-    // UE-3-F6: re-check `shutting_down` IMMEDIATELY after flag acquisition,
+    // re-check `shutting_down` IMMEDIATELY after flag acquisition,
     // BEFORE any disk I/O (`read_restart_counter` below opens + reads
     // `restart_counter.json`). Without this check, a concurrent shutdown
     // during the disk read still proceeds to the counter logic below —
@@ -203,7 +203,7 @@ pub(crate) async fn respawn(
         state.respawn_in_progress.store(false, Ordering::SeqCst);
         return Ok(());
     }
-    // CR-29: circuit breaker — persist restart-attempt counter to
+    // circuit breaker — persist restart-attempt counter to
     // disk so we don't enter an infinite restart loop on a broken
     // install (missing sidecar binary, corrupted Python env, etc.).
     // If counter >= MAX_RESTART_ATTEMPTS, STOP the loop and emit
@@ -211,14 +211,34 @@ pub(crate) async fn respawn(
     // silently restart-looping forever. Counter is reset on successful
     // `supervisor_reconnected` event.
     //
-    // UE-4: this top-of-respawn check uses the EXISTING persisted counter
+    // this top-of-respawn check uses the EXISTING persisted counter
     // value (no increment here). The increment now lives in `respawn_inner`'s
     // exhaustion path, so the counter only goes up when an `app.restart()` is
     // actually about to fire — not on every `respawn` invocation. This makes
     // the breaker trip on the 3rd relaunch attempt (not the 4th), as
     // intended. The top-of-respawn check still serves as the early-exit for
     // the case where a prior process left the persisted counter at max.
-    let restart_count = read_restart_counter();
+    //
+    // route the synchronous `std::fs::read_to_string` through
+    // `tauri::async_runtime::spawn_blocking` so we don't stall a Tokio
+    // worker thread on the disk read. The supervisor runs on the async
+    // runtime; the prior inline `read_restart_counter()` call hit the
+    // filesystem synchronously (open + read + close + JSON parse) on
+    // the worker thread. Under a contended disk (e.g. an antivirus
+    // scan on Windows) this can take >100ms, blocking the worker and
+    // delaying other futures sharing the runtime. `spawn_blocking`
+    // offloads to the dedicated blocking-thread pool. On JoinError
+    // (task cancelled / panic), fail-open to 0 — same behavior as a
+    // missing/unreadable counter file.
+    let restart_count = tauri::async_runtime::spawn_blocking(read_restart_counter)
+        .await
+        .unwrap_or_else(|join_err| {
+            log::warn!(
+                "[SUPERVISOR] spawn_blocking(read_restart_counter) join failed: {} — treating as 0 (fail-open)",
+                join_err
+            );
+            0
+        });
     if restart_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
             "[SUPERVISOR] circuit breaker tripped — restart count {} >= max {}. Stopping supervisor.",
@@ -246,7 +266,7 @@ pub(crate) async fn respawn(
             restart_count
         ));
     }
-    // UE-4: the counter increment that USED to live here
+    // the counter increment that USED to live here
     // (`write_restart_counter(restart_count + 1)`) has been moved to
     // `respawn_inner`'s exhaustion path. The old placement bumped the
     // counter on every `respawn` invocation, even when `respawn_inner`
@@ -255,7 +275,7 @@ pub(crate) async fn respawn(
     // placement increments + checks immediately before `app.restart()`,
     // so the counter reflects actual relaunch attempts.
     //
-    // PVT-G5-031: DO NOT clear `respawn_in_progress` here unconditionally.
+    // DO NOT clear `respawn_in_progress` here unconditionally.
     // The inner function `respawn_inner` is responsible for clearing
     // the flag on its success path (before `return Ok(())`)
     // so that a fast-double-crash disconnect detected by the freshly-
@@ -263,13 +283,13 @@ pub(crate) async fn respawn(
     // own respawn. The circuit-breaker path above clears the
     // flag itself before returning Err. The `app.restart()` exhaustion
     // path at the bottom of `respawn_inner` now ALSO clears the flag
-    // (UE-3-F2, defense-in-depth) before calling `app.restart()` —
+    // before calling `app.restart()` —
     // the prior comment said "no clear is needed there" because the
-    // path was `-> !` (never returns), but with UE-4 the exhaustion
+    // path was `-> !` (never returns), but with the exhaustion
     // path can now return `Err` (breaker trip) BEFORE calling
     // `app.restart()`, so the clear is needed for that arm.
     //
-    // GT-9: wrap the `respawn_inner` call in
+    // wrap the `respawn_inner` call in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
     // inner function doesn't leave `respawn_in_progress` set forever
     // — which would permanently brick the resilience layer. On
@@ -285,7 +305,7 @@ pub(crate) async fn respawn(
                 "[SUPERVISOR] respawn_inner panicked — clearing respawn_in_progress \
                  so future respawns can proceed"
             );
-            // GT-9: clear the flag in the Err(panic) arm.
+            //clear the flag in the Err(panic) arm.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
             Err("respawn_inner panicked".to_string())
         }
@@ -296,7 +316,7 @@ pub(crate) async fn respawn_inner(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
-    // UE-3-F13: track the last per-iteration error across the backoff
+    // track the last per-iteration error across the backoff
     // schedule so the exhaustion path can surface WHY the relaunch is
     // happening (not just THAT it's happening). The previous
     // `supervisor_relaunching` payload carried only `{"reason":
@@ -307,7 +327,7 @@ pub(crate) async fn respawn_inner(
     // failed, so last_error is always populated on this path).
     let mut last_error = String::new();
     for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate() {
-        // NF-R19-2: there used to be an in-loop `if attempt as u32 >=
+        // there used to be an in-loop `if attempt as u32 >=
         // SUPERVISOR_MAX_RETRIES { app.restart(); }` guard here, but it was
         // dead code — `SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5`
         // so `attempt` ranges `0..=4` and the condition
@@ -316,7 +336,7 @@ pub(crate) async fn respawn_inner(
         // bottom of this function.
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[SUPERVISOR] shutting down — skipping respawn");
-            // FR-87: clear the flag so a future respawn (e.g. after the
+            // clear the flag so a future respawn (e.g. after the
             // user reopens the app from the tray without a full process
             // restart) can proceed. Without this clear, the flag stays
             // set forever and the resilience layer is permanently dead.
@@ -326,7 +346,7 @@ pub(crate) async fn respawn_inner(
         log::warn!("[SUPERVISOR] respawn attempt {} after {}ms", attempt + 1, delay_ms);
         tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
 
-        // CR-81: re-check `shutting_down` immediately before spawning a
+        // re-check `shutting_down` immediately before spawning a
         // new sidecar. The check at the top of the loop could be stale
         // — the user might have closed the main window (triggering
         // `shutdown_sidecar`) during the backoff sleep. If we spawn a
@@ -336,19 +356,19 @@ pub(crate) async fn respawn_inner(
         // overwriting the killed child with a live one.
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[SUPERVISOR] shutting down (pre-spawn re-check) — skipping respawn");
-            // FR-87: same flag-clear rationale as the top-of-loop check.
+            // same flag-clear rationale as the top-of-loop check.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
             return Ok(());
         }
 
-        // CR-3 fix: BEFORE spawning the new sidecar, take + kill the OLD
+        // fix: BEFORE spawning the new sidecar, take + kill the OLD
         // child handle. SidecarHandle::ShellPlugin(CommandChild) does NOT
         // kill the OS process on Drop (unlike DevMode's kill_on_drop(true)),
         // so without this explicit kill_tree, replacing state.child would
         // silently ORPHAN the old Python sidecar — leaving it running with
         // the mic handle, IPC port, and native hotkey binary child still
         // held. After 5 exhausted retries, up to 5 zombie Python sidecars
-        // could accumulate. See CR-3 in review.md.
+        // could accumulate.
         let old_child = mutex_lock(&state.child).take();
         if let Some(old) = old_child {
             log::info!("[SUPERVISOR] killing old sidecar before respawn");
@@ -359,7 +379,7 @@ pub(crate) async fn respawn_inner(
         let new_token = generate_token();
         match spawn_sidecar_and_get_port(app, &new_token).await {
             Ok((port, child, exit_rx)) => {
-                // CR-81: install-time guard + atomic install.
+                // install-time guard + atomic install.
                 //
                 // Acquire `state.child` lock FIRST, then re-check
                 // `shutting_down` INSIDE the lock, then either install
@@ -368,38 +388,38 @@ pub(crate) async fn respawn_inner(
                 // main thread can run between the (previously
                 // lock-free) shutdown check and the lock acquire:
                 //
-                //   1. respawn_inner: `shutting_down.load()` → false
-                //      (CHECK A, no lock held).
-                //   2. main thread: `shutting_down.swap(true)`,
-                //      acquires `state.child` lock, takes the slot
-                //      (which is `None` here — respawn_inner already
-                //      cleared it at the pre-spawn take+kill above),
-                //      releases the lock, returns.
-                //   3. respawn_inner: acquires `state.child` lock,
-                //      installs the fresh child, returns `Ok(())`.
-                //   4. host exits; the freshly-installed sidecar is
-                //      orphaned (no one kills it).
+                // 1. respawn_inner: `shutting_down.load()` → false
+                // (CHECK A, no lock held).
+                // 2. main thread: `shutting_down.swap(true)`,
+                // acquires `state.child` lock, takes the slot
+                // (which is `None` here — respawn_inner already
+                // cleared it at the pre-spawn take+kill above),
+                // releases the lock, returns.
+                // 3. respawn_inner: acquires `state.child` lock,
+                // installs the fresh child, returns `Ok(())`.
+                // 4. host exits; the freshly-installed sidecar is
+                // orphaned (no one kills it).
                 //
                 // By acquiring the lock BEFORE the shutdown check,
                 // step 2 blocks on the lock until respawn_inner is
                 // done installing (or has killed the fresh child and
                 // returned). If shutdown_sidecar_for_exit acquires
                 // the lock first, it sees either:
-                //   - the OLD child (which respawn_inner already
-                //     killed) — `take()` returns the stale handle,
-                //     `kill_tree()` is a no-op on an already-dead
-                //     process (best-effort, error logged).
-                //   - the FRESH child (which respawn_inner just
-                //     installed) — `take()` returns the live handle,
-                //     `kill_tree()` reaps it. respawn_inner returns
-                //     `Ok(())` having installed a child that
-                //     shutdown_sidecar_for_exit will then take + kill.
-                //   - `None` (respawn_inner hasn't reached the install
-                //     step yet because it's still waiting on the
-                //     lock) — shutdown_sidecar_for_exit returns, then
-                //     respawn_inner acquires the lock, sees
-                //     `shutting_down == true` (CHECK B below), kills
-                //     the freshly-spawned child, returns `Ok(())`.
+                // - the OLD child (which respawn_inner already
+                // killed) — `take()` returns the stale handle,
+                // `kill_tree()` is a no-op on an already-dead
+                // process (best-effort, error logged).
+                // - the FRESH child (which respawn_inner just
+                // installed) — `take()` returns the live handle,
+                // `kill_tree()` reaps it. respawn_inner returns
+                // `Ok(())` having installed a child that
+                // shutdown_sidecar_for_exit will then take + kill.
+                // - `None` (respawn_inner hasn't reached the install
+                // step yet because it's still waiting on the
+                // lock) — shutdown_sidecar_for_exit returns, then
+                // respawn_inner acquires the lock, sees
+                // `shutting_down == true` (CHECK B below), kills
+                // the freshly-spawned child, returns `Ok(())`.
                 //
                 // Wrap `child` in an Option so it's not conditionally
                 // moved inside the lock scope — the lock scope block
@@ -422,7 +442,7 @@ pub(crate) async fn respawn_inner(
                         None
                     } else {
                         let old = child_guard.take();
-                        // UE-3-F5: the prior `match child.take()` with an
+                        // the prior `match child.take()` with an
                         // explicit `None` arm (which restored `old` +
                         // cleared the flag + returned `Ok(())`) was dead
                         // code — `child` is `Some` by invariant at this
@@ -446,7 +466,7 @@ pub(crate) async fn respawn_inner(
                             e
                         );
                     }
-                    // FR-87: clear the flag on this shutting_down early-
+                    // clear the flag on this shutting_down early-
                     // return path too, matching the success path at the
                     // bottom of `respawn_inner`. Without this clear, the
                     // flag stays set forever and the resilience layer is
@@ -458,7 +478,7 @@ pub(crate) async fn respawn_inner(
                     log::info!("[SUPERVISOR] killing old sidecar before installing new one (CR-28)");
                     let _ = old.kill_tree().await;
                 }
-                // EC-FIX-5 (EC-24): the dead `state.token: Mutex<String>`
+                // the dead `state.token: Mutex<String>`
                 // field was removed from `SidecarState`. The new auth
                 // token for the freshly-spawned sidecar is the local
                 // `new_token` variable, passed directly to
@@ -470,7 +490,7 @@ pub(crate) async fn respawn_inner(
                 // was the only "consumer" of the field; removing it
                 // lets the field itself be deleted (already done in
                 // `state.rs`).
-                // CR-2: rotate the event receiver so the next
+                // rotate the event receiver so the next
                 // shutdown_sidecar call polls the new sidecar's exit.
                 {
                     let mut rx_guard = state.child_exit_rx.lock().await;
@@ -480,12 +500,12 @@ pub(crate) async fn respawn_inner(
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
                         log::info!("[SUPERVISOR] respawn succeeded on attempt {}", attempt + 1);
-                        // CR-29: reset the restart counter on success.
+                        // reset the restart counter on success.
                         write_restart_counter(0);
                         // Emit a Tauri event so the UI can clear its
                         // "reconnecting…" banner.
                         let _ = app.emit("supervisor_reconnected", json!({}));
-                        // CR-13: Clear the flag BEFORE returning Ok(()).
+                        // Clear the flag BEFORE returning Ok(()).
                         // `reconnect_ws` has already spawned the new WS
                         // reader task, which owns the new connection. If
                         // the new sidecar dies immediately (fast-double-
@@ -496,7 +516,7 @@ pub(crate) async fn respawn_inner(
                         // instead of bailing with "already in progress".
                         // The `app.restart()` exhaustion path at the
                         // bottom of this function now ALSO clears the
-                        // flag (UE-3-F2, defense-in-depth, before
+                        // flag (defense-in-depth, before
                         // `app.restart()`), and the breaker-trip
                         // exhaustion arm returns `Err` after clearing —
                         // so every return path from `respawn_inner`
@@ -506,7 +526,7 @@ pub(crate) async fn respawn_inner(
                     }
                     Err(e) => {
                         log::warn!("[SUPERVISOR] WS reconnect failed: {}", e);
-                        // UE-3-F13: capture the per-iteration error so
+                        // capture the per-iteration error so
                         // the exhaustion path can surface it in the
                         // `supervisor_relaunching` / `supervisor_failed`
                         // payloads.
@@ -515,7 +535,7 @@ pub(crate) async fn respawn_inner(
                             attempt + 1,
                             e
                         );
-                        // CR-3 fix: kill the just-spawned child before
+                        // fix: kill the just-spawned child before
                         // continuing to the next retry iteration,
                         // otherwise it would be orphaned when the next
                         // iteration overwrites state.child.
@@ -530,7 +550,7 @@ pub(crate) async fn respawn_inner(
             }
             Err(e) => {
                 log::warn!("[SUPERVISOR] sidecar spawn failed: {}", e);
-                // UE-3-F13: capture the per-iteration error.
+                // capture the per-iteration error.
                 last_error = format!(
                     "attempt {}: sidecar spawn failed: {}",
                     attempt + 1,
@@ -542,29 +562,29 @@ pub(crate) async fn respawn_inner(
     }
     // Loop exited without returning — treat as exhaustion.
     //
-    // NF-R19-2: THIS is the actual exhaustion path — the post-loop
+    // THIS is the actual exhaustion path — the post-loop
     // `app.restart()`. The in-loop guard was dead code.
     // ADR-0020 §10: full-app relaunch.
     //
-    // UE-4: increment the persisted counter HERE (immediately before
+    // increment the persisted counter HERE (immediately before
     // `app.restart()`) and check `>= MAX_RESTART_ATTEMPTS` BEFORE calling
     // `app.restart()`. The old placement (top of `respawn`) bumped on every
     // `respawn` invocation — including successful reconnects and
     // shutting-down early-returns — making the breaker trip on the 4th
     // relaunch attempt instead of the 3rd. With the increment here, the
     // counter reflects actual relaunch attempts:
-    //   - Attempt 1: count=0 → increment to 1 → check 1>=3 false → app.restart()
-    //   - Attempt 2: count=1 → increment to 2 → check 2>=3 false → app.restart()
-    //   - Attempt 3: count=2 → increment to 3 → check 3>=3 TRUE → supervisor_failed
+    // - Attempt 1: count=0 → increment to 1 → check 1>=3 false → app.restart()
+    // - Attempt 2: count=1 → increment to 2 → check 2>=3 false → app.restart()
+    // - Attempt 3: count=2 → increment to 3 → check 3>=3 TRUE → supervisor_failed
     // The breaker now trips on the 3rd relaunch attempt (2 prior
     // app.restart()s), not the 4th.
     //
-    // UE-3-F13: include the last per-iteration error in the
+    // include the last per-iteration error in the
     // `supervisor_relaunching` / `supervisor_failed` payloads so the UI
     // / crash dump can surface WHY the relaunch is happening, not just
     // THAT it's happening.
     //
-    // UE-3-F2: clear `respawn_in_progress` immediately before
+    // clear `respawn_in_progress` immediately before
     // `app.restart()` as defense-in-depth. `app.restart()` returns `!`
     // (never), so the clear is "dead" code on the happy path — but if
     // `app.restart()` ever becomes fallible (or if a future Tauri API
@@ -575,9 +595,33 @@ pub(crate) async fn respawn_inner(
         "[SUPERVISOR] backoff schedule exhausted — full-app relaunch (last_error={:?})",
         last_error
     );
-    let restart_count = read_restart_counter();
-    let new_count = restart_count + 1;
-    write_restart_counter(new_count);
+    // move the synchronous `read_restart_counter` +
+    // `write_restart_counter` pair into `spawn_blocking` so neither
+    // hits the filesystem on a Tokio worker thread. The two calls are
+    // a logical pair (read-modify-write of the same file) so bundling
+    // them in one closure minimizes thread hand-offs and keeps the
+    // read+write atomic w.r.t. a concurrent supervisor invocation
+    // (which is already serialized by `respawn_in_progress`, but this
+    // also closes any future window if the flag is ever dropped).
+    // Returns the post-increment count so the caller can branch on it
+    // for the breaker trip. On JoinError (task cancelled / panic),
+    // fail-open by assuming the prior count was 0 and the write was
+    // skipped — the worst case is the breaker doesn't trip this round
+    // and the next crash will trip it.
+    let new_count = tauri::async_runtime::spawn_blocking(|| {
+        let prior = read_restart_counter();
+        let next = prior.saturating_add(1);
+        write_restart_counter(next);
+        next
+    })
+    .await
+    .unwrap_or_else(|join_err| {
+        log::warn!(
+            "[SUPERVISOR] spawn_blocking(read+write_restart_counter) join failed: {} — assuming count=1 (fail-open, breaker may under-trip)",
+            join_err
+        );
+        1
+    });
     if new_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
             "[SUPERVISOR] circuit breaker tripped on exhaustion — restart count {} >= max {}. Stopping supervisor.",
@@ -590,7 +634,7 @@ pub(crate) async fn respawn_inner(
             json!({
                 "reason": "circuit_breaker_tripped",
                 "restart_count": new_count,
-                // UE-3-F13: surface the captured per-iteration error
+                // surface the captured per-iteration error
                 // so the UI / crash dump can show what kept failing.
                 "last_error": last_error,
                 "message": format!(
@@ -608,20 +652,20 @@ pub(crate) async fn respawn_inner(
         "supervisor_relaunching",
         json!({
             "reason": "backoff_exhausted",
-            // UE-3-F13: include the last per-iteration error.
+            // include the last per-iteration error.
             "last_error": last_error,
-            // UE-4: surface the post-increment counter so the UI can
+            // surface the post-increment counter so the UI can
             // show "restart attempt N of M".
             "restart_count": new_count
         }),
     );
-    // UE-3-F2: clear the flag immediately before `app.restart()`.
+    // clear the flag immediately before `app.restart()`.
     state.respawn_in_progress.store(false, Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
     app.restart();
 }
 
-// ─── DT-53: bubble_coalesce_should_emit MOVED ───────────────────────
+// bubble_coalesce_should_emit MOVED ───────────────────────
 //
 // The `bubble_coalesce_should_emit` predicate that lived here has been
 // moved to its own `sidecar/bubble_coalesce.rs` module. It was called
@@ -637,7 +681,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    // ── PVT-G5-051: parse_restart_counter saturating cast ──────────────
+    // parse_restart_counter saturating cast ──────────────
 
     #[test]
     fn test_parse_restart_counter_normal_value() {
@@ -676,7 +720,7 @@ mod tests {
         // `as_u64()` returns None for floats — JSON numbers are parsed
         // as f64 by serde_json::Value, and `as_u64()` only succeeds for
         // integer-valued numbers. A 1.5 count is malformed → return 0.
-        // (This matches the pre-PVT-G5-051 behavior — the saturating
+        // (This matches the saturating
         // cast only kicks in for integer values that overflow u32.)
         let v = json!({"count": 1.5f64});
         assert_eq!(parse_restart_counter(&v), 0);
@@ -691,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_parse_restart_counter_saturates_above_u32_max() {
-        // PVT-G5-051 core: a corrupted counter with a u64 value above
+        // core: a corrupted counter with a u64 value above
         // u32::MAX must SATURATE at u32::MAX (not truncate to a small
         // number via `c as u32`, which would bypass the circuit
         // breaker). u32::MAX >> MAX_RESTART_ATTEMPTS (3) so the
@@ -710,7 +754,7 @@ mod tests {
 
     #[test]
     fn test_parse_restart_counter_saturating_trips_circuit_breaker() {
-        // PVT-G5-051: a corrupted counter value must NOT silently
+        // a corrupted counter value must NOT silently
         // bypass the circuit breaker. Verify the saturating result
         // is well above MAX_RESTART_ATTEMPTS.
         let v = json!({"count": u64::MAX});
@@ -723,7 +767,7 @@ mod tests {
         );
     }
 
-    // ── DT-53: bubble_level coalesce tests MOVED ────────────────────
+    // bubble_level coalesce tests MOVED ────────────────────
     //
     // The 3 `bubble_coalesce_should_emit` tests that lived here have
     // been moved to `sidecar/bubble_coalesce.rs::tests` alongside the
@@ -731,9 +775,9 @@ mod tests {
     // preserved EXACTLY (same assertions, same comments), only the
     // module path changed.
 
-    // ── CR-13: respawn race — flag cleared before inner returns ──
+    // respawn race — flag cleared before inner returns ──
     //
-    // The fast-double-crash race (CR-13): `respawn_inner` spawns a
+    // The fast-double-crash race `respawn_inner` spawns a
     // new sidecar + starts a new WS reader task (via `reconnect_ws`)
     // BEFORE returning Ok(()). If the new sidecar dies immediately, the
     // new WS reader tries `respawn` — but if the flag is still set
@@ -746,7 +790,7 @@ mod tests {
     /// Helper: build a fresh `SidecarState` for testing. All fields
     /// initialized to their default (empty) state.
     ///
-    /// EC-FIX-5 (EC-24): the `token: Mutex<String>` field was removed
+    /// the `token: Mutex<String>` field was removed
     /// from `SidecarState` — it was write-only dead state. The test
     /// helper no longer initializes it.
     fn make_test_state() -> Arc<SidecarState> {
@@ -756,13 +800,13 @@ mod tests {
     #[test]
     fn test_cr13_flag_is_clear_after_simulated_successful_respawn() {
         // Simulate the flag transitions for a SUCCESSFUL respawn that
-        // uses the CR-13 fix (flag cleared inside the inner function
+        // uses the fix (flag cleared inside the inner function
         // before returning Ok(())).
         //
         // Step 1: respawn entry — acquire the flag.
         // Step 2: respawn_inner runs, spawns new sidecar, starts WS
         //          reader, reconnects WS, succeeds.
-        // Step 3: respawn_inner clears the flag (CR-13 fix) BEFORE
+        // Step 3: respawn_inner clears the flag BEFORE
         //          returning Ok(()).
         // Step 4: A concurrent respawn call (from the new WS reader,
         //          which detected a fast-double-crash disconnect) must
@@ -788,14 +832,14 @@ mod tests {
             "concurrent compare_exchange should fail while inner is running (flag is true)"
         );
 
-        // Step 3 (CR-13 fix): inner function clears the flag BEFORE
+        // Step 3 inner function clears the flag BEFORE
         // returning Ok(()). This is the key change — the flag is cleared
         // inside the inner function, not in the wrapper after it returns.
         state.respawn_in_progress.store(false, Ordering::SeqCst);
 
         // Step 4: after the inner function returns (flag already clear),
         // a concurrent respawn call from the new WS reader SUCCEEDS.
-        // This is the behavior that was BROKEN before CR-13: the flag
+        // This is the behavior that was BROKEN before the flag
         // was still set (cleared in the wrapper, which hadn't run yet),
         // so the reader's respawn bailed and the sidecar was
         // permanently dead.
@@ -814,7 +858,7 @@ mod tests {
         // Verify the "already in progress" bail path still works
         // correctly (this is the normal single-crash serialization —
         // the flag prevents parallel respawns from corrupting state).
-        // The CR-13 fix does NOT change this behavior; it only changes
+        // The fix does NOT change this behavior; it only changes
         // WHEN the flag is cleared (inside the inner function vs. in
         // the wrapper after it returns).
         let state = make_test_state();
@@ -844,10 +888,10 @@ mod tests {
         );
     }
 
-    // ── CR-14: retry loop kills old child before storing new ──────────
+    // retry loop kills old child before storing new ──────────
     //
     // The retry loop in `respawn_inner` spawns a new sidecar on each
-    // iteration and stores it in `state.child`. Without the CR-14 fix,
+    // iteration and stores it in `state.child`. Without the fix,
     // overwriting `state.child` orphans the old sidecar process (no Drop
     // kill on `SidecarHandle`). These tests verify the take-kill-store
     // pattern kills the old process before the new one is stored.
@@ -896,7 +940,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     async fn test_cr14_kill_tree_kills_dev_mode_child() {
         // Foundation test: verify `SidecarHandle::kill_tree()` actually
-        // kills the underlying process. This is the primitive the CR-14
+        // kills the underlying process. This is the primitive the
         // fix relies on (the retry loop calls `old.kill_tree().await`
         // before storing the new child).
         let (handle, pid) = spawn_dummy_sidecar();
@@ -908,7 +952,7 @@ mod tests {
             pid
         );
 
-        // CR-14 primitive: kill_tree kills the process tree.
+        // primitive: kill_tree kills the process tree.
         let result = handle.kill_tree().await;
         assert!(
             result.is_ok(),
@@ -931,13 +975,13 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "linux")]
     async fn test_cr14_retry_loop_kills_old_child_before_storing_new() {
-        // Integration test: simulate the CR-14 retry-loop pattern
+        // Integration test: simulate the retry-loop pattern
         // (take → kill_tree → store new) and verify:
         // 1. The OLD child is killed (process dead).
         // 2. The NEW child is stored in `state.child`.
         // 3. The NEW child is alive.
         //
-        // This is the exact pattern added by the CR-14 fix in
+        // This is the exact pattern added by the fix in
         // `respawn_inner`'s retry loop.
         let state = make_test_state();
 
@@ -953,7 +997,7 @@ mod tests {
             old_pid
         );
 
-        // ── CR-14 retry-loop pattern (take → kill → store) ──
+        // retry-loop pattern (take → kill → store) ──
         // Step 1: take the old child out of the slot.
         let old_child = {
             let mut child_guard = state.child.lock().unwrap();
@@ -1018,7 +1062,7 @@ mod tests {
         // Edge case: on the FIRST retry iteration (attempt=0), the
         // `state.child` slot holds the CRASHED sidecar's handle (the WS
         // reader detected the disconnect, but the host's child handle is
-        // still there). The CR-14 fix must kill it too — the sidecar
+        // still there). The fix must kill it too — the sidecar
         // process may not be fully dead (the WS thread could have died
         // while the process is still running with mic/hotkeys held).
         //
@@ -1034,7 +1078,7 @@ mod tests {
         // Verify the old process is alive (simulating half-dead sidecar).
         assert!(!is_process_dead(old_pid));
 
-        // CR-14 pattern: take + kill + store new.
+        // pattern: take + kill + store new.
         let old_child = state.child.lock().unwrap().take();
         if let Some(old) = old_child {
             let _ = old.kill_tree().await;
@@ -1058,7 +1102,7 @@ mod tests {
         }
     }
 
-    // ── GT-9: catch_unwind clears respawn_in_progress ────────────────
+    // catch_unwind clears respawn_in_progress ────────────────
     //
     // `respawn` wraps `respawn_inner` in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
@@ -1112,7 +1156,7 @@ mod tests {
         );
     }
 
-    // ── GT-C4-6: shutting_down early-return paths clear the flag ─────
+    // shutting_down early-return paths clear the flag ─────
 
     #[test]
     fn test_gt_c4_6_shutting_down_paths_clear_flag() {
@@ -1139,7 +1183,7 @@ mod tests {
             "GT-C4-6 path 2: flag must be cleared on pre-spawn early return"
         );
 
-        // Path 3: post-spawn CR-81 re-check.
+        // Path 3: post-spawn re-check.
         state.respawn_in_progress.store(true, Ordering::SeqCst);
         if state.shutting_down.load(Ordering::SeqCst) {
             state.respawn_in_progress.store(false, Ordering::SeqCst);
@@ -1152,7 +1196,7 @@ mod tests {
         state.shutting_down.store(false, Ordering::SeqCst);
     }
 
-    // ── GT-C4-8: child-install race fix ──────────────────────────────
+    // child-install race fix ──────────────────────────────
 
     #[tokio::test]
     async fn test_gt_c4_8_child_install_race_clears_flag() {
@@ -1177,7 +1221,7 @@ mod tests {
         state.shutting_down.store(false, Ordering::SeqCst);
     }
 
-    // ── UE-4: circuit breaker trips on the 3rd relaunch attempt ───────
+    // circuit breaker trips on the 3rd relaunch attempt ───────
     //
     // Simulates the counter transitions across 4 consecutive respawn
     // invocations to verify the breaker trips on the 3rd relaunch attempt
@@ -1192,10 +1236,10 @@ mod tests {
     #[test]
     fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
         // Mirror the actual decision logic:
-        //   - Top of `respawn`: if persisted count >= MAX → trip.
-        //   - Exhaustion path: read count, increment, write; if new_count
-        //     >= MAX → trip (emit supervisor_failed + return Err);
-        //     else clear flag + app.restart().
+        // - Top of `respawn`: if persisted count >= MAX → trip.
+        // - Exhaustion path: read count, increment, write; if new_count
+        // >= MAX → trip (emit supervisor_failed + return Err);
+        // else clear flag + app.restart().
         let mut persisted_count: u32 = 0; // fresh process, counter empty
         let mut app_restart_calls = 0u32;
         let mut supervisor_failed_emitted = false;
@@ -1226,7 +1270,7 @@ mod tests {
             app_restart_calls += 1;
         }
 
-        // UE-4: the breaker must trip on the 3rd attempt — 2 prior
+        // the breaker must trip on the 3rd attempt — 2 prior
         // app.restart()s actually fired, the 3rd attempt detected the
         // counter at max in the exhaustion path and bailed.
         assert_eq!(
@@ -1251,7 +1295,7 @@ mod tests {
 
     #[test]
     fn test_ue4_breaker_counter_only_increments_on_exhaustion_not_success() {
-        // UE-4: verify the counter semantics changed. With the OLD code
+        // verify the counter semantics changed. With the OLD code
         // (increment at top of respawn), every `respawn` invocation
         // bumped the counter — even successful reconnects. With the NEW
         // code (increment in exhaustion path), a successful respawn
@@ -1275,7 +1319,7 @@ mod tests {
         );
     }
 
-    // ── UE-3-F6: shutting_down check after flag acquisition ────────────
+    // shutting_down check after flag acquisition ────────────
     //
     // Verify that the post-flag-acquisition shutting_down check fires
     // BEFORE any disk I/O. The check is purely defensive (the inner
@@ -1298,15 +1342,15 @@ mod tests {
 
         // Step 2: simulate a concurrent shutdown setting the
         // `shutting_down` flag DURING the gap between flag acquisition
-        // and the disk-I/O counter read (UE-3-F6 race window).
+        // and the disk-I/O counter read (race window).
         state.shutting_down.store(true, Ordering::SeqCst);
 
-        // Step 3: the UE-3-F6 check fires — `shutting_down` is true, so
+        // Step 3: the check fires — `shutting_down` is true, so
         // respawn clears the flag + returns Ok(()) WITHOUT touching the
         // disk counter. Mirror the actual code's branch:
         let mut disk_io_performed = false;
         if state.shutting_down.load(Ordering::SeqCst) {
-            // UE-3-F6 branch: clear flag + early return, no disk I/O.
+            // branch: clear flag + early return, no disk I/O.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
         } else {
             // Would-have-been: read_restart_counter() + increment.
@@ -1325,7 +1369,7 @@ mod tests {
         state.shutting_down.store(false, Ordering::SeqCst);
     }
 
-    // ── UE-3-F13: last_error tracked across iterations ─────────────────
+    // last_error tracked across iterations ─────────────────
     //
     // Verify that the `last_error` string captures the most recent
     // per-iteration error and would be included in the
@@ -1347,7 +1391,7 @@ mod tests {
         ];
         for err in iterations.iter() {
             // Mirror the actual capture in the spawn-failed arm:
-            //   last_error = format!("attempt {}: sidecar spawn failed: {}", attempt + 1, e);
+            // last_error = format!("attempt {}: sidecar spawn failed: {}", attempt + 1, e);
             last_error = err.to_string();
         }
         assert_eq!(
@@ -1373,7 +1417,7 @@ mod tests {
         );
     }
 
-    // ── UE-3-F5: install arm has no None branch (code-inspection guard) ──
+    // install arm has no None branch (code-inspection guard) ──
     //
     // The deleted `None` arm was unreachable. This test is a structural
     // regression guard: it verifies the install arm's `if let Some`
@@ -1390,7 +1434,7 @@ mod tests {
         let mut child: Option<u32> = Some(42);
         let mut child_guard: Option<u32> = None; // state.child was empty
         let old = child_guard.take();
-        // The UE-3-F5 simplified form:
+        // The simplified form:
         if let Some(new_child) = child.take() {
             child_guard = Some(new_child);
         }

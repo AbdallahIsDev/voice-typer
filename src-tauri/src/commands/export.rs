@@ -1,10 +1,10 @@
-//! Export commands: history/vocabulary → JSON/CSV (MIG-1.1 + ADR-0020 §6).
+//! Export commands: history/vocabulary → JSON/CSV ( + ADR-0020 §6).
 
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-// ─── DT-4: shared main-window guard ──────────────────────────────────
+//shared main-window guard ──────────────────────────────────
 //
 // `export_history`, `export_vocabulary`, `export_templates`,
 // `export_config`, `open_logs`, and `open_model_import_dialog` are all
@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 // gates plugin commands, so user-defined commands need this runtime
 // check.
 //
-// DT-4: the canonical `require_main_window` helper now lives in
+//the canonical `require_main_window` helper now lives in
 // `commands/mod.rs` (single source of truth). The previous local
 // `pub(crate) fn require_main_window` definition is deleted. We use a
 // `pub(crate) use` re-export here so `system_cmds.rs`'s existing import
@@ -30,12 +30,12 @@ use tokio::sync::oneshot;
 // ({"type":"error","data":{"code":...,"message":...}}) so the
 // renderer's existing reject path treats this identically to a
 // server-side rejection. See `commands::mod::require_main_window` for
-// the G4-H-01 / DE-18 envelope shape contract.
+//the  /  envelope shape contract.
 pub(crate) use crate::commands::require_main_window;
 
-// ─── Tauri command: export_history (MIG-1.1) ─────────────────────────
+//Tauri command: export_history () ─────────────────────────
 
-/// ADR-0020 §6 + MIG-1.1: export the transcription history to a file
+//ADR-0020 §6 + : export the transcription history to a file
 /// chosen by the user via `tauri-plugin-dialog`'s save dialog.
 ///
 /// - `data` is the history payload (array of records) from the Python
@@ -45,7 +45,7 @@ pub(crate) use crate::commands::require_main_window;
 ///   `{"success": true, "path": "<chosen path>"}` on success, or
 ///   `Err(message)` on I/O / encode failure.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
+//`window` is auto-injected by Tauri at runtime — the
 /// renderer's `invoke('export_history', { data, format })` call is
 /// unchanged. `require_main_window(&window)?` runs FIRST so a
 /// compromised bubble renderer cannot drive the export path.
@@ -60,13 +60,13 @@ pub async fn export_history(
     export_data(data, format, app, "voice-typer-history", "Export History").await
 }
 
-// ─── Tauri command: export_vocabulary (MIG-1.1) ──────────────────────
+//Tauri command: export_vocabulary () ──────────────────────
 
-/// ADR-0020 §6 + MIG-1.1: export the user's custom vocabulary to a
+//ADR-0020 §6 + : export the user's custom vocabulary to a
 /// file chosen by the user. Same shape as `export_history` with a
 /// different default filename + dialog title.
 ///
-/// DE-18: same main-window guard as `export_history`.
+//same main-window guard as `export_history`.
 #[tauri::command]
 pub async fn export_vocabulary(
     data: Value,
@@ -89,7 +89,7 @@ pub(crate) async fn export_data(
     default_filename: &str,
     title: &str,
 ) -> Result<Value, String> {
-    // PVT-048: use the async file-save pattern instead of blocking.
+    //use the async file-save pattern instead of blocking.
     // The blocking variant parks the Tokio worker thread for the entire
     // duration the user has the save dialog open; with Tauri's default
     // 2-N worker pool, that stalls concurrent ``dispatch`` calls
@@ -152,7 +152,7 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
     // that contains them; subsequent objects may add new keys at the
     // end, which keeps the header stable for the common case of
     // homogeneous records).
-    // PVT-049: use a HashSet for O(1) membership checks instead of
+    //use a HashSet for O(1) membership checks instead of
     // Vec::contains (O(n) per key). Previous code was O(R·K²) for R
     // records with K distinct keys — 4M string comparisons on a 10k-row
     // history export with 20 keys.
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(value_to_string(&json!(null)), "");
     }
 
-    // ── require_main_window (DE-18) ───────────────────────────────────
+    //require_main_window () ───────────────────────────────────
     //
     // We can't construct a real `tauri::Window` in a unit test (it
     // requires a running Tauri runtime), so we verify the error

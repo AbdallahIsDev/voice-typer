@@ -2,7 +2,7 @@
 
 use crate::commands::require_main_window;
 use crate::state::SidecarState;
-// EC-FIX-5 (EC-16): poison-safe Mutex helper. Replaces inline
+//(): poison-safe Mutex helper. Replaces inline
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
 // the lock) does not re-panic and permanently brick the dispatch path.
 use crate::state::lock as mutex_lock;
@@ -15,11 +15,12 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
-// ─── DT-4: shared main-window guard ──────────────────────────────────
+//shared main-window guard ──────────────────────────────────
 //
 // `dispatch` and `shutdown_sidecar` are both
 // `#[tauri::command]` functions that a compromised renderer could
@@ -28,17 +29,17 @@ use tokio_tungstenite::tungstenite::Message;
 // or paste path. Tauri v2's capability system only gates plugin
 // commands, so user-defined commands need this runtime check.
 //
-// DT-4: the canonical `require_main_window` helper now lives in
+//the canonical `require_main_window` helper now lives in
 // `commands/mod.rs` (single source of truth, no duplication). See
-// `commands::mod::require_main_window` for the G4-H-01 rationale +
+//`commands::mod::require_main_window` for the  rationale +
 // the error envelope shape contract.
 
-// ─── DT-44: per-command dispatch timeout routing ──────────────────────
+//per-command dispatch timeout routing ──────────────────────
 //
 // Previously every `dispatch` call used the uniform 120s
 // `DISPATCH_TIMEOUT_SECS` timeout. That let a hung `get_status` poll
 // (median response <50ms) block the UI for 2 minutes before
-// rejecting. DT-44 routes model-lifecycle commands (which can
+//rejecting.  routes model-lifecycle commands (which can
 // legitimately take >15s) to the long 120s timeout, and everything
 // else to the new 15s `DISPATCH_SHORT_TIMEOUT_SECS`.
 //
@@ -55,7 +56,7 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
     "resume_model_download",
 ];
 
-// AC-16: dedicated error code constants for the two disallowed-code
+//dedicated error code constants for the two disallowed-code
 // branches in `dispatch`. Using named constants instead of inline
 // string literals ensures the test assertions (which match on these
 // exact strings) stay in sync with the production code.
@@ -65,15 +66,15 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
 // see `commands::mod` for the literal). Listed here for documentation
 // parity so a future cleanup can centralize both constants.
 pub(crate) const DISALLOWED_COMMAND_CODE: &str = "disallowed_command";
-/// AC-16: companion Rust-host-only code. Emitted by
+//companion Rust-host-only code. Emitted by
 /// `commands/mod.rs::require_main_window` (the main/bubble window guard).
 /// Kept here as a `pub(crate)` constant so the contract test
 /// (`tests/test_error_codes_registry.py`) can reference the canonical
 /// spelling without having to grep `commands/mod.rs` (which is outside
-/// the AC-16 entry's files list).
+//the  entry's files list).
 pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 
-// XZ-R4-019: pending-map size cap. Each pending dispatch entry is a
+//pending-map size cap. Each pending dispatch entry is a
 // `(u64, oneshot::Sender<Value>)` pair (~80 bytes on x86_64). An
 // unresponsive sidecar (WS reader stuck, sidecar process paused in a
 // debugger, GC pause) plus rapid tray clicks / renderer retries can
@@ -97,14 +98,14 @@ pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 // settings read). The cap exists to bound memory under pathological
 // backpressure, NOT to throttle normal traffic.
 pub(crate) const PENDING_MAX: usize = 1024;
-/// XZ-R4-019: error code returned by `dispatch_frame` when the pending
+//error code returned by `dispatch_frame` when the pending
 /// map has reached `PENDING_MAX` entries. The renderer treats this as
 /// a transient "sidecar overwhelmed" signal (distinct from "sidecar
 /// not connected" / "sidecar shutting down") so it can back off and
 /// retry rather than spamming more dispatches.
 pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 
-/// DT-44: returns the dispatch timeout (in seconds) for `cmd`.
+//returns the dispatch timeout (in seconds) for `cmd`.
 ///
 /// - 120s (`DISPATCH_TIMEOUT_SECS`) for the 6 model lifecycle commands
 ///   listed in [`_LONG_RUNNING_COMMANDS`] — downloads / imports can
@@ -120,7 +121,7 @@ fn dispatch_timeout_for(cmd: &str) -> u64 {
     }
 }
 
-// ─── CR-4: ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
+//ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
 //
 // Mirrors the Electron renderer-side allowlist in
 // `voice_typer/client/src/main/allowed-commands.ts` (the canonical
@@ -138,7 +139,7 @@ fn dispatch_timeout_for(cmd: &str) -> u64 {
 // escapes the renderer sandbox cannot bypass it by talking to Rust
 // directly).
 //
-// PVT-G5-075: `tray_click` is intentionally ABSENT from this literal
+//`tray_click` is intentionally ABSENT from this literal
 // (and from the TS allowlist) — it is a Rust-only command invoked by
 // the tray menu handler in `tray.rs::on_menu_event` via
 // `dispatch_inner`, which bypasses the allowlist gate. The renderer
@@ -164,7 +165,7 @@ static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
 /// directly without going through `dispatch`.
 pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
-        // CR-4: this list MUST mirror the Electron renderer's
+        //this list MUST mirror the Electron renderer's
         // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
         // (canonical declaration since R6-F10 — was previously inline
         // in `index.ts`). The Python test
@@ -232,7 +233,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "onboarding_set_model",
             "onboarding_skip",
             "onboarding_apply",
-            // PVT-G5-008: previously missing from the Rust literal —
+            //previously missing from the Rust literal —
             // present in the TS allowlist and in the server
             // `_COMMAND_REGISTRY`. Without these, the Onboarding
             // page's "Check Permissions" button (macOS/Linux mic +
@@ -257,7 +258,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "set_esc_cancel_paused",
             "set_tray_locale",
             "import_model",
-            // DT-50: `heartbeat` and `relaunch_ack` are intentionally
+            //`heartbeat` and `relaunch_ack` are intentionally
             // ABSENT from this Rust allowlist (they ARE in the TS
             // allowlist — Electron's main process needs them to talk
             // to the Python sidecar). The Rust host never routes
@@ -269,7 +270,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             //   - `relaunch_ack` is sent by the `relaunch_app` Tauri
             //     event handler in `main.rs` via `dispatch_inner`,
             //     which bypasses this allowlist gate (same pattern
-            //     as `tray_click` — see PVT-G5-075 above).
+            //as `tray_click` — see  above).
             // Including either here would create an attack surface
             // that only a compromised renderer could reach: a
             // malicious `invoke('dispatch', {cmd:'relaunch_ack'})`
@@ -294,12 +295,15 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // Tauri host does not reject the renderer's `invoke()`.
             "get_history_count",
             "get_transcription_text",
-            // G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset —
+            //+  (session-3 + 5): onboarding reset —
             // invoked by the Onboarding page. Registered in the Python-side
             // `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
             // `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
             // Mirrors the TS allowlist.
             "onboarding_reset",
+            // `test_cloud_connection` — renderer "Test Connection" button
+            // on the Cloud Providers page; mirrors the TS allowlist.
+            "test_cloud_connection",
         ];
         let mut set = HashSet::with_capacity(cmds.len());
         for c in cmds {
@@ -338,11 +342,11 @@ pub(crate) struct DispatchArgs {
 /// — callers are trusted Rust-internal code (e.g. the tray menu click
 /// handler, which routes `tray_click` — a Rust-only command that is
 /// NOT in the renderer `ALLOWED_COMMANDS` set because the renderer
-/// never invokes it; CR-4's allowlist parity test would fail if it
+//never invokes it; 's allowlist parity test would fail if it
 /// were added).
 ///
 /// The public `dispatch` Tauri command wraps this with the allowlist
-/// gate (CR-4) before delegating. Trusted Rust callers that need to
+//gate () before delegating. Trusted Rust callers that need to
 /// send a non-allowlisted command (currently only `tray_click` from
 /// `tray.rs::on_menu_event`) call this directly.
 ///
@@ -354,23 +358,23 @@ pub(crate) async fn dispatch_inner(
     args: DispatchArgs,
     state: Arc<SidecarState>,
 ) -> Result<Value, String> {
-    // CR-14: the dispatch body is extracted into the shared
+    //the dispatch body is extracted into the shared
     // `dispatch_frame` helper below so the tray menu handler
     // (`tray.rs::on_menu_event`) can call it directly instead of
     // emitting a Tauri "dispatch" event that has no listener.
     dispatch_frame(&state, &args.cmd, args.data).await
 }
 
-/// EC-FIX-5 (EC-18 / PVT-25): fire-and-forget dispatch helper.
+//( / ): fire-and-forget dispatch helper.
 ///
 /// Builds a WS frame `{"type": cmd, "data": data, "id": 0}` and sends it
 /// via `state.ws_tx.try_send` WITHOUT inserting a pending oneshot entry
 /// or awaiting a response. Used by `commands::bubble::bubble_toggle_dictation`
 /// (a sandboxed-window command that must NOT use the full `dispatch`
 /// path — the bubble renderer is allowed to send only the fixed
-/// `toggle_dictation` command, see G4-L-03 sanctioned-bypass doc).
+//`toggle_dictation` command, see  sanctioned-bypass doc).
 ///
-/// AC-101: the synthetic `id: 0` is NOT special-cased server-side.
+//the synthetic `id: 0` is NOT special-cased server-side.
 /// The Python sidecar's `dispatch` coroutine (in
 /// `voice_typer/server/sidecar_ws.py`) treats `id=0` like any other
 /// request id: it runs the handler, and if the handler returns a
@@ -395,7 +399,7 @@ pub(crate) async fn dispatch_inner(
 /// the reader side" rather than "suppress on the server side".
 ///
 /// Replaces the inline `json!` + `lock` + `try_send` block that was
-/// duplicated in `bubble.rs:629-674` (the PVT-25 TODO that called for
+//duplicated in `bubble.rs:629-674` (the  TODO that called for
 /// this extraction). Keeps the poison-safe `mutex_lock` helper so a
 /// poisoned mutex doesn't brick the bubble's mic button permanently.
 ///
@@ -415,7 +419,7 @@ pub(crate) fn dispatch_fire_and_forget(
     });
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
     let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
-    // PVT-G5-059: `ws_tx` is a bounded `mpsc::Sender` — use `try_send`
+    //`ws_tx` is a bounded `mpsc::Sender` — use `try_send`
     // (synchronous) rather than `.send().await` (which would require an
     // async context AND block on the writer-task consumer). Returns
     // `TrySendError::Full` if the writer is overwhelmed (256-cap) or
@@ -426,7 +430,7 @@ pub(crate) fn dispatch_fire_and_forget(
     Ok(())
 }
 
-/// CR-14: shared dispatch body used by both the `dispatch` Tauri command
+//shared dispatch body used by both the `dispatch` Tauri command
 /// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
 /// event handler in `tray.rs::on_menu_event` (which previously emitted
 /// a Tauri event named "dispatch" that had no listener — the click was
@@ -436,7 +440,7 @@ pub(crate) fn dispatch_fire_and_forget(
 /// inserts a pending oneshot entry, sends the frame via `state.ws_tx`,
 /// and awaits the response (or times out).
 ///
-/// CR-50: the pending entry is inserted AFTER confirming `ws_tx` is
+//the pending entry is inserted AFTER confirming `ws_tx` is
 /// `Some`. Previously the entry was inserted first and the early-return
 /// Err branch on `ws_tx == None` leaked the entry — the WS reader never
 /// fulfilled it (no frame was sent), so the map accumulated stale
@@ -444,20 +448,20 @@ pub(crate) fn dispatch_fire_and_forget(
 /// `ws_tx.send` failure (writer task has exited; the reader's drain
 /// loop is the only other remover and may not have run yet).
 ///
-/// PVT-G5-017: every `Err(...)` return is logged (4 sites: WS send
+//every `Err(...)` return is logged (4 sites: WS send
 /// failed, dispatch response channel closed, dispatch timeout, server
 /// error). A `log::debug!` at entry gives correlation (id + cmd) for
 /// tracing dispatch lifetimes across the WS reader/writer tasks.
 ///
-/// PVT-G5-035: bail out early if `state.shutting_down` is set. After
+//bail out early if `state.shutting_down` is set. After
 /// `shutdown_sidecar` sends the shutdown frame the WS may stay alive
 /// briefly (up to `SHUTDOWN_ACK_TIMEOUT_MS`); dispatches initiated in
 /// that window would send the frame but their response hits the
-/// shutdown-suppress branch in the WS reader (PVT-G5-013) and is
+//shutdown-suppress branch in the WS reader () and is
 /// dropped — the client then awaits the full `DISPATCH_TIMEOUT_SECS`
 /// before rejecting. Short-circuit here instead.
 ///
-/// PVT-G5-036: re-check `state.ws_tx` AFTER inserting the pending
+//re-check `state.ws_tx` AFTER inserting the pending
 /// entry. A reconnect racing in the window between the outer
 /// `mutex_lock(&state.ws_tx).clone()` and the pending insert could leave
 /// us holding a stale `ws_tx` (the old writer task has exited; the new
@@ -465,7 +469,7 @@ pub(crate) fn dispatch_fire_and_forget(
 /// `state.ws_tx` under a tight critical section; if it's now `None`,
 /// drop the pending entry and reject.
 ///
-/// PVT-G5-087: demoted from `pub(crate) async fn` to `async fn` — the
+//demoted from `pub(crate) async fn` to `async fn` — the
 /// only caller is `dispatch_inner` in this same file (the tray menu
 /// handler in `tray.rs` calls `dispatch_inner`, not `dispatch_frame`
 /// directly).
@@ -475,17 +479,17 @@ async fn dispatch_frame(
     data: Option<Value>,
 ) -> Result<Value, String> {
     let id = state.next_id.fetch_add(1, Ordering::SeqCst);
-    // PVT-G5-017: debug-level entry log for correlation. The WS reader
+    //debug-level entry log for correlation. The WS reader
     // logs the matching `id` on fulfillment so a slow / dropped
     // dispatch can be traced end-to-end.
     log::debug!("[dispatch] id={} cmd={}", id, cmd);
 
-    // DT-44: per-command timeout. Model lifecycle commands (download /
+    //per-command timeout. Model lifecycle commands (download /
     // import / delete / cancel / pause / resume) get 120s; everything
     // else gets 15s. See `dispatch_timeout_for` for the rationale.
     let timeout_secs = dispatch_timeout_for(cmd);
 
-    // PVT-G5-035: short-circuit if the host is shutting down. Avoids
+    //short-circuit if the host is shutting down. Avoids
     // the orphaned-pending-then-timeout window described above.
     if state.shutting_down.load(Ordering::SeqCst) {
         log::warn!(
@@ -496,7 +500,7 @@ async fn dispatch_frame(
         return Err("sidecar shutting down".into());
     }
 
-    // XE-4-2 (Medium): cap `args.data` serialized size BEFORE
+    //(Medium): cap `args.data` serialized size BEFORE
     // constructing the WS frame. The WS layer's
     // `max_message_size=1 MiB` check fires in the writer task AFTER
     // the frame has been serialized and enqueued on the bounded
@@ -538,7 +542,7 @@ async fn dispatch_frame(
         "id": id,
     });
 
-    // CR-50: confirm `ws_tx` is Some BEFORE inserting into the pending
+    //confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
     let ws_tx = match ws_tx_opt {
@@ -556,7 +560,7 @@ async fn dispatch_frame(
     let (tx, rx) = oneshot::channel::<Value>();
     {
         let mut pending = state.pending.lock().await;
-        // XZ-R4-019: pending-map size cap. Reject new dispatches when
+        //pending-map size cap. Reject new dispatches when
         // the map is at `PENDING_MAX` entries so an unresponsive
         // sidecar + rapid tray clicks / renderer retries can't grow
         // the map unbounded. The renderer treats `pending_full` as a
@@ -624,7 +628,7 @@ async fn dispatch_frame(
         Ok(Ok(response)) => {
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
-            // rejects (this is the NEW-IPC-107 fix — the Electron path
+            //rejects (this is the  fix — the Electron path
             // silently treated `type:"error"` as success).
             if response.get("type").and_then(|t| t.as_str()) == Some("error") {
                 let code = response
@@ -679,7 +683,7 @@ pub async fn dispatch(
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<Value, String> {
-    // FR-43: bound the command-name length so a buggy or compromised
+    //bound the command-name length so a buggy or compromised
     // renderer can't DoS the WS writer (or the allowlist lookup, or the
     // JSON serializer) with a multi-MB `cmd` string. The longest
     // legitimate command name in `ALLOWED_COMMANDS` is well under 32
@@ -692,13 +696,13 @@ pub async fn dispatch(
         // would itself be a DoS vector if it's multi-MB, and slicing
         // it for a preview could panic on a UTF-8 char boundary.
         log::warn!(
-            "[FR-43] rejected dispatch command with length {} (>64 char cap)",
+            "rejected dispatch command with length {} (>64 char cap)",
             args.cmd.len()
         );
         return Err("command name too long".into());
     }
 
-    // CR-5: window-label guard. The bubble renderer is a sandboxed
+    //window-label guard. The bubble renderer is a sandboxed
     // window with NO `dispatch` access (ADR-0020 §7 + §9 + SEC-026).
     // The capability file `bubble-runtime.json` deliberately omits
     // `dispatch`-related permissions, but Tauri v2's capability system
@@ -709,16 +713,16 @@ pub async fn dispatch(
     // server-side command surface. Reject any call where the source
     // window's label is not "main".
     //
-    // DT-4: the canonical `require_main_window` helper now lives in
+    //the canonical `require_main_window` helper now lives in
     // `commands/mod.rs`. We delegate to it for the envelope shape +
-    // log tag. The previous inline duplicate (with the CR-5-specific
+    //log tag. The previous inline duplicate (with the
     // "dispatch only callable from main window" message) is removed —
     // the renderer's reject path JSON-parses the envelope + keys off
     // the `code` field (`disallowed_window`), so the per-command
     // message wording doesn't matter.
     require_main_window(&window)?;
 
-    // CR-4: enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
+    //enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
     // command to the Python sidecar over WS. This mirrors the Electron
     // renderer-side gate (SEC-019 / ADR-0015) and is the
     // defense-in-depth backstop for a compromised-renderer attack
@@ -753,7 +757,7 @@ pub async fn shutdown_sidecar(
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<(), String> {
-    // G4-H-01: only the main window may drive the cooperative-shutdown
+    //only the main window may drive the cooperative-shutdown
     // path. A compromised bubble renderer must NOT be able to invoke
     // `invoke('shutdown_sidecar')` to DoS the sidecar.
     //
@@ -764,7 +768,7 @@ pub async fn shutdown_sidecar(
     // `window.label()` match, so this check passes for it too.
     require_main_window(&window)?;
 
-    // PVT-17: Early-return guard. If a previous `shutdown_sidecar`
+    //Early-return guard. If a previous `shutdown_sidecar`
     // invocation already flipped `shutting_down` to true, the sidecar
     // is already being torn down (or has been). Re-entering here would
     // re-send the (idempotent) shutdown frame AND block on
@@ -780,6 +784,12 @@ pub async fn shutdown_sidecar(
         log::info!("[SHUTDOWN] already in progress — duplicate call short-circuited");
         return Ok(());
     }
+    // Abort the in-flight heartbeat task so it doesn't keep dispatching
+    // `heartbeat` frames into the dead WS for up to HEARTBEAT_MAX_MISSES
+    // (~30s) after shutdown. Mirrors `shutdown_sidecar_for_exit` in
+    // state.rs — both shutdown paths must abort the heartbeat so the
+    // task doesn't outlive the WS connection.
+    crate::sidecar::ws::abort_heartbeat(state.inner()).await;
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
     if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
@@ -790,7 +800,7 @@ pub async fn shutdown_sidecar(
             );
         }
     }
-    // CR-2: Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
+    //Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
     // Use the `CommandEvent` receiver captured at spawn time to detect
     // `Terminated` and return immediately (typical sidecar acks+exits in
     // ~50ms), instead of sleeping the full deadline unconditionally.
@@ -798,8 +808,24 @@ pub async fn shutdown_sidecar(
     // has no event receiver).
     let deadline_dur = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
     let mut graceful = false;
-    let mut rx_guard = state.child_exit_rx.lock().await;
-    if let Some(rx) = rx_guard.as_mut() {
+    // Take the receiver out of the lock and drop the guard BEFORE awaiting
+    // `rx.recv()`. Previously the `AsyncMutex` guard was held across the
+    // up-to-2s `tokio::time::timeout` await, blocking `respawn_inner`
+    // (supervisor.rs) under a tight shutdown race where the supervisor
+    // tried to install a new receiver (via `*rx_guard = exit_rx;`) while
+    // `shutdown_sidecar` was still holding the lock waiting for the old
+    // sidecar to exit.
+    //
+    // `take()` leaves `None` in the slot. The supervisor's install path is
+    // a full assignment (`*rx_guard = exit_rx;`) — it does not read the
+    // current value — so overwriting a `None` slot is well-defined: the
+    // next respawn stores the new receiver and the next `shutdown_sidecar`
+    // call (if any; normally the app exits before that) sees `Some(new_rx)`.
+    let rx_opt = {
+        let mut rx_guard = state.child_exit_rx.lock().await;
+        rx_guard.take()
+    };
+    if let Some(rx) = rx_opt {
         match tokio::time::timeout(deadline_dur, rx.recv()).await {
             Ok(Some(CommandEvent::Terminated(payload))) => {
                 log::info!(
@@ -834,24 +860,75 @@ pub async fn shutdown_sidecar(
         );
         tokio::time::sleep(deadline_dur).await;
     }
-    // Drop the rx guard before locking state.child (avoid holding the
-    // async mutex across the sync mutex lock + async kill await).
-    drop(rx_guard);
-    // Force-kill backstop — no-op if the child has already exited, but
-    // guarantees we never leak a zombie. ADR-0020 §10: use `kill_tree`
-    // (recursive "kill_children") so the sidecar's grandchildren (native
-    // hotkey binary, model subprocesses) are reaped too, not just the
-    // direct child.
+    // Force-kill backstop. Gate on `!graceful` — if the sidecar exited
+    // cooperatively, the grandchildren (native hotkey binary, model
+    // subprocesses) were already reaped by the sidecar itself; we still
+    // `take()` the child handle (dropping it cleanly) but skip the
+    // recursive `kill_tree`. If `graceful` is false (timeout /
+    // unexpected exit), `kill_tree` is the force-kill backstop that
+    // also walks the process tree to reap grandchildren the sidecar
+    // didn't clean up. ADR-0020 §10.
     let child_opt = mutex_lock(&state.child).take();
     if let Some(child) = child_opt {
-        let _ = child.kill_tree().await;
+        if !graceful {
+            let _ = child.kill_tree().await;
+        }
     }
     log::info!("[SHUTDOWN] sidecar kill completed (graceful={})", graceful);
     let _ = app;
     Ok(())
 }
 
-// ─── CR-4: unit tests for ALLOWED_COMMANDS ─────────────────────────────
+//Host entrypoint helper: main-window close handler (C-) ──────
+
+/// `on_window_event` close-requested branch body, extracted from
+/// `main.rs`'s inline closure so the host entrypoint stays wiring-only
+//(C-).
+///
+//ADR-0020 §10: on main window close, shutdown the sidecar. :
+/// also handle the bubble window's close so a user dismissing the
+/// bubble doesn't leave the sidecar running against a closed webview
+/// (just log — no sidecar shutdown for the bubble).
+///
+//on macOS the app stays alive when the last window
+/// closes (standard macOS app lifecycle — the tray / Dock keeps the
+/// process running). Killing the sidecar here would orphan the
+/// dictation engine while the app is still alive in the menu bar.
+/// Only kill the sidecar on Windows/Linux where app exit is bound to
+/// last-window-close.
+///
+/// The actual shutdown runs in a spawned async task so the event loop
+/// is not blocked on the cooperative-shutdown wait (up to
+/// `SHUTDOWN_ACK_TIMEOUT_MS` = 2s).
+pub(crate) fn on_main_window_close(
+    app_handle: &tauri::AppHandle,
+    window: &tauri::Window,
+) {
+    match window.label() {
+        "main" => {
+            if cfg!(target_os = "macos") {
+                return;
+            }
+            //`shutdown_sidecar` takes a `window: tauri::Window`
+            //parameter ( main-window guard). Clone the main
+            // window handle here so the spawned task can pass it through
+            // the guard (the label is "main" so the check passes).
+            let main_window = window.clone();
+            let app_clone = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let state: tauri::State<'_, Arc<SidecarState>> = app_clone.state();
+                let _ = shutdown_sidecar(app_clone.clone(), state, main_window).await;
+            });
+        }
+        "bubble" => {
+            // Bubble window close — no sidecar shutdown, just log.
+            log::info!("[WINDOW] bubble window closed by user");
+        }
+        _ => {}
+    }
+}
+
+//unit tests for ALLOWED_COMMANDS ─────────────────────────────
 //
 // These tests pin the dispatch allowlist (SEC-019 / ADR-0015 defense-in-
 // depth). The Python parity test in
@@ -906,7 +983,7 @@ mod tests {
 
     #[test]
     fn test_allowed_commands_does_not_contain_heartbeat_or_relaunch_ack() {
-        // DT-50: `heartbeat` and `relaunch_ack` are Rust-only commands
+        //`heartbeat` and `relaunch_ack` are Rust-only commands
         // invoked via `dispatch_inner` (which bypasses this allowlist
         // gate) — `heartbeat` is dispatched by the WS-reader task's
         // heartbeat subtask (`sidecar/ws.rs::spawn_heartbeat_task`),
@@ -914,7 +991,7 @@ mod tests {
         // event handler in `main.rs`. Including either in the
         // `dispatch` allowlist would let a compromised renderer spoof
         // them via `invoke('dispatch', {cmd:'...'})`. Same pattern as
-        // `tray_click` (PVT-G5-075).
+        //`tray_click` ().
         assert!(
             !is_command_allowed("heartbeat"),
             "heartbeat must NOT be in ALLOWED_COMMANDS (DT-50: dispatched via dispatch_inner from the WS-reader task)"
@@ -987,7 +1064,7 @@ mod tests {
 
     #[test]
     fn test_allowed_commands_count_matches_ts_parity() {
-        // CR-4: the Rust allowlist must contain EXACTLY the same number
+        //the Rust allowlist must contain EXACTLY the same number
         // of commands as the TS allowlist in
         // `voice_typer/client/src/main/allowed-commands.ts` (canonical
         // declaration since R6-F10 — was previously inline in
@@ -997,9 +1074,9 @@ mod tests {
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
         //
-        // PVT-G5-008 / PVT-G5-025: count is 59 — must match the cmds
+        //count is 59 — must match the cmds
         // literal below (single source of truth). `onboarding_check_permissions`
-        // (PVT-G5-008) and `onboarding_reset` (session 1K / PVT-G5-025) were
+        //() and `onboarding_reset` (session 1K / ) were
         // the last entries actually added to the literal. `tray_click` is
         // intentionally absent — see the doc comment on `dispatch_inner` and
         // the `ALLOWED_COMMANDS` literal.
@@ -1038,11 +1115,11 @@ mod tests {
         );
     }
 
-    // ── XZ-R4-019: pending-map size cap ───────────────────────────────
+    //pending-map size cap ───────────────────────────────
 
     #[test]
     fn test_pending_max_constant_is_1024() {
-        // XZ-R4-019: PENDING_MAX must be 1024. The cap is sized to
+        //PENDING_MAX must be 1024. The cap is sized to
         // bound memory under pathological backpressure (an unresponsive
         // sidecar + rapid tray clicks / renderer retries) without
         // throttling normal traffic (the renderer typically has 1-3
@@ -1058,7 +1135,7 @@ mod tests {
 
     #[test]
     fn test_pending_full_code_constant_is_pending_full() {
-        // XZ-R4-019: the error code returned by `dispatch_frame` when
+        //the error code returned by `dispatch_frame` when
         // the pending map is at capacity. The renderer branches on
         // this exact string to differentiate "sidecar overwhelmed"
         // (transient, retry) from "sidecar not connected" (persistent,
@@ -1073,7 +1150,7 @@ mod tests {
 
     #[test]
     fn test_pending_full_error_envelope_shape() {
-        // XZ-R4-019: the `pending_full` error must serialize to a JSON
+        //the `pending_full` error must serialize to a JSON
         // envelope matching the shape used by `disallowed_command`
         // (line ~687) so the renderer's existing error-envelope switch
         // can branch on `code === "pending_full"` without a special

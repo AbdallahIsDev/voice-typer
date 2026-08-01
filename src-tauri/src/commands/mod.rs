@@ -1,23 +1,23 @@
-//! Tauri command handler modules (ADR-0020 §6 + §7 + §10 + MIG-1.1 + MIG-1.2 + CR-33).
+//! Tauri command handler modules (ADR-0020 §6 + §7 + §10 +  +  + ).
 
 pub(crate) mod sidecar_cmds;
 pub(crate) mod export;
 pub(crate) mod bubble;
 pub(crate) mod system_cmds;
-// FZ-19 / PVT-051: the `paste` module + the `paste_text` Tauri command
+//the `paste` module + the `paste_text` Tauri command
 // were deleted as dead production code. The Python sidecar owns the
 // paste path end-to-end via
 // `voice_typer/server/dictation_pipeline.py::_dispatch_paste`
 // (clipboard write + Ctrl/Cmd+V keystroke), and no Python or TS code
-// ever invoked `invoke('paste_text', ...)`. See review.md GT-E3-1 +
-// PVT-051 for the full deletion rationale.
+//ever invoked `invoke('paste_text', ...)`. See review.md  +
+//for the full deletion rationale.
 
-// CR-5: `dispatch_inner` + `DispatchArgs` are `pub(crate)` (NOT Tauri
+//`dispatch_inner` + `DispatchArgs` are `pub(crate)` (NOT Tauri
 // commands — they are the allowlist-bypass inner function the tray
 // menu click handler uses). Re-exported with crate visibility because
 // `crate::tray` imports them via `use crate::commands::{...}`.
 //
-// GT-E3-3: the 5 `pub use` re-export blocks for the `#[tauri::command]`
+//the 5 `pub use` re-export blocks for the `#[tauri::command]`
 // functions that used to live here were DEAD — `main.rs` imports each
 // command directly from its submodule, so the `pub use` re-exports had
 // no caller. Both the re-exports and the `#[allow(unused_imports)]`
@@ -26,7 +26,7 @@ pub(crate) mod system_cmds;
 pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
 pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
 
-// ─── DT-4: canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
+//canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
 //
 // `dispatch`, `shutdown_sidecar`, `export_*`, `bubble_signal_ready`
 // are all `#[tauri::command]` functions that a compromised renderer could
@@ -38,7 +38,7 @@ pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
 //
 // Previously (`sidecar_cmds.rs:32`, `bubble.rs:67`, `export.rs:26`) this
 // helper was duplicated 3× with subtly different log tags, error messages,
-// and even different visibility (`fn`-private vs `pub(crate)`). DT-4
+//and even different visibility (`fn`-private vs `pub(crate)`).
 // consolidates on a single canonical copy here. The error envelope shape
 // mirrors the sidecar's WS error envelope
 // ({"type":"error","data":{"code":...,"message":...}}) so the renderer's
@@ -48,7 +48,7 @@ pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
 // `tauri::Window` — extracted so unit tests can verify the gate logic
 // without constructing a Tauri runtime. Returns `true` iff `label == "main"`.
 
-/// DT-4: pure main-window label predicate. Returns `true` iff `label` is
+//pure main-window label predicate. Returns `true` iff `label` is
 /// the canonical main-window label (`"main"`, registered in
 /// `main.rs::setup` via `WindowBuilder::new("main")`). Used by
 /// [`require_main_window`] as the testable surface.
@@ -56,7 +56,7 @@ pub(crate) fn main_window_label_check(label: &str) -> bool {
     label == "main"
 }
 
-/// DT-4: gate a `#[tauri::command]` on the calling window being the main
+//gate a `#[tauri::command]` on the calling window being the main
 /// window. Logs a `[window-guard]` warning on rejection so the security
 /// audit trail shows the rejected call attempt + the offending window
 /// label. Returns `Err(<json envelope string>)` for non-main windows so

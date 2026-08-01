@@ -8,7 +8,7 @@
 //! returns after the first successful run (or when there is nothing to do),
 //! so it is cheap and safe to call on every launch.
 //!
-//! Old Electron `userData` locations (PVT-4 fix: probe all three in order,
+//! Old Electron `userData` locations ( fix: probe all three in order,
 //! use the first that exists on disk):
 //!
 //! 1. `voice-typer-desktop` — Electron `package.json` `name` field (very
@@ -33,23 +33,31 @@
 //! - `config.json`: if absent in target, copy whole; if present but differs,
 //!   merge key-by-key. The entire newer file's values win for overlapping
 //!   keys (single whole-file mtime comparison — NOT per-key mtime; see
-//!   XZ-R12-11 fix on `merge_config`).
-//! - `models/`: copy only files ABSENT from the target (XZ-R4-013: symlinks
-//!   are skipped; XZ-R12-04: copy is atomic via temp+rename).
+//!    fix on `merge_config`).
+//! - `models/`: copy only files ABSENT from the target (: symlinks
+//!   are skipped; : copy is atomic via temp+rename).
 //! - `history.db`: copy only if target absent (append is unsafe for SQLite —
 //!   skip with a warning rather than risk corruption). WAL/SHM sidecars
 //!   copied atomically; if either fails, target sidecars are deleted so
-//!   SQLite starts fresh (XZ-R12-17).
+//!   SQLite starts fresh ().
 //! - `voice-typer-recovery.json`: copy if target absent.
 //!
 //! All fs ops are wrapped so this function NEVER panics.
 //!
-//! XZ-R12-03: the sentinel marker is written ONLY when ALL critical
+//! : the sentinel marker is written ONLY when ALL critical
 //! migration steps succeeded. If any step fails (config merge, history.db
 //! copy, recovery.json copy, models dir creation), the sentinel is skipped
 //! so the next launch re-attempts the migration (idempotent ops).
 
 use std::path::{Path, PathBuf};
+
+// bring the `util` module into scope so the atomic-fs helpers
+// (`util::atomic_copy`, `util::atomic_copy_file`, `util::atomic_write_bytes`)
+// — which were moved from this module to `crate::util` — resolve without
+// a per-call-site `crate::util::` qualification. Replaces the prior
+// `use crate::util::atomic_write_bytes;` bridge import (which imported
+// only the function, not the module) that lived here pre-.
+use crate::util;
 
 
 
@@ -60,7 +68,7 @@ use std::path::{Path, PathBuf};
 /// disk. Returns an empty `Vec` if the platform's relevant env vars are
 /// missing (caller treats that as "nothing to migrate" — safe no-op).
 ///
-/// PVT-4 fix: the previous implementation only probed `Voice Typer`
+//fix: the previous implementation only probed `Voice Typer`
 /// (capital+space), which was NEVER the actual Electron `userData` name.
 /// `voice_typer/client/package.json:2` declares `"name": "voice-typer-desktop"`
 /// (lowercase, hyphen) and `bootstrap.ts:52-67` `setupUserData` overrides
@@ -73,19 +81,19 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
     /// order. See the module-level docstring for the naming history.
     const CANDIDATE_NAMES: &[&str] = &[
         // 1. Very old Electron builds (no `setupUserData`): Electron
-        //    derived the default `userData` path from `package.json`
-        //    `name` = `voice-typer-desktop`.
+        // derived the default `userData` path from `package.json`
+        // `name` = `voice-typer-desktop`.
         "voice-typer-desktop",
         // 2. Newer Electron builds with `setupUserData` (bootstrap.ts:52-67):
-        //    `app.setPath("userData", computeConfigDir())` → `voice-typer`.
-        //    This is the SAME path Tauri now uses as its `config_dir`, so
-        //    the caller skips it when it equals the Tauri target.
+        // `app.setPath("userData", computeConfigDir())` → `voice-typer`.
+        // This is the SAME path Tauri now uses as its `config_dir`, so
+        // the caller skips it when it equals the Tauri target.
         "voice-typer",
         // 3. Defensive third probe — the human-readable brand name with a
-        //    space, in case some ancient unreleased build used it as the
-        //    userData directory name. Uses `crate::branding::APP_NAME`
-        //    (const-context) so the probe stays in lockstep with the rest
-        //    of the UI's brand string.
+        // space, in case some ancient unreleased build used it as the
+        // userData directory name. Uses `crate::branding::APP_NAME`
+        // (const-context) so the probe stays in lockstep with the rest
+        // of the UI's brand string.
         crate::branding::APP_NAME,
     ];
 
@@ -111,7 +119,7 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
     {
         // Linux: Electron's userData defaults to `~/.config/<name>` when
         // XDG_CONFIG_HOME is unset; honor it if present.
-        // CR-80 fix: collapse dead conditional (both arms returned the
+        //fix: collapse dead conditional (both arms returned the
         // same value — `PathBuf::from(X).join(".config")` where X was
         // `.` or `h`).
         let Some(h) = std::env::var("XDG_CONFIG_HOME")
@@ -139,14 +147,14 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
 /// visibility surfaces unintended cross-module couplings at compile
 /// time rather than letting them slip through as silent API growth.
 pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
-    // GT-E3-4: `app` was only used to call `platform::paths::config_dir(app)`;
+    //`app` was only used to call `platform::paths::config_dir(app)`;
     // now that `config_dir()` takes no args, the param is unused. Kept in
     // the signature for forward-compat (a future migration might need
     // `app.path().resource_dir()` to copy bundled defaults). Prefixed
     // with `_` to silence the unused-param lint under clippy::all.
     let new_dir = crate::platform::paths::config_dir();
 
-    // CR-19 fix: use a sentinel file (.migrated-from-electron) as the
+    //fix: use a sentinel file (.migrated-from-electron) as the
     // idempotency marker instead of checking config.json existence.
     //
     // The previous guard (`if new_dir.join("config.json").exists()`)
@@ -164,7 +172,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
         return;
     }
 
-    // PVT-4 fix: probe each candidate in order; use the first that exists
+    //fix: probe each candidate in order; use the first that exists
     // on disk. The `voice-typer` candidate (bootstrap.ts:52-67
     // `setupUserData`) is the SAME path Tauri uses as its `config_dir` —
     // if that's the first one found, migration would be a no-op self-copy
@@ -217,7 +225,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
     let mut models_copied = 0usize;
     let mut history_copied = false;
     let mut recovery_copied = false;
-    // XZ-R12-03: track critical-step failures so the sentinel marker
+    //track critical-step failures so the sentinel marker
     // is only written when ALL critical migration steps succeeded.
     // Pre-fix, the sentinel was written UNCONDITIONALLY — if config,
     // history.db, or recovery.json migration failed, the user's data
@@ -273,7 +281,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
             // M-65: copy main db atomically (temp + rename in same dir)
             // so an interrupted migration never leaves a partial
             // history.db on disk that SQLite would refuse to open.
-            match atomic_copy(&old_db, &new_db) {
+            match util::atomic_copy(&old_db, &new_db) {
                 Ok(()) => {
                     history_copied = true;
                     log::info!("[MIGRATE] history.db copied");
@@ -290,7 +298,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
             // a missing sidecar is not an error (SQLite regenerates
             // -shm and replays -wal only if both are present).
             //
-            // XZ-R12-17: if EITHER sidecar copy fails, delete all
+            //if EITHER sidecar copy fails, delete all
             // target sidecars so SQLite starts fresh on next open.
             // Without this, the target db could end up with `history.db`
             // plus a partial `-wal` (no `-shm`), which SQLite refuses
@@ -301,7 +309,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
                 let old_side = sidecar_path(&old_db, suffix);
                 let new_side = sidecar_path(&new_db, suffix);
                 if old_side.is_file() && !new_side.exists() {
-                    if let Err(e) = atomic_copy(&old_side, &new_side) {
+                    if let Err(e) = util::atomic_copy(&old_side, &new_side) {
                         log::warn!(
                             "[MIGRATE] history.db{} copy failed: {} — will delete target sidecars",
                             suffix,
@@ -338,14 +346,14 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
     let old_rec = old_dir.join("voice-typer-recovery.json");
     let new_rec = new_dir.join("voice-typer-recovery.json");
     if old_rec.is_file() && !new_rec.exists() {
-        // XZ-R12-03: use atomic_copy for recovery.json too (was
+        //use atomic_copy for recovery.json too (was
         // std::fs::copy). A partial recovery.json would load as
         // invalid JSON on next launch and the user's recovery
         // snapshot would be silently dropped — same data-loss
         // risk as the config.json case. The recovery file is
         // small (a few KB), so atomic_copy's read-into-memory is
         // fine here.
-        if let Err(e) = atomic_copy(&old_rec, &new_rec) {
+        if let Err(e) = util::atomic_copy(&old_rec, &new_rec) {
             log::error!("[MIGRATE] voice-typer-recovery.json copy failed: {}", e);
             migration_failed += 1;
         } else {
@@ -366,11 +374,11 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
         migration_failed
     );
 
-    // CR-19 fix: write the sentinel marker AFTER successful migration so
+    //fix: write the sentinel marker AFTER successful migration so
     // subsequent launches skip re-migration. Without this, every launch
     // would re-attempt the (idempotent but log-noisy) migration.
     //
-    // XZ-R12-03: only write the sentinel if ALL critical migration
+    //only write the sentinel if ALL critical migration
     // steps succeeded. If any failed, skip the sentinel so the next
     // launch re-attempts the migration (the operations are idempotent
     // — atomic_copy uses temp+rename, merge_config is key-by-key).
@@ -383,7 +391,7 @@ pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
     let _ = write_sentinel_if_clean(&new_dir, migration_failed);
 }
 
-/// XZ-R12-03: write the `.migrated-from-electron` sentinel marker to
+//write the `.migrated-from-electron` sentinel marker to
 /// `new_dir` ONLY if `migration_failed == 0`.
 ///
 /// Returns `true` if the sentinel was written (or already present from
@@ -449,7 +457,7 @@ enum MergeOutcome {
 ///   NOT per-key mtime). Keys present only in `old` are always taken.
 ///   Returns Merged(keys_from_old_written).
 ///
-/// XZ-R12-11: the previous docstring promised "newest-mtime-wins per
+//the previous docstring promised "newest-mtime-wins per
 /// key" which suggested per-key mtime resolution. The implementation
 /// uses a single whole-file mtime comparison (the file written later
 /// is treated as authoritative for ALL its overlapping keys, not just
@@ -467,7 +475,7 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
         // M-65: atomic copy so an interrupted migration never leaves
         // a partially-written config.json at the target.
-        atomic_copy(old, new)?;
+        util::atomic_copy(old, new)?;
         return Ok(MergeOutcome::Copied);
     }
 
@@ -482,7 +490,7 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     // (the merge itself still proceeds fail-open — we prefer to keep
     // whatever parses rather than abort the whole migration).
     //
-    // XZ-R12-12: before treating a corrupt source/target as Null,
+    //before treating a corrupt source/target as Null,
     // back up the corrupt file to `<path>.corrupt-pre-migration.<ts>.bak`
     // so the user can recover their settings manually. Without the
     // backup, a corrupt `config.json` would be silently dropped on
@@ -541,138 +549,23 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     // so an interrupted migration never leaves a partially-written
     // config.json that would fail to parse on next launch and cause
     // the user's merged settings to be lost.
-    atomic_write_bytes(new, out.as_bytes())?;
+    util::atomic_write_bytes(new, out.as_bytes())?;
     Ok(MergeOutcome::Merged(written))
 }
 
-// ─── M-65: atomic write helpers ───────────────────────────────────────────
+// ─── atomic_copy / atomic_copy_file relocation note () ──────────
 //
-// `std::fs::write` and `std::fs::copy` are NOT atomic: if the process
-// is killed (or the disk fills, or the OS crashes) mid-write, the
-// destination file is left with a partial body. For the migration
-// path that means a half-written `config.json` that fails to parse
-// on next launch (losing the user's merged settings) or a truncated
-// `history.db` that SQLite refuses to open (losing the user's
-// history). The helpers below write to a sibling temp file in the
-// SAME directory (so `rename` is a same-filesystem atomic op on
-// POSIX, and on Windows the destination is absent so rename
-// succeeds), `fsync` the temp file (so the data is durable before
-// the rename), then rename into place. On failure the temp file is
-// best-effort cleaned up so we don't leak `.history.db.tmp.migrate`
-// files in the user's config dir.
+// `atomic_copy`, `atomic_copy_file`, and the local
+// `use crate::util::atomic_write_bytes;` bridge import that lived
+// here have been moved to `crate::util` (alongside `atomic_write_bytes`,
+//which  already relocated). All call sites in this file now
+// spell them as `util::atomic_copy(...)` / `util::atomic_copy_file(...)`
+// / `util::atomic_write_bytes(...)`. The two helpers are generic
+// fs-copy utilities with no coupling to Electron-migration logic,
+// so co-locating them with `atomic_write_bytes` in `util.rs` is the
+// correct architectural home. Pure refactor — no behavior change.
 
-// The stale `pub(crate) use crate::util::atomic_write_bytes;` re-export
-// that previously lived here has been removed. `sidecar/supervisor.rs`
-// now imports `atomic_write_bytes` directly from `crate::util` (see
-// `use crate::util::{... atomic_write_bytes ...}` at the top of
-// `supervisor.rs`), so the re-export was dead — it existed only for
-// backward compat with a caller that had already been migrated.
-//
-// The two `atomic_copy*` helpers below call `atomic_write_bytes` via
-// the bare unqualified name resolved through the private module-local
-// `use crate::util::atomic_write_bytes;` import added just below
-// (NOT a re-export — nothing outside `migrate.rs` can reach
-// `atomic_write_bytes` through `crate::migrate::atomic_write_bytes`
-// any more).
-
-// Local convenience import so the `atomic_copy` / `atomic_copy_file`
-// helpers below can call `atomic_write_bytes(dst, &bytes)` without
-// qualifying it as `crate::util::atomic_write_bytes(...)` at every
-// call site.
-use crate::util::atomic_write_bytes;
-
-/// M-65: atomically copy `src` to `dst` by reading src into memory
-/// then writing via `atomic_write_bytes`. Suitable for small-to-
-/// medium files (config.json, history.db, WAL sidecars). For very
-/// large files (model weights) use `atomic_copy_file` instead — it
-/// streams via `std::fs::copy` to a sibling temp file then renames,
-/// avoiding the memory doubling that `atomic_copy`'s read-into-memory
-/// would impose on multi-GB model weights.
-fn atomic_copy(src: &Path, dst: &Path) -> Result<(), String> {
-    let bytes = std::fs::read(src)
-        .map_err(|e| format!("read src {}: {}", src.display(), e))?;
-    atomic_write_bytes(dst, &bytes)
-}
-
-/// XZ-R12-04: atomically copy a (potentially large) file from `src` to
-/// `dst` by streaming to a sibling temp file then renaming. Unlike
-/// `atomic_copy` (which reads the entire source into memory), this
-/// streams the bytes via `std::fs::copy` so it's suitable for multi-GB
-/// model weight files. The temp file lives in the SAME directory as
-/// `dst` (so `rename` is an atomic same-filesystem op on POSIX), is
-/// fsync'd before the rename (so the data is durable), and is
-/// best-effort cleaned up on failure (so we don't leak temp files).
-///
-/// On a crash mid-copy, the temp file is left behind (best-effort
-/// cleanup only runs on the Err path of THIS function); a future
-/// launch's `atomic_copy_file` call to the same `dst` will simply
-/// create a NEW temp file (unique suffix via PID + random) and the
-/// stale temp file will be orphaned. The orphan is harmless (it's a
-/// dotfile in the user's config dir) and the destination is never
-/// left in a partial state.
-fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
-    use rand::RngCore;
-
-    let dir = dst
-        .parent()
-        .ok_or_else(|| format!("dst has no parent: {}", dst.display()))?;
-    // Same uniqueness scheme as `atomic_write_bytes` in util.rs —
-    // PID + 4 random bytes hex so concurrent invocations on the same
-    // dst don't race on the same temp filename.
-    let tmp_name = match dst.file_name().and_then(|n| n.to_str()) {
-        Some(n) => {
-            let mut rng_bytes = [0u8; 4];
-            rand::rng().fill_bytes(&mut rng_bytes);
-            let suffix = u32::from_le_bytes(rng_bytes);
-            format!("{}.tmp.copy.{}.{:08x}", n, std::process::id(), suffix)
-        }
-        None => return Err(format!("dst has no file_name: {}", dst.display())),
-    };
-    let tmp = dir.join(&tmp_name);
-
-    // Stream-copy src → tmp via std::fs::copy (kernel-level splice on
-    // Linux, no userspace buffering — efficient for large files).
-    if let Err(e) = std::fs::copy(src, &tmp) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "copy {} → {}: {}",
-            src.display(),
-            tmp.display(),
-            e
-        ));
-    }
-
-    // fsync the temp file so the data is durable before the rename.
-    // Without this, a crash after rename but before the kernel flushes
-    // the temp file's data could leave the renamed file with zero
-    // bytes (ext4's auto-no-csum mode) — corrupting the destination.
-    {
-        let f = std::fs::File::open(&tmp)
-            .map_err(|e| format!("open tmp for fsync {}: {}", tmp.display(), e))?;
-        // Best-effort fsync — not all filesystems support it (tmpfs,
-        // network FS), and a failure here doesn't invalidate the copy
-        // (the data is still in the page cache and will be flushed
-        // eventually). Log and continue.
-        if let Err(e) = f.sync_all() {
-            log::warn!("[MIGRATE] fsync of tmp {} failed (non-fatal): {}", tmp.display(), e);
-        }
-    }
-
-    // Atomic rename (same-filesystem on POSIX; on Windows the dst is
-    // absent so rename succeeds).
-    if let Err(e) = std::fs::rename(&tmp, dst) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "rename {} → {}: {}",
-            tmp.display(),
-            dst.display(),
-            e
-        ));
-    }
-    Ok(())
-}
-
-/// XZ-R12-12: back up a corrupt config.json before the migration
+//back up a corrupt config.json before the migration
 /// treats it as `Value::Null`. The backup is written next to the
 /// original as `<filename>.corrupt-pre-migration.<unix_ts>.bak` so
 /// the user can recover their settings manually. The timestamp
@@ -734,7 +627,7 @@ fn backup_corrupt_config(path: &Path) {
 /// file_name (NOT to the extension) so `history.db` →
 /// `history.db-wal`.
 fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
-    // ER-66: `file_name()` returns `Option<&OsStr>`; `to_str()` borrows
+    //`file_name()` returns `Option<&OsStr>`; `to_str()` borrows
     // as `&str` and then `.to_string()` allocates a new String from
     // the borrow. Using `to_os_string()` (which copies the OsStr into
     // a new OsString) then `into_string()` (which moves the OsString's
@@ -782,7 +675,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        // XZ-R4-013: use `symlink_metadata` (NOT `metadata`) so we can
+        //use `symlink_metadata` (NOT `metadata`) so we can
         // detect symlinks WITHOUT following them. A pre-planted symlink
         // in the old Electron `models/` directory could otherwise point
         // outside the config dir (e.g. `~/.ssh/id_rsa` or `/etc/shadow`)
@@ -808,7 +701,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
             );
             continue;
         }
-        // ER-66: `entry.file_name().into_string()` consumes the OsString
+        //`entry.file_name().into_string()` consumes the OsString
         // and returns `Result<String, OsString>` — for valid-UTF-8 file
         // names (the overwhelmingly common case on all platforms Voice
         // Typer targets) this is a zero-allocation move out of the
@@ -833,7 +726,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
             if dst_path.exists() {
                 continue; // never clobber a newer download
             }
-            // XZ-R12-04: use atomic copy (temp + rename in same dir)
+            //use atomic copy (temp + rename in same dir)
             // so an interrupted migration never leaves a partial model
             // file at the destination. Pre-fix, `std::fs::copy` truncated
             // then wrote — combined with the `if dst_path.exists() { continue; }`
@@ -842,7 +735,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, count: &mut usize) {
             // corrupt model file in the target. The atomic copy writes
             // to a sibling temp file then renames, so the destination
             // is either fully-present or fully-absent — never partial.
-            if let Err(e) = atomic_copy_file(&path, &dst_path) {
+            if let Err(e) = util::atomic_copy_file(&path, &dst_path) {
                 log::error!(
                     "[MIGRATE] model file copy failed {}: {}",
                     dst_path.display(),
@@ -895,7 +788,7 @@ mod tests {
         }
     }
 
-    /// XZ-R4-013: a symlink in the source `models/` dir must NOT be
+    //a symlink in the source `models/` dir must NOT be
     /// followed — neither the link itself nor its target is copied.
     /// Pre-fix, `path.is_file()` followed the symlink and `std::fs::copy`
     /// happily copied whatever the link pointed at (potentially
@@ -931,9 +824,9 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "PRIVATE");
     }
 
-    /// XZ-R12-04: `atomic_copy_file` must produce a destination whose
-    /// bytes match the source exactly, and must NOT leave a temp file
-    /// behind on success.
+    //`atomic_copy_file` (now in `crate::util` per )
+    /// must produce a destination whose bytes match the source exactly,
+    /// and must NOT leave a temp file behind on success.
     #[test]
     fn atomic_copy_file_produces_identical_destination() {
         let _scratch = ScratchDir::new("atomic-copy");
@@ -952,7 +845,7 @@ mod tests {
             data.push((state & 0xFF) as u8);
         }
         std::fs::write(&src, &data).unwrap();
-        atomic_copy_file(&src, &dst).expect("atomic copy should succeed");
+        util::atomic_copy_file(&src, &dst).expect("atomic copy should succeed");
         let got = std::fs::read(&dst).unwrap();
         assert_eq!(got, data, "destination bytes must match source");
         // No `.tmp.copy.*` files left behind on success.
@@ -968,7 +861,7 @@ mod tests {
         assert!(leftover.is_empty(), "no temp files should remain: {:?}", leftover);
     }
 
-    /// XZ-R12-04: `atomic_copy_file` must NOT leave a partial destination
+    //`atomic_copy_file` must NOT leave a partial destination
     /// if the source doesn't exist (the copy fails before the rename).
     #[test]
     fn atomic_copy_file_no_partial_on_missing_source() {
@@ -982,7 +875,7 @@ mod tests {
         assert!(!dst.exists(), "destination must NOT exist after failure");
     }
 
-    /// XZ-R12-12: when `merge_config` encounters a corrupt source
+    //when `merge_config` encounters a corrupt source
     /// config.json (invalid JSON), it must back up the corrupt file
     /// to `<name>.corrupt-pre-migration.<ts>.bak` BEFORE treating it
     /// as Null. Without the backup, the user's old Electron settings
@@ -1021,7 +914,7 @@ mod tests {
         assert_eq!(backup_contents, b"{not valid json");
     }
 
-    /// XZ-R12-11: merge_config uses whole-file mtime (not per-key) to
+    //merge_config uses whole-file mtime (not per-key) to
     /// decide which file's values win for overlapping keys. When `old`
     /// is newer, ALL of old's keys overwrite new's; when `new` is
     /// newer, NONE of old's overlapping keys are taken (only keys
@@ -1076,7 +969,7 @@ mod tests {
         assert_eq!(obj2.get("d").and_then(|v| v.as_i64()), Some(4), "d taken from old");
     }
 
-    /// XZ-R12-17: `sidecar_path` appends the suffix to the file_name
+    //`sidecar_path` appends the suffix to the file_name
     /// (NOT to the extension) so `history.db` -> `history.db-wal`.
     /// Critical for SQLite WAL mode — the sidecar files live next to
     /// the main db with the literal `-wal` / `-shm` suffix.
@@ -1093,7 +986,7 @@ mod tests {
         );
     }
 
-    /// XZ-R12-17 (companion): `sidecar_path` for a db whose name
+    //(companion): `sidecar_path` for a db whose name
     /// already contains dots — the suffix is appended to the WHOLE
     /// name, not after the first dot.
     #[test]
@@ -1105,7 +998,7 @@ mod tests {
         );
     }
 
-    /// XZ-R4-013 (companion): `copy_missing_files` must NOT clobber
+    //(companion): `copy_missing_files` must NOT clobber
     /// an existing target file. Even with the symlink-skip fix, a
     /// pre-existing target file (e.g. a newer model the user just
     /// downloaded) must be preserved.
@@ -1130,9 +1023,9 @@ mod tests {
         );
     }
 
-    // ── XZ-R12-03: sentinel gating on partial failures ───────────────
+    //sentinel gating on partial failures ───────────────
 
-    /// XZ-R12-03: when `migration_failed == 0`, the sentinel marker
+    //when `migration_failed == 0`, the sentinel marker
     /// MUST be written so the next launch skips re-migration.
     /// Pre-fix, the sentinel was written UNCONDITIONALLY — even after
     /// a partial failure — which silently dropped the user's data on
@@ -1156,7 +1049,7 @@ mod tests {
         );
     }
 
-    /// XZ-R12-03: when `migration_failed > 0`, the sentinel marker
+    //when `migration_failed > 0`, the sentinel marker
     /// MUST NOT be written. Next launch will re-attempt the migration
     /// (the operations are idempotent — atomic_copy uses temp+rename,
     /// merge_config is key-by-key). This is the core fix: a partial
@@ -1177,7 +1070,7 @@ mod tests {
         );
     }
 
-    /// XZ-R12-03: the gate must hold for any non-zero failure count
+    //the gate must hold for any non-zero failure count
     /// (not just 1). A migration that fails 2 critical steps (e.g.
     /// config.json merge AND history.db copy both fail) must still
     /// skip the sentinel.
@@ -1192,7 +1085,7 @@ mod tests {
         assert!(!sentinel.exists(), "sentinel file must NOT exist on disk");
     }
 
-    /// XZ-R12-03 (companion): when `migration_failed == 0` AND the
+    //(companion): when `migration_failed == 0` AND the
     /// target directory does not exist, `write_sentinel_if_clean`
     /// must return `false` (the `std::fs::write` will fail because
     /// the parent dir doesn't exist). The function must not panic —
@@ -1220,14 +1113,15 @@ mod tests {
         );
     }
 
-    /// Verify the private ``use crate::util::atomic_write_bytes;``
-    /// import resolves correctly inside this module by exercising
-    /// ``atomic_copy`` (which calls ``atomic_write_bytes`` via that
-    /// import). The stale ``pub(crate) use`` re-export was deleted;
-    /// this test guards against an accidental future regression where
-    /// someone removes the local ``use`` import without re-adding the
-    /// qualification at every call site (which would silently break
-    /// the migration's atomic copy path).
+    /// `atomic_copy` was moved from this module to `crate::util`
+    /// (alongside `atomic_write_bytes`). This test now exercises the
+    /// qualified `util::atomic_copy` call path end-to-end, guarding
+    /// against an accidental future regression where someone removes
+    /// the qualification at the call site or forgets to re-export the
+    /// helper from `util`. (Pre-this test guarded the local
+    /// `use crate::util::atomic_write_bytes;` bridge import; that
+    /// bridge is gone now that `atomic_copy` itself lives in `util.rs`
+    /// and calls `atomic_write_bytes` as a same-module sibling.)
     #[test]
     fn atomic_copy_uses_local_atomic_write_bytes_import() {
         let _scratch = ScratchDir::new("atomic-copy-import");
@@ -1236,7 +1130,7 @@ mod tests {
         let dst = root.join("dst.bin");
         std::fs::write(&src, b"hello-migrate").unwrap();
 
-        atomic_copy(&src, &dst).expect("atomic_copy must succeed");
+        util::atomic_copy(&src, &dst).expect("atomic_copy must succeed");
 
         let written = std::fs::read(&dst).expect("dst must exist after copy");
         assert_eq!(written, b"hello-migrate");

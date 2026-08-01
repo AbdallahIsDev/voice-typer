@@ -19,13 +19,13 @@ use std::sync::OnceLock;
 /// byte-for-byte, we resolve from env vars directly, matching the
 /// Python side's `_paths.config_dir()` resolution.
 ///
-/// # NF-R19-4 (REVISED): `app` parameter dropped
+/// `app` parameter dropped
 ///
 /// Previously this function took `app: &tauri::AppHandle` for
 /// "forward-compatible migration to `app.path().app_config_dir()`".
 /// The param was never used (`let _ = app;`), and the migration never
 /// materialized — the env-var resolution is the steady-state path. The
-/// dead param was flagged by GT-E3-4 and is now removed; all 3 callers
+/// dead param was flagged by and is now removed; all 3 callers
 /// (`main.rs`, `system_cmds.rs`, `migrate.rs`) updated.
 ///
 /// # No Electron userData merge under Tauri
@@ -43,10 +43,10 @@ use std::sync::OnceLock;
 /// newest-mtime-wins for `config.json`, append-only for `history.db`,
 /// copy-only-absent for `models/`. The merge is idempotent and guarded
 /// by a `.migrated-from-electron` sentinel file so it only runs once.
-/// (GT-E3-8: the prior doc here said "migration is a no-op and is
+/// the prior doc here said "migration is a no-op and is
 /// intentionally NOT implemented here" — that was stale; the
 /// migration IS implemented in `migrate.rs` and has been running since
-/// session-1's PVT-4 fix.)
+/// session-1's  fix.)
 ///
 /// # Python-side `VoiceTyperSingleInstance` Win32 mutex
 ///
@@ -59,10 +59,10 @@ use std::sync::OnceLock;
 /// the same Win32 mutex approach under the hood (different name based
 /// on the app identifier) so the two gates don't collide.
 ///
-/// # ER-59: caching
+/// caching
 ///
 /// Env vars are invariant for the process lifetime, but every call to
-/// this function re-resolved 4 `std::env::var()` lookups. Under FT-1
+/// this function re-resolved 4 `std::env::var()` lookups. Under
 /// flapping (supervisor respawn loops), `read/write_ft1_restart_counter`
 /// in `supervisor.rs` each call this 4 times, summing to ~microseconds
 /// per call but adding up. The public `config_dir()` now routes
@@ -75,7 +75,7 @@ pub(crate) fn config_dir() -> std::path::PathBuf {
     config_dir_cached().to_path_buf()
 }
 
-/// ER-59: process-wide cached config dir. Resolved once on first call;
+/// process-wide cached config dir. Resolved once on first call;
 /// subsequent calls return the cached `PathBuf` via a `OnceLock`. The
 /// env vars (`HOME`, `APPDATA`, `XDG_DATA_HOME`, `VOICE_TYPER_CONFIG_DIR`)
 /// are invariant for the process lifetime, so caching is safe — a
@@ -92,7 +92,7 @@ fn config_dir_cached() -> &'static std::path::Path {
             std::env::var("HOME").ok().as_deref(),
             std::env::var("APPDATA").ok().as_deref(),
             std::env::var("XDG_DATA_HOME").ok().as_deref(),
-            // CR-39: VOICE_TYPER_CONFIG_DIR env-var override — mirrors
+            // VOICE_TYPER_CONFIG_DIR env-var override — mirrors
             // Python's _config_dir() resolution order (env var → legacy →
             // platform default).
             std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
@@ -102,7 +102,7 @@ fn config_dir_cached() -> &'static std::path::Path {
 
 /// Pure form of `config_dir` for unit testing (no env-var reads).
 ///
-/// # NF-R9-8: graceful fallback when env vars are missing
+/// graceful fallback when env vars are missing
 ///
 /// The previous implementation `panic!()`ed if `APPDATA` (Windows) /
 /// `HOME` (macOS, Linux) was unset. That crashes the host on:
@@ -114,7 +114,7 @@ fn config_dir_cached() -> &'static std::path::Path {
 ///
 /// The graceful fallback returns `<cwd>/voice-typer` (i.e. `./voice-typer`
 /// relative to the process's CWD) and logs a warning via `log::warn!`.
-/// PVT-G5-085: previously used `eprintln!` (which bypasses the rotating
+/// previously used `eprintln!` (which bypasses the rotating
 /// file logger); switched to `log::warn!` so the warning lands in
 /// `voice-typer.log` for operators debugging missing-config-dir issues.
 /// When `config_dir_from_env` is called before `init_file_logger` (the
@@ -125,7 +125,7 @@ fn config_dir_cached() -> &'static std::path::Path {
 /// caller is expected to handle the resulting I/O errors (e.g. log file
 /// open fails) at the call site; this function never panics.
 ///
-/// # CR-39: legacy `~/.voice-typer` migration + env-var override
+/// legacy `~/.voice-typer` migration + env-var override
 ///
 /// The function mirrors the Python side's `_config_dir()` resolution
 /// order: `VOICE_TYPER_CONFIG_DIR` env var wins, then legacy
@@ -142,7 +142,7 @@ pub(crate) fn config_dir_from_env(
 ) -> std::path::PathBuf {
     const APP_NAME: &str = "voice-typer";
 
-    // CR-39: VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
+    // VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
     // Python side's _config_dir() resolution order: env var wins,
     // then legacy ~/.voice-typer, then platform default. Without this
     // check, a user who sets VOICE_TYPER_CONFIG_DIR (e.g. for a
@@ -154,7 +154,7 @@ pub(crate) fn config_dir_from_env(
         }
     }
 
-    // CR-39: legacy ~/.voice-typer check. Python's _config_dir() and
+    // legacy ~/.voice-typer check. Python's _config_dir() and
     // Electron's computeConfigDir() both check this first; the Tauri
     // host must do the same so the host and Python sidecar agree on
     // the config dir for users upgrading from a legacy install.
@@ -176,15 +176,15 @@ pub(crate) fn config_dir_from_env(
     {
         let _ = home;
         let _ = xdg_data_home;
-        // NF-R9-8: graceful fallback when APPDATA is missing (Windows
+        // graceful fallback when APPDATA is missing (Windows
         // service accounts, headless CI). Previously panicked — now
         // returns `./voice-typer` relative to CWD and logs a warning.
         // The Tauri host's log file open at this path will fail loudly
         // if CWD is read-only, which is the correct behavior (better
         // than crashing during config-dir resolution).
         let base = appdata.unwrap_or_else(|| {
-            // PVT-G5-085: switched from `eprintln!` to `log::warn!`.
-            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // switched from `eprintln!` to `log::warn!`.
+            // ALSO eprintln! so it lands on stderr regardless
             // of logger state (first call from main.rs happens BEFORE
             // init_file_logger, so log::warn! alone is silent).
             let warn_msg = format!(
@@ -204,12 +204,12 @@ pub(crate) fn config_dir_from_env(
     {
         let _ = appdata;
         let _ = xdg_data_home;
-        // NF-R9-8: graceful fallback when HOME is missing on macOS
+        // graceful fallback when HOME is missing on macOS
         // (rare — `launchd` always sets HOME for user sessions, but
         // a system LaunchDaemon runs without it). Falls back to CWD.
         let home = home.unwrap_or_else(|| {
-            // PVT-G5-085: `log::warn!` (was `eprintln!`).
-            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // `log::warn!` (was `eprintln!`).
+            // ALSO eprintln! so it lands on stderr regardless
             // of logger state.
             let warn_msg = format!(
                 "[paths] HOME env var is not set — falling back to \
@@ -235,7 +235,7 @@ pub(crate) fn config_dir_from_env(
                 return std::path::PathBuf::from(xdg).join(APP_NAME);
             }
         }
-        // NF-R9-8: graceful fallback when HOME is missing on Linux
+        // graceful fallback when HOME is missing on Linux
         // (systemd user units without `Environment=HOME=...`, or a
         // bare cron-spawned process). Falls back to CWD with a warning
         // — the XDG spec mandates HOME as a fallback when
@@ -243,8 +243,8 @@ pub(crate) fn config_dir_from_env(
         // technically undefined behavior per the spec; we choose a
         // CWD-relative path rather than panicking.
         let home = home.unwrap_or_else(|| {
-            // PVT-G5-085: `log::warn!` (was `eprintln!`).
-            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // `log::warn!` (was `eprintln!`).
+            // ALSO eprintln! so it lands on stderr regardless
             // of logger state.
             let warn_msg = format!(
                 "[paths] HOME env var is not set — falling back to \
@@ -324,7 +324,7 @@ mod tests {
         );
     }
 
-    // ── NF-R9-8: graceful fallback when env vars are missing ──────────
+    // graceful fallback when env vars are missing ──────────
     //
     // The previous implementation panicked if APPDATA (Windows) or HOME
     // (macOS, Linux) was unset. These tests pin the new graceful-
@@ -336,7 +336,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_config_dir_linux_missing_home_falls_back_to_cwd() {
-        // NF-R9-8: when HOME is missing AND XDG_DATA_HOME is unset,
+        // when HOME is missing AND XDG_DATA_HOME is unset,
         // the function must NOT panic — it returns `./voice-typer`.
         let p = config_dir_from_env(None, None, None, None);
         assert_eq!(
@@ -362,7 +362,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_config_dir_macos_missing_home_falls_back_to_cwd() {
-        // NF-R9-8: when HOME is missing on macOS (system LaunchDaemon),
+        //when HOME is missing on macOS (system LaunchDaemon),
         // the function must NOT panic — it returns `./Library/Application
         // Support/voice-typer` (CWD-relative).
         let p = config_dir_from_env(None, None, None, None);
@@ -376,7 +376,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
-        // NF-R9-8: when APPDATA is missing on Windows (service account),
+        // when APPDATA is missing on Windows (service account),
         // the function must NOT panic — it returns `./voice-typer`.
         let p = config_dir_from_env(None, None, None, None);
         assert_eq!(
@@ -386,7 +386,7 @@ mod tests {
         );
     }
 
-    // ── CR-39: legacy ~/.voice-typer check + VOICE_TYPER_CONFIG_DIR override ──
+    // legacy ~/.voice-typer check + VOICE_TYPER_CONFIG_DIR override ──
     //
     // The Tauri host must mirror Python's _config_dir() resolution
     // order (env var → legacy ~/.voice-typer → platform default) so
@@ -398,7 +398,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn test_config_dir_legacy_voice_typer_wins_over_platform_default() {
-        // CR-39: if ~/.voice-typer exists, it should be returned in
+        // if ~/.voice-typer exists, it should be returned in
         // preference to the platform default.
         use std::fs;
         use std::time::SystemTime;
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn test_config_dir_voice_typer_config_dir_env_override() {
-        // CR-39: VOICE_TYPER_CONFIG_DIR env var wins over legacy and
+        // VOICE_TYPER_CONFIG_DIR env var wins over legacy and
         // platform default.
         let p = config_dir_from_env(
             Some("/home/user"),
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_config_dir_env_override_beats_legacy_check() {
-        // CR-39: env var wins over legacy ~/.voice-typer check.
+        // env var wins over legacy ~/.voice-typer check.
         use std::fs;
         use std::time::SystemTime;
         let tmp = std::env::temp_dir().join(format!(
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_config_dir_empty_env_override_falls_through() {
-        // CR-39: an empty VOICE_TYPER_CONFIG_DIR value should be
+        // an empty VOICE_TYPER_CONFIG_DIR value should be
         // treated as unset (mirrors the XDG spec for empty XDG vars).
         let p = config_dir_from_env(
             Some("/nonexistent_home_for_cr39_test"),
