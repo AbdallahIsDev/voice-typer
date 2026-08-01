@@ -474,6 +474,29 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// separately via `child.kill()` afterwards, so we focus on the
 /// descendants only.
 ///
+/// # Race-window mitigation (process-group kill)
+///
+/// The `pgrep` DFS snapshot is point-in-time: between the snapshot and
+/// the `kill` calls, the sidecar may spawn NEW children that the
+/// snapshot missed. Those children would survive the per-pid kill and
+/// keep holding the mic / IPC port. To close this race, we ALSO send
+/// `kill -TERM -<pgid>` (and later `kill -KILL -<pgid>`) to the
+/// sidecar's entire PROCESS GROUP — this catches any child spawned
+/// between the snapshot and the signal, regardless of whether `pgrep`
+/// saw it.
+///
+/// **Safety guard**: the sidecar is spawned via `tauri-plugin-shell`'s
+/// `externalBin` API, which does NOT call `setsid()` / `setpgid()`.
+/// The sidecar therefore inherits the HOST's process group by default.
+/// Sending `kill -<host_pgid>` would kill the HOST itself
+/// (catastrophic). We ONLY send the process-group signal when
+/// `getpgid(sidecar_pid) != getpgrp()` — i.e., the sidecar is
+/// verifiably in its OWN group (which would require a future spawn-
+/// path change to call `pre_exec(|| { setpgid(0, 0); Ok(()) })`, or
+/// the Python sidecar to call `os.setsid()`). Until then, the
+/// process-group kill is a no-op and we rely on the per-pid kills —
+/// the race window is documented but not fully closed.
+///
 /// Exposed as `pub(crate)` so `spawn.rs`'s spawn-timeout cleanup paths
 /// can call it directly (they only have the `CommandChild` /
 /// `tokio::process::Child`, not a `SidecarHandle`, so they can't use
@@ -554,11 +577,37 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // Short-circuit when no descendants exist — avoids the
         // unconditional 200ms sleep below on the Tauri event-loop thread
         // (called from shutdown_sidecar_for_exit via block_on).
+        //
+        // NOTE: we DO still attempt the process-group kill below even
+        // when `all_descendants` is empty, because the race window
+        // (sidecar spawns a child after our `pgrep` but before we
+        // return) could leave a child un-killed. But the process-group
+        // kill only fires when the sidecar is in its own group (see
+        // the safety guard in the function doc comment), which is
+        // currently never the case — so in practice this short-circuit
+        // is safe. When the spawn path is updated to put the sidecar
+        // in its own group, this early return should be reconsidered.
         if all_descendants.is_empty() {
             log::debug!("[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle", pid);
+            // Still attempt the process-group kill (best-effort, no-op
+            // when the sidecar shares the host's pgid).
+            kill_process_group_if_safe(pid, libc::SIGTERM);
+            std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
+            kill_process_group_if_safe(pid, libc::SIGKILL);
             return;
         }
 
+        // Resolve the sidecar's process-group ID ONCE, up-front. We
+        // use it for both the SIGTERM and SIGKILL process-group sends.
+        // `getpgid` returns the pgid of the process at the time of the
+        // call — if the sidecar has already exited (and its pid was
+        // recycled), this could return a stale or wrong pgid. We
+        // mitigate by checking against the host's own pgid (see the
+        // safety guard in `signal_process_group`).
+        let sidecar_pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
+
+        // SIGTERM phase: per-pid kills (targeted) + process-group kill
+        // (catches race-window children).
         for &dpid in &all_descendants {
             match Command::new("kill")
                 .args(["-TERM", &dpid.to_string()])
@@ -579,9 +628,16 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 }
             }
         }
+        // Process-group SIGTERM — catches any child spawned in the
+        // race window between the pgrep snapshot and the per-pid kills
+        // above. Best-effort: no-op when the sidecar shares the host's
+        // pgid (the safety guard inside returns without signaling).
+        signal_process_group(sidecar_pgid, libc::SIGTERM);
 
         std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
 
+        // SIGKILL phase: per-pid kills (force) + process-group kill
+        // (force, catches race-window children that ignored SIGTERM).
         for &dpid in &all_descendants {
             match Command::new("kill")
                 .args(["-KILL", &dpid.to_string()])
@@ -602,6 +658,9 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 }
             }
         }
+        // Process-group SIGKILL — force-kill any race-window child
+        // that survived the SIGTERM phase. Same safety guard applies.
+        signal_process_group(sidecar_pgid, libc::SIGKILL);
 
         // Final summary line.
         log::info!(
@@ -610,6 +669,87 @@ pub(crate) fn kill_process_tree(pid: u32) {
             pid
         );
     }
+}
+
+// ─── process-group signal helpers (Unix-only) ───────────────────────────
+//
+// Helpers for the race-window mitigation in `kill_process_tree`. These
+// send a signal to the sidecar's entire process group via
+// `libc::kill(-pgid, sig)`. The negative `pid` argument to `kill(2)`
+// means "send to every process in the process group whose ID is
+// `abs(pid)`" — a POSIX-guaranteed behavior (see `man 2 kill`).
+//
+// The CRITICAL safety guard: we ONLY send the group signal when the
+// sidecar's pgid differs from the host's own pgid (`getpgrp()`). The
+// sidecar is spawned via `tauri-plugin-shell`'s `externalBin` API,
+// which does NOT call `setsid()` / `setpgid()` — so the sidecar
+// inherits the HOST's pgid. Sending `kill -<host_pgid>` would kill the
+// HOST (and all its children, including unrelated Tauri threads). This
+// guard makes the process-group kill a safe no-op until the spawn path
+// is updated to put the sidecar in its own group.
+
+#[cfg(unix)]
+fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) {
+    // Safety guard: refuse to signal a group that includes the host.
+    // `sidecar_pgid <= 0` means `getpgid` failed (the sidecar already
+    // exited, or the pid is invalid) — skip the group kill entirely.
+    // `sidecar_pgid == getpgrp()` means the sidecar shares the host's
+    // pgid — sending the group signal would kill the host.
+    if sidecar_pgid <= 0 {
+        return;
+    }
+    let host_pgid = unsafe { libc::getpgrp() };
+    if sidecar_pgid == host_pgid {
+        // The sidecar is in the host's process group. Sending a signal
+        // to `-<host_pgid>` would kill the host. Skip — we rely on
+        // the per-pid kills in `kill_process_tree` instead. This is
+        // the current production state (the spawn path doesn't put the
+        // sidecar in its own group). Logged at debug level to avoid
+        // spamming the log on every shutdown (this is expected, not an
+        // error).
+        log::debug!(
+            "[KILL-TREE] skipping process-group signal (sidecar pgid {} == host pgid {} — \
+             would kill the host; rely on per-pid kills instead)",
+            sidecar_pgid,
+            host_pgid
+        );
+        return;
+    }
+    // Send the signal to the entire process group. `kill(-pgid, sig)`
+    // is the POSIX way to signal a process group. Returns 0 on
+    // success, -1 on error (errno set).
+    let rc = unsafe { libc::kill(-sidecar_pgid, sig) };
+    if rc != 0 {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+        // ESRCH (No such process) is expected if the group has already
+        // exited — not a warning-worthy condition.
+        if errno != libc::ESRCH {
+            log::warn!(
+                "[KILL-TREE] kill({} -{}, {}) failed: errno={} ({})",
+                if sig == libc::SIGTERM { "-TERM" } else { "-KILL" },
+                sidecar_pgid,
+                sig,
+                errno,
+                std::io::Error::last_os_error()
+            );
+        }
+    } else {
+        log::info!(
+            "[KILL-TREE] sent signal {} to process group -{} (race-window catcher)",
+            sig,
+            sidecar_pgid
+        );
+    }
+}
+
+/// Convenience wrapper: resolve the sidecar's pgid from its pid, then
+/// call `signal_process_group`. Used by the early-return path in
+/// `kill_process_tree` (when `all_descendants` is empty, we still want
+/// to attempt the process-group kill to catch race-window children).
+#[cfg(unix)]
+fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
+    let sidecar_pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
+    signal_process_group(sidecar_pgid, sig);
 }
 
 #[cfg(test)]
@@ -636,6 +776,82 @@ mod tests {
     #[test]
     fn test_kill_process_tree_u32_max_is_noop() {
         super::kill_process_tree(u32::MAX);
+    }
+
+    // Process-group signal helpers — Unix-only. These verify the
+    // SAFETY GUARD that prevents `signal_process_group` from killing
+    // the host when the sidecar shares the host's pgid (the current
+    // production state, since `tauri-plugin-shell`'s `externalBin`
+    // API doesn't call `setsid()` / `setpgid()`).
+
+    /// `signal_process_group` must be a no-op (not panic, not signal)
+    /// when called with a pgid of 0 or negative (the return value of
+    /// a failed `getpgid`). This covers the "sidecar already exited"
+    /// case where `getpgid` returns -1.
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_process_group_invalid_pgid_is_noop() {
+        super::signal_process_group(0, libc::SIGTERM);
+        super::signal_process_group(-1, libc::SIGTERM);
+        super::signal_process_group(0, libc::SIGKILL);
+        super::signal_process_group(-1, libc::SIGKILL);
+    }
+
+    /// `signal_process_group` must REFUSE to signal the host's own
+    /// process group. This is the critical safety guard: the sidecar
+    /// is spawned via `tauri-plugin-shell` (no `setsid()`), so its
+    /// pgid == the host's pgid. Sending `kill -<host_pgid>` would kill
+    /// the host. The guard must detect this and skip the signal.
+    ///
+    /// We verify by calling `signal_process_group` with the HOST's own
+    /// pgid. If the guard works, the test process survives. If the
+    /// guard is broken, the test process would be killed by its own
+    /// signal and the test would fail with a process-death error.
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_process_group_refuses_host_pgid() {
+        let host_pgid = unsafe { libc::getpgrp() };
+        assert!(host_pgid > 0, "host pgid should be positive");
+        // This MUST NOT kill the test process.
+        super::signal_process_group(host_pgid, libc::SIGTERM);
+        super::signal_process_group(host_pgid, libc::SIGKILL);
+        // If we reach here, the guard worked.
+        assert!(host_pgid > 0);
+    }
+
+    /// `kill_process_group_if_safe` must not panic on a non-existent
+    /// pid. `getpgid` returns -1 for a dead pid, which the guard
+    /// rejects.
+    #[cfg(unix)]
+    #[test]
+    fn test_kill_process_group_if_safe_nonexistent_pid_is_noop() {
+        super::kill_process_group_if_safe(999_999, libc::SIGTERM);
+        super::kill_process_group_if_safe(999_999, libc::SIGKILL);
+    }
+
+    /// `kill_process_group_if_safe` for the test process's OWN pid
+    /// must not kill the test process. The test process shares the
+    /// host's pgid, so the guard rejects the signal.
+    #[cfg(unix)]
+    #[test]
+    fn test_kill_process_group_if_safe_own_pid_does_not_self_kill() {
+        let own_pid = std::process::id();
+        super::kill_process_group_if_safe(own_pid, libc::SIGTERM);
+        super::kill_process_group_if_safe(own_pid, libc::SIGKILL);
+        assert!(own_pid > 0);
+    }
+
+    /// `kill_process_tree` for a process in the host's own pgid must
+    /// not kill the host. Integration test: call `kill_process_tree`
+    /// with our OWN pid. The pgrep DFS finds no children, takes the
+    /// early-return path, and calls `kill_process_group_if_safe` which
+    /// must refuse to signal the host's pgid.
+    #[cfg(unix)]
+    #[test]
+    fn test_kill_process_tree_own_pid_does_not_self_kill() {
+        let own_pid = std::process::id();
+        super::kill_process_tree(own_pid);
+        assert!(own_pid > 0);
     }
 
     #[test]

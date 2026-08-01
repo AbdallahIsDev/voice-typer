@@ -16,7 +16,7 @@ use crate::state::SidecarHandle;
 // mutex (a prior panic while holding the lock) doesn't re-panic and
 // brick the resilience layer.
 use crate::state::lock as mutex_lock;
-use crate::sidecar::spawn::spawn_sidecar_and_get_port;
+use crate::sidecar::spawn::spawn_sidecar_and_get_port_with_shutdown;
 use crate::sidecar::ws::reconnect_ws;
 use crate::util::{generate_token, atomic_write_bytes, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
 // reuse the canonical atomic write helper so the
@@ -152,9 +152,14 @@ fn read_restart_counter() -> u32 {
 /// the counter file now includes a `ts` field
 /// (Unix seconds) so `read_restart_counter` can detect + ignore
 /// stale counts from previous sessions. `write_restart_counter(0)`
-/// is called both on successful reconnect (the existing
-/// path) AND on successful cold start (the new path) so the
-/// counter doesn't accumulate stale failures across sessions.
+/// is called ONLY on successful `reconnect_ws` (the existing path).
+/// It is NOT called on cold start — that would defeat the circuit
+/// breaker (see `main.rs` cold-start reset intentionally removed).
+/// The counter persists on disk for `COUNTER_STALE_SECS` (600s) after
+/// the breaker trips, so a transient flap (e.g., 3 crashes during an
+/// OS update) self-heals after 10 minutes without manual intervention.
+/// For user-initiated restarts that need to bypass the stale window
+/// immediately, see `clear_restart_counter_for_user_restart` below.
 pub(crate) fn write_restart_counter(count: u32) {
     // route through the cached `config_dir()` (OnceLock-backed).
     let path = match crate::platform::paths::config_dir() {
@@ -166,6 +171,44 @@ pub(crate) fn write_restart_counter(count: u32) {
     if let Err(e) = atomic_write_bytes(&path, payload.to_string().as_bytes()) {
         log::warn!("[SUPERVISOR] failed to persist restart counter to {:?}: {}", path, e);
     }
+}
+
+/// clear the disk-persisted restart counter on a USER-INITIATED
+/// restart (e.g., the tray "Restart" button). This is the middle-ground
+/// fix: the breaker still trips automatically on a broken install, but
+/// a user who knows they want to retry (after, say, re-plugging a
+/// microphone or freeing disk space) can clear the persisted count and
+/// get a fresh 3-attempt budget immediately — instead of being locked
+/// out for the remaining `COUNTER_STALE_SECS` (up to 600s).
+///
+/// # When to call
+///
+/// Call this ONLY from a user-initiated restart path — never from the
+/// supervisor's own `app.restart()` exhaustion path or any automatic
+/// respawn logic. Wiring it into the supervisor would defeat the
+/// circuit breaker: every supervisor-initiated relaunch would reset
+/// the count to 0 and the app could loop forever on a broken install.
+///
+/// The intended caller is the Tauri command bound to the tray
+/// "Restart" menu item (see `main.rs` / `commands/sidecar_cmds.rs`).
+/// This function is intentionally defined here in `supervisor.rs`
+/// (where the counter lives) but NOT wired into any caller — the
+/// caller is owned by a different lane and will be added separately.
+///
+/// The `_state` parameter is accepted (and unused) for two reasons:
+/// (1) future-proofing — a caller that already holds `&Arc<SidecarState>`
+///     can pass it without an extra signature change later; and
+/// (2) it documents that this is a user-restart-scoped operation tied
+///     to the same `SidecarState` instance, not a free-floating helper.
+///     The function only writes a disk file; it does not touch the
+///     shared state.
+pub(crate) fn clear_restart_counter_for_user_restart(_state: &Arc<SidecarState>) {
+    log::info!(
+        "[SUPERVISOR] user-initiated restart requested — clearing persisted restart counter \
+         (was {}) so the next respawn gets a fresh attempt budget",
+        read_restart_counter()
+    );
+    write_restart_counter(0);
 }
 
 // ─── Supervisor (ADR-0020 §10) ───────────────────────────────────
@@ -377,7 +420,13 @@ pub(crate) async fn respawn_inner(
 
         // Rotate the auth token for the fresh sidecar instance.
         let new_token = generate_token();
-        match spawn_sidecar_and_get_port(app, &new_token).await {
+        // Pass `&state.shutting_down` so the stdout-read loop
+        // inside `spawn_sidecar_release` / `spawn_sidecar_dev_mode`
+        // short-circuits if the user quits the app mid-respawn. Without
+        // this, a respawn initiated seconds before quit would block for
+        // up to SERVER_STARTED_TIMEOUT_MS (30s) waiting for a
+        // `server_started` line that will never arrive.
+        match spawn_sidecar_and_get_port_with_shutdown(app, &new_token, &state.shutting_down).await {
             Ok((port, child, exit_rx)) => {
                 // install-time guard + atomic install.
                 //
@@ -549,6 +598,20 @@ pub(crate) async fn respawn_inner(
                 }
             }
             Err(e) => {
+                // Short-circuit on the "shutdown" sentinel returned by
+                // `spawn_sidecar_and_get_port_with_shutdown` when the
+                // stdout-read loop detected `shutting_down`. Treat it
+                // the same as the top-of-loop shutting_down check:
+                // clear the flag and return Ok (no retry, no backoff
+                // sleep — the host is going away, retrying would just
+                // delay the exit).
+                if e == "shutdown" {
+                    log::info!(
+                        "[SUPERVISOR] spawn loop detected shutting_down — exiting respawn cleanly"
+                    );
+                    state.respawn_in_progress.store(false, Ordering::SeqCst);
+                    return Ok(());
+                }
                 log::warn!("[SUPERVISOR] sidecar spawn failed: {}", e);
                 // capture the per-iteration error.
                 last_error = format!(
@@ -1441,5 +1504,199 @@ mod tests {
         assert_eq!(child_guard, Some(42), "UE-3-F5: install arm must install the fresh child");
         assert!(child.is_none(), "UE-3-F5: child must be consumed by take()");
         assert!(old.is_none(), "UE-3-F5: prior child (None here) is preserved in `old`");
+    }
+
+    // write_restart_counter + read_restart_counter round-trip ──
+    //
+    // Verify the JSON CONTRACT between `write_restart_counter` (producer)
+    // and `read_restart_counter` (consumer). `write_restart_counter`
+    // emits `{"count": N, "ts": now_unix_secs()}`; `read_restart_counter`
+    // parses the `count` field via `parse_restart_counter` AFTER passing
+    // the `ts` freshness check (ts must be present + within
+    // COUNTER_STALE_SECS). This test exercises the full contract with a
+    // FRESH ts (the normal post-write case) — verifying the value written
+    // is the value read back, including the `ts` field that was added to
+    // defeat stale-count accumulation across sessions.
+    //
+    // Pure-logic: constructs the JSON payload `write_restart_counter`
+    // would produce and runs it through the SAME parse path
+    // (`parse_restart_counter`) that `read_restart_counter` uses after
+    // its `ts` freshness check. Does NOT touch the disk (avoids the
+    // `OnceLock`-cached `config_dir()` resolution + parallel-test
+    // filesystem races). The disk round-trip is exercised by the
+    // integration test below.
+
+    #[test]
+    fn test_write_read_restart_counter_round_trip_json_contract() {
+        // Mirror `write_restart_counter`'s payload shape exactly:
+        // `json!({"count": count, "ts": now_unix_secs()})`.
+        for count in [0u32, 1, 2, MAX_RESTART_ATTEMPTS, u32::MAX].iter().copied() {
+            let payload = json!({"count": count, "ts": now_unix_secs()});
+            // `read_restart_counter`'s freshness check: ts != 0 AND
+            // (now - ts) <= COUNTER_STALE_SECS. With ts = now, both
+            // hold, so it delegates to `parse_restart_counter`.
+            let ts = payload.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
+            assert!(ts > 0, "ts field must be present + non-zero for count {}", count);
+            let now = now_unix_secs();
+            assert!(
+                now >= ts && now - ts <= COUNTER_STALE_SECS,
+                "fresh ts must pass staleness check for count {}", count
+            );
+            // The actual parse step `read_restart_counter` runs:
+            let parsed = parse_restart_counter(&payload);
+            assert_eq!(
+                parsed, count,
+                "round-trip failed for count {} — write_restart_counter produces a \
+                 payload that read_restart_counter parses back to a different value ({})",
+                count, parsed
+            );
+        }
+    }
+
+    // clear_restart_counter_for_user_restart sets counter to 0 ──
+    //
+    // Integration test: calls the ACTUAL `clear_restart_counter_for_user_restart`
+    // (which hits the disk via `write_restart_counter(0)`) and verifies
+    // via `read_restart_counter()` that the persisted counter is 0.
+    //
+    // This is the ONLY test in the module that calls `config_dir()` (via
+    // the write/read functions). `config_dir_cached()` uses a `OnceLock`,
+    // so the FIRST process-wide call caches the resolution for the
+    // process lifetime. To make this test deterministic under parallel
+    // test execution, we set `VOICE_TYPER_CONFIG_DIR` to a unique temp
+    // dir BEFORE the first `config_dir()` call. Since no other test in
+    // this module calls `config_dir()`, there is no race to populate the
+    // cache — this test owns the first call.
+    //
+    // The test writes a non-zero counter first (to prove `clear` actually
+    // resets a non-zero value, not just writes 0 to an already-zero
+    // file), then calls `clear_restart_counter_for_user_restart`, then
+    // verifies the read returns 0.
+
+    #[test]
+    fn test_clear_restart_counter_for_user_restart_sets_zero() {
+        // Create a unique temp dir so this test never interferes with
+        // the user's real `~/.voice-typer/restart_counter.json` (and
+        // vice versa). `tempfile` is not a dev-dependency, so use
+        // `std::env::temp_dir()` + process-id + thread-name for uniqueness.
+        let pid = std::process::id();
+        let ts_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let temp_config = std::env::temp_dir().join(format!(
+            "voice-typer-test-clear-counter-{}-{}",
+            pid, ts_ns
+        ));
+        // Best-effort create; if it fails (read-only temp dir), the
+        // test will fall through to the "config dir unwritable" guard
+        // below and skip the assertions rather than fail spuriously.
+        let _ = std::fs::create_dir_all(&temp_config);
+
+        // Set the env var BEFORE any `config_dir()` call so the
+        // `OnceLock` caches OUR temp dir. `set_var` is process-global
+        // and unsafe in concurrent contexts, but this is the ONLY test
+        // calling `config_dir()`, so there's no contention.
+        let prev = std::env::var("VOICE_TYPER_CONFIG_DIR").ok();
+        std::env::set_var("VOICE_TYPER_CONFIG_DIR", &temp_config);
+
+        // Step 1: write a non-zero counter to prove the clear actually
+        // resets a real value. If the write silently fails (unwritable
+        // dir), skip — the test can't prove the round-trip on a
+        // read-only filesystem, and that's an environment issue, not a
+        // code regression.
+        write_restart_counter(2);
+        let before = read_restart_counter();
+        if before != 2 {
+            // Config dir is unwritable or `config_dir()` resolved to
+            // an empty path (env-var override didn't take effect because
+            // the `OnceLock` was already cached by another caller).
+            // Either way, the disk round-trip can't be tested here —
+            // skip with a diagnostic rather than fail spuriously.
+            eprintln!(
+                "skipping clear_restart_counter integration assertion — \
+                 config dir unwritable or cache pre-populated (read returned {} \
+                 after write 2)",
+                before
+            );
+            // Restore env var + best-effort cleanup.
+            if let Some(p) = prev { std::env::set_var("VOICE_TYPER_CONFIG_DIR", p); }
+            else { std::env::remove_var("VOICE_TYPER_CONFIG_DIR"); }
+            let _ = std::fs::remove_dir_all(&temp_config);
+            return;
+        }
+        assert_eq!(
+            before, 2,
+            "pre-clear read must return 2 (proves the file was actually written)"
+        );
+
+        // Step 2: call the function under test. It logs the prior
+        // value (2) and writes 0.
+        let state = make_test_state();
+        clear_restart_counter_for_user_restart(&state);
+
+        // Step 3: verify the persisted counter is now 0.
+        let after = read_restart_counter();
+        assert_eq!(
+            after, 0,
+            "clear_restart_counter_for_user_restart must reset the persisted \
+             counter to 0 (got {}); without this, a user-initiated Restart re-trips \
+             the breaker immediately because the persisted count from the prior \
+             supervisor exhaustion is still >= MAX_RESTART_ATTEMPTS",
+            after
+        );
+
+        // Cleanup: restore the env var (so other tests / the user's
+        // real config dir are unaffected) + remove the temp dir.
+        if let Some(p) = prev { std::env::set_var("VOICE_TYPER_CONFIG_DIR", p); }
+        else { std::env::remove_var("VOICE_TYPER_CONFIG_DIR"); }
+        let _ = std::fs::remove_dir_all(&temp_config);
+    }
+
+    // write_restart_counter docstring accuracy ─────────────
+    //
+    // Guard against the docstring drifting back to claiming a
+    // cold-start reset exists. There is NO `write_restart_counter(0)`
+    // call on cold start — the only reset is on the post-respawn
+    // reconnect-success path. main.rs deliberately omits a cold-start
+    // reset (an unconditional one there previously defeated the circuit
+    // breaker). Cross-session staleness is handled by the `ts` field +
+    // `COUNTER_STALE_SECS` cutoff in `read_restart_counter`, not by a
+    // cold-start wipe. This test self-inspects via `include_str!` so
+    // the assertion stays coupled to the actual doc text.
+
+    #[test]
+    fn test_write_restart_counter_docstring_has_no_cold_start_reset_claim() {
+        let src = include_str!("supervisor.rs");
+        let fn_sig = "pub(crate) fn write_restart_counter";
+        let fn_idx = src
+            .find(fn_sig)
+            .expect("write_restart_counter function must exist in supervisor.rs");
+        let before = &src[..fn_idx];
+        let doc_marker = "/// write the disk-persisted restart counter";
+        let doc_start = before
+            .rfind(doc_marker)
+            .expect("write_restart_counter must have its docstring block");
+        let doc = &src[doc_start..fn_idx];
+        // Build the stale-claim substring dynamically so this test's
+        // own source (read via `include_str!`) cannot self-match the
+        // assertion. The literal three-word phrase must NOT appear in
+        // the docstring after the fix.
+        let stale = format!("{} {} start", "successful", "cold");
+        assert!(
+            !doc.contains(&stale),
+            "write_restart_counter docstring must not claim a reset happens on a \
+             fresh app launch — there is no `write_restart_counter(0)` call on \
+             cold start; the only reset is on reconnect-success in `respawn_inner`"
+        );
+        // Positive assertion: the docstring must explicitly state the
+        // counter is NOT reset on a fresh app launch, so the contract
+        // is documented (not just absent).
+        assert!(
+            doc.contains("is NOT"),
+            "write_restart_counter docstring must explicitly state the counter is \
+             NOT reset on a fresh app launch (document the contract, don't just \
+             omit the stale claim)"
+        );
     }
 }

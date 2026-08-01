@@ -94,6 +94,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
+
 # ─── Helpers ────────────────────────────────────────────────────────────
 
 # Path to the Python source under test — used by the source-grep tests
@@ -148,38 +150,6 @@ def _read_ws_rs_source() -> str:
 def _read_spawn_rs_source() -> str:
     """Read the Rust spawn.rs source (for the externalBin-triple test)."""
     return _SPAWN_RS_PATH.read_text(encoding="utf-8")
-
-
-def _make_fake_server():
-    """Build a fake IPCServer with the attributes _make_dispatch needs.
-
-    RT-FIX-9 / EC-FIX-3 (2026-07-24): ``_make_dispatch`` now uses
-    ``loop.run_in_executor(server._ws_dispatch_pool, ...)`` (G4-H-30 —
-    dedicated thread pool for WS dispatch, separate from the default
-    executor). A MagicMock attribute access auto-vivifies a child
-    MagicMock, so ``getattr(server, "_ws_dispatch_pool", None)`` returns
-    a non-None MagicMock — the lazy-create branch in ``_make_dispatch``
-    is skipped, and the MagicMock is passed to
-    ``loop.run_in_executor``. ``asyncio.futures.wrap_future`` then
-    asserts the submit() return is a real ``concurrent.futures.Future``
-    and fails on the MagicMock.
-
-    Fix: explicitly set ``server._ws_dispatch_pool = None`` so the
-    lazy-create branch runs and creates a real ``ThreadPoolExecutor``
-    that ``run_in_executor`` can use. The executor is shared across
-    calls on the same server (so cleanup is the test's responsibility —
-    we let it leak at process exit, which is fine for a unit test).
-    """
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
-    server.app = MagicMock()
-    server.app.quit = MagicMock()
-    # force the lazy-create branch in
-    # ``_make_dispatch`` to run (it creates a real ThreadPoolExecutor).
-    # If we leave this unset, MagicMock auto-vivifies a child mock
-    # that fails the ``wrap_future`` isinstance assertion.
-    server._ws_dispatch_pool = None
-    return server
 
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching

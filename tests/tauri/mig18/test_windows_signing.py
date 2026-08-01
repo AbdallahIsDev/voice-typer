@@ -454,7 +454,7 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     wired into the config.
 
     XPLAT-4 fix: added ``bundle.windows.signCommand`` pointing at
-    ``scripts/tauri-sign.cmd`` (``..\scripts\tauri-sign.cmd %1`` relative
+    ``scripts/tauri-sign.cmd`` (``..\\scripts\tauri-sign.cmd %1`` relative
     to the src-tauri cwd — same convention as ``bundle.windows.nsis.installerHooks``).
 
     Note on the env-var design: the Tauri bundler executes signCommand via

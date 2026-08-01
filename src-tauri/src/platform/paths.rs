@@ -2,6 +2,15 @@
 
 use std::sync::OnceLock;
 
+/// Machine-readable application slug used for the per-platform config-
+/// dir leaf name (e.g. ``%APPDATA%/voice-typer`` on Windows). Distinct
+/// from `crate::branding::APP_NAME` which is the human-readable display
+/// name (``"Voice Typer"``). Kept here so the Tauri host and the Python
+/// sidecar (`voice_typer/server/_paths.py::APP_SLUG`) can both
+/// reference the same canonical slug — change it once here and all
+/// paths stay in lockstep.
+pub(crate) const APP_SLUG: &str = "voice-typer";
+
 // ─── ADR-0020 §8: per-platform config-dir resolution ─────────────────
 
 /// ADR-0020 §8: resolve the per-platform config dir for Voice Typer.
@@ -140,8 +149,6 @@ pub(crate) fn config_dir_from_env(
     xdg_data_home: Option<&str>,
     config_dir_env: Option<&str>,
 ) -> std::path::PathBuf {
-    const APP_NAME: &str = "voice-typer";
-
     // VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
     // Python side's _config_dir() resolution order: env var wins,
     // then legacy ~/.voice-typer, then platform default. Without this
@@ -192,13 +199,13 @@ pub(crate) fn config_dir_from_env(
                  CWD-relative config dir (./{}). This is expected for \
                  Windows service accounts / headless CI but indicates \
                  a missing user profile in normal desktop sessions.",
-                APP_NAME
+                APP_SLUG
             );
             eprintln!("{}", warn_msg);
             log::warn!("{}", warn_msg);
             "."
         });
-        std::path::PathBuf::from(base).join(APP_NAME)
+        std::path::PathBuf::from(base).join(APP_SLUG)
     }
     #[cfg(target_os = "macos")]
     {
@@ -216,7 +223,7 @@ pub(crate) fn config_dir_from_env(
                  CWD-relative config dir (./{}). This is expected for \
                  system LaunchDaemons but indicates a missing user \
                  profile in normal desktop sessions.",
-                APP_NAME
+                APP_SLUG
             );
             eprintln!("{}", warn_msg);
             log::warn!("{}", warn_msg);
@@ -225,14 +232,14 @@ pub(crate) fn config_dir_from_env(
         std::path::PathBuf::from(home)
             .join("Library")
             .join("Application Support")
-            .join(APP_NAME)
+            .join(APP_SLUG)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = appdata;
         if let Some(xdg) = xdg_data_home {
             if !xdg.is_empty() {
-                return std::path::PathBuf::from(xdg).join(APP_NAME);
+                return std::path::PathBuf::from(xdg).join(APP_SLUG);
             }
         }
         // graceful fallback when HOME is missing on Linux
@@ -252,7 +259,7 @@ pub(crate) fn config_dir_from_env(
                  systemd user units without `Environment=HOME=...` \
                  but indicates a missing user profile in normal \
                  desktop sessions.",
-                APP_NAME
+                APP_SLUG
             );
             eprintln!("{}", warn_msg);
             log::warn!("{}", warn_msg);
@@ -261,12 +268,12 @@ pub(crate) fn config_dir_from_env(
         std::path::PathBuf::from(home)
             .join(".local")
             .join("share")
-            .join(APP_NAME)
+            .join(APP_SLUG)
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
     {
         let _ = (home, appdata, xdg_data_home, config_dir_env);
-        std::path::PathBuf::from(".").join(APP_NAME)
+        std::path::PathBuf::from(".").join(APP_SLUG)
     }
 }
 

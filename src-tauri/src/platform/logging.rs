@@ -1496,7 +1496,7 @@ pub(crate) struct RotatingFileWriter {
     dir: std::path::PathBuf,
     base_name: String,
     inner: Mutex<Option<std::fs::File>>,
-    //in-memory byte counter — replaces the per-line
+    /// in-memory byte counter — replaces the per-line
     /// `file.metadata()?.len()` stat() syscall. Incremented by
     /// `line.len() + 1` (for the newline) on each successful
     /// `write_all`. Reset to 0 on rotation (the file is renamed and
@@ -1506,6 +1506,17 @@ pub(crate) struct RotatingFileWriter {
     /// access is from `flush()`, which doesn't read this field), so
     /// there's no cross-thread ordering requirement.
     current_size: std::sync::atomic::AtomicU64,
+    /// Serializes rotations WITHOUT blocking normal writers. The
+    /// `inner` Mutex is dropped BEFORE `rotate()` runs (so concurrent
+    /// writers can continue appending to a fresh `.log` while the
+    /// rename/remove fs ops execute — those can take 100ms+ on slow
+    /// disks / AV-scanned Windows / network filesystems). Multiple
+    /// writers may independently detect `size > ROTATE_MAX_BYTES` and
+    /// both reach the rotation path; this lock ensures only one
+    /// `rotate()` call executes at a time. The losers' `rotate()`
+    /// calls are no-ops (rename of nonexistent files fails silently
+    /// via `let _ =`).
+    rotation_lock: Mutex<()>,
 }
 
 impl RotatingFileWriter {
@@ -1515,6 +1526,7 @@ impl RotatingFileWriter {
             base_name: base_name.to_string(),
             inner: Mutex::new(None),
             current_size: std::sync::atomic::AtomicU64::new(0),
+            rotation_lock: Mutex::new(()),
         }
     }
 
@@ -1638,6 +1650,27 @@ impl RotatingFileWriter {
             // opens a fresh empty `.log` whose size starts at 0.
             self.current_size
                 .store(0, std::sync::atomic::Ordering::Relaxed);
+            // Drop the `inner` Mutex guard BEFORE calling `rotate()`
+            // so other loggers aren't blocked during the (potentially
+            // slow — 100ms+ on AV-scanned Windows / network filesystems)
+            // rename/remove `fs` operations. The rotation path does NOT
+            // need the `File` handle: we just set `*guard = None` above
+            // (closing the fd), and `rotate()` works purely on
+            // filesystem paths. Concurrent writers that arrive during
+            // rotation will see `guard.is_none()` and lazily open a
+            // fresh `.log` (which `rotate()` may rename out from under
+            // them — on POSIX the open fd follows the inode, so their
+            // writes land in `.log.1`; an acceptable edge case for a
+            // logging path, far better than blocking the entire logger
+            // pool during rotation).
+            drop(guard);
+            // Serialize rotations WITHOUT blocking writers: a separate
+            // `Mutex<()>` ensures only one `rotate()` runs at a time
+            // (two writers that both crossed the threshold would
+            // otherwise race on the rename chain). Losers' `rotate()`
+            // calls are no-ops — `rename` of a nonexistent source
+            // fails silently via `let _ =`.
+            let _rotation_guard = crate::state::lock(&self.rotation_lock);
             self.rotate()?;
         }
         Ok(())
@@ -1863,6 +1896,52 @@ mod tests {
         // file gets renamed to .log.1 and a fresh .log starts). Just
         // assert we wrote *something* and didn't panic.
         assert!(line_count > 0, "no lines in current log: {}", content);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // Concurrent rotation must not deadlock — the rotation_lock
+    // is separate from `inner`, so two writers that both cross the
+    // threshold serialize on `rotation_lock` (one rotates, the other
+    // blocks briefly on the lock — NOT on `inner`). Pre-fix this would
+    // have held `inner` throughout `rotate()`, blocking ALL writers
+    // (including ones below the threshold) for the duration of the
+    // rename chain. Post-fix, the `inner` guard is dropped before
+    // `rotate()`, so non-rotating writers proceed in parallel.
+    #[test]
+    fn test_rotating_file_writer_concurrent_rotation_no_deadlock() {
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-conc-rot",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
+        // 4 threads × 500 lines × ~100KB/line = ~200MB total — well
+        // past the 5MB threshold, so each thread triggers many
+        // rotations. The `rotation_lock` serializes the rotations;
+        // without it, two concurrent `rotate()` calls would race on
+        // the rename chain and could clobber each other's `.log.N`
+        // files.
+        let big_line = "x".repeat(100_000);
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let w = writer.clone();
+            let line = big_line.clone();
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..500 {
+                    w.write_line(&line).unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().expect("writer thread panicked — likely deadlock");
+        }
+        // The test passes if all threads joined (no deadlock / panic).
+        // Verify at least one rotated file exists (proof that rotation
+        // actually fired under contention).
+        assert!(
+            tmp.join("test-log.log.1").exists(),
+            "expected .log.1 to exist after concurrent rotations"
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 

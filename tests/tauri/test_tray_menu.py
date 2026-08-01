@@ -30,7 +30,7 @@ def _make_model(**overrides):
         "hotkey": "<f2>",
         "toggle_dictation": _noop,
         "open_app": _noop,
-        "repaste_last": _noop,
+        "undo_last": _noop,
         "force_cancel_transcription": _noop,
         "is_transcribing": lambda: False,
         "restart_app": _noop,
@@ -41,6 +41,9 @@ def _make_model(**overrides):
         "active_mic_id": None,
         "on_select_mic": None,
         "on_refresh_mics": None,
+        "on_open_settings": _noop,
+        "on_open_history": _noop,
+        "on_open_help": _noop,
     }
     kwargs.update(overrides)
     return build_tray_menu_model(**kwargs)
@@ -75,17 +78,29 @@ def test_build_tray_menu_model_returns_well_formed_items():
 
 
 def test_build_tray_menu_model_top_level_ids_present():
-    """Stable top-level ids the host relies on are present."""
+    """Stable top-level ids the host relies on are present.
+
+    Per C-TRAY-1 in CONSTRAINTS.md, ``repaste_last`` MUST NOT appear
+    in the tray menu model — the constraint forbids that item on both
+    runtimes. This test now asserts its absence (regression guard).
+    """
     model, id_map = _make_model()
 
     ids = {item["id"] for item in model if not item["separator"]}
-    for expected in ("open_app", "toggle_dictation", "repaste_last", "restart", "quit"):
+    for expected in ("open_app", "toggle_dictation", "restart", "quit"):
         assert expected in ids, f"missing tray id {expected}"
+    # C-TRAY-1 guard: repaste_last MUST NOT be in the model.
+    assert "repaste_last" not in ids, (
+        "C-TRAY-1 violation: repaste_last must NOT appear in the tray "
+        "menu model — the constraint forbids a 'Repaste Last' button."
+    )
 
     # id_map maps every actionable id to a callable.
     assert "open_app" in id_map
     assert callable(id_map["open_app"])
     assert "toggle_dictation" in id_map
+    # repaste_last must NOT be in the id_map either.
+    assert "repaste_last" not in id_map
 
 
 def test_build_tray_menu_model_force_cancel_only_when_transcribing():
@@ -175,7 +190,7 @@ def test_publish_tray_menu_guarded_by_tauri_sidecar(monkeypatch):
             def change_model(self, _name):
                 pass
 
-            def repaste_last(self):
+            def undo_last(self):
                 pass
 
             def refresh_microphones(self):
@@ -299,7 +314,7 @@ def _make_full_controller():
         def change_model(self, _name):
             pass
 
-        def repaste_last(self):
+        def undo_last(self):
             pass
 
         def refresh_microphones(self):
@@ -337,6 +352,16 @@ def _make_tauri_tray(*, controller=None, icon=None, hotkey="<f2>"):
             self._recording_started_at = None
             self._microphones = []
             self._elapsed_timer = None
+            # ``_publish_tray_state`` consults ``_last_published`` for
+            # dedup; bypassing the real __init__ means we must set it
+            # manually so set_state/refresh_config don't AttributeError.
+            self._last_published = None
+            # ``_invalidate_menu_cache_locked`` acquires ``_menu_lock``
+            # to clear ``_menu_cache_valid`` atomically; bypassing the
+            # real __init__ means we must set it manually so the lazy
+            # setters (set_microphones/set_hotkey/refresh_config) don't
+            # AttributeError.
+            self._menu_lock = threading.Lock()
             # ``set_state`` queues pre-run state under ``_queue_lock`` when
             # ``_icon`` is None — provide a real lock so the with-block works.
             self._queue_lock = threading.Lock()

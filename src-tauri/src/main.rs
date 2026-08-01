@@ -156,7 +156,7 @@ fn main() {
                 config_dir()
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "voice-typer".into())
+                    .unwrap_or_else(|| platform::paths::APP_SLUG.into())
             );
             // ADR-0020 §8: one-time Electron userData → Tauri config_dir
             // migration, BEFORE the sidecar spawns (so the sidecar boots

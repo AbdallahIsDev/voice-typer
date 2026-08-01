@@ -62,7 +62,8 @@ pub(crate) type PendingMap = AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>;
 /// holding the WS writer directly.
 ///
 //previously `mpsc::UnboundedSender<Message>`. Switched
-/// to a bounded `mpsc::Sender<Message>` (capacity 256, see
+/// to a bounded `mpsc::Sender<Message>` (capacity
+/// `sidecar::ws::WS_WRITER_CHANNEL_CAPACITY`, currently 64 — see
 /// `sidecar::ws::reconnect_ws`) so a runaway renderer (or a stuck WS
 /// writer task) cannot enqueue unbounded frames and OOM the host.
 /// Callers in `commands/bubble.rs` and `commands/sidecar_cmds.rs`
@@ -77,7 +78,16 @@ pub(crate) type WsWriterTx = mpsc::Sender<Message>;
 /// Both variants support `kill()`; `shutdown_sidecar` matches on the
 /// variant to call the right kill method.
 pub(crate) enum SidecarHandle {
-    ShellPlugin(CommandChild),
+    // Wraps `Option<CommandChild>` (not a bare `CommandChild`)
+    // so the `Drop` impl can `take()` the child out of `&mut self`
+    // for a best-effort kill on drop. `CommandChild::kill` consumes
+    // `self` (no `&mut self` variant), so without the `Option` wrapper
+    // the Drop impl would have no way to move the child out for the
+    // kill call. The Option is always `Some(...)` at construction
+    // (spawn.rs) and is set to `None` only by `kill()` / `kill_tree()`
+    // / `Drop` — all of which consume or `&mut`-borrow the handle, so
+    // no external caller can observe the `None` state.
+    ShellPlugin(Option<CommandChild>),
     DevMode(tokio::process::Child),
 }
 
@@ -95,7 +105,14 @@ impl SidecarHandle {
     /// adding a Drop impl or a new public API.
     pub(crate) fn pid(&self) -> Option<u32> {
         match self {
-            SidecarHandle::ShellPlugin(c) => Some(c.pid()),
+            // `CommandChild::pid()` returns `u32` directly
+            // (always Some once spawned); wrap in Option for the API
+            // uniformity with `tokio::process::Child::id()` (which
+            // returns None after the child has been reaped). When the
+            // Option<CommandChild> has already been `take()`n
+            // (post-kill), we return None — `kill_tree` then skips
+            // the recursive walk (the process is already dead).
+            SidecarHandle::ShellPlugin(c) => c.as_ref().map(|c| c.pid()),
             SidecarHandle::DevMode(c) => c.id(),
         }
     }
@@ -112,10 +129,14 @@ impl SidecarHandle {
     /// inspect the underlying `tauri_plugin_shell::Error` if needed.
     /// The previous implementation flattened the error to a `format!`
     /// string, discarding the source variant.
-    pub(crate) async fn kill(self) -> std::io::Result<()> {
-        match self {
-            SidecarHandle::ShellPlugin(c) => {
-                c.kill().map_err(|e| {
+    pub(crate) async fn kill(mut self) -> std::io::Result<()> {
+        match &mut self {
+            // `take()` the inner CommandChild so the subsequent
+            // Drop on `self` (which runs after this async fn returns,
+            // because `self` was consumed by value) sees `None` and is
+            // a no-op — preventing a double-kill.
+            SidecarHandle::ShellPlugin(c) => match c.take() {
+                Some(child) => child.kill().map_err(|e| {
                     // Preserve the original shell-plugin error variant as
                     //the `source()` of the io::Error (). The
                     // Display impl of io::Error includes both the outer
@@ -126,9 +147,10 @@ impl SidecarHandle {
                         std::io::ErrorKind::Other,
                         format!("shell-plugin kill: {e}"),
                     )
-                })
-            }
-            SidecarHandle::DevMode(mut c) => c.kill().await,
+                }),
+                None => Ok(()),
+            },
+            SidecarHandle::DevMode(c) => c.kill().await,
         }
     }
 
@@ -164,7 +186,7 @@ impl SidecarHandle {
     /// implementation (platform shell-out + recursive `pgrep -P` /
     /// `taskkill /T` walk) lives in `crate::platform::process`
     /// alongside the related `register_kill_on_parent_exit` helper.
-    pub(crate) async fn kill_tree(self) -> std::io::Result<()> {
+    pub(crate) async fn kill_tree(mut self) -> std::io::Result<()> {
         if let Some(pid) = self.pid() {
             //spawn_blocking so the blocking
             // `std::process::Command::status()` calls inside
@@ -175,6 +197,62 @@ impl SidecarHandle {
             .await;
         }
         self.kill().await
+    }
+}
+
+// Best-effort, fire-and-forget kill on drop. This is the
+// SAFETY NET for code paths that forget to call `kill()` / `kill_tree()`
+// explicitly (e.g. a panic between `state.child = Some(...)` and the
+// eventual `take() + kill_tree()` on shutdown; or a supervisor-replaces-
+// child path that drops the old handle without killing it).
+//
+// For `ShellPlugin`: takes the inner `CommandChild` and calls `kill()`
+// on it. `CommandChild::kill` is a cheap synchronous call that sends
+// the OS kill signal — safe to run inside Drop. We deliberately do NOT
+// call `kill_process_tree` here (the recursive grandchild walk) because
+// that walks `pgrep` / `taskkill /T` via blocking
+// `std::process::Command::status()` syscalls that could stall a Tokio
+// worker thread for >1s. The release-path spawn already registers
+// `kill_on_parent_exit` at spawn time (see `spawn_sidecar_release`),
+// which is the OS-level guarantee for orphan reaping — Drop's
+// `child.kill()` is the redundant fallback for the in-process "I
+// forgot to kill this handle" case.
+//
+// For `DevMode`: no-op. `tokio::process::Child` was constructed with
+// `kill_on_drop(true)` in `spawn_sidecar_dev_mode`, so the inner
+// `Child`'s own Drop kills the process. Calling `child.kill()` here
+// would be a redundant kill signal (and `tokio::process::Child::kill`
+// is async, which we can't await from a sync Drop).
+//
+// After `take()`, the inner Option is `None`, so a subsequent Drop on
+// the same handle (impossible in safe Rust — Drop runs once) would be
+// a no-op. The `kill()` / `kill_tree()` methods also `take()` the
+// inner Option, so when they consume `self` and Drop runs on the
+// consumed value, this Drop arm sees `None` and does nothing —
+// preventing a double-kill.
+impl Drop for SidecarHandle {
+    fn drop(&mut self) {
+        match self {
+            SidecarHandle::ShellPlugin(c) => {
+                if let Some(child) = c.take() {
+                    log::info!(
+                        "[STATE] Drop: killing shell-plugin sidecar child (best-effort, fire-and-forget)"
+                    );
+                    if let Err(e) = child.kill() {
+                        log::warn!(
+                            "[STATE] Drop: shell-plugin child.kill() failed (best-effort): {}",
+                            e
+                        );
+                    }
+                }
+            }
+            SidecarHandle::DevMode(_) => {
+                // kill_on_drop(true) is set in spawn_sidecar_dev_mode —
+                // tokio::process::Child's own Drop kills the process.
+                // No-op here to avoid a redundant (and async, which we
+                // can't await from sync Drop) kill signal.
+            }
+        }
     }
 }
 
@@ -608,5 +686,99 @@ mod tests {
             second.is_ok(),
             "second shutdown_sidecar_for_exit must short-circuit immediately (idempotency)"
         );
+    }
+
+    // ── SidecarHandle::Drop ────────────────────────────────────────
+
+    /// `SidecarHandle::ShellPlugin(None)` must be constructible and
+    /// droppable without panic. This pins the `Option<CommandChild>`
+    /// wrapper added so the Drop impl can `take()` the child out of
+    /// `&mut self`. The `None` state is what `kill()` / `kill_tree()`
+    /// leave behind after they consume the inner child — Drop on that
+    /// state must be a no-op (no double-kill, no panic).
+    #[test]
+    fn test_shell_plugin_none_drops_cleanly() {
+        let h = SidecarHandle::ShellPlugin(None);
+        assert_eq!(h.pid(), None);
+        drop(h);
+    }
+
+    /// `SidecarHandle::ShellPlugin(None).kill().await` and
+    /// `.kill_tree().await` must both return Ok — the kill call on an
+    /// already-taken handle is a no-op. This pins the "no double-kill"
+    /// contract: when kill_tree() internally calls kill() at the end,
+    /// and Drop runs on the consumed value, both see None and are
+    /// no-ops.
+    #[tokio::test]
+    async fn test_shell_plugin_none_kill_returns_ok() {
+        let h = SidecarHandle::ShellPlugin(None);
+        let result = h.kill().await;
+        assert!(result.is_ok(), "kill() on ShellPlugin(None) must return Ok: {:?}", result);
+
+        let h2 = SidecarHandle::ShellPlugin(None);
+        let result2 = h2.kill_tree().await;
+        assert!(result2.is_ok(), "kill_tree() on ShellPlugin(None) must return Ok: {:?}", result2);
+    }
+
+    /// `SidecarHandle::DevMode` must kill the child process on Drop
+    /// via `kill_on_drop(true)` (set in `spawn_sidecar_dev_mode`).
+    /// This pins the contract for the DevMode variant: even
+    /// though `SidecarHandle::Drop` is a no-op for DevMode, the inner
+    /// `tokio::process::Child`'s own Drop kills the process because
+    /// `kill_on_drop(true)` was set at construction.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
+        use std::time::Duration;
+
+        let mut cmd = tokio::process::Command::new("sleep");
+        cmd.arg("30").kill_on_drop(true);
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let child = cmd.spawn().expect("failed to spawn `sleep 30` for test");
+        let pid = child.id().expect("child must have a pid immediately after spawn");
+
+        let handle = SidecarHandle::DevMode(child);
+        drop(handle);
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let still_alive = unsafe { libc::kill(pid as i32, 0) == 0 };
+        assert!(
+            !still_alive,
+            "DevMode child must be killed by Drop (kill_on_drop=true) — pid {} is still alive",
+            pid
+        );
+    }
+
+    /// Regression guard: when `kill_on_drop(true)` is NOT set (the
+    /// negative case), dropping `SidecarHandle::DevMode` does NOT kill
+    /// the child. This test documents the contract that
+    /// `spawn_sidecar_dev_mode` MUST set `kill_on_drop(true)` —
+    /// otherwise the DevMode Drop path leaks the process. We clean up
+    /// the leaked child at the end so the test doesn't leave a zombie.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
+        use std::time::Duration;
+
+        let mut cmd = tokio::process::Command::new("sleep");
+        cmd.arg("30")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let child = cmd.spawn().expect("failed to spawn `sleep 30` for test");
+        let pid = child.id().expect("child must have a pid immediately after spawn");
+
+        let handle = SidecarHandle::DevMode(child);
+        drop(handle);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let still_alive = unsafe { libc::kill(pid as i32, 0) == 0 };
+        assert!(
+            still_alive,
+            "regression guard: without kill_on_drop(true), DevMode Drop must NOT kill the child"
+        );
+
+        let _ = crate::platform::process::kill_process_tree(pid);
     }
 }

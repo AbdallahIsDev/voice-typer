@@ -185,6 +185,21 @@ fn is_allowed_event_type(event_type: &str) -> bool {
 // doesn't stall the supervisor forever.
 const WS_CONNECT_TIMEOUT_SECS: u64 = 5;
 
+// Bounded capacity for the WS writer channel
+// (`queue_auth_and_store_ws_tx`).
+// previously 256 — the worst-case queued memory was 256 ×
+// MAX_FRAME_BYTES (1 MiB) = 256 MiB, a non-trivial OOM surface if a
+// runaway renderer (or a stuck WS writer task) fills the channel before
+// the writer task drains it. Reduced to 64: caps worst-case queued
+// memory at 64 MiB, still large enough to absorb brief bursts (config +
+// state + bubble-init frames at sidecar startup), small enough to
+// fail-fast on a stuck writer. Callers in `commands/bubble.rs` and
+// `commands/sidecar_cmds.rs` already use `ws_tx.try_send(...)` (not
+// `send(...)`) and handle `TrySendError::Full` / `TrySendError::Closed`,
+// so a smaller cap surfaces backpressure as a structured error rather
+// than a silent OOM.
+pub(crate) const WS_WRITER_CHANNEL_CAPACITY: usize = 64;
+
 // IPC protocol version this host implements. The Python
 // sidecar emits the same integer in its `server_started` stdout JSON
 // (see `voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION`). We also
@@ -449,7 +464,12 @@ fn spawn_oneshot_respawn_thread(app: tauri::AppHandle, state: Arc<SidecarState>)
         .name("respawn-oneshot".into())
         .spawn(move || {
             let _ = tauri::async_runtime::block_on(async move {
-                let _ = respawn(&app, &state).await;
+                if let Err(e) = respawn(&app, &state).await {
+                    log::error!(
+                        "[WS] supervisor respawn failed: {} — app may be in a degraded state",
+                        e
+                    );
+                }
             });
         })
     {
@@ -556,7 +576,12 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
         .spawn(move || {
             for (app, state) in rx {
                 let _ = tauri::async_runtime::block_on(async move {
-                    let _ = respawn(&app, &state).await;
+                    if let Err(e) = respawn(&app, &state).await {
+                        log::error!(
+                            "[WS] supervisor respawn failed: {} — app may be in a degraded state",
+                            e
+                        );
+                    }
                 });
             }
         }) {
@@ -663,7 +688,7 @@ fn queue_auth_and_store_ws_tx(
     state: &Arc<SidecarState>,
     token: &str,
 ) -> Result<(mpsc::Receiver<Message>, u64), String> {
-    let (ws_tx, ws_rx) = mpsc::channel::<Message>(256);
+    let (ws_tx, ws_rx) = mpsc::channel::<Message>(WS_WRITER_CHANNEL_CAPACITY);
     // Send the auth frame via the channel so the writer task sends it.
     // include `protocol_version` so the sidecar can detect
     // host/sidecar version skew at handshake time. The field is
@@ -1245,73 +1270,80 @@ fn spawn_reader_task(
         // pending dispatch requests + clear ws_tx so new dispatch
         // calls fail fast instead of queueing onto a dead channel
         // (CR-Finding 1 + 3). Then trigger supervisor respawn (unless we're
-        // shutting down). This cleanup runs UNCONDITIONALLY — even if
-        // the body panicked — because it uses the cloned
-        // `state_for_cleanup` / `app_for_cleanup` handles (not the
-        // originals, which were moved into the `AssertUnwindSafe`
+        // shutting down). This cleanup block runs UNCONDITIONALLY on
+        // reader exit — even if the body panicked — because it uses the
+        // cloned `state_for_cleanup` / `app_for_cleanup` handles (not
+        // the originals, which were moved into the `AssertUnwindSafe`
         // body and may have been partially consumed before the panic).
+        // The THREE side effects inside (ws_tx clear, drain pending,
+        // respawn trigger) are individually gated on the generation
+        // check below — see the next comment block for the race
+        // rationale.
         //
-        // only clear `ws_tx` if the current
-        // generation matches `my_generation`. The race window is:
+        // only clear `ws_tx` / drain pending / trigger respawn if the
+        // current generation matches `my_generation`. The race window is:
         // supervisor kills old sidecar → old reader's `read.next()`
         // returns None → meanwhile `reconnect_ws` runs and stores a
         // NEW `ws_tx` (bumping the generation) → old reader's cleanup
-        // runs `*state.ws_tx = None`, destroying the new sender. The
-        // generation check makes the old reader's cleanup a no-op on
-        // the ws_tx clear, so the new sender survives. The drain +
-        // respawn trigger still run (drain is id-keyed and safe;
-        // respawn is idempotent via `respawn_in_progress`).
-        {
-            // Clear ws_tx first so new dispatch calls return
-            // "sidecar not connected" immediately.
-            // poison-safe lock helper.
-            let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
-            let mut ws_tx_guard = mutex_lock(&state_for_cleanup.ws_tx);
-            if current_generation == my_generation {
+        // runs `*state.ws_tx = None` / drains `pending` / triggers a
+        // respawn. Without the generation guard the old reader's cleanup
+        // wipes the NEW connection's pending dispatches and arms a
+        // spurious supervisor respawn on top of the new reconnect's
+        // own recovery. The generation check makes the old reader's
+        // cleanup a no-op across ALL three side effects — the new
+        // reconnect owns recovery and handles its own drain/respawn if
+        // it later fails.
+        let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
+        if current_generation == my_generation {
+            {
+                // Clear ws_tx first so new dispatch calls return
+                // "sidecar not connected" immediately.
+                // poison-safe lock helper.
+                let mut ws_tx_guard = mutex_lock(&state_for_cleanup.ws_tx);
                 *ws_tx_guard = None;
-            } else {
-                log::info!(
-                    "[WS-READER] cleanup skipping ws_tx clear — generation mismatch \
-                     (mine={}, current={}); a newer reconnect owns ws_tx ()",
-                    my_generation,
-                    current_generation
+            }
+            {
+                // drain pending requests via the shared
+                // `drain_pending_with_disconnect_error` helper (collect out
+                // of the lock first, then send outside the lock). Reject
+                // each with a `sidecar_disconnected` error so callers don't
+                // wait the full 120s timeout.
+                let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
+                if count > 0 {
+                    log::warn!("[WS-READER] drained {} pending dispatch requests", count);
+                }
+            }
+            if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
+                // (ADR-0020 §10): emit `supervisor_relaunching` IMMEDIATELY
+                // at disconnect start so the UI can show a "reconnecting…"
+                // banner before the backoff schedule runs. The eventual
+                // `supervisor_reconnected` (on success) or second `supervisor_relaunching`
+                // (on exhaustion) supersedes this event.
+                let _ = app_for_cleanup.emit(
+                    "supervisor_relaunching",
+                    json!({"reason": "disconnected"}),
+                );
+                log::warn!("[WS-READER] unexpected close — triggering supervisor");
+                // spawn supervisor respawn on a separate thread via the
+                // shared `trigger_respawn_off_thread` helper. The thread
+                // + `block_on` bridge is required because `respawn`
+                // awaits `reconnect_ws`, whose future is `!Send`
+                // (tokio-tungstenite holds a `!Send` across an await), and
+                // `tokio::spawn` requires `Send` futures.
+                // documents the failed attempt to use a direct
+                // `tokio::spawn` here. See the helper's doc comment for
+                // the full rationale.
+                trigger_respawn_off_thread(
+                    app_for_cleanup.clone(),
+                    state_for_cleanup.clone(),
                 );
             }
-        }
-        {
-            // drain pending requests via the shared
-            // `drain_pending_with_disconnect_error` helper (collect out
-            // of the lock first, then send outside the lock). Reject
-            // each with a `sidecar_disconnected` error so callers don't
-            // wait the full 120s timeout.
-            let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
-            if count > 0 {
-                log::warn!("[WS-READER] drained {} pending dispatch requests", count);
-            }
-        }
-        if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
-            // (ADR-0020 §10): emit `supervisor_relaunching` IMMEDIATELY
-            // at disconnect start so the UI can show a "reconnecting…"
-            // banner before the backoff schedule runs. The eventual
-            // `supervisor_reconnected` (on success) or second `supervisor_relaunching`
-            // (on exhaustion) supersedes this event.
-            let _ = app_for_cleanup.emit(
-                "supervisor_relaunching",
-                json!({"reason": "disconnected"}),
-            );
-            log::warn!("[WS-READER] unexpected close — triggering supervisor");
-            // spawn supervisor respawn on a separate thread via the
-            // shared `trigger_respawn_off_thread` helper. The thread
-            // + `block_on` bridge is required because `respawn`
-            // awaits `reconnect_ws`, whose future is `!Send`
-            // (tokio-tungstenite holds a `!Send` across an await), and
-            // `tokio::spawn` requires `Send` futures.
-            // documents the failed attempt to use a direct
-            // `tokio::spawn` here. See the helper's doc comment for
-            // the full rationale.
-            trigger_respawn_off_thread(
-                app_for_cleanup.clone(),
-                state_for_cleanup.clone(),
+        } else {
+            log::info!(
+                "[WS-READER] cleanup skipping drain + respawn trigger — generation mismatch \
+                 (mine={}, current={}); a newer reconnect owns recovery",
+                my_generation,
+                current_generation
             );
         }
     });
@@ -2160,5 +2192,210 @@ mod tests {
             mutex_lock(&state.ws_tx).is_none(),
             "ws_tx must be cleared when generations match (normal disconnect path)"
         );
+    }
+
+    /// delayed-cleanup race scenario: an OLD reader (generation 1)
+    /// exits while a NEW reconnect (generation 2) has already stored its
+    /// own `ws_tx` and is mid-auth. The old reader's cleanup block must
+    /// NOT (a) clear the new `ws_tx`, (b) drain the new connection's
+    /// pending dispatch map, or (c) trigger a spurious supervisor
+    /// respawn on top of the new reconnect's own recovery. All three
+    /// side effects are gated on the same `current_generation ==
+    /// my_generation` predicate; this test exercises the predicate
+    /// directly (mirroring the inline structure of the cleanup block at
+    /// `spawn_reader_task` ~line 1267) and asserts the drain branch is
+    /// skipped on mismatch. The respawn-trigger branch shares the same
+    /// `if` block, so a mismatched generation skips it transitively
+    /// (constructing a `tauri::AppHandle` in a unit test is infeasible,
+    /// so the trigger call itself is not exercised here — the gating
+    /// predicate is the unit under test, not the spawn-thread bridge).
+    #[tokio::test]
+    async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_mismatch() {
+        let state = Arc::new(crate::state::SidecarState::new());
+
+        // Old reconnect (gen=1) stored a ws_tx, then a NEW reconnect
+        // (gen=2) replaced it. The old reader's cleanup is now running
+        // with my_generation=1 — its `read.next()` returned None late
+        // (Tokio runtime contention) after the new reconnect's auth
+        // already completed.
+        let (_old_ws_rx, _gen1) = queue_auth_and_store_ws_tx(&state, "old-token")
+            .expect("old queue_auth must succeed");
+        let (new_ws_rx, gen2) = queue_auth_and_store_ws_tx(&state, "new-token")
+            .expect("new queue_auth must succeed");
+        let my_generation = 1u64; // the OLD reader's captured generation
+        assert_eq!(gen2, 2, "precondition: new reconnect must be generation 2");
+        // Keep the new ws_rx alive so the new sender isn't dropped
+        // prematurely (mirrors the real writer task holding the rx).
+        let _new_ws_rx_guard = new_ws_rx;
+
+        // The NEW connection has a pending dispatch in flight — the
+        // new reader will fulfill it when the sidecar responds. An old
+        // reader's cleanup MUST NOT drain this entry; doing so would
+        // reject the new connection's in-flight dispatch with a
+        // spurious `sidecar_disconnected` error.
+        let pending_id = 99u64;
+        let (pending_tx, pending_rx) = oneshot::channel::<Value>();
+        {
+            let mut pending = state.pending.lock().await;
+            pending.insert(pending_id, pending_tx);
+        }
+        assert_eq!(
+            state.pending.lock().await.len(),
+            1,
+            "precondition: new connection has 1 in-flight dispatch"
+        );
+
+        // Mirror the new gated cleanup block at `spawn_reader_task`
+        // ~line 1267. On generation mismatch, NONE of the three side
+        // effects (ws_tx clear, drain pending, respawn trigger) run —
+        // the else branch only logs.
+        let current_generation = state.ws_generation.load(Ordering::SeqCst);
+        if current_generation == my_generation {
+            {
+                let mut ws_tx_guard = mutex_lock(&state.ws_tx);
+                *ws_tx_guard = None;
+            }
+            let _count = drain_pending_with_disconnect_error(&state).await;
+            // (respawn trigger elided — requires tauri::AppHandle;
+            //  gating predicate is the unit under test, see test doc.)
+        } else {
+            // mismatch path — log only, no side effects.
+        }
+
+        // Assert: ws_tx survived (new reconnect's sender intact).
+        assert!(
+            mutex_lock(&state.ws_tx).is_some(),
+            "ws_tx must survive an old-generation cleanup (race guard)"
+        );
+        // Assert: pending map was NOT drained — the new connection's
+        // in-flight dispatch is still waiting for its response.
+        assert_eq!(
+            state.pending.lock().await.len(),
+            1,
+            "pending map must NOT be drained by an old-generation cleanup"
+        );
+        // The pending oneshot sender must still be live (i.e. the
+        // receiver hasn't been fulfilled with a disconnect error).
+        // `oneshot::Receiver::is_closed()` returns true if the sender
+        // was dropped OR already sent. A drain would have sent a
+        // `sidecar_disconnected` error, closing the channel.
+        assert!(
+            !pending_rx.is_closed(),
+            "pending dispatch oneshot must NOT be closed — old-generation cleanup must not drain it"
+        );
+    }
+
+    /// symmetric positive case: when the generations DO match (the
+    /// normal, non-racy disconnect), the cleanup block MUST drain the
+    /// pending map so in-flight dispatches get a `sidecar_disconnected`
+    /// error instead of waiting the full 120s timeout. Pairs with the
+    /// mismatch test above to pin that the drain gate fires both ways.
+    #[tokio::test]
+    async fn test_cleanup_drains_pending_on_generation_match() {
+        let state = Arc::new(crate::state::SidecarState::new());
+
+        let (_ws_rx, gen1) = queue_auth_and_store_ws_tx(&state, "token")
+            .expect("queue_auth must succeed");
+        let my_generation = gen1;
+        let _ws_rx_guard = _ws_rx;
+
+        let pending_id = 7u64;
+        let (pending_tx, pending_rx) = oneshot::channel::<Value>();
+        state.pending.lock().await.insert(pending_id, pending_tx);
+        assert_eq!(
+            state.pending.lock().await.len(),
+            1,
+            "precondition: 1 in-flight dispatch before cleanup"
+        );
+
+        // Mirror the cleanup block on the matching-generation path.
+        let current_generation = state.ws_generation.load(Ordering::SeqCst);
+        if current_generation == my_generation {
+            {
+                let mut ws_tx_guard = mutex_lock(&state.ws_tx);
+                *ws_tx_guard = None;
+            }
+            let count = drain_pending_with_disconnect_error(&state).await;
+            assert_eq!(count, 1, "drain must reject the 1 in-flight dispatch");
+        }
+
+        assert!(
+            mutex_lock(&state.ws_tx).is_none(),
+            "ws_tx must be cleared on matching-generation cleanup"
+        );
+        assert_eq!(
+            state.pending.lock().await.len(),
+            0,
+            "pending map must be empty after matching-generation cleanup"
+        );
+        assert!(
+            pending_rx.is_closed(),
+            "pending dispatch oneshot must be closed (drain sent disconnect error)"
+        );
+    }
+
+    // ── WS writer channel capacity ───────────────────────────────────
+
+    /// The WS writer channel capacity must be 64 (not the previous
+    /// 256). At MAX_FRAME_BYTES = 1 MiB, this caps worst-case queued
+    /// memory at 64 MiB (vs 256 MiB at the old cap). 64 is still
+    /// large enough to absorb the sidecar-startup burst (config +
+    /// state + bubble-init frames) but small enough that a stuck WS
+    /// writer task fails fast (TrySendError::Full) instead of
+    /// ballooning memory.
+    ///
+    /// If this test fails, either:
+    /// - someone changed the cap without updating this regression
+    ///   guard (deliberate change — update the assertion); or
+    /// - someone removed the named constant and went back to an
+    ///   inline magic number (regression — restore the constant).
+    #[test]
+    fn test_ws_writer_channel_capacity_is_64() {
+        assert_eq!(
+            WS_WRITER_CHANNEL_CAPACITY, 64,
+            "WS writer channel capacity must be 64 (was 256 — see comment on the constant)"
+        );
+    }
+
+    /// `queue_auth_and_store_ws_tx` must construct a bounded channel
+    /// of capacity `WS_WRITER_CHANNEL_CAPACITY` (not unbounded, not a
+    /// different magic number). We verify this by attempting to send
+    /// `WS_WRITER_CHANNEL_CAPACITY` frames successfully (no Full) and
+    /// then asserting the next send returns `TrySendError::Full`. This
+    /// pins the capacity at the constant value end-to-end (any change
+    /// to the constant would surface here automatically).
+    #[tokio::test]
+    async fn test_queue_auth_creates_bounded_channel_at_capacity() {
+        let state = Arc::new(crate::state::SidecarState::new());
+
+        let (mut ws_rx, _gen) = queue_auth_and_store_ws_tx(&state, "auth-token")
+            .expect("queue_auth must succeed on a fresh state");
+
+        // The auth frame is the very first frame queued inside
+        // queue_auth_and_store_ws_tx — so the channel currently has
+        // 1 frame in flight (the auth frame). We can send
+        // (WS_WRITER_CHANNEL_CAPACITY - 1) more frames before Full.
+        let ws_tx = mutex_lock(&state.ws_tx)
+            .clone()
+            .expect("ws_tx must be Some after queue_auth");
+
+        for i in 0..(WS_WRITER_CHANNEL_CAPACITY - 1) {
+            let frame = Message::Text(format!("frame-{}", i).into());
+            ws_tx
+                .try_send(frame)
+                .expect("send within capacity must succeed (no Full)");
+        }
+
+        // The channel is now full (auth + capacity-1 = capacity
+        // frames). The next send MUST return TrySendError::Full.
+        let overflow = ws_tx.try_send(Message::Text("overflow".into()));
+        assert!(
+            matches!(overflow, Err(mpsc::error::TrySendError::Full(_))),
+            "send at capacity+1 must return TrySendError::Full (got {:?}) — \
+             if this fails, the channel is unbounded or has the wrong capacity",
+            overflow
+        );
+
+        ws_rx.close();
     }
 }

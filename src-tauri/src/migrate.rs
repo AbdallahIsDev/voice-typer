@@ -88,7 +88,7 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
         // `app.setPath("userData", computeConfigDir())` → `voice-typer`.
         // This is the SAME path Tauri now uses as its `config_dir`, so
         // the caller skips it when it equals the Tauri target.
-        "voice-typer",
+        crate::platform::paths::APP_SLUG,
         // 3. Defensive third probe — the human-readable brand name with a
         // space, in case some ancient unreleased build used it as the
         // userData directory name. Uses `crate::branding::APP_NAME`
@@ -147,13 +147,90 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
 /// visibility surfaces unintended cross-module couplings at compile
 /// time rather than letting them slip through as silent API growth.
 pub(crate) fn migrate_electron_userdata(_app: &tauri::AppHandle) {
-    //`app` was only used to call `platform::paths::config_dir(app)`;
+    // `_app` was only used to call `platform::paths::config_dir(app)`;
     // now that `config_dir()` takes no args, the param is unused. Kept in
     // the signature for forward-compat (a future migration might need
     // `app.path().resource_dir()` to copy bundled defaults). Prefixed
     // with `_` to silence the unused-param lint under clippy::all.
+    //
+    // This synchronous wrapper runs the fs-heavy migration
+    // inline on the caller's thread. Callers inside an async context
+    // (e.g. the Tauri `setup` closure, which already spawns an async
+    // task for `spawn_sidecar_and_get_port`) should prefer
+    // `migrate_electron_userdata_async` instead — it moves the fs
+    // ops onto `tauri::async_runtime::spawn_blocking` so the calling
+    // task is not stalled for 5-30s on first launch. The body lives
+    // in `migrate_inner` so both wrappers share the same logic.
     let new_dir = crate::platform::paths::config_dir();
+    migrate_inner(&new_dir);
+}
 
+/// Async wrapper around `migrate_inner` that runs the fs-heavy
+/// migration on `tauri::async_runtime::spawn_blocking` so the calling
+/// async task is not stalled for 5-30s on first launch.
+///
+/// The returned future resolves once the migration has completed (or
+/// failed — `migrate_inner` never panics, all fs errors are logged and
+/// swallowed), so a caller like the Tauri `setup` task can safely
+/// `.await` it BEFORE `spawn_sidecar_and_get_port` to guarantee the
+/// sidecar boots against already-migrated data without blocking the
+/// async runtime's worker threads.
+///
+/// `#[allow(dead_code)]` is intentional: until `main.rs:164` switches
+/// from the sync `migrate_electron_userdata` call to this async wrapper
+/// (moving the call inside the existing
+/// `tauri::async_runtime::spawn(async move { ... })` block at
+/// `main.rs:186`), the function has no production caller. The body it
+/// calls (`migrate_inner`) is exercised directly by the
+/// `migrate_inner_returns_early_when_sentinel_present` unit test, and
+/// the `spawn_blocking(move || migrate_inner(...)).await` plumbing
+/// pattern is exercised by
+/// `migrate_inner_runs_under_spawn_blocking_without_panic`. The wiring
+/// switch is a one-line change in `main.rs` with no further work
+/// needed here.
+#[allow(dead_code)]
+pub(crate) async fn migrate_electron_userdata_async(_app: &tauri::AppHandle) {
+    // Compute `new_dir` on the calling task (cheap —
+    // `config_dir()` is cached via `config_dir_cached`) so the
+    // blocking closure only owns a `PathBuf`, not an `AppHandle`
+    // (which would require `Send + 'static` and complicate the
+    // signature needlessly).
+    let new_dir = crate::platform::paths::config_dir();
+    // `spawn_blocking` runs the closure on a dedicated blocking-thread
+    // pool (separate from the Tokio async runtime's worker threads),
+    // so the fs ops (`atomic_copy`, `merge_config`,
+    // `copy_missing_files`) do not starve other futures sharing the
+    // runtime. `await` yields the calling task until the migration
+    // completes — the sidecar spawn can then proceed against the
+    // fully-migrated `config_dir`.
+    //
+    // Errors from the closure itself are impossible (`migrate_inner`
+    // returns `()` and never panics — every fs op is wrapped in
+    // `match`/`if let Err(e)` with a log-and-continue). The only
+    // `Err` the `JoinHandle` can yield is `JoinError` (task panicked
+    // OR was cancelled); we log-and-continue either way so a failed
+    // migration never breaks the sidecar spawn — the next launch
+    // re-attempts (idempotent).
+    if let Err(e) = tauri::async_runtime::spawn_blocking(move || migrate_inner(&new_dir)).await {
+        log::error!(
+            "[MIGRATE] async spawn_blocking join failed: {} — migration skipped this launch; will retry next launch",
+            e
+        );
+    }
+}
+
+/// Body of the Electron → Tauri `config_dir` migration. Extracted
+/// from `migrate_electron_userdata` so the same logic is shared by the
+/// sync and async wrappers AND so it can be unit-tested without a
+/// Tauri `AppHandle` (the entry-point functions take one and are hard
+/// to construct in `#[cfg(test)]`). `new_dir` is the Tauri
+/// `config_dir` path; the function probes the old Electron
+/// `userData` candidates itself (see `electron_userdata_candidates`).
+///
+/// Idempotent and SAFE: never panics, never destroys data. Early-
+/// returns after the first successful run (sentinel marker present)
+/// or when there is nothing to do.
+fn migrate_inner(new_dir: &Path) {
     //fix: use a sentinel file (.migrated-from-electron) as the
     // idempotency marker instead of checking config.json existence.
     //
@@ -1138,6 +1215,125 @@ mod tests {
             std::fs::read(&src).expect("src must be unchanged"),
             b"hello-migrate",
             "atomic_copy must NOT mutate the source file"
+        );
+    }
+
+    // migrate_inner + migrate_electron_userdata_async ────────────────
+    //
+    // `migrate_electron_userdata` (the sync entry-point) was refactored
+    // so its body lives in `migrate_inner(new_dir: &Path)`. This makes
+    // the migration logic callable from both:
+    //   - the sync wrapper `migrate_electron_userdata` (still called
+    //     from `main.rs:164`'s setup closure), and
+    //   - the async wrapper `migrate_electron_userdata_async` (added
+    //     so the fs-heavy body runs on
+    //     `tauri::async_runtime::spawn_blocking` and the calling async
+    //     task is not stalled for 5-30s on first launch).
+    //
+    // The two tests below pin the new behavior:
+    //   1. `migrate_inner` short-circuits when the sentinel marker is
+    //      already present (no env-var manipulation needed — the
+    //      sentinel check runs BEFORE `electron_userdata_candidates()`
+    //      reads any env vars).
+    //   2. `migrate_inner` is callable from a `spawn_blocking` closure
+    //      (the exact pattern `migrate_electron_userdata_async` uses
+    //      internally) without panic and returns cleanly.
+
+    /// `migrate_inner` must early-return without doing any fs work when
+    /// the `.migrated-from-electron` sentinel marker is already present
+    /// in `new_dir`. This is the idempotency short-circuit that makes
+    /// the migration safe to call on every launch.
+    ///
+    /// We pre-create the sentinel before calling `migrate_inner` so the
+    /// function returns at the FIRST guard (sentinel.exists() check) —
+    /// BEFORE `electron_userdata_candidates()` is called. This means
+    /// the test does NOT need to manipulate any env vars (HOME,
+    /// APPDATA, XDG_CONFIG_HOME) and is safe to run in parallel with
+    /// other tests.
+    #[test]
+    fn migrate_inner_returns_early_when_sentinel_present() {
+        let _scratch = ScratchDir::new("sentinel-shortcircuit");
+        let new_dir = _scratch.path().to_path_buf();
+        // Pre-create the sentinel marker so migrate_inner short-circuits.
+        std::fs::write(new_dir.join(".migrated-from-electron"), b"").unwrap();
+        // Drop a "decoy" file that the migration WOULD copy if it ran —
+        // proves the short-circuit didn't proceed past the sentinel guard.
+        // (If the migration proceeded, it would have created config.json
+        // from a candidate old Electron userData dir. By asserting no
+        // config.json appears, we verify the short-circuit held.)
+        assert!(
+            !new_dir.join("config.json").exists(),
+            "config.json must not exist before migrate_inner call"
+        );
+
+        // Call the refactored body. Should return immediately without
+        // touching env vars or probing candidate paths.
+        migrate_inner(&new_dir);
+
+        // The sentinel must still be present (migrate_inner must not
+        // delete it on the early-return path).
+        assert!(
+            new_dir.join(".migrated-from-electron").exists(),
+            "sentinel marker must still exist after early-return"
+        );
+        // No config.json should have been created (the migration did
+        // not proceed past the sentinel check).
+        assert!(
+            !new_dir.join("config.json").exists(),
+            "config.json must NOT be created when sentinel short-circuited the migration"
+        );
+    }
+
+    /// `migrate_inner` runs unchanged when called from inside a
+    /// `spawn_blocking` closure — the exact pattern
+    /// `migrate_electron_userdata_async` uses to move the fs-heavy
+    /// migration off the async runtime's worker threads.
+    ///
+    /// This test exercises the same `spawn_blocking(move || migrate_inner(...))`
+    /// plumbing that the async wrapper uses, but calls `tokio::task::spawn_blocking`
+    /// directly (rather than `tauri::async_runtime::spawn_blocking`) so the
+    /// test does not require initializing Tauri's global async runtime.
+    /// `tauri::async_runtime::spawn_blocking` delegates to the same
+    /// Tokio blocking-pool mechanism, so the pattern is functionally
+    /// identical.
+    ///
+    /// We pre-create the sentinel marker so `migrate_inner` short-circuits
+    /// at its first guard (no env-var manipulation needed — see the
+    /// companion sync test above).
+    #[tokio::test]
+    async fn migrate_inner_runs_under_spawn_blocking_without_panic() {
+        let _scratch = ScratchDir::new("spawn-blocking-plumbing");
+        let new_dir = _scratch.path().to_path_buf();
+        // Pre-create the sentinel so migrate_inner short-circuits
+        // without needing env vars (which would be racy under parallel
+        // test execution).
+        std::fs::write(new_dir.join(".migrated-from-electron"), b"").unwrap();
+        // Clone `new_dir` into the closure (the same move pattern used
+        // by `migrate_electron_userdata_async`).
+        let new_dir_for_closure = new_dir.clone();
+
+        // Spawn migrate_inner on the blocking pool and await its
+        // completion. This mirrors the exact shape of
+        // `migrate_electron_userdata_async`'s body:
+        //   tauri::async_runtime::spawn_blocking(move || migrate_inner(&new_dir)).await
+        let join_result = tokio::task::spawn_blocking(move || {
+            migrate_inner(&new_dir_for_closure);
+        })
+        .await;
+
+        // The JoinHandle must resolve to Ok (no panic in the closure).
+        // `migrate_inner` is designed to never panic (all fs ops are
+        // wrapped in `match`/`if let Err(e)` with log-and-continue),
+        // so a panic here would indicate a regression.
+        assert!(
+            join_result.is_ok(),
+            "spawn_blocking(migrate_inner) must not panic: {:?}",
+            join_result.err()
+        );
+        // Sentinel must still be present (migrate_inner short-circuited).
+        assert!(
+            new_dir.join(".migrated-from-electron").exists(),
+            "sentinel marker must still exist after spawn_blocking migration"
         );
     }
 }

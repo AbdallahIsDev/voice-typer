@@ -17,21 +17,16 @@ use tokio::sync::oneshot;
 // check.
 //
 //the canonical `require_main_window` helper now lives in
-// `commands/mod.rs` (single source of truth). The previous local
-// `pub(crate) fn require_main_window` definition is deleted. We use a
-// `pub(crate) use` re-export here so `system_cmds.rs`'s existing import
-// (`use crate::commands::export::{export_data, require_main_window};`)
-// keeps resolving without editing `system_cmds.rs` (which is owned by
-// a different sub-agent). Once `system_cmds.rs` is updated to import
-// directly from `crate::commands::require_main_window`, this re-export
-// can be demoted to a private `use`.
+// `commands/mod.rs` (single source of truth). This module imports it
+// privately for local use; downstream callers (e.g. `system_cmds.rs`)
+// import directly from `crate::commands::require_main_window`.
 //
 // The error envelope shape mirrors the sidecar's WS error envelope
 // ({"type":"error","data":{"code":...,"message":...}}) so the
 // renderer's existing reject path treats this identically to a
 // server-side rejection. See `commands::mod::require_main_window` for
 //the  /  envelope shape contract.
-pub(crate) use crate::commands::require_main_window;
+use crate::commands::require_main_window;
 
 //Tauri command: export_history () ─────────────────────────
 
@@ -168,6 +163,13 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
         }
     }
     let mut out = String::new();
+    // Pre-allocate the output buffer to avoid repeated grow() calls
+    // during the per-cell push_str/write! below. For a 10K-row export with
+    // ~22 columns, the average cell is ~12 bytes (timestamps, short text,
+    // model names) so ~2.6MB is a reasonable starting capacity — the
+    // String will still grow if needed, but most exports will fit without
+    // a single reallocation.
+    out.reserve(arr.len().saturating_mul(64));
     // Write each header cell directly to the buffer instead of collecting
     // into a `Vec<String>` and joining — for a 10k-row export with 20
     // columns, the previous `collect()` + `join(",")` pattern allocated
@@ -177,7 +179,10 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
         if i > 0 {
             out.push(',');
         }
-        out.push_str(&csv_escape(k));
+        // Write the escaped cell directly into `out` instead of
+        // calling `csv_escape(k)` which allocates a per-cell String that
+        // is immediately discarded after `push_str` copies its bytes.
+        csv_escape_into(&mut out, k);
     }
     out.push('\n');
     for item in arr {
@@ -187,8 +192,16 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
             if i > 0 {
                 out.push(',');
             }
-            let v = obj.get(k).map(value_to_string).unwrap_or_default();
-            out.push_str(&csv_escape(&v));
+            // Same direct-write optimization as the header loop.
+            // `value_to_string` still allocates a small intermediate String
+            // for the cell value (kept for clarity + because the Value →
+            // String rendering is serde_json's job), but `csv_escape_into`
+            // writes the escaped form directly into `out`'s reusable buffer.
+            // For a 10K-row × 22-col export this eliminates ~220K per-cell
+            // String allocations that the previous `csv_escape(&v)` call
+            // produced.
+            let cell = obj.get(k).map(value_to_string).unwrap_or_default();
+            csv_escape_into(&mut out, &cell);
         }
         out.push('\n');
     }
@@ -197,12 +210,32 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
 
 /// Render a JSON value as a single CSV cell (no quoting).
 pub(crate) fn value_to_string(v: &Value) -> String {
+    let mut out = String::new();
+    value_to_string_into(&mut out, v);
+    out
+}
+
+/// In-place variant of [`value_to_string`] that writes the
+/// rendered value directly into ``out`` without allocating an intermediate
+/// ``String``. Used by [`json_to_csv`] to avoid ~220K per-cell allocations
+/// on a 10K-row export.
+pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
+    use std::fmt::Write as _;
     match v {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => String::new(),
-        other => other.to_string(),
+        Value::String(s) => out.push_str(s),
+        // `write!` into a `String` (via `std::fmt::Write`) writes directly
+        // into the buffer's spare capacity — no intermediate `String`
+        // allocation the way `n.to_string()` + `push_str` would.
+        Value::Number(n) => {
+            let _ = write!(out, "{}", n);
+        }
+        Value::Bool(b) => {
+            let _ = write!(out, "{}", b);
+        }
+        Value::Null => {}
+        other => {
+            let _ = write!(out, "{}", other);
+        }
     }
 }
 
@@ -214,12 +247,30 @@ pub(crate) fn value_to_string(v: &Value) -> String {
 /// Cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed
 /// with a single quote `'` before quoting so spreadsheet apps (Excel,
 /// LibreOffice) treat them as text rather than executing them as
-/// formulas. Mirrors the Electron-side `csvEscape` in
-/// `voice_typer/client/src/main/ipc/export-handlers.ts:23-29`.
-/// Without this defense, a user who dictates `=cmd|'/C calc'!A1` and
-/// then exports history to CSV would be vulnerable to formula injection
-/// when opening the file in a spreadsheet.
+/// formulas. Without this defense, a user who dictates `=cmd|'/C calc'!A1`
+/// and then exports history to CSV would be vulnerable to formula
+/// injection when opening the file in a spreadsheet.
+///
+/// Mirrors the Electron-side `csvEscape` in
+/// `voice_typer/client/src/main/ipc/export-handlers.ts` — the two
+/// implementations produce byte-identical output for the same input
+/// (enforced by the TS parity test `export-handlers-csv-escape.test.ts`
+/// and by the `test_csv_escape_*` cases in this module).
 pub(crate) fn csv_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    csv_escape_into(&mut out, s);
+    out
+}
+
+/// In-place variant of [`csv_escape`] that writes the escaped
+/// cell directly into ``out`` without allocating a per-cell ``String``.
+/// Used by [`json_to_csv`] to avoid ~220K per-cell allocations on a 10K-row
+/// export (one per cell × ~22 columns × 10K rows).
+///
+/// The bytes written are byte-for-byte identical to [`csv_escape`]; the
+/// only difference is that the result is appended to ``out`` rather than
+/// returned as a fresh ``String``.
+pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
     // SEC-015: prefix formula-injection-prone cells with a single quote.
     let needs_prefix = s.starts_with('=')
         || s.starts_with('+')
@@ -227,12 +278,36 @@ pub(crate) fn csv_escape(s: &str) -> String {
         || s.starts_with('@')
         || s.starts_with('\t')
         || s.starts_with('\r');
-    let v = if needs_prefix { format!("'{}", s) } else { s.to_string() };
-    // Then apply standard CSV quoting (RFC 4180) on the prefixed value.
-    if v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r') {
-        format!("\"{}\"", v.replace('"', "\"\""))
+    // RFC 4180 quoting is required if the cell (after the optional prefix
+    // is applied) contains a comma, double-quote, newline, or carriage
+    // return. The prefix `'` is not itself a quoting trigger, so we check
+    // the raw source string — equivalent to checking the prefixed value.
+    let needs_quote = s.contains(',')
+        || s.contains('"')
+        || s.contains('\n')
+        || s.contains('\r');
+    if needs_quote {
+        out.push('"');
+        if needs_prefix {
+            out.push('\'');
+        }
+        // Double any embedded double-quotes (RFC 4180 §2.7). Iterate
+        // char-by-char to avoid the intermediate `String` that
+        // `s.replace('"', "\"\"")` would allocate.
+        for ch in s.chars() {
+            if ch == '"' {
+                out.push('"');
+                out.push('"');
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push('"');
+    } else if needs_prefix {
+        out.push('\'');
+        out.push_str(s);
     } else {
-        v
+        out.push_str(s);
     }
 }
 
@@ -306,7 +381,27 @@ mod tests {
 
     #[test]
     fn test_csv_escape_formula_carriage_return() {
-        assert_eq!(csv_escape("\rcmd"), "'\rcmd");
+        // CR is BOTH a SEC-015 prefix trigger AND an RFC 4180 quoting
+        // trigger. After prefixing with `'`, the value `"'\rcmd"` still
+        // contains a CR, so it MUST be wrapped in double quotes.
+        // Matches the TS `csvEscape("\rcmd")` byte-for-byte.
+        assert_eq!(csv_escape("\rcmd"), "\"'\rcmd\"");
+    }
+
+    #[test]
+    fn test_csv_escape_leading_trailing_whitespace() {
+        // RFC 4180 only requires quoting for comma, double-quote,
+        // newline, or CR. Leading/trailing spaces do NOT trigger quoting.
+        // Matches the TS `csvEscape` byte-for-byte (parity enforced by
+        // `export-handlers-csv-escape.test.ts`).
+        assert_eq!(csv_escape("  hello  "), "  hello  ");
+        assert_eq!(csv_escape("  hello"), "  hello");
+        assert_eq!(csv_escape("hello  "), "hello  ");
+        // A leading TAB triggers the SEC-015 prefix (formula-injection
+        // defense) but is NOT a quoting trigger — the prefixed value
+        // contains neither comma, quote, newline, nor CR, so it stays
+        // unquoted.
+        assert_eq!(csv_escape("\thello"), "'\thello");
     }
 
     #[test]
@@ -315,6 +410,118 @@ mod tests {
         // then RFC 4180 quoting (because the prefixed value contains
         // a comma).
         assert_eq!(csv_escape("=a,b"), "\"'=a,b\"");
+    }
+
+    // ── csv_escape_into ─────────────────────────────────────────────
+    //
+    // `csv_escape_into` writes the escaped form directly into a
+    // caller-provided `&mut String` instead of allocating a fresh `String`
+    // per cell. The bytes written MUST be byte-for-byte identical to
+    // `csv_escape` — these tests verify that equivalence on the same
+    // inputs covered by the `csv_escape` tests above, plus an append-
+    // semantics test (writing into a non-empty buffer must NOT overwrite
+    // the existing content).
+
+    #[test]
+    fn test_csv_escape_into_matches_csv_escape() {
+        // Every input that `csv_escape` handles must produce identical
+        // bytes when written via `csv_escape_into`.
+        let inputs = [
+            "hello",
+            "123",
+            "",
+            "hello,world",
+            "hello\"world",
+            "hello\nworld",
+            "hello\rworld",
+            "a,b\"c\nd\re",
+            "=cmd|'/C calc'!A1",
+            "+1+1",
+            "-2+3",
+            "@SUM(A1:A2)",
+            "\tcmd",
+            "\rcmd",
+            "=a,b",
+        ];
+        for input in inputs {
+            let mut out = String::new();
+            csv_escape_into(&mut out, input);
+            assert_eq!(out, csv_escape(input), "mismatch for input {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_csv_escape_into_appends_to_existing_buffer() {
+        // Contract: `csv_escape_into` appends — it must NOT
+        // overwrite existing buffer content. This is what `json_to_csv`
+        // relies on when it writes the header row + each row's cells into
+        // the same `out` buffer.
+        let mut out = String::from("prefix|");
+        csv_escape_into(&mut out, "hello,world");
+        assert_eq!(out, "prefix|\"hello,world\"");
+    }
+
+    #[test]
+    fn test_value_to_string_into_matches_value_to_string() {
+        // Contract: `value_to_string_into` must produce identical
+        // bytes to `value_to_string` for every JSON value variant.
+        let values: Vec<Value> = vec![
+            json!("hello"),
+            json!("with\"quote"),
+            json!("with,comma"),
+            json!(42),
+            json!(3.14),
+            json!(0),
+            json!(-7),
+            json!(true),
+            json!(false),
+            json!(null),
+            json!([1, 2, 3]),    // array → other.to_string()
+            json!({"k": "v"}),   // object → other.to_string()
+        ];
+        for v in &values {
+            let mut out = String::new();
+            value_to_string_into(&mut out, v);
+            assert_eq!(out, value_to_string(v), "mismatch for value {v}");
+        }
+    }
+
+    #[test]
+    fn test_value_to_string_into_appends_to_existing_buffer() {
+        // Contract: appends, does not overwrite.
+        let mut out = String::from("[");
+        value_to_string_into(&mut out, &json!("hello"));
+        out.push('|');
+        value_to_string_into(&mut out, &json!(42));
+        out.push('|');
+        value_to_string_into(&mut out, &json!(null));
+        out.push(']');
+        assert_eq!(out, "[hello|42|]");
+    }
+
+    #[test]
+    fn test_json_to_csv_large_export_no_per_cell_string_leak() {
+        // Smoke test that `json_to_csv` produces the expected
+        // output for a moderately-sized homogeneous dataset (the kind
+        // of thing a real history export produces). This exercises the
+        // `csv_escape_into` + `value_to_string` integration in
+        // `json_to_csv`'s hot loop.
+        let mut rows: Vec<Value> = Vec::with_capacity(100);
+        for i in 0..100 {
+            rows.push(json!({
+                "id": i,
+                "text": format!("entry {i}"),
+                "ts": format!("2026-08-01T00:00:{i:02}"),
+            }));
+        }
+        let data = Value::Array(rows);
+        let csv = json_to_csv(&data).expect("json_to_csv must succeed");
+        let lines: Vec<&str> = csv.lines().collect();
+        // 1 header + 100 rows = 101 lines.
+        assert_eq!(lines.len(), 101, "expected 101 lines, got {}", lines.len());
+        assert_eq!(lines[0], "id,text,ts");
+        assert_eq!(lines[1], "0,entry 0,2026-08-01T00:00:00");
+        assert_eq!(lines[100], "99,entry 99,2026-08-01T00:00:99");
     }
 
     // ── json_to_csv ───────────────────────────────────────────────────

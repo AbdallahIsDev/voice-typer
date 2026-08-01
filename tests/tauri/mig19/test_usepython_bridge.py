@@ -640,9 +640,12 @@ def test_python_call_handler_registered_on_python_call_channel(
     import re as _re
 
     assert _re.search(
-        r'ipcMain\.handle\(\s*' + _ipc_channel_ref("PythonChannels", "call") + r'\s*[,\)]',
+        r"ipcMain\.handle\(\s*" + _ipc_channel_ref("PythonChannels", "call") + r"\s*[,\)]",
         python_call_handler_source,
-    ), "python-call-handler.ts must register the 'python-call' IPC handler via `ipcMain.handle('python-call', …)` (or PythonChannels.call)."
+    ), (
+        "python-call-handler.ts must register the 'python-call' IPC handler via "
+        "`ipcMain.handle('python-call', …)` (or PythonChannels.call)."
+    )
     # The handler must call sendToPython (the TCP bridge) on the
     # connected path.
     assert "sendToPython" in python_call_handler_source, (

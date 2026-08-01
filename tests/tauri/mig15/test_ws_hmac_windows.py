@@ -54,6 +54,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
+
 # ─── Helpers ────────────────────────────────────────────────────────────
 
 # Path to the source under test — used by the source-grep tests
@@ -80,15 +82,6 @@ def _import_sidecar_ws():
 def _read_sidecar_ws_source() -> str:
     """Read the sidecar_ws.py source as a string (for source-grep tests)."""
     return _SIDECAR_WS_PATH.read_text(encoding="utf-8")
-
-
-def _make_fake_server():
-    """Build a fake IPCServer with the attributes _make_dispatch needs."""
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
-    server.app = MagicMock()
-    server.app.quit = MagicMock()
-    return server
 
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching

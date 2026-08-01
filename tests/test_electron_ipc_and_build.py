@@ -222,14 +222,22 @@ class TestAllowlistCorrectness:
         assert "repaste_last" in allowlist_entries
 
     # REQUIRES-PYTHON-RUNNER: cross-validates the main allowlist against
-    # `voice_typer/server/ipc_server.py` Python source; out of scope for
-    # a TS-string vitest rewrite.
+    # `voice_typer/server/ipc/registry.py` (the canonical source for
+    # `_COMMAND_REGISTRY`); out of scope for a TS-string vitest rewrite.
     def test_allowlist_matches_server_commands(self, allowlist_entries):
-        ipc_path = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-        src = ipc_path.read_text(encoding="utf-8")
-        old_cmds = set(re.findall(r'cmd == "([a-z_]+)"', src))
-        new_cmds = set(re.findall(r'"([a-z_]+)": "_handle_', src))
-        server_cmds = old_cmds | new_cmds
+        # The canonical source for ``_COMMAND_REGISTRY`` is
+        # ``voice_typer/server/ipc/registry.py`` (the
+        # ``ipc_server.py`` god-module used to host it inline, but
+        # extraction moved it to the leaf ``ipc.registry``
+        # submodule — reading ``ipc_server.py`` source for handler
+        # patterns would silently miss any new command added in the
+        # registry module). Import the registry directly so the
+        # parity check is exact (every key in the dict is a
+        # server-recognized command — no regex drift, no stale
+        # pattern).
+        from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
+
+        server_cmds = set(_COMMAND_REGISTRY.keys())
         orphans = allowlist_entries - server_cmds
         assert not orphans, f"Allowlist has orphan entries: {sorted(orphans)}"
         # `tray_click` is a Rust-only command. The server

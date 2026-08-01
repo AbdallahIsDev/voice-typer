@@ -81,6 +81,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
+
 # ─── Helpers ────────────────────────────────────────────────────────────
 
 # Path to the Python source under test — used by the source-grep tests
@@ -131,15 +133,6 @@ def _read_ws_rs_source() -> str:
 def _read_spawn_rs_source() -> str:
     """Read the Rust spawn.rs source (for the externalBin-triple test)."""
     return _SPAWN_RS_PATH.read_text(encoding="utf-8")
-
-
-def _make_fake_server():
-    """Build a fake IPCServer with the attributes _make_dispatch needs."""
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
-    server.app = MagicMock()
-    server.app.quit = MagicMock()
-    return server
 
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching

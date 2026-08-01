@@ -21,7 +21,8 @@ use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-use crate::commands::export::{export_data, require_main_window};
+use crate::commands::export::export_data;
+use crate::commands::require_main_window;
 use crate::platform::open_path::open_path_in_file_manager;
 use crate::platform::paths::config_dir;
 
@@ -120,7 +121,7 @@ fn redact_config_secrets_inner(
             // for empty secrets, which would be noise.
             if !value.is_null() {
                 log::warn!(
-                    "[DE-73] redacted sensitive config key {:?} (value type: {}) — \
+                    "[REDACT-DEFENSE] redacted sensitive config key {:?} (value type: {}) — \
                      Python-side redaction may have missed this",
                     key,
                     match value {
@@ -426,7 +427,7 @@ pub async fn export_config(
     let redaction_count = redact_config_secrets(&mut data);
     if redaction_count > 0 {
         log::warn!(
-            "[DE-73] export_config: redacted {} sensitive field(s) at the \
+            "[REDACT-DEFENSE] export_config: redacted {} sensitive field(s) at the \
              Rust host (Python-side redaction should have caught these)",
             redaction_count
         );

@@ -313,7 +313,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // visible during dev.
             if !set.insert(*c) {
                 log::error!(
-                    "[CR-4] duplicate command in ALLOWED_COMMANDS literal: {} — \
+                    "[DISPATCH-ALLOWLIST] duplicate command in ALLOWED_COMMANDS literal: {} — \
                      update src-tauri/src/commands/sidecar_cmds.rs",
                     c
                 );
@@ -729,7 +729,7 @@ pub async fn dispatch(
     // (XSS in the WebView → `invoke('dispatch', {cmd:'<arbitrary>'})`).
     if !is_command_allowed(&args.cmd) {
         log::warn!(
-            "[CR-4] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
+            "[DISPATCH-ALLOWLIST] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
             args.cmd
         );
         let err = json!({
@@ -917,7 +917,9 @@ pub(crate) fn on_main_window_close(
             let app_clone = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_clone.state();
-                let _ = shutdown_sidecar(app_clone.clone(), state, main_window).await;
+                if let Err(e) = shutdown_sidecar(app_clone.clone(), state, main_window).await {
+                    log::warn!("[WINDOW] shutdown_sidecar on close failed: {}", e);
+                }
             });
         }
         "bubble" => {
@@ -1074,15 +1076,15 @@ mod tests {
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
         //
-        //count is 59 — must match the cmds
-        // literal below (single source of truth). `onboarding_check_permissions`
-        //() and `onboarding_reset` (session 1K / ) were
-        // the last entries actually added to the literal. `tray_click` is
-        // intentionally absent — see the doc comment on `dispatch_inner` and
-        // the `ALLOWED_COMMANDS` literal.
+        // 60 shared commands (TS has 62 = 60 shared + heartbeat +
+        // relaunch_ack). `heartbeat` and `relaunch_ack` are
+        // intentionally ABSENT from this Rust literal — see the
+        // doc comment on the cmds literal below. `test_cloud_connection`
+        // was the most recent entry added; `tray_click` is also
+        // intentionally absent — see `dispatch_inner`.
         assert_eq!(
             allowed_commands().len(),
-            59,
+            60,
             "must match TS allowlist minus heartbeat/relaunch_ack"
         );
     }
@@ -1090,10 +1092,13 @@ mod tests {
     #[test]
     fn test_allowed_commands_set_contains_no_duplicates() {
         let set = allowed_commands();
+        // 60 entries — must match the cmds literal below (single
+        // source of truth). A duplicate in the literal would make
+        // set.len() < 60.
         assert_eq!(
             set.len(),
-            59,
-            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (59). \
+            60,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (60). \
              Check the constructor log for the duplicate name.",
             set.len()
         );

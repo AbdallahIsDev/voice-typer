@@ -1339,14 +1339,9 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # start — the docstring's `kill_tree` prose mentions all appear
     # BEFORE the recheck, so slicing from `first_recheck` excludes them.
     kill_region = supervisor_source[
-        install_block_start
-        + first_recheck.start() : install_block_start
-        + first_recheck.start()
-        + 4000
+        install_block_start + first_recheck.start() : install_block_start + first_recheck.start() + 4000
     ]
-    kill_branch_re = re.compile(
-        r"if let Some\(c\) = child\s*\{[^}]*\bkill_tree\b", re.DOTALL
-    )
+    kill_branch_re = re.compile(r"if let Some\(c\) = child\s*\{[^}]*\bkill_tree\b", re.DOTALL)
     assert kill_branch_re.search(kill_region), (
         "YJ-21 / CR-81: when the inside-lock recheck sees "
         "`shutting_down == true`, the freshly-spawned child must be "

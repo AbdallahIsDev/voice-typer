@@ -11,6 +11,11 @@ use crate::state::SidecarHandle;
 // `SERVER_STARTED_POLL_INTERVAL_MS` in `util.rs` (was duplicated inline
 // at `spawn.rs:280` and `spawn.rs:495`).
 use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
+// AtomicBool + Ordering used by the shutting_down check
+// inside the stdout-read loops (passed in by the supervisor's
+// respawn path so the loop can short-circuit mid-handshake if the
+// user quits the app).
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -25,26 +30,73 @@ use serde_json::Value;
 /// read the `server_started` JSON from stdout.
 ///
 /// Returns the bound port + the child handle on success.
+///
+/// the cold-start path (called from `main.rs`) does NOT pass a
+/// `shutting_down` flag — the host has just started, so the
+/// `shutting_down` AtomicBool is `false` and would remain so for the
+/// duration of the spawn. A quit during cold-start spawn is handled by
+/// the post-spawn `shutting_down.load()` re-check in `main.rs` (which
+/// kills the freshly-spawned sidecar). The supervisor's respawn path
+/// (`crate::sidecar::supervisor::respawn_inner`) calls
+/// `spawn_sidecar_and_get_port_with_shutdown` instead, passing
+/// `&state.shutting_down` so the stdout-read loop can short-circuit
+/// mid-handshake if the user quits the app during a respawn.
 pub(crate) async fn spawn_sidecar_and_get_port(
     app: &tauri::AppHandle,
     token: &str,
 ) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
-    // ADR-0020 §14: dev mode — when `VOICE_TYPER_SIDECAR_DEV=1` is set,
-    // spawn `python -m voice_typer.server.ipc_server --ws` via
-    // std::process::Command (tokio::process::Command for async I/O)
-    // instead of the frozen `externalBin` binary. This lets UI/
-    // transport iterate in seconds (no Nuitka recompile) during dev.
-    //
-    // only the release path (`spawn_sidecar_release`) returns a
-    // `CommandEvent` receiver — the dev-mode path spawns via
-    // `tokio::process::Command` which has no equivalent stream, so we
-    // return `None` and `shutdown_sidecar` falls back to bounded sleep
-    // polling.
+    spawn_sidecar_and_get_port_inner(app, token, None).await
+}
+
+/// Same as `spawn_sidecar_and_get_port` but accepts a `shutting_down`
+/// flag that the stdout-read loop polls between iterations. When the
+/// flag flips to `true` (e.g. the user quit the app while a respawn was
+/// in flight), the loop kills the freshly-spawned child and returns
+/// `Err("shutdown")` instead of waiting up to `SERVER_STARTED_TIMEOUT_MS`
+/// (30s) for a `server_started` line that will never arrive.
+///
+/// Used by `crate::sidecar::supervisor::respawn_inner` — the cold-start
+/// path in `main.rs` continues to call the no-shutdown variant (see
+/// its doc comment for rationale).
+pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
+    app: &tauri::AppHandle,
+    token: &str,
+    shutting_down: &AtomicBool,
+) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
+    spawn_sidecar_and_get_port_inner(app, token, Some(shutting_down)).await
+}
+
+/// Pure form of the shutting-down check used by both spawn loops.
+/// Returns `true` when `shutting_down` is `Some(flag)` AND the flag is
+/// set (`load(SeqCst) == true`). Returns `false` when `shutting_down`
+/// is `None` (cold-start path — no flag to check) or when the flag is
+/// not yet set.
+///
+/// Extracted as a pure helper so it can be unit-tested without
+/// spawning a real sidecar process.
+fn is_shutting_down(shutting_down: Option<&AtomicBool>) -> bool {
+    match shutting_down {
+        Some(flag) => flag.load(Ordering::SeqCst),
+        None => false,
+    }
+}
+
+/// Internal helper shared by `spawn_sidecar_and_get_port` and
+/// `spawn_sidecar_and_get_port_with_shutdown`. The `shutting_down`
+/// parameter is `Option<&AtomicBool>`: `None` for the cold-start path
+/// (no flag to poll — `is_shutting_down` returns `false` unconditionally),
+/// `Some(&flag)` for the supervisor-respawn path (polled between
+/// stdout-read iterations).
+async fn spawn_sidecar_and_get_port_inner(
+    app: &tauri::AppHandle,
+    token: &str,
+    shutting_down: Option<&AtomicBool>,
+) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
     if is_dev_mode() {
-        let (port, child) = spawn_sidecar_dev_mode(token).await?;
+        let (port, child) = spawn_sidecar_dev_mode(token, shutting_down).await?;
         return Ok((port, child, None));
     }
-    let (port, child, rx) = spawn_sidecar_release(app, token).await?;
+    let (port, child, rx) = spawn_sidecar_release(app, token, shutting_down).await?;
     Ok((port, child, Some(rx)))
 }
 
@@ -207,6 +259,7 @@ pub(crate) fn passthrough_env_allowlist(
 pub(crate) async fn spawn_sidecar_release(
     app: &tauri::AppHandle,
     token: &str,
+    shutting_down: Option<&AtomicBool>,
 ) -> Result<(u16, SidecarHandle, mpsc::Receiver<CommandEvent>), String> {
     // ADR-0020 §4.1: Tauri's externalBin selects the right binary by
     // matching the Rust target triple at runtime. The binary name
@@ -279,6 +332,43 @@ pub(crate) async fn spawn_sidecar_release(
     let mut stdout_buf = String::new();
 
     while Instant::now() < deadline {
+        // Short-circuit the stdout-read loop if the host is
+        // shutting down. Without this check, a respawn initiated
+        // seconds before the user quits the app would block here for
+        // up to SERVER_STARTED_TIMEOUT_MS (30s) waiting for a
+        // `server_started` line that will never arrive — the user
+        // would see a 30s "app won't quit" hang. The check uses
+        // SeqCst to pair with the `shutting_down.swap(true, SeqCst)`
+        // in `shutdown_sidecar_for_exit` (state.rs) — we want a total
+        // order between the swap and this load so we never miss the
+        // flag flip due to memory-ordering skid.
+        //
+        // On shutdown detection we kill the freshly-spawned child
+        // (reap grandchildren via `kill_process_tree` first, then
+        // `child.kill()`) and return Err("shutdown"). The supervisor's
+        // `respawn_inner` checks for this specific error string and
+        // treats it as a graceful exit (clears `respawn_in_progress`,
+        // returns Ok) instead of retrying — see the match arm in
+        // `supervisor.rs`.
+        if is_shutting_down(shutting_down) {
+            log::info!(
+                "[SIDECAR] shutting_down set during stdout-read loop — killing freshly-spawned child"
+            );
+            let pid = child.pid();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                crate::platform::process::kill_process_tree(pid)
+            })
+            .await;
+            if let Err(kill_err) = child.kill() {
+                log::warn!(
+                    "[SIDECAR] failed to kill child after shutting_down detected (best-effort): {}",
+                    kill_err
+                );
+            }
+            let _ = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+            return Err("shutdown".to_string());
+        }
+
         match tokio::time::timeout(
             Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
             rx.recv(),
@@ -405,7 +495,13 @@ pub(crate) async fn spawn_sidecar_release(
                     // hand the event receiver back to the caller so
                     // `shutdown_sidecar` can poll for `Terminated` instead
                     // of sleeping the full SHUTDOWN_ACK_TIMEOUT_MS.
-                    return Ok((port, SidecarHandle::ShellPlugin(child), rx));
+                    //
+                    // The ShellPlugin variant wraps
+                    // `Option<CommandChild>` so the `Drop` impl in
+                    // `state.rs` can `take()` the child out of `&mut self`
+                    // for a best-effort kill on drop. At construction time
+                    // the Option is always `Some(...)`.
+                    return Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx));
                 }
                 // Not the server_started line — could be a stray log
                 // (shouldn't happen per ADR-0020 §1, sidecar sends
@@ -509,7 +605,10 @@ fn dev_prewarm_exe() -> String {
 /// - Windows: `python.exe` (spec §14 says `pythonw.exe` would suppress
 ///   the console window, but we use `python.exe` to surface logs).
 /// - macOS / Linux: `python3`.
-pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarHandle), String> {
+pub(crate) async fn spawn_sidecar_dev_mode(
+    token: &str,
+    shutting_down: Option<&AtomicBool>,
+) -> Result<(u16, SidecarHandle), String> {
     let python_bin = if cfg!(target_os = "windows") { "python.exe" } else { "python3" };
 
     // ADR-0020 §14: `VOICE_TYPER_NATIVE_DIR` points to the source-tree
@@ -590,6 +689,37 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
     let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
     let mut stdout_buf = String::new();
     while Instant::now() < deadline {
+        // Same shutting_down short-circuit as the release path
+        // (see `spawn_sidecar_release`). The dev-mode sidecar is
+        // typically faster to emit `server_started` (no Nuitka
+        // unpack), but a cold Python import on the first run can take
+        // 5-10s — long enough for a user-initiated quit to race the
+        // handshake. The dev-mode `tokio::process::Child` was
+        // constructed with `kill_on_drop(true)`, so dropping it would
+        // eventually kill the process — but we kill explicitly here
+        // (and wait via `child.wait()`) so the test environment
+        // doesn't see a zombie between this return and the eventual
+        // Drop.
+        if is_shutting_down(shutting_down) {
+            log::info!(
+                "[SIDECAR-DEV] shutting_down set during stdout-read loop — killing freshly-spawned dev child"
+            );
+            let pid_opt = child.id();
+            if let Some(pid) = pid_opt {
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    crate::platform::process::kill_process_tree(pid)
+                })
+                .await;
+            }
+            if let Err(e) = child.kill().await {
+                log::warn!(
+                    "[SIDECAR-DEV] failed to kill child after shutting_down detected (best-effort): {}",
+                    e
+                );
+            }
+            let _ = tokio::time::timeout(Duration::from_millis(500), child.wait()).await;
+            return Err("shutdown".to_string());
+        }
         let mut line = String::new();
         match tokio::time::timeout(Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS), reader.read_line(&mut line)).await {
             Ok(Ok(0)) => {
@@ -971,5 +1101,65 @@ mod tests {
                 key
             );
         }
+    }
+
+    // ── shutting_down check in spawn loops ────────────────────────
+
+    /// `is_shutting_down(None)` must return `false` — the cold-start
+    /// path (called from `main.rs`) does not pass a shutting_down
+    /// flag, so the spawn loop runs to completion (the post-spawn
+    /// `shutting_down.load()` re-check in `main.rs` handles the
+    /// quit-during-cold-start case).
+    #[test]
+    fn test_is_shutting_down_none_returns_false() {
+        assert!(
+            !is_shutting_down(None),
+            "is_shutting_down(None) must be false (cold-start path)"
+        );
+    }
+
+    /// `is_shutting_down(Some(&false_flag))` must return `false` —
+    /// the supervisor's respawn path passes a real flag that starts
+    /// at `false` and only flips to `true` when the host is shutting
+    /// down. The spawn loop must NOT short-circuit while the flag is
+    /// still false.
+    #[test]
+    fn test_is_shutting_down_some_false_returns_false() {
+        let flag = AtomicBool::new(false);
+        assert!(
+            !is_shutting_down(Some(&flag)),
+            "is_shutting_down(Some(false)) must be false (normal respawn)"
+        );
+    }
+
+    /// `is_shutting_down(Some(&true_flag))` must return `true` — the
+    /// supervisor's respawn path passes a real flag that flips to
+    /// `true` when the host is shutting down. The spawn loop must
+    /// short-circuit (kill the freshly-spawned child + return
+    /// Err("shutdown")) as soon as this returns true.
+    #[test]
+    fn test_is_shutting_down_some_true_returns_true() {
+        let flag = AtomicBool::new(true);
+        assert!(
+            is_shutting_down(Some(&flag)),
+            "is_shutting_down(Some(true)) must be true (host is shutting down)"
+        );
+    }
+
+    /// `is_shutting_down` must observe the flag flip from `false` →
+    /// `true` mid-test (mirrors the real race: the spawn loop polls
+    /// the flag between iterations, and a concurrent shutdown flips
+    /// it). Uses SeqCst on both the store and the load (inside
+    /// `is_shutting_down`) so the flip is visible without skid.
+    #[test]
+    fn test_is_shutting_down_observes_concurrent_flip() {
+        let flag = Arc::new(AtomicBool::new(false));
+        // Before the flip: false.
+        assert!(!is_shutting_down(Some(&flag)));
+        // Simulate `shutdown_sidecar_for_exit` flipping the flag.
+        flag.store(true, Ordering::SeqCst);
+        // After the flip: true — the spawn loop's next iteration
+        // would short-circuit.
+        assert!(is_shutting_down(Some(&flag)));
     }
 }

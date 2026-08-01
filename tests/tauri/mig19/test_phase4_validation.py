@@ -365,6 +365,21 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # ``ipc_server.py``). Listed here so the frozen-contract gate
         # does not block on it.
         "tray_click",
+        # Cloud-provider "Test Connection" probe. The renderer's
+        # ``useCloudProviders.testConnection`` action dispatches this
+        # command instead of issuing a cross-origin ``fetch`` directly
+        # (which would leak the API key through browser dev-tools
+        # observability and violate C-DATA-1's "renderer production
+        # code path stays network-free" promise). The Python-side
+        # handler in ``handlers/cloud_test_handlers.py`` performs the
+        # network call, gated by an explicit user click on the Cloud
+        # tab's "Test Connection" button. Added to ``_COMMAND_REGISTRY``
+        # without a formal ADR-0020 §16 addendum; tracked as a known
+        # gap pending the next ADR refresh. The renderer (62 entries)
+        # and Rust allowlists already include this command; the gap is
+        # only the ADR documentation + ``_validate_dict_payload``
+        # schema + dispatch-errors test (option (b) above).
+        "test_cloud_connection",
     }
 )
 

@@ -62,22 +62,9 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import event_bus, sidecar_ws  # noqa: E402
 
+from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server  # noqa: E402
+
 # ─── Helpers ───────────────────────────────────────────────────────────
-
-
-def _make_fake_server() -> MagicMock:
-    """Build a fake IPCServer with the attributes _handle_connection needs.
-
-    ``_ready_emitted=True`` skips the post-auth ``ready`` emission so
-    the tests can focus on the queue path (and so the spied
-    ``event_bus.publish`` doesn't see a stray ``ready`` from setup).
-    """
-    server = MagicMock()
-    server._dispatch = MagicMock(return_value=None)
-    server.app = MagicMock()
-    server.push = MagicMock()
-    server._ready_emitted = True
-    return server
 
 
 class _BlockingAsyncIter:

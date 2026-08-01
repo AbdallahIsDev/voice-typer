@@ -335,9 +335,17 @@ class TestSettingsRendererCallsPythonBridgeCall:
         settings_path = (
             client_root / "src" / "renderer" / "src" / "components" / "settings" / "GeneralSettingsSection.tsx"
         )
-        i18n_path = client_root / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
+        # The i18n module was decomposed into a barrel (`i18n.ts`) plus
+        # implementation files (`index.ts`, `push.ts`, `store.ts`, …). The
+        # ``set_tray_locale`` dispatch lives in `push.ts` and is re-exported
+        # via `index.ts` and the `i18n.ts` barrel. Assert against the union
+        # of these three files so the test tracks the actual implementation
+        # location regardless of which file the dispatch moves to next.
+        i18n_dir = client_root / "src" / "renderer" / "src" / "i18n"
+        i18n_src = "\n".join(
+            (i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "push.ts")
+        )
         settings_src = settings_path.read_text(encoding="utf-8")
-        i18n_src = i18n_path.read_text(encoding="utf-8")
 
         # GeneralSettingsSection.tsx delegates to ``setLocale()`` and must
         # NOT call the Python bridge directly via ``.ipc(`` (the original
@@ -381,7 +389,8 @@ class TestSettingsRendererCallsPythonBridgeCall:
             / "renderer"
             / "src"
             / "types"
-            / "ipc.ts"
+            / "ipc"
+            / "bridge.ts"
         )
         src = ipc_types_path.read_text(encoding="utf-8")
         # Extract the PythonBridge interface block
@@ -393,3 +402,182 @@ class TestSettingsRendererCallsPythonBridgeCall:
         bridge_block = src[bridge_start:brace_end]
         assert "ipc" not in bridge_block, "TS error: PythonBridge interface must NOT have an 'ipc' method"
         assert "call:" in bridge_block, "PythonBridge must have a 'call' method"
+
+
+class TestShutdownControllerPhasesContract:
+    """AC-87: ``_do_cleanup`` is decomposed into named phase methods.
+
+    The original ``_do_cleanup`` was a 466-line method with 18 sequential
+    teardown blocks, 25 ``except Exception`` clauses, and 9 dynamic
+    imports (per review entry AC-87). The fix extracted the teardown
+    blocks into dedicated ``_teardown_*`` phase methods and added a
+    class-level ``_PARALLEL_TEARDOWN_PHASE_NAMES`` constant to make the
+    ordered phase list explicit and inspectable at runtime.
+
+    These tests pin the structural decomposition so a future regression
+    (e.g. inlining the phase methods back into ``_do_cleanup``) is
+    caught by CI.
+    """
+
+    def test_parallel_teardown_phase_names_constant_exists(self):
+        """``_PARALLEL_TEARDOWN_PHASE_NAMES`` must be defined on the class."""
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        assert hasattr(ShutdownController, "_PARALLEL_TEARDOWN_PHASE_NAMES"), (
+            "AC-87: ShutdownController must expose _PARALLEL_TEARDOWN_PHASE_NAMES (ordered phase list)"
+        )
+
+    def test_parallel_teardown_phase_names_has_fifteen_entries(self):
+        """The constant must list all 15 parallel teardown phases."""
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        names = ShutdownController._PARALLEL_TEARDOWN_PHASE_NAMES
+        assert isinstance(names, tuple)
+        assert len(names) == 15, f"AC-87: expected 15 parallel teardown phases; got {len(names)}: {names}"
+
+    def test_parallel_teardown_phase_names_are_method_names(self):
+        """Each entry must be the name of a ``_teardown_*`` method on the class."""
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        for name in ShutdownController._PARALLEL_TEARDOWN_PHASE_NAMES:
+            assert name.startswith("_teardown_"), f"AC-87: phase name {name!r} must start with '_teardown_'"
+            assert callable(getattr(ShutdownController, name, None)), (
+                f"AC-87: phase {name!r} must resolve to a callable method on ShutdownController"
+            )
+
+    def test_flush_bearing_phases_run_first(self):
+        """``_teardown_crash_recovery`` and ``_teardown_history_db`` must
+        appear in the FIRST FOUR positions of the phase list so their
+        ``flush()`` side-effects fire before the hotkey / level_monitor /
+        event_bus teardowns begin (flush-before-teardown guarantee).
+        """
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        names = ShutdownController._PARALLEL_TEARDOWN_PHASE_NAMES
+        crash_idx = names.index("_teardown_crash_recovery")
+        history_idx = names.index("_teardown_history_db")
+        hotkeys_idx = names.index("_teardown_hotkeys")
+        event_bus_idx = names.index("_teardown_event_bus")
+        assert crash_idx < hotkeys_idx, (
+            "AC-87: _teardown_crash_recovery must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
+        )
+        assert history_idx < hotkeys_idx, (
+            "AC-87: _teardown_history_db must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
+        )
+        assert crash_idx < event_bus_idx, "AC-87: _teardown_crash_recovery must run BEFORE _teardown_event_bus"
+        assert history_idx < event_bus_idx, "AC-87: _teardown_history_db must run BEFORE _teardown_event_bus"
+
+    def test_do_cleanup_is_decomposed(self):
+        """``_do_cleanup`` must be an orchestrator (≤350 lines, ≤5 except
+        clauses, 0 dynamic imports) — not the original 466-line monolith
+        with 25 except clauses and 9 dynamic imports.
+        """
+        import ast
+
+        from voice_typer.server import shutdown_controller as sc_mod
+
+        tree = ast.parse(ast.unparse(ast.parse(Path(sc_mod.__file__).read_text())))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "ShutdownController":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "_do_cleanup":
+                        line_span = item.end_lineno - item.lineno + 1
+                        except_count = sum(1 for n in ast.walk(item) if isinstance(n, ast.ExceptHandler))
+                        import_count = sum(1 for n in ast.walk(item) if isinstance(n, (ast.Import, ast.ImportFrom)))
+                        assert line_span <= 350, (
+                            f"AC-87: _do_cleanup must be ≤350 lines after decomposition; got {line_span}"
+                        )
+                        assert except_count <= 5, (
+                            f"AC-87: _do_cleanup must have ≤5 except clauses after "
+                            f"decomposition (was 25); got {except_count}"
+                        )
+                        assert import_count == 0, (
+                            f"AC-87: _do_cleanup must have 0 dynamic imports after "
+                            f"decomposition (was 9); got {import_count}"
+                        )
+                        return
+        raise AssertionError("AC-87: _do_cleanup method not found on ShutdownController")
+
+
+class TestQuitContractDocumented:
+    """AC-91: ``quit()`` documents the threading/exit contract.
+
+    The original ``quit()`` had an undocumented ``is_main`` asymmetry:
+    on the main thread it called ``sys.exit(0)``; on a non-main thread
+    it relied on ``tray.stop()`` breaking the pystray loop (which could
+    hang). The fix (a) documents the contract in the docstring, and (b)
+    arms a daemon-thread watchdog (``_arm_shutdown_watchdog``) that
+    calls ``os._exit(0)`` after ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` seconds
+    if the process is still alive.
+
+    These tests pin the docstring contract so a future regression (e.g.
+    removing the watchdog) is caught by CI.
+    """
+
+    def test_quit_docstring_documents_threading_contract(self):
+        """The ``quit()`` docstring must mention the main-thread /
+        non-main-thread asymmetry so the contract is explicit."""
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        doc = ShutdownController.quit.__doc__ or ""
+        assert doc, "AC-91: quit() must have a docstring documenting the threading contract"
+        # The docstring must mention at least one of the key contract
+        # terms: non-main thread, sys.exit, or the watchdog.
+        contract_terms = ("non-main", "main thread", "sys.exit", "watchdog", "_do_cleanup")
+        assert any(term in doc.lower() for term in (t.lower() for t in contract_terms)), (
+            f"AC-91: quit() docstring must document the threading/exit contract (looked for any of {contract_terms})"
+        )
+
+    def test_quit_arms_watchdog_on_non_main_thread(self):
+        """AC-91 (b): when ``quit()`` runs on a non-main thread, it must
+        arm the shutdown watchdog (which calls ``os._exit(0)`` after the
+        grace period). Verified via spy on ``_arm_shutdown_watchdog``."""
+        import sys
+        import threading
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.shutdown_controller import (
+            SHUTDOWN_WATCHDOG_TIMEOUT_S,
+            ShutdownController,
+        )
+
+        fake_app = MagicMock()
+        fake_app._shutting_down = False
+        fake_app._shutting_down_event = threading.Event()
+        fake_app._thread_registry = MagicMock()
+        fake_app._do_cleanup = MagicMock()
+        controller = ShutdownController(fake_app)
+        # Suppress sys.exit on the worker thread (it would raise SystemExit).
+        original_exit = sys.exit
+        sys.exit = lambda code=0: None  # type: ignore[assignment]
+        try:
+            armed_calls: list[float] = []
+
+            def _spy_arm(timeout_s: float) -> None:
+                armed_calls.append(timeout_s)
+
+            controller._arm_shutdown_watchdog = _spy_arm  # type: ignore[assignment]
+
+            done = threading.Event()
+            error_holder: list = []
+
+            def _run_quit():
+                try:
+                    controller.quit()
+                except BaseException as exc:
+                    error_holder.append(exc)
+                finally:
+                    done.set()
+
+            t = threading.Thread(target=_run_quit, name="test-quit-non-main")
+            t.start()
+            done.wait(timeout=5.0)
+            t.join(timeout=5.0)
+        finally:
+            sys.exit = original_exit  # type: ignore[assignment]
+
+        assert not error_holder, f"quit() on non-main thread raised: {error_holder}"
+        assert armed_calls == [SHUTDOWN_WATCHDOG_TIMEOUT_S], (
+            f"AC-91: quit() on non-main thread must arm the watchdog with "
+            f"SHUTDOWN_WATCHDOG_TIMEOUT_S; got armed_calls={armed_calls}"
+        )
