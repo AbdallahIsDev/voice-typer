@@ -24,6 +24,7 @@ backward compatibility.
 import contextlib
 import json as _json
 import logging
+import math
 from collections.abc import Callable
 from pathlib import Path as _Path
 from typing import TypeGuard
@@ -185,45 +186,53 @@ _MAX_STRING_LEN = 8192
 # 4 KB), so they get their own cap.
 _MAX_API_KEY_LEN = 16384
 
+# Shared error-message templates for the string validator family.
+# Centralising them as module-level constants means
+# :func:`_make_str_validator` and :func:`_make_optional_str_validator`
+# cannot drift apart on wording (the optional variant previously had
+# its own near-identical copy of every message). Both functions now
+# format these templates with the same field values.
+_ERR_MUST_BE_STRING = "must be a string, got {type_name}"
+_ERR_EXCEEDS_MAX_LEN = "exceeds maximum length {max_len}, got length {actual_len}"
+_ERR_CONTROL_CHAR = "contains control character (ord={ord})"
+
 
 def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
     def _validate(v: object) -> str | None:
         if not _is_str(v):
-            return f"must be a string, got {type(v).__name__}"
+            return _ERR_MUST_BE_STRING.format(type_name=type(v).__name__)
         if len(v) > max_len:
             # (session-5): include the actual length so the
             # operator can see how badly the cap was blown (e.g. a 50 KB
             # hotkey string vs. one that's 1 char over). Don't include
             # the value itself — string fields can hold API keys / PII.
-            return f"exceeds maximum length {max_len}, got length {len(v)}"
-        # Reject C0 control characters and DEL (0x7f) to prevent
-        # log poisoning, header injection, and config.json truncation.
+            return _ERR_EXCEEDS_MAX_LEN.format(max_len=max_len, actual_len=len(v))
+        # Reject C0 control characters (0x00-0x1F), DEL (0x7F), AND C1
+        # control characters (0x80-0x9F). C1 escapes such as CSI (0x9B)
+        # and OSC (0x9D) can reprogram a terminal, poison logs, and
+        # corrupt crash dumps — same threat model as C0.
         for ch in v:
             o = ord(ch)
-            if o < 0x20 or o == 0x7F:
-                return f"contains control character (ord={o})"
+            if o < 0x20 or 0x7F <= o <= 0x9F:
+                return _ERR_CONTROL_CHAR.format(ord=o)
         return None
 
     return _validate
 
 
 def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
+    # Deduplicated: a None value short-circuits to success, and every
+    # other case is delegated to ``_make_str_validator`` so the two
+    # validators cannot drift apart on length / control-char / type
+    # checks. Pre-refactor, this function was a 15-line near-copy of
+    # ``_make_str_validator`` with its own (slightly different) error
+    # strings — the only behavioural delta was accepting ``None``.
+    inner = _make_str_validator(max_len)
+
     def _validate(v: object) -> str | None:
         if v is None:
             return None
-        if not _is_str(v):
-            return f"must be a string or null, got {type(v).__name__}"
-        if len(v) > max_len:
-            # (session-5): include actual length (see
-            # _make_str_validator for the rationale on why we don't
-            # include the value).
-            return f"exceeds maximum length {max_len}, got length {len(v)}"
-        # Reject C0 control characters and DEL (0x7f).
-        for ch in v:
-            o = ord(ch)
-            if o < 0x20 or o == 0x7F:
-                return f"contains control character (ord={o})"
-        return None
+        return inner(v)
 
     return _validate
 
@@ -248,15 +257,54 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
     return _validate
 
 
+def _make_optional_int_validator(*, lo: int, hi: int) -> ValidatorFn:
+    # Mirrors :func:`_make_optional_str_validator`: short-circuit
+    # ``None`` to success and delegate every other case to
+    # :func:`_make_int_validator` so the two paths cannot drift on
+    # range / type-error wording. Used by Optional[int] dataclass
+    # fields like ``bubble_x`` / ``bubble_y`` / ``test_duration_seconds``
+    # whose ``None`` sentinel means "not set — use the renderer default".
+    inner = _make_int_validator(lo=lo, hi=hi)
+
+    def _validate(v: object) -> str | None:
+        if v is None:
+            return None
+        return inner(v)
+
+    return _validate
+
+
 def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
     def _validate(v: object) -> str | None:
         if not _is_float_or_int_not_bool(v):
             return f"must be a number, got {type(v).__name__}"
+        # NaN defeats the range check below (both ``v < lo``
+        # and ``v > hi`` are False for NaN), and ``json.loads`` accepts
+        # ``NaN`` / ``Infinity`` as a non-standard extension, so a
+        # hand-edited ``config.json`` could otherwise sneak NaN into a
+        # float field and silently disable downstream comparisons.
+        # ``math.isinf`` covers both +inf and -inf. Reject both before
+        # the range check fires.
+        if math.isnan(v) or math.isinf(v):
+            return f"must be a finite number, got {v}"
         if v < lo or v > hi:
             # (session-5): include the actual value — floats
             # are non-PII.
             return f"must be in [{lo}, {hi}], got {v}"
         return None
+
+    return _validate
+
+
+def _make_optional_float_validator(*, lo: float, hi: float) -> ValidatorFn:
+    # Mirrors :func:`_make_optional_int_validator` for Optional[float]
+    # dataclass fields like ``bubble_scale``.
+    inner = _make_float_validator(lo=lo, hi=hi)
+
+    def _validate(v: object) -> str | None:
+        if v is None:
+            return None
+        return inner(v)
 
     return _validate
 
@@ -380,6 +428,16 @@ def _make_url_validator(
     def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
+        # Strip leading/trailing whitespace BEFORE any further
+        # checks. A pasted URL like ``" https://api.openai.com "`` would
+        # otherwise be rejected with a misleading
+        # ``"must use http or https scheme (got '')"`` error because
+        # ``urlparse`` sees an empty scheme on the leading-space value.
+        # Mutate the local ``v`` so all downstream checks (length, empty,
+        # urlparse, scheme, host) operate on the cleaned value.
+        stripped = v.strip()
+        if stripped != v:
+            v = stripped
         if len(v) > max_len:
             # (session-5): include actual length (URL fields
             # can hold API keys via query strings, so don't include the
@@ -389,6 +447,16 @@ def _make_url_validator(
             if allow_empty:
                 return None
             return "must not be empty"
+        # Scan for C0 / DEL / C1 control characters BEFORE
+        # ``urlparse`` runs. Mirrors the check in ``_make_str_validator``
+        # so URL fields cannot smuggle C1 escapes (CSI=0x9B, OSC=0x9D)
+        # past the string validator just because they happen to be
+        # URL-shaped. C1 escapes can reprogram a terminal and poison
+        # logs / crash dumps.
+        for ch in v:
+            o = ord(ch)
+            if o < 0x20 or 0x7F <= o <= 0x9F:
+                return f"contains control character (ord={o})"
         try:
             parsed = urlparse(v)
         except (ValueError, TypeError) as e:
@@ -1307,6 +1375,29 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # mic button + click-to-toggle for the always-visible bubble.
     "bubble_click_to_toggle": (bool, _bool_validator),
     "bubble_mic_button": (bool, _bool_validator),
+    # Persisted bubble window position (screen-space pixel coords).
+    # ``expected_type`` widened to ``(int, type(None))`` so the IPC
+    # pre-check accepts the "not set" sentinel the renderer writes when
+    # the user has never dragged the bubble (matching the dataclass
+    # default of ``None``). The validator itself (returned by
+    # ``_make_optional_int_validator``) short-circuits ``None`` to
+    # success and delegates the range check to ``_make_int_validator``
+    # for non-None values. Range [0, 10000] covers any plausible screen
+    # coordinate (8K monitors are 7680px wide) while rejecting negative
+    # / absurd values that would place the bubble off-screen.
+    "bubble_x": ((int, type(None)), _make_optional_int_validator(lo=0, hi=10000)),
+    "bubble_y": ((int, type(None)), _make_optional_int_validator(lo=0, hi=10000)),
+    # Persisted bubble scale factor (multiplier on the base DPI).
+    # Range [0.5, 3.0] — wider than the renderer's visible [0.5, 2.0]
+    # clamp so a future renderer change can loosen the visible range
+    # without a server-side allowlist edit. Accepts ``None`` for the
+    # same "not set" reason as ``bubble_x`` / ``bubble_y`` above.
+    "bubble_scale": ((float, type(None)), _make_optional_float_validator(lo=0.5, hi=3.0)),
+    # Persisted microphone-test duration (seconds). Range [1, 60] —
+    # wider than the renderer's visible [1, 30] clamp (same rationale
+    # as ``bubble_scale``). Accepts ``None`` so the renderer can clear
+    # the field back to "use the in-app default of 5s".
+    "test_duration_seconds": ((int, type(None)), _make_optional_int_validator(lo=1, hi=60)),
     # ── History database ──────────────────────────────────────────────
     # ``history_enabled`` is the master toggle for whether dictated
     # text is persisted to the history SQLite DB. Defaults True; users
@@ -1715,7 +1806,9 @@ __all__ = [
     "_make_optional_str_validator",
     "_bool_validator",
     "_make_int_validator",
+    "_make_optional_int_validator",
     "_make_float_validator",
+    "_make_optional_float_validator",
     "_make_enum_validator",
     "_make_custom_theme_validator",
     "_make_url_validator",

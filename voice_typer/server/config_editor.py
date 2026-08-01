@@ -358,6 +358,57 @@ class ConfigEditorLauncher:
                     mutation_lock = getattr(self.app, "_config_mutation_lock", None)
                     if mutation_lock is not None:
                         self.app.config.set_mutation_lock(mutation_lock)
+                    # Surface ``last_load_warnings`` to the user as a
+                    # tray notification. Pre-fix, a hand-edited
+                    # ``config.json`` with an invalid value (e.g.
+                    # ``asr_backend="invalid"``) loaded silently — the
+                    # user editing the file got no toast, no IPC error,
+                    # no UI banner. The sanitizer (config_sanitizer.py)
+                    # now ships ``last_load_warnings`` to the renderer
+                    # via the ``get_config`` IPC response, but that
+                    # only fires on the NEXT ``get_config`` poll — the
+                    # editor-reload path blocks the IPC thread, so the
+                    # renderer doesn't poll until this method returns.
+                    # A tray notification here closes the immediate-
+                    # feedback gap: the user sees "Config loaded with
+                    # N warning(s)" the moment the editor exits, while
+                    # the IPC thread is still inside this method.
+                    #
+                    # ``getattr(..., [])`` is defensive against a
+                    # Config-like test double that didn't set the
+                    # attribute (the production Config always sets it
+                    # in ``__post_init__`` via ``object.__setattr__``).
+                    # ``or []`` handles the ``None`` sentinel from
+                    # ``__post_init__`` (the attribute is initialized to
+                    # ``None`` and only replaced with a list in
+                    # ``load()`` once warnings are collected).
+                    reload_warnings = list(getattr(self.app.config, "last_load_warnings", []) or [])
+                    if reload_warnings:
+                        first = reload_warnings[0]
+                        # Truncate the first warning so the tray
+                        # notification stays readable on a single line.
+                        # The full warning list is available to the
+                        # renderer via the next ``get_config`` IPC
+                        # response (see sanitize_config_for_ipc).
+                        if len(first) > 160:
+                            first = first[:160] + "…"
+                        try:
+                            self.app.tray.notify(
+                                APP_NAME,
+                                f"Config loaded with {len(reload_warnings)} warning(s): {first}",
+                            )
+                        except Exception:
+                            # ``tray.notify`` is best-effort — a
+                            # failure here (e.g. the tray icon isn't
+                            # initialized yet on early startup) must
+                            # NOT mask the successful config reload.
+                            # The warnings are still in
+                            # ``last_load_warnings`` and will surface
+                            # via the next ``get_config`` IPC poll.
+                            log.debug(
+                                "[CONFIG] tray.notify for reload warnings failed",
+                                exc_info=True,
+                            )
         except TimeoutError as e:
             # editor session exceeded the bounded timeout.
             # The platform launcher already killed the subprocess.

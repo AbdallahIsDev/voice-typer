@@ -33,6 +33,18 @@ import sys
 import time
 from pathlib import Path, PureWindowsPath
 
+# APP_SLUG is imported lazily inside the functions that need it
+# (``_config_dir`` and ``_migrate_from_legacy``) to avoid a circular
+# import: ``config.py`` (line 50) imports this module BEFORE it has
+# finished loading, and ``voice_typer.server._paths`` itself imports
+# ``_config_dir`` from ``voice_typer.server.config`` at module-load
+# time. A top-level ``from voice_typer.server._paths import APP_SLUG``
+# here would therefore trigger loading ``_paths`` while ``config`` is
+# still partial, raising ``ImportError: cannot import name '_config_dir'
+# from partially initialized module 'voice_typer.server.config'``.
+# The lazy-import pattern mirrors :func:`_get_config_dir` /
+# :func:`_is_windows` / :func:`_is_macos` below.
+
 log = logging.getLogger("voice_typer.server.config")
 
 # cross-process lock for Config.save().  This is the canonical
@@ -391,6 +403,11 @@ def _config_dir() -> Path:
         :func:`_reset_config_dir_cache` — mirrors
         :func:`voice_typer.server.credential_store._reset_keyring_cache`.
     """
+    # lazy import to avoid the circular import described at the top
+    # of this module (``config.py`` → ``config_internals.paths`` →
+    # ``_paths`` → ``config`` partial).  Mirrors :func:`_get_config_dir`.
+    from voice_typer.server._paths import APP_SLUG
+
     custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if custom:
         custom_path = Path(custom)
@@ -418,7 +435,7 @@ def _config_dir() -> Path:
     if _is_windows():
         appdata = os.environ.get("APPDATA")
         if appdata:
-            appdata_path = Path(appdata) / "voice-typer"
+            appdata_path = Path(appdata) / APP_SLUG
             # SEC-005: validate APPDATA-derived path
             try:
                 _validate_path_safety(appdata_path, Path.home())
@@ -427,12 +444,12 @@ def _config_dir() -> Path:
             else:
                 return appdata_path
     elif _is_macos():
-        return Path.home() / "Library" / "Application Support" / "voice-typer"
+        return Path.home() / "Library" / "Application Support" / APP_SLUG
     else:
         # Linux / FreeBSD: honor XDG_DATA_HOME.
         xdg = os.environ.get("XDG_DATA_HOME")
         if xdg:
-            xdg_path = Path(xdg) / "voice-typer"
+            xdg_path = Path(xdg) / APP_SLUG
             # SEC-005: validate XDG_DATA_HOME-derived path
             try:
                 _validate_path_safety(xdg_path, Path.home())
@@ -440,7 +457,7 @@ def _config_dir() -> Path:
                 log.warning("[CONFIG] XDG_DATA_HOME path traversal detected: %s", xdg)
             else:
                 return xdg_path
-        return Path.home() / ".local" / "share" / "voice-typer"
+        return Path.home() / ".local" / "share" / APP_SLUG
 
     # Fallback for any platform where the above checks didn't return.
     return legacy
@@ -504,13 +521,17 @@ def _migrate_from_legacy():
         in :meth:`VoiceTyperService.import_model` via
         :func:`voice_typer.server.service._helpers._find_symlink_in_tree`.
     """
+    # lazy import to avoid the circular import described at the top
+    # of this module.  Mirrors :func:`_get_config_dir`.
+    from voice_typer.server._paths import APP_SLUG
+
     if _is_windows():
         base = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
     elif _is_macos():
         base = Path.home() / "Library" / "Application Support"
     else:
         base = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-    legacy = Path(base) / "voice-typer"
+    legacy = Path(base) / APP_SLUG
     if not legacy.exists() or legacy.resolve() == _get_config_dir().resolve():
         return
     target = _get_config_dir()

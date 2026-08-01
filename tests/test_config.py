@@ -888,13 +888,16 @@ class TestCfg6ControlCharRejection:
         assert v("héllo wörld 中文") is None
 
     def test_str_validator_accepts_high_codepoints(self):
-        """High Unicode codepoints (>= 0x80) are NOT control chars and
-        must pass.  Only C0 (0x00-0x1f) and DEL (0x7f) are rejected."""
+        """High Unicode codepoints (>= 0xA0) are NOT control chars and
+        must pass.  C0 (0x00-0x1f), DEL (0x7f), and C1 controls (0x80-0x9f)
+        are rejected (C1 rejection prevents terminal/log poisoning via CSI
+        escape sequences)."""
         from voice_typer.server.config_validators import _make_str_validator
 
         v = _make_str_validator()
-        # 0x80 (PAD), 0xA0 (NBSP), emoji, CJK — all OK.
-        assert v("café\x80") is None
+        # C1 control chars (0x80-0x9f) are rejected.
+        assert v("café\x80") is not None
+        # 0xA0 (NBSP), emoji, CJK — all OK (above C1 range).
         assert v("\xa0space") is None
         assert v("emoji 😀") is None
 

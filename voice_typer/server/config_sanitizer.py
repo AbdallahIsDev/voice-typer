@@ -132,6 +132,60 @@ _SECRET_CONFIG_FIELDS: frozenset[str] = SECRET_CONFIG_FIELDS
 REDACTED_SENTINEL = "<redacted>"
 
 
+def _redact_load_warning(warning: object) -> str:
+    """Redact a single ``last_load_warnings`` entry for safe IPC transit.
+
+    Load warnings are produced by ``Config.load()`` from a variety of
+    sources (``validate_config``, ``apply_preset``, the per-field
+    reset helpers). They may legitimately embed field values from
+    ``config.json`` — e.g. an invalid ``asr_backend='invalid_backend'``
+    produces ``"validate_config: asr_backend: must be one of [...],
+    got 'invalid_backend'"``. Most of the time those values are
+    innocuous enum strings, but a warning can also surface a
+    malformed API key, a URL with embedded credentials, or a path
+    containing the user's home directory.
+
+    To stay strictly DENYLIST-BY-DEFAULT on the IPC boundary (the
+    contract documented in the module docstring), each warning is:
+
+    1. Coerced to ``str`` (warnings are nominally ``str`` but defensive
+       coercion keeps a stray non-str entry from breaking the redaction
+       pipeline).
+    2. Truncated to 200 chars. A pathologically long warning (e.g. a
+       ``custom_theme`` dict that failed validation and was stringified)
+       would otherwise inflate the IPC payload and clutter the
+       renderer's toast UI. 200 chars is enough for any realistic
+       single-line warning and keeps the payload bounded.
+    3. Run through :func:`voice_typer.server.security.redact_pii`,
+       which (per its docstring) is a true single-call redaction helper
+       that ALSO applies :func:`redact_secret` (API keys / bearer
+       tokens) and :func:`redact_url` (URL userinfo). All three
+       redactions are idempotent on already-redacted text.
+    """
+    text = str(warning)
+    # Truncate FIRST so a multi-megabyte ``custom_theme`` dict dump
+    # doesn't get passed through the regex redaction pipeline before
+    # being cut down. The truncation point is generous (200 chars
+    # covers any realistic single-line warning) and adds an ellipsis
+    # so the renderer can show "warning was truncated" UI feedback.
+    if len(text) > 200:
+        text = text[:200] + "…"
+    try:
+        from voice_typer.server.security import redact_pii
+
+        text = redact_pii(text)
+    except Exception:
+        # If the redaction pipeline itself raises (e.g. a regex
+        # catastrophic backtracking on a pathological input, or the
+        # security module is partially imported in a test sandbox),
+        # fall back to the truncated text. NEVER raise from the
+        # sanitizer — that would prevent the entire config payload
+        # from reaching the renderer, which is strictly worse than
+        # shipping an under-redacted warning.
+        log.debug("[CONFIG-SANITIZER] redact_pii on load warning failed", exc_info=True)
+    return text
+
+
 def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     """Sanitize a Config object for safe IPC transmission to the renderer.
 
@@ -160,6 +214,20 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     DEFAULT (everything passes; redact list explicit). Switching to
     :func:`dataclasses.asdict` enforces that the output is exactly the
     set of declared Config fields — no more, no less.
+
+    The ONE deliberate exception to "dataclass fields only" is
+    ``last_load_warnings``. It's a plain instance attribute (set via
+    ``object.__setattr__`` in :meth:`Config.__post_init__`), so
+    :func:`dataclasses.asdict` excludes it. Without surfacing it, the
+    renderer NEVER learns that the just-loaded config had invalid
+    values — the user editing ``config.json`` by hand gets no toast,
+    no IPC error, no UI banner. The renderer can act on these
+    warnings (display a "Config loaded with N warnings" toast,
+    highlight the offending field in the Settings UI, etc.). Each
+    warning is run through :func:`_redact_load_warning` (truncate +
+    :func:`redact_pii`) before transmission because warnings can
+    embed field values that may themselves be sensitive (e.g. a
+    malformed API key echoed back in an error message).
     """
     # ``dataclasses.asdict`` returns a deep-copied dict of ONLY
     # the declared dataclass fields. ``ClassVar`` fields (e.g.
@@ -172,6 +240,14 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
         if k in out:
             v = out[k]
             out[k] = REDACTED_SENTINEL if v else v
+    # Surface ``last_load_warnings`` to the renderer. ``getattr`` with
+    # a default of ``[]`` keeps the sanitizer tolerant of older Config
+    # snapshots (or test doubles) that don't set the attribute — the
+    # renderer always sees a list, never ``None`` or ``AttributeError``.
+    # The warnings are redacted via :func:`_redact_load_warning` (see
+    # its docstring for the redaction rationale).
+    raw_warnings = list(getattr(config, "last_load_warnings", []) or [])
+    out["last_load_warnings"] = [_redact_load_warning(w) for w in raw_warnings]
     return out
 
 

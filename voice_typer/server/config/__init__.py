@@ -40,9 +40,74 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+
+# Single source of truth for the user-data file inventories used by
+# ``purge_user_data`` (this module) and by the GDPR
+# ``delete_all_personal_data`` / ``export_gdpr_bundle`` paths (in
+# ``service/privacy.py``). Importing the tuples here (instead of
+# re-declaring the literals) closes the drift bug where the purge list
+# had bare names (e.g. the recovery snapshot's bare unprefixed name)
+# while the actual on-disk filename was the prefixed
+# ``voice-typer-recovery.json`` — so the purge walk silently no-op'd
+# on a real file. See ``_user_data_files.py`` for the per-file
+# rationale and the canonical ``*_FILENAME`` imports.
+#
+# Imported AFTER ``secure_file_io`` so the transitive
+# ``crash_recovery`` import (which does a module-level
+# ``from voice_typer.server.config import _secure_atomic_write``)
+# sees a fully-initialised ``config._secure_atomic_write`` attribute.
+# ``_RECOVERY_FILENAME`` is re-imported here directly so the
+# corrupt-quarantine glob in ``purge_user_data`` (which matches
+# ``<_RECOVERY_FILENAME>.corrupt<ts>``) stays in lock-step with the
+# canonical on-disk name without re-declaring the literal. We import
+# the literal from ``_user_data_files`` (not the canonical
+# ``crash_recovery.RECOVERY_FILENAME``) to avoid creating a NEW
+# circular import: ``crash_recovery`` does a module-level
+# ``from voice_typer.server.config import _secure_atomic_write``, so
+# importing ``crash_recovery.RECOVERY_FILENAME`` directly here would
+# fail when ``_user_data_files`` is imported directly (the chain
+# ``_user_data_files`` → ``crash_recovery`` → ``config`` →
+# ``crash_recovery``-partial would trip an ImportError). The
+# ``_user_data_files._RECOVERY_FILENAME`` literal is verified against
+# the canonical ``crash_recovery.RECOVERY_FILENAME`` at the bottom of
+# ``_user_data_files.py`` so drift is still caught.
+from voice_typer.server._user_data_files import _RECOVERY_FILENAME, _USER_DATA_FILES
+
+# Load-time data-dict transforms + non-numeric field validation helpers
+# extracted from this module to keep the Config dataclass focused on
+# schema declaration + load/save orchestration. See:
+#   - voice_typer/server/config/coercion.py     — 6 pure-dict coercion helpers
+#   - voice_typer/server/config/sanitization.py — 4 field-validation / warning helpers
+# The Config classmethods of the same names are thin delegators that
+# forward to these module-level functions, preserving the existing
+# ``Config._coerce_streaming_fields(data)`` / ``Config._warn_and_reset(...)``
+# public API used by tests (test_config_load_corruption.py,
+# test_model_idle_unload.py, test_config_pep604_union.py) and by
+# Config.load() itself.
+from voice_typer.server.config.coercion import (  # noqa: F401 — re-exported for Config classmethod delegators
+    _coerce_max_recording_time,
+    _coerce_streaming_fields,
+    _validate_corrections_path,
+    _validate_model_path,
+    _validate_privacy_consents,
+    _validate_qwen_model_path,
+)
+from voice_typer.server.config.sanitization import (  # noqa: F401 — re-exported for Config classmethod delegators
+    _derive_field_type_registry as _sanitization_derive_field_type_registry,
+)
+from voice_typer.server.config.sanitization import (
+    _validate_non_numeric_fields as _sanitization_validate_non_numeric_fields,
+)
+from voice_typer.server.config.sanitization import (
+    _warn_and_coerce as _sanitization_warn_and_coerce,
+)
+from voice_typer.server.config.sanitization import (
+    _warn_and_reset as _sanitization_warn_and_reset,
+)
 from voice_typer.server.config_internals.migrations import (  # noqa: F401 — backward-compat re-export
     _CURRENT_SCHEMA_VERSION,
     _MIGRATIONS,
+    _backup_before_migration_impl,
     _migrate_to_v2,
     _migrate_to_v3,
     _run_migrations,
@@ -66,7 +131,7 @@ from voice_typer.server.config_path_safety import (  # noqa: F401 — backward-c
     _validate_import_path,
     _validate_path_safety,
 )
-from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
+from voice_typer.server.config_validators import _validate_hotkey, cross_platform_hotkey_warnings
 
 # ``is_macos`` is re-exported (not used directly in this module) so
 # ``config_internals.paths._is_macos()`` can look it up via
@@ -121,33 +186,25 @@ DEFAULT_HOTKEY: str = "<caps_lock>"
 # source (closing the split-brain bug where a user could set 30 seconds
 # via IPC but the clamp would silently bump it back to 300 on the next
 # ``Config.load()``).
-from voice_typer.server.config_validators import (  # noqa: E402
+from voice_typer.server.config_validators import (  # noqa: E402,F401 — re-exported so tests / parity checks can import from voice_typer.server.config
     MAX_RECORDING_TIME_SECONDS_DEFAULT,
     MAX_RECORDING_TIME_SECONDS_MAX,
     MAX_RECORDING_TIME_SECONDS_MIN,
+    # canonical lower bounds for the streaming-overlap / -guard seconds.
+    # Defined in ``config_validators.py`` (the import-safe leaf module)
+    # and re-imported here so this module + the IPC validator share a
+    # single source of truth — same pattern as the
+    # ``MAX_RECORDING_TIME_SECONDS_*`` constants above. Pre-fix, the
+    # IPC validator used ``lo=0.0`` while this module's
+    # ``_coerce_streaming_fields`` raised the values to ``3.0`` /
+    # ``1.5``, letting a user-set 0.5-second value pass IPC, persist to
+    # disk, then be silently bumped on the next ``Config.load()``
+    # (desyncing the renderer's in-memory state from ``config.json``).
+    # Importing the canonical constants here closes that split-brain
+    # (the validator and the load-time clamp now read the same symbol).
+    STREAMING_LEFT_OVERLAP_SECONDS_MIN,
+    STREAMING_RIGHT_GUARD_SECONDS_MIN,
 )
-
-# canonical lower bounds for the streaming-overlap / -guard
-# seconds. Defined locally in config.py (NOT in config_validators.py —
-# that's F1's territory) so the load-time clamp has a named constant
-# instead of an inlined literal. Pre-fix, the IPC validator
-# (config_validators.py:1191-1192) used ``lo=0.0`` while this module's
-# ``_coerce_streaming_fields`` raised the values to ``3.0`` / ``1.5`` —
-# letting a user-set 0.5-second value pass IPC, persist to disk, then
-# silently be bumped on next ``Config.load()`` (desyncing the
-# renderer's in-memory state from config.json).
-#
-# The split-brain at the IPC validator side is F1's to fix (they need
-# to update ``config_validators.py:1191-1192`` to use the same MIN
-# bounds — see the comment in ``_coerce_streaming_fields`` below).
-# The fix on THIS side (config.py) is:
-#   1. Stop silently clamping — log a WARNING + add to ``_load_warnings``
-#      so the renderer sees the value was reset.
-#   2. Reset to the field default explicitly (3.0 / 1.5) rather than
-#      ``max(value, default)`` which is a silent clamp.
-#   3. Use named constants so the bound is discoverable + grep-able.
-STREAMING_LEFT_OVERLAP_SECONDS_MIN: float = 3.0
-STREAMING_RIGHT_GUARD_SECONDS_MIN: float = 1.5
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -188,22 +245,15 @@ def _default_hotkey_for_platform() -> str:
 # uninstall hook, and the macOS Uninstall helper can all call the same
 # Python entry point instead of each re-implementing (and drifting from)
 # the file list. See :func:`purge_user_data` for the entry point.
-_USER_DATA_FILES: tuple[str, ...] = (
-    "config.json",
-    "config.json.bak",
-    "config.json.lock",
-    "backend.pid",
-    "history.db",
-    "history.db-wal",
-    "history.db-shm",
-    "crash_recovery.json",
-    "diagnostic_bundle.json",
-    "onboarding.json",
-    "vocabulary.json",
-    "templates.json",
-    "corrections.json",
-    "renderer-errors.log",
-)
+# The tuple itself is now imported from ``_user_data_files.py`` (see
+# the import block above near ``secure_file_io``) so it is derived from
+# the canonical ``*_FILENAME`` constants owned by each artifact's
+# module (``RECOVERY_FILENAME``, ``VOCAB_FILENAME``,
+# ``TEMPLATES_FILENAME``, …) instead of bare literals that drifted
+# from the actual on-disk names. ``_USER_DATA_DIRS`` is still defined
+# inline because the four entries (``logs``, ``huggingface``,
+# ``crashes``, ``native_logs``) are stable directory names owned by
+# several modules (no single canonical constant exists for each).
 
 _USER_DATA_DIRS: tuple[str, ...] = (
     "logs",
@@ -304,7 +354,13 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
                 name.startswith("config.json.")
                 or name.startswith("history.db.corrupt-")
                 or name.startswith("history.db.pre-migration-v")
-                or name.startswith("crash_recovery.json.corrupt-")
+                # The crash-recovery quarantine pattern uses the
+                # prefixed on-disk name
+                # ``voice-typer-recovery.json.corrupt.<ts>`` (see
+                # ``crash_recovery._quarantine_corrupt``); the prior
+                # check used the bare unprefixed name and never matched
+                # a real file.
+                or name.startswith(f"{_RECOVERY_FILENAME}.corrupt")
             ):
                 continue
             if entry.is_dir():
@@ -503,6 +559,80 @@ def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
             # denied, etc.). A stale leftover is preferable to
             # aborting the migration flow.
             continue
+
+
+def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
+    """On Windows, restrict file/dir ACL to the current user only.
+
+    Uses ``icacls`` to remove inherited ACEs (``/inheritance:r``) and
+    grant the current user full control (``/grant:r``). This is a
+    defense-in-depth measure so a ``config.json`` (which may contain
+    plaintext API keys when the OS keyring is unavailable) in a shared
+    ``%APPDATA%`` or ``VOICE_TYPER_CONFIG_DIR`` is not world-readable.
+    ``tempfile.mkstemp`` inside ``_secure_atomic_write`` inherits the
+    parent dir's DACL on Windows, so if the config dir is shared, the
+    temp file (and thus the final ``config.json`` after ``os.replace``)
+    inherits that shared DACL — making the plaintext API keys
+    world-readable. Calling this helper after every config write
+    re-tightens the ACL to owner-only.
+
+    Best-effort: logs a warning on failure but does NOT raise, so a
+    permission-restricted environment (e.g. ``icacls`` not on PATH,
+    user lacks WRITE_DAC, etc.) doesn't break ``save()``. The log
+    message is truncated to 200 chars to avoid log bloat from
+    multi-line ``icacls`` output.
+
+    No-op on non-Windows (POSIX uses ``os.chmod(path, 0o600)``
+    elsewhere in this module).
+
+    Args:
+        path: filesystem path (file or directory) to lock down.
+    """
+    if not is_windows():
+        return
+    import subprocess
+
+    username = os.environ.get("USERNAME") or os.environ.get("USER")
+    if not username:
+        log.warning(
+            "[CONFIG] cannot enforce Windows ACL on %s: USERNAME env var is empty",
+            path,
+        )
+        return
+    try:
+        # /inheritance:r — remove all inherited ACEs
+        # /grant:r      — replace (not merge) explicit grants
+        # "<user>:F"    — Full control to the current user only
+        # Using a list (not a shell string) sidesteps cmd.exe
+        # metacharacter injection even if USERNAME contains shell
+        # specials.
+        cmd = [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{username}:F",
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            log.warning(
+                "[CONFIG] icacls ACL enforcement failed on %s (rc=%d): %s",
+                path,
+                result.returncode,
+                (result.stderr or "").strip()[:200],
+            )
+    except (OSError, subprocess.SubprocessError) as e:
+        log.warning(
+            "[CONFIG] icacls ACL enforcement error on %s: %s",
+            path,
+            e,
+        )
 
 
 @dataclass
@@ -748,6 +878,31 @@ class Config:
     # non-interactive even in always_visible mode (original behaviour).
     bubble_mic_button: bool = True
 
+    # Persisted bubble window position (screen-space pixel coords) and
+    # scale factor. The renderer writes these via ``set_config`` after
+    # the user drags / resizes the bubble window so the choice survives
+    # across restarts. Both default to ``None`` (meaning "not set — let
+    # the renderer pick a sensible default position / 1.0x scale"), and
+    # older config.json files that predate the fields are treated the
+    # same way. ``bubble_scale`` is a multiplier on the base DPI (so
+    # ``1.0`` is no scaling, ``2.0`` is double-size); the renderer
+    # clamps the visible range to ``[0.5, 2.0]`` but the server-side
+    # validator accepts the wider ``[0.5, 3.0]`` so a future renderer
+    # change can loosen the visible range without a server-side
+    # allowlist edit.
+    bubble_x: int | None = None
+    bubble_y: int | None = None
+    bubble_scale: float | None = None
+
+    # Persisted microphone-test duration (seconds). The Microphone
+    # page's "Test" button records for this many seconds before
+    # auto-stopping. Default ``None`` — the renderer treats absence as
+    # the in-app default of 5s, and the server-side validator accepts
+    # the range ``[1, 60]`` (wider than the renderer's visible
+    # ``[1, 30]`` clamp so a future renderer change can loosen the
+    # visible range without a server-side allowlist edit).
+    test_duration_seconds: int | None = None
+
     # History database
     # master toggle for whether dictated text is persisted to the
     # history SQLite DB. When False, dictation_pipeline._store_result
@@ -840,21 +995,26 @@ class Config:
     # next ``toggle_dictation`` via the existing
     # ``ensure_active_engine_loaded()`` lazy-init path.
     #
-    # 0 (the default) DISABLES the feature — current behaviour is
-    # preserved exactly (the model stays resident for the lifetime of
-    # the process). Users with abundant VRAM can leave this at 0; users
-    # who dictate intermittently and want the VRAM + ~5-15 W GPU idle
-    # power back can set it to e.g. 10 or 15. Recommended: 15 minutes
-    # (matches typical "stepped away from keyboard" cadence and keeps
-    # cold-reload latency — 2-5 s warm, 5-15 s cold — off the critical
-    # path of the next dictation).
+    # The default is 30 minutes — keeps the model warm for short
+    # conversational gaps (sub-30-minute silences) while still
+    # unloading it for genuinely long idle periods (lunch breaks,
+    # meetings, overnight). This is the right tradeoff for the typical
+    # tray-app usage pattern on laptops where GPU/CPU memory and ~5-15 W
+    # of idle GPU power are worth reclaiming after a real "stepped away
+    # from keyboard" gap. Users with abundant VRAM who want the model
+    # resident for the lifetime of the process can set this to 0
+    # (disables the feature — current "always loaded" behaviour is
+    # preserved exactly). Cold-reload latency (2-5 s warm, 5-15 s cold)
+    # is off the critical path of the next dictation because the
+    # ``ensure_active_engine_loaded()`` reload path runs on
+    # ``toggle_dictation`` before recording starts.
     # default bumped from 0 (disabled) to 30 minutes. The
     # idle-unload path arms a threading.Timer that calls
     # release_gpu_memory() after the configured idle period. On laptops
     # this frees GPU/CPU memory during long no-dictation periods (the
     # common case for a tray app). Users who need always-loaded behavior
     # (e.g. always-on desktop) can set this back to 0.
-    model_idle_unload_minutes: int = 15
+    model_idle_unload_minutes: int = 30
 
     # VAD configuration for the recording callback.
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
@@ -1215,6 +1375,13 @@ class Config:
                 os.chmod(path, 0o700)
             except OSError as e:
                 log.warning("[CONFIG] Failed to chmod config dir: %s", e)
+        else:
+            # enforce owner-only ACL on the config dir on
+            # Windows so a shared ``%APPDATA%`` or
+            # ``VOICE_TYPER_CONFIG_DIR`` doesn't leak the directory's
+            # contents (including the ``config.json.bak`` written
+            # below) to co-located users.
+            _enforce_windows_owner_only_acl(path)
         config_file = path / "config.json"
         data = asdict(self)
         # route API key fields through credential_store.
@@ -1338,6 +1505,11 @@ class Config:
                             os.chmod(bak_path, 0o600)
                         except OSError as e:
                             log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
+                    else:
+                        # enforce owner-only ACL on the
+                        # backup file on Windows — it contains the
+                        # same plaintext API keys as config.json.
+                        _enforce_windows_owner_only_acl(bak_path)
             except (OSError, ValueError) as e:
                 # OSError covers filesystem errors; ValueError covers
                 # the SEC-002 inode-changed-during-read guard (symlink
@@ -1349,6 +1521,14 @@ class Config:
                 )
 
         _secure_atomic_write(config_file, content)
+        if is_windows():
+            # ``_secure_atomic_write`` creates the temp
+            # file via ``tempfile.mkstemp``, which on Windows
+            # inherits the parent dir's DACL. If the config dir is
+            # shared, ``config.json`` (with plaintext API keys when
+            # keyring is unavailable) becomes world-readable. Re-tighten
+            # the ACL on the destination after the rename.
+            _enforce_windows_owner_only_acl(config_file)
         # record the bytes we just persisted so the next
         # identical save can short-circuit the backup block above.
         # Updated only AFTER a successful write — a failed write
@@ -1705,6 +1885,33 @@ class Config:
             except Exception:
                 log.debug("[CONFIG] validate_config on load failed", exc_info=True)
 
+            # ``validate_config`` above only APPENDS warnings —
+            # it does NOT mutate the field. A hand-edited
+            # ``asr_backend="invalid"`` survives ``Config.load()``
+            # verbatim, propagates to runtime code, and either crashes
+            # a dispatch dict (``KeyError``) or silently takes the
+            # wrong branch. ``_reset_invalid_enum_fields`` closes the
+            # gap by resetting the high-impact ``Literal[...]`` enum
+            # fields (asr_backend / recording_mode / bubble_position /
+            # bubble_behavior / tray_left_click_action / theme_mode /
+            # theme_preset / audio_preset / noise_suppression_method)
+            # to their dataclass defaults when the on-disk value is
+            # not in the Literal's allowed set. Each reset appends a
+            # warning to ``instance.last_load_warnings`` so the
+            # renderer (via the sanitizer's ``last_load_warnings`` key)
+            # can surface a "your config was corrected" toast.
+            #
+            # Best-effort: a failure inside the reset helper must NOT
+            # propagate (the config still loads — the invalid value
+            # would just persist, matching the pre-fix behavior). The
+            # ``validate_config`` call above already logged the
+            # invalid value; the user has a signal even if this reset
+            # is skipped.
+            try:
+                cls._reset_invalid_enum_fields(instance)
+            except Exception:
+                log.debug("[CONFIG] _reset_invalid_enum_fields on load failed", exc_info=True)
+
             # persist the bumped schema_version eagerly so
             # the next launch doesn't re-run the same migrations
             # (and re-trigger any bugs in a migrator that already
@@ -1865,77 +2072,26 @@ class Config:
 
     @classmethod
     def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
-        """best-effort backup of ``config.json`` BEFORE any migration runs.
+        """Best-effort backup of ``config.json`` BEFORE any migration runs.
 
-         the previous implementation used
-        ``shutil.copy2`` which (a) follows symlinks on both SOURCE and
-        DEST (a local attacker who replaces config.json with a symlink
-        to ~/.bashrc between loads gets ~/.bashrc content copied into
-        the .bak — info disclosure via the .bak file), (b) is
-        non-atomic (file-by-file copy — an interrupted copy leaves a
-        partial .bak that gives a false sense of recoverability), and
-        (c) has no fsync (the .bak may not be durable across power
-        loss). The fix routes the READ through ``_secure_read_text``
-        (POSIX ``O_NOFOLLOW`` + inode re-verify) and the WRITE through
-        ``_secure_atomic_write`` (atomic ``os.replace`` + fsync +
-        0o600). The original ``config.json`` stays in place — the load
-        must NOT modify the on-disk file mid-load (only ``os.replace``
-        is used on the .bak destination, not on config.json itself).
+        S5-CR-28: implementation extracted to
+        :func:`voice_typer.server.config_internals.migrations._backup_before_migration_impl`
+        to chip away at this module's monolith. This classmethod is now
+        a thin delegating wrapper so existing callers (and tests that
+        call ``Config._backup_before_migration(config_file, 0)``
+        directly) keep working unchanged. The wrapper also preserves the
+        test-patch surface: tests that monkeypatch
+        ``config_mod._secure_read_text`` /
+        ``config_mod._secure_atomic_write`` /
+        ``config_mod._prune_kept_backups`` keep taking effect because
+        the impl function looks those up via the ``config`` module
+        namespace (lazy import).
 
-        the previous filename
-        ``config.json.pre-migration-v{loaded_version}.bak`` had no
-        timestamp, so a downgrade-then-upgrade cycle silently
-        overwrote the first backup. The filename now embeds a Unix
-        timestamp + PID suffix so two backup events never collide
-        (even within the same second from different processes —
-        e.g. two app instances launched in parallel against the same
-        user account during a downgrade). We also cap retained
-        pre-migration backups to 3 (oldest pruned) so the directory
-        doesn't grow unbounded across many version bumps.
+        See the impl function's docstring for the full rationale
+        (symlink-TOCTOU-safe read, atomic write, timestamped filename,
+        retention cap of 3).
         """
-        if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
-            # Filename includes schema version + epoch seconds + PID + sub-second
-            # nanoseconds to guarantee uniqueness even across parallel app
-            # instances launched against the same user account during a downgrade.
-            ts_sec = int(time.time())
-            pid = os.getpid()
-            ts_ns = time.time_ns() % 1_000_000
-            pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
-            try:
-                raw_text = _secure_read_text(config_file)
-                _secure_atomic_write(pre_bak, raw_text)
-            except (OSError, ValueError) as e:
-                # OSError covers filesystem errors; ValueError covers
-                # the SEC-002 inode-changed-during-read guard (symlink
-                # TOCTOU detection). : backup failure must be
-                # visible at WARNING so operators notice (the backup
-                # is the ONLY recovery mechanism if a migrator
-                # corrupts the config). DEBUG is usually off in
-                # production.
-                log.warning(
-                    "[CONFIG] failed to back up config.json to %s before migration: %s",
-                    pre_bak,
-                    e,
-                )
-                return
-            # cap retained pre-migration backups to 3 (oldest
-            # pruned). Match the prefix ``config.json.pre-migration-v``
-            # so versioned-downgrade backups (``config.json.v<N>.bak``)
-            # and fail-migration backups
-            # (``config.json.bak.failed-migration-*``) are NOT pruned
-            # (they serve different recovery purposes and have their
-            # own retention policies).
-            try:
-                _prune_kept_backups(
-                    config_file.parent,
-                    prefix="config.json.pre-migration-v",
-                    keep=3,
-                )
-            except OSError as prune_exc:
-                log.debug(
-                    "[CONFIG] failed to prune old pre-migration backups: %s",
-                    prune_exc,
-                )
+        _backup_before_migration_impl(config_file, loaded_version)
 
     @classmethod
     def _backup_before_downgrade(
@@ -2069,443 +2225,213 @@ class Config:
     def _coerce_streaming_fields(cls, data: dict[str, Any]) -> None:
         """Coerce streaming_* fields with min/max clamping + invariant checks.
 
-        Extracted verbatim from ``load()``. Config fields were
-        renamed (no migration needed): VALID-1 (MED-K) — each inline
-        ``float()``/``int()`` coercion is wrapped in its own
-        ``try/except`` so a SINGLE bad value resets ONLY that field to
-        its default rather than aborting the entire load (which would
-        discard every other valid field too).
-
-        enforce streaming config invariants so the
-        AudioWindowPlanner doesn't run forever or produce overlapping
-        windows that never advance:
-
-        * ``step < chunk``: otherwise the planner skips untranscribed
-          audio between windows.
-        * ``left_overlap < chunk``: otherwise every window is a
-          duplicate of the previous one.
+        Delegates to :func:`voice_typer.server.config.coercion._coerce_streaming_fields`.
+        See that function for the full rationale (VALID-1 / MED-K per-field
+        try/except, AudioWindowPlanner invariants, load-time reset + warning
+        instead of silent clamp).
         """
-        # Config fields were renamed (no migration needed):
-        # VALID-1 (MED-K): each inline float()/int() coercion is
-        # wrapped in its own try/except so a SINGLE bad value
-        # resets ONLY that field to its default rather than
-        # aborting the entire load (which would discard every
-        # other valid field too).
-        #
-        # pre-fix the clamp used ``max(value, 3.0)`` /
-        # ``max(value, 1.5)`` which SILENTLY raised sub-minimum values
-        # to the floor. That created a split-brain with the IPC
-        # validator (``config_validators.py:1191-1192`` — F1's
-        # territory, which at the time of writing still uses
-        # ``lo=0.0``): a user could ``set_config`` a 0.5-second
-        # overlap, the IPC validator would accept it, ``Config.save()``
-        # would persist it to disk, and on the next ``Config.load()``
-        # the clamp would silently bump it to 3.0 — desyncing the
-        # renderer's in-memory state from the on-disk config.json.
-        #
-        # The fix: stop silently clamping. If the on-disk value is
-        # below the floor, RESET to the floor explicitly AND log a
-        # WARNING + add to ``_load_warnings`` so the renderer can
-        # surface "your config was corrected" notice. The IPC
-        # validator side (F1's territory) needs a parallel update
-        # to ``lo=STREAMING_*_SECONDS_MIN``; until that lands,
-        # the load-time reset on THIS side at least surfaces the
-        # correction to the user instead of silently changing it.
-        try:
-            _left_overlap_raw = float(data.get("streaming_left_overlap_seconds", STREAMING_LEFT_OVERLAP_SECONDS_MIN))
-        except (TypeError, ValueError):
-            _left_overlap_invalid = data.get("streaming_left_overlap_seconds")
-            log.warning(
-                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default %.1f",
-                _left_overlap_invalid,
-                STREAMING_LEFT_OVERLAP_SECONDS_MIN,
-            )
-            data["streaming_left_overlap_seconds"] = STREAMING_LEFT_OVERLAP_SECONDS_MIN
-            data.setdefault("_load_warnings", []).append(
-                f"streaming_left_overlap_seconds had non-numeric value "
-                f"{_left_overlap_invalid!r}, reset to "
-                f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}"
-            )
-            _left_overlap_raw = STREAMING_LEFT_OVERLAP_SECONDS_MIN
-        else:
-            if _left_overlap_raw < STREAMING_LEFT_OVERLAP_SECONDS_MIN:
-                log.warning(
-                    "[CONFIG] streaming_left_overlap_seconds=%.3f below minimum %.1f; "
-                    "resetting to %.1f (was silently clamped pre-fix)",
-                    _left_overlap_raw,
-                    STREAMING_LEFT_OVERLAP_SECONDS_MIN,
-                    STREAMING_LEFT_OVERLAP_SECONDS_MIN,
-                )
-                data.setdefault("_load_warnings", []).append(
-                    f"streaming_left_overlap_seconds={_left_overlap_raw} below minimum "
-                    f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}, reset to "
-                    f"{STREAMING_LEFT_OVERLAP_SECONDS_MIN}"
-                )
-                _left_overlap_raw = STREAMING_LEFT_OVERLAP_SECONDS_MIN
-            data["streaming_left_overlap_seconds"] = _left_overlap_raw
-        try:
-            _right_guard_raw = float(data.get("streaming_right_guard_seconds", STREAMING_RIGHT_GUARD_SECONDS_MIN))
-        except (TypeError, ValueError):
-            _right_guard_invalid = data.get("streaming_right_guard_seconds")
-            log.warning(
-                "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default %.1f",
-                _right_guard_invalid,
-                STREAMING_RIGHT_GUARD_SECONDS_MIN,
-            )
-            data["streaming_right_guard_seconds"] = STREAMING_RIGHT_GUARD_SECONDS_MIN
-            data.setdefault("_load_warnings", []).append(
-                f"streaming_right_guard_seconds had non-numeric value "
-                f"{_right_guard_invalid!r}, reset to "
-                f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}"
-            )
-            _right_guard_raw = STREAMING_RIGHT_GUARD_SECONDS_MIN
-        else:
-            if _right_guard_raw < STREAMING_RIGHT_GUARD_SECONDS_MIN:
-                log.warning(
-                    "[CONFIG] streaming_right_guard_seconds=%.3f below minimum %.1f; "
-                    "resetting to %.1f (was silently clamped pre-fix)",
-                    _right_guard_raw,
-                    STREAMING_RIGHT_GUARD_SECONDS_MIN,
-                    STREAMING_RIGHT_GUARD_SECONDS_MIN,
-                )
-                data.setdefault("_load_warnings", []).append(
-                    f"streaming_right_guard_seconds={_right_guard_raw} below minimum "
-                    f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}, reset to "
-                    f"{STREAMING_RIGHT_GUARD_SECONDS_MIN}"
-                )
-                _right_guard_raw = STREAMING_RIGHT_GUARD_SECONDS_MIN
-            data["streaming_right_guard_seconds"] = _right_guard_raw
-        # enforce streaming config invariants so the
-        # AudioWindowPlanner doesn't run forever or produce
-        # overlapping windows that never advance.
-        # - step < chunk: otherwise the planner skips untranscribed
-        #   audio between windows.
-        # - left_overlap < chunk: otherwise every window is a
-        #   duplicate of the previous one.
-        try:
-            chunk = float(data.get("streaming_chunk_seconds", 12.0))
-        except (TypeError, ValueError):
-            log.warning(
-                "[CONFIG] invalid streaming_chunk_seconds value %r; resetting to default 12.0",
-                data.get("streaming_chunk_seconds"),
-            )
-            chunk = 12.0
-            data["streaming_chunk_seconds"] = 12.0
-        try:
-            step = float(data.get("streaming_step_seconds", 5.0))
-        except (TypeError, ValueError):
-            log.warning(
-                "[CONFIG] invalid streaming_step_seconds value %r; resetting to default 5.0",
-                data.get("streaming_step_seconds"),
-            )
-            step = 5.0
-            data["streaming_step_seconds"] = 5.0
-        try:
-            left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
-        except (TypeError, ValueError):
-            log.warning(
-                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
-                data.get("streaming_left_overlap_seconds"),
-            )
-            left_overlap = 3.0
-            data["streaming_left_overlap_seconds"] = 3.0
-        if step >= chunk:
-            log.warning(
-                "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds (%.1f); clamping step to chunk/2",
-                step,
-                chunk,
-            )
-            data["streaming_step_seconds"] = chunk / 2.0
-        if left_overlap >= chunk:
-            log.warning(
-                "[CONFIG] streaming_left_overlap_seconds (%.1f) >= streaming_chunk_seconds "
-                "(%.1f); clamping overlap to chunk/3",
-                left_overlap,
-                chunk,
-            )
-            data["streaming_left_overlap_seconds"] = chunk / 3.0
+        _coerce_streaming_fields(data)
 
     @classmethod
     def _coerce_max_recording_time(cls, data: dict[str, Any]) -> None:
-        """SIMPLIFY-001: clamp ``max_recording_time_seconds`` to valid range [300, 3600].
+        """Clamp ``max_recording_time_seconds`` to valid range [300, 3600].
 
-        Extracted verbatim from ``load()``. Handles old config
-        files that had ``0 = auto-select`` (which is now invalid).
-        VALID-1 (MED-K): also wraps the ``int()`` coercion so a
-        non-numeric value resets only this field, not the whole config.
-
-        the bounds + default are now sourced from the module-level
-        constants ``MAX_RECORDING_TIME_SECONDS_MIN`` / ``_MAX`` /
-        ``_DEFAULT`` so the IPC validator (``config_validators.py``) and
-        this clamp share a single source of truth.
+        Delegates to :func:`voice_typer.server.config.coercion._coerce_max_recording_time`.
         """
-        try:
-            max_rec = int(data.get("max_recording_time_seconds", MAX_RECORDING_TIME_SECONDS_DEFAULT))
-        except (TypeError, ValueError):
-            log.warning(
-                "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default %d",
-                data.get("max_recording_time_seconds"),
-                MAX_RECORDING_TIME_SECONDS_DEFAULT,
-            )
-            max_rec = MAX_RECORDING_TIME_SECONDS_DEFAULT
-            data["max_recording_time_seconds"] = MAX_RECORDING_TIME_SECONDS_DEFAULT
-        if max_rec < MAX_RECORDING_TIME_SECONDS_MIN or max_rec > MAX_RECORDING_TIME_SECONDS_MAX:
-            log.warning(
-                "[CONFIG] max_recording_time_seconds=%d outside valid range [%d, %d], resetting to %d",
-                max_rec,
-                MAX_RECORDING_TIME_SECONDS_MIN,
-                MAX_RECORDING_TIME_SECONDS_MAX,
-                MAX_RECORDING_TIME_SECONDS_DEFAULT,
-            )
-            data["max_recording_time_seconds"] = MAX_RECORDING_TIME_SECONDS_DEFAULT
+        _coerce_max_recording_time(data)
 
     @classmethod
     def _validate_model_path(cls, data: dict[str, Any]) -> None:
         """Validate ``model_size`` against :data:`ALLOWED_USER_MODELS`.
 
-        Extracted verbatim from ``load()``. If the on-disk
-        ``model_size`` is not in the allowlist (e.g. a stale entry from
-        a previous build), reset to ``"small.en"`` (the default).
-
-        the reset is now logged at WARNING and appended to
-        ``data["_load_warnings"]`` so the renderer can surface a
-        "your config was corrected" notice via
-        ``instance.last_load_warnings``. Pre-fix, the reset was silent
-        — the user's ``model_size`` was changed without any signal.
-
-        Note: only warn when ``model_size`` is EXPLICITLY present in
-        ``data`` (i.e. on-disk) with an invalid value. If the key is
-        missing entirely (a partial config.json from a fresh install),
-        the dataclass default applies silently — the user has no
-        "correction" to be notified about.
+        Delegates to :func:`voice_typer.server.config.coercion._validate_model_path`.
         """
-        # ``model_size`` missing from on-disk config → dataclass default
-        # applies silently (no correction to surface).
-        if "model_size" not in data:
-            return
-        _model_size = data.get("model_size")
-        if _model_size not in ALLOWED_USER_MODELS:
-            log.warning(
-                "[CONFIG] model_size=%r not in allowlist %s; resetting to default 'small.en'",
-                _model_size,
-                sorted(ALLOWED_USER_MODELS),
-            )
-            data["model_size"] = "small.en"
-            data.setdefault("_load_warnings", []).append(
-                f"model_size={_model_size!r} not in allowlist, reset to 'small.en'"
-            )
+        _validate_model_path(data)
 
     @classmethod
     def _validate_qwen_model_path(cls, data: dict[str, Any]) -> None:
         """Validate ``qwen_model_path``: must be an existing directory if set.
 
-        Extracted verbatim from ``load()``. SEC-audit-007:
-        validate ``qwen_model_path`` is in a safe location (the config
-        dir or ``$HF_HOME``). Resets to ``None`` if the path doesn't
-        exist, isn't a directory, or escapes the safe dirs.
-
-        pre-fix, a non-``str`` value (e.g.
-        ``qwen_model_path: 123`` or ``qwen_model_path: ["/tmp"]`` in a
-        hand-edited config.json) crashed ``Path(qwen_path)`` with
-        ``TypeError`` — which propagated up through ``Config.load()``'s
-        outer ``except`` (catches ``TypeError``), reset the ENTIRE
-        config to defaults, and moved config.json aside as corrupt
-        (even though only one field was bad). The fix adds an
-        ``isinstance(qwen_path, str)`` guard at the top: non-str
-        values are reset to ``None`` with a logged WARNING + a
-        ``_load_warnings`` entry, and the rest of the load proceeds.
-
-        every reset site (non-str, missing dir, unsafe dir)
-        now appends to ``data["_load_warnings"]`` so the renderer
-        surfaces a "your config was corrected" notice via
-        ``instance.last_load_warnings``.
+        Delegates to :func:`voice_typer.server.config.coercion._validate_qwen_model_path`.
         """
-        # Validate qwen_model_path: must be an existing directory if set
-        qwen_path = data.get("qwen_model_path")
-        if qwen_path is not None:
-            # guard against non-str values that would crash
-            # ``Path(qwen_path)`` and reset the ENTIRE config.
-            if not isinstance(qwen_path, str):
-                log.warning(
-                    "[CONFIG] Config qwen_model_path has non-str value %r (type=%s); resetting to None",
-                    qwen_path,
-                    type(qwen_path).__name__,
-                )
-                data["qwen_model_path"] = None
-                data.setdefault("_load_warnings", []).append(
-                    f"qwen_model_path had non-str value {qwen_path!r} (type={type(qwen_path).__name__}), reset to None"
-                )
-                return
-            p = Path(qwen_path)
-            if not p.exists() or not p.is_dir():
-                log.warning(
-                    "[CONFIG] Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
-                    qwen_path,
-                )
-                data["qwen_model_path"] = None
-                data.setdefault("_load_warnings", []).append(
-                    f"qwen_model_path={qwen_path!r} does not exist or is not a directory, reset to None"
-                )
-            else:
-                # SEC-audit-007: Validate qwen_model_path is in a safe location
-                qwen_resolved = p.resolve()
-                safe_dirs = [_config_dir().resolve()]
-                hf_home = os.environ.get("HF_HOME")
-                if hf_home:
-                    safe_dirs.append(Path(hf_home).resolve())
-                if not any(_is_path_within(qwen_resolved, d) for d in safe_dirs):
-                    log.warning(
-                        "[CONFIG] qwen_model_path outside safe directories: %s, resetting to None",
-                        qwen_path,
-                    )
-                    data["qwen_model_path"] = None
-                    data.setdefault("_load_warnings", []).append(
-                        f"qwen_model_path={qwen_path!r} outside safe directories, reset to None"
-                    )
+        _validate_qwen_model_path(data)
 
     @classmethod
     def _validate_corrections_path(cls, data: dict[str, Any]) -> None:
         """Validate ``corrections_path``: must be an existing file if set.
 
-        Extracted verbatim from ``load()``. SEC-audit-006 (Round
-        0 forward-port — M6): defense-in-depth path-traversal check.
-        ``corrections_path`` is NOT in the IPC allowlist (can only be
-        set via direct ``config.json`` edit), but a user who manually
-        edits the config could point it at an arbitrary file.  The
-        :mod:`text_cleanup` module reads + applies corrections from
-        this file, so a malicious or accidentally-chosen path could
-        expose sensitive data (e.g. log transcription text being
-        matched against ``/etc/passwd`` contents).  Restrict the path
-        to the user's home directory or the config directory — both are
-        user-writable locations where the user has explicitly chosen to
-        store data.
-
-        pre-fix, a non-``str`` value (e.g.
-        ``corrections_path: 42``) crashed ``Path(corrections)`` with
-        ``TypeError`` — propagated up through ``Config.load()``'s outer
-        ``except`` (catches ``TypeError``), reset the ENTIRE config to
-        defaults, and moved config.json aside as corrupt. The fix adds
-        an ``isinstance(corrections, str)`` guard at the top.
-
-        every reset site (non-str, missing file, unsafe dir)
-        now appends to ``data["_load_warnings"]`` so the renderer
-        surfaces the correction via ``instance.last_load_warnings``.
+        Delegates to :func:`voice_typer.server.config.coercion._validate_corrections_path`.
         """
-        # Validate corrections_path: must be an existing file if set
-        corrections = data.get("corrections_path")
-        if corrections is not None:
-            # guard against non-str values that would crash
-            # ``Path(corrections)`` and reset the ENTIRE config.
-            if not isinstance(corrections, str):
-                log.warning(
-                    "[CONFIG] Config corrections_path has non-str value %r (type=%s); resetting to None",
-                    corrections,
-                    type(corrections).__name__,
-                )
-                data["corrections_path"] = None
-                data.setdefault("_load_warnings", []).append(
-                    f"corrections_path had non-str value {corrections!r} "
-                    f"(type={type(corrections).__name__}), reset to None"
-                )
-                return
-            cp = Path(corrections)
-            if not cp.exists() or not cp.is_file():
-                log.warning(
-                    "[CONFIG] Config corrections_path=%s does not exist or is not a file, resetting to None",
-                    corrections,
-                )
-                data["corrections_path"] = None
-                data.setdefault("_load_warnings", []).append(
-                    f"corrections_path={corrections!r} does not exist or is not a file, reset to None"
-                )
-            else:
-                try:
-                    cp_resolved = cp.resolve()
-                    allowed_roots = [
-                        Path.home().resolve(),
-                        _config_dir().resolve(),
-                    ]
-                    if not any(_is_path_within(cp_resolved, root) for root in allowed_roots):
-                        raise ValueError("corrections_path must be within the user home or config directory")
-                except ValueError as exc:
-                    log.warning(
-                        "[CONFIG] Config corrections_path=%s rejected: %s, resetting to None",
-                        corrections,
-                        exc,
-                    )
-                    data["corrections_path"] = None
-                    data.setdefault("_load_warnings", []).append(
-                        f"corrections_path={corrections!r} rejected: {exc}, reset to None"
-                    )
+        _validate_corrections_path(data)
 
     @classmethod
     def _validate_privacy_consents(cls, data: dict[str, Any]) -> None:
-        """warn the user about privacy implications when ``log_transcriptions`` is enabled.
+        """Warn the user about privacy implications when ``log_transcriptions`` is enabled.
 
-        Extracted verbatim from ``load()``. Transcription text
-        may contain sensitive personal information (names, addresses,
-        medical details, etc.) that gets written to log files on disk.
-        The warning is emitted once per config load so it appears in
-        the log on every startup if the flag is active.
+        Delegates to :func:`voice_typer.server.config.coercion._validate_privacy_consents`.
         """
-        if data.get("log_transcriptions"):
-            log.warning(
-                "[CONFIG] log_transcriptions is enabled — transcription text "
-                "(potentially containing PII) will be written to log files. "
-                "Disable this setting if you do not want speech content persisted "
-                "to disk."
-            )
+        _validate_privacy_consents(data)
 
     @classmethod
     def _derive_field_type_registry(cls: type["Config"]) -> dict[str, type]:
-        """Build a ``{field_name: expected_type}`` registry from the
-        Config dataclass.
+        """Build a ``{field_name: expected_type}`` registry from the Config dataclass.
 
-        Optional[T] / T | None annotations are unwrapped to T so the
-        validator can apply per-type coercion without special-casing each
-        Optional field. ``Literal[...]`` annotations (subtype of ``str``)
-        are normalized to ``str`` so the validator's str branch handles
-        them.
+        Delegates to
+        :func:`voice_typer.server.config.sanitization._derive_field_type_registry`.
+        """
+        return _sanitization_derive_field_type_registry(cls)
 
-        Replaces the 4 hand-maintained sets (``bool_fields`` /
-        ``str_fields`` / ``int_fields`` / ``float_fields``) so the field
-        list is sourced from the dataclass declaration itself — adding a
-        new field to ``Config`` automatically opts it into validation
-        without a parallel edit to ``_validate_non_numeric_fields``.
+    # High-impact ``Literal[...]`` enum fields whose invalid values
+    # should be reset to defaults on load (rather than merely warned
+    # about). These are the user-facing enum choices that drive
+    # discrete runtime behavior branches (ASR backend selection,
+    # recording mode, bubble placement, tray click action, theme,
+    # audio preset, noise suppressor). An invalid value here causes
+    # downstream code to either crash (KeyError in a dispatch dict) or
+    # silently take the wrong branch (a stale ``"speex"`` value for
+    # ``noise_suppression_method`` would fall through the
+    # ``noise_suppressor.py`` dispatch and produce no filter at all).
+    #
+    # The set is intentionally a hardcoded allowlist rather than
+    # "every Literal field on Config" — ``audio_preset`` is the one
+    # Literal field whose Literal ALSO includes the legacy
+    # ``"none"`` / ``"recommended"`` values (kept for static-typing
+    # backward-compat with pre-migration config.json). The migration
+    # already rewrites those before this reset runs, but to be safe we
+    # only reset fields explicitly in this list and rely on the
+    # Literal's own allowed-values set for the truth — so if
+    # ``audio_preset="none"`` somehow survives migration, this reset
+    # will NOT touch it (the migration handles it; touching it here
+    # would mask a migration bug).
+    _ENUM_FIELDS_TO_RESET_ON_LOAD: ClassVar[frozenset[str]] = frozenset(
+        {
+            "asr_backend",
+            "noise_suppression_method",
+            "audio_preset",
+            "theme_mode",
+            "theme_preset",
+            "bubble_position",
+            "bubble_behavior",
+            "tray_left_click_action",
+            "recording_mode",
+        }
+    )
+
+    @classmethod
+    def _reset_invalid_enum_fields(cls, instance: "Config") -> None:
+        """Reset invalid ``Literal[...]`` enum fields to their defaults.
+
+        ``validate_config(instance)`` (called from :meth:`load` just
+        before this helper) flags invalid enum values and appends
+        human-readable errors to ``instance.last_load_warnings``, but
+        it does NOT mutate the field — the invalid value remains on
+        the instance and propagates to runtime code, which either
+        crashes (KeyError in a dispatch dict) or silently takes the
+        wrong branch.
+
+        This helper closes that gap. For each field in
+        :data:`_ENUM_FIELDS_TO_RESET_ON_LOAD`:
+
+        1. Look up the field's ``Literal[...]`` annotation via
+           :func:`typing.get_type_hints`.
+        2. Read the current value from ``instance`` via ``getattr``.
+        3. If the value is not in the Literal's allowed set (via
+           :func:`typing.get_args`), reset to the default from a
+           freshly-constructed ``Config()`` and append a warning to
+           ``instance.last_load_warnings``.
+
+        Non-str values (e.g. a hand-edited ``"asr_backend": 123``)
+        are also reset — they can never be in a ``Literal[str, ...]``
+        allowed set. The ``_validate_non_numeric_fields`` pre-pass
+        normally coerces such values to ``str`` first, but this
+        helper is defensive against a value that slipped through
+        (e.g. a complex type that the str branch didn't catch).
+
+        The reset is idempotent: a value already at the default is a
+        no-op (it's in the allowed set). The reset is also safe to
+        re-run — calling it twice produces no extra warnings.
+
+        Warnings are appended to ``instance.last_load_warnings`` (NOT
+        ``data["_load_warnings"]``, which has already been popped and
+        transferred to the instance by the time this runs — see the
+        :meth:`load` orchestrator). The warning text mirrors the
+        format used by the per-field reset helpers
+        (``_validate_model_path`` etc.) so the renderer can display
+        them with the same UI treatment.
         """
         import typing
 
-        hints = typing.get_type_hints(cls)
-        registry: dict[str, type] = {}
-        for name in cls.__dataclass_fields__:
-            if name not in hints:
+        try:
+            hints = typing.get_type_hints(cls)
+        except Exception:
+            # ``typing.get_type_hints`` resolves forward refs and can
+            # raise if a referenced name isn't importable in the
+            # current sandbox. Fall back to the raw ``__annotations__``
+            # (no forward-ref resolution) — for Literal[...] fields
+            # the raw annotation IS the Literal, so this works.
+            hints = dict(getattr(cls, "__annotations__", {}))
+
+        # Build the defaults instance ONCE (not per-field) — Config()
+        # construction is cheap but not free, and the per-field loop
+        # may reset multiple values.
+        defaults = cls()
+
+        for field_name in cls._ENUM_FIELDS_TO_RESET_ON_LOAD:
+            ann = hints.get(field_name)
+            if ann is None:
+                # Field was removed or renamed — skip silently (the
+                # set is a ClassVar that should stay in sync with the
+                # dataclass declaration, but a stale entry shouldn't
+                # crash load).
                 continue
-            ann = hints[name]
-            # Unwrap Optional[T] / T | None → T
-            #
-            # both ``typing.Union`` (the
-            # ``Optional[T]`` / ``Union[T, None]`` spelling) AND
-            # ``types.UnionType`` (the PEP 604 ``T | None`` spelling)
-            # must be unwrapped. ``typing.get_origin(str | None)``
-            # returns ``types.UnionType`` — NOT ``typing.Union`` — so
-            # the pre-fix ``is typing.Union`` check left every PEP 604
-            # ``T | None`` field (microphone, qwen_model_path,
-            # parakeet_model_path, corrections_path, custom_theme) in
-            # the registry as the union type itself. The downstream
-            # ``_validate_non_numeric_fields`` else-branch then
-            # ``continue``d on ``types.UnionType`` and silently
-            # skipped these fields, letting a hand-edited
-            # ``"microphone": 123`` pass through without warning.
+            # Unwrap ``T | None`` / ``Optional[T]`` — none of the 9
+            # fields are optional, but the unwrap is cheap insurance
+            # against a future contributor adding an optional enum.
             if typing.get_origin(ann) in (typing.Union, types.UnionType):
                 args = [a for a in typing.get_args(ann) if a is not type(None)]
                 if len(args) == 1:
                     ann = args[0]
-            # Literal[...] is a subtype of str — normalize to str so the
-            # str validation branch handles it (e.g. asr_backend).
-            if typing.get_origin(ann) is typing.Literal:
-                ann = str
-            registry[name] = ann
-        return registry
+            if typing.get_origin(ann) is not typing.Literal:
+                # Field's annotation isn't a Literal (e.g. it was
+                # widened to bare ``str`` in a future refactor). Skip
+                # — we can't enumerate allowed values without a
+                # Literal. ``validate_config`` (via the IPC
+                # allowlist) still catches genuinely invalid values.
+                continue
+            allowed = set(typing.get_args(ann))
+            current = getattr(instance, field_name, None)
+            if current in allowed:
+                continue
+            default_value = getattr(defaults, field_name)
+            # Defensive: if the default ITSELF isn't in the allowed
+            # set (shouldn't happen — the dataclass declaration
+            # defines both — but guards against a malformed Literal),
+            # pick the first allowed value rather than resetting to
+            # an invalid default.
+            if default_value not in allowed and allowed:
+                default_value = sorted(allowed)[0]
+            log.warning(
+                "[CONFIG] %s=%r not in Literal allowed values %s; resetting to default %r",
+                field_name,
+                current,
+                sorted(allowed),
+                default_value,
+            )
+            # Use ``object.__setattr__`` to mirror the ``__post_init__``
+            # pattern (Config is not frozen, but this is forward-
+            # compatible and avoids triggering any future
+            # ``__setattr__`` override).
+            object.__setattr__(instance, field_name, default_value)
+            # Append to ``last_load_warnings`` — initialize the list
+            # if it's ``None`` (the ``__post_init__`` default).
+            warnings = getattr(instance, "last_load_warnings", None)
+            if warnings is None:
+                warnings = []
+                object.__setattr__(instance, "last_load_warnings", warnings)
+            warnings.append(
+                f"Config field {field_name!r}={current!r} not in allowed values "
+                f"{sorted(allowed)}, reset to default {default_value!r}"
+            )
 
     # ── : shared coercion helpers ───────────────────────────────
     #
@@ -2571,8 +2497,9 @@ class Config:
             )
             return cls._SECRET_FIELD_NAMES_FALLBACK
 
-    @staticmethod
+    @classmethod
     def _warn_and_reset(
+        cls,
         field_name: str,
         val: Any,
         defaults: "Config",
@@ -2582,63 +2509,20 @@ class Config:
     ) -> Any:
         """Reset ``field_name`` to its default value with a logged warning.
 
-        extracts the duplicated 5-line pattern
-        ``msg = ...; log.warning(...); warnings.append(...);
-        data[field_name] = getattr(defaults, field_name)`` that
-        appeared 4 times in the original
-        ``_validate_non_numeric_fields``. Returns the default value
-        so the caller can write
-        ``data[field_name] = cls._warn_and_reset(...)``.
-
-        Parameters
-        ----------
-        field_name
-            The config field being reset (e.g. ``"autostart"``).
-        val
-            The invalid value the user had on disk (used in the
-            warning message for diagnosis).
-        defaults
-            A default-constructed ``Config`` instance — the source
-            of the fallback value.
-        warnings
-            The running warnings list (appended in place).
-        reason
-            A short human-readable reason string that completes the
-            sentence ``"Config field '{field_name}' {reason} {val!r},
-            resetting to default {default_val!r}"``. Example:
-            ``"had non-bool value"`` → ``"... had non-bool value
-            'yes', resetting to default True"``.
-
-        Returns
-        -------
-        Any
-            The default value for ``field_name`` (the caller assigns
-            this back to ``data[field_name]``).
+        Delegates to
+        :func:`voice_typer.server.config.sanitization._warn_and_reset`.
+        The module-level function takes ``cls`` so subclass overrides of
+        :meth:`_secret_field_names` are respected when redacting secret
+        fields. Converted from ``@staticmethod`` to ``@classmethod`` so
+        ``cls`` flows through; this is backward-compatible with the
+        existing ``Config._warn_and_reset(field_name, val, ...)``
+        call sites in ``tests/test_config_load_corruption.py``.
         """
-        default_val = getattr(defaults, field_name)
-        # redact ``val`` for secret fields so a
-        # malformed-on-disk api_key value (e.g. ``"openai_api_key": 123``
-        # — an int instead of a str, which would trigger
-        # ``_warn_and_reset`` via the str-validation branch) doesn't
-        # get echoed into log files at WARNING level. Pre-fix, the
-        # raw value was logged via ``{val!r}`` in the warning message
-        # — if a user had pasted a real API key as an int (unlikely
-        # but possible via a botched config-restore), the key would
-        # land in ``backend.log`` and any crash-diagnostic bundle.
-        # The redaction preserves the diagnostic shape (type + length)
-        # so the operator can still see "the value was a 25-char
-        # string" without leaking the actual content.
-        if field_name in Config._secret_field_names():
-            val_repr = f"<redacted {type(val).__name__} length={len(repr(val))}>"
-        else:
-            val_repr = repr(val)
-        msg = f"Config field '{field_name}' {reason} {val_repr}, resetting to default {default_val!r}"
-        log.warning("[CONFIG] %s", msg)
-        warnings.append(msg)
-        return default_val
+        return _sanitization_warn_and_reset(cls, field_name, val, defaults, warnings, reason=reason)
 
-    @staticmethod
+    @classmethod
     def _warn_and_coerce(
+        cls,
         field_name: str,
         val: Any,
         coerced: Any,
@@ -2648,344 +2532,32 @@ class Config:
     ) -> Any:
         """Record a coercion warning and return the coerced value.
 
-        extracts the duplicated 4-line pattern
-        ``msg = ...; log.warning(...); warnings.append(...);
-        data[field_name] = coerced`` that appeared in the int and
-        float branches of ``_validate_non_numeric_fields``.
-
-        Parameters
-        ----------
-        field_name
-            The config field being coerced (e.g. ``"vad_threshold"``).
-        val
-            The original on-disk value (used in the warning message
-            for diagnosis — the user sees what they had vs. what it
-            was coerced to).
-        coerced
-            The successfully-coerced value.
-        warnings
-            The running warnings list (appended in place).
-        reason
-            Short reason string that completes the sentence
-            ``"Config field '{field_name}' {reason} {val!r}, coerced
-            to {coerced!r}"``. Example: ``"had non-int value"``.
-
-        Returns
-        -------
-        Any
-            The coerced value (the caller assigns this back to
-            ``data[field_name]``).
+        Delegates to
+        :func:`voice_typer.server.config.sanitization._warn_and_coerce`.
+        Converted from ``@staticmethod`` to ``@classmethod`` so ``cls``
+        flows through for the secret-field redaction lookup.
         """
-        msg = f"Config field '{field_name}' {reason} {val!r}, coerced to {coerced!r}"
-        # mirror the redaction in ``_warn_and_reset``
-        # for secret fields. ``_warn_and_coerce`` is reached when the
-        # on-disk value is coercible (e.g. ``"openai_api_key": 123``
-        # coerced to ``"123"``) — the original int value would be
-        # logged via ``{val!r}`` without this guard.
-        if field_name in Config._secret_field_names():
-            val_repr = f"<redacted {type(val).__name__} length={len(repr(val))}>"
-            coerced_repr = f"<redacted {type(coerced).__name__} length={len(repr(coerced))}>"
-            msg = f"Config field '{field_name}' {reason} {val_repr}, coerced to {coerced_repr}"
-        log.warning("[CONFIG] %s", msg)
-        warnings.append(msg)
-        return coerced
+        return _sanitization_warn_and_coerce(cls, field_name, val, coerced, warnings, reason=reason)
 
     @classmethod
     def _validate_non_numeric_fields(cls: type["Config"], data: dict[str, Any]) -> dict[str, Any]:
         """Validate and coerce bool / str / int / float fields in loaded config data.
 
-        collects warnings in ``data['_load_warnings']`` so
-        the caller (load()) can surface them via the
-        ``last_load_warnings`` instance attribute (SCHEMA-1 / MED-I:
-        no longer a dataclass field — see :meth:`__post_init__`).
-        Previously warnings were only logged; the user had no way to
-        know their config was corrected.
-
-        this is NOT a duplicate of the type coercion that
-        ``cls(**data)`` would do.  Python dataclasses do NOT coerce
+        This is a migration layer — NOT a duplicate of the type coercion
+        that ``cls(**data)`` would do. Python dataclasses do NOT coerce
         ``1`` → ``True`` or ``"true"`` → ``True`` — they store the raw
-        value as-is, which would then fail downstream type checks
-        (e.g. ``isinstance(cfg.autostart, bool)`` returns False for
-        ``1``).  This validator is a migration layer that fixes up
-        legacy on-disk configs (written by older versions of the app
-        that used ints/strings for bool fields) BEFORE the dataclass
-        constructor sees them.  Without it, a config.json with
-        ``"autostart": 1`` would silently store ``1`` instead of
-        ``True``, breaking every ``if cfg.autostart:`` check.
+        value as-is, which would then fail downstream type checks. This
+        validator fixes up legacy on-disk configs (written by older
+        versions of the app that used ints/strings for bool fields)
+        BEFORE the dataclass constructor sees them.
 
-        The 4 hand-maintained field-name sets (``bool_fields`` /
-        ``str_fields`` / ``int_fields`` / ``float_fields``) were
-        replaced by :meth:`_derive_field_type_registry`, which derives
-        the field list from the ``Config`` dataclass declaration. The
-        per-type coercion logic is unchanged; only the field-name
-        source changed. The ``optional_str_fields`` allowlist (fields
-        that accept ``None`` in addition to ``str``) is preserved
-        verbatim — it captures the ``str | None`` fields whose ``None``
-        sentinel is meaningful (no microphone / no Qwen path / no
-        Parakeet override).
-
-        pre-fix the validator SKIPPED complex types
-        (``list[str]``, ``dict[str, ...]``) — only bool/str/int/float
-        had explicit branches, and any other annotation fell through
-        the loop body without validation. That meant a hand-edited
-        config.json with ``"disabled_backends": "whisper"`` (a string
-        instead of a list) would silently load as a string, then crash
-        ``"whisper" in cfg.disabled_backends`` checks downstream (which
-        expect iteration over a list of strings) — or worse, succeed
-        accidentally (``"w" in "whisper"`` returns True, masking the
-        type error). The fix adds a generic ``else`` branch that uses
-        ``typing.get_origin`` to extract the container type (``list``,
-        ``dict``, etc.) and resets to default if ``val`` is not an
-        instance of that container type.
+        Delegates to
+        :func:`voice_typer.server.config.sanitization._validate_non_numeric_fields`,
+        which dispatches back through ``cls._warn_and_reset`` /
+        ``cls._warn_and_coerce`` / ``cls._derive_field_type_registry``
+        so subclass overrides of those methods are respected.
         """
-        import typing
-
-        warnings: list[str] = []
-        # str | None fields where None is a meaningful sentinel
-        # (no microphone / no Qwen path / no Parakeet override / no
-        # corrections file). The str-validation branch allows None for
-        # these fields.
-        #
-        # ``corrections_path`` is also a ``str | None``
-        # PEP 604 field. Pre-fix it never reached this branch (the
-        # registry left it as the un-unwrapped ``str | None`` alias,
-        # and the else-branch skipped it via ``types.UnionType``
-        # ``continue``). Now that ``_derive_field_type_registry``
-        # unwraps PEP 604 unions to ``str``, the str branch sees
-        # ``corrections_path`` and must allow None (the default) —
-        # without this entry, a None value (e.g. after the dedicated
-        # ``_validate_corrections_path`` resets a bad value to None)
-        # would spuriously trip the "had non-string value" reset.
-        optional_str_fields = {
-            "parakeet_model_path",
-            "qwen_model_path",
-            "microphone",
-            "corrections_path",
-        }
-        registry = cls._derive_field_type_registry()
-        defaults = cls()
-
-        # VALID-3 (MED-L): int / float field coercion.  Mirrors the
-        # bool/str pattern — if the on-disk value is not already the
-        # correct type, attempt coercion; if coercion fails, reset to
-        # default and add a warning so the user knows the field was
-        # corrected.  Note: ``bool`` is a subclass of ``int`` in
-        # Python, so we explicitly exclude bools from the int coercion
-        # (a bool value for an int field is almost certainly a
-        # misconfiguration, not a legacy int-as-bool — fall through to
-        # the default-reset branch).
-
-        for field_name, expected_type in registry.items():
-            if field_name not in data:
-                continue
-            val = data[field_name]
-
-            if expected_type is bool:
-                if isinstance(val, bool):
-                    continue
-                # Coerce truthy/falsy values
-                if val in (1, "1", "true", "True", "yes"):
-                    data[field_name] = cls._warn_and_coerce(
-                        field_name,
-                        val,
-                        True,
-                        warnings,
-                        reason="had non-bool value",
-                    )
-                elif val in (0, "0", "false", "False", "no", ""):
-                    data[field_name] = cls._warn_and_coerce(
-                        field_name,
-                        val,
-                        False,
-                        warnings,
-                        reason="had non-bool value",
-                    )
-                else:
-                    data[field_name] = cls._warn_and_reset(
-                        field_name,
-                        val,
-                        defaults,
-                        warnings,
-                        reason="had invalid value",
-                    )
-
-            elif expected_type is str:
-                if isinstance(val, str):
-                    continue
-                if val is None and field_name in optional_str_fields:
-                    continue
-                data[field_name] = cls._warn_and_reset(
-                    field_name,
-                    val,
-                    defaults,
-                    warnings,
-                    reason="had non-string value",
-                )
-
-            elif expected_type is int:
-                # VALID-3 (MED-L): int field coercion.  Accepts ints,
-                # floats (truncated via int()), and numeric strings.
-                # Rejects bools (bool is a subclass of int but almost
-                # certainly indicates a misconfigured field — reset to
-                # default).  Rejects anything int() can't parse (lists,
-                # dicts, None, non-numeric strings).
-                #
-                # ``bool`` is a subclass of ``int`` — exclude explicitly
-                # so ``True``/``False`` values are treated as invalid
-                # (the user probably toggled a checkbox they shouldn't
-                # have).
-                if isinstance(val, bool):
-                    data[field_name] = cls._warn_and_reset(
-                        field_name,
-                        val,
-                        defaults,
-                        warnings,
-                        reason="had bool value",
-                    )
-                    continue
-                if isinstance(val, int):
-                    # Already an int (and not a bool — handled above).
-                    continue
-                # Attempt coercion: int("42") → 42, int(3.7) → 3,
-                # int("3.7") raises ValueError (int() doesn't accept
-                # float-formatted strings — fall through to the
-                # catch-all).
-                try:
-                    coerced = int(val)
-                except (TypeError, ValueError):
-                    data[field_name] = cls._warn_and_reset(
-                        field_name,
-                        val,
-                        defaults,
-                        warnings,
-                        reason="had non-int value",
-                    )
-                    continue
-                data[field_name] = cls._warn_and_coerce(
-                    field_name,
-                    val,
-                    coerced,
-                    warnings,
-                    reason="had non-int value",
-                )
-
-            elif expected_type is float:
-                # VALID-3 (MED-L): float field coercion.  Accepts
-                # floats, ints, and numeric strings.  Rejects bools
-                # and anything float() can't parse.
-                if isinstance(val, bool):
-                    data[field_name] = cls._warn_and_reset(
-                        field_name,
-                        val,
-                        defaults,
-                        warnings,
-                        reason="had bool value",
-                    )
-                    continue
-                if isinstance(val, float):
-                    continue
-                try:
-                    coerced = float(val)
-                except (TypeError, ValueError):
-                    data[field_name] = cls._warn_and_reset(
-                        field_name,
-                        val,
-                        defaults,
-                        warnings,
-                        reason="had non-float value",
-                    )
-                    continue
-                data[field_name] = cls._warn_and_coerce(
-                    field_name,
-                    val,
-                    coerced,
-                    warnings,
-                    reason="had non-float value",
-                )
-
-            else:
-                # generic branch for complex container
-                # types (``list[str]``, ``dict[str, ...]``, ``tuple[...]``,
-                # etc.) that the four primitive branches above don't
-                # cover. ``expected_type`` here is a ``typing`` generic
-                # alias (e.g. ``list[str]``) — ``typing.get_origin``
-                # extracts the bare container type (``list`` / ``dict``)
-                # so we can ``isinstance``-check without the
-                # subscripted-alias TypeError (``isinstance(x, list[str])``
-                # raises ``TypeError`` in Python 3.9+; ``isinstance(x, list)``
-                # works fine).
-                #
-                # If ``val`` is already an instance of the container
-                # type, no coercion is needed (the contents are
-                # validated downstream by the per-field validators +
-                # the IPC allowlist). If ``val`` is a different type
-                # (e.g. a string where a list was expected), reset to
-                # the dataclass default and warn.
-                #
-                # ``_derive_field_type_registry`` now
-                # unwraps both ``typing.Union`` AND ``types.UnionType``
-                # to a single non-None arg, so a PEP 604 ``T | None``
-                # field arrives here as ``T`` (e.g. ``dict[str, ...]``)
-                # rather than the union alias. The Union / UnionType
-                # continue guards below are kept as defensive code for
-                # any future annotation shape that yields a multi-arg
-                # union the registry doesn't unwrap (e.g.
-                # ``str | int | None`` — two non-None args, left
-                # as-is by the registry's single-arg unwrap filter).
-                container_origin = typing.get_origin(expected_type)
-                # Skip Union / Optional (``str | None``) annotations —
-                # these are handled by the primitive branches above
-                # for str/int/float/bool, and for other Union shapes
-                # (e.g. ``dict[str, str] | None``) the bare ``None``
-                # sentinel is meaningful and a non-None value of the
-                # first union member type is best left to the
-                # downstream per-field validators (attempting to
-                # ``isinstance(val, typing.Union)`` raises TypeError).
-                if container_origin is typing.Union or container_origin is types.UnionType:
-                    continue
-                if container_origin is None:
-                    # Bare type annotation without subscription (e.g.
-                    # ``dict`` instead of ``dict[str, str]``). Use the
-                    # annotation directly.
-                    container_origin = expected_type if isinstance(expected_type, type) else None
-                if container_origin is None:
-                    # Unrecognized annotation shape — skip validation
-                    # (don't risk a TypeError on an exotic annotation).
-                    continue
-                # ``None`` is acceptable for ``T | None`` fields that
-                # survived the Optional-unwrap in
-                # ``_derive_field_type_registry`` (e.g. ``custom_theme``
-                # is ``dict[str, dict[str, str]] | None`` — when
-                # unwrapped, the bare ``dict[...]`` doesn't carry the
-                # ``| None``, but the dataclass field's default is
-                # ``None`` so a missing or null on-disk value is valid).
-                if val is None:
-                    continue
-                if isinstance(val, container_origin):
-                    continue
-                data[field_name] = cls._warn_and_reset(
-                    field_name,
-                    val,
-                    defaults,
-                    warnings,
-                    reason=f"had non-{container_origin.__name__} value",
-                )
-
-        # stash warnings so load() can surface them
-        # via the ``last_load_warnings`` instance attribute.
-        # APPEND to any existing ``_load_warnings`` rather
-        # than overwriting — earlier load() stages (e.g.
-        # ``_backup_before_downgrade``) may already have populated
-        # the list with non-blocking notices (e.g. "config schema is
-        # newer than this build supports"). Overwriting here would
-        # silently drop those notices, defeating the surface-via-
-        # last_load_warnings contract.
-        existing_warnings = data.get("_load_warnings")
-        if isinstance(existing_warnings, list):
-            existing_warnings.extend(warnings)
-        else:
-            data["_load_warnings"] = warnings
-        return data
+        return _sanitization_validate_non_numeric_fields(cls, data)
 
     @property
     def config_dir(self) -> Path:
@@ -3036,6 +2608,8 @@ from voice_typer.server.config_validators import (  # noqa: E402,F401 — backwa
     _make_enum_validator,
     _make_float_validator,
     _make_int_validator,
+    _make_optional_float_validator,
+    _make_optional_int_validator,
     _make_optional_str_validator,
     _make_str_validator,
     _make_url_validator,

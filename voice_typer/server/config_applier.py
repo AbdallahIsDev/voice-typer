@@ -173,6 +173,31 @@ _FILTER_CHAIN_KEYS = frozenset(
 # the canonical dict here mirrors the existing 5-key set — but with
 # UNIFORM defaults (``noise_filter_rnnoise`` defaults to True per
 # Config dataclass) so the two call sites don't drift.
+
+# XZ-CFG-10: the set of config keys that ``apply_preset`` overwrites
+# when ``audio_preset != "custom"`` (see ``audio_presets.PRESETS``).
+# If a user submits an IPC ``set_config`` for any of these keys while
+# ``audio_preset`` is one of the named presets (auto / studio /
+# noisy_room / off), the next ``Config.load()`` will call
+# ``apply_preset`` again and silently revert the user's toggle to the
+# preset's value. ``apply_config`` detects this case and auto-switches
+# ``audio_preset`` to ``"custom"`` (with an INFO log) so the user's
+# individual toggle survives a restart. The set mirrors the keys in
+# ``audio_presets.PRESETS`` exactly — kept here as a frozenset (rather
+# than dynamically derived from ``PRESETS``) so the value is bound at
+# import time and the auto-switch check is O(1).
+_PRESET_OVERRIDE_KEYS: frozenset[str] = frozenset(
+    {
+        "noise_filter_highpass",
+        "noise_suppression_method",
+        "noise_filter_gate",
+        "noise_filter_eq",
+        "noise_filter_compressor",
+        "noise_filter_limiter",
+        "noise_filter_notch",
+    }
+)
+
 _AUDIO_FILTER_KEYS = (
     "noise_filter_enabled",
     "noise_filter_highpass",
@@ -741,6 +766,36 @@ class ConfigApplier:
         # failure (restore snapshot + re-run side-effects with original
         # values so live state matches disk — ).
         with app._config_mutation_lock:
+            # XZ-CFG-10: if the user submits an individual noise_filter_*
+            # toggle (one of the keys ``apply_preset`` overwrites) while
+            # ``audio_preset`` is a named preset (auto / studio /
+            # noisy_room / off), auto-switch ``audio_preset`` to
+            # ``"custom"`` BEFORE setattr. Without this, ``Config.load()``
+            # would call ``apply_preset`` on next restart and silently
+            # revert the user's toggle to the preset's value (e.g. user
+            # sets ``noise_filter_highpass=False`` while preset is
+            # ``"auto"``, restarts, ``apply_preset("auto", instance)``
+            # sets it back to ``True``).
+            #
+            # Skip when the user explicitly set ``audio_preset`` in
+            # this same update — they're picking a preset, so the
+            # preset's toggles are the intent. Also skip when the
+            # preset is already ``"custom"`` (no-op).
+            if "audio_preset" not in updates:
+                individual_overrides = _PRESET_OVERRIDE_KEYS & updates.keys()
+                if individual_overrides:
+                    current_preset = getattr(app.config, "audio_preset", "custom")
+                    if current_preset != "custom":
+                        log.info(
+                            "[CONFIG] individual filter toggle(s) %s set via "
+                            "IPC while audio_preset=%r — auto-switching "
+                            "audio_preset to 'custom' so the user's toggle "
+                            "survives the next Config.load() (which would "
+                            "otherwise re-apply the preset and revert it)",
+                            sorted(individual_overrides),
+                            current_preset,
+                        )
+                        updates = {**updates, "audio_preset": "custom"}
             # pre-route api_key fields through credential_store.
             # We do this BEFORE setattr so that even if save() is
             # never called (e.g. apply_config_side_effects raises),

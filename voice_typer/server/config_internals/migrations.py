@@ -288,3 +288,96 @@ def _run_migrations(
                         )
                     break  # do NOT run later migrators
     return data, last_successful_version, migrations_ran
+
+
+def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
+    """Best-effort backup of ``config.json`` BEFORE any migration runs.
+
+    S5-CR-28: extracted verbatim from ``Config._backup_before_migration``
+    (config.py) to chip away at config.py's 2,698-LOC monolith. The
+    classmethod on ``Config`` is now a thin wrapper that delegates here
+    so callers that do ``Config._backup_before_migration(...)`` (and
+    tests that patch ``config_mod._secure_read_text`` /
+    ``config_mod._secure_atomic_write`` /
+    ``config_mod._prune_kept_backups``) keep working unchanged.
+
+    The previous implementation used ``shutil.copy2`` which (a) follows
+    symlinks on both SOURCE and DEST (a local attacker who replaces
+    config.json with a symlink to ~/.bashrc between loads gets ~/.bashrc
+    content copied into the .bak — info disclosure via the .bak file),
+    (b) is non-atomic (file-by-file copy — an interrupted copy leaves a
+    partial .bak that gives a false sense of recoverability), and (c)
+    has no fsync (the .bak may not be durable across power loss). The
+    fix routes the READ through ``_secure_read_text`` (POSIX O_NOFOLLOW
+    + inode re-verify) and the WRITE through ``_secure_atomic_write``
+    (atomic ``os.replace`` + fsync + 0o600). The original
+    ``config.json`` stays in place — the load must NOT modify the
+    on-disk file mid-load (only ``os.replace`` is used on the .bak
+    destination, not on config.json itself).
+
+    The filename embeds a Unix timestamp + PID + sub-second nanoseconds
+    so two backup events never collide (even within the same second
+    from different processes — e.g. two app instances launched in
+    parallel against the same user account during a downgrade). We also
+    cap retained pre-migration backups to 3 (oldest pruned) so the
+    directory doesn't grow unbounded across many version bumps.
+
+    Patch-path bridge: ``_secure_read_text``, ``_secure_atomic_write``,
+    and ``_prune_kept_backups`` are looked up via the ``config`` module
+    namespace (lazy import) so test patches of the form
+    ``monkeypatch.setattr(config_mod, "_secure_read_text", spy_read)``
+    keep taking effect on the extracted implementation. Importing these
+    directly from ``secure_file_io`` would bypass those test patches
+    (the same pattern is used by ``_run_migrations`` above for its
+    failed-migration backup path).
+    """
+    if not (isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION):
+        return
+    # Lazy import to (a) avoid a circular module-load (config.py imports
+    # this module at the top of the file) AND (b) route the secure-io
+    # helpers + _prune_kept_backups through the config module namespace
+    # so test monkeypatches of ``config_mod._secure_read_text`` etc.
+    # keep taking effect on this extracted implementation.
+    import os
+
+    from voice_typer.server import config as _cfg
+
+    # Filename includes schema version + epoch seconds + PID + sub-second
+    # nanoseconds to guarantee uniqueness even across parallel app
+    # instances launched against the same user account during a downgrade.
+    ts_sec = int(time.time())
+    pid = os.getpid()
+    ts_ns = time.time_ns() % 1_000_000
+    pre_bak = config_file.parent / (f"config.json.pre-migration-v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak")
+    try:
+        raw_text = _cfg._secure_read_text(config_file)
+        _cfg._secure_atomic_write(pre_bak, raw_text)
+    except (OSError, ValueError) as e:
+        # OSError covers filesystem errors; ValueError covers the SEC-002
+        # inode-changed-during-read guard (symlink TOCTOU detection).
+        # Backup failure must be visible at WARNING so operators notice
+        # (the backup is the ONLY recovery mechanism if a migrator
+        # corrupts the config). DEBUG is usually off in production.
+        log.warning(
+            "[CONFIG] failed to back up config.json to %s before migration: %s",
+            pre_bak,
+            e,
+        )
+        return
+    # cap retained pre-migration backups to 3 (oldest pruned). Match the
+    # prefix ``config.json.pre-migration-v`` so versioned-downgrade
+    # backups (``config.json.v<N>.bak``) and fail-migration backups
+    # (``config.json.bak.failed-migration-*``) are NOT pruned (they
+    # serve different recovery purposes and have their own retention
+    # policies).
+    try:
+        _cfg._prune_kept_backups(
+            config_file.parent,
+            prefix="config.json.pre-migration-v",
+            keep=3,
+        )
+    except OSError as prune_exc:
+        log.debug(
+            "[CONFIG] failed to prune old pre-migration backups: %s",
+            prune_exc,
+        )
