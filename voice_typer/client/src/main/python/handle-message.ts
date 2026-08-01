@@ -12,7 +12,10 @@
  *     SEC-017 filtering so transcription/history never leak to the bubble).
  */
 import { app } from "electron";
-import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";
+import {
+	BUBBLE_ONLY_TYPES,
+	setLastKnownBubbleMode,
+} from "../ipc/bubble-handlers";
 import { BubbleChannels, PythonChannels } from "../ipc/channels";
 //route Python push-event lifecycle messages
 // through the structured `log` logger so they persist to
@@ -69,6 +72,17 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		log.info(
 			`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
 		);
+		// Cache the bubble mode at the source — BEFORE the
+		// `webContents.send`. The dismiss handler reads this
+		// cached mode to decide whether to send
+		// `toggle_dictation` before hiding (so a dismiss click
+		// while recording stops the audio pipeline instead of
+		// orphaning it). The previous design monkey-patched
+		// `webContents.send` inside the `bubble:ready` handler
+		// to intercept outgoing `bubble:set-state` sends; that
+		// patch accumulated on every bubble reload. Updating at
+		// the source eliminates the patch entirely.
+		setLastKnownBubbleMode(state_);
 		state.bubbleWindow?.webContents.send(BubbleChannels.setState, state_);
 	},
 	bubble_level: (msg) => {

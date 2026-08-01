@@ -58,6 +58,62 @@ function _isModifier(p: string): boolean {
 }
 
 /**
+ * Special-case display labels for the few common key names so the
+ * error message returned by {@link _formatForMessage} matches the
+ * wording used elsewhere in the UI (e.g. "Caps Lock" instead of
+ * "Caps_lock").
+ *
+ * Hoisted to module scope: the table is pure English (it's the
+ * fallback label used in error messages that the user reads while
+ * configuring hotkeys, and the surrounding message is also localized
+ * via ``t()`` separately). It is identical for every locale, so it
+ * never needs to be rebuilt. The previous in-function allocation
+ * rebuilt the ~33-entry object on every ``_formatForMessage`` call —
+ * and ``_formatForMessage`` is called up to 4× per ``validateHotkey``
+ * invocation (once per failing rule branch), so this hoist removes a
+ * measurable per-validation allocation.
+ */
+const _MESSAGE_SPECIAL_LABELS: Readonly<Record<string, string>> = {
+	ctrl: "Ctrl",
+	ctrl_l: "Ctrl",
+	ctrl_r: "Ctrl",
+	shift: "Shift",
+	shift_l: "Shift",
+	shift_r: "Shift",
+	alt: "Alt",
+	alt_l: "Alt",
+	alt_r: "Alt",
+	alt_gr: "AltGr",
+	cmd: "Cmd",
+	cmd_l: "Cmd",
+	cmd_r: "Cmd",
+	win: "Win",
+	super: "Super",
+	fn: "Fn",
+	globe: "Globe",
+	space: "Space",
+	enter: "Enter",
+	tab: "Tab",
+	esc: "Esc",
+	caps_lock: "Caps Lock",
+	num_lock: "Num Lock",
+	scroll_lock: "Scroll Lock",
+	print_screen: "Print Screen",
+	pause: "Pause",
+	insert: "Insert",
+	delete: "Delete",
+	home: "Home",
+	end: "End",
+	page_up: "Page Up",
+	page_down: "Page Down",
+	up: "Up",
+	down: "Down",
+	left: "Left",
+	right: "Right",
+	backspace: "Backspace",
+};
+
+/**
  * : format a pynput hotkey string for inclusion in an error
  * message so the user can see EXACTLY which combo was rejected.
  *
@@ -78,48 +134,7 @@ function _formatForMessage(hotkey: string): string {
 		.filter(Boolean)
 		.map((part) => {
 			const lower = part.toLowerCase();
-			// Special-case a few common names so the message
-			// matches the rest of the UI's wording.
-			const SPECIAL: Record<string, string> = {
-				ctrl: "Ctrl",
-				ctrl_l: "Ctrl",
-				ctrl_r: "Ctrl",
-				shift: "Shift",
-				shift_l: "Shift",
-				shift_r: "Shift",
-				alt: "Alt",
-				alt_l: "Alt",
-				alt_r: "Alt",
-				alt_gr: "AltGr",
-				cmd: "Cmd",
-				cmd_l: "Cmd",
-				cmd_r: "Cmd",
-				win: "Win",
-				super: "Super",
-				fn: "Fn",
-				globe: "Globe",
-				space: "Space",
-				enter: "Enter",
-				tab: "Tab",
-				esc: "Esc",
-				caps_lock: "Caps Lock",
-				num_lock: "Num Lock",
-				scroll_lock: "Scroll Lock",
-				print_screen: "Print Screen",
-				pause: "Pause",
-				insert: "Insert",
-				delete: "Delete",
-				home: "Home",
-				end: "End",
-				page_up: "Page Up",
-				page_down: "Page Down",
-				up: "Up",
-				down: "Down",
-				left: "Left",
-				right: "Right",
-				backspace: "Backspace",
-			};
-			if (SPECIAL[lower]) return SPECIAL[lower];
+			if (_MESSAGE_SPECIAL_LABELS[lower]) return _MESSAGE_SPECIAL_LABELS[lower];
 			if (/^f\d{1,2}$/.test(lower)) return lower.toUpperCase();
 			if (lower.length === 1) return lower.toUpperCase();
 			return part.charAt(0).toUpperCase() + part.slice(1);
@@ -296,8 +311,10 @@ export function validateHotkey(
 	//    A standalone <a>, <1>, etc. would trigger on every keypress
 	//    of that character during normal typing.
 	if (parts.length === 1) {
+		// noUncheckedIndexedAccess: parts[0] is `string | undefined`;
+		// the length===1 guard proves it exists.
 		const sole = parts[0];
-		if (/^[a-z0-9]$/.test(sole)) {
+		if (sole !== undefined && /^[a-z0-9]$/.test(sole)) {
 			return {
 				valid: false,
 				reason: t("hotkeyValidation.singleLetterDigit", { key: sole }),
@@ -316,8 +333,10 @@ export function validateHotkey(
 	//    never had this rule). Now we only reject combos that mix
 	//    modifiers AND non-modifiers but end with a modifier.
 	if (parts.length >= 2 && nonMods.length > 0) {
+		// noUncheckedIndexedAccess: parts[parts.length-1] is
+		// `string | undefined`; the length>=2 guard proves it exists.
 		const lastKey = parts[parts.length - 1];
-		if (isModifier(lastKey)) {
+		if (lastKey !== undefined && isModifier(lastKey)) {
 			//include the conflicting combo.
 			const label = _formatForMessage(hotkey);
 			return {

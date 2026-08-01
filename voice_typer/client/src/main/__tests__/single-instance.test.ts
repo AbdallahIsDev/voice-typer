@@ -162,12 +162,35 @@ describe("XS-78: single_instance.ts", () => {
 
 		it("XZ-R5-009: readStaleElectronPid() returns the PID when alive but not Voice Typer (PID reuse)", () => {
 			writeElectronPidFile();
-			// On Linux, /proc/<pid>/cmdline returns the vitest
-			// cmdline (no "electron"). On macOS/Windows the spawn
-			// of ps/wmic returns the runner cmdline. Either way
-			// isPidVoiceTyper returns false → treat as stale.
-			const result = readStaleElectronPid();
-			expect(result).toBe(process.pid);
+			// The PID is alive (it's the current vitest process), so
+			// ``process.kill(pid, 0)`` succeeds and ``readStaleElectronPid``
+			// falls through to the ``isPidVoiceTyper`` check. We mock the
+			// cmdline probe to return a process that does NOT contain
+			// "electron" / "voice-typer" / "voice_typer" (simulating PID
+			// reuse by an unrelated process — e.g. a browser or shell that
+			// happened to claim the PID after Voice Typer crashed).
+			//
+			// Without this mock the test would be flaky on Linux: the real
+			// ``/proc/<pid>/cmdline`` of the vitest runner contains the
+			// project path ``/home/z/.../voice-typer/...`` which trips the
+			// ``voice-typer`` substring check in ``isPidVoiceTyper`` — so
+			// ``readStaleElectronPid`` would (incorrectly for this test's
+			// intent) return null and the PID-reuse path would go unexercised.
+			const realReadFileSync = fs.readFileSync;
+			const spy = vi
+				.spyOn(fs, "readFileSync")
+				.mockImplementation((file, ...rest) => {
+					if (typeof file === "string" && file.includes("/cmdline")) {
+						return "/usr/bin/unrelated-process\0--flag";
+					}
+					return realReadFileSync(file as fs.PathOrFileDescriptor, ...rest);
+				});
+			try {
+				const result = readStaleElectronPid();
+				expect(result).toBe(process.pid);
+			} finally {
+				spy.mockRestore();
+			}
 		});
 
 		it("readStaleElectronPid() returns the dead PID when the process is gone", () => {

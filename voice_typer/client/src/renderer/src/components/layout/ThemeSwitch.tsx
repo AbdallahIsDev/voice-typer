@@ -20,12 +20,28 @@ const THEME_CYCLE: {
 	{ mode: "system", icon: ModernTvIcon, labelKey: "theme.system" },
 ];
 
+// Sentinel fallback used when both `THEME_CYCLE.find(...)` and
+// `THEME_CYCLE[0]` are `undefined` (theoretically impossible —
+// `THEME_CYCLE` is a module-level literal with 3 entries — but TS
+// still widens both reads under `noUncheckedIndexedAccess`). Typed
+// as a non-optional element so the lookup expressions above can
+// chain `?? THEME_CYCLE_FALLBACK` without a non-null assertion.
+const THEME_CYCLE_FALLBACK: (typeof THEME_CYCLE)[number] = {
+	mode: "system",
+	icon: ModernTvIcon,
+	labelKey: "theme.system",
+};
+
 /** Get the next mode in the cycle. Light → Dark → System → Light */
 function nextMode(
 	current: VoiceTyperConfig["theme_mode"],
 ): VoiceTyperConfig["theme_mode"] {
 	const idx = THEME_CYCLE.findIndex((item) => item.mode === current);
-	return THEME_CYCLE[(idx + 1) % THEME_CYCLE.length].mode;
+	const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
+	// noUncheckedIndexedAccess: `next` is `T | undefined`; THEME_CYCLE
+	// is non-empty, so the modulo index is always in bounds — guard
+	// keeps the typed return happy without a non-null assertion.
+	return next?.mode ?? THEME_CYCLE[0]?.mode ?? current;
 }
 
 interface ThemeSwitchProps {
@@ -39,19 +55,21 @@ export function ThemeSwitch({
 	collapsed = false,
 }: ThemeSwitchProps) {
 	const current =
-		THEME_CYCLE.find((item) => item.mode === themeMode) ?? THEME_CYCLE[0];
+		THEME_CYCLE.find((item) => item.mode === themeMode) ??
+		THEME_CYCLE[0] ??
+		THEME_CYCLE_FALLBACK;
 	const label = t(current.labelKey);
 
 	// Include the NEXT mode in the aria-label so screen-reader users
-	// so screen-reader users know what clicking will do, not just
-	// what the current state is.  Previously the aria-label was
-	// ``"Current theme: Dark. Click to switch."`` — ambiguous about
-	// the result of the click.  Now: ``"Current theme: Dark. Click
-	// to switch to System."`` etc.
+	// know what clicking will do, not just what the current state is.
+	// Previously the aria-label was ``"Current theme: Dark. Click to
+	// switch."`` — ambiguous about the result of the click.  Now:
+	// ``"Current theme: Dark. Click to switch to System."`` etc.
 	const nextLabel = t(
 		(
 			THEME_CYCLE.find((item) => item.mode === nextMode(themeMode)) ??
-			THEME_CYCLE[0]
+			THEME_CYCLE[0] ??
+			THEME_CYCLE_FALLBACK
 		).labelKey,
 	);
 
@@ -93,7 +111,7 @@ export function ThemeSwitch({
 			})}
 		>
 			<HugeiconsIcon
-				icon={current.icon}
+				icon={current.icon ?? ModernTvIcon}
 				strokeWidth={2}
 				className="h-4 w-4 shrink-0"
 			/>

@@ -258,7 +258,9 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 		// The cancelFailed snackbar fired.
 		await waitFor(() => {
 			expect(showSnack).toHaveBeenCalledWith(
-				expect.stringContaining(t("models.snack.cancelFailed").split("{")[0]),
+				expect.stringContaining(
+					t("models.snack.cancelFailed").split("{")[0] ?? "",
+				),
 				"error",
 			);
 		});

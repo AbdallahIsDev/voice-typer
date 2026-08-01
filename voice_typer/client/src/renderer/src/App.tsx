@@ -8,7 +8,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { APP_NAME } from "@/branding";
-import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
@@ -453,73 +452,88 @@ export default function App() {
 	};
 
 	// ── Render ────────────────────────────────────────────────────
+	// ErrorBoundary wrap was removed from here — `main.tsx` already
+	// wraps `<App />` in the same `<ErrorBoundary>` with the same
+	// fallback. The inner wrap was dead-code redundancy: a render
+	// crash anywhere inside `<App />` propagated to the parent
+	// boundary regardless, and the inner boundary's fallback was
+	// identical to the outer one (no `fallback` prop supplied).
+	// Keeping a single boundary in `main.tsx` simplifies the tree
+	// and removes one layer of catch noise from stack traces.
 	return (
-		<ErrorBoundary>
-			<TooltipProvider delayDuration={200} skipDelayDuration={500}>
-				<a
-					href="#main-content"
-					className="sr-only focus:not-sr-only focus:fixed focus:inset-s-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
-				>
-					{t("a11y.skipToMain")}
-				</a>
-				<div
-					className={cn(
-						"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
-						!isMaximized && "rounded-lg border border-border",
-					)}
-				>
-					<TitleBar
-						onToggleSidebar={handleToggleSidebar}
-						onGoBack={goBack}
-						onGoForward={goForward}
-						canGoBack={canGoBack}
-						canGoForward={canGoForward}
-						isMaximized={isMaximized}
-						onOpenHelp={handleOpenHelp}
+		<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+			<a
+				href="#main-content"
+				className="sr-only focus:not-sr-only focus:fixed focus:inset-s-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+			>
+				{t("a11y.skipToMain")}
+			</a>
+			<div
+				className={cn(
+					"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
+					!isMaximized && "rounded-lg border border-border",
+				)}
+			>
+				<TitleBar
+					onToggleSidebar={handleToggleSidebar}
+					onGoBack={goBack}
+					onGoForward={goForward}
+					canGoBack={canGoBack}
+					canGoForward={canGoForward}
+					isMaximized={isMaximized}
+					onOpenHelp={handleOpenHelp}
+				/>
+
+				<div className="flex min-h-0 flex-1">
+					<Sidebar
+						currentPage={currentPage}
+						onNavigate={navigate}
+						themeMode={themeMode}
+						onThemeChange={handleThemeChange}
+						collapsed={sidebarCollapsed}
 					/>
 
-					<div className="flex min-h-0 flex-1">
-						<Sidebar
-							currentPage={currentPage}
-							onNavigate={navigate}
-							themeMode={themeMode}
-							onThemeChange={handleThemeChange}
-							collapsed={sidebarCollapsed}
-						/>
-
-						<div className="flex min-w-0 flex-1 flex-col">
-							<main
-								id="main-content"
-								tabIndex={-1}
-								className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none"
-								style={{ scrollbarGutter: "stable" }}
-							>
-								{connectionStatus === "connected" ? (
-									<Suspense fallback={<RouteSuspenseFallback />}>
-										{renderPage()}
-									</Suspense>
-								) : (
-									<ConnectionStatusScreen
-										status={connectionStatus}
-										lastError={lastError}
-										onRetry={handleRetryConnection}
-										connectingProgress={connectingProgress}
-									/>
-								)}
-							</main>
-						</div>
+					<div className="flex min-w-0 flex-1 flex-col">
+						<main
+							id="main-content"
+							tabIndex={-1}
+							// Visible focus ring so sighted keyboard users see that focus
+							// moved into the main landmark after a navigation event. Pre-fix
+							// this was `focus:outline-none` only — focus was moved
+							// programmatically (see the useEffect above) but the user had no
+							// visual confirmation, leading to confusion about whether the
+							// shortcut had any effect. The ring uses the same `--ring` token
+							// as every other focusable element so it visually matches the
+							// rest of the app's focus indicators.
+							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
+							style={{ scrollbarGutter: "stable" }}
+						>
+							{connectionStatus === "connected" ? (
+								<Suspense fallback={<RouteSuspenseFallback />}>
+									{renderPage()}
+								</Suspense>
+							) : (
+								<ConnectionStatusScreen
+									status={connectionStatus}
+									lastError={lastError}
+									onRetry={handleRetryConnection}
+									connectingProgress={connectingProgress}
+								/>
+							)}
+						</main>
 					</div>
-					<Toaster />
+				</div>
+				<Toaster />
 
-					{/* Help overlay extracted to <HelpOverlay /> */}
-					<HelpOverlay
-						open={showHelpOverlay}
-						onClose={handleCloseHelp}
-						dictationLabel={dictationLabel}
-						repasteLabel={repasteLabel}
-					/>
+				{/* Help overlay extracted to <HelpOverlay /> */}
+				<HelpOverlay
+					open={showHelpOverlay}
+					onClose={handleCloseHelp}
+					dictationLabel={dictationLabel}
+					repasteLabel={repasteLabel}
+				/>
 
-					{/* Split the screen-reader live region
+				{/* Split the screen-reader live region
                                     into TWO regions — one for recording state, one for
                                     connection status. Previously a single aria-atomic region
                                     concatenated both streams, so any change in either
@@ -528,35 +542,30 @@ export default function App() {
                                     be re-announced even though recording state hadn't
                                     changed. Two regions isolate the two streams so each only
                                     re-announces when ITS OWN content changes. */}
-					<div aria-live="polite" aria-atomic="true" className="sr-only">
-						{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
-						{recordingState === "transcribing"
-							? t("a11y.transcribingAudio")
-							: ""}
-						{recordingState === "idle" ? t("a11y.ready") : ""}
-						{recordingState === "error" ? t("a11y.errorOccurred") : ""}
-						{recordingState === "loading" ? t("a11y.loadingModel") : ""}
-						{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
-					</div>
-					{/* Announce connection-state transitions so
+				<div aria-live="polite" aria-atomic="true" className="sr-only">
+					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
+					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
+					{recordingState === "idle" ? t("a11y.ready") : ""}
+					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
+					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
+					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
+				</div>
+				{/* Announce connection-state transitions so
                                     screen-reader users get the same feedback that sighted
                                     users get from the connecting/disconnected/restarting UI
                                     swap. Reuses existing i18n keys (`app.lostConnection`,
                                     `app.restartingBackend`, `about.connected`) so no new
                                     translation keys are required. */}
-					<div aria-live="polite" aria-atomic="true" className="sr-only">
-						{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
-						{connectionStatus === "restarting"
-							? t("app.restartingBackend")
-							: ""}
-						{connectionStatus === "connected" &&
-						prevConnectionRef.current !== "connected" &&
-						prevConnectionRef.current !== "connecting"
-							? t("about.connected")
-							: ""}
-					</div>
+				<div aria-live="polite" aria-atomic="true" className="sr-only">
+					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
+					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
+					{connectionStatus === "connected" &&
+					prevConnectionRef.current !== "connected" &&
+					prevConnectionRef.current !== "connecting"
+						? t("about.connected")
+						: ""}
 				</div>
-			</TooltipProvider>
-		</ErrorBoundary>
+			</div>
+		</TooltipProvider>
 	);
 }

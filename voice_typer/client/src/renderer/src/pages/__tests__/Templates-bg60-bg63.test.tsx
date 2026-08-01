@@ -216,9 +216,9 @@ describe("Templates page — BG-63 export format forwarding", () => {
 			expect(exportTemplatesMock).toHaveBeenCalledTimes(1);
 		});
 		const callArgs = exportTemplatesMock.mock.calls[0];
-		expect(callArgs[0]).toEqual({
+		expect(callArgs?.[0]).toEqual({
 			templates: [{ trigger: "hi", output: "hello", match_mode: "exact" }],
 		});
-		expect(callArgs[1]).toBe("csv");
+		expect(callArgs?.[1]).toBe("csv");
 	});
 });

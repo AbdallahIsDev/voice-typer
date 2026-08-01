@@ -422,7 +422,7 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 		const { bootstrapRuntime } = await import("../bootstrap");
 		bootstrapRuntime();
 		expect(crashReporterStartMock).toHaveBeenCalledTimes(1);
-		const opts = crashReporterStartMock.mock.calls[0][0] as Record<
+		const opts = (crashReporterStartMock.mock.calls[0]?.[0] ?? {}) as Record<
 			string,
 			unknown
 		>;

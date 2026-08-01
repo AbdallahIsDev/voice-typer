@@ -82,7 +82,7 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 			rerenderWith("disconnected");
 		});
 		expect(toastSpies.error).toHaveBeenCalledTimes(1);
-		const [msg, opts] = toastSpies.error.mock.calls[0];
+		const [msg, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(msg).toBe("[t]app.lostConnection");
 		expect(opts).toMatchObject({
 			id: "conn-disconnected",
@@ -97,7 +97,7 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 			rerenderWith("restarting");
 		});
 		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.warning.mock.calls[0];
+		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
 		expect(opts).toMatchObject({
 			id: "conn-restarting",
 			description: "[t]app.restartingHint",
@@ -111,7 +111,7 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 			rerenderWith("connected");
 		});
 		expect(toastSpies.success).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.success.mock.calls[0];
+		const [, opts] = toastSpies.success.mock.calls[0] ?? [];
 		expect(opts).toMatchObject({
 			id: "conn-connected",
 			duration: 3000,
@@ -149,11 +149,11 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 		// The second disconnected toast uses the SAME id — sonner would
 		// replace the existing toast instead of stacking a fresh one.
 		expect(toastSpies.error).toHaveBeenCalledTimes(2);
-		const firstOpts = toastSpies.error.mock.calls[0][1];
-		const secondOpts = toastSpies.error.mock.calls[1][1];
-		expect(firstOpts.id).toBe("conn-disconnected");
-		expect(secondOpts.id).toBe("conn-disconnected");
-		expect(firstOpts.id).toBe(secondOpts.id);
+		const firstOpts = toastSpies.error.mock.calls[0]?.[1];
+		const secondOpts = toastSpies.error.mock.calls[1]?.[1];
+		expect(firstOpts?.id).toBe("conn-disconnected");
+		expect(secondOpts?.id).toBe("conn-disconnected");
+		expect(firstOpts?.id).toBe(secondOpts?.id);
 	});
 
 	it("a backend-flap sequence fires each transition exactly once", async () => {
@@ -186,13 +186,13 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 
 		// Every disconnected toast carries the same stable id.
 		for (const call of toastSpies.error.mock.calls) {
-			expect(call[1].id).toBe("conn-disconnected");
+			expect(call[1]?.id).toBe("conn-disconnected");
 		}
 		for (const call of toastSpies.warning.mock.calls) {
-			expect(call[1].id).toBe("conn-restarting");
+			expect(call[1]?.id).toBe("conn-restarting");
 		}
 		for (const call of toastSpies.success.mock.calls) {
-			expect(call[1].id).toBe("conn-connected");
+			expect(call[1]?.id).toBe("conn-connected");
 		}
 	});
 

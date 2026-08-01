@@ -531,9 +531,12 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 		fireEvent.click(clearBtn);
 
-		//dialog must NOT open — totalCount is 0, nothing to clear.
-		// Give the state a tick to settle, then assert no dialog appeared.
-		await new Promise((r) => setTimeout(r, 50));
-		expect(screen.queryByRole("alertdialog")).toBeNull();
+		// Dialog must NOT open — totalCount is 0, nothing to clear.
+		// Wait for any pending state updates to settle, then assert
+		// no dialog appeared (waitFor polls until the negative
+		// assertion holds stably).
+		await waitFor(() => {
+			expect(screen.queryByRole("alertdialog")).toBeNull();
+		});
 	});
 });

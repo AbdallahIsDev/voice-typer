@@ -84,12 +84,24 @@ export type ErrorCodes =
 	| "server.cloud_config_error"
 	| "server.cloud_engine_error"
 	| "server.protocol_version_mismatch"
+	// Recording-pipeline resample failures emitted by the Python
+	// recording layer (see `voice_typer/server/recording/exceptions.py`).
+	// The renderer surfaces a targeted "audio pipeline misconfiguration"
+	// or "install scipy for better audio quality" message instead of the
+	// generic `server.internal_error` toast.
+	| "server.recording_resample_failed"
+	| "server.recording_resample_unavailable"
 	// Renderer-synthesized codes (from Tauri host supervisor events)
 	| "respawn_exhausted"
 	//Namespaced parity codes for Rust host error envelopes ().
 	// The Rust host emits the non-namespaced legacy forms (`pending_full`,
-	// `data_too_large`); these namespaced forms are the canonical targets
+	// `data_too_large`). These namespaced forms are the canonical targets
 	// for future migration. Both forms are valid ErrorCodes.
+	// (Note: keep semicolons OUT of comment lines inside the union body.
+	// The parity-test parser in `tests/test_error_codes_registry.py`
+	// slices the union on the first semicolon it sees, so a stray one
+	// in a comment silently truncates the parsed set and breaks the
+	// `Python ERROR_CODES subset of TS ErrorCodes` assertion.)
 	| "client.pending_full"
 	| "client.payload_too_large_dispatch"
 	// Legacy aliases (still emitted by some paths for backward compat)
@@ -117,23 +129,16 @@ export type ErrorCodes =
 // branch on the failure class (timeout vs. not-connected vs.
 // backend-exited) without parsing the human-readable message text.
 //
-// The canonical declaration lives in `python-call-handler.ts` (main
-// process scope). The renderer can't import that file directly because
-// the web tsconfig (`tsconfig.web.json`) only includes
-// `src/renderer/src/**/*` — a cross-boundary import would fail
-// `tsc --noEmit` with `TS6307: File is not listed within the file
-// list of project`. This mirror lives in the renderer scope so
-// `usePython.ts` can narrow `result._code` against the typed union.
+// The canonical declaration lives in
+// `src/shared/python-call-error-code.ts` — a cross-boundary module
+// included by BOTH `tsconfig.web.json` and `tsconfig.node.json` (both
+// tsconfigs now list `src/shared` recursively in their `include`
+// arrays). This file re-exports the type so existing imports
+// (`@/types/ipc/enums` -> `PythonCallErrorCode`) keep resolving; the
+// previous mirror declaration that required both files to carry a
+// pointer comment has been removed.
 //
-// The two declarations MUST stay in sync — both files carry a comment
-// pointing to the other. The codes are stable (the python-call-handler
-// docstring says "never rename an existing code, only add new ones"),
-// so the drift risk is low. A future refactor that consolidates the
-// main + renderer tsconfigs (or extracts the type into a shared
-// `src/shared/` directory included by both tsconfigs) should remove
-// the duplicate.
-export type PythonCallErrorCode =
-	| "backend_not_connected"
-	| "backend_exited_early"
-	| "command_failed"
-	| "command_timeout";
+// The codes are stable (the python-call-handler docstring says "never
+// rename an existing code, only add new ones"), so future additions
+// only need to touch the shared file.
+export type { PythonCallErrorCode } from "../../../../shared/python-call-error-code";

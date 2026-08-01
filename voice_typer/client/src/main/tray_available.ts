@@ -33,6 +33,7 @@
  * short enough that a worst-case hang is barely noticeable.
  */
 import { execFileSync } from "node:child_process";
+import { log } from "./logging";
 
 /** R6-F11: per-call subprocess timeout. Exported for unit tests. */
 export const DBUS_PROBE_TIMEOUT_MS = 500;
@@ -63,9 +64,11 @@ function dbusNameHasOwner(name: string): boolean | null {
 		return out.includes("true");
 	} catch (e) {
 		// gdbus missing / non-zero exit / timeout — fall through to
-		// the dbus-send fallback. Logging at debug level would be too
-		// noisy on systems that simply don't ship gdbus.
-		console.warn(
+		// the dbus-send fallback. Logging at warn level (not debug)
+		// so a real gdbus install that suddenly starts failing is
+		// diagnosable from the runtime log instead of silently
+		// degrading to the dbus-send code path.
+		log.warn(
 			"[tray_available] gdbus probe failed, falling through to dbus-send:",
 			e,
 		);

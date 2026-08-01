@@ -30,7 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
-import { appendLogLine, redactPii } from "./rotation";
+import { appendLogLine, recordLoggingFailure, redactPii } from "./rotation";
 
 // Opt-in INFO persistence for support/enterprise deployments.
 // Set VOICE_TYPER_ELECTRON_INFO_LOG=1 to route INFO logs to
@@ -93,6 +93,51 @@ export function _setSessionIdForTest(id: string | undefined): void {
 	_sessionId = id;
 }
 
+// ─── Memoization slots for the three Electron log file paths ────────
+//
+// Mirror the `getRuntimeLogPath()` pattern in `./printfLogger.ts`:
+// `app.getPath("userData")` is non-trivial (Electron lazy-loads its
+// `app` module and `getPath` does a platform-specific dir computation),
+// but the result is stable for the process lifetime — `setupUserData()`
+// in `bootstrap.ts` runs exactly once at startup BEFORE any `logger.*`
+// call could fire. Caching the resolved path eliminates the per-
+// `logger.warn` / `logger.error` round-trip (previously every WARN/ERROR
+// line re-resolved `mainLogPath()` via `app.getPath`).
+//
+// The cache uses `undefined` as the "not yet computed" sentinel. On the
+// first call, the path is resolved (with a `process.cwd()` fallback if
+// Electron is unavailable, mirroring `getRuntimeLogPath`'s
+// `?? process.cwd()` nullish-coalesce AND its try/catch — preserving
+// the existing `string` return type so callers like `appendLogLine`
+// don't need to handle `string | null`). Subsequent calls return the
+// cached value without touching `app.getPath` again.
+//
+// `_resetMainLogPathForTest()` clears all three slots so unit tests
+// can re-resolve after swapping the Electron mock (matches the
+// `_resetRuntimeLogPathForTest()` convention in printfLogger — same
+// name shape, same "one reset covers the module's memoization state"
+// ergonomics).
+let _mainLogPath: string | undefined;
+let _lifecycleLogPath: string | undefined;
+let _rendererErrorsLogPath: string | undefined;
+
+/**
+ * Test seam: clear the memoized `mainLogPath` / `lifecycleLogPath` /
+ * `rendererErrorsLogPath` slots so the next call to each re-resolves
+ * via `app.getPath("userData")`. Exported (not in the public barrel)
+ * so unit tests can assert memoization behavior — call counts on the
+ * `electron` mock's `app.getPath`, cache-hit return values, and the
+ * `_resetMainLogPathForTest()` → re-resolve cycle. Production code
+ * must NOT call this — the paths are intended to memoize for the
+ * process lifetime (the userData dir does not move after
+ * `bootstrapRuntime()`'s `setupUserData()` step).
+ */
+export function _resetMainLogPathForTest(): void {
+	_mainLogPath = undefined;
+	_lifecycleLogPath = undefined;
+	_rendererErrorsLogPath = undefined;
+}
+
 /**
  * Resolve the path to `electron-lifecycle.log` under the Electron
  * userData dir. Kept separate from `mainLogPath` so the opt-in
@@ -100,7 +145,15 @@ export function _setSessionIdForTest(id: string | undefined): void {
  * `electron-main.log` rotation window.
  */
 export function lifecycleLogPath(): string {
-	return path.join(app.getPath("userData"), "electron-lifecycle.log");
+	if (_lifecycleLogPath === undefined) {
+		try {
+			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
+			_lifecycleLogPath = path.join(userDataDir, "electron-lifecycle.log");
+		} catch {
+			_lifecycleLogPath = path.join(process.cwd(), "electron-lifecycle.log");
+		}
+	}
+	return _lifecycleLogPath;
 }
 
 /**
@@ -171,6 +224,15 @@ export function appendLifecycleLine(
 		// misconfigured lifecycle-log path (read-only dir, perm regression)
 		// is visible in the dev console instead of silently swallowed.
 		console.warn("[logging] appendLifecycleLine failed:", e);
+		// Record the failure to the in-memory logging-health ring buffer
+		// so an orchestrator (or future IPC handler) can surface
+		// "logging degraded" via `getLoggingHealth()`. The lifecycle-log
+		// path may not have been resolved yet (the try block above calls
+		// `lifecycleLogPath()` at the line just before `appendLogLine` —
+		// if that call itself threw, `p` is out of scope here). Record
+		// with an empty path; the `operation` label is enough for the
+		// orchestrator to surface the degradation to the user.
+		recordLoggingFailure("", "appendLifecycleLine", e);
 	}
 }
 
@@ -223,9 +285,25 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
  * `logger.debug` / `logger.info`"). Exported from this split module so
  * the barrel can re-export it; external consumers may now read it
  * directly, but no behavior change is implied.
+ *
+ * Memoized for the process lifetime (see the block comment on
+ * `_mainLogPath` above). The first call resolves via
+ * `app.getPath("userData")`; subsequent calls return the cached value
+ * without re-touching Electron. If `app.getPath` throws (Electron
+ * unavailable in a degenerate test environment), the fallback is
+ * `path.join(process.cwd(), "electron-main.log")` — cached so
+ * subsequent calls don't re-attempt.
  */
 export function mainLogPath(): string {
-	return path.join(app.getPath("userData"), "electron-main.log");
+	if (_mainLogPath === undefined) {
+		try {
+			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
+			_mainLogPath = path.join(userDataDir, "electron-main.log");
+		} catch {
+			_mainLogPath = path.join(process.cwd(), "electron-main.log");
+		}
+	}
+	return _mainLogPath;
 }
 
 /**
@@ -233,9 +311,31 @@ export function mainLogPath(): string {
  * userData dir. The main-window `console-message` handler
  * appends level>=3 (ERROR) renderer messages to this file so support
  * staff can see renderer crashes without fishing through DevTools.
+ *
+ * Memoized for the process lifetime (see the block comment on
+ * `_mainLogPath` above). The first call resolves via
+ * `app.getPath("userData")`; subsequent calls return the cached value
+ * without re-touching Electron. If `app.getPath` throws (Electron
+ * unavailable in a degenerate test environment), the fallback is
+ * `path.join(process.cwd(), "electron-renderer-errors.log")` — cached
+ * so subsequent calls don't re-attempt.
  */
 export function rendererErrorsLogPath(): string {
-	return path.join(app.getPath("userData"), "electron-renderer-errors.log");
+	if (_rendererErrorsLogPath === undefined) {
+		try {
+			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
+			_rendererErrorsLogPath = path.join(
+				userDataDir,
+				"electron-renderer-errors.log",
+			);
+		} catch {
+			_rendererErrorsLogPath = path.join(
+				process.cwd(),
+				"electron-renderer-errors.log",
+			);
+		}
+	}
+	return _rendererErrorsLogPath;
 }
 
 /**

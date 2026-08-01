@@ -115,77 +115,22 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
+import { makeConfig } from "@/__tests__/helpers/fixtures";
 import type { VoiceTyperConfig } from "@/types/config";
 
 /** A complete, valid VoiceTyperConfig with `theme_preset: "custom"` so the
  *  color picker renders on first paint.  Only the theme-related fields are
  *  meaningful for these tests; the rest are populated with sensible
- *  defaults so the various Settings sections don't blow up on render. */
-const baseConfig: VoiceTyperConfig = {
+ *  defaults so the various Settings sections don't blow up on render.
+ *
+ *  Built on the shared `makeConfig` fixture so this file no longer keeps
+ *  its own ~140-field copy of `VoiceTyperConfig` (the historical drift
+ *  hazard called out in XA-15-2). Only the fields that actually matter
+ *  for the color-picker / theme-preset tests are overridden here. */
+const baseConfig: VoiceTyperConfig = makeConfig({
 	schema_version: 1,
 	fast_startup: true,
-	hotkey: "F2",
-	sample_rate: 16000,
-	microphone: null,
-	model_size: "small.en",
-	language: "en",
-	device: "cpu",
-	beam_size: 5,
-	best_of: 1,
-	condition_on_previous_text: false,
-	streaming_transcription: false,
-	streaming_chunk_seconds: 0,
-	streaming_step_seconds: 0,
-	streaming_left_overlap_seconds: 0,
-	streaming_right_guard_seconds: 0,
-	streaming_min_first_chunk_seconds: 0,
-	streaming_silence_threshold: 0,
-	autostart: false,
-	paste_on_stop: true,
-	show_notifications: true,
-	// ADR-0010: clipboard borrow/restore config keys.
-	clipboard_save_restore: true,
-	clipboard_restore_delay_ms: 150,
-	asr_backend: "whisper",
-	qwen_model_path: null,
-	parakeet_model_path: null,
-	text_cleanup_enabled: true,
-	unsafe_paste_on_unknown_focus: false,
-	corrections_path: null,
-	log_transcriptions: false,
-	recording_mode: "toggle",
-	push_to_talk_hotkey: "",
-	esc_cancel_enabled: true,
-	repaste_hotkey: "",
-	auto_punctuation: false,
-	templates_enabled: true,
-	vocabulary_enabled: true,
-	cloud_api_key: "",
-	cloud_api_url: "",
-	cloud_model: "",
-	openai_api_key: "",
-	groq_api_key: "",
-	deepgram_api_key: "",
-	llm_polish: false,
-	llm_api_key: "",
-	llm_api_url: "",
-	llm_model: "",
 	llm_preset: "default",
-	crash_recovery_enabled: true,
-	audio_quality_warnings: false,
-	waveform_bubble: true,
-	bubble_position: "top",
-	bubble_behavior: "show_on_record",
-	bubble_draggable: true,
-	bubble_show_on_startup: false,
-	bubble_click_to_toggle: true,
-	bubble_mic_button: true,
-	history_retention_days: 30,
-	history_retention_count: 100,
-	history_max_entries: 1000,
-	onboarding_completed: true,
-	tray_left_click_action: "open_app",
-	theme_mode: "system",
 	theme_preset: "custom",
 	custom_theme: {
 		light: {
@@ -205,66 +150,7 @@ const baseConfig: VoiceTyperConfig = {
 			"--border": "#222222",
 		},
 	},
-	text_size: 14,
-	wayland_warned: false,
-	silence_warning_seconds: 0,
-	stop_on_silence_seconds: 0,
-	// SIMPLIFY-001: single explicit field replaces the old 3-field split
-	max_recording_time_seconds: 900,
-	volume_duck_enabled: false,
-	volume_duck_level: 0,
-	volume_duck_per_session: false,
-	volume_duck_fade_ms: 0,
-	volume_duck_smart: false,
-	volume_duck_smart_poll_interval_ms: 0,
-	audio_preset: "auto",
-	noise_filter_enabled: false,
-	noise_filter_highpass: false,
-	noise_filter_highpass_cutoff_hz: 0,
-	noise_filter_gate: false,
-	noise_filter_gate_threshold: 0,
-	noise_filter_gate_hold_ms: 0,
-	noise_filter_gate_open_threshold_db: 0,
-	noise_filter_gate_close_threshold_db: 0,
-	noise_filter_gate_attack_ms: 0,
-	noise_filter_gate_release_ms: 0,
-	noise_filter_rnnoise: false,
-	noise_filter_post_capture: false,
-	noise_suppression_method: "none",
-	noise_filter_eq: false,
-	noise_filter_eq_low_db: 0,
-	noise_filter_eq_mid_db: 0,
-	noise_filter_eq_high_db: 0,
-	noise_filter_compressor: false,
-	noise_filter_compressor_threshold_db: 0,
-	noise_filter_compressor_ratio: 0,
-	noise_filter_compressor_attack_ms: 0,
-	noise_filter_compressor_release_ms: 0,
-	noise_filter_compressor_output_gain_db: 0,
-	noise_filter_limiter: false,
-	noise_filter_limiter_ceiling_db: 0,
-	noise_filter_limiter_release_ms: 0,
-	noise_filter_notch: false,
-	noise_filter_notch_frequency_hz: 0,
-	huggingface_consent: false,
-	cloud_openai_consent: false,
-	cloud_groq_consent: false,
-	cloud_deepgram_consent: false,
-	voice_biometric_consent: false,
-	llm_polish_consent: false,
-	sound_feedback_enabled: false,
-	// P4: AI enhancement fields (off by default)
-	ai_enhancement_enabled: false,
-	auto_capitalize: true,
-	auto_punctuate: true,
-	fix_grammar_basics: true,
-	// P5: Vocabulary automation fields (off by default)
-	vocabulary_automation_enabled: false,
-	vocabulary_auto_confidence_threshold: 0.7,
-	vocabulary_auto_apply_threshold: 0.95,
-	bubble_x: null,
-	bubble_y: null,
-};
+});
 
 /** Count `set_config` IPC calls captured by mockCall. */
 function setConfigCallCount(): number {
@@ -279,7 +165,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 		(args: unknown[]) => args[0] === "set_config",
 	) as Array<[string, Record<string, unknown>?]>;
 	if (setConfigCalls.length === 0) return null;
-	return setConfigCalls[setConfigCalls.length - 1][1] ?? null;
+	return setConfigCalls[setConfigCalls.length - 1]?.[1] ?? null;
 }
 
 describe("Settings page — PERF-002 batched config writes", () => {
@@ -346,6 +232,10 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			).toBeGreaterThanOrEqual(3);
 		});
 		const colorInputs = document.querySelectorAll('input[type="color"]');
+		const [input0, input1, input2] = colorInputs;
+		if (!input0 || !input1 || !input2) {
+			throw new Error("expected at least 3 color inputs");
+		}
 
 		// Change 3 colors in rapid succession — each change schedules a
 		// 300ms per-key debounce via updateConfigDebounced("custom_theme", …).
@@ -354,9 +244,9 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		// timer fires, updateConfig merges the final value into the
 		// pending buffer and schedules a microtask flush.  The flush
 		// sends ONE set_config call with { custom_theme: <latest> }.
-		fireEvent.input(colorInputs[0], { target: { value: "#ff0000" } });
-		fireEvent.input(colorInputs[1], { target: { value: "#00ff00" } });
-		fireEvent.input(colorInputs[2], { target: { value: "#0000ff" } });
+		fireEvent.input(input0, { target: { value: "#ff0000" } });
+		fireEvent.input(input1, { target: { value: "#00ff00" } });
+		fireEvent.input(input2, { target: { value: "#0000ff" } });
 
 		// Wait for the 300ms per-key debounce + microtask flush +
 		// set_config IPC to complete.  waitFor polls (flushing
@@ -398,9 +288,15 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const colorInputs = document.querySelectorAll('input[type="color"]');
+		// Narrow once: the waitFor above proves >=1 color input exists, so
+		// `firstColorInput` is non-null. Using it throughout also lets us
+		// satisfy `noUncheckedIndexedAccess` without non-null assertions
+		// (which biome's `noNonNullAssertion` rule forbids).
+		const firstColorInput = colorInputs[0] as HTMLInputElement;
+		expect(firstColorInput).toBeDefined();
 
 		// Capture the original hex value of the first color input, then
-		// change it to something else, then change it back.  The PERF-002
+		// change it to something else, then change it back. The
 		// diff is computed against `lastSavedConfigRef` (the last value
 		// the backend confirmed), NOT the original config loaded at mount.
 		// So after the first save updates the baseline to #abcdef,
@@ -408,10 +304,10 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		// a second set_config call.  This documents that behaviour so
 		// future refactors don't accidentally start diffing against the
 		// initial load (which would silently drop reverts).
-		const originalValue = (colorInputs[0] as HTMLInputElement).value;
+		const originalValue = firstColorInput.value;
 
 		// Change to a different color and wait for the debounced save.
-		fireEvent.input(colorInputs[0], { target: { value: "#abcdef" } });
+		fireEvent.input(firstColorInput, { target: { value: "#abcdef" } });
 		await waitFor(() => {
 			expect(setConfigCallCount()).toBe(1);
 		});
@@ -419,7 +315,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		// Change back to the original color — the baseline now has
 		// #abcdef, so this is a non-empty diff and a second set_config
 		// fires carrying the reverted custom_theme.
-		fireEvent.input(colorInputs[0], { target: { value: originalValue } });
+		fireEvent.input(firstColorInput, { target: { value: originalValue } });
 		await waitFor(() => {
 			expect(setConfigCallCount()).toBe(2);
 		});

@@ -89,6 +89,10 @@ vi.mock("../python/send-to-python", () => ({
 	sendToPython: mocks.sendToPython,
 }));
 
+import {
+	_resetLastKnownBubbleMode,
+	getLastKnownBubbleMode,
+} from "../ipc/bubble-handlers";
 import { handleMessage } from "../python/handle-message";
 import { state } from "../state";
 
@@ -96,6 +100,7 @@ describe("XS-78: handle-message.ts", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		state.pendingRequests.clear();
+		_resetLastKnownBubbleMode();
 	});
 
 	describe("reply resolution (numeric msg.id)", () => {
@@ -173,6 +178,7 @@ describe("XS-78: handle-message.ts", () => {
 				"bubble:set-state",
 				"listening",
 			);
+			expect(getLastKnownBubbleMode()).toBe("listening");
 		});
 
 		it("bubble_level → bubbleWindow.webContents.send('bubble:level', data)", () => {

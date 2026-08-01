@@ -133,11 +133,14 @@ function extractClassNames(src: string): string[] {
 	const out: string[] = [];
 	// Double-quoted className values.
 	for (const m of src.matchAll(/className="([^"]+)"/g)) {
-		out.push(m[1]);
+		// `m[1]` is `string | undefined` under `noUncheckedIndexedAccess`;
+		// the regex's capture group guarantees a hit, but guard keeps
+		// the typed push happy without a non-null assertion.
+		if (m[1] !== undefined) out.push(m[1]);
 	}
 	// Single-quoted className values.
 	for (const m of src.matchAll(/className='([^']+)'/g)) {
-		out.push(m[1]);
+		if (m[1] !== undefined) out.push(m[1]);
 	}
 	return out;
 }

@@ -49,6 +49,27 @@ vi.mock("@/hooks/usePython", () => ({
 	usePythonEvent: mockPythonEvent,
 }));
 
+// Stub localStorage so useNavigation's persisted-nav-state restore
+// (and the beforeEach `clear()` below) doesn't blow up in the jsdom
+// environment. Same pattern as useTheme-flush-pending-save.test.tsx.
+const lsStub: Record<string, string> = {};
+const lsMock = {
+	getItem: (k: string) => lsStub[k] ?? null,
+	setItem: (k: string, v: string) => {
+		lsStub[k] = v;
+	},
+	removeItem: (k: string) => {
+		delete lsStub[k];
+	},
+	clear: () => {
+		for (const k of Object.keys(lsStub)) delete lsStub[k];
+	},
+};
+Object.defineProperty(window, "localStorage", {
+	value: lsMock,
+	configurable: true,
+});
+
 /**
  * Minimal harness that mirrors App.tsx: useNavigation restores the
  * persisted page; useConnection probes the backend on mount. We

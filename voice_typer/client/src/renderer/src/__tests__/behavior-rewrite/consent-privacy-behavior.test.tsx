@@ -308,7 +308,11 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 		(args: unknown[]) => args[0] === "set_config",
 	) as Array<[string, Record<string, unknown>?]>;
 	if (setConfigCalls.length === 0) return null;
-	return setConfigCalls[setConfigCalls.length - 1][1] ?? null;
+	// noUncheckedIndexedAccess: index access on `Array<[T,U?]>` widens
+	// to `[T,U?] | undefined`; use optional chaining + nullish coalesce
+	// to keep the return type `Record<string, unknown> | null`.
+	const last = setConfigCalls[setConfigCalls.length - 1];
+	return last?.[1] ?? null;
 }
 
 // =====================================================================

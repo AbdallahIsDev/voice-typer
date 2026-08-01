@@ -142,7 +142,7 @@ export function ModelCardActions({
 	// `models.download.deps` / `models.download.depsAria` i18n keys
 	// (no new translation keys are introduced).
 	//
-	//(): the button now exposes `aria-busy` while a deps
+	// the button now exposes `aria-busy` while a deps
 	// install is in-flight, swaps its label + visible text to
 	// "Downloading…", and spins the icon — matching the Select
 	// button's in-flight treatment so SR users hear the in-progress
@@ -187,7 +187,7 @@ export function ModelCardActions({
 
 	// ── Branch 2: not downloaded, not always-available → Download ──
 	//
-	//(): the button now exposes `aria-busy` while the
+	// the button now exposes `aria-busy` while the
 	// download is in-flight and swaps its `aria-label` to
 	// "Downloading…" so SR users hear the in-progress state (previously
 	// only the visible text swapped — the stale per-model aria-label

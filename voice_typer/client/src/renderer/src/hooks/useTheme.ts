@@ -99,6 +99,71 @@ function readLsTextSize(): number {
  * with a 300ms debounce.
  *
  * @param call  The Python bridge `call` function (from usePython).
+ *
+ * ── dual-instance, deferred ──────────────────────────────────
+ *
+ * ``useTheme`` is called from BOTH ``App.tsx`` (always-mounted) AND
+ * ``Settings.tsx`` (lazy-mounted when the user opens Settings). Each
+ * call instantiates an INDEPENDENT React state (``themeMode``,
+ * ``themePreset``, ``customTheme``, ``textSize``) plus:
+ *
+ *   - one ``reloadThemeFromConfig`` mount effect → 1 extra
+ *     ``get_config`` IPC call per Settings open
+ *   - one ``config_changed`` ``usePythonEvent`` subscription → 2
+ *     subscriptions app-wide (each updates its OWN state)
+ *   - one ``beforeunload`` flush listener → 2 listeners app-wide
+ *     (idempotent: both flush the same pending payload, the second
+ *     is a no-op because ``pendingThemeUpdatesRef`` is cleared on
+ *     first flush)
+ *   - one ``localStorage`` sync effect → 2 writes per state change
+ *     (idempotent: both write the same value)
+ *
+ * State IS eventually consistent across the two instances because:
+ *
+ *   1. Both initialise from the same ``localStorage`` keys
+ *      (``readLsThemeMode`` / ``readLsThemePreset`` /
+ *      ``readLsCustomTheme`` / ``readLsTextSize``).
+ *   2. Both receive ``config_changed`` events from the backend and
+ *      update their local state from the same payload.
+ *
+ * So the user-visible behaviour is correct; the cost is duplicate
+ * (idempotent) IPC traffic and duplicate (idempotent) listeners.
+ *
+ * The proper fix is to extract the state + side effects into a
+ * module-level singleton store (e.g. ``useSyncExternalStore`` with a
+ * module-level ``listeners`` set + ``getSnapshot``, or a tiny Zustand
+ * store) so both callers READ from the same source and the
+ * ``reloadThemeFromConfig`` / ``config_changed`` / ``beforeunload``
+ * effects run EXACTLY ONCE per page load.
+ *
+ * This refactor is deferred because:
+ *
+ *  - The 519-line hook has tightly-coupled debounce + flush logic
+ *    that depends on React lifecycle (``useRef`` for the timer,
+ *    ``useEffect`` cleanup for the flush). Moving it to a module-level
+ *    store requires re-implementing the debounce queue outside React
+ *    (or guarding the effects with a module-level ``initOnce`` flag
+ *    so only the FIRST ``useTheme`` caller actually runs them).
+ *
+ *  - The existing comment in ``Settings.tsx`` (line ~85-90) documents
+ *    that the dual-instance pattern is "safe because theme state is
+ *    synchronised across instances via the config_changed event
+ *    subscription and localStorage cache" — confirming the team
+ *    consciously accepted this trade-off.
+ *
+ *  - A minimal "initOnce" guard would prevent the duplicate
+ *    ``reloadThemeFromConfig`` IPC and duplicate ``config_changed``
+ *    subscription without converting the whole hook to an external
+ *    store, but it would also break Settings.tsx's initial state
+ *    (its ``themeMode`` wouldn't get the backend's authoritative
+ *    value on first mount — only on the NEXT ``config_changed``
+ *    event). Doing this correctly requires the singleton-store
+ *    approach above.
+ *
+ * When the singleton refactor is done, ``useTheme`` should become a
+ * thin wrapper around ``useSyncExternalStore(themeSubscribe,
+ * themeGetSnapshot)`` returning the current state + stable setters
+ * (the setters update the singleton, which notifies all subscribers).
  */
 export function useTheme(
 	call: <T = unknown>(
@@ -401,13 +466,16 @@ export function useTheme(
 			pendingThemeUpdatesRef.current = null;
 			// Fire-and-forget — the renderer may be tearing down, so we
 			// can't await. The IPC layer queues the write before the
-			// process exits.
-			try {
-				void call("set_config", pending);
-			} catch (e) {
-				// Theme is local-only if backend unavailable
+			// process exits. The Promise's rejection MUST be handled
+			// here (via `.catch`) — `void call(...)` alone discards the
+			// Promise without installing a rejection handler, which
+			// surfaces as an "unhandled promise rejection" warning in
+			// Electron (and can crash the renderer in strict modes).
+			// Theme is local-only if backend unavailable — the warn is
+			// the entire recovery path.
+			void call("set_config", pending).catch((e) => {
 				console.warn("[useTheme] set_config (flush) failed:", e);
-			}
+			});
 		}
 	}, [call]);
 

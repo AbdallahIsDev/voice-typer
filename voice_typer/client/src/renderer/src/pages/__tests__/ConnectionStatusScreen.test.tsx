@@ -117,7 +117,11 @@ describe("NH-1: ConnectionStatusScreen", () => {
 			name: "app.retryConnection",
 		});
 		expect(retryButtons.length).toBeGreaterThanOrEqual(1);
-		retryButtons[0].click();
+		const firstRetry = retryButtons[0];
+		if (firstRetry === undefined) {
+			throw new Error("expected at least one retry button");
+		}
+		firstRetry.click();
 		expect(onRetry).toHaveBeenCalled();
 	});
 

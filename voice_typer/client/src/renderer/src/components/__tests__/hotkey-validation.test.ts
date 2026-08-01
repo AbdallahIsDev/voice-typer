@@ -307,11 +307,11 @@ describe("validateHotkey — empty / malformed inputs", () => {
 describe("RESERVED_SHORTCUTS table invariants", () => {
 	it("has entries for win32, darwin, and linux", () => {
 		expect(Array.isArray(RESERVED_SHORTCUTS.win32)).toBe(true);
-		expect(RESERVED_SHORTCUTS.win32.length).toBeGreaterThan(0);
+		expect(RESERVED_SHORTCUTS.win32?.length ?? 0).toBeGreaterThan(0);
 		expect(Array.isArray(RESERVED_SHORTCUTS.darwin)).toBe(true);
-		expect(RESERVED_SHORTCUTS.darwin.length).toBeGreaterThan(0);
+		expect(RESERVED_SHORTCUTS.darwin?.length ?? 0).toBeGreaterThan(0);
 		expect(Array.isArray(RESERVED_SHORTCUTS.linux)).toBe(true);
-		expect(RESERVED_SHORTCUTS.linux.length).toBeGreaterThan(0);
+		expect(RESERVED_SHORTCUTS.linux?.length ?? 0).toBeGreaterThan(0);
 	});
 
 	it("does NOT reserve <super>+<space> on Linux (existing invariant)", () => {
@@ -321,7 +321,7 @@ describe("RESERVED_SHORTCUTS table invariants", () => {
 		// must NOT appear in RESERVED_SHORTCUTS.linux. Most Linux
 		// desktop environments allow Super+Space to be reassigned,
 		// so we don't block it.
-		expect(RESERVED_SHORTCUTS.linux).not.toContain("<super>+<space>");
+		expect(RESERVED_SHORTCUTS.linux ?? []).not.toContain("<super>+<space>");
 	});
 
 	it("every entry is lowercase (so isReserved can compare lowercase-to-lowercase)", () => {
@@ -331,7 +331,7 @@ describe("RESERVED_SHORTCUTS table invariants", () => {
 		// lowercase is a useful convention so a future contributor
 		// reading the table sees the same form isReserved produces.
 		for (const platform of ["win32", "darwin", "linux"]) {
-			for (const entry of RESERVED_SHORTCUTS[platform]) {
+			for (const entry of RESERVED_SHORTCUTS[platform] ?? []) {
 				expect(entry).toBe(entry.toLowerCase());
 			}
 		}

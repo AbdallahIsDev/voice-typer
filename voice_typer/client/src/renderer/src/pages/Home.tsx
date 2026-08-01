@@ -1,4 +1,4 @@
-//(): Home.tsx was a 949-line monolith
+// Home.tsx was a 949-line monolith
 // mixing layout, data-fetching, business logic, and 4 inline
 // sub-components + 1 inline hook. It is now a thin composition root
 // that imports the extracted pieces from `./home/`:
@@ -128,6 +128,15 @@ export default function Home() {
 	//timer that auto-clears lastText after 5s of idle.
 	const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+	// stale-data flag. Set to `true` when a `transcription_final`
+	// or `history_changed` event arrives while the window is hidden
+	// (document.visibilityState !== "visible"). The visibilitychange
+	// listener below checks this flag on focus and triggers a single
+	// debounced refresh — so background events don't fire 2 IPC calls
+	// each (get_history + get_today_stats) while the user isn't looking
+	// at the page. The next focus collapses the backlog into ONE fetch.
+	const staleRef = useRef(false);
+
 	// Shared refresh routine — used by both `transcription_final` and
 	// `history_changed` handlers (F11-FIX + R7-F13 consolidation).
 	//
@@ -137,6 +146,16 @@ export default function Home() {
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
+		// skip the IPC round-trips when the window is hidden.
+		// The visibilitychange listener below will trigger a single
+		// refresh when the user returns to the page.
+		if (
+			typeof document !== "undefined" &&
+			document.visibilityState !== "visible"
+		) {
+			staleRef.current = true;
+			return undefined;
+		}
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(async () => {
 			try {
@@ -162,6 +181,25 @@ export default function Home() {
 		}, 500);
 		return undefined;
 	}, [call]);
+
+	// refresh on focus when stale. When the window regains
+	// visibility AND a stale flag was set by a background event, fire
+	// a single debounced refresh. This collapses the "triple
+	// subscription per dictation" pattern (Home + History + Dashboard
+	// all subscribed to transcription_final) into at most ONE active
+	// refresh — only the page the user is actually looking at refreshes.
+	useEffect(() => {
+		const onVisibility = () => {
+			if (document.visibilityState === "visible" && staleRef.current) {
+				staleRef.current = false;
+				debouncedRefreshFromEvent();
+			}
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => {
+			document.removeEventListener("visibilitychange", onVisibility);
+		};
+	}, [debouncedRefreshFromEvent]);
 
 	// ── Initial data load (config + today stats + recent history) ──
 	useEffect(() => {
@@ -391,8 +429,13 @@ export default function Home() {
 
 	const isRecording = recordingState === "recording";
 	const key = statusKeyFor(recordingState, !!lastError);
-	const statusColor = STATUS_COLORS[key] ?? STATUS_COLORS.idle;
-	const statusLabel = statusLabelFor(key);
+	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
+	// `statusKeyFor` always returns a known key, but the index access still
+	// widens to `string | undefined` under strict TS; fall back to a literal
+	// sentinel that matches `STATUS_COLORS.idle` so we never pass `undefined`
+	// to the `RecordingStatusPill` `statusColor` prop.
+	const statusColor = STATUS_COLORS[key] ?? "#787878";
+	const statusLabel = statusLabelFor(key) ?? t("home.ready");
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">

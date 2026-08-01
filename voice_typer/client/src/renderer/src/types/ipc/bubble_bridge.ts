@@ -16,6 +16,7 @@
 // Imports `PythonBridge` + `WindowBridge` from `./bridge` for the
 // global Window augmentation.
 
+import type { TauriGlobal } from "@/lib/tauri-bridge";
 import type { PythonBridge, WindowBridge } from "./bridge";
 
 // ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
@@ -206,10 +207,20 @@ export type BubbleWindowBubble = MainRendererBubbleMutators &
 // (`tauri-bridge/python-namespace.ts` / `tauri-bridge/window-namespace.ts`).
 // They're optional because some test harnesses and SSR-like render
 // paths construct `window` without the preload having run.
+// `__TAURI__` is the global API surface injected by `tauri::Builder`
+// when `app.withGlobalTauri = true` (see tauri.conf.json). It is absent
+// under Electron, where the preload script installs the `python` /
+// `bubble` / `window_` namespaces via `contextBridge` instead. Declaring
+// it here (rather than re-casting `window as unknown as { __TAURI__?: ... }`
+// at every call site — previously duplicated in detect.ts) gives the
+// whole renderer a single typed handle. `TauriGlobal` is the minimal
+// structural type declared in `@/lib/tauri-bridge/detect` (re-exported
+// via `@/lib/tauri-bridge`).
 declare global {
 	interface Window {
 		python?: PythonBridge;
 		window_?: WindowBridge;
 		bubble?: MainRendererBubbleMutators;
+		__TAURI__?: TauriGlobal;
 	}
 }

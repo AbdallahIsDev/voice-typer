@@ -368,7 +368,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 			expect(saveCalls.length).toBeGreaterThan(saveCallsBefore);
 			// The last save_vocabulary call's first arg should be the
 			// empty data object.
-			const lastSaveArg = saveCalls[saveCalls.length - 1][1];
+			const lastSaveArg = saveCalls[saveCalls.length - 1]?.[1];
 			expect(lastSaveArg).toEqual({
 				misspellings: {},
 				phrase_corrections: [],

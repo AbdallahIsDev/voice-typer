@@ -464,23 +464,23 @@ describe("stop-python.ts: SIGKILL escalation contract (runtime)", () => {
 		vi.advanceTimersByTime(3000);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
 		const firstCallArgs = spawnSyncMock.mock.calls[0];
-		expect(firstCallArgs[0]).toBe("taskkill");
+		expect(firstCallArgs?.[0]).toBe("taskkill");
 		// /T and /PID must be present. /F must NOT (graceful).
-		expect(firstCallArgs[1]).toContain("/T");
-		expect(firstCallArgs[1]).toContain("/PID");
-		expect(firstCallArgs[1]).toContain(String(freshProc.pid));
-		expect(firstCallArgs[1]).not.toContain("/F");
+		expect(firstCallArgs?.[1]).toContain("/T");
+		expect(firstCallArgs?.[1]).toContain("/PID");
+		expect(firstCallArgs?.[1]).toContain(String(freshProc.pid));
+		expect(firstCallArgs?.[1]).not.toContain("/F");
 
 		// Advance past the escalateTimer (3s more) — Windows
 		// force-kill: taskkill /F /T /PID.
 		vi.advanceTimersByTime(3000);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
 		const secondCallArgs = spawnSyncMock.mock.calls[1];
-		expect(secondCallArgs[0]).toBe("taskkill");
-		expect(secondCallArgs[1]).toContain("/F");
-		expect(secondCallArgs[1]).toContain("/T");
-		expect(secondCallArgs[1]).toContain("/PID");
-		expect(secondCallArgs[1]).toContain(String(freshProc.pid));
+		expect(secondCallArgs?.[0]).toBe("taskkill");
+		expect(secondCallArgs?.[1]).toContain("/F");
+		expect(secondCallArgs?.[1]).toContain("/T");
+		expect(secondCallArgs?.[1]).toContain("/PID");
+		expect(secondCallArgs?.[1]).toContain(String(freshProc.pid));
 
 		// proc.kill must NEVER have been called on Windows —
 		// the taskkill path replaces it entirely.

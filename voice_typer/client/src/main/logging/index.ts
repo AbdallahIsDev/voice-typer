@@ -100,6 +100,11 @@ export {
 	rotateIfNeeded,
 	ts,
 } from "./rotation";
+// Structured logger path memoization test seam. Exported alongside
+// `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest` so test
+// suites can reset ALL logging-module memoization state in one import.
+// Not consumed by production code — see the docstring on
+// `_resetMainLogPathForTest` in `./structuredLogger`.
 // Message-first structured logger + path resolvers + opt-in lifecycle
 // persistence. `mainLogPath` / `lifecycleLogPath` /
 // `appendLifecycleLine` are NOT re-exported — they have zero external
@@ -114,6 +119,7 @@ export {
 // `deleteAllPersonalData` IPC handler can import it from the logging
 // barrel without reaching into the implementation module.
 export {
+	_resetMainLogPathForTest,
 	deleteElectronPersonalDataLogs,
 	logger,
 	rendererErrorsLogPath,

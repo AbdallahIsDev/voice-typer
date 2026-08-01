@@ -226,7 +226,7 @@ describe("FR-9: appendLogLine options parity with appendLifecycleLine", () => {
 				(args: unknown[]) => args[0] === logPath,
 			);
 			expect(calls.length).toBeGreaterThanOrEqual(1);
-			expect(calls[0][2]).toEqual({ flag: "a", mode: 0o600 });
+			expect(calls[0]?.[2]).toEqual({ flag: "a", mode: 0o600 });
 
 			spy.mockRestore();
 		} finally {

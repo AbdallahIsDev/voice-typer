@@ -284,10 +284,16 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		expect(buttons.length).toBe(EXPECTED_NAV_ORDER.length);
 
 		// Start with focus on the first item (home — the active
-		// page, so it has tabIndex=0).
-		buttons[0].focus();
-		expect(document.activeElement).toBe(buttons[0]);
-		expect(buttonLabel(buttons[0])).toContain("Home");
+		// page, so it has tabIndex=0).  ``getNavButtons()`` returns
+		// ``Element[]`` whose items are ``Element | undefined`` under
+		// ``noUncheckedIndexedAccess``; explicit locals narrow each
+		// read once.
+		const first = buttons[0];
+		if (first === undefined)
+			throw new Error("expected at least one nav button");
+		first.focus();
+		expect(document.activeElement).toBe(first);
+		expect(buttonLabel(first)).toContain("Home");
 
 		// ArrowDown through every item; assert focus moves to the
 		// next button in DOM order, crossing group boundaries
@@ -295,13 +301,15 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		// NOT block focus movement).
 		for (let i = 1; i < buttons.length; i++) {
 			await user.keyboard("{ArrowDown}");
-			expect(document.activeElement).toBe(buttons[i]);
+			const next = buttons[i];
+			if (next === undefined) continue;
+			expect(document.activeElement).toBe(next);
 		}
 
 		// One more ArrowDown wraps to the first item (the nav is
 		// a circular composite per Sidebar.tsx:158: `(currentIdx + 1) % buttons.length`).
 		await user.keyboard("{ArrowDown}");
-		expect(document.activeElement).toBe(buttons[0]);
+		expect(document.activeElement).toBe(first);
 	});
 
 	it("ArrowUp cycles in reverse, wrapping from first to last", async () => {
@@ -316,17 +324,23 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		);
 
 		const buttons = getNavButtons();
-		buttons[0].focus();
-		expect(document.activeElement).toBe(buttons[0]);
+		const first = buttons[0];
+		if (first === undefined)
+			throw new Error("expected at least one nav button");
+		first.focus();
+		expect(document.activeElement).toBe(first);
 
 		// ArrowUp from the first item wraps to the last item.
 		await user.keyboard("{ArrowUp}");
-		expect(document.activeElement).toBe(buttons[buttons.length - 1]);
+		const last = buttons[buttons.length - 1];
+		expect(document.activeElement).toBe(last);
 
 		// Continue ArrowUp through every item in reverse.
 		for (let i = buttons.length - 2; i >= 0; i--) {
 			await user.keyboard("{ArrowUp}");
-			expect(document.activeElement).toBe(buttons[i]);
+			const next = buttons[i];
+			if (next === undefined) continue;
+			expect(document.activeElement).toBe(next);
 		}
 	});
 
@@ -343,14 +357,22 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 
 		const buttons = getNavButtons();
 		// Start somewhere in the middle.
-		buttons[3].focus();
-		expect(document.activeElement).toBe(buttons[3]);
+		const start = buttons[3];
+		if (start === undefined) throw new Error("expected at least 4 nav buttons");
+		start.focus();
+		expect(document.activeElement).toBe(start);
+
+		const first = buttons[0];
+		const last = buttons[buttons.length - 1];
+		if (first === undefined || last === undefined) {
+			throw new Error("expected first and last nav buttons to exist");
+		}
 
 		await user.keyboard("{Home}");
-		expect(document.activeElement).toBe(buttons[0]);
+		expect(document.activeElement).toBe(first);
 
 		await user.keyboard("{End}");
-		expect(document.activeElement).toBe(buttons[buttons.length - 1]);
+		expect(document.activeElement).toBe(last);
 	});
 
 	it("each nav item's aria-keyshortcuts matches EXPECTED_KEYSHORTCUTS (omitted when no shortcut)", () => {
@@ -377,6 +399,9 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		// EXPECTED_NAV_ORDER.
 		buttons.forEach((btn, idx) => {
 			const pageId = EXPECTED_NAV_ORDER[idx];
+			// noUncheckedIndexedAccess: both indexes return `T | undefined`;
+			// explicit guards satisfy the strict checker without non-null.
+			if (pageId === undefined) return;
 			const expected = EXPECTED_KEYSHORTCUTS[pageId];
 			if (expected) {
 				expect(btn.getAttribute("aria-keyshortcuts")).toBe(expected);
@@ -405,7 +430,11 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		const buttons = getNavButtons();
 		// Click the "Settings" button (index 7 in flat order).
 		const settingsIdx = EXPECTED_NAV_ORDER.indexOf("settings");
-		await user.click(buttons[settingsIdx]);
+		const settingsBtn = buttons[settingsIdx];
+		if (settingsBtn === undefined) {
+			throw new Error("settings nav button not found");
+		}
+		await user.click(settingsBtn);
 		expect(onNavigate).toHaveBeenCalledWith("settings");
 	});
 });

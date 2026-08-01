@@ -49,6 +49,7 @@ import {
 	CUSTOM_COLOR_KEYS,
 	DEFAULT_CUSTOM_DARK,
 	DEFAULT_CUSTOM_LIGHT,
+	DEFAULT_THEME_PRESET,
 	THEMES,
 } from "@/themes";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -213,7 +214,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							{(() => {
 								const currentId = effectivePreset;
 								const current =
-									THEMES.find((t) => t.id === currentId) ?? THEMES[0];
+									THEMES.find((t) => t.id === currentId) ??
+									THEMES[0] ??
+									DEFAULT_THEME_PRESET;
 								// Part C1/C2: rounded-rectangle "E" preview.  For the
 								// custom theme, use the actual custom colours from the
 								// in-memory draft instead of the static placeholder swatch.
@@ -388,7 +391,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							// local partial-typing state) and falls back to the
 							// committed hex when no draft is present.
 							// ``isHexInvalid`` drives the red-border error state.
-							const hexDraftValue = hexDrafts[varName] ?? currentHex;
+							const hexDraftValue = hexDrafts[varName] ?? currentHex ?? "";
 							const isHexInvalid =
 								hexDraftValue !== "" && !HEX_STRICT_RE.test(hexDraftValue);
 
@@ -489,7 +492,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										type="text"
 										value={hexDraftValue}
 										onChange={handleHexInputChange(varName)}
-										onBlur={handleHexInputBlur(varName, currentHex)}
+										onBlur={handleHexInputBlur(varName, currentHex ?? "")}
 										className={cn(
 											"w-18 shrink-0 text-center text-[11px] font-mono text-(--text-primary)",
 											// red border when the draft value is non-empty and

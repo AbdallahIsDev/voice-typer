@@ -541,7 +541,7 @@ export type PythonPushEvent =
 // `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/Electron host at
 // spawn (ADR-0020 §3). On mismatch the socket is closed immediately.
 //
-//(): the auth frame now carries an OPTIONAL
+// the auth frame now carries an OPTIONAL
 // `protocol_version` integer. The Python TCP receiver
 // (`voice_typer/server/ipc/transport_tcp.py`) and the Rust host
 // (`src-tauri/src/sidecar/ws.rs`) both pin the current constant

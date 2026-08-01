@@ -270,8 +270,8 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 				hash_verified: "mismatch",
 			},
 		};
-		expect(map["tiny.en"].downloaded).toBe(true);
-		expect(map.qwen.hash_verified).toBe("mismatch");
+		expect(map["tiny.en"]?.downloaded).toBe(true);
+		expect(map.qwen?.hash_verified).toBe("mismatch");
 	});
 
 	it("PermissionsResult has platform + state + needed + instructions (TASK-24-FIX-9)", () => {

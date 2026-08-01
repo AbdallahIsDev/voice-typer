@@ -49,6 +49,18 @@ vi.mock("../state", () => ({
 }));
 
 const mkdirSpy = vi.spyOn(fs, "mkdirSync");
+// Mock fs.statSync so the handler's directory-validation guard
+// (added in the directory-validation guard) sees a valid directory at COMPUTED_DIR. Without
+// this mock, statSync returns undefined for the fake path and the
+// handler short-circuits with "log directory not found".
+const statSyncSpy = vi.spyOn(fs, "statSync").mockImplementation(((
+	filePath: fs.PathOrFileDescriptor,
+) => {
+	if (typeof filePath === "string" && filePath === COMPUTED_DIR) {
+		return { isDirectory: () => true } as fs.Stats;
+	}
+	return { isDirectory: () => false } as fs.Stats;
+}) as unknown as typeof fs.statSync);
 
 const COMPUTED_DIR = "/mock/config/dir/voice-typer";
 
@@ -60,6 +72,15 @@ describe("CR-33: window:open-logs handler", () => {
 		vi.resetModules();
 		mocks.computeConfigDir.mockReturnValue(COMPUTED_DIR);
 		mocks.shellOpenPath.mockResolvedValue("");
+		// Re-establish the statSync mock (clearAllMocks resets the mock but
+		// the implementation we set with mockImplementation persists; this is
+		// defensive in case a future vitest version changes that behavior).
+		statSyncSpy.mockImplementation(((filePath: fs.PathOrFileDescriptor) => {
+			if (typeof filePath === "string" && filePath === COMPUTED_DIR) {
+				return { isDirectory: () => true } as fs.Stats;
+			}
+			return { isDirectory: () => false } as fs.Stats;
+		}) as unknown as typeof fs.statSync);
 		// Re-import the handler module so it picks up the fresh mocks.
 		const mod = await import("../ipc/window-handlers");
 		mocks.ipcHandle.mockClear();
@@ -85,19 +106,18 @@ describe("CR-33: window:open-logs handler", () => {
 		expect(mkdirSpy).not.toHaveBeenCalled();
 	});
 
-	it("returns { success: true, path } on shell.openPath success", async () => {
+	it("returns { success: true } on shell.openPath success (the path-disclosure fix: path no longer leaked to renderer)", async () => {
 		mocks.shellOpenPath.mockResolvedValueOnce("");
 		const result = await openLogsHandler();
-		expect(result).toEqual({ success: true, path: COMPUTED_DIR });
+		expect(result).toEqual({ success: true });
 	});
 
-	it("returns { success: false, error, path } when shell.openPath fails", async () => {
+	it("returns { success: false, error } when shell.openPath fails (the path-disclosure fix: path no longer leaked)", async () => {
 		mocks.shellOpenPath.mockResolvedValueOnce("File does not exist");
 		const result = await openLogsHandler();
 		expect(result).toEqual({
 			success: false,
 			error: "File does not exist",
-			path: COMPUTED_DIR,
 		});
 	});
 
@@ -106,6 +126,8 @@ describe("CR-33: window:open-logs handler", () => {
 			throw new Error("boom");
 		});
 		const result = await openLogsHandler();
-		expect(result).toMatchObject({ success: false, error: "boom" });
+		// s5's window-handlers.ts catch uses `String(e)` which produces
+		// "Error: boom" for an Error instance (not just the .message).
+		expect(result).toMatchObject({ success: false, error: "Error: boom" });
 	});
 });

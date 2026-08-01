@@ -23,7 +23,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // tauri-bridge.ts (core.invoke, event.listen, window.getCurrentWindow).
 // The real shape is injected by `tauri::Builder` when
 // `app.withGlobalTauri = true` (see tauri.conf.json).
-function makeTauriStub() {
+//
+// The `label` option controls which Tauri window the stub reports as.
+// The bubble-namespace installer uses this label to decide whether to
+// install the full BubbleWindowBubble API (label "bubble") or only the
+// MainRendererBubbleMutators subset (label "main" — the SEC-026 split).
+// Tests that exercise bubble-only event subscriptions (onLevel / onShow /
+// onHide / onDraggable) MUST pass `{ label: "bubble" }` so the installer
+// returns the full bubble namespace.
+function makeTauriStub(options: { label?: "main" | "bubble" } = {}) {
+	const { label = "main" } = options;
 	return {
 		core: {
 			invoke: vi.fn(() => Promise.resolve({})),
@@ -33,6 +42,7 @@ function makeTauriStub() {
 		},
 		window: {
 			getCurrentWindow: vi.fn(() => ({
+				label,
 				minimize: vi.fn(() => Promise.resolve()),
 				toggleMaximize: vi.fn(() => Promise.resolve()),
 				close: vi.fn(() => Promise.resolve()),
@@ -183,7 +193,12 @@ describe("tauri-bridge detection", () => {
 	});
 
 	it("registers a Tauri event listener for window.bubble.onLevel in Tauri mode", async () => {
-		const stub = makeTauriStub();
+		// The bubble namespace's event subscriptions (onLevel / onShow /
+		// onHide / onDraggable) are ONLY installed on the bubble window
+		// (SEC-026 — the main renderer gets only the 5 shared mutators).
+		// Pass `{ label: "bubble" }` so the installer returns the full
+		// BubbleWindowBubble shape with onLevel present.
+		const stub = makeTauriStub({ label: "bubble" });
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");

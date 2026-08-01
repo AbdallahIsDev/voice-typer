@@ -28,6 +28,127 @@ export function _resetPermsVerifiedForTest(): void {
 	_permsVerified.clear();
 }
 
+// ─── Logging-health ring buffer ───────────────────────────
+//
+// In packaged Electron builds, stdout/stderr are closed (no terminal
+// attached), so the `console.warn(...)` calls at the failure sites in
+// `rotateIfNeeded` / `appendLogLine` / `appendLifecycleLine` are no-ops.
+// When logging silently degrades (disk full, perm regression, userData
+// path moved to a read-only mount), there is ZERO durable trace and no
+// way for the app to surface "logging is broken" to the user — the
+// diagnostics meant to debug crashes are themselves silent.
+//
+// The ring buffer keeps the last `LOGGING_HEALTH_RING_MAX` failure
+// entries in memory so an orchestrator (or future IPC handler) can
+// query `getLoggingHealth()` and surface "logging degraded since
+// <timestamp>: <error>" on a Troubleshooting page. The buffer is
+// bounded so it can never grow unbounded on a churning disk failure.
+// It is in-process only (cleared on restart) — durable persistence is
+// intentionally NOT provided here because the act of writing to disk
+// is itself the failing operation.
+
+/**
+ * A single entry in the logging-health ring buffer. Captured at every
+ * `console.warn` failure site in the logging package so the orchestrator
+ * can surface "logging degraded" to the user.
+ */
+export interface LoggingFailureEntry {
+	/** ISO-8601 timestamp of the failure. */
+	timestamp: string;
+	/**
+	 * The log file path involved in the failure, or `""` when the
+	 * path itself could not be resolved (e.g. `app.getPath`
+	 * threw before the path was computed).
+	 */
+	filePath: string;
+	/**
+	 * Short label identifying the failure site
+	 * (e.g. `"rotateIfNeeded"`, `"appendLogLine"`, `"chmod 0o600"`).
+	 */
+	operation: string;
+	/** Stringified error message (`Name: Message`). */
+	error: string;
+}
+
+const LOGGING_FAILURE_RING: LoggingFailureEntry[] = [];
+const LOGGING_HEALTH_RING_MAX = 20;
+
+/**
+ * Record a logging failure to the in-memory ring buffer. Called at
+ * every `console.warn` site in the logging package so the orchestrator
+ * can later surface "logging degraded" via {@link getLoggingHealth}.
+ *
+ * Best-effort — never throws. If the ring buffer itself fails (e.g.
+ * `JSON.stringify` recursion on a hostile error object), the failure is
+ * swallowed so the diagnostic code never crashes the caller.
+ *
+ * Exported (NOT in the public barrel) so `structuredLogger.ts` can
+ * record failures from its `appendLifecycleLine` catch site alongside
+ * the four call sites in this module. The orchestrator can also call
+ * it directly if a future code path needs to record a non-`console.warn`
+ * logging degradation (e.g. a synchronous flush that detected data loss).
+ *
+ * @internal — the public surface is `getLoggingHealth` /
+ * `_resetLoggingHealthForTest`.
+ */
+export function recordLoggingFailure(
+	filePath: string,
+	operation: string,
+	error: unknown,
+): void {
+	try {
+		const entry: LoggingFailureEntry = {
+			timestamp: new Date().toISOString(),
+			filePath,
+			operation,
+			error:
+				error instanceof Error
+					? `${error.name}: ${error.message}`
+					: String(error),
+		};
+		LOGGING_FAILURE_RING.push(entry);
+		// Bound to last N entries.
+		if (LOGGING_FAILURE_RING.length > LOGGING_HEALTH_RING_MAX) {
+			LOGGING_FAILURE_RING.splice(
+				0,
+				LOGGING_FAILURE_RING.length - LOGGING_HEALTH_RING_MAX,
+			);
+		}
+	} catch {
+		// Swallow — the diagnostic code must never crash the caller.
+		// The console.warn at the call site still fires in dev mode.
+	}
+}
+
+/**
+ * Return a snapshot of recent logging failures (last
+ * {@link LOGGING_HEALTH_RING_MAX} entries). The orchestrator (or a
+ * future IPC handler wired by the orchestrator) can call this to
+ * surface "logging degraded since <timestamp>" on a Troubleshooting
+ * page or in a support-bundle export.
+ *
+ * Returns a shallow copy so callers can iterate / mutate without
+ * affecting the internal buffer. The entries themselves are NOT frozen
+ * — callers should treat them as read-only.
+ *
+ * NOT wired to an IPC handler yet — kept as a plain exported function
+ * so the orchestrator can wire it later (e.g. a `logging:get-health`
+ * IPC handler in `ipc/window-handlers.ts`). Offline-app compliant
+ * (CONSTRAINTS.md C-DATA-1) — never phones home, never writes to disk.
+ */
+export function getLoggingHealth(): LoggingFailureEntry[] {
+	return [...LOGGING_FAILURE_RING];
+}
+
+/**
+ * Reset the logging-health ring buffer. Exported for tests so each
+ * test starts with a clean buffer state.
+ * @internal
+ */
+export function _resetLoggingHealthForTest(): void {
+	LOGGING_FAILURE_RING.length = 0;
+}
+
 // ─── PII redaction (TS port of Python's redact_pii) ────────
 
 const _MIN_REDACT_LEN = 20;
@@ -41,17 +162,55 @@ const _PII_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, "[CC]"],
 ];
 
+// SEC-9 flag / key=value patterns. Mirrors Python's
+// `_FLAG_KEY_PATTERNS` in `voice_typer/server/_secrets.py`. Applied
+// BEFORE the `_MIN_REDACT_LEN` short-string guard because the
+// explicit secret-bearing keyword makes them specific enough to be
+// safe on short inputs (e.g. `--token=abc` is 12 chars but is
+// unambiguously a secret-bearing flag).
+//
+// Two forms:
+//   A. `--keyword=value` or `--keyword value` (long-flag form).
+//      No `\b` required before `--` (mirrors Python).
+//   B. `keyword=value` (bare key=value form, e.g. env vars / config).
+//      `\b` prevents matching inside larger words (`monkey=` does
+//      NOT match `key=`).
+//
+// Keyword alternation is ordered most-specific first, `key` last,
+// so `api_key=` wins over `key=` at the same position (JS regex
+// alternation is leftmost-first, like Python). Case-insensitive
+// (`gi` flags) mirrors Python's `(?i)`.
+const _FLAG_VALUE_PATTERN =
+	/(--(?:token|apikey|api_key|api-key|secret|password|passwd|pwd|auth|authorization|authentication|access_token|access-token|refreshtoken|refresh_token|refresh-token|client_secret|client-secret|private_key|private-key|key)(?:=|\s+))[^\s=]+/gi;
+const _BARE_KEY_VALUE_PATTERN =
+	/\b((?:token|apikey|api_key|api-key|secret|password|passwd|pwd|auth|authorization|authentication|access_token|access-token|refreshtoken|refresh_token|refresh-token|client_secret|client-secret|private_key|private-key|key)=)[^\s=]+/gi;
+
 const _SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 	[/\bBearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer ***"],
 	[/\bToken\s+[A-Za-z0-9._~+/=-]+/g, "Token ***"],
-	[/\b(?:sk|pk|key)-[A-Za-z0-9]{10,}\b/g, "***"],
+	// OpenAI / Stripe / generic `<prefix>-<token>` keys. Widened
+	// charset (incl. `-`) so `sk-proj-…` matches. Capture group
+	// preserves the prefix in the output (`sk-***` / `pk-***`).
+	[/\b((?:sk|pk|key)-)[A-Za-z0-9_-]{8,}\b/g, "$1***"],
+	// Groq `gsk_<token>` keys.
+	[/\b(gsk_)[A-Za-z0-9_-]{8,}\b/g, "$1***"],
+	// 20+ char bare alphanumeric catch-all. Catches GitHub PATs
+	// (`ghp_<36>`), GitLab PATs (`glpat-<20>`), Slack tokens
+	// (`xox[baprs]-<…>`), and any other bare long token with no
+	// recognized prefix. Negative lookbehind/lookahead on `/` and
+	// `\` prevent false-positive redaction of 20+ char filesystem
+	// path components (e.g. `username_with_long_name` in
+	// `/home/username_with_long_name/logs`). Mirrors Python's
+	// `_KEY_PATTERNS[-1]`.
+	[/(?<![/\\])\b[A-Za-z0-9_-]{20,}\b(?![/\\])/g, "***"],
 ];
 
 const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
 
 /**
  * PII / API-key / URL-credential redaction (TS port of Python's
- * `voice_typer.server.security.redact_pii`).
+ * `voice_typer.server.security.redact_pii`, which delegates the
+ * API-key portion to `voice_typer.server._secrets.redact_secret`).
  *
  * Idempotent on already-redacted text so callers that pre-redact
  * (e.g. via `cleanConsoleMsg` chains) don't double-redact. Exported
@@ -71,8 +230,23 @@ const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
  *   - SSNs                → `[SSN]`
  *   - Credit-card numbers → `[CC]`
  *   - `Bearer`/`Token`    → `Bearer ***` / `Token ***`
- *   - `sk-`/`pk-`/`key-`  → `***`  (only when input ≥ 20 chars)
+ *   - `sk-`/`pk-`/`key-`  → `sk-***` / `pk-***` / `key-***`
+ *   - `gsk_`              → `gsk_***`            (Groq API keys)
+ *   - 20+ char bare run   → `***`                (catches GitHub /
+ *                                                   GitLab / Slack PATs;
+ *                                                   path-delimiter
+ *                                                   lookarounds skip
+ *                                                   filesystem paths)
+ *   - `--keyword=value`   → `--keyword=***`      (SEC-9 flag form)
+ *   - `--keyword value`   → `--keyword ***`      (SEC-9 flag form)
+ *   - `keyword=value`     → `keyword=***`        (SEC-9 bare form)
  *   - URL userinfo        → stripped
+ *
+ * The SEC-9 flag / key=value patterns run BEFORE the
+ * `_MIN_REDACT_LEN` short-string guard (the explicit keyword makes
+ * them specific enough to be safe on short inputs like `--token=abc`).
+ * The Bearer / Token / sk- / gsk_ / 20+ char patterns run AFTER the
+ * guard (mirrors Python's `redact_secret`).
  */
 export function redactPii(text: string): string {
 	if (typeof text !== "string" || text.length === 0) return text;
@@ -80,6 +254,10 @@ export function redactPii(text: string): string {
 	for (const [pat, repl] of _PII_PATTERNS) {
 		out = out.replace(pat, repl);
 	}
+	// SEC-9: flag / key=value patterns run before the length guard
+	// (specific enough to be safe on short inputs).
+	out = out.replace(_FLAG_VALUE_PATTERN, "$1***");
+	out = out.replace(_BARE_KEY_VALUE_PATTERN, "$1***");
 	if (out.length >= _MIN_REDACT_LEN) {
 		for (const [pat, repl] of _SECRET_PATTERNS) {
 			out = out.replace(pat, repl);
@@ -124,6 +302,7 @@ export function rotateIfNeeded(
 		_permsVerified.delete(filePath);
 	} catch (e) {
 		console.warn("[logging] rotateIfNeeded failed:", e);
+		recordLoggingFailure(filePath, "rotateIfNeeded", e);
 	}
 }
 
@@ -185,6 +364,7 @@ export function appendLogLine(
 					`[logging] deferred rotateIfNeeded failed for ${filePath}:`,
 					e,
 				);
+				recordLoggingFailure(filePath, "rotateIfNeeded.deferred", e);
 			}
 		});
 		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
@@ -199,6 +379,7 @@ export function appendLogLine(
 				// Windows ACL reset) is visible in the dev console instead
 				// of silently swallowed.
 				console.warn(`[logging] chmod 0o600 failed for ${filePath}:`, e);
+				recordLoggingFailure(filePath, "chmod 0o600", e);
 			}
 		}
 		const prevSize = _getCachedFileSize(filePath);
@@ -207,6 +388,7 @@ export function appendLogLine(
 		}
 	} catch (e) {
 		console.warn(`[logging] appendLogLine failed for ${filePath}:`, e);
+		recordLoggingFailure(filePath, "appendLogLine", e);
 	}
 }
 

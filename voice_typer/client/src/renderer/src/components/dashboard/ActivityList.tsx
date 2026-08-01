@@ -5,7 +5,7 @@ import {
 	Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getLocale, t } from "@/i18n/i18n";
@@ -35,6 +35,142 @@ interface ActivityListProps {
 	onDelete?: (id: number) => void;
 	onToggleFavorite?: (id: number) => void;
 }
+
+// ── ActivityListRow ────────────────────────────────────────────────────
+//
+// Extracted from the inline `.map()` body in ActivityList and
+// wrapped in `React.memo`. Previously, every render of ActivityList
+// allocated 3 fresh closure functions per row (`handleItemFavorite`,
+// `handleItemCopy`, `handleItemDelete`) — on a 200-row dashboard list
+// that's 600 closure allocations per copy/favorite click (because the
+// click flips `copiedId`, re-rendering the parent and rebuilding every
+// row's handlers).
+//
+// The memo'd row receives:
+//   - `item`              — the HistoryRecord (stable reference unless the
+//                           underlying record changes)
+//   - `copied`            — a primitive boolean (true when this row is the
+//                           copied one) instead of the parent's `copiedId`
+//                           so only the row whose copied-state actually
+//                           changed re-renders
+//   - `lineClamp`         — primitive number
+//   - `onCopy`            — stable useCallback from parent (receives the
+//                           item, so the row's onClick can pass it through)
+//   - `onDelete`          — stable useCallback from parent (or undefined)
+//   - `onToggleFavorite`  — stable useCallback from parent (or undefined)
+//
+// All non-primitive props are stable useCallbacks from the parent, so
+// `memo`'s default shallow-equal comparator skips re-renders for every
+// row except the one whose `copied` flag actually toggled.
+interface ActivityListRowProps {
+	item: HistoryRecord;
+	copied: boolean;
+	lineClamp: number;
+	onCopy: (item: HistoryRecord) => void;
+	onDelete?: (id: number) => void;
+	onToggleFavorite?: (id: number) => void;
+}
+
+const ActivityListRow = memo(function ActivityListRow({
+	item,
+	copied,
+	lineClamp,
+	onCopy,
+	onDelete,
+	onToggleFavorite,
+}: ActivityListRowProps) {
+	return (
+		<div className="flex items-start gap-3 px-3.5 py-2.5">
+			<div className="flex flex-col gap-1 flex-1 min-w-0">
+				<p
+					className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
+					style={{
+						display: "-webkit-box",
+						WebkitLineClamp: lineClamp,
+						WebkitBoxOrient: "vertical",
+					}}
+				>
+					{item.text}
+				</p>
+				<span className="text-xs text-(--text-muted) block">
+					{formatTimestamp(item.timestamp)}
+					{item.word_count != null && (
+						<>
+							<span className="mx-1">·</span>
+							{t("activityList.wordsCount", {
+								count: String(item.word_count),
+							})}
+						</>
+					)}
+				</span>
+			</div>
+			<div className="flex items-center gap-1">
+				{onToggleFavorite && (
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => onToggleFavorite(item.id)}
+						className="shrink-0 text-(--text-muted) hover:text-amber-400"
+						title={
+							item.favorite
+								? t("activityList.removeFromFavorites")
+								: t("activityList.addToFavorites")
+						}
+						aria-label={
+							item.favorite
+								? t("activityList.removeFromFavorites")
+								: t("activityList.addToFavorites")
+						}
+					>
+						<HugeiconsIcon
+							icon={StarIcon}
+							strokeWidth={2.5}
+							className={`h-4 w-4 ${item.favorite ? "text-amber-400" : ""}`}
+						/>
+					</Button>
+				)}
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					onClick={() => onCopy(item)}
+					className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
+					title={t("history.copyText")}
+					aria-label={t("history.copyText")}
+				>
+					{copied ? (
+						<HugeiconsIcon
+							icon={Tick02Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					) : (
+						<HugeiconsIcon
+							icon={Copy01Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					)}
+				</Button>
+				{onDelete && (
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => onDelete(item.id)}
+						className="shrink-0 text-(--text-muted) hover:text-red-400"
+						title={t("common.delete")}
+						aria-label={t("history.deleteEntry")}
+					>
+						<HugeiconsIcon
+							icon={Delete01Icon}
+							strokeWidth={2.5}
+							className="h-4 w-4"
+						/>
+					</Button>
+				)}
+			</div>
+		</div>
+	);
+});
 
 export default function ActivityList({
 	items,
@@ -67,20 +203,12 @@ export default function ActivityList({
 		}
 	}, []);
 
-	const handleDelete = useCallback(
-		(id: number) => {
-			onDelete?.(id);
-			// Don't show premature success toast — parent handles feedback
-		},
-		[onDelete],
-	);
-
-	const handleFavorite = useCallback(
-		(id: number) => {
-			onToggleFavorite?.(id);
-		},
-		[onToggleFavorite],
-	);
+	// The previous `handleDelete` / `handleFavorite` pass-through
+	// wrappers have been removed — the memo'd `ActivityListRow` now calls
+	// `onDelete(item.id)` / `onToggleFavorite(item.id)` directly. Both
+	// parent callbacks are already stable (passed in as props), so the
+	// row's `memo` shallow-equal comparator keeps them referentially
+	// equal across re-renders.
 
 	// Fix #16: previously returned ``null`` when ``items`` was empty,
 	// which meant a parent rendering ``<ActivityList items={[]} />``
@@ -136,102 +264,17 @@ export default function ActivityList({
 			</div>
 			<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 				{" "}
-				{items.map((item) => {
-					const handleItemFavorite = () => handleFavorite(item.id);
-					const handleItemCopy = () => handleCopy(item);
-					const handleItemDelete = () => handleDelete(item.id);
-					return (
-						<div key={item.id} className="flex items-start gap-3 px-3.5 py-2.5">
-							<div className="flex flex-col gap-1 flex-1 min-w-0">
-								<p
-									className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
-									style={{
-										display: "-webkit-box",
-										WebkitLineClamp: lineClamp,
-										WebkitBoxOrient: "vertical",
-									}}
-								>
-									{item.text}
-								</p>
-								<span className="text-xs text-(--text-muted) block">
-									{formatTimestamp(item.timestamp)}
-									{item.word_count != null && (
-										<>
-											<span className="mx-1">·</span>
-											{t("activityList.wordsCount", {
-												count: String(item.word_count),
-											})}
-										</>
-									)}
-								</span>
-							</div>
-							<div className="flex items-center gap-1">
-								{onToggleFavorite && (
-									<Button
-										variant="ghost"
-										size="icon-xs"
-										onClick={handleItemFavorite}
-										className="shrink-0 text-(--text-muted) hover:text-amber-400"
-										title={
-											item.favorite
-												? t("activityList.removeFromFavorites")
-												: t("activityList.addToFavorites")
-										}
-										aria-label={
-											item.favorite
-												? t("activityList.removeFromFavorites")
-												: t("activityList.addToFavorites")
-										}
-									>
-										<HugeiconsIcon
-											icon={StarIcon}
-											strokeWidth={2.5}
-											className={`h-4 w-4 ${item.favorite ? "text-amber-400" : ""}`}
-										/>
-									</Button>
-								)}
-								<Button
-									variant="ghost"
-									size="icon-xs"
-									onClick={handleItemCopy}
-									className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
-									title={t("history.copyText")}
-									aria-label={t("history.copyText")}
-								>
-									{copiedId === item.id ? (
-										<HugeiconsIcon
-											icon={Tick02Icon}
-											strokeWidth={2.5}
-											className="h-4 w-4"
-										/>
-									) : (
-										<HugeiconsIcon
-											icon={Copy01Icon}
-											strokeWidth={2.5}
-											className="h-4 w-4"
-										/>
-									)}
-								</Button>
-								{onDelete && (
-									<Button
-										variant="ghost"
-										size="icon-xs"
-										onClick={handleItemDelete}
-										className="shrink-0 text-(--text-muted) hover:text-red-400"
-										title={t("common.delete")}
-										aria-label={t("history.deleteEntry")}
-									>
-										<HugeiconsIcon
-											icon={Delete01Icon}
-											strokeWidth={2.5}
-											className="h-4 w-4"
-										/>
-									</Button>
-								)}
-							</div>
-						</div>
-					);
-				})}
+				{items.map((item) => (
+					<ActivityListRow
+						key={item.id}
+						item={item}
+						copied={copiedId === item.id}
+						lineClamp={lineClamp}
+						onCopy={handleCopy}
+						onDelete={onDelete}
+						onToggleFavorite={onToggleFavorite}
+					/>
+				))}
 			</div>
 		</div>
 	);

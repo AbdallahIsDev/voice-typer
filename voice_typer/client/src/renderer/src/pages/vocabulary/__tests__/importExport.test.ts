@@ -33,7 +33,7 @@ describe("parseImportedVocabulary", () => {
 			category: "misspellings",
 		});
 		// Multi-word → phrase_corrections (detectCategory heuristic).
-		expect(result[2].category).toBe("phrase_corrections");
+		expect(result[2]?.category).toBe("phrase_corrections");
 	});
 
 	it("parses a backend-shape VocabularyData object", () => {

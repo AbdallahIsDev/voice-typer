@@ -117,7 +117,7 @@ export interface MainState {
 	_relaunching: boolean;
 	/** Persists after a restart trigger until the new backend connects (for "restart cycle complete" log). */
 	_restartTriggered: boolean;
-	/** True once the bubble renderer signals it has mounted and is ready for events. */
+	/** Dead field — previously set true by the `bubble:ready` IPC handler, but `showBubbleWindow()` never read it. The write was removed from `bubble-handlers.ts`; the declaration remains only because `windows/bubble/lifecycle.ts` still resets it to `false` on window close. Pending lockstep removal with `lifecycle.ts`. */
 	_bubblePageReady: boolean;
 	/** Idempotency guard for stopPython: true while a stop is in flight. */
 	_stopPythonCalled: boolean;

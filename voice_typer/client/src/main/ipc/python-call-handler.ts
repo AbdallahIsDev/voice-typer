@@ -29,6 +29,7 @@
 import { ipcMain } from "electron";
 import { logger } from "../logging";
 import { sendToPython } from "../python";
+import { PythonIpcError } from "../python/errors";
 import { state } from "../state";
 import { PythonChannels } from "./channels";
 
@@ -126,18 +127,17 @@ export function registerPythonCallHandler(): void {
 				return await sendToPython(msg, senderId);
 			} catch (err) {
 				const errMsg = (err as Error).message ?? String(err);
-				//classify timeouts via the typed `err.code`
-				// property set by `sendToPython` instead of regex-
-				// matching the human-readable message string. The
-				// `code` property is stable across message rewording,
-				// localization, and unit changes (the previous
-				// `/timeout/i` regex silently broke if the message
-				// ever changed). Falls back to message regex ONLY if
-				// the code is missing (defense-in-depth for callers
-				// that throw timeout-shaped Errors without setting
-				// the code).
-				const errCode = (err as { code?: string }).code;
-				const isTimeout = errCode === "timeout" || /timeout/i.test(errMsg);
+				//classify timeouts via the typed `PythonIpcError.code`
+				// field set by `sendToPython` instead of regex-matching
+				// the human-readable message string. The `code` field is
+				// stable across message rewording, localization, and unit
+				// changes (the previous `/timeout/i` regex silently broke
+				// if the message ever changed). Falls back to
+				// `"command_failed"` for any non-`PythonIpcError` rejection
+				// (defense-in-depth for callers that throw a bare `Error`).
+				const errCode: PythonCallErrorCode =
+					err instanceof PythonIpcError ? err.code : "command_failed";
+				const isTimeout = errCode === "command_timeout";
 				const code: PythonCallErrorCode = isTimeout
 					? "command_timeout"
 					: "command_failed";

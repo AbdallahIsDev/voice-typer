@@ -17,7 +17,7 @@
  */
 
 import { contrastRatio } from "@/lib/color-utils";
-import { THEME_PRESETS, THEMES } from "./themes/index";
+import { DEFAULT_THEME_PRESET, THEME_PRESETS, THEMES } from "./themes/index";
 
 export interface ThemePreset {
 	/** Unique identifier stored in config (e.g. ``"amoled"``). */
@@ -189,11 +189,14 @@ export function clearThemeVars(): void {
 // array) or use the new `THEME_PRESETS` record for O(1) id → preset
 // lookups. Callers that want to lazy-load a single preset can dynamically
 // `import()` the individual file (e.g. `await import("./themes/amoled")`).
-export { THEME_PRESETS, THEMES };
+export { DEFAULT_THEME_PRESET, THEME_PRESETS, THEMES };
 
 /** Look up a theme preset by id. Returns the default theme if not found. */
 export function getThemeById(id: string): ThemePreset {
-	return THEMES.find((t) => t.id === id) ?? THEMES[0];
+	// `THEMES` is a non-empty array exported from `./themes/index.ts`,
+	// so index 0 always exists; the explicit fallback keeps TypeScript
+	// happy under `noUncheckedIndexedAccess` and documents the intent.
+	return THEMES.find((t) => t.id === id) ?? THEMES[0] ?? DEFAULT_THEME_PRESET;
 }
 
 /**
@@ -261,6 +264,13 @@ export const CUSTOM_COLOR_KEYS: {
 // ─── Default values for each custom colour key ────────────────────────
 // These are the "reset" values for the stock light/dark mode.
 
+// Default colour-key set. Typed loosely so consumers (ThemeSettingsSection,
+// useThemeSettings, theme-contrast) can index these with arbitrary
+// `string` keys without TypeScript flagging them under
+// `noUncheckedIndexedAccess`; the keys the renderer actually writes are
+// constrained by `CUSTOM_COLOR_KEYS` above. Reads inside `deriveCustomVars`
+// narrow with a `?? ""` fallback to keep the function self-contained
+// under strict mode.
 export const DEFAULT_CUSTOM_LIGHT: Record<string, string> = {
 	"--background": "#ffffff",
 	"--foreground": "#09090b",
@@ -284,36 +294,20 @@ export function deriveCustomVars(
 	core: Record<string, string>,
 	isDark: boolean,
 ): Record<string, string> {
-	const bg =
-		core["--background"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--background"]
-			: DEFAULT_CUSTOM_LIGHT["--background"]);
-	const fg =
-		core["--foreground"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--foreground"]
-			: DEFAULT_CUSTOM_LIGHT["--foreground"]);
-	const primary =
-		core["--primary"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--primary"]
-			: DEFAULT_CUSTOM_LIGHT["--primary"]);
-	const subtle =
-		core["--bg-subtle"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--bg-subtle"]
-			: DEFAULT_CUSTOM_LIGHT["--bg-subtle"]);
-	const border =
-		core["--border"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--border"]
-			: DEFAULT_CUSTOM_LIGHT["--border"]);
-	const muted =
-		core["--text-muted"] ??
-		(isDark
-			? DEFAULT_CUSTOM_DARK["--text-muted"]
-			: DEFAULT_CUSTOM_LIGHT["--text-muted"]);
+	// `Record<string, string>` reads under `noUncheckedIndexedAccess`
+	// widen to `string | undefined`; `?? ""` keeps the rest of the
+	// function free of null-checks while preserving the original
+	// behaviour (defaults below are guaranteed by the literals above,
+	// so the empty-string fallback only kicks in if a caller passes a
+	// core dict missing one of the canonical keys — which downstream
+	// darken/lighten/contrast calls already treat as black).
+	const defaults = isDark ? DEFAULT_CUSTOM_DARK : DEFAULT_CUSTOM_LIGHT;
+	const bg = core["--background"] ?? defaults["--background"] ?? "";
+	const fg = core["--foreground"] ?? defaults["--foreground"] ?? "";
+	const primary = core["--primary"] ?? defaults["--primary"] ?? "";
+	const subtle = core["--bg-subtle"] ?? defaults["--bg-subtle"] ?? "";
+	const border = core["--border"] ?? defaults["--border"] ?? "";
+	const muted = core["--text-muted"] ?? defaults["--text-muted"] ?? "";
 
 	const destructive = isDark ? "#ef4444" : "#dc2626";
 	const scrollbar = isDark ? darken(bg, -0.15) : darken(subtle, 0.1);

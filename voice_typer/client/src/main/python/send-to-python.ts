@@ -24,6 +24,7 @@ import {
 	RATE_LIMIT_WINDOW_MS,
 	state,
 } from "../state";
+import { PythonIpcError } from "./errors";
 
 /**
  * Outbound replay queue for transient TCP disconnects.
@@ -286,6 +287,56 @@ function _commandTimeoutMs(cmd: string): number {
 		: IPC_TIMEOUT_SHORT_MS;
 }
 
+/**
+ * Internal-only IPC commands — invoked by the Electron main process
+ * itself (never reachable from the renderer's `python-call` bridge).
+ *
+ *   - `quit_app`         — sent by `stop-python.ts` during shutdown.
+ *   - `restart_app`      — sent by `relaunch-app.ts` to trigger a
+ *                          backend restart (the main process then
+ *                          relaunches itself).
+ *   - `heartbeat`        — sent by `tcp-connect.ts` on the watchdog
+ *                          tick to prove Electron is still alive.
+ *   - `relaunch_ack`     — sent by `handle-message.ts` to ack a
+ *                          `relaunch_app` request from the backend.
+ *
+ * All four are present in `ALLOWED_COMMANDS` because main-process
+ * callers (which pass `senderId === null`) route through the same
+ * `sendToPython` choke point. The renderer-vs-internal separation is
+ * enforced below in `sendToPython`: when `senderId !== null` (a
+ * renderer's `WebContents.id` from `python-call-handler.ts`), any
+ * command in this Set is rejected with the same "Disallowed IPC
+ * command" error used by the allowlist gate. A compromised renderer
+ * that constructs `{type: "quit_app"}` and invokes `python-call` would
+ * otherwise be able to kill the backend or starve the heartbeat
+ * watchdog — both unacceptable.
+ *
+ * The Set is intentionally a private literal here (not imported from
+ * `allowed-commands.ts`) so that the existing vitest mocks that stub
+ * `../allowed-commands` with only `ALLOWED_COMMANDS` keep working
+ * without each mock having to also stub `ALLOWED_COMMANDS_INTERNAL`.
+ * The parity test in
+ * `src/main/__tests__/renderer-internal-allowlist-split.test.ts` pins
+ * that every entry here is also in the real `ALLOWED_COMMANDS` so
+ * the two declarations cannot drift.
+ */
+const _INTERNAL_ONLY_COMMANDS: ReadonlySet<string> = new Set<string>([
+	"quit_app",
+	"restart_app",
+	"heartbeat",
+	"relaunch_ack",
+]);
+
+/**
+ * Test-only export of the internal-only command set so the parity
+ * test (`src/main/__tests__/renderer-internal-allowlist-split.test.ts`)
+ * can assert every entry is also in `ALLOWED_COMMANDS`. Underscore-
+ * prefixed to signal "internal/test-only" — matching the existing
+ * `_LONG_RUNNING_COMMANDS_FOR_TEST` convention.
+ */
+export const _INTERNAL_ONLY_COMMANDS_FOR_TEST: ReadonlySet<string> =
+	_INTERNAL_ONLY_COMMANDS;
+
 export function sendToPython(
 	msg: Record<string, unknown>,
 	senderId: number | null = null,
@@ -327,7 +378,12 @@ export function sendToPython(
 				});
 				return;
 			}
-			reject(new Error("Python backend is not connected"));
+			reject(
+				new PythonIpcError(
+					"backend_not_connected",
+					"Python backend is not connected",
+				),
+			);
 			return;
 		}
 		// SEC-019: validate the command against an allowlist before
@@ -354,21 +410,59 @@ export function sendToPython(
 		// the source. Do NOT move the declaration into this file.
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {
-			reject(new Error(`Disallowed IPC command: ${cmd}`));
+			reject(
+				new PythonIpcError("command_failed", `Disallowed IPC command: ${cmd}`),
+			);
+			return;
+		}
+		// Renderer-vs-internal allowlist split:
+		// `python-call-handler.ts` passes the renderer's
+		// `WebContents.id` as `senderId`. When non-null, the
+		// caller is a renderer (potentially compromised) and
+		// MUST NOT be able to invoke internal-only lifecycle
+		// commands (`quit_app`, `restart_app`, `heartbeat`,
+		// `relaunch_ack`). Main-process callers pass
+		// `senderId === null` and bypass this gate so the
+		// heartbeat watchdog, shutdown sequence, and relaunch
+		// ack still work.
+		//
+		// The error message intentionally matches the allowlist
+		// gate's "Disallowed IPC command" wording so a
+		// compromised renderer cannot distinguish "not in
+		// allowlist" from "internal-only" — both look the same
+		// to the attacker, so no information about the internal
+		// command set leaks via the error string.
+		//
+		// This check MUST run AFTER the allowlist gate (so
+		// unknown commands are still rejected with the same
+		// "Disallowed" error) and BEFORE the `_relaunching`
+		// check (so a renderer probing for the relaunching
+		// state by sending internal commands is rejected here,
+		// not later with the "Application is restarting" error
+		// that would leak the relaunch state).
+		if (senderId !== null && _INTERNAL_ONLY_COMMANDS.has(cmd)) {
+			reject(
+				new PythonIpcError("command_failed", `Disallowed IPC command: ${cmd}`),
+			);
 			return;
 		}
 		// If a full app relaunch is in flight, reject immediately so
 		// pending IPC calls don't sit in pendingRequests until the
 		// 5s timeout — the process is about to exit anyway.
 		if (state._relaunching) {
-			reject(new Error("Application is restarting"));
+			reject(new PythonIpcError("command_failed", "Application is restarting"));
 			return;
 		}
 		// Per-renderer rate limit. Rejects a flood from
 		// a single sender before it can pin `MAX_PENDING_REQUESTS`
 		// entries.
 		if (_rendererRateLimited(senderId)) {
-			reject(new Error(`Rate limit exceeded for command: ${cmd}`));
+			reject(
+				new PythonIpcError(
+					"command_failed",
+					`Rate limit exceeded for command: ${cmd}`,
+				),
+			);
 			return;
 		}
 		// Global cap on simultaneously-pending requests.
@@ -379,7 +473,8 @@ export function sendToPython(
 		// error rather than letting the Map grow.
 		if (state.pendingRequests.size >= MAX_PENDING_REQUESTS) {
 			reject(
-				new Error(
+				new PythonIpcError(
+					"command_failed",
 					`Pending IPC request limit reached (${MAX_PENDING_REQUESTS})`,
 				),
 			);
@@ -415,22 +510,20 @@ export function sendToPython(
 			if (state.pendingRequests.has(id)) {
 				state.pendingRequests.delete(id);
 				const cmd = String(msg?.type ?? "unknown").trim();
-				//attach a typed `code = "timeout"` property to
-				// the Error so downstream consumers (the
-				// `python-call-handler` IPC bridge) can branch on the
-				// error class WITHOUT regex-matching the human-readable
-				// message. The previous contract was a `/timeout/i`
-				// regex on the message string, which silently broke if
-				// the message wording ever changed (localization,
-				// rewording, unit change from seconds to ms). The
-				// `code` property mirrors the existing pattern at
-				// `handle-message.ts:68-72` where Python-side error
-				// codes are attached as `err.code`.
-				const err = new Error(
-					`Timeout after ${timeoutMs / 1000}s for command: ${cmd}`,
+				//reject with a typed `PythonIpcError` so downstream
+				// consumers (the `python-call-handler` IPC bridge) can
+				// branch on `err instanceof PythonIpcError` + `err.code`
+				// WITHOUT regex-matching the human-readable message. The
+				// previous contract attached an ad-hoc `err.code = "timeout"`
+				// string to a bare `Error`, which the handler classified
+				// via a fragile `/timeout/i` regex on the message text
+				// (silently broke if the message wording ever changed).
+				reject(
+					new PythonIpcError(
+						"command_timeout",
+						`Timeout after ${timeoutMs / 1000}s for command: ${cmd}`,
+					),
 				);
-				(err as Error & { code: string }).code = "timeout";
-				reject(err);
 			}
 		}, timeoutMs);
 		state.pendingRequests.set(id, {

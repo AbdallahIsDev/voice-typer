@@ -20,13 +20,14 @@
 		"types": [],
 		"paths": {
 			"@/*": ["./src/renderer/src/*"],
-			"#ui/*": ["./src/renderer/src/components/ui/*"],
 			"#utils": ["./src/renderer/src/lib/utils.ts"]
 		}
 	},
 	"include": [
 		"src/renderer/src/**/*",
-		"src/renderer/src/**/*.json",
+		"src/shared/**/*",
+		"src/renderer/src/data/**/*.json",
+		"src/renderer/src/i18n/translations/**/*.json",
 		"package.json"
 	]
 }

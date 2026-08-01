@@ -112,7 +112,7 @@ export function clearElectronPidFile(): void {
  * as still-held by Voice Typer — preventing accidental lockout of an
  * unrelated process).
  */
-function isPidVoiceTyper(pid: number): boolean {
+export function isPidVoiceTyper(pid: number): boolean {
 	try {
 		let cmdline = "";
 		if (process.platform === "linux") {
@@ -139,7 +139,15 @@ function isPidVoiceTyper(pid: number): boolean {
 			lower.includes("voice-typer") ||
 			lower.includes("voice_typer")
 		);
-	} catch {
+	} catch (e) {
+		// Any read/spawn failure (file missing, permission denied,
+		// ps/wmic not on PATH) returns false so the caller falls back
+		// to the conservative "PID is alive" path. Previously this was
+		// a silent catch — a flaky /proc mount or a stripped-down
+		// Windows image that lacked wmic would silently mis-classify
+		// every stale-PID check. Log the failure so operators can
+		// diagnose the root cause from the runtime log.
+		log.warn("[single_instance] isPidVoiceTyper failed:", e);
 		return false;
 	}
 }
@@ -175,10 +183,29 @@ export function readStaleElectronPid(): number | null {
 				return pid;
 			}
 			return null; // still alive AND is Voice Typer
-		} catch {
+		} catch (e) {
+			// process.kill(pid, 0) threw — ESRCH (PID is gone) is
+			// the EXPECTED signal that the previous Voice Typer
+			// instance crashed hard. Other errors (EPERM on a PID
+			// owned by another user, EINVAL on a malformed pid)
+			// are rarer and worth surfacing. Log the signal so the
+			// stale-lock recovery path is diagnosable instead of
+			// opaque (the only observable was the return value).
+			log.warn(
+				`[single_instance] readStaleElectronPid process.kill(${pid}, 0) threw — treating as stale:`,
+				e,
+			);
 			return pid; // stale — process is gone
 		}
-	} catch {
+	} catch (e) {
+		// Outer fallback: fs.existsSync / fs.readFileSync on the PID
+		// file itself failed (permission denied, FS read-only, file
+		// vanished mid-read). Returns null so the caller treats the
+		// lock as held (conservative — don't accidentally double-launch).
+		// Previously this was a silent catch — a corrupt PID file or
+		// a transient FS error was invisible. Log so operators can
+		// see when the gate is falling back to its safe default.
+		log.warn("[single_instance] readStaleElectronPid PID-file read failed:", e);
 		return null;
 	}
 }

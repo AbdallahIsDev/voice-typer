@@ -51,6 +51,27 @@ vi.mock("@/hooks/usePython", () => ({
 	usePythonEvent: mockPythonEvent,
 }));
 
+// Stub localStorage so useNavigation's persisted-nav-state restore
+// (and the beforeEach `clear()` below) doesn't blow up in the jsdom
+// environment. Same pattern as useTheme-flush-pending-save.test.tsx.
+const lsStub: Record<string, string> = {};
+const lsMock = {
+	getItem: (k: string) => lsStub[k] ?? null,
+	setItem: (k: string, v: string) => {
+		lsStub[k] = v;
+	},
+	removeItem: (k: string) => {
+		delete lsStub[k];
+	},
+	clear: () => {
+		for (const k of Object.keys(lsStub)) delete lsStub[k];
+	},
+};
+Object.defineProperty(window, "localStorage", {
+	value: lsMock,
+	configurable: true,
+});
+
 // Mock the i18n module so `useT()` returns a controllable `t` function.
 //The  fix routes the respawn-exhausted branch through
 // `t("connection.respawnFailed")` — the test asserts that key is
@@ -89,8 +110,9 @@ function Harness() {
 function dispatchEvent(eventType: string, data: unknown): void {
 	const calls = mockPythonEvent.mock.calls;
 	for (let i = calls.length - 1; i >= 0; i--) {
-		if (calls[i][0] === eventType) {
-			calls[i][1](data);
+		const call = calls[i];
+		if (call !== undefined && call[0] === eventType) {
+			call[1](data);
 			return;
 		}
 	}

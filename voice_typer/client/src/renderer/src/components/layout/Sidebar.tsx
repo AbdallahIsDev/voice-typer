@@ -176,7 +176,11 @@ export function Sidebar({
 				return;
 		}
 		if (nextIdx >= 0 && nextIdx < buttons.length) {
-			buttons[nextIdx].focus();
+			// noUncheckedIndexedAccess: buttons[nextIdx] is
+			// `HTMLButtonElement | undefined`; the bounds check proves
+			// it exists, but TS still widens the read. Explicit guard.
+			const target = buttons[nextIdx];
+			if (target !== undefined) target.focus();
 		}
 	};
 

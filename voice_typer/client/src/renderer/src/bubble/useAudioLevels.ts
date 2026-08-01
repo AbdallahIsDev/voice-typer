@@ -149,6 +149,50 @@ export function useAudioLevels(
 	// deferred to a future refactor because it touches the
 	// state-machine's public surface and would require coordinated
 	// test updates across both hooks.
+	//
+	// Known issue (duplicate IPC subscriptions across the bubble
+	// package): `api.onShow` / `api.onHide` / `api.onSetState` /
+	// `api.onConfig` are each subscribed by MORE THAN ONE hook +
+	// component. As of this revision:
+	//   - `api.onShow`     → useBubbleStateMachine, useBubbleLifecycle,
+	//                        useAudioLevels (this hook)  [3 subs]
+	//   - `api.onHide`     → useBubbleStateMachine, useBubbleLifecycle
+	//                                                                    [2 subs]
+	//   - `api.onSetState` → useBubbleStateMachine, useAudioLevels
+	//                                                                    [2 subs]
+	//   - `api.onConfig`   → useThemeSync, Bubble.tsx              [2 subs]
+	//   - `api.onLevel`    → useAudioLevels (this hook)             [1 sub]
+	//   - `api.onDraggable`→ Bubble.tsx                              [1 sub]
+	//                                                          — total 11 subs
+	// Each subscription is a separate Electron IPC listener registered
+	// on the BrowserWindow's `webContents` (via the preload bridge);
+	// every event the main process emits is marshalled to N listeners
+	// even when only one of them cares about that particular event.
+	// A proper architectural fix would centralise the subscriptions in
+	// a single owner (e.g. a `useBubbleEvents` hook that exposes
+	// event-emitter-shaped refs to its consumers) and have
+	// `useBubbleStateMachine` / `useBubbleLifecycle` / `useAudioLevels`
+	// / `useThemeSync` / `Bubble.tsx` consume the events via the
+	// shared emitter rather than each subscribing individually.
+	// That refactor touches every consumer's public surface and is
+	// tracked separately; this hook limits its duplication to the
+	// minimum it needs (onShow + onSetState for recording-mode
+	// tracking + wake re-arm — both are required because
+	// `useBubbleStateMachine`'s `onShow`/`onSetState` callbacks fire
+	// `setMode` React state updates, which are async + batched, so
+	// the rAF gate (`recordingRef.current`) would lag by a render
+	// tick if it depended on the React state. The closure `mode`
+	// here is updated synchronously inside the IPC callback so the
+	// rAF gate flips on the same frame the IPC event arrives.)
+	//
+	// Mitigation applied here: the `api.onLevel` subscription is
+	// DYNAMICALLY gated on `mode === "recording"`. Audio-peak IPC
+	// events fire at ~50-60 Hz from the Python backend while the
+	// recorder is running; when the bubble is in `transcribing` /
+	// `idle` / `error` / `fading` mode those events are pure waste
+	// (the visualizer doesn't render those peaks). Subscribing only
+	// while in recording mode saves the IPC marshalling cost during
+	// the ~90% of the bubble's lifetime it spends NOT recording.
 	useEffect(() => {
 		const api = window.bubble as
 			| import("@/types/ipc").BubbleWindowBubble
@@ -156,9 +200,12 @@ export function useAudioLevels(
 		if (!api) return;
 
 		let mode: BubbleMode = "recording";
-		const sync = () => {
-			recordingRef.current = mode === "recording";
-		};
+		// Active `onLevel` unsubscribe handle. `null` when not
+		// currently subscribed (i.e. when `mode !== "recording"`).
+		// The dynamic subscribe/unsubscribe happens in `sync()`
+		// below; the rAF loop is NOT torn down on unsubscribe —
+		// only the IPC listener is removed.
+		let levelOff: (() => void) | null = null;
 
 		const onLevel = (data: { rms: number; peak: number }) => {
 			const norm = rmsToNorm(data.rms);
@@ -169,7 +216,35 @@ export function useAudioLevels(
 				rawLevelRef.current = cur * 0.82 + norm * 0.18;
 			}
 		};
-		const offLevel = api.onLevel?.(onLevel);
+		const subscribeLevel = () => {
+			if (levelOff !== null) return;
+			const off = api.onLevel?.(onLevel);
+			levelOff = typeof off === "function" ? off : null;
+		};
+		const unsubscribeLevel = () => {
+			if (levelOff === null) return;
+			try {
+				levelOff();
+			} catch {
+				// The preload bridge's unsubscribe is
+				// defensive but warn-only — swallow any
+				// late-dispatch race so a stale call
+				// during cleanup doesn't crash the
+				// visualizer.
+			}
+			levelOff = null;
+		};
+
+		const sync = () => {
+			const isRecording = mode === "recording";
+			recordingRef.current = isRecording;
+			// Dynamic onLevel gating — see comment above.
+			if (isRecording) {
+				subscribeLevel();
+			} else {
+				unsubscribeLevel();
+			}
+		};
 
 		// Render bars at a fixed mid-height (no animation) when the user
 		// has reduced motion enabled. Skips all subsequent rAF scheduling.
@@ -266,12 +341,19 @@ export function useAudioLevels(
 			}
 		});
 
+		// Establish the initial subscription state for `onLevel`.
+		// The default `mode` is `"recording"`, so on mount this
+		// subscribes immediately — preserving the pre-refactor
+		// behavior where `onLevel` was always subscribed while the
+		// bubble was visible.
+		sync();
+
 		wake();
 
 		return () => {
 			offShow?.();
 			offSetState?.();
-			offLevel?.();
+			unsubscribeLevel();
 			wakeRef.current = null;
 			if (frameRef.current !== null) {
 				cancelAnimationFrame(frameRef.current);

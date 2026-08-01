@@ -279,7 +279,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Recording started.");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Recording started.");
 	});
 
 	it("announces 'Transcribing audio…' when recordingState is 'transcribing'", async () => {
@@ -293,7 +293,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Transcribing audio…");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Transcribing audio…");
 	});
 
 	it("announces 'Ready.' when recordingState is 'idle'", async () => {
@@ -307,7 +307,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Ready.");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Ready.");
 	});
 
 	it("announces 'Error occurred.' when recordingState is 'error'", async () => {
@@ -321,7 +321,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Error occurred.");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Error occurred.");
 	});
 
 	it("announces 'Loading model…' when recordingState is 'loading'", async () => {
@@ -335,7 +335,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Loading model…");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Loading model…");
 	});
 
 	it("announces 'Cancelling…' when recordingState is 'cancelling'", async () => {
@@ -349,6 +349,6 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-		expect(liveRegions[0].textContent).toContain("Cancelling…");
+		expect(liveRegions[0]?.textContent ?? "").toContain("Cancelling…");
 	});
 });

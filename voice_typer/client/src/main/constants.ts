@@ -81,10 +81,17 @@ export const PROCESS_EXIT_BACKSTOP_MS = 2000;
 // split the bubble-window god-file).
 export const RENDER_RELOAD_BACKOFF_MS = 2000;
 
-// SEC-023: cap `tcpBuffer` at 4 MB to prevent unbounded memory growth
+// SEC-023: cap `tcpBuffer` at 1 MiB to prevent unbounded memory growth
 // from malformed frames (e.g. a chunk with no newline that never gets
 // split). `tcp-connect.ts` drops the connection on overflow.
-export const TCP_FRAME_MAX_BYTES = 4 * 1024 * 1024;
+//
+// Aligned with Python sidecar_ws._MAX_FRAME_BYTES (1 MiB) and Rust
+// util.rs MAX_FRAME_BYTES (1 MiB). The Python TCP sender also caps
+// outbound frames at 1 MiB (ipc/sender.py::_TCP_MAX_OUTBOUND_BYTES),
+// so no Python-side caller can ever emit a TCP frame larger than this —
+// the previous 4 MiB cap was dead headroom that silently allowed a
+// 4x divergence between the TS TCP path and the WS path's 1 MiB ceiling.
+export const TCP_FRAME_MAX_BYTES = 1 * 1024 * 1024;
 
 //IPC command timeouts in `send-to-python.ts::_commandTimeoutMs`.
 // Long-running commands (model load, transcription) get the long

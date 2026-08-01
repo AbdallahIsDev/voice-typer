@@ -44,6 +44,7 @@ import { registerIpcHandlers } from "./ipc";
 // `console.warn` has no terminal attached.
 import { BUBBLE_CLR, log, RESET, ts } from "./logging";
 import { startPython, stopPython } from "./python";
+import { ESCALATE_TIMER_MS, KILL_TIMER_MS } from "./python/stop-python";
 import {
 	acquireSingleInstanceLock,
 	clearElectronPidFile,
@@ -172,7 +173,23 @@ app.whenReady().then(() => {
 });
 
 //SIGTERM/SIGINT → app.quit() → before-quit → stopPython().
-// 3s hard backstop if before-quit hangs.
+// Hard backstop if before-quit hangs. The delay is sized so the
+// SIGTERM→SIGKILL escalation in `stop-python.ts` has a guaranteed
+// window to fire BEFORE Electron exits:
+//   - t=KILL_TIMER_MS                     : killTimer sends SIGTERM
+//   - t=KILL_TIMER_MS+ESCALATE_TIMER_MS   : escalateTimer sends SIGKILL
+// Pre-fix the backstop was a hardcoded 3000ms — equal to the killTimer
+// delay — so on SIGTERM-with-Python-stuck-in-C-extension the unref'd
+// backstop fired at t=3s, exited Electron, and the escalateTimer
+// (scheduled for t=6s) NEVER fired. Python was orphaned, still holding
+// the single-instance mutex. The extra +500ms is a safety margin so the
+// backstop can't race ahead of the escalateTimer if the Node timer
+// wheel is briefly delayed under load.
+//
+// The timer is `.unref()`'d so it does NOT keep the event loop alive
+// on its own — if all other handles (including the non-`.unref()`'d
+// killTimer in stop-python.ts) have settled and Python has exited
+// cleanly, Electron can exit promptly without waiting the full 6.5s.
 let _signalQuitFired = false;
 const signalQuitHandler = () => {
 	if (_signalQuitFired) return;
@@ -183,7 +200,10 @@ const signalQuitHandler = () => {
 		log.warn("[main] app.quit() from signal handler failed:", e);
 		process.exit(0);
 	}
-	setTimeout(() => process.exit(0), 3000).unref();
+	setTimeout(
+		() => process.exit(0),
+		KILL_TIMER_MS + ESCALATE_TIMER_MS + 500,
+	).unref();
 };
 process.on("SIGTERM", signalQuitHandler);
 process.on("SIGINT", signalQuitHandler);

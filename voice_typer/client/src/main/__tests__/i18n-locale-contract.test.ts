@@ -106,9 +106,14 @@ describe("AC-114: main-process i18n locales match renderer SUPPORTED_LOCALES", (
 		for (const locale of EXPECTED_LOCALES) {
 			setMainLocale(locale);
 			for (let i = 0; i < probeKeys.length; i++) {
-				const v = mainT(probeKeys[i]);
+				// noUncheckedIndexedAccess: probeKeys[i] widens to
+				// `string | undefined`; the loop bound proves it exists,
+				// so guard explicitly.
+				const key = probeKeys[i];
+				if (key === undefined) continue;
+				const v = mainT(key);
 				// Lookup must resolve (never returns the raw key).
-				expect(v).not.toBe(probeKeys[i]);
+				expect(v).not.toBe(key);
 				expect(v.length).toBeGreaterThan(0);
 				if (locale === "en") {
 					expect(v).toBe(enValues[i]);

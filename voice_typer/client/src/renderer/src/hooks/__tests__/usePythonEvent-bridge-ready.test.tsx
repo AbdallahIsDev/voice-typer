@@ -48,6 +48,10 @@ describe("CR-6: useBridgeReady + usePythonEvent lazy subscription", () => {
 		}
 		cleanup();
 		vi.restoreAllMocks();
+		// Restore real timers in case a test activated fake timers and
+		// threw before its own cleanup ran (defensive — prevents timer
+		// leakage between tests).
+		vi.useRealTimers();
 	});
 
 	it("useBridgeReady returns false when window.python is undefined at mount", () => {

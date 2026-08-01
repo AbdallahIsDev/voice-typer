@@ -75,7 +75,7 @@ describe("useSnackbar — ZU-33 action option", () => {
 			});
 		});
 		expect(toastSpies.error).toHaveBeenCalledTimes(1);
-		const [msg, opts] = toastSpies.error.mock.calls[0];
+		const [msg, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(msg).toBe("save failed");
 		expect(opts).toMatchObject({
 			duration: 8000, // per-type default for error
@@ -92,7 +92,7 @@ describe("useSnackbar — ZU-33 action option", () => {
 			});
 		});
 		expect(toastSpies.success).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.success.mock.calls[0];
+		const [, opts] = toastSpies.success.mock.calls[0] ?? [];
 		expect(opts).toMatchObject({
 			duration: 3000,
 			action: { label: "View", onClick },
@@ -109,7 +109,7 @@ describe("useSnackbar — ZU-33 action option", () => {
 			});
 		});
 		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.warning.mock.calls[0];
+		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
 		expect(opts).toMatchObject({
 			id: "save-in-progress",
 			duration: 6000,
@@ -123,7 +123,7 @@ describe("useSnackbar — ZU-33 action option", () => {
 			showSnack("hello", "info");
 		});
 		expect(toastSpies.info).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.info.mock.calls[0];
+		const [, opts] = toastSpies.info.mock.calls[0] ?? [];
 		// duration is always forwarded; action/id must NOT be present.
 		expect(opts).not.toHaveProperty("action");
 		expect(opts).not.toHaveProperty("id");
@@ -155,7 +155,7 @@ describe("showRetryableToast — ZU-33 helper", () => {
 			showRetryableToast("save failed", onRetry);
 		});
 		expect(toastSpies.error).toHaveBeenCalledTimes(1);
-		const [msg, opts] = toastSpies.error.mock.calls[0];
+		const [msg, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(msg).toBe("save failed");
 		// Default type is "error" → per-type default duration = 8000ms.
 		expect(opts).toMatchObject({
@@ -173,7 +173,7 @@ describe("showRetryableToast — ZU-33 helper", () => {
 			});
 		});
 		expect(toastSpies.error).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.error.mock.calls[0];
+		const [, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(opts.action).toEqual({ label: "Try Again", onClick: onRetry });
 	});
 
@@ -185,7 +185,7 @@ describe("showRetryableToast — ZU-33 helper", () => {
 		});
 		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
 		expect(toastSpies.error).not.toHaveBeenCalled();
-		const [, opts] = toastSpies.warning.mock.calls[0];
+		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
 		// warning per-type default duration = 6000ms.
 		expect(opts).toMatchObject({
 			duration: 6000,
@@ -200,7 +200,7 @@ describe("showRetryableToast — ZU-33 helper", () => {
 			showRetryableToast("download failed", onRetry, { timeoutMs: 12000 });
 		});
 		expect(toastSpies.error).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.error.mock.calls[0];
+		const [, opts] = toastSpies.error.mock.calls[0] ?? [];
 		expect(opts).toHaveProperty("duration", 12000);
 	});
 
@@ -211,7 +211,7 @@ describe("showRetryableToast — ZU-33 helper", () => {
 			showUndoableToast("deleted", onUndo);
 		});
 		expect(toastSpies.warning).toHaveBeenCalledTimes(1);
-		const [, opts] = toastSpies.warning.mock.calls[0];
+		const [, opts] = toastSpies.warning.mock.calls[0] ?? [];
 		// showUndoableToast defaults to type="warning", undoLabel=t("common.undo")="Undo".
 		expect(opts).toMatchObject({
 			duration: 6000,

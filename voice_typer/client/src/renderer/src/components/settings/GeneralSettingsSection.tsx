@@ -24,9 +24,9 @@ import {
 	getLocale,
 	getLocaleLabel,
 	type Locale,
+	pushLocaleToPythonBackend,
 	SUPPORTED_LOCALES,
 	setLocale,
-	t,
 	useT,
 } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
@@ -42,42 +42,6 @@ const BUBBLE_BEHAVIOR_OPTIONS = [
 	{ value: "always_visible", labelKey: "settings.bubbleBehaviorAlwaysVisible" },
 	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
 ] as const;
-
-//build a tray-menu label dict for the CURRENT locale
-// from the renderer's existing translations. Only keys the current
-// translation actually defines are included; the server merges these
-// over its English defaults, so any key we omit falls back to English
-// rather than breaking. (The renderer does not yet carry full tray-menu
-// strings for every language, so this is a progressive improvement — it
-// localizes the terms we do have, e.g. Models / Microphone, into all 8
-// shipped locales.)
-//
-//the parameter is intentionally omitted — the body reads the
-// module-level current locale via `t()` (which itself reads
-// `_currentLocale`), so passing a different locale here would have NO
-// effect on the output (it always returned translations for the
-// current locale, not the requested one). The previous `_locale`
-// parameter was misleading — a caller could have passed a different
-// locale and expected translations for THAT locale, but actually got
-// translations for whatever the current locale happened to be. The
-// signature now matches the behaviour.
-const TRAY_LABEL_KEY_MAP: Record<string, string> = {
-	models: "models.title",
-	microphones: "microphone.microphone",
-};
-
-function trayLabelsForLocale(): Record<string, string> {
-	const labels: Record<string, string> = {};
-	for (const [trayKey, i18nKey] of Object.entries(TRAY_LABEL_KEY_MAP)) {
-		const translated = t(i18nKey);
-		// `t` returns the key itself when the translation is missing;
-		// skip those so the server keeps its English default.
-		if (translated && translated !== i18nKey) {
-			labels[trayKey] = translated;
-		}
-	}
-	return labels;
-}
 
 // Locale selector options — derived from SUPPORTED_LOCALES so adding a
 // new locale in i18n.ts automatically appears here. The labels are
@@ -273,20 +237,14 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 											e,
 										);
 									}
-									//push the locale (and any tray-menu
-									// labels the renderer can translate) to the Python
-									// backend so the tray menu localizes into this locale.
-									// `trayLabelsForLocale` only includes keys the
-									// current translation actually defines, so missing
-									// keys fall back to English on the server side.
+									// Delegate tray-locale dispatch to the i18n module's
+									// `pushLocaleToPythonBackend` helper so this component
+									// does not invoke the Python bridge directly
+									// (the PythonBridge type only exposes `call` and
+									// `onEvent` — direct calls bypass the i18n contract
+									// and re-introduce the delegation-boundary violation).
 									try {
-										void window.python?.call({
-											type: "set_tray_locale",
-											data: {
-												locale: v,
-												labels: trayLabelsForLocale(),
-											},
-										});
+										pushLocaleToPythonBackend(v as Locale);
 									} catch (e) {
 										// IPC may not be available during startup or the
 										// backend may not yet have registered the route.

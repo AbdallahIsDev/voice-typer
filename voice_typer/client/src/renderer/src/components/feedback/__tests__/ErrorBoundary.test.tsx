@@ -106,7 +106,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// After flashCopied, the tracked slot holds the id returned
 		// by setTimeout.
 		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const expectedId = setTimeoutMock.mock.results[0].value;
+		const expectedId = setTimeoutMock.mock.results[0]?.value;
 		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(
 			expectedId,
 		);
@@ -124,7 +124,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// First call — arms timer #1.
 		(ref.current as ErrorBoundary).flashCopied();
 		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const firstId = setTimeoutMock.mock.results[0].value;
+		const firstId = setTimeoutMock.mock.results[0]?.value;
 		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(firstId);
 		// No clearTimeout yet (first call has nothing to clear).
 		expect(clearTimeoutMock).not.toHaveBeenCalled();
@@ -135,11 +135,11 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// The clearTimeout call must use the FIRST timer's id (the
 		// one that was previously tracked). This is the core
 		// guarantee of the clear-before-set pattern.
-		expect(clearTimeoutMock.mock.calls[0][0]).toBe(firstId);
+		expect(clearTimeoutMock.mock.calls[0]?.[0]).toBe(firstId);
 
 		// A new timer is armed (distinct id).
 		expect(setTimeoutMock).toHaveBeenCalledTimes(2);
-		const secondId = setTimeoutMock.mock.results[1].value;
+		const secondId = setTimeoutMock.mock.results[1]?.value;
 		expect(secondId).not.toBe(firstId);
 		// The tracked slot now holds the SECOND id.
 		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBe(secondId);
@@ -167,7 +167,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		cleanup();
 
 		expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
-		expect(clearTimeoutMock.mock.calls[0][0]).toBe(trackedId);
+		expect(clearTimeoutMock.mock.calls[0]?.[0]).toBe(trackedId);
 
 		// NOTE: we can't assert on `ref.current.copiedTimer` after
 		// unmount because React nulls the ref during cleanup(). The
@@ -215,7 +215,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// Extract the callback that flashCopied registered with
 		// setTimeout and invoke it (simulating the timer firing).
 		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
-		const registeredCallback = setTimeoutMock.mock.calls[0][0] as () => void;
+		const registeredCallback = setTimeoutMock.mock.calls[0]?.[0] as () => void;
 		expect(typeof registeredCallback).toBe("function");
 
 		registeredCallback();

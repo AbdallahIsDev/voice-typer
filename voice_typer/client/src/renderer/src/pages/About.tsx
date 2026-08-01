@@ -12,8 +12,9 @@
 // The remaining three sections (Diagnostics, Privacy, Resources) keep the
 // page focused on "what is this app, where does my data go, where do I
 // file bugs." ~300 LOC, well under the ~400 LOC ceiling.
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
+import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -59,19 +60,6 @@ const DOCUMENTATION_URL =
 // We now render only the Security Policy button (in Resources) and add
 // a one-line note in the Privacy section body explaining that
 // SECURITY.md covers privacy practices too.
-
-// Small label/value row that matches the visual rhythm of SettingRow
-// but doesn't carry the input-association machinery (we're read-only).
-function Row({ label, value }: { label: string; value: ReactNode }) {
-	return (
-		<div className="flex items-center justify-between gap-6 px-3.5 py-2.5">
-			<span className="text-sm font-medium text-(--text-primary)">{label}</span>
-			<span className="shrink-0 text-right text-sm text-(--text-muted)">
-				{value}
-			</span>
-		</div>
-	);
-}
 
 function StatusDot({ connected }: { connected: boolean }) {
 	return (
@@ -276,25 +264,48 @@ export default function AboutPage() {
 					title={t("about.diagnosticsTitle")}
 					description={t("about.diagnosticsDescription")}
 				>
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.appVersion")}
 						value={t("about.versionValue", { version: APP_VERSION })}
 					/>
-					<Row label={t("about.pythonBackend")} value={backendStatus} />
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.pythonBackend")}
+						value={backendStatus}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.configDirectory")}
 						value={configDir || t("about.loading")}
 					/>
-					<Row label={t("about.asrBackend")} value={asrBackend} />
-					<Row label={t("about.device")} value={device} />
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.asrBackend")}
+						value={asrBackend}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.device")}
+						value={device}
+					/>
 					{/*show which device/compute_type the model
 	  actually loaded via. */}
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.loadedVia")}
 						value={loadedVia || t("about.unknown")}
 					/>
-					<Row label={t("about.hotkey")} value={hotkey} />
-					<Row label={t("about.microphone")} value={microphone} />
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.hotkey")}
+						value={hotkey}
+					/>
+					<ReadonlyRow
+						variant="label-emphasized"
+						label={t("about.microphone")}
+						value={microphone}
+					/>
 				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}
@@ -416,19 +427,23 @@ export default function AboutPage() {
 					title={t("about.creditsTitle")}
 					description={t("about.creditsDescription")}
 				>
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.creditsAuthorsLabel")}
 						value={t("about.creditsAuthorsValue")}
 					/>
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.creditsLibrariesLabel")}
 						value={t("about.creditsLibrariesValue")}
 					/>
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.creditsFontsLabel")}
 						value={t("about.creditsFontsValue")}
 					/>
-					<Row
+					<ReadonlyRow
+						variant="label-emphasized"
 						label={t("about.creditsIconsLabel")}
 						value={t("about.creditsIconsValue")}
 					/>

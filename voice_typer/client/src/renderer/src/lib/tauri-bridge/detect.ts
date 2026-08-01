@@ -74,10 +74,7 @@ export interface TauriGlobal {
  * is the contract asserted by `tauri-bridge-detection.test.ts:196`.
  */
 export function isTauri(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		!!(window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__?.core?.invoke
-	);
+	return typeof window !== "undefined" && !!window.__TAURI__?.core?.invoke;
 }
 
 /**
@@ -86,7 +83,7 @@ export function isTauri(): boolean {
  * loudly instead of silently no-op-ing.
  */
 export function getTauri(): TauriGlobal {
-	const tauri = (window as unknown as { __TAURI__?: TauriGlobal }).__TAURI__;
+	const tauri = window.__TAURI__;
 	if (!tauri?.core?.invoke) {
 		throw new Error(
 			"getTauri() called outside Tauri runtime — guard with isTauri() first",

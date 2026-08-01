@@ -85,7 +85,7 @@ describe("sortRecords", () => {
 	});
 
 	it("handles a single-element array under any order", () => {
-		const one = [records[0]];
+		const one = [records[0] as HistoryRecord];
 		for (const order of [
 			"newest",
 			"oldest",

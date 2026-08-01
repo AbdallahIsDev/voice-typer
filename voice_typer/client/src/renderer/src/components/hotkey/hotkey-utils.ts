@@ -23,7 +23,7 @@
  * ``navigator.userAgent`` detection to be wrong.
  */
 
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import { checkHotkeyConflict } from "./checkHotkeyConflict";
 import {
 	detectPlatform,
@@ -55,6 +55,102 @@ const PLATFORM: "darwin" | "win32" | "linux" | "unknown" = (() => {
 export const IS_MAC = PLATFORM === "darwin";
 export const IS_WIN = PLATFORM === "win32";
 export const IS_LINUX = PLATFORM === "linux";
+
+/**
+ * macOS glyph table for the four primary modifiers. Applied only when
+ * the detected platform is darwin. Keys not in this map fall through
+ * to the text-label path inside ``formatHotkey``.
+ *
+ * Hoisted to module scope: this is a pure Unicode-symbol table (⌘ ⇧ ⌥ ⌃)
+ * with no locale dependence, so it never changes between renders or
+ * locale switches. The previous in-function allocation re-built a
+ * ~14-entry object on every ``formatHotkey`` call — at ~6 calls per
+ * Settings render (one per preset row) and 1 call per ``HotkeyPicker``
+ * mount, this was measurable on slow devices.
+ */
+const MAC_MODIFIER_GLYPHS: Readonly<Record<string, string>> = {
+	ctrl: "\u2303", // ⌃
+	ctrl_l: "\u2303",
+	ctrl_r: "\u2303",
+	shift: "\u21E7", // ⇧
+	shift_l: "\u21E7",
+	shift_r: "\u21E7",
+	alt: "\u2325", // ⌥
+	alt_l: "\u2325",
+	alt_r: "\u2325",
+	alt_gr: "\u2325",
+	cmd: "\u2318", // ⌘
+	cmd_l: "\u2318",
+	cmd_r: "\u2318",
+};
+
+/**
+ * Per-locale cache of the ``KEY_LABEL_ALIAS`` map used by
+ * ``formatHotkey``. The map contains ~28 entries whose values come
+ * from ``t("hotkeyKeys.*")`` — building it requires 28 ``t()``
+ * lookups. Without caching, every ``formatHotkey`` call rebuilt the
+ * map (and re-resolved every translation), which dominated the
+ * function's runtime in the Settings panel where ``formatHotkey`` is
+ * called ~6× per render (preset labels) plus once per ``HotkeyPicker``
+ * mount.
+ *
+ * Cache invalidation: keyed by ``getLocale()``. The cache is rebuilt
+ * lazily on the first ``formatHotkey`` call after a locale switch.
+ * ``getLocale`` reads the i18n store's current locale synchronously,
+ * so this works in both React and non-React contexts (tests,
+ * utilities).
+ */
+let _keyLabelAliasCache: {
+	locale: string;
+	map: Readonly<Record<string, string>>;
+} | null = null;
+
+function getKeyLabelAlias(): Readonly<Record<string, string>> {
+	const locale = getLocale();
+	if (_keyLabelAliasCache?.locale === locale) {
+		return _keyLabelAliasCache.map;
+	}
+	const map: Record<string, string> = {
+		ctrl: t("hotkeyKeys.ctrl"),
+		ctrl_l: t("hotkeyKeys.ctrl"),
+		ctrl_r: t("hotkeyKeys.ctrl"),
+		shift: t("hotkeyKeys.shift"),
+		shift_l: t("hotkeyKeys.shift"),
+		shift_r: t("hotkeyKeys.shift"),
+		alt: t("hotkeyKeys.alt"),
+		alt_l: t("hotkeyKeys.alt"),
+		alt_r: t("hotkeyKeys.alt"),
+		alt_gr: t("hotkeyKeys.altGr"),
+		cmd: t("hotkeyKeys.cmd"),
+		cmd_l: t("hotkeyKeys.cmd"),
+		cmd_r: t("hotkeyKeys.cmd"),
+		win: t("hotkeyKeys.win"),
+		super: t("hotkeyKeys.super"),
+		fn: t("hotkeyKeys.fn"),
+		globe: "\u{1F310}",
+		space: t("hotkeyKeys.space"),
+		enter: t("hotkeyKeys.enter"),
+		tab: t("hotkeyKeys.tab"),
+		esc: t("hotkeyKeys.esc"),
+		caps_lock: t("hotkeyKeys.capsLock"),
+		num_lock: t("hotkeyKeys.numLock"),
+		scroll_lock: t("hotkeyKeys.scrollLock"),
+		print_screen: t("hotkeyKeys.printScreen"),
+		pause: t("hotkeyKeys.pause"),
+		insert: t("hotkeyKeys.insert"),
+		delete: t("hotkeyKeys.delete"),
+		home: t("hotkeyKeys.home"),
+		end: t("hotkeyKeys.end"),
+		page_up: t("hotkeyKeys.pageUp"),
+		page_down: t("hotkeyKeys.pageDown"),
+		up: "\u2191",
+		down: "\u2193",
+		left: "\u2190",
+		right: "\u2192",
+	};
+	_keyLabelAliasCache = { locale, map };
+	return map;
+}
 
 export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
 	// ISSUE-3 (Key-name maps): this table maps Browser key codes
@@ -336,65 +432,11 @@ export function getComboPresets(): { value: string; label: string }[] {
  */
 export function formatHotkey(hotkey: string): string {
 	if (!hotkey) return t("hotkey.none");
-	// macOS glyph table for the four primary modifiers. Applied only
-	// when the detected platform is darwin. Keys not in this map fall
-	// through to the text-label path below.
-	const MAC_MODIFIER_GLYPHS: Record<string, string> = {
-		ctrl: "\u2303", // ⌃
-		ctrl_l: "\u2303",
-		ctrl_r: "\u2303",
-		shift: "\u21E7", // ⇧
-		shift_l: "\u21E7",
-		shift_r: "\u21E7",
-		alt: "\u2325", // ⌥
-		alt_l: "\u2325",
-		alt_r: "\u2325",
-		alt_gr: "\u2325",
-		cmd: "\u2318", // ⌘
-		cmd_l: "\u2318",
-		cmd_r: "\u2318",
-	};
-	//display labels are now sourced from translation keys rather than
-	// hardcoded English strings. The map below aliases variant names (ctrl_l,
-	// ctrl_r) to the canonical key so translations aren't duplicated.
-	const KEY_LABEL_ALIAS: Record<string, string> = {
-		ctrl: t("hotkeyKeys.ctrl"),
-		ctrl_l: t("hotkeyKeys.ctrl"),
-		ctrl_r: t("hotkeyKeys.ctrl"),
-		shift: t("hotkeyKeys.shift"),
-		shift_l: t("hotkeyKeys.shift"),
-		shift_r: t("hotkeyKeys.shift"),
-		alt: t("hotkeyKeys.alt"),
-		alt_l: t("hotkeyKeys.alt"),
-		alt_r: t("hotkeyKeys.alt"),
-		alt_gr: t("hotkeyKeys.altGr"),
-		cmd: t("hotkeyKeys.cmd"),
-		cmd_l: t("hotkeyKeys.cmd"),
-		cmd_r: t("hotkeyKeys.cmd"),
-		win: t("hotkeyKeys.win"),
-		super: t("hotkeyKeys.super"),
-		fn: t("hotkeyKeys.fn"),
-		globe: "\u{1F310}",
-		space: t("hotkeyKeys.space"),
-		enter: t("hotkeyKeys.enter"),
-		tab: t("hotkeyKeys.tab"),
-		esc: t("hotkeyKeys.esc"),
-		caps_lock: t("hotkeyKeys.capsLock"),
-		num_lock: t("hotkeyKeys.numLock"),
-		scroll_lock: t("hotkeyKeys.scrollLock"),
-		print_screen: t("hotkeyKeys.printScreen"),
-		pause: t("hotkeyKeys.pause"),
-		insert: t("hotkeyKeys.insert"),
-		delete: t("hotkeyKeys.delete"),
-		home: t("hotkeyKeys.home"),
-		end: t("hotkeyKeys.end"),
-		page_up: t("hotkeyKeys.pageUp"),
-		page_down: t("hotkeyKeys.pageDown"),
-		up: "\u2191",
-		down: "\u2193",
-		left: "\u2190",
-		right: "\u2192",
-	};
+	// macOS glyph table + per-locale KEY_LABEL_ALIAS are now resolved
+	// via module-scope helpers (see ``MAC_MODIFIER_GLYPHS`` and
+	// ``getKeyLabelAlias`` above) — they used to be re-allocated on
+	// every call, which dominated ``formatHotkey``'s runtime.
+	const KEY_LABEL_ALIAS = getKeyLabelAlias();
 	const parts = hotkey
 		.split("+")
 		.map((part) => part.replace(/[<>]/g, "").trim());

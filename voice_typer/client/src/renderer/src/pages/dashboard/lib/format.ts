@@ -28,7 +28,12 @@ export function dayAbbr(dateStr: string): string {
 		t("analytics.days.sat"),
 	];
 	try {
-		return days[new Date(dateStr).getDay()];
+		const day = days[new Date(dateStr).getDay()];
+		// noUncheckedIndexedAccess: days is `string[]`, so reads return
+		// `string | undefined`; the index is always in bounds here, but
+		// fall back to the original input string so we never lie about
+		// the return type.
+		return day ?? dateStr;
 	} catch {
 		return dateStr;
 	}

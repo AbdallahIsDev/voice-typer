@@ -289,6 +289,12 @@ export function createBubbleWindow(): BrowserWindow {
 		try {
 			if (win.isDestroyed()) return;
 			const [px, py] = win.getPosition();
+			// noUncheckedIndexedAccess: `getPosition()` returns
+			// `number[]` whose items are `number | undefined` under
+			// strict mode; bail out if either coordinate is missing
+			// rather than feeding `undefined` into the saved-state
+			// writer (which would persist a garbage value).
+			if (px === undefined || py === undefined) return;
 			const candidate = { x: px, y: py };
 			if (!isPositionOnAnyDisplay(candidate)) {
 				// Window ended up off-screen — don't poison the saved

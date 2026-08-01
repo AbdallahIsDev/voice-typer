@@ -178,7 +178,8 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 		(args: unknown[]) => args[0] === "set_config",
 	) as Array<[string, Record<string, unknown>?]>;
 	if (setConfigCalls.length === 0) return null;
-	return setConfigCalls[setConfigCalls.length - 1][1] ?? null;
+	const last = setConfigCalls[setConfigCalls.length - 1];
+	return last?.[1] ?? null;
 }
 
 describe("useSettingsConfig — XA-14 fixes", () => {

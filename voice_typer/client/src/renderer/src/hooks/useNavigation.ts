@@ -175,6 +175,11 @@ export function useNavigation() {
 		if (navIndex.current > 0) {
 			navIndex.current--;
 			const page = navHistory.current[navIndex.current];
+			// noUncheckedIndexedAccess: `page` is `Page | undefined`.
+			// The index is bounded by the guard above and the history
+			// is append-only, but TS still widens the read; explicit
+			// guard keeps the setter / save-call signatures happy.
+			if (page === undefined) return;
 			setCurrentPage(page);
 			saveNavState(page, navHistory.current, navIndex.current);
 		}
@@ -184,6 +189,7 @@ export function useNavigation() {
 		if (navIndex.current < navHistory.current.length - 1) {
 			navIndex.current++;
 			const page = navHistory.current[navIndex.current];
+			if (page === undefined) return;
 			setCurrentPage(page);
 			saveNavState(page, navHistory.current, navIndex.current);
 		}

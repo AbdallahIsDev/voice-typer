@@ -1264,7 +1264,11 @@ function readAllowlistEntries(): Set<string> {
 	const matches = block.matchAll(/"([a-z_]+)"/g);
 	const entries = new Set<string>();
 	for (const m of matches) {
-		entries.add(m[1]);
+		// RegExpMatchArray indexing is `string | undefined` under
+		// `noUncheckedIndexedAccess`; the regex captures a group so
+		// guard + fallback keeps the Set happy.
+		const captured = m[1];
+		if (captured !== undefined) entries.add(captured);
 	}
 	return entries;
 }

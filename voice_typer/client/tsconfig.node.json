@@ -20,6 +20,7 @@
 		"csp-plugin.ts",
 		"aliases.ts",
 		"src/main/**/*",
-		"src/preload/**/*"
+		"src/preload/**/*",
+		"src/shared/**/*"
 	]
 }

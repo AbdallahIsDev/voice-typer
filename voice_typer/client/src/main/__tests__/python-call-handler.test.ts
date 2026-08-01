@@ -115,9 +115,13 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		);
 	});
 
-	it("command_timeout: returns _code 'command_timeout' when sendToPython rejects with a timeout error", async () => {
+	it("command_timeout: returns _code 'command_timeout' when sendToPython rejects with a PythonIpcError timeout", async () => {
+		const { PythonIpcError } = await import("../python/errors");
 		mocks.sendToPython.mockRejectedValueOnce(
-			new Error("Timeout after 15s for command: get_config"),
+			new PythonIpcError(
+				"command_timeout",
+				"Timeout after 15s for command: get_config",
+			),
 		);
 
 		const result = (await handler({}, { type: "get_config" })) as {

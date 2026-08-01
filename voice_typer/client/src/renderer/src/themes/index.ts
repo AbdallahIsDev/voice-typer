@@ -14,6 +14,47 @@
  *
  * ``themes.ts`` re-exports both, so existing consumers that import
  * from ``@/themes`` continue to work unchanged.
+ *
+ * ── lazy-load opportunity, deferred ──────────────────────────
+ *
+ * The 12 preset imports below are STATIC. Each preset module is small
+ * (a handful of CSS variable strings), so the bundle-size cost of
+ * eagerly loading all 12 is modest — but a future optimisation can
+ * convert these to a registry + dynamic ``import()`` so only the
+ * active preset + ``default`` + ``custom`` (the fallback pair) are
+ * loaded eagerly:
+ *
+ *   export const THEME_IDS = [
+ *     "default", "custom", "amoled", "nord", "dracula", ...
+ *   ] as const;
+ *   export const THEME_METADATA: ThemePresetMetadata[] = THEME_IDS.map(...);
+ *   export async function getThemeByIdLazy(id: string): Promise<ThemePreset> {
+ *     const mod = await import(`./${id}`);
+ *     return mod[`${id}Theme`];
+ *   }
+ *
+ * Why this refactor is deferred:
+ *
+ *  1. The parity test in ``themes/__tests__/parity.test.ts`` iterates
+ *     ``THEMES`` SYNCHRONOUSLY to assert light/dark var coverage for
+ *     every preset. A lazy-load registry would force that test to
+ *     become async (or to await every preset), which is a wider-blast
+ *     change than this performance pass should make.
+ *
+ *  2. ``ThemeSettingsSection.tsx`` renders the dropdown from the
+ *     synchronous ``THEMES`` array (it needs ``name`` + ``swatch``
+ *     for every preset up-front). A lazy-load refactor would require
+ *     splitting the metadata (eager) from the full preset (lazy) and
+ *     threading an async-load callback through the Settings UI.
+ *
+ *  3. The runtime cost of eagerly importing 12 small objects is
+ *     negligible compared to the actual perf wins (e.g. row
+ *     memoisation, visibility gating) addressed in this pass.
+ *
+ * When this refactor is eventually done, the metadata-only array
+ * (id + name + swatch + nameKey) should stay eager so the Settings
+ * dropdown renders without a Suspense fallback, and the full preset
+ * (with light/dark var maps) should be loaded on selection.
  */
 import type { ThemePreset } from "../themes";
 import { amoledTheme } from "./amoled";
@@ -87,6 +128,16 @@ export const THEME_PRESETS: Record<string, ThemePreset> = Object.fromEntries(
  * index-sensitive callers continue to behave identically.
  */
 export const THEMES: ThemePreset[] = THEMES_WITH_NAME_KEY;
+
+/**
+ * Fallback preset returned by ``getThemeById`` when the requested id is
+ * unknown. The first preset in ``THEMES`` is treated as the canonical
+ * default so the UI always has a valid preset to render. Typed as a
+ * non-optional ``ThemePreset`` so callers don't have to guard against
+ * undefined under `noUncheckedIndexedAccess`.
+ */
+export const DEFAULT_THEME_PRESET: ThemePreset =
+	THEMES_WITH_NAME_KEY[0] as ThemePreset;
 
 /** Re-export each preset for direct (lazy-loadable) access. */
 export {

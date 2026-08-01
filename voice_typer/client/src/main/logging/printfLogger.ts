@@ -23,12 +23,16 @@
  * Local (non-exported) helpers:
  *   - `_runtimeLogPath` — the memoization slot.
  *   - `formatArgsForFile()` — coerces console-style args to a single
- *     space-joined string for file output.
+ *     space-joined string for file output. Called ONCE per
+ *     `log.warn` / `log.error` invocation (single-format discipline —
+ *     the formatted string is shared between the stdout tee and the
+ *     file tee to avoid double-running the per-arg `redactPii` passes).
  *   - `writeStdout()` — writes one line to stdout with the standard
- *     timestamp + level prefix.
+ *     timestamp + level prefix. Accepts a pre-formatted args string
+ *     (the output of `formatArgsForFile`) rather than the raw args.
  *   - `mainRuntimeLogger` — the persistent runtime log file writer
  *     (appends WARN/ERROR to `electron-runtime.log` via
- *     `appendLogLine`).
+ *     `appendLogLine`). Accepts a pre-formatted args string.
  *
  * Imports: `path`, Electron's `app`, the color constants
  * (`INFO_CLR` / `WARN_CLR` / `ERROR_CLR` / `RESET`), the
@@ -187,14 +191,22 @@ function formatArgsForFile(args: unknown[]): string {
  * prefix. Routes to `console.error` / `console.warn` / `console.log`
  * so Node's stderr/stdout split is preserved (Electron's crash log
  * captures stderr; INFO goes to stdout).
+ *
+ * Accepts a PRE-FORMATTED args string (the output of `formatArgsForFile`)
+ * rather than the raw `unknown[]` args. This lets `log.warn` /
+ * `log.error` compute the formatted string ONCE and pass it to both
+ * `writeStdout` (stdout tee) and `mainRuntimeLogger.write` (file tee)
+ * — eliminating the previous double-format penalty where every WARN/
+ * ERROR line ran `formatArgsForFile` (and its per-arg `redactPii`
+ * passes) twice on identical input.
  */
 function writeStdout(
 	level: "INFO" | "WARN" | "ERROR",
 	color: string,
-	args: unknown[],
+	formattedArgs: string,
 ): void {
 	const prefix = `${ts()}  ${color}[${level}]${RESET}`;
-	const out = `${prefix} ${formatArgsForFile(args)}`;
+	const out = `${prefix} ${formattedArgs}`;
 	if (level === "ERROR") {
 		console.error(out);
 	} else if (level === "WARN") {
@@ -228,11 +240,20 @@ function writeStdout(
  * `_getRuntimeLogPathForTest` / `_resetRuntimeLogPathForTest`").
  */
 const mainRuntimeLogger = {
-	write(level: "WARN" | "ERROR", args: unknown[]): void {
+	/**
+	 * Accepts a PRE-FORMATTED args string (the output of `formatArgsForFile`)
+	 * rather than the raw `unknown[]` args. This lets `log.warn` /
+	 * `log.error` compute the formatted string ONCE and pass it to both
+	 * `writeStdout` (stdout tee) and this writer (file tee) — eliminating
+	 * the previous double-format penalty where every WARN/ERROR line
+	 * ran `formatArgsForFile` (and its per-arg `redactPii` passes)
+	 * twice on identical input.
+	 */
+	write(level: "WARN" | "ERROR", formattedArgs: string): void {
 		const logPath = getRuntimeLogPath();
 		if (!logPath) return;
 		const iso = new Date().toISOString();
-		const line = `${iso} [${level}] ${formatArgsForFile(args)}\n`;
+		const line = `${iso} [${level}] ${formattedArgs}\n`;
 		// Route through `appendLogLine` so the file-size
 		// cache is populated after each successful append. Previously
 		// this site called `rotateIfNeeded` + `fs.appendFileSync` directly,
@@ -277,7 +298,13 @@ const mainRuntimeLogger = {
  */
 export const log: LogShape = {
 	info(...args: unknown[]): void {
-		writeStdout("INFO", INFO_CLR, args);
+		// Compute the formatted args ONCE. Pre-refactor `writeStdout`
+		// called `formatArgsForFile` internally; now we compute it
+		// here and pass the result so `log.warn` / `log.error` (below)
+		// can share the same formatted string between the stdout tee
+		// and the file tee (single-format discipline).
+		const formatted = formatArgsForFile(args);
+		writeStdout("INFO", INFO_CLR, formatted);
 		// INFO not written to file (avoid bloat).
 		//
 		// Opt-in INFO persistence — mirror `logger.info`'s
@@ -288,16 +315,30 @@ export const log: LogShape = {
 		// strings via `String(...)` (matching `formatArgsForFile`'s
 		// non-Error fallback) — rich object formatting would change
 		// the existing stdout behavior, so we keep it lossy here.
+		//
+		// NOTE: `appendLifecycleLine` uses `String(a)` (not
+		// `JSON.stringify`) for the lossy printf-style formatting, so
+		// we can't reuse `formatted` here — pass the raw `args` and
+		// let `appendLifecycleLine` re-stringify.
 		if (PERSIST_INFO) {
 			appendLifecycleLine("info", args.map((a) => String(a)).join(" "), []);
 		}
 	},
 	warn(...args: unknown[]): void {
-		writeStdout("WARN", WARN_CLR, args);
-		mainRuntimeLogger.write("WARN", args);
+		// Compute the formatted args ONCE — pre-refactor `writeStdout`
+		// AND `mainRuntimeLogger.write` each called `formatArgsForFile`
+		// internally, so every WARN line paid for two PII-redaction
+		// passes over the same args. Now both tees share the same
+		// pre-formatted string.
+		const formatted = formatArgsForFile(args);
+		writeStdout("WARN", WARN_CLR, formatted);
+		mainRuntimeLogger.write("WARN", formatted);
 	},
 	error(...args: unknown[]): void {
-		writeStdout("ERROR", ERROR_CLR, args);
-		mainRuntimeLogger.write("ERROR", args);
+		// Compute the formatted args ONCE — see `warn` above for the
+		// single-format discipline rationale.
+		const formatted = formatArgsForFile(args);
+		writeStdout("ERROR", ERROR_CLR, formatted);
+		mainRuntimeLogger.write("ERROR", formatted);
 	},
 };

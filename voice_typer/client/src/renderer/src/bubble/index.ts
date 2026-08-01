@@ -10,15 +10,16 @@
  *     `DOT_COUNT`, `MIN_HEIGHT`, `MAX_HEIGHT`, `DOT_WEIGHTS`,
  *     `DOT_INDICES`, `TRANSCRIBING_DOT_COUNT`, `FADEOUT_DURATION_MS`,
  *     `BUBBLE_BUTTON_CLASS`
- *   - helpers: `tf`, `rmsToNorm`
+ *   - helpers: `tf`, `rmsToNorm`, `getBubbleAriaLabel`
  *   - hooks: `useThemeSync`, `useAudioLevels`, `useBubbleLifecycle`,
  *     `useBubbleStateMachine` (+ `BubbleStateMachine` interface)
  *   - components: `BubbleVisualizer`, `BubbleMicButton`,
- *     `BubbleStopButton`, `BubbleDismissButton`
+ *     `BubbleStopButton`, `BubbleDismissButton`, `BubbleModeContent`
  */
 
 export { BubbleDismissButton } from "./BubbleDismissButton";
 export { BubbleMicButton } from "./BubbleMicButton";
+export { BubbleModeContent } from "./BubbleModeContent";
 export { BubbleStopButton } from "./BubbleStopButton";
 // components
 export { BubbleVisualizer } from "./BubbleVisualizer";
@@ -39,7 +40,7 @@ export {
 	TRANSCRIBING_DOT_COUNT,
 } from "./constants";
 // helpers — pure functions
-export { rmsToNorm, tf } from "./helpers";
+export { getBubbleAriaLabel, rmsToNorm, tf } from "./helpers";
 export { useAudioLevels } from "./useAudioLevels";
 export { useBubbleLifecycle } from "./useBubbleLifecycle";
 export type { BubbleStateMachine } from "./useBubbleStateMachine";

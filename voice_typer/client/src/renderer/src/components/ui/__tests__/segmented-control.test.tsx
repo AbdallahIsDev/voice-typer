@@ -161,8 +161,8 @@ describe("SegmentedControl (default variant)", () => {
 		const radios = screen.getAllByRole("radio");
 		// The text-xs and active-styling classes live on the wrapping <label>,
 		// not on the <input> itself (which has className="sr-only").
-		const leftLabel = radios[0].closest("label");
-		const rightLabel = radios[1].closest("label");
+		const leftLabel = radios[0]?.closest("label");
+		const rightLabel = radios[1]?.closest("label");
 
 		expect(leftLabel?.className).toContain("text-primary-foreground");
 		expect(rightLabel?.className).toContain("text-(--text-muted)");
@@ -340,7 +340,7 @@ describe("SegmentedControl keyboard navigation", () => {
 		);
 
 		// Focus the first (active) radio, then press ArrowRight.
-		screen.getAllByRole("radio")[0].focus();
+		screen.getAllByRole("radio")[0]?.focus() ?? undefined;
 		await user.keyboard("{ArrowRight}");
 
 		expect(onChange).toHaveBeenCalledTimes(1);
@@ -361,7 +361,7 @@ describe("SegmentedControl keyboard navigation", () => {
 		);
 
 		// Focus the third radio, then press ArrowLeft.
-		screen.getAllByRole("radio")[2].focus();
+		screen.getAllByRole("radio")[2]?.focus() ?? undefined;
 		await user.keyboard("{ArrowLeft}");
 
 		expect(onChange).toHaveBeenCalledTimes(1);
@@ -382,7 +382,7 @@ describe("SegmentedControl keyboard navigation", () => {
 		);
 
 		// Per the HTML spec, ArrowRight on the last radio wraps to the first.
-		screen.getAllByRole("radio")[3].focus();
+		screen.getAllByRole("radio")[3]?.focus() ?? undefined;
 		await user.keyboard("{ArrowRight}");
 
 		expect(onChange).toHaveBeenCalledTimes(1);
@@ -403,7 +403,7 @@ describe("SegmentedControl keyboard navigation", () => {
 		);
 
 		// Per the HTML spec, ArrowLeft on the first radio wraps to the last.
-		screen.getAllByRole("radio")[0].focus();
+		screen.getAllByRole("radio")[0]?.focus() ?? undefined;
 		await user.keyboard("{ArrowLeft}");
 
 		expect(onChange).toHaveBeenCalledTimes(1);
@@ -476,8 +476,8 @@ describe("SegmentedControl tabs variant", () => {
 		// Active tab: aria-selected="true" + text-(--text-primary).
 		expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 		expect(tabs[1]).toHaveAttribute("aria-selected", "false");
-		expect(tabs[0].className).toContain("text-(--text-primary)");
-		expect(tabs[1].className).not.toContain("text-primary-foreground");
+		expect(tabs[0]?.className ?? "").toContain("text-(--text-primary)");
+		expect(tabs[1]?.className ?? "").not.toContain("text-primary-foreground");
 	});
 	it("active tab is in the tab order (tabIndex=0) and inactive tabs are not (tabIndex=-1)", () => {
 		//WAI-ARIA Tabs "roving tabindex" pattern — only the

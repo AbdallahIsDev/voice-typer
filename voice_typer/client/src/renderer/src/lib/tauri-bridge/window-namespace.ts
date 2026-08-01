@@ -125,20 +125,20 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// site (Vocabulary.tsx export button) is unchanged.
 		exportVocabulary: makeExportCommand(tauri, "export_vocabulary"),
 
-		//(): GDPR right-to-export for templates.
+		// GDPR right-to-export for templates.
 		// Invokes the Rust `export_templates` command (save-file dialog
 		// + JSON write). Same return-shape mapping as `exportHistory`.
 		// The renderer call site (Templates.tsx export button) is
 		// unchanged on both Electron and Tauri paths.
 		exportTemplates: makeExportCommand(tauri, "export_templates"),
 
-		//(): GDPR right-to-export for the full
+		// GDPR right-to-export for the full
 		// config. API keys are redacted by the Python sidecar before
 		// the data reaches this command. Same shape as
 		// `exportTemplates`.
 		exportConfig: makeExportCommand(tauri, "export_config"),
 
-		//(): open the Voice Typer log directory in the OS
+		// open the Voice Typer log directory in the OS
 		// file manager. Invokes the Rust `open_logs` command which
 		// shells out to `explorer.exe` / `open` / `xdg-open`. The
 		// renderer call site (Settings.tsx viewLogs button) is

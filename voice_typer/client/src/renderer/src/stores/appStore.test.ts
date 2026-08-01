@@ -12,12 +12,19 @@ import { useAppStore } from "@/stores/appStore";
 
 describe("appStore", () => {
 	beforeEach(() => {
-		// Reset the store to its initial state before each test
+		// Reset the store to its initial state before each test.
+		// All six top-level state slices are reset so a test that
+		// mutated `lastErrorAt` or `navVersion` (added in Fix #25-5
+		// and Fix #25-6) cannot leak into a later test. Earlier this
+		// only reset 4 fields, which left stale `lastErrorAt` /
+		// `navVersion` values across tests.
 		useAppStore.setState({
 			connectionStatus: "connecting",
 			recordingState: "idle",
 			lastError: null,
+			lastErrorAt: null,
 			config: null,
+			navVersion: 0,
 		});
 	});
 
@@ -87,6 +94,48 @@ describe("appStore", () => {
 		});
 	});
 
+	describe("lastErrorAt", () => {
+		// Cover the Fix #25-5 timestamp slice. Earlier this field had
+		// no direct test — a regression that broke the timestamp
+		// (e.g. leaving it set after `setLastError(null)`) would have
+		// gone undetected. These tests pin the contract:
+		//   - starts null alongside lastError
+		//   - is set to a fresh epoch-ms when setLastError receives a
+		//     non-null value
+		//   - is cleared back to null alongside lastError
+		//   - is auto-cleared on reconnection (the setConnectionStatus
+		//     "connected" path also clears lastErrorAt — see appStore.ts)
+
+		it("starts as null alongside lastError", () => {
+			expect(useAppStore.getState().lastErrorAt).toBeNull();
+		});
+
+		it("is stamped with an epoch-ms number when setLastError receives a message", () => {
+			const before = Date.now();
+			useAppStore.getState().setLastError("boom");
+			const after = Date.now();
+			const stamped = useAppStore.getState().lastErrorAt;
+			expect(typeof stamped).toBe("number");
+			expect(stamped as number).toBeGreaterThanOrEqual(before);
+			expect(stamped as number).toBeLessThanOrEqual(after);
+		});
+
+		it("is cleared back to null when setLastError receives null", () => {
+			useAppStore.getState().setLastError("boom");
+			expect(useAppStore.getState().lastErrorAt).not.toBeNull();
+			useAppStore.getState().setLastError(null);
+			expect(useAppStore.getState().lastErrorAt).toBeNull();
+		});
+
+		it("is auto-cleared when setConnectionStatus transitions to connected", () => {
+			useAppStore.getState().setLastError("disconnected error");
+			expect(useAppStore.getState().lastErrorAt).not.toBeNull();
+			useAppStore.getState().setConnectionStatus("connected");
+			expect(useAppStore.getState().lastError).toBeNull();
+			expect(useAppStore.getState().lastErrorAt).toBeNull();
+		});
+	});
+
 	describe("config", () => {
 		it("starts as null", () => {
 			expect(useAppStore.getState().config).toBeNull();
@@ -127,6 +176,32 @@ describe("appStore", () => {
 				hotkey: "<f2>",
 				theme_mode: "dark",
 			});
+		});
+	});
+
+	describe("navVersion", () => {
+		// Cover the Fix #25-6 navigation counter slice. Earlier this
+		// field had no direct test — a regression that broke the
+		// bumper (e.g. using a non-monotonic update) would have gone
+		// undetected. The counter starts at 0, increments by exactly 1
+		// per `bumpNavVersion()` call, and is reset by `beforeEach`.
+
+		it("starts at 0", () => {
+			expect(useAppStore.getState().navVersion).toBe(0);
+		});
+
+		it("bumpNavVersion increments the counter by exactly 1", () => {
+			const before = useAppStore.getState().navVersion;
+			useAppStore.getState().bumpNavVersion();
+			expect(useAppStore.getState().navVersion).toBe(before + 1);
+		});
+
+		it("bumpNavVersion is idempotent per call (3 calls → +3)", () => {
+			const before = useAppStore.getState().navVersion;
+			useAppStore.getState().bumpNavVersion();
+			useAppStore.getState().bumpNavVersion();
+			useAppStore.getState().bumpNavVersion();
+			expect(useAppStore.getState().navVersion).toBe(before + 3);
 		});
 	});
 

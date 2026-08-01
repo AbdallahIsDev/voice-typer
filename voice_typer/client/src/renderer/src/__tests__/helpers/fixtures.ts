@@ -25,9 +25,31 @@ import type { VoiceTyperConfig } from "@/types/config";
 /**
  * The canonical default `VoiceTyperConfig` used by every renderer test.
  *
- * Keep these in sync with the Python `Config` dataclass defaults in
- * `voice_typer/server/config.py`. If a default changes upstream, fix it
- * here ONCE rather than across N test files.
+ * Parity contract:
+ *   - `schema_version` and `llm_preset` MUST mirror the Python `Config`
+ *     dataclass defaults in `voice_typer/server/config.py` /
+ *     `voice_typer/server/config_internals/migrations.py`. These two
+ *     fields are pinned by `__tests__/helpers/__tests__/fixtures.test.ts`
+ *     — a future contributor who lets either drift will see a loud
+ *     vitest failure.
+ *   - The remaining fields use TEST-DETERMINISM OVERRIDES (NOT Python
+ *     defaults) so tests don't flake on platform-dependent or
+ *     environment-sensitive behavior. Examples:
+ *       `device: "cpu"` (Python: `"cuda"`), `autostart: false`
+ *       (Python: `true`), `fast_startup: false` (Python: `true`),
+ *       `waveform_bubble: true` (Python: `false`),
+ *       `volume_duck_enabled: false` (Python: `true`),
+ *       `noise_filter_enabled: false` (Python: `true`),
+ *       `streaming_*: 0/false` (Python: real values),
+ *       `history_retention_days: 30` (Python: `90`),
+ *       `onboarding_completed: true` (Python: `false`).
+ *     The full intentional-drift set is documented in
+ *     `fixtures.test.ts`'s top comment; do NOT "fix" these overrides
+ *     back to the Python defaults without auditing every test that
+ *     relies on the override.
+ *   - If a default changes upstream in a way that is NOT a
+ *     test-determinism override, fix it here ONCE rather than across
+ *     N test files.
  */
 export const DEFAULT_CONFIG: VoiceTyperConfig = {
 	schema_version: 3,

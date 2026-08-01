@@ -7,13 +7,23 @@
  * the same language the user picked in the renderer.
  *
  * Locale sync:
+ *   - At module load, `currentLocale` is seeded from `app.getLocale()`
+ *     (Electron's OS-locale API) via {@link seedLocaleFromOs}. This
+ *     ensures non-English users see their language in crash / early-
+ *     failure dialogs (`bootstrap.ts` criticalError dialog,
+ *     `start-python.ts` singleInstance dialog) that can fire BEFORE the
+ *     renderer has mounted and pushed its own locale. The seed uses
+ *     the same primary-subtag fallback as the renderer-pushed path
+ *     (e.g. `"fr-FR"` → `"fr"`).
  *   - The renderer persists its locale to `localStorage["voice-typer-ui-locale"]`
  *     (see src/renderer/src/i18n/i18n.ts). The renderer cannot read main's
  *     memory, so it pushes its locale via an `i18n:set-locale` IPC channel.
  *     The handler in `main/ipc/window-handlers.ts` invokes
  *     {@link setMainLocale}, which reassigns {@link currentLocale} so that
  *     native main-process UI (tray tooltips, OS notifications routed
- *     through main) can be localized in the user's chosen language.
+ *     through main) can be localized in the user's chosen language. The
+ *     renderer's explicit IPC push ALWAYS overrides the OS-locale seed —
+ *     the user's chosen UI language wins once the renderer mounts.
  *
  * The bundle covers all 8 locales that the renderer ships
  * (en, es, ar, de, fr, hi, ru, zh). Adding a new locale requires:
@@ -64,6 +74,8 @@
  * between the two bundles. Out of scope for the current task — flagged
  * here so a future contributor can pick it up.
  */
+
+import { app } from "electron";
 
 import { APP_NAME } from "./branding";
 
@@ -186,16 +198,101 @@ type MainStringsKey = keyof MainStrings;
 
 /**
  * The locale used by {@link mainT} for subsequent lookups.
- * Reassigned by {@link setMainLocale} when the renderer pushes its
- * locale via the `i18n:set-locale` IPC channel. Defaults to
- * `"en"` until the first sync.
+ *
+ * Seeded from `app.getLocale()` (Electron's OS-locale API) at module
+ * load so non-English users see their language in crash / early-failure
+ * dialogs even when the renderer never gets a chance to push its own
+ * locale via the `i18n:set-locale` IPC channel. The criticalError
+ * dialog (fired by `bootstrap.ts` when the app is crashing) and the
+ * singleInstance dialog (fired by `start-python.ts` when Python exits
+ * early) are the two main beneficiaries — both can fire BEFORE the
+ * renderer has mounted, so the prior `"en"` hard-default meant every
+ * non-English user saw English crash text.
+ *
+ * Seeding is best-effort: if `app.getLocale()` throws (rare race before
+ * `app.whenReady()` on some platforms) or returns an unregistered
+ * locale whose primary subtag is also unregistered, the seed falls back
+ * to `"en"` — identical to the prior default. The renderer's explicit
+ * IPC push (via {@link setMainLocale}) ALWAYS overrides the seed, so
+ * the user's chosen UI language wins once the renderer mounts.
  */
-let currentLocale: MainLocale = "en";
+let currentLocale: MainLocale = seedLocaleFromOs();
+
+/**
+ * Best-effort OS-locale seed. Reads `app.getLocale()` and resolves it
+ * against {@link MAIN_STRINGS} using the same primary-subtag fallback
+ * chain that {@link setMainLocale} uses for renderer-pushed locales.
+ *
+ * Wrapped in try/catch because `app.getLocale()` is documented to
+ * require the `ready` event in some Electron versions; in practice it
+ * returns a usable value before `ready` on Linux/macOS/Windows, but
+ * the catch guarantees the seed can never crash the import.
+ *
+ * Returns `"en"` on any failure (identical to the prior hard-default).
+ */
+function seedLocaleFromOs(): MainLocale {
+	try {
+		const osLocale = app?.getLocale?.();
+		if (typeof osLocale === "string" && osLocale.length > 0) {
+			return resolveLocale(osLocale).locale;
+		}
+	} catch {
+		// Best-effort — if app.getLocale() is unavailable at module
+		// load (rare pre-ready race), fall back to "en". The
+		// renderer's IPC push will override the seed once it loads.
+	}
+	return "en";
+}
+
+/**
+ * Resolve a locale string (BCP-47 — e.g. `"zh"`, `"zh-CN"`, `"pt-BR"`)
+ * against {@link MAIN_STRINGS}. Pure function — no side effects, no
+ * warning emission. Used by both the OS-locale seed
+ * ({@link seedLocaleFromOs}) and the renderer-pushed locale
+ * ({@link setMainLocale}) so the resolution chain stays in one place.
+ *
+ * Resolution chain (mirrors the renderer's `t()` lookup chain):
+ *
+ *   1. Exact match — if the locale is directly registered in
+ *      {@link MAIN_STRINGS} (e.g. `"zh"`, `"ar"`), use it as-is.
+ *   2. Primary subtag — if the locale is a regional variant
+ *      (contains `-`) and not directly registered, try the bare
+ *      primary subtag (e.g. `"zh-CN"` → `"zh"`). This lets a regional
+ *      UI locale fall back to its parent language instead of English
+ *      when MAIN_STRINGS hasn't yet been extended for the regional
+ *      variant.
+ *   3. English fallback — if neither step resolves, fall back to
+ *      `"en"`. The caller is responsible for emitting any user-facing
+ *      warning (the seed path is silent; {@link setMainLocale} warns
+ *      so a missing renderer-pushed locale is visible during dev).
+ *
+ * The returned `registered` flag is `true` for steps 1 and 2, `false`
+ * for step 3 — letting {@link setMainLocale} distinguish "successfully
+ * resolved via fallback" from "fell all the way through to en".
+ */
+function resolveLocale(locale: string): {
+	locale: MainLocale;
+	registered: boolean;
+} {
+	if (locale in MAIN_STRINGS) {
+		return { locale: locale as MainLocale, registered: true };
+	}
+	if (locale.includes("-")) {
+		const parts = locale.split("-");
+		const primary = parts[0];
+		if (primary !== undefined && primary in MAIN_STRINGS) {
+			return { locale: primary as MainLocale, registered: true };
+		}
+	}
+	return { locale: "en", registered: false };
+}
 
 /**
  * Update the main-process locale from the renderer's locale
  * selection. Called by the `i18n:set-locale` IPC handler in
  * `window-handlers.ts` whenever the user changes the UI language.
+ * ALWAYS overrides the OS-locale seed set at module load by
+ * {@link seedLocaleFromOs}.
  *
  * Resolution chain (mirrors the renderer's `t()` lookup chain):
  *
@@ -213,26 +310,14 @@ let currentLocale: MainLocale = "en";
  *      rather than a crash.
  */
 export function setMainLocale(locale: string): void {
-	if (locale in MAIN_STRINGS) {
-		currentLocale = locale as MainLocale;
-		return;
+	const { locale: resolved, registered } = resolveLocale(locale);
+	if (!registered) {
+		console.warn(
+			`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
+				`Add dialog strings for this locale (or its primary subtag) to MAIN_STRINGS in main/i18n.ts.`,
+		);
 	}
-	// Primary-subtag fallback for regional variants (e.g. "zh-CN" → "zh",
-	// "pt-BR" → "pt"). Mirrors the renderer's `t()` lookup chain so the
-	// main process picks the parent language rather than jumping straight
-	// to English when the regional variant hasn't been registered.
-	if (locale.includes("-")) {
-		const primary = locale.split("-")[0];
-		if (primary in MAIN_STRINGS) {
-			currentLocale = primary as MainLocale;
-			return;
-		}
-	}
-	console.warn(
-		`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
-			`Add dialog strings for this locale (or its primary subtag) to MAIN_STRINGS in main/i18n.ts.`,
-	);
-	currentLocale = "en";
+	currentLocale = resolved;
 }
 
 /**

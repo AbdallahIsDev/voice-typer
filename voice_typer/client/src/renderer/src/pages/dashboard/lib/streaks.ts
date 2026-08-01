@@ -146,8 +146,14 @@ export function computeStreaks(records: HistoryRecord[]): {
 	let max = 1;
 	let run = 1;
 	for (let i = 1; i < sorted.length; i++) {
-		const prev = new Date(sorted[i - 1]);
-		const curr = new Date(sorted[i]);
+		// noUncheckedIndexedAccess: `sorted[i]` is `string | undefined`;
+		// skip undefined entries — the diff computation is meaningless
+		// for missing data and the rest of the loop would yield NaN.
+		const prevStr = sorted[i - 1];
+		const currStr = sorted[i];
+		if (prevStr === undefined || currStr === undefined) continue;
+		const prev = new Date(prevStr);
+		const curr = new Date(currStr);
 		const diffMs = prev.getTime() - curr.getTime();
 		if (diffMs <= 86400000 * 1.5) {
 			run++;

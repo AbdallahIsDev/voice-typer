@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { t } from "@/i18n/i18n";
 
 /**
@@ -103,20 +103,24 @@ export function useLastUpdated(): {
 		setLastUpdated(Date.now());
 	}, []);
 
-	// Hold the latest `setRefreshing` in a ref so `withRefresh` can be
-	// a stable callback (no dependency churn) without going stale.
-	const setRefreshingRef = useRef(setRefreshing);
-	setRefreshingRef.current = setRefreshing;
-
+	// `withRefresh` wraps an async op with the `refreshing` flag.
+	// React guarantees `setRefreshing` (the setter returned by
+	// `useState`) is stable across renders, so listing it in the
+	// deps array keeps `withRefresh` itself stable — no `useRef`
+	// indirection is required. Earlier this used a `setRefreshingRef`
+	// to hold the setter, which added a ref-mutation on every render
+	// (a side effect during the render phase) without buying any
+	// extra stability. The `try/finally` invariant — `refreshing`
+	// is cleared on BOTH success and error — is preserved.
 	const withRefresh = useCallback(
 		async <T>(op: () => Promise<T>): Promise<T> => {
-			setRefreshingRef.current(true);
+			setRefreshing(true);
 			try {
 				return await op();
 			} finally {
 				// GUARANTEED to run on both success and error —
 				// this is the fix for "refreshing stuck on error".
-				setRefreshingRef.current(false);
+				setRefreshing(false);
 			}
 		},
 		[],

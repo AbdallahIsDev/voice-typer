@@ -71,6 +71,17 @@ export default function HistoryPage() {
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [refreshing, setRefreshing] = useState(false);
 
+	// stale-data flag. Set to `true` when a `transcription_final`
+	// or `history_changed` event arrives while the window is hidden
+	// (document.visibilityState !== "visible"). The visibilitychange
+	// listener below checks this flag on focus and triggers a single
+	// debounced refresh — so background events don't fire IPC calls
+	// while the user isn't looking at the page. The next focus
+	// collapses the backlog into ONE fetch (per-page; only the visible
+	// page's listener actually runs because only the mounted page
+	// subscribes).
+	const staleRef = useRef(false);
+
 	// Keep the cache hook's filter refs in sync with the page state.
 	setFilter(searchQuery, favoritesOnly);
 
@@ -90,6 +101,16 @@ export default function HistoryPage() {
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
+		// skip the IPC round-trips when the window is hidden.
+		// The visibilitychange listener below will trigger a single
+		// refresh when the user returns to the page.
+		if (
+			typeof document !== "undefined" &&
+			document.visibilityState !== "visible"
+		) {
+			staleRef.current = true;
+			return undefined;
+		}
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(async () => {
 			try {
@@ -100,6 +121,22 @@ export default function HistoryPage() {
 		}, 500);
 		return undefined;
 	}, [refreshFromEvent]);
+
+	// refresh on focus when stale. When the window regains
+	// visibility AND a stale flag was set by a background event, fire
+	// a single debounced refresh.
+	useEffect(() => {
+		const onVisibility = () => {
+			if (document.visibilityState === "visible" && staleRef.current) {
+				staleRef.current = false;
+				debouncedRefreshFromEvent();
+			}
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => {
+			document.removeEventListener("visibilitychange", onVisibility);
+		};
+	}, [debouncedRefreshFromEvent]);
 
 	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
 	// F11-FIX: invalidate cache on external history_changed events.
@@ -262,8 +299,13 @@ export default function HistoryPage() {
 					}
 				/>
 
-				{/* F4: "Last updated" indicator + manual refresh. */}
-				<div className="flex justify-end pb-1">
+				{/* F4: "Last updated" indicator + manual refresh.
+                                    Uses `pb-2` to match the spacing on the sibling feature pages
+                                    (Microphone/Templates/Vocabulary) which all settled on `pb-2`
+                                    for their LastUpdatedIndicator wrapper — pre-fix this was
+                                    `pb-1`, producing a visible vertical alignment mismatch on
+                                    the page-header row across pages. */}
+				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
 						onRefresh={handleManualRefresh}
@@ -421,17 +463,17 @@ export default function HistoryPage() {
 						/>
 
 						{/*once `records.length` reaches the 200-item
-							display cap AND the backend still reports more
-							available (`hasMore`), further "Load More" clicks
-							would be silent no-ops — `records.slice(0, 200)`
-							above hides any items past 200, so the user would
-							click Load More and see nothing change for several
-							clicks.  Replace the button with a notice pointing
-							the user at the search field to find older entries.
-							When `records.length < 200`, the Load More button is
-							still useful (it grows the visible list below the
-							cap), so we keep it.
-						*/}
+                                                        display cap AND the backend still reports more
+                                                        available (`hasMore`), further "Load More" clicks
+                                                        would be silent no-ops — `records.slice(0, 200)`
+                                                        above hides any items past 200, so the user would
+                                                        click Load More and see nothing change for several
+                                                        clicks.  Replace the button with a notice pointing
+                                                        the user at the search field to find older entries.
+                                                        When `records.length < 200`, the Load More button is
+                                                        still useful (it grows the visible list below the
+                                                        cap), so we keep it.
+                                                */}
 						{records.length >= 200 && hasMore ? (
 							<p className="mt-4 text-center text-xs text-(--text-muted)">
 								{t("history.showingCap", { shown: "200", total: "N+" })}

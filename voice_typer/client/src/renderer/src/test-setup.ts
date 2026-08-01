@@ -3,6 +3,29 @@
 // toBeInTheDocument, toBeChecked, toHaveAttribute are available.
 import "@testing-library/jest-dom/vitest";
 
+import { cleanup } from "@testing-library/react";
+// Centralised per-test cleanup so individual test files no longer
+// need to repeat `afterEach(() => { cleanup(); localStorage.clear(); })`
+// at the top of every spec. Pre-fix, 16+ test files rolled their own
+// copy of this boilerplate, which led to drift (some cleared
+// localStorage, some didn't; some called cleanup, some relied on the
+// framework default). Running both here guarantees a clean DOM AND a
+// clean localStorage between tests, regardless of what an individual
+// spec forgets to do.
+//
+// The guards (`typeof`, `!= null`) make this safe to import in Node
+// unit-test contexts that don't have a DOM or localStorage at all —
+// vitest evaluates `setupFiles` once per worker, but a config can
+// mix jsdom and node environments across files in the same run.
+import { afterEach } from "vitest";
+
+afterEach(() => {
+	cleanup();
+	if (typeof localStorage !== "undefined") {
+		localStorage.clear();
+	}
+});
+
 // SEGMENTED-CTRL-FIX: polyfill ResizeObserver for jsdom (used by
 // SegmentedControl to position the animated indicator).
 // jsdom doesn't implement ResizeObserver, so we provide a minimal stub.

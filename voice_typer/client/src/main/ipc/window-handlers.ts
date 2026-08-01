@@ -26,6 +26,7 @@
  * contract in `types/ipc.ts`. See `preload/index.ts` for the cleanup
  * index.
  */
+import fs from "node:fs";
 import { dialog, ipcMain, shell } from "electron";
 import { mainT } from "../i18n";
 import { appendLogLine, logger, rendererErrorsLogPath } from "../logging";
@@ -154,17 +155,21 @@ export function registerWindowHandlers(): void {
 	ipcMain.handle(WindowChannels.openLogs, async () => {
 		try {
 			const logDir = computeConfigDir();
+			const stat = fs.statSync(logDir, { throwIfNoEntry: false });
+			if (!stat?.isDirectory()) {
+				return { success: false, error: "log directory not found" };
+			}
 			const result = await shell.openPath(logDir);
 			if (result) {
 				// openPath returns an error string on failure, empty string on success.
-				return { success: false, error: result, path: logDir };
+				return { success: false, error: result };
 			}
-			return { success: true, path: logDir };
+			return { success: true };
 		} catch (e: unknown) {
 			logger.warn("window:open-logs failed", {
 				error: (e as Error).message,
 			});
-			return { success: false, error: (e as Error).message };
+			return { success: false, error: String(e) };
 		}
 	});
 

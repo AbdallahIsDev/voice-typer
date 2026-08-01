@@ -56,6 +56,19 @@ vi.mock("@/components/layout/ThemeSwitch", () => ({
 import { APP_NAME } from "@/branding";
 import { Sidebar } from "@/components/layout/Sidebar";
 
+// Helper: find a nav-item button by its visible label. The Sidebar sets
+// `title` on each nav button (either the bare label for items without a
+// shortcut, or `${label} (${shortcut})` for items with one). We match by
+// a regex anchored at the start of the title so both shapes are found.
+// `getByText` is unreliable here because the Button component renders
+// the label inside a child <span> that may be collapsed/hidden, so the
+// title attribute is the stable locator.
+function findNavButton(label: string) {
+	return screen.getByRole("button", {
+		name: new RegExp(`^${label}(\\s|$)`),
+	});
+}
+
 describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 	beforeEach(() => {
 		cleanup();
@@ -76,7 +89,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 
 	it("UX-16: active nav item carries the 2px left accent bar + soft accent background classes", () => {
 		render(<Sidebar {...baseProps} currentPage="settings" />);
-		const activeButton = screen.getByText("Settings").closest("button");
+		const activeButton = findNavButton("Settings");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
 		// 2px inline-start accent bar via before:bg-accent pseudo-element.
@@ -91,7 +104,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 
 	it("UX-16: inactive nav items do NOT carry the accent border/background", () => {
 		render(<Sidebar {...baseProps} currentPage="home" />);
-		const inactiveButton = screen.getByText("Settings").closest("button");
+		const inactiveButton = findNavButton("Settings");
 		expect(inactiveButton).toBeTruthy();
 		const cls = inactiveButton?.className ?? "";
 		// Inactive uses a transparent border-s-2 so heights stay aligned
@@ -115,9 +128,9 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 
 	it("PROD-7: groups are rendered as <section> elements with aria-label matching the group label", () => {
 		render(<Sidebar {...baseProps} />);
-		const mainSection = screen.getByText("Home").closest("section");
-		const powerSection = screen.getByText("Templates").closest("section");
-		const systemSection = screen.getByText("Settings").closest("section");
+		const mainSection = findNavButton("Home").closest("section");
+		const powerSection = findNavButton("Templates").closest("section");
+		const systemSection = findNavButton("Settings").closest("section");
 		expect(mainSection?.getAttribute("aria-label")).toBe("Main");
 		expect(powerSection?.getAttribute("aria-label")).toBe("Power features");
 		expect(systemSection?.getAttribute("aria-label")).toBe("System");
@@ -126,7 +139,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 	it("PROD-7: Home/History/Analytics are in the Main group; Templates/Vocabulary/Models/Microphone in Power features; Settings/About in System", () => {
 		render(<Sidebar {...baseProps} />);
 		const groupOf = (label: string) =>
-			screen.getByText(label).closest("section")?.getAttribute("aria-label");
+			findNavButton(label).closest("section")?.getAttribute("aria-label");
 
 		expect(groupOf("Home")).toBe("Main");
 		expect(groupOf("History")).toBe("Main");
@@ -162,7 +175,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 			"About",
 		];
 		for (const label of labels) {
-			expect(screen.getByText(label)).toBeTruthy();
+			expect(findNavButton(label)).toBeTruthy();
 		}
 	});
 
@@ -170,14 +183,14 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 
 	it("PROD-9: Home nav item exposes aria-keyshortcuts='Control+h' (App.tsx binds Ctrl+H)", () => {
 		render(<Sidebar {...baseProps} />);
-		const homeButton = screen.getByText("Home").closest("button");
-		expect(homeButton?.getAttribute("aria-keyshortcuts")).toBe("Control+h");
+		const homeButton = findNavButton("Home");
+		expect(homeButton.getAttribute("aria-keyshortcuts")).toBe("Control+h");
 	});
 
 	it("PROD-9: Settings nav item exposes aria-keyshortcuts='Control+,' (App.tsx binds Ctrl+,)", () => {
 		render(<Sidebar {...baseProps} />);
-		const settingsButton = screen.getByText("Settings").closest("button");
-		expect(settingsButton?.getAttribute("aria-keyshortcuts")).toBe("Control+,");
+		const settingsButton = findNavButton("Settings");
+		expect(settingsButton.getAttribute("aria-keyshortcuts")).toBe("Control+,");
 	});
 
 	it("PROD-9: nav items without a keyboard shortcut omit aria-keyshortcuts entirely", () => {
@@ -193,7 +206,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 			"About",
 		];
 		for (const label of noShortcutItems) {
-			const btn = screen.getByText(label).closest("button");
+			const btn = findNavButton(label);
 			expect(btn?.hasAttribute("aria-keyshortcuts")).toBe(false);
 		}
 	});

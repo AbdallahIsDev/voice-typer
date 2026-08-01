@@ -186,6 +186,16 @@ export function useDashboardData({
 	// ── Proactive background refresh after new transcriptions ────────
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+	// stale-data flag. Set to `true` when a `transcription_final`
+	// or `history_changed` event arrives while the window is hidden
+	// (document.visibilityState !== "visible"). The visibilitychange
+	// listener below checks this flag on focus and triggers a single
+	// debounced refresh — so background events don't fire 4 IPC calls
+	// each (get_config + get_today_stats + get_history(200) +
+	// get_history_count) while the user isn't looking at the page. The
+	// next focus collapses the backlog into ONE fetch.
+	const staleRef = useRef(false);
+
 	// F11-FIX (b-review Finding 11): invalidate the cached dashboard data
 	// when history changes through a path OUTSIDE this page (clear/delete/
 	// restore/favorite from the tray menu, another window, or a CLI tool).
@@ -194,10 +204,36 @@ export function useDashboardData({
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
+		// skip the IPC round-trips when the window is hidden.
+		// The visibilitychange listener below will trigger a single
+		// refresh when the user returns to the page.
+		if (
+			typeof document !== "undefined" &&
+			document.visibilityState !== "visible"
+		) {
+			staleRef.current = true;
+			return undefined;
+		}
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(refreshData, 500);
 		return undefined;
 	}, [refreshData]);
+
+	// refresh on focus when stale. When the window regains
+	// visibility AND a stale flag was set by a background event, fire
+	// a single debounced refresh.
+	useEffect(() => {
+		const onVisibility = () => {
+			if (document.visibilityState === "visible" && staleRef.current) {
+				staleRef.current = false;
+				debouncedRefreshFromEvent();
+			}
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => {
+			document.removeEventListener("visibilitychange", onVisibility);
+		};
+	}, [debouncedRefreshFromEvent]);
 
 	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
 	usePythonEvent("history_changed", debouncedRefreshFromEvent);

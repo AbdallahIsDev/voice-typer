@@ -61,6 +61,51 @@ export const BUBBLE_ONLY_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Track the last-known bubble mode so the dismiss handler can cancel
+ * in-flight recordings before hiding. When the mode is "recording" or
+ * "transcribing", dismiss sends `toggle_dictation` first to stop the
+ * pipeline.
+ *
+ * Updated at the SOURCE — `handle-message.ts` calls
+ * `setLastKnownBubbleMode()` when it dispatches a `bubble_set_state`
+ * event to the bubble renderer (BEFORE the `webContents.send`). The
+ * previous design monkey-patched `webContents.send` inside the
+ * `bubble:ready` handler to intercept outgoing `bubble:set-state`
+ * sends; that patch accumulated on every bubble reload (each reload
+ * wrapped the already-wrapped `send`, producing exponential call
+ * growth). Moving the update to the source eliminates the patch
+ * entirely.
+ */
+let _lastKnownBubbleMode: string | null = null;
+
+/**
+ * Set the last-known bubble mode. Called from `handle-message.ts`
+ * when a `bubble_set_state` push event is dispatched to the bubble
+ * window — BEFORE the `webContents.send` so the dismiss handler sees
+ * the new mode even if the renderer hasn't acknowledged it yet.
+ */
+export function setLastKnownBubbleMode(mode: string): void {
+	_lastKnownBubbleMode = mode;
+}
+
+/**
+ * Read the last-known bubble mode. Exported for test observability
+ * (the dismiss handler reads the module-level variable directly).
+ */
+export function getLastKnownBubbleMode(): string | null {
+	return _lastKnownBubbleMode;
+}
+
+/**
+ * Reset the cached bubble mode. Used by tests to isolate scenarios;
+ * production code does not need to call this (the mode is overwritten
+ * on the next `bubble_set_state` event).
+ */
+export function _resetLastKnownBubbleMode(): void {
+	_lastKnownBubbleMode = null;
+}
+
+/**
  * SEC-016: helper that rejects IPC messages not coming from the bubble
  * window's webContents.  Without this check, any XSS'd renderer (or a
  * malicious third party that got code into the main window) could
@@ -95,13 +140,6 @@ function clampBubbleSize(
 }
 
 export function registerBubbleHandlers(): void {
-	// ZU-15: track the last-known bubble mode so the dismiss handler
-	// can cancel in-flight recordings before hiding. Updated whenever
-	// the main process forwards a `bubble_set_state` event to the
-	// bubble renderer. When the mode is "recording" or "transcribing",
-	// dismiss sends `toggle_dictation` first to stop the pipeline.
-	let _lastKnownBubbleMode: string | null = null;
-
 	//keyboard-based bubble repositioning for accessibility.
 	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
 	// Renderer-keyboard-move note: the renderer-side keydown handler that
@@ -124,7 +162,7 @@ export function registerBubbleHandlers(): void {
 		const { deltaX, deltaY } = payload as Record<string, unknown>;
 		if (typeof deltaX !== "number" || typeof deltaY !== "number") return;
 		if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
-		const [x, y] = state.bubbleWindow.getPosition();
+		const [x, y] = state.bubbleWindow.getPosition() as [number, number];
 		const bubbleW = state.bubbleWindow.getBounds().width;
 		const bubbleH = state.bubbleWindow.getBounds().height;
 		// T2-003: previously used the inline `require("electron").screen`
@@ -292,25 +330,12 @@ export function registerBubbleHandlers(): void {
 		// can grep the runtime log to confirm the bubble
 		// renderer booted past its React mount.
 		log.warn("[BUBBLE] renderer reports ready");
-
-		// ZU-15: install a tracker that intercepts outgoing
-		// `bubble:set-state` sends to cache the bubble mode.
-		// The dismiss handler reads this cached mode to decide
-		// whether to send `toggle_dictation` before hiding.
-		if (state.bubbleWindow && !state.bubbleWindow.isDestroyed()) {
-			const originalSend = state.bubbleWindow.webContents.send.bind(
-				state.bubbleWindow.webContents,
-			) as typeof state.bubbleWindow.webContents.send;
-			state.bubbleWindow.webContents.send = (
-				channel: string,
-				...args: unknown[]
-			) => {
-				if (channel === BubbleChannels.setState && args[0]) {
-					_lastKnownBubbleMode = String(args[0]);
-				}
-				return originalSend(channel, ...args);
-			};
-		}
+		// The bubble mode is now tracked at the source — see
+		// `setLastKnownBubbleMode()` above (called from
+		// `handle-message.ts` when `bubble_set_state` is
+		// dispatched). No `webContents.send` monkey-patch is
+		// needed here; the previous patch accumulated on every
+		// bubble reload (wrapping the already-wrapped `send`).
 	});
 
 	//dismiss the bubble from its own '×' button. The bubble

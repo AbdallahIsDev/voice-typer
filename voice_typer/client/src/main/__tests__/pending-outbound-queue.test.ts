@@ -349,9 +349,9 @@ describe("Outbound replay queue (DJ-87)", () => {
 			entry.reject(new Error("backend error"));
 
 			await vi.waitFor(() => expect(onRejected).toHaveBeenCalledTimes(1));
-			expect((onRejected.mock.calls[0][0] as Error).message).toBe(
-				"backend error",
-			);
+			expect(
+				(onRejected.mock.calls[0]?.[0] as Error | undefined)?.message,
+			).toBe("backend error");
 		});
 
 		it("does not re-queue entries if the socket drops again mid-flush", () => {
@@ -416,13 +416,13 @@ describe("Outbound replay queue (DJ-87)", () => {
 					true,
 				),
 			);
-			expect((r1.mock.calls[0][0] as Error).message).toBe(
+			expect((r1.mock.calls[0]?.[0] as Error | undefined)?.message).toBe(
 				"Application is restarting",
 			);
-			expect((r2.mock.calls[0][0] as Error).message).toBe(
+			expect((r2.mock.calls[0]?.[0] as Error | undefined)?.message).toBe(
 				"Application is restarting",
 			);
-			expect((r3.mock.calls[0][0] as Error).message).toBe(
+			expect((r3.mock.calls[0]?.[0] as Error | undefined)?.message).toBe(
 				"Application is restarting",
 			);
 		});

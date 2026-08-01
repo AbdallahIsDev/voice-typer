@@ -156,7 +156,7 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 			(c: unknown[]) => c[0] === "display-removed",
 		);
 		expect(calls.length).toBeGreaterThanOrEqual(1);
-		const handler = calls[0][1];
+		const handler = calls[0]?.[1];
 		expect(typeof handler).toBe("function");
 	});
 
@@ -186,7 +186,10 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 			(c: unknown[]) => c[0] === "closed",
 		);
 		expect(closedCalls.length).toBe(1);
-		const closedHandler = closedCalls[0][1] as () => void;
+		const closedHandler = closedCalls[0]?.[1] as (() => void) | undefined;
+		if (closedHandler === undefined) {
+			throw new Error("expected a registered closed handler");
+		}
 
 		// Capture the tracked handler reference BEFORE the closed
 		// handler clears the slot.
@@ -205,7 +208,7 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 			(c: unknown[]) => c[0] === "display-removed",
 		);
 		expect(offCalls.length).toBeGreaterThanOrEqual(1);
-		expect(offCalls[0][1]).toBe(trackedBefore);
+		expect(offCalls[0]?.[1]).toBe(trackedBefore);
 
 		// And removeAllListeners must STILL not have been called.
 		const ralCalls = screenSpies.removeAllListeners.mock.calls.filter(

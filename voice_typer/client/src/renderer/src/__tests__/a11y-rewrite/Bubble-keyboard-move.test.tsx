@@ -162,7 +162,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 		dispatchArrowKey("ArrowLeft");
 
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
-		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0];
+		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0] ?? [];
 		expect(deltaX).toBeLessThan(0);
 		expect(deltaY).toBe(0);
 	});
@@ -174,7 +174,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 		dispatchArrowKey("ArrowRight");
 
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
-		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0];
+		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0] ?? [];
 		expect(deltaX).toBeGreaterThan(0);
 		expect(deltaY).toBe(0);
 	});
@@ -186,7 +186,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 		dispatchArrowKey("ArrowUp");
 
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
-		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0];
+		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0] ?? [];
 		expect(deltaX).toBe(0);
 		expect(deltaY).toBeLessThan(0);
 	});
@@ -198,7 +198,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 		dispatchArrowKey("ArrowDown");
 
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
-		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0];
+		const [deltaX, deltaY] = mockBubble.moveBy.mock.calls[0] ?? [];
 		expect(deltaX).toBe(0);
 		expect(deltaY).toBeGreaterThan(0);
 	});
@@ -210,7 +210,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 		dispatchArrowKey("ArrowRight", { shiftKey: true });
 
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
-		const [deltaX] = mockBubble.moveBy.mock.calls[0];
+		const [deltaX] = mockBubble.moveBy.mock.calls[0] ?? [];
 		// Shift step is 1; default step is 10.  Either way the
 		// sign is positive for ArrowRight, but the magnitude
 		// must match the shift-step.

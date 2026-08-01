@@ -836,10 +836,20 @@ describe("CR-57: Microphone.tsx — polling gated on visibility + active state",
 				.default as unknown as React.FC<{
 				testRunning?: boolean;
 			}>;
-			render(<MicrophonePage testRunning />);
+			vi.useFakeTimers();
+			try {
+				render(<MicrophonePage testRunning />);
 
-			// Let a couple of 100ms polling ticks fire.
-			await new Promise((r) => setTimeout(r, 250));
+				// Advance past 2 polling intervals (100ms each), flushing
+				// microtasks between ticks so async effects (e.g.
+				// level_monitor_start) settle before the poll fires. The
+				// visibility gate (document.visibilityState === "hidden")
+				// should short-circuit every poll, so
+				// microphone_test_get_level is never called.
+				await vi.advanceTimersByTimeAsync(250);
+			} finally {
+				vi.useRealTimers();
+			}
 
 			const levelCalls = mockCall.mock.calls.filter(
 				(args: unknown[]) => args[0] === "microphone_test_get_level",
@@ -889,8 +899,8 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 		await waitFor(() => {
 			const panels = screen.getAllByRole("tabpanel");
 			expect(panels.length).toBe(1);
-			expect(panels[0].id).toBe("panel-general");
-			expect(panels[0].getAttribute("aria-labelledby")).toBe("tab-general");
+			expect(panels[0]?.id).toBe("panel-general");
+			expect(panels[0]?.getAttribute("aria-labelledby")).toBe("tab-general");
 		});
 	});
 
@@ -916,7 +926,7 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 		await waitFor(() => {
 			const panels = screen.getAllByRole("tabpanel");
 			expect(panels.length).toBe(1);
-			expect(panels[0].id).toBe("panel-appearance");
+			expect(panels[0]?.id).toBe("panel-appearance");
 		});
 	});
 });

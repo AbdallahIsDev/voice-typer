@@ -13,7 +13,7 @@
  *     at module load and cleaned up when the main window is destroyed.
  */
 import path from "node:path";
-import { app, BrowserWindow, dialog, Menu, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from "electron";
 import { RENDER_RELOAD_BACKOFF_MS, START_HIDDEN } from "../constants";
 import { WindowChannels } from "../ipc/channels";
 import {
@@ -492,9 +492,64 @@ export function createMainWindow(forceShow = false): void {
 		}
 	});
 
+	// Window-open hardening: deny every renderer-initiated window.open() /
+	// target=_blank navigation by default. Without this handler, a
+	// compromised renderer (XSS, dependency supply-chain, malicious
+	// transcription payload that reaches an innerHTML sink) can pop an
+	// arbitrary external URL inside a fresh Electron BrowserWindow —
+	// bypassing the renderer sandbox and exposing Node primitives to
+	// untrusted content.
+	//
+	// Behavior:
+	//   • http(s) URLs → routed to the user's default browser via
+	//     `shell.openExternal` and the in-app window is denied.
+	//   • All other schemes (file://, javascript:, data:, blob:) →
+	//     denied silently with a WARN log so a redirected/typo'd URL
+	//     is visible without crashing the renderer.
+	//   • `shell.openExternal` failures are logged but never block
+	//     the deny (the URL was already going to be denied anyway).
+	state.mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+		if (/^https?:\/\//i.test(url)) {
+			// Fire-and-forget; openExternal is async but the
+			// handler must return synchronously. A rejection
+			// (e.g. no default browser configured on a fresh
+			// OS install) is logged but does not change the
+			// deny verdict.
+			void shell.openExternal(url).catch((err: unknown) =>
+				log.warn("[MAIN] setWindowOpenHandler: shell.openExternal failed", {
+					url,
+					error: (err as Error)?.message,
+				}),
+			);
+		} else {
+			log.warn(
+				"[MAIN] setWindowOpenHandler: denied non-http(s) window.open target",
+				{ url },
+			);
+		}
+		return { action: "deny" };
+	});
+
 	if (process.env.ELECTRON_RENDERER_URL) {
-		state.mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+		// void + .catch: loadURL returns a Promise that rejects on
+		// load failure (dev server 500, malformed URL, network
+		// unreachable). Without .catch the rejection would bubble
+		// up as an unhandled-rejection and feed the SEC-021 breaker
+		// (which trips on repeated unhandled rejections and force-
+		// quits the app). The `did-fail-load` handler above already
+		// logs the failure with structured detail; this .catch only
+		// suppresses the unhandled rejection so the breaker stays
+		// calm. `void` discards the .catch's resolved value.
+		void state.mainWindow
+			.loadURL(process.env.ELECTRON_RENDERER_URL)
+			.catch((e) => {
+				log.warn("[MAIN] loadURL rejected:", e);
+			});
 	} else {
-		state.mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+		void state.mainWindow
+			.loadFile(path.join(__dirname, "../renderer/index.html"))
+			.catch((e) => {
+				log.warn("[MAIN] loadFile rejected:", e);
+			});
 	}
 }

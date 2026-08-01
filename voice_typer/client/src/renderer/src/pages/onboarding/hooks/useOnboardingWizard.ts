@@ -101,7 +101,13 @@ export function useOnboardingWizard(
 							return prev;
 						}
 						const defaultMic = mics.microphones.find((m) => m.default === true);
-						return (defaultMic ?? mics.microphones[0]).id;
+						// noUncheckedIndexedAccess: `mics.microphones[0]` is
+						// `MicrophoneInfo | undefined`. The length guard above
+						// proves the array is non-empty, but TS still widens;
+						// fall back to the existing selection so the state
+						// never becomes undefined.
+						const fallback = mics.microphones[0];
+						return (defaultMic ?? fallback)?.id ?? prev;
 					});
 				}
 				const presets = await call<{ presets: string[] }>(
@@ -194,7 +200,11 @@ export function useOnboardingWizard(
 							return prev;
 						}
 						const defaultMic = list.find((m) => m.default === true);
-						return (defaultMic ?? list[0]).id;
+						// See note on the parallel branch above; the length
+						// guard proves the array is non-empty, but TS still
+						// widens the read under `noUncheckedIndexedAccess`.
+						const fallback = list[0];
+						return (defaultMic ?? fallback)?.id ?? prev;
 					});
 				}
 			})

@@ -134,11 +134,19 @@ describe("LiveQualityFeedback — A11Y-5 (aria-live + i18n)", () => {
 		// rendered text is the sentinel for ``microphoneTest.qualityFeedback.recording``
 		// (with empty params since the template is a plain string, no
 		// interpolation). The time "00:30 / 01:00" is rendered as sibling
-		// text nodes, so we match by a regex that allows text between them.
+		// text nodes within the same <span>, so we match by a regex that
+		// allows additional text (the formatted time) around the sentinel.
 		useSentinel = true;
 		render(<LiveQualityFeedback {...baseProps} />);
+		// The sentinel text is rendered as a leading text node inside a
+		// <span> that also contains the formatted timer ("00:30 / 01:00").
+		// getByText with an exact string fails because the element's full
+		// textContent includes the timer. Use a regex that matches the
+		// sentinel as a substring of the element's text content.
 		expect(
-			screen.getByText("SENTINEL:microphoneTest.qualityFeedback.recording:{}"),
+			screen.getByText(
+				/SENTINEL:microphoneTest\.qualityFeedback\.recording:\{\}/,
+			),
 		).toBeInTheDocument();
 		// The old hardcoded literal "Recording..." must NOT be present.
 		expect(screen.queryByText(/Recording\.\.\./)).toBeNull();

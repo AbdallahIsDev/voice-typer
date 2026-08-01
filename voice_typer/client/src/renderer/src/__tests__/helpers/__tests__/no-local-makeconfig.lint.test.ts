@@ -74,7 +74,10 @@ describe("lint: no local `function makeConfig` outside helpers/", () => {
 			const src = readFileSync(file, "utf8");
 			const lines = src.split("\n");
 			for (let i = 0; i < lines.length; i++) {
-				if (LOCAL_MAKECONFIG_DECL_RE.test(lines[i])) {
+				// noUncheckedIndexedAccess: lines[i] is `string | undefined` —
+				// the loop bound guarantees it exists, so guard with `?? ""`
+				// rather than a non-null assertion (biome noNonNullAssertion).
+				if (LOCAL_MAKECONFIG_DECL_RE.test(lines[i] ?? "")) {
 					violations.push({
 						path: file.replace(RENDERER_SRC, "<renderer-src>"),
 						line: i + 1,
@@ -100,5 +103,58 @@ describe("lint: no local `function makeConfig` outside helpers/", () => {
 		// this to `expect(violations).toEqual([])` once the migration
 		// is complete and the convention should be enforced.
 		expect(violations.length).toBeGreaterThanOrEqual(0);
+	});
+});
+
+/**
+ * Hard regression test for the XA-15-2 fix: the two Settings test files
+ * that previously rolled their own ~120-140-line `const baseConfig: VoiceTyperConfig = { ... }`
+ * literal MUST now import `makeConfig` from `@/__tests__/helpers/fixtures`
+ * and use the factory call instead.
+ *
+ * The broader "no local baseConfig literal" convention is still a
+ * non-blocking warning (above) because other test files have legitimate
+ * reasons to declare a small ad-hoc config. The Settings test files,
+ * however, were specifically called out in XA-15-2 as the high-value
+ * migration target (largest literals, most drift-prone), so we hard-pin
+ * them here to prevent a regression that reintroduces the drift hazard.
+ *
+ * If a future refactor renames `baseConfig` or moves the import, update
+ * the assertions below rather than weakening them.
+ */
+describe("lint: Settings test files use shared makeConfig (XA-15-2 regression)", () => {
+	// __dirname = .../src/renderer/src/__tests__/helpers/__tests__/
+	// Settings test files live at .../src/renderer/src/pages/__tests__/, so
+	// we walk up three levels to reach `src/renderer/src/` then descend.
+	const RENDERER_ROOT = resolve(__dirname, "..", "..", "..");
+	const SETTINGS_TEST_FILES = [
+		resolve(RENDERER_ROOT, "pages", "__tests__", "Settings.test.tsx"),
+		resolve(
+			RENDERER_ROOT,
+			"pages",
+			"__tests__",
+			"Settings-empty-state.test.tsx",
+		),
+	];
+
+	it.each(
+		SETTINGS_TEST_FILES,
+	)("%s imports makeConfig from helpers/fixtures", (file) => {
+		const src = readFileSync(file, "utf8");
+		expect(src).toMatch(
+			/import\s+\{\s*makeConfig\s*\}\s+from\s+["']@\/__tests__\/helpers\/fixtures["']/,
+		);
+	});
+
+	it.each(
+		SETTINGS_TEST_FILES,
+	)("%s does NOT declare a local baseConfig object literal (must use makeConfig factory)", (file) => {
+		const src = readFileSync(file, "utf8");
+		// Matches `const baseConfig ... = {` — i.e. an inline object
+		// literal assigned to `baseConfig`. The factory form
+		// `const baseConfig = makeConfig({...})` does NOT match because
+		// the RHS starts with `makeConfig(`, not `{`.
+		const localLiteralRe = /const\s+baseConfig\b[^=]*=\s*\{/;
+		expect(localLiteralRe.test(src)).toBe(false);
 	});
 });

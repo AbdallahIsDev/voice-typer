@@ -60,14 +60,24 @@ const MAX_CONFIG_EXPORT_BYTES = 1 * 1024 * 1024;
  * with =, +, -, @, TAB, or CR are interpreted as formulas by
  * Excel/LibreOffice when the user opens the exported file.
  * Prefix them with a single quote so the spreadsheet treats
- * them as literal text.  Also wrap in double quotes (with
- * embedded quotes doubled) to prevent injection via newlines
- * or commas.
+ * them as literal text.  Then apply RFC 4180 quoting: only
+ * wrap the cell in double quotes when it contains a comma,
+ * double-quote, newline, or carriage return; double any
+ * embedded double-quotes.
+ *
+ * Mirrors the Rust host's `csv_escape` in
+ * `src-tauri/src/commands/export.rs` — the two implementations
+ * produce identical bytes for the same input. Parity is enforced
+ * by `src/main/__tests__/export-handlers-csv-escape.test.ts`.
+ *
+ * Accepts `unknown` and coerces internally (strings pass through;
+ * null/undefined → empty string; numbers/booleans/bigints → their
+ * `String()` form; objects → their `JSON.stringify` form).
+ *
+ * Exported so unit tests can exercise it directly without going
+ * through the Electron-coupled `registerExportHandlers`.
  */
-/**
- * : csvEscape now accepts `unknown` and coerces internally.
- */
-function csvEscape(v: unknown): string {
+export function csvEscape(v: unknown): string {
 	let s: string;
 	if (typeof v === "string") {
 		s = v;
@@ -86,10 +96,18 @@ function csvEscape(v: unknown): string {
 			s = String(v);
 		}
 	}
+	// SEC-015: prefix formula-injection-prone cells with a single quote.
 	if (/^[=+\-@\t\r]/.test(s)) {
 		s = `'${s}`;
 	}
-	return `"${s.replace(/"/g, '""')}"`;
+	// RFC 4180 quoting: only wrap in double quotes when the cell
+	// contains a comma, double-quote, newline, or carriage return.
+	// Doubles any embedded double-quotes. Matches the Rust host's
+	// `csv_escape` byte-for-byte for the same input.
+	if (/[",\n\r]/.test(s)) {
+		return `"${s.replace(/"/g, '""')}"`;
+	}
+	return s;
 }
 
 /**

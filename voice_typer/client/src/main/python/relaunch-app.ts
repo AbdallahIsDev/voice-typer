@@ -29,6 +29,7 @@ import { APP_NAME } from "../branding";
 import { log } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
+import { killPythonProcessWithSigkillFallback } from "./kill-python";
 import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
 //clear the TCP startup timeout timer so the 60s deadline
@@ -97,66 +98,17 @@ function _readRestartHistory(): number[] {
 }
 
 /**
- * : shared SIGTERM+SIGKILL-fallback helper. Extracted from
- * the dev and prod kill branches to DRY the kill logic.
+ * Shared SIGTERM+SIGKILL-fallback helper. The inline copy that used to
+ * live here was removed and replaced with an import from `./kill-python`
+ * — the helper is now the single source of truth for the kill-escalation
+ * pattern (DRY). See `kill-python.ts` for the full contract.
  *
- * - ``mode === "dev"``: sends ``SIGTERM`` first (graceful shutdown)
- *   then ``SIGKILL`` after 3s if still alive.
- * - ``mode === "prod"``: sends the default ``.kill()`` (SIGTERM on
- *   POSIX, ``TerminateProcess`` on Windows) then ``SIGKILL`` after 3s
- *   if still alive.
- *
- * Best-effort: all errors are logged at WARN. The caller proceeds
- * regardless — the worst case is the old Python process surviving
- * (and the new one failing to bind the single-instance mutex, which
- * forces the next relaunch to clean it up).
+ * The helper's `onExit` callback is NOT used here — `relaunchApp()`
+ * proceeds regardless of when the old proc actually exits (the dev
+ * branch spawns a fresh Python immediately; the prod branch calls
+ * `app.exit(0)` immediately). The helper's internal SIGKILL fallback
+ * timer handles the worst case (stuck in a C extension).
  */
-function _killPythonProcessWithSigkillFallback(mode: "dev" | "prod"): void {
-	try {
-		if (state.pythonProcess) {
-			const proc = state.pythonProcess;
-			proc.removeAllListeners("exit");
-			if (!proc.killed) {
-				if (mode === "dev") {
-					proc.kill("SIGTERM");
-				} else {
-					proc.kill();
-				}
-			}
-			// SIGKILL fallback — if Python doesn't exit within 3s
-			// (stuck in a C extension like torch/sounddevice),
-			// force-kill so the old process doesn't survive and
-			// hold the VoiceTyperSingleInstance mutex.
-			//
-			//(Critical): the previous guard `if (!proc.killed)`
-			// was always FALSE after the SIGTERM above because Node.js
-			// sets `subprocess.killed = true` synchronously inside
-			// `subprocess.kill()` — regardless of whether the signal
-			// was delivered or the process has actually exited. This
-			// made the SIGKILL fallback dead code: a Python process
-			// stuck in a C extension (torch/sounddevice) would survive
-			// SIGTERM, never get SIGKILL'd, hold the single-instance
-			// mutex, and force the new Python to exit with "another
-			// instance is already running" — breaking the user's
-			// PRIMARY recovery path (tray "Restart"). The correct
-			// liveness check is `exitCode === null && signalCode === null`
-			// (both are null until the process actually exits).
-			const killTimer = setTimeout(() => {
-				if (proc.exitCode === null && proc.signalCode === null) {
-					try {
-						proc.kill("SIGKILL");
-					} catch {
-						/* best-effort */
-					}
-				}
-			}, 3000);
-			proc.once("exit", () => clearTimeout(killTimer));
-		}
-	} catch (e) {
-		//surface the kill failure instead of swallowing.
-		log.warn(`[RESTART] kill old Python (${mode}) failed:`, e);
-	}
-}
 
 function _appendRestartTimestamp(history: number[]): void {
 	try {
@@ -269,9 +221,10 @@ export function relaunchApp(): void {
 		);
 
 		// Kill old Python via the shared SIGTERM+SIGKILL-fallback
-		//helper ( dedup). The state-reset block below is
-		// branch-specific (dev mode clears more state than prod).
-		_killPythonProcessWithSigkillFallback("dev");
+		// helper (imported from `./kill-python`). The state-reset
+		// block below is branch-specific (dev mode clears more
+		// state than prod).
+		killPythonProcessWithSigkillFallback("dev");
 
 		// Clean up TCP + state
 		try {
@@ -409,8 +362,9 @@ export function relaunchApp(): void {
 	app.isQuitting = true;
 
 	// Kill old Python via the shared SIGTERM+SIGKILL-fallback helper
-	//( dedup — same pattern as the dev branch above).
-	_killPythonProcessWithSigkillFallback("prod");
+	// (imported from `./kill-python` — same pattern as the dev branch
+	// above).
+	killPythonProcessWithSigkillFallback("prod");
 	try {
 		if (state.tcpSocket) state.tcpSocket.destroy();
 	} catch (e) {

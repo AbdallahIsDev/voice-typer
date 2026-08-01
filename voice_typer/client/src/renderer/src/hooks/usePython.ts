@@ -170,7 +170,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"llm_polish_failed",
 	"reconnecting",
 	"reconnected",
-	//(): the new mic_level push event (coalesced at
+	// the new mic_level push event (coalesced at
 	// ≤30 Hz by the same level_monitor worker that publishes
 	// `bubble_level`). Subscribed to by
 	// `pages/microphone/hooks/useMicrophoneTest.ts` instead of

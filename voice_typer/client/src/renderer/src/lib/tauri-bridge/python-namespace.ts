@@ -113,7 +113,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 									// `connectionStatus` to `"disconnected"`
 									// and surface a localized message via
 									// `t("connection.respawnFailed")`.
-									code: "respawn_exhausted" as never,
+									code: "respawn_exhausted",
 									message: "respawn exhausted",
 								},
 							};
@@ -181,7 +181,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 								// ``message`` (reinstall prompt)
 								// is carried in `message` so the
 								// hook can log it for diagnostics.
-								code: "respawn_exhausted" as never,
+								code: "respawn_exhausted",
 								message: supervisorMessage
 									? `respawn exhausted: ${supervisorMessage}`
 									: "respawn exhausted",

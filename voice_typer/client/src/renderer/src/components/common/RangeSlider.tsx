@@ -75,7 +75,11 @@ export function RangeSlider({
 	const renderedValue = deferApply ? displayValue : value;
 
 	const handleValueChange = (vals: number[]) => {
+		// noUncheckedIndexedAccess: `vals[0]` is `number | undefined`;
+		// the slider always emits at least one value, so guard + early
+		// return keeps `setDisplayValue`/`onChange` happy.
 		const next = vals[0];
+		if (next === undefined) return;
 		if (deferApply) {
 			dirtyRef.current = true;
 			isDraggingRef.current = true;

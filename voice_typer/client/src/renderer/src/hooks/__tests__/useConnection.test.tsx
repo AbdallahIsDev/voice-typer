@@ -15,7 +15,7 @@
  * together (mirroring App.tsx) so we don't need to mock the entire page
  * graph. The navigation state is asserted via the rendered page label.
  */
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConnection } from "@/hooks/useConnection";
@@ -33,6 +33,28 @@ vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
 }));
+
+// Stub localStorage so useNavigation's persisted-nav-state restore
+// (and the beforeEach `clear()` below) doesn't blow up in the jsdom
+// environment. Same pattern as useTheme-flush-pending-save.test.tsx
+// — jsdom 29 with an opaque origin doesn't expose `localStorage`.
+const lsStub: Record<string, string> = {};
+const lsMock = {
+	getItem: (k: string) => lsStub[k] ?? null,
+	setItem: (k: string, v: string) => {
+		lsStub[k] = v;
+	},
+	removeItem: (k: string) => {
+		delete lsStub[k];
+	},
+	clear: () => {
+		for (const k of Object.keys(lsStub)) delete lsStub[k];
+	},
+};
+Object.defineProperty(window, "localStorage", {
+	value: lsMock,
+	configurable: true,
+});
 
 // Stub the Zustand store-backed setters useConnection depends on. We
 // import the real appStore and let it manage state — it's already
@@ -157,9 +179,12 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		expect(getByTestId("current-page").textContent).toBe("settings");
 
 		// Give the async effect a chance to run; the page should
-		// stay "settings" because is_first_run is false.
-		await act(async () => {
-			await new Promise((r) => setTimeout(r, 50));
+		// stay "settings" because is_first_run is false. We wait for
+		// the first-run probe to be invoked (positive signal that the
+		// async connection chain has progressed), then assert no
+		// navigation fired.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("onboarding_is_first_run");
 		});
 		expect(getByTestId("current-page").textContent).toBe("settings");
 	});

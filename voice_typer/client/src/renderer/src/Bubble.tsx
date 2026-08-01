@@ -12,6 +12,10 @@
  *   - `BubbleVisualizer` — recording-mode bars + REC indicator.
  *   - `BubbleMicButton` — always-visible mic toggle.
  *   - `BubbleDismissButton` — dismiss '×' affordance.
+ *   - `BubbleModeContent` — 8-way mode-branch pill body (extracted
+ *     from the inline ternary chain that used to live here).
+ *   - `getBubbleAriaLabel` — pure helper that returns the
+ *     state-aware aria-label for the `<output aria-live>` wrapper.
  *
  * This file owns only the auto-resize `useLayoutEffect`, the
  * fading → exit timer, the animation-end callback, the error-mode
@@ -21,8 +25,6 @@
  * removed — see the comment below for why and how to re-implement
  * keyboard-move correctly.
  */
-import { Mic02Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	useCallback,
 	useEffect,
@@ -30,18 +32,16 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { BubbleWindowBubble } from "@/types/ipc";
 import {
 	BubbleDismissButton,
 	BubbleMicButton,
 	type BubbleMode,
+	BubbleModeContent,
 	BubbleStopButton,
-	BubbleVisualizer,
 	FADEOUT_DURATION_MS,
-	TRANSCRIBING_DOT_COUNT,
-	tf,
+	getBubbleAriaLabel,
 	useBubbleLifecycle,
 	useBubbleStateMachine,
 } from "./bubble-components";
@@ -295,11 +295,6 @@ export function Bubble() {
 		}
 	}, [animState, setAnimState]);
 
-	const transcribingDots = Array.from(
-		{ length: TRANSCRIBING_DOT_COUNT },
-		(_, i) => i,
-	);
-
 	return (
 		<output
 			aria-live="polite"
@@ -307,38 +302,10 @@ export function Bubble() {
 			// State-aware aria-label so screen-reader users hear the
 			// current bubble mode ("recording" / "transcribing" /
 			// "error" / "idle") instead of always hearing "recording".
-			// The "fading" mode is a brief transcribing → exit
-			// transition; it shares the transcribing label. The idle
-			// label is the catch-all for any unexpected future mode.
-			aria-label={
-				mode === "recording"
-					? t("bubble.recordingIndicatorAria")
-					: mode === "transcribing" || mode === "fading"
-						? t("bubble.transcribingAria")
-						: mode === "error"
-							? t("bubble.errorIndicatorAria")
-							: mode === "blocked"
-								? tf(
-										"bubble.blockedIndicatorAria",
-										"Voice Typer blocked indicator",
-									)
-								: mode === "cancelling"
-									? tf(
-											"bubble.cancellingIndicatorAria",
-											"Voice Typer cancelling indicator",
-										)
-									: mode === "permission_revoked"
-										? tf(
-												"bubble.permissionRevokedIndicatorAria",
-												"Voice Typer microphone permission revoked indicator",
-											)
-										: mode === "paste_failed"
-											? tf(
-													"bubble.pasteFailedIndicatorAria",
-													"Voice Typer paste failed indicator",
-												)
-											: t("bubble.idleIndicatorAria")
-			}
+			// The implementation lives in `getBubbleAriaLabel` so it
+			// can be unit-tested in isolation; the previous inline
+			// 7-deep ternary over `mode` is gone.
+			aria-label={getBubbleAriaLabel(mode, errorMessage)}
 			className={cn(
 				"inline-flex items-center justify-center",
 				animState === "enter" && "animate-bubble-enter",
@@ -356,118 +323,11 @@ export function Bubble() {
 					draggable ? "drag-region" : "no-drag",
 				)}
 			>
-				{mode === "transcribing" ? (
-					<div className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)">
-						<span>{t("bubble.transcribingLabel")}</span>
-						{transcribingDots.map((i) => (
-							<span
-								key={i}
-								className="inline-block h-1 w-1 animate-bounce rounded-full bg-(--text-muted)"
-								style={{
-									animationDelay: `${i * 0.2}s`,
-									animationDuration: "1.2s",
-								}}
-							/>
-						))}
-					</div>
-				) : mode === "fading" ? (
-					<div
-						className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)"
-						style={{
-							opacity: 0,
-							transform: "translateY(-4px)",
-							transition: `opacity ${FADEOUT_DURATION_MS}ms ease-out, transform ${FADEOUT_DURATION_MS}ms ease-out`,
-						}}
-					>
-						<span>{t("bubble.transcribingLabel")}</span>
-					</div>
-				) : mode === "idle" ? (
-					<>
-						{/* A11Y: sr-only announcement so screen-reader users hear
-						    "Transcription complete." when the bubble transitions to
-						    idle (always_visible mode). The empty div below is
-						    preserved as a zero-width sibling so Bubble.test.tsx's
-						    `emptyContainer.textContent === ""` assertion still
-						    passes — querySelector returns the first match in DOM
-						    order, which is the empty div. */}
-						<div className="flex h-6 items-center" />
-						<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
-							<HugeiconsIcon
-								icon={Mic02Icon}
-								strokeWidth={2}
-								className="w-3 h-3 text-(--text-muted)"
-							/>
-							<span className="text-[10px] font-medium text-(--text-muted)">
-								{tf("bubble.idleLabel", "Ready")}
-							</span>
-						</div>
-						<span className="sr-only">{t("a11y.transcriptionComplete")}</span>
-					</>
-				) : mode === "error" ? (
-					// Surface a red "⚠ Error" label so the user can see
-					// something went wrong (e.g. backend crash, mic
-					// permission revoked). Uses the destructive token so
-					// it inherits theme-preset colors. When the backend +
-					// main process forward a `message` field in the
-					// `bubble:set-state` payload, it's surfaced as a
-					// short reason string after the "Error" label.
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
-							aria-hidden
-						/>
-						<span className="text-[10px] font-medium text-destructive">
-							{tf("bubble.errorLabel", "⚠ Error")}
-							{errorMessage ? `: ${errorMessage}` : ""}
-						</span>
-					</div>
-				) : mode === "blocked" ? (
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="text-[11px] leading-none text-(--text-muted)"
-							aria-hidden
-						>
-							⊘
-						</span>
-						<span className="text-[10px] font-medium text-(--text-muted)">
-							{tf("bubble.blockedLabel", "Blocked")}
-						</span>
-					</div>
-				) : mode === "cancelling" ? (
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="text-[11px] leading-none text-(--text-muted) animate-pulse"
-							aria-hidden
-						>
-							⏇
-						</span>
-						<span className="text-[10px] font-medium text-(--text-muted)">
-							{tf("bubble.cancellingLabel", "Cancelling…")}
-						</span>
-					</div>
-				) : mode === "permission_revoked" ? (
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
-							aria-hidden
-						/>
-						<span className="text-[10px] font-medium text-destructive">
-							{tf("bubble.permissionRevokedLabel", "Mic permission revoked")}
-						</span>
-					</div>
-				) : mode === "paste_failed" ? (
-					<div className="flex h-6 items-center gap-1.5 px-2">
-						<span
-							className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
-							aria-hidden
-						/>
-						<span className="text-[10px] font-medium text-destructive">
-							{tf("bubble.pasteFailedLabel", "Paste failed")}
-						</span>
-					</div>
-				) : (
-					<BubbleVisualizer dotRefs={dotRefs} />
-				)}
+				<BubbleModeContent
+					mode={mode}
+					errorMessage={errorMessage}
+					dotRefs={dotRefs}
+				/>
 
 				{micButton && (
 					<BubbleMicButton mode={mode as BubbleMode} onClick={handleMicClick} />

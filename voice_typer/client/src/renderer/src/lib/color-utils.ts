@@ -55,14 +55,21 @@
  */
 function _parseHex(color: string): [number, number, number] {
 	const match = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
-	if (!match) return [0, 0, 0];
+	// `match` is `RegExpMatchArray | null` and `match[1]` is
+	// `string | undefined` under `noUncheckedIndexedAccess`; the regex
+	// above guarantees the capture group exists whenever match is
+	// non-null, so the explicit guards satisfy the strict checker
+	// without resorting to non-null assertions.
+	if (match === null || match[1] === undefined) return [0, 0, 0];
 	const hex = match[1];
 	if (hex.length === 3) {
-		return [
-			parseInt(hex[0] + hex[0], 16),
-			parseInt(hex[1] + hex[1], 16),
-			parseInt(hex[2] + hex[2], 16),
-		];
+		const r = hex[0];
+		const g = hex[1];
+		const b = hex[2];
+		if (r === undefined || g === undefined || b === undefined) {
+			return [0, 0, 0];
+		}
+		return [parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16)];
 	}
 	return [
 		parseInt(hex.slice(0, 2), 16),
@@ -260,7 +267,11 @@ export function cssColorToHex(color: string): string {
 
 	// Already a clean hex colour — normalise and return.
 	const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
-	if (hexMatch) {
+	if (hexMatch && hexMatch[1] !== undefined) {
+		// Capture group 1 exists whenever `hexMatch` is non-null (the
+		// regex guarantees it); the explicit narrow satisfies
+		// `noUncheckedIndexedAccess` without a non-null assertion
+		// (which biome's `noNonNullAssertion` rule forbids).
 		const hex = hexMatch[1].toLowerCase();
 		if (hex.length === 3) {
 			return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;

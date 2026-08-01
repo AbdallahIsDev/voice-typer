@@ -414,7 +414,15 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 	});
 
 	it("renders the configured dictation hotkey (F2) instead of the hardcoded 'Caps Lock' label", async () => {
-		useAppStore.setState({
+		// Re-import useAppStore dynamically so we set state on the SAME
+		// store instance App will read from. The file-level static import
+		// is captured before vi.resetModules() runs (in the previous
+		// test's afterEach), so it points at a stale store whose state
+		// App never observes. This matters for tests that override
+		// non-default config fields (hotkey="F2") — tests relying on
+		// the default value happen to pass either way.
+		const { useAppStore: freshStore } = await import("@/stores/appStore");
+		freshStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",
 			lastError: null,
@@ -430,20 +438,31 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 
 		// Open the help overlay.
 		dispatchKey("?");
+		// The overlay renders two elements with the text "Keyboard Shortcuts":
+		// the dialog <h2> title (help.title) AND the inline <h3> section
+		// heading (help.shortcuts.title — both i18n values resolve to the
+		// same English string). getByText throws on multiple matches, so we
+		// locate the open dialog by role+name instead.
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
+			).toBeTruthy();
 		});
 
 		//the dictation shortcut label must show the user's
 		// actual hotkey ("F2"), not the hardcoded "Caps Lock" string
 		// from the previous t("help.keys.dictation") translation.
-		// formatHotkeyLabel("F2") returns "F2".
-		const kbdElements = screen.getAllByText("F2");
+		// formatHotkeyLabel("F2") returns "F2". Use findAllByText
+		// to tolerate the Radix Dialog portal's async content commit.
+		const kbdElements = await screen.findAllByText("F2");
 		expect(kbdElements.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it("renders the configured repaste hotkey when set", async () => {
-		useAppStore.setState({
+		// See F2 test above: re-import useAppStore so setState targets
+		// the live store App reads from.
+		const { useAppStore: freshStore } = await import("@/stores/appStore");
+		freshStore.setState({
 			connectionStatus: "connected",
 			recordingState: "idle",
 			lastError: null,
@@ -462,13 +481,16 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 
 		dispatchKey("?");
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
+			).toBeTruthy();
 		});
 
 		//formatHotkeyLabel("<ctrl>+<shift>+v") returns
 		// "Ctrl+Shift+V". The overlay must show this, not the
-		// hardcoded "Ctrl+Alt+V" default.
-		expect(screen.getByText("Ctrl+Shift+V")).toBeTruthy();
+		// hardcoded "Ctrl+Alt+V" default. Use findByText to
+		// tolerate the Radix Dialog portal's async content commit.
+		expect(await screen.findByText("Ctrl+Shift+V")).toBeTruthy();
 	});
 
 	it("falls back to the Caps Lock default when the config hotkey is empty", async () => {
@@ -488,7 +510,9 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 
 		dispatchKey("?");
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
+			).toBeTruthy();
 		});
 
 		//when config.hotkey is empty, formatHotkeyLabel falls
@@ -516,7 +540,9 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 
 		dispatchKey("?");
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
+			).toBeTruthy();
 		});
 
 		//when repaste_hotkey is empty, formatHotkeyLabel falls
@@ -562,19 +588,78 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		const editable = document.createElement("div");
 		editable.contentEditable = "true";
 		document.body.appendChild(editable);
-		editable.focus();
+		// jsdom doesn't reliably set document.activeElement on
+		// focus() for contentEditable divs (it only honours focus()
+		// on HTMLElements with a tabindex or form- controls). The
+		// App's keydown guard reads document.activeElement, so we
+		// override the getter to report the editable div — this lets
+		// the guard's `active?.isContentEditable === true` branch
+		// fire without depending on jsdom's incomplete focus model.
+		//
+		// jsdom also doesn't properly compute `isContentEditable`
+		// from the `contentEditable` property for arbitrary <div>
+		// elements (the IDL attribute is set, but the reflected
+		// `isContentEditable` getter stays undefined). We override
+		// both `document.activeElement` AND `editable.isContentEditable`
+		// so the App's guard sees a contentEditable active element.
+		//
+		// Save the original descriptors (if the objects have own
+		// properties for these) so we can restore them in `finally`.
+		// Without this, a failed assertion would leak the mock into
+		// subsequent tests (BG-26 focus-management tests also read
+		// document.activeElement).
+		const originalActiveDescriptor = Object.getOwnPropertyDescriptor(
+			document,
+			"activeElement",
+		);
+		const originalEditableDescriptor = Object.getOwnPropertyDescriptor(
+			editable,
+			"isContentEditable",
+		);
+		Object.defineProperty(document, "activeElement", {
+			get: () => editable,
+			configurable: true,
+		});
+		Object.defineProperty(editable, "isContentEditable", {
+			get: () => true,
+			configurable: true,
+		});
 
-		// Sanity check: the simulated element really IS contentEditable
-		// and really IS the active element.
-		expect(document.activeElement).toBe(editable);
-		expect(editable.isContentEditable).toBe(true);
+		try {
+			// Sanity check: the simulated element really IS contentEditable
+			// and really IS the active element.
+			expect(document.activeElement).toBe(editable);
+			expect(editable.isContentEditable).toBe(true);
 
-		dispatchKey("?");
+			dispatchKey("?");
 
-		// The help overlay must NOT open.
-		expect(screen.queryByText("Keyboard Shortcuts")).toBeNull();
-
-		document.body.removeChild(editable);
+			// The help overlay must NOT open. The dialog role is absent
+			// because Radix Dialog only renders DialogContent when open=true.
+			expect(screen.queryByRole("dialog")).toBeNull();
+		} finally {
+			// Restore document.activeElement and editable.isContentEditable
+			// to their default (prototype) getters so subsequent tests see
+			// the real active element.
+			if (originalActiveDescriptor) {
+				Object.defineProperty(
+					document,
+					"activeElement",
+					originalActiveDescriptor,
+				);
+			} else {
+				delete (document as { activeElement?: Element }).activeElement;
+			}
+			if (originalEditableDescriptor) {
+				Object.defineProperty(
+					editable,
+					"isContentEditable",
+					originalEditableDescriptor,
+				);
+			} else {
+				delete (editable as { isContentEditable?: boolean }).isContentEditable;
+			}
+			document.body.removeChild(editable);
+		}
 	});
 
 	it("STILL opens the help overlay when '?' is pressed outside any editable element", async () => {
@@ -593,7 +678,9 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		dispatchKey("?");
 
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getByRole("dialog", { name: /Keyboard Shortcuts/i }),
+			).toBeTruthy();
 		});
 	});
 });

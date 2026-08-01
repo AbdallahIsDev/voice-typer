@@ -16,7 +16,8 @@
 
 import { Download01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -76,26 +77,10 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 	);
 }
 
-// Small label/value row matching the visual rhythm of SettingsSection.
-//
-//this intentionally duplicates the `SettingRow` primitive rather
-// than reusing it. `SettingRow` is designed for interactive controls — it
-// emphasises the LABEL (text-primary, font-medium) and renders the control
-// (child) at default weight. For the read-only status rows in this
-// component (Prewarm Status, Last Run, Cache Health, Installed Version,
-// Latest Release) we want the opposite emphasis: a MUTED label and a
-// PROMINENT value. Reusing SettingRow here would visually flatten the
-// status rhythm and make "Hot" cache badges look like editable controls.
-// Keep this local primitive until the design system grows a
-// `StatusRow`/`ReadonlyRow` variant; do not delete in a cleanup pass.
-function Row({ label, value }: { label: string; value: ReactNode }) {
-	return (
-		<div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
-			<span className="text-sm text-(--text-muted)">{label}</span>
-			<span className="text-sm font-medium text-(--text-primary)">{value}</span>
-		</div>
-	);
-}
+// Status rows render via the shared `ReadonlyRow` primitive (default
+// `value-emphasized` variant: muted label + prominent value) — see
+// `@/components/common/ReadonlyRow` for the rationale and the contrast
+// with `SettingRow` (which emphasises the LABEL for editable controls).
 
 export interface PrewarmAndUpdatesProps {
 	/** Search-filter predicate. Optional — defaults to "always visible"
@@ -358,7 +343,7 @@ export default function PrewarmAndUpdates({
 						undefined,
 						t("about.cacheTitle"),
 					) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.prewarmStatus")}
 							value={
 								prewarmStatus?.prewarm_running ? (
@@ -377,7 +362,7 @@ export default function PrewarmAndUpdates({
 						/>
 					)}
 					{isVisible(t("about.lastRun"), undefined, t("about.cacheTitle")) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.lastRun")}
 							value={
 								prewarmStatus?.last_run
@@ -393,7 +378,7 @@ export default function PrewarmAndUpdates({
 						undefined,
 						t("about.cacheTitle"),
 					) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.cacheHealth")}
 							value={
 								prewarmStatus && prewarmStatus.total_bytes > 0
@@ -411,7 +396,7 @@ export default function PrewarmAndUpdates({
 						undefined,
 						t("about.cacheTitle"),
 					) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.prewarmElapsed")}
 							value={
 								prewarmStatus?.elapsed_s !== null &&
@@ -473,7 +458,7 @@ export default function PrewarmAndUpdates({
 						undefined,
 						t("about.updatesTitle"),
 					) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.installedVersion")}
 							value={t("about.versionValue", { version: APP_VERSION })}
 						/>
@@ -483,7 +468,7 @@ export default function PrewarmAndUpdates({
 						undefined,
 						t("about.updatesTitle"),
 					) && (
-						<Row
+						<ReadonlyRow
 							label={t("about.latestRelease")}
 							value={
 								latestVersion === null
