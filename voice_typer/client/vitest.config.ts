@@ -41,18 +41,18 @@ export default defineConfig({
 			"src/preload/**/*.{test,spec}.ts",
 		],
 		coverage: {
-			provider: "v8",
+			provider: "istanbul",
 			reporter: ["text", "html"],
-			//vitest 4.x dropped the `all: true` option (the v8
-			// provider reports only files actually executed during the
-			// test run — untested files are not retroactively added to
-			// the denominator as they were under the istanbul provider).
-			// To get "all files in scope" coverage we'd need to switch
-			// to the istanbul provider (`provider: "istanbul"` +
-			// `@vitest/coverage-istanbul`), which is a separate task.
-			// The expanded `include` glob below at least guarantees that
-			// every executed file matching the patterns is counted
-			// (rather than only files reached via test imports).
+			// vitest 4.x dropped the `all: true` option for the v8
+			// provider — it only reports executed files, so untested
+			// files are excluded from the denominator and the threshold
+			// can't detect "new file without tests". Switching to the
+			// istanbul provider (`@vitest/coverage-istanbul`) which
+			// instruments all files matching the `include` glob and
+			// reports 0% coverage for untested files, making the
+			// threshold a true gate.
+			// The expanded `include` glob below guarantees that
+			// every file matching the patterns is counted.
 			include: [
 				"src/renderer/src/**/*.{ts,tsx}",
 				"src/main/**/*.ts",

@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 //import `installTauriBridge` so `subscribeBridgeReady` can
-// re-trigger the installer when `window.__TAURI__` appears AFTER the
+// re-trigger the installer when the Tauri runtime appears AFTER the
 // initial module-import-time auto-install ran (which no-op'd because
-// `window.__TAURI__` wasn't yet present). The static import also
-// triggers the auto-install side effect once at module-load — that's
-// the existing behavior preserved.
+// the Tauri global wasn't yet present — a rare timing edge under
+// Tauri v2 with `withGlobalTauri: true`). The installer itself is
+// idempotent (no-ops when not in Tauri mode or when the namespaces
+// are already installed), so the hook stays transport-agnostic:
+// it never touches Tauri or Electron APIs directly, only
+// `window.python` + the idempotent installer.
 import { installTauriBridge } from "@/lib/tauri-bridge";
 import type { PythonPushEvent } from "@/types/ipc";
 // Import the `PythonCallErrorCode` union so the renderer can narrow
@@ -243,17 +246,17 @@ function subscribeBridgeReady(callback: () => void): () => void {
 	// effect (which already ran with `bridgeReady=true` on the
 	// initial render) does not re-run — so the no-op re-render is
 	// harmless.
-	//also detect `window.__TAURI__` appearing AFTER the
+	//also detect the Tauri runtime appearing AFTER the
 	// initial module-import-time auto-install. The auto-install in
-	// `tauri-bridge/index.ts` runs once at module load — if
-	// `window.__TAURI__` isn't yet present (rare timing edge under
+	// the tauri-bridge installer runs once at module load — if
+	// the Tauri global isn't yet present (rare timing edge under
 	// Tauri v2 with `withGlobalTauri: true`), the auto-install
 	// no-ops and `window.python` is never installed. The previous
 	// code polled `window.python` forever with NO mechanism to
 	// re-trigger the installer. We now re-invoke
 	// `installTauriBridge()` (idempotent — no-ops if not in Tauri
-	// mode or if already installed) when `window.__TAURI__` appears,
-	// which installs the three namespaces, and the next tick's
+	// mode or if already installed) on every tick, which installs
+	// the three namespaces, and the next tick's
 	// `window.python` check then succeeds and notifies React.
 	const interval = setInterval(() => {
 		if (typeof window.python !== "undefined") {
@@ -261,25 +264,20 @@ function subscribeBridgeReady(callback: () => void): () => void {
 			clearInterval(interval);
 			return;
 		}
-		//Tauri global appeared after the auto-install
+		//The Tauri global appeared after the auto-install
 		// no-op'd — re-trigger the installer. The installer is
-		// idempotent: if `isTauri()` still returns false (e.g.
-		// the global is partial), it no-ops again and the next
+		// idempotent: it no-ops again if the runtime isn't fully
+		// ready yet (e.g. the global is partial) and the next
 		// tick retries.
-		const tauriGlobal = (
-			window as unknown as { __TAURI__?: { core?: { invoke?: unknown } } }
-		).__TAURI__;
-		if (tauriGlobal?.core?.invoke) {
-			try {
-				installTauriBridge();
-			} catch (err) {
-				// Defensive: a partially-mocked global
-				// (e.g. in tests) could throw inside a
-				// namespace installer. Surface the error
-				// so it's debuggable instead of silently
-				// looping forever.
-				console.warn("[usePython] installTauriBridge retry failed:", err);
-			}
+		try {
+			installTauriBridge();
+		} catch (err) {
+			// Defensive: a partially-mocked global
+			// (e.g. in tests) could throw inside a
+			// namespace installer. Surface the error
+			// so it's debuggable instead of silently
+			// looping forever.
+			console.warn("[usePython] installTauriBridge retry failed:", err);
 		}
 	}, 100);
 	return () => clearInterval(interval);
@@ -321,7 +319,7 @@ export function useBridgeReady(): boolean {
 // and every event triggered all 4N callbacks only to be filtered
 // down to the (typically 1) matching caller by the
 // `if (event.type === type)` check. On Electron each subscription
-// adds one `ipcRenderer.on(PythonChannels.event, ...)` listener, so
+// adds one `python-event` IPC listener, so
 // N callers created N IPC listeners with the same fan-out waste.
 //
 // The dispatcher subscribes to `api.onEvent` exactly ONCE per
