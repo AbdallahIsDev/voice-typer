@@ -112,8 +112,13 @@ class TestAudioCallbackUsesMinimalLockScope:
         # AudioPipeline.append_to_buffer_locked. Recorder._process_audio_chunk
         # is now a 1-line delegator — inspect the pipeline method instead.
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
-        # The lock block must include buffer.append and _chunk_count
-        assert "recorder._buffer.append" in src
+        # The lock block must include buffer.append and _chunk_count.
+        # The append now aliases ``_buf = recorder._buffer`` before
+        # calling ``_buf.append(filtered)`` (PERF: avoids repeated
+        # attribute lookups on the hot path), so the invariant is the
+        # ``_buf.append`` literal inside the ``with recorder._lock``
+        # block — NOT ``recorder._buffer.append``.
+        assert "_buf.append(filtered)" in src
         assert "recorder._chunk_count" in src
         # RACE-003: the recent_rms snapshot is now read inside
         # AudioPipeline.run_vad_state_machine (see test below).
