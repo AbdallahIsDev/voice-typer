@@ -13,17 +13,40 @@
 
 name: Tauri macOS Build (Phase 0-M)
 
+# =============================================================================
+# TX-39 GATE STATUS — VALIDATE ON MACOS HOST
+# -----------------------------------------------------------------------------
+# This workflow contains ~603 lines of macOS signing + notarization logic that
+# has NEVER executed in CI. All 3 jobs (build-aarch64, build-x86_64,
+# build-tauri-universal) carry an explicit `if: false` guard because the
+# project's CI environment has no macOS host available to validate the
+# signing/notarization path end-to-end. Running the untested signing logic in
+# CI would risk shipping a broken or wrongly-signed .dmg to users.
+#
+# VALIDATION HANDOFF (required before release):
+#   1. A maintainer with access to a real macOS host (either a self-hosted
+#      runner or a local Mac) triggers this workflow manually via the
+#      `workflow_dispatch` event defined in the `on:` block below (the
+#      "Run workflow" button on the Actions tab).
+#   2. Set `inputs.sign: true` on the dispatch to exercise the full
+#      codesign + notarize path with the repo secrets available.
+#   3. Follow docs/migration/macos-validation-runbook.md to confirm the
+#      universal .app launches on both Apple Silicon and Intel Macs and the
+#      notarization ticket stamps cleanly (`spctl --assess`, `xcrun stapler
+#      validate`).
+#   4. Once the runbook has passed manually on a developer Mac, remove
+#      `if: false` from all 3 jobs (or change to `if: true`) and uncomment
+#      the push/PR triggers below to enable CI-driven runs.
+#
+# Until that validation gate passes, do NOT remove the `if: false` guards —
+# they are the second layer of protection (the first layer being the absence
+# of push/PR triggers). See ADR-0020 §15 + Phase 0-M gate.
+# =============================================================================
+#
 # ADR-0020 Phase 0-M: macOS x86_64 + aarch64-apple-darwin Tauri build.
 # Builds BOTH arches of the Nuitka sidecar + prewarm + native key-listener,
 # then calls `cargo tauri build --target universal-apple-darwin` to produce
 # a universal .app + .dmg.
-#
-# Marked `if: false` initially — this workflow is a STUB that must be
-# validated on a real macOS host (see docs/migration/macos-validation-runbook.md)
-# before being enabled in CI. Phase 0-M is NOT yet started.
-#
-# To enable: change `if: false` to `if: true` (or remove the line) once the
-# Phase 0-M validation gate has passed manually on a developer Mac.
 
 on:
   workflow_call:
@@ -73,7 +96,7 @@ jobs:
   # ─── Job 1: Apple Silicon (aarch64-apple-darwin) ────────────────────────────
   # Runs natively on a macos-14 runner (Apple Silicon).
   build-aarch64:
-    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED.
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -192,7 +215,7 @@ jobs:
   #
   # Alternative: run this on a separate macos-13 runner if available.
   build-x86_64:
-    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED.
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -298,7 +321,7 @@ jobs:
   # (`if: false`) until the Phase 0-M host validation gate passes on a real
   # macOS host — flip to `if: true` together with the two arch jobs above.
   build-tauri-universal:
-    if: false  # Phase 0-M NOT YET STARTED — universal build intentionally disabled; enable after manual validation
+    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED; universal build intentionally disabled.
     needs: [build-aarch64, build-x86_64]
     runs-on: macos-14
     timeout-minutes: 60

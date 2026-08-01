@@ -1,5 +1,25 @@
 # Pre-commit hooks for Voice Typer
-# Install: pip install pre-commit && pre-commit install
+#
+# Hook installation architecture (XS-34):
+#   Husky is the SOLE installer of git hooks. `npm install` in
+#   `voice_typer/client/` runs the `prepare` script (`cd ../.. && husky`),
+#   which sets `core.hooksPath = .husky/_` and installs husky's wrappers
+#   for every file in `.husky/` (currently `pre-commit` and `pre-push`).
+#   Husky's `.husky/pre-commit` runs `lint-staged` (biome --write on
+#   staged client files) and then delegates to `pre-commit run` for the
+#   full hook suite declared below.
+#
+#   `pre-commit install` (the pre-commit framework's own installer) is
+#   NOT used. It writes to `.git/hooks/`, which git ignores because
+#   `core.hooksPath` is `.husky/_/`. Running it is harmless (its hook
+#   file is never invoked) but misleading — contributors who run it
+#   expecting "install the hooks" get no effect. The correct install
+#   command is just `npm install` in `voice_typer/client/`.
+#
+#   `pre-commit run` (without `install`) reads this file directly and
+#   invokes the hooks against the working tree. It is the entry point
+#   used by husky's pre-commit wrapper.
+#
 # Run manually: pre-commit run --all-files
 
 repos:
@@ -19,34 +39,34 @@ repos:
       - id: ruff-format
         args: [--check]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
+  # XS-35: mypy is a LOCAL hook with `language: system` so it reuses the
+  # project venv (`.venv/bin/python -m mypy`) instead of creating a
+  # fresh venv via mirrors-mypy. The previous mirrors-mypy config
+  # declared `additional_dependencies: [numpy, torch, transformers,
+  # pydantic, sounddevice, pystray]`, which caused pre-commit to spin
+  # up an isolated venv and reinstall torch (~2GB, 5-10 min) on the
+  # first `pre-commit run mypy` invocation. With `language: system`,
+  # mypy uses the deps already installed by `uv pip install -e
+  # ".[test,dev]"` — no torch reinstall, no isolated venv, ~5s cold.
+  #
+  # mypy is at `stages: [pre-push]` so it does NOT run on every commit.
+  # Contributors who want mypy on every commit can run
+  # `pre-commit run mypy --all-files` manually.
+  #
+  # The entry uses `python -m mypy` (not bare `mypy`) so it works on
+  # Windows where `.venv/Scripts/mypy.exe` may not be on PATH but
+  # `.venv/Scripts/python.exe` is (via the activated venv). The
+  # contributor must activate the project venv before running
+  # `pre-commit run mypy` — same convention as the `check-branding`
+  # local hook below.
+  - repo: local
     hooks:
       - id: mypy
-        # XS-35: mypy is moved to the ``pre-push`` stage so it does NOT
-        # run on every commit (the 2GB torch download + install on first
-        # ``pre-commit run mypy`` made commit-time invocation unusable —
-        # developers would just ``--no-verify`` past it). On push, the
-        # cost is amortized across many commits and is comparable to a
-        # CI run. Contributors who want mypy on every commit can run
-        # ``pre-commit run mypy --all-files`` manually.
-        stages: [pre-push]
+        name: mypy (server, project venv)
+        entry: python -m mypy
+        language: system
         files: ^voice_typer/server/
-        # CR-183: pre-CR-183 this hook passed `args: [--ignore-missing-imports,
-        # --no-strict-optional]` which OVERRIDES pyproject.toml's
-        # `[tool.mypy]` settings (`ignore_missing_imports = false`,
-        # per-module overrides, strict-optional enabled). The result was
-        # a contributor's `pre-commit run mypy` passing cleanly while CI
-        # mypy failed with errors the pre-commit hook had hidden. The
-        # `args:` line is removed entirely so mypy reads pyproject.toml.
-        # `additional_dependencies` is populated with the project's
-        # runtime deps so mypy can actually resolve imports (pre-CR-183
-        # it was `[]`, so mypy couldn't import numpy/torch/etc. and
-        # silently emitted `--ignore-missing-imports`-suppressed errors).
-        # CQ-058: numpy 2.x stubs use `type` (PEP 695, Python 3.12+), but
-        # python_version in pyproject.toml is "3.10". Pin numpy<2 so mypy
-        # can parse the stubs under the target language level.
-        additional_dependencies: ["numpy<2", torch, transformers, pydantic, sounddevice, pystray]
+        stages: [pre-push]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

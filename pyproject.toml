@@ -341,7 +341,18 @@ deepfilternet = [
 ]
 # BUILD-N14/dev: dev tooling for local contributors.
 dev = [
-    "ruff>=0.6,<1",
+    # TX-41: ruff version-skew fix. Previously `ruff>=0.6,<1`, which let
+    # `pip install -e ".[dev]"` resolve to the latest 0.16.x patch (e.g.
+    # 0.16.1) while `.pre-commit-config.yaml` pinned the pre-commit hook
+    # to `v0.16.0` and CI (build.yml) installed ruff unpinned. The three
+    # surfaces (dev extra, pre-commit, CI) ran different ruff versions,
+    # so a contributor could see lint failures locally that CI didn't
+    # catch (or vice-versa). The range is narrowed to `>=0.16,<0.17` so
+    # the dev extra accepts any 0.16.x patch but rejects a minor bump
+    # (0.17) that could change rule semantics. CI installs the exact
+    # `ruff==0.16.0` to match the pre-commit hook pin; both surfaces are
+    # therefore deterministic and align with the floor of this range.
+    "ruff>=0.16,<0.17",
     "mypy>=1.10,<3",
     "pre-commit>=3.7,<5",
     # TEST-010: mutmut for mutation testing

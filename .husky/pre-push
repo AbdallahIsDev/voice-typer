@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
-# XS-35: pre-push hook — scoped for speed.
+# Husky pre-push hook — scoped for speed (XS-35).
+#
+# Husky is the SOLE installer of git hooks (XS-34): `npm install` in
+# voice_typer/client/ runs the `prepare` script which sets
+# `core.hooksPath = .husky/_/`. This file is the user-defined script
+# that husky's `.husky/_/pre-push` wrapper sources. See
+# CONTRIBUTING.md §"Pre-commit hooks" for the full architecture.
 #
 # The previous version ran ``npm run typecheck:ci`` (``tsc -b --force``,
 # cache-busting, 30s-2min) + the FULL pytest suite minus 5 tauri dirs
@@ -18,9 +24,20 @@
 #      pytest time from 10+ min to ~2-3 min for the fast unit subset.
 #      Integration tests (which hit the filesystem / network / audio
 #      devices) are deferred to CI.
-#   3. mypy moved to ``stages: [pre-push]`` in .pre-commit-config.yaml
-#      (separate change) so the 2GB torch install only happens on
-#      explicit ``pre-commit run mypy`` invocation, not on every commit.
+#   3. mypy is at ``stages: [pre-push]`` in .pre-commit-config.yaml
+#      AND is now a LOCAL hook with ``language: system`` /
+#      ``entry: python -m mypy`` so it reuses the project venv
+#      instead of creating an isolated venv via mirrors-mypy. The
+#      previous ``additional_dependencies: [numpy, torch, ...]``
+#      caused a 2GB torch reinstall on first ``pre-commit run mypy``;
+#      the local hook eliminates that — mypy reads numpy/torch/etc.
+#      from the deps already installed by
+#      ``uv pip install -e ".[test,dev]"``. mypy runs only when
+#      explicitly invoked (``pre-commit run mypy`` or
+#      ``pre-commit run --all-files --hook-stage pre-push``); it is
+#      NOT invoked by this pre-push wrapper because the
+#      ``pre-commit run`` block in ``.husky/pre-commit`` only runs
+#      at the commit stage.
 echo "[pre-push] Running typecheck (client, cached)..."
 cd voice_typer/client && npm run typecheck || { echo "[pre-push] typecheck FAILED"; exit 1; }
 

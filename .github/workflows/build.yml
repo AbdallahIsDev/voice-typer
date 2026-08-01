@@ -112,7 +112,16 @@ jobs:
         run: |
           uv pip install --system ".[test]"
           # NEW-CI-001: install lint + audit tools.
-          uv pip install --system ruff pip-audit
+          # TX-41: pin ruff to the exact 0.16.0 release that the
+          # pre-commit hook (`.pre-commit-config.yaml` →
+          # `astral-sh/ruff-pre-commit` rev `v0.16.0`) uses, so CI and
+          # local pre-commit runs lint against identical rule
+          # semantics. The pyproject.toml `[project.optional-dependencies].dev`
+          # entry allows `>=0.16,<0.17`; CI pins to the floor (0.16.0)
+          # for determinism — a patch bump (0.16.1+) here would silently
+          # change ruff's rule output vs. the pre-commit hook. Bump only
+          # as an atomic coordinated change across all three surfaces.
+          uv pip install --system ruff==0.16.0 pip-audit
           # XS-84: pytest-xdist enables `-n auto --dist=loadgroup` in
           # the pytest invocation below — parallelises the 331-file
           # suite across cores for ~2-3x CI speedup per matrix leg.

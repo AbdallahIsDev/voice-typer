@@ -1,7 +1,16 @@
 #!/usr/bin/env sh
-# Husky pre-commit hook (single-framework: pre-commit runs everything
-# except lint-staged, which is kept ONLY for the client-side biome
-# write-fix step that needs lint-staged's working-directory handling).
+# Husky pre-commit hook (single-installer architecture — XS-34).
+#
+# Husky is the SOLE installer of git hooks. `npm install` in
+# voice_typer/client/ runs the `prepare` script (`cd ../.. && husky`),
+# which sets `core.hooksPath = .husky/_/`. Git then looks for hooks
+# ONLY in `.husky/_/`, never in `.git/hooks/`. So `pre-commit install`
+# (which writes to `.git/hooks/`) is a no-op when husky is active —
+# its hook file is never invoked. The pre-commit framework is invoked
+# via `pre-commit run` from inside this wrapper, NOT via its own git
+# hook. This eliminates the prior install-order conflict where
+# `pre-commit install` and `npm install` both wrote
+# `.git/hooks/pre-commit` and whichever ran LAST won.
 #
 # Flow:
 #   1. lint-staged runs biome check --write on staged
