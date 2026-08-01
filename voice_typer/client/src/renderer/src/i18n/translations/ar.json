@@ -36,7 +36,8 @@
 			"step3Ready": "جاهز"
 		},
 		"pageNotFoundDescription": "صفحة غير معروفة: {page}",
-		"pageNotFoundTitle": "الصفحة غير موجودة"
+		"pageNotFoundTitle": "الصفحة غير موجودة",
+		"recordingInterrupted": "تم مقاطعة التسجيل — فقد الاتصال بالخادم الخلفي"
 	},
 	"nav": {
 		"home": "الرئيسية",
@@ -85,7 +86,11 @@
 		"errorTitle": "خطأ في التسجيل",
 		"retry": "إعادة المحاولة",
 		"pasteFailedMessage": "اكتمل التدوين، لكن الحافظة لم تكن متاحة. تم حفظ نصك في ملف استرداد الأعطال حتى لا يفقد.",
-		"toggleFailed": "تعذر تبديل الإملاء. حاول مرة أخرى."
+		"toggleFailed": "تعذر تبديل الإملاء. حاول مرة أخرى.",
+		"retryStartDictation": "بدء الإملاء",
+		"timerLabel": "مدة التسجيل",
+		"timerAria": "مدة التسجيل: {duration}",
+		"transcribingHint": "جارٍ التحويل إلى نص… الرجاء الانتظار"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -111,7 +116,8 @@
 		"import": "استيراد",
 		"importAria": "استيراد من ملف",
 		"lastUpdatedWithValue": "آخر تحديث: {value}",
-		"close": "إغلاق"
+		"close": "إغلاق",
+		"confirm": "تأكيد"
 	},
 	"microphone": {
 		"levelBarAria": "مستوى مدخل الميكروفون",
@@ -170,7 +176,9 @@
 			"qualityGood": "جيد",
 			"qualityOk": "مقبول"
 		},
-		"stopPlaybackFirst": "أوقف تشغيل الصوت قبل بدء اختبار جديد"
+		"stopPlaybackFirst": "أوقف تشغيل الصوت قبل بدء اختبار جديد",
+		"loadFailedDescription": "تعذر تحميل بيانات الميكروفون من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
+		"selected": "الميكروفون المحدد"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -241,7 +249,19 @@
 		"entryCount_two": "{count} إدخالان",
 		"entryCount_few": "{count} إدخالات",
 		"entryCount_many": "{count} إدخالاً",
-		"entryCount_other": "{count} إدخال"
+		"entryCount_other": "{count} إدخال",
+		"importInvalidShape": "الملف لا يحتوي على مصفوفة مفردات أو كائن بيانات",
+		"loadFailedDescription": "فشل تحميل المفردات من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
+		"duplicateOriginal": "يوجد بالفعل مدخل بنفس المشغّل في هذه الفئة",
+		"showMore": "عرض المزيد",
+		"showingCap": "عرض {shown} من {total} — استخدم البحث للتضييق",
+		"clearAll": "مسح الكل",
+		"clearAllAria": "مسح جميع مدخلات المفردات",
+		"clearAllTitle": "مسح جميع المفردات",
+		"clearAllMessage": "هل أنت متأكد أنك تريد مسح جميع مدخلات المفردات؟ لا يمكن التراجع عن هذا الإجراء.",
+		"clearAllConfirm": "مسح الكل",
+		"vocabularyCleared": "تم مسح المفردات",
+		"clearFailed": "فشل مسح المفردات"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -294,7 +314,22 @@
 		"count_two": "{count} قالبان",
 		"count_few": "{count} قوالب",
 		"count_many": "{count} قالباً",
-		"count_other": "{count} قالب"
+		"count_other": "{count} قالب",
+		"showMore": "عرض المزيد",
+		"showingCap": "عرض {shown} من {total}",
+		"clearAll": "مسح الكل",
+		"clearAllAria": "مسح جميع القوالب",
+		"clearAllTitle": "مسح جميع القوالب",
+		"clearAllMessage": "هل أنت متأكد أنك تريد مسح جميع القوالب؟ لا يمكن التراجع عن هذا الإجراء.",
+		"clearAllConfirm": "مسح الكل",
+		"allCleared": "تم مسح جميع القوالب",
+		"clearFailed": "فشل مسح القوالب",
+		"exportNotAvailable": "التصدير غير متاح — يرجى إعادة تشغيل التطبيق",
+		"exportSaved": "تم حفظ {filename} بنجاح",
+		"exportFailed": "فشل التصدير",
+		"importInvalidShape": "الملف لا يحتوي على مصفوفة قوالب",
+		"duplicateTrigger": "يوجد بالفعل قالب بنفس المُشغِّل ووضع التطابق",
+		"loadFailedDescription": "فشل تحميل القوالب من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى."
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -349,7 +384,10 @@
 		"dayCountTooltip_two": "{label}: {count} إملاءان",
 		"dayCountTooltip_few": "{label}: {count} إملاءات",
 		"dayCountTooltip_many": "{label}: {count} إملاءً",
-		"dayCountTooltip_other": "{label}: {count} إملاء"
+		"dayCountTooltip_other": "{label}: {count} إملاء",
+		"loadFailedTitle": "تعذر تحميل الإحصائيات",
+		"loadFailedDescription": "تعذر تحميل إحصائياتك من الخادم الخلفي. تحقق من السجلات وحاول مرة أخرى.",
+		"sevenDayActivityChartAria": "مخطط نشاط 7 أيام: {counts}"
 	},
 	"about": {
 		"title": "حول",
@@ -456,7 +494,12 @@
 		"creditsIconsValue": "Hugeicons",
 		"documentationLink": "التوثيق",
 		"loading": "جارٍ التحميل…",
-		"httpError": "HTTP {status}"
+		"httpError": "HTTP {status}",
+		"noTagNameInResponse": "لا يوجد tag_name في الاستجابة",
+		"unknownError": "خطأ غير معروف",
+		"privacyPolicyNote": "راجع سياسة الخصوصية الكاملة أدناه لمعرفة كيفية التعامل مع بياناتك.",
+		"privacyPolicyNoteLabel": "سياسة الخصوصية",
+		"updateCheckNoTagName": "لا يوجد tag_name في الاستجابة"
 	},
 	"settings": {
 		"title": "الإعدادات",
@@ -710,7 +753,8 @@
 			"rangeHintMinutes": "النطاق: {min}–{max} دقيقة",
 			"rangeErrorSeconds": "يجب أن يكون بين {min} و{max}",
 			"minutesSuffix": "min",
-			"secondsSuffix": "s"
+			"secondsSuffix": "s",
+			"stopOnSilenceInfoSearch": "إيقاف التسجيل بعد اكتشاف فترة من الصمت."
 		},
 		"audioEnhancement": {
 			"title": "تحسين الصوت",
@@ -986,7 +1030,22 @@
 		"searchNoMatch": "لا توجد إعدادات تطابق \"{query}\"",
 		"bubbleMicButton": "زر الميكروفون في الفقاعة",
 		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة",
-		"pending": "قيد الانتظار…"
+		"pending": "قيد الانتظار…",
+		"searchAriaLabel": "البحث في الإعدادات",
+		"loadFailedTitle": "تعذر تحميل الإعدادات",
+		"loadFailedDescription": "تعذر تحميل إعداداتك من الخادم الخلفي. تحقق من السجلات وحاول مرة أخرى.",
+		"unsavedChangesTitle": "تغييرات غير محفوظة",
+		"unsavedChangesMessage": "لديك تغييرات إعدادات غير محفوظة. هل تريد المغادرة على أي حال؟",
+		"unsavedChangesLeaveLabel": "المغادرة بدون حفظ",
+		"unsavedChangesCancelLabel": "البقاء في هذه الصفحة",
+		"customFilterChainTitle": "سلسلة مرشحات مخصصة",
+		"customFilterChainSummary": "إظهار عناصر تحكم المرشح عالي التمرير، كتم الضوضاء، بوابة الضوضاء، المعادل، الضاغط، المحدد، والمرشح القاطع",
+		"apiKeyConfiguredPlaceholder": "•••••••• (تم التكوين)",
+		"apiKeyPlaceholder": "الصق مفتاح API هنا",
+		"huggingFaceDownloads": "تنزيلات Hugging Face",
+		"voiceBiometricProcessing": "معالجة القياسات الحيوية الصوتية",
+		"voiceBiometricProcessingAria": "حالة معالجة القياسات الحيوية الصوتية",
+		"voiceBiometricProcessingInfo": "تُعالج البيانات الحيوية الصوتية محليًا على جهازك ولا تغادر جهازك أبدًا."
 	},
 	"models": {
 		"asrTitle": "النماذج",
@@ -1034,21 +1093,25 @@
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
 			"cancelFailed": "فشل الإلغاء: {error}",
-			"parakeetDepsInstalled": "تم تثبيت تبعيات Parakeet بنجاح."
+			"parakeetDepsInstalled": "تم تثبيت تبعيات Parakeet بنجاح.",
+			"depsInstalled": "تم تثبيت التبعيات بنجاح.",
+			"selectFailed": "فشل تحديد النموذج."
 		},
 		"test": {
 			"needApiKey": "الرجاء إدخال مفتاح API أولاً",
 			"connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
 			"connectionFailed": "فشل الاتصال: {status} {statusText}",
 			"endpointUnavailable": "تم حفظ مفتاح API — نقطة الاختبار غير متاحة لهذا المزود.",
-			"connectionTestFailed": "فشل اختبار الاتصال: {error}"
+			"connectionTestFailed": "فشل اختبار الاتصال: {error}",
+			"connectionNetworkError": "خطأ في الشبكة: تعذر الوصول إلى خادم النماذج."
 		},
 		"status": {
 			"active": "نشط",
 			"downloaded": "محمّل",
 			"depsRequired": "التبعيات مطلوبة",
 			"available": "متاح",
-			"insufficientDisk": "مساحة القرص غير كافية"
+			"insufficientDisk": "مساحة القرص غير كافية",
+			"insufficientDiskSpace": "مساحة القرص غير كافية"
 		},
 		"import": {
 			"title": "استيراد نموذج",
@@ -1100,7 +1163,8 @@
 			"useAria": "استخدام {name}",
 			"downloadAria": "تنزيل {name}",
 			"selectAria": "تحديد {name}",
-			"deleteAria": "حذف {name}"
+			"deleteAria": "حذف {name}",
+			"accuracy": "الدقة"
 		},
 		"cloud": {
 			"title": "مزودو التعرّف الصوتي السحابيين",
@@ -1121,7 +1185,8 @@
 		},
 		"deleteDialog": {
 			"title": "حذف النموذج",
-			"message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء."
+			"message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
+			"messageWithSize": "حذف {name} ({size})؟ لا يمكن التراجع عن هذا الإجراء."
 		},
 		"subtitle": "تحميل وإدارة نماذج التعرف على الصوت",
 		"localModels": "نماذج محلية",
@@ -1277,7 +1342,15 @@
 		"description": "اختصارات لوحة المفاتيح وورقة علامات الترقيم.",
 		"searchPlaceholder": "ابحث عن الأوامر…",
 		"searchNoMatch": "لا توجد أوامر تطابق \"{query}\"",
-		"openCheatSheet": "فتح ورقة مرجعية لعلامات الترقيم"
+		"openCheatSheet": "فتح ورقة مرجعية لعلامات الترقيم",
+		"shortcuts": {
+			"settings": "فتح الإعدادات",
+			"home": "الانتقال إلى الرئيسية",
+			"textSizeUp": "زيادة حجم النص",
+			"textSizeDown": "تصغير حجم النص",
+			"title": "اختصارات لوحة المفاتيح",
+			"toggleSidebar": "تبديل الشريط الجانبي"
+		}
 	},
 	"history": {
 		"title": "السجل",
@@ -1332,7 +1405,15 @@
 		"retry": "إعادة المحاولة",
 		"charsSuffix": " ({count} حرف)",
 		"exportTruncatedWarning": "التصدير محدود بأحدث {count} سجل — استخدم البحث لتصدير الإدخالات الأقدم.",
-		"sortLabel": "ترتيب"
+		"sortLabel": "ترتيب",
+		"clearAllWithFilterMessage": "سيؤدي هذا إلى حذف جميع النسخ المطابقة للمرشح الحالي. لا يمكن التراجع عن هذا الإجراء.",
+		"exportFilteredToast": "جارٍ تصدير النسخ المفلترة",
+		"charsSuffix_zero": " ({count} أحرف)",
+		"charsSuffix_one": " ({count} حرف)",
+		"charsSuffix_two": " ({count} حرفان)",
+		"charsSuffix_few": " ({count} أحرف)",
+		"charsSuffix_many": " ({count} حرفاً)",
+		"charsSuffix_other": " ({count} حرف)"
 	},
 	"onboarding": {
 		"welcomeTitle": "مرحبًا بك في Voice Typer",
@@ -1402,7 +1483,29 @@
 		"modelDownloadingHint": "سيبدأ تنزيل النموذج في الخلفية — يمكنك استخدام التطبيق أثناء التحميل.",
 		"vramBadge": "الذاكرة: ~{vram}",
 		"englishOnlyBadge": "الإنجليزية فقط",
-		"multilingualBadge": "متعدد اللغات"
+		"multilingualBadge": "متعدد اللغات",
+		"downloadedBadge": "تم التنزيل",
+		"bluetoothBadgeTooltip": "Bluetooth/HFP — جودة الصوت قد تكون محدودة",
+		"consentVoiceBiometric": "السماح بمعالجة القياسات الحيوية الصوتية",
+		"consentVoiceBiometricInfo": "يسمح لـ Voice Typer بمعالجة تسجيلاتك الصوتية محليًا للتفريغ. قد تُعتبر تسجيلات الصوت بيانات حيوية وفقًا لقانون BIPA في إلينوي والمادة 9 من GDPR. لا يخزّن Voice Typer الصوت الخام بعد التفريغ — يُحتفظ فقط بالنص المُفرَّغ.",
+		"consentHuggingFace": "السماح بتنزيل النماذج من huggingface.co",
+		"consentHuggingFaceInfo": "يسمح لـ Voice Typer بتنزيل أوزان نموذج Whisper من huggingface.co. يكشف عنوان IP الخاص بك لطرف ثالث مقره الولايات المتحدة (Hugging Face, Inc.). الصوت نفسه لا يُرسَل أبدًا.",
+		"consentRequired": "يرجى منح كلا الموافقتين (أو استخدام تخطي) للمتابعة.",
+		"copyError": "نسخ الخطأ",
+		"copyErrorAria": "نسخ تفاصيل الخطأ إلى الحافظة",
+		"copied": "تم النسخ!",
+		"micTestButton": "اختبار الميكروفون",
+		"micTestStopButton": "إيقاف الاختبار",
+		"micTestAria": "اختبار الميكروفون المحدد",
+		"micTestListening": "جارٍ الاستماع… تحدث إلى الميكروفون الخاص بك.",
+		"micLevelLabel": "مستوى الإدخال",
+		"micLevelAria": "مقياس مستوى إدخال الميكروفون",
+		"downloadingModel": "جارٍ تنزيل النموذج…",
+		"downloadCancel": "إلغاء التنزيل",
+		"downloadCancelAria": "إلغاء تنزيل النموذج الجاري",
+		"downloadEta": "المتبقي: {eta}",
+		"downloadProgressAria": "تقدم تنزيل النموذج: {percent}%",
+		"skipConfirmModelWarning": "التخطي يعني عدم تسجيل أي موافقة على القياسات الحيوية الصوتية وعدم تنزيل أي نموذج — لن يتوفر الإملاء حتى تعيد تشغيل هذا المعالج أو تمنح الموافقات في الإعدادات ← الخصوصية."
 	},
 	"titleBar": {
 		"minimize": "تصغير",
@@ -1443,7 +1546,8 @@
 		"resetFailedNotice": "فشلت إعادة تعيين الخلفية — جارٍ مسح الحالة المحلية وإعادة التحميل على أي حال.",
 		"resetSettings": "إعادة تعيين الإعدادات",
 		"copied": "تم النسخ!",
-		"resetting": "جارٍ إعادة التعيين…"
+		"resetting": "جارٍ إعادة التعيين…",
+		"configCrashHint": "قد يكون ملف الإعدادات تالفًا. جرّب إعادة التعيين إلى الإعدادات الافتراضية."
 	},
 	"hotkeyPicker": {
 		"pressAKey": "اضغط مفتاحًا",
@@ -1459,7 +1563,8 @@
 		"clearAria": "مسح مفتاح الاختصار — {label}",
 		"holdingPrefix": "مضغوط: {modifiers}",
 		"clearTitle": "مسح مفتاح الاختصار",
-		"capsLockSrConflictWarning": "مفتاح Caps Lock هو مفتاح التعديل الافتراضي لـ VoiceOver / Narrator. اختياره قد يعطل قارئ الشاشة. فكر في استخدام F2 أو Ctrl+Alt+D بدلاً من ذلك."
+		"capsLockSrConflictWarning": "مفتاح Caps Lock هو مفتاح التعديل الافتراضي لـ VoiceOver / Narrator. اختياره قد يعطل قارئ الشاشة. فكر في استخدام F2 أو Ctrl+Alt+D بدلاً من ذلك.",
+		"captureTimedOut": "انتهت مهلة الالتقاط. يرجى المحاولة مرة أخرى."
 	},
 	"hotkeyValidation": {
 		"empty": "المفتاح فارغ",
@@ -1480,7 +1585,8 @@
 		"dictationKeySingle": "يجب أن يكون مفتاح الإملاء مفتاحًا واحدًا (بدون معدّلات). استخدم مفتاح إعادة اللصق للمفاتيح المركبة.",
 		"dictationKeySingleShort": "يجب أن يكون مفتاح الإملاء مفتاحًا واحدًا",
 		"fnMacosOnly": "مفتاح Fn مدعوم فقط على macOS",
-		"holding": "مضغوط"
+		"holding": "مضغوط",
+		"bareModifierInterferes": "المفاتيح المعدّلة المفردة (Shift، Cmd، Win) تتعارض مع الكتابة. يرجى اختيار مفتاح مختلف."
 	},
 	"hotkeyKeys": {
 		"ctrl": "Ctrl",
@@ -1598,7 +1704,8 @@
 			"offlineMode": "غير متصل",
 			"cloudApi": "API سحابي",
 			"localModel": "نموذج محلي",
-			"fasterThanAvg": "{percent}% أسرع من متوسط الكتابة"
+			"fasterThanAvg": "{percent}% أسرع من متوسط الكتابة",
+			"captureFailed": "فشل التقاط صورة الإحصائيات."
 		}
 	},
 	"hotkey": {
