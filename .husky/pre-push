@@ -53,6 +53,11 @@ fi
         --ignore=tests/tauri/mig18 \
         --ignore=tests/tauri/mig19 \
         -k "not slow and not integration" \
-        -m "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
+        -m "not slow" || {
+        echo "[pre-push] pytest FAILED";
+        echo "[pre-push] If collection failed with ModuleNotFoundError, the venv is missing deps.";
+        echo "[pre-push] Reinstall with:  uv pip install -e \".[test,dev]\"";
+        echo "[pre-push] (base deps only:  uv pip install -e . -r requirements-lock.txt)";
+        exit 1; }
 
 echo "[pre-push] All checks passed."

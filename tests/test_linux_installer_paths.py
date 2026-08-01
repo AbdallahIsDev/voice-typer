@@ -544,7 +544,7 @@ class TestPrermRemovesAutostart:
 
 
 class TestPostrmPurgeSemantics:
-    """CR-43: postrm + postrm.rpm exist + handle ``purge`` semantics.
+    """postrm + postrm.rpm exist + handle ``purge`` semantics.
 
     Debian convention: leave user data on ``remove``, only purge on
     ``purge``. RPM has no separate purge action; the %postun script

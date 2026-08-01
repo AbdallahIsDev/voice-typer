@@ -153,8 +153,10 @@ def test_every_direct_dep_is_pinned_in_lockfile() -> None:
         "successfully but the runtime would crash with ModuleNotFoundError):\n  "
         + "\n  ".join(sorted(missing))
         + "\n\nFix: add the missing entries to requirements-lock.txt with sha256 hashes "
-        "(run `pip-compile --generate-hashes -o requirements-lock.txt pyproject.toml` or "
-        "add them manually with `pip download <pkg>==<ver> --no-deps -d /tmp/whl && pip hash /tmp/whl/*.whl`)."
+        "(run `uv pip compile --generate-hashes --universal --python-version 3.12 "
+        "pyproject.toml -o requirements-lock.txt` or "
+        "add them manually with `pip download <pkg>==<ver> --no-deps -d /tmp/whl "
+        "&& pip hash /tmp/whl/*.whl`)."
     )
 
 

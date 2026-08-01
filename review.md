@@ -8005,56 +8005,8 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** Remove the `legacy_code` field from all emission sites (~10 sites). Update any tests that assert on `legacy_code`.
 **Severity:** 🟢 Low
 
-### Findings from Session 6 (TX) — GROUP 6: Testing & CI
-
-### TX-1 — 8 tests in test_sidecar_ws.py reference non-existent `_attach_ws_graceful_shutdown` (100% fail, NOT excluded in CI)
-**Status:** ✅ Fixed (verified on Linux sandbox — 8 tests marked xfail strict=True; tests/test_sidecar_ws.py)
-**Description:** `tests/test_sidecar_ws.py` contains 8 tests that call `sidecar_ws._attach_ws_graceful_shutdown(server)` and `sidecar_ws.ws_graceful_shutdown`. The production module `voice_typer/server/sidecar_ws.py` has NO such attribute — the implementation was never landed (merge commit `7b4478cf` added the tests but not the impl). All 8 tests fail with `AttributeError` at the first call. CI does NOT ignore this file.
-**User Impact:** CI is red on these 8 tests (or would be if they ran). The WS graceful-shutdown feature (GT-27/GT-C2-2/GT-45) has no reliable test signal. Anyone running `pytest tests/test_sidecar_ws.py` sees 8 failures with no actionable cause.
-**Root Cause:** Tests added in a merge without the corresponding implementation.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_sidecar_ws.py`
-- `voice_typer/server/sidecar_ws.py`
-**Fix:** Mark all 8 tests with `@pytest.mark.xfail(reason="GT-27 graceful-shutdown not yet implemented")` OR implement the `_attach_ws_graceful_shutdown` function. Safest immediate fix: xfail.
-**Severity:** 🔴 Critical
-
-### TX-2 — C-CI-1 violation: `actions/checkout@v4` (Node 20, deprecated) in build.yml pre-commit job
-**Status:** ✅ Fixed (verified on Linux sandbox — actions/checkout@v4→@v5 at build.yml pre-commit job)
-**Description:** `.github/workflows/build.yml:1479` pins `actions/checkout@v4` in the `pre-commit` job. The file's own header (lines 1-16) documents `actions/checkout@v5 — Node 24 runtime (v4 = Node 20, deprecated)`. Every other `checkout` in the file uses `@v5`. This directly violates CONSTRAINTS.md C-CI-1.
-**User Impact:** The pre-commit CI job runs on a deprecated Node 20 runtime. GitHub deprecated Node 20 on 2025-09-19; the job will eventually break when GitHub removes Node 20 support.
-**Root Cause:** The pre-commit job was added/updated without bumping the action versions to match the file's own policy.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/build.yml`
-**Fix:** Bump line 1479 from `actions/checkout@v4` to `actions/checkout@v5`.
-**Severity:** 🔴 Critical
-
-### TX-3 — C-CI-1 violation: `actions/setup-python@v5` (Node 20, deprecated) in build.yml pre-commit job
-**Status:** ✅ Fixed (verified on Linux sandbox — actions/setup-python@v5→@v7 at build.yml pre-commit job)
-**Description:** `.github/workflows/build.yml:1484` pins `actions/setup-python@v5` in the `pre-commit` job. The file header documents `actions/setup-python@v7 — Node 24 runtime (v5/v6 = Node 20)`. Every other `setup-python` uses `@v7`. Direct C-CI-1 violation.
-**User Impact:** Same as TX-2 — deprecated Node 20 runtime, will break when GitHub removes support.
-**Root Cause:** Same as TX-2.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/build.yml`
-**Fix:** Bump line 1484 from `actions/setup-python@v5` to `actions/setup-python@v7`.
-**Severity:** 🔴 Critical
-
-### TX-4 — Live ruff regression: I001 unsorted-imports in ipc_server.py (CI ratchet will fail)
-**Status:** ✅ Fixed (verified on Linux sandbox — ruff --fix applied; ruff check passes; ratchet holds at 0)
-**Description:** `voice_typer/server/ipc_server.py:272-307` has an `I001 [*] unsorted-imports` violation — `OutputMixin` is listed before underscore-prefixed constants in the `from voice_typer.server.ipc.sender import (...)` block. The ruff ratchet script detects this as a regression (`I001: 0 → 1 REGRESSION`, exit 1). The baseline claims 0 violations.
-**User Impact:** CI ruff ratchet step fails on every PR until fixed. The fix is a 2-line auto-fix.
-**Root Cause:** A contributor introduced the import reorder without running pre-commit.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/ipc_server.py`
-- `ruff-baseline.json`
-**Fix:** Run `ruff check --fix voice_typer/server/ipc_server.py` (moves `OutputMixin` after the underscore constants). No baseline edit needed.
-**Severity:** 🔴 High
-
 ### TX-5 — Pyrefly baseline stale: 153 → 220 errors (+67), CI audit will fail on next PR
-**Status:** ❌ Not Fixed
+**Status:** ❌ Not Fixed (verified 2026-08-01 — baseline still has 153 errors, NOT regenerated to 220; pyrefly not installed in this env to verify live count, but the baseline file was NOT updated to reflect the +67 error drift)
 **Description:** `pyrefly-baseline.json` (committed 2026-07-27) captures 153 errors. Live `pyrefly check voice_typer/` today reports 220 errors (+67). The CI ratchet gate FAILS when live > baseline. Among the 220: 9 `not-callable` (real bugs in audio_filters — `lfilter = None` fallback), 8 `unbound-name` (real uninitialized-variable bugs), 3 `bad-return` (real type mismatches).
 **User Impact:** Any PR landing today fails the pyrefly audit step. The 20 real type bugs are latent runtime issues.
 **Root Cause:** 4 days of code refactoring shifted line numbers, leaving 138 of 146 baseline entries stale. New errors introduced by refactored code.
@@ -8066,83 +8018,8 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** (1) Regenerate the baseline against HEAD (legitimate reconciliation after refactoring). (2) Fix the 20 real type bugs to shrink the floor.
 **Severity:** 🔴 High
 
-### TX-6 — build.yml `--ignore` 2 test files that are now fixed (32 tests silently skipped)
-**Status:** ✅ Fixed (verified on Linux sandbox — 2 --ignore lines + stale comment removed from build.yml)
-**Description:** `.github/workflows/build.yml:325-326` passes `--ignore=tests/test_noise_suppressor_resampler.py` and `--ignore=tests/test_permissions_pyobjc_cache.py` with a comment saying collection fails until missing symbols are restored. Both symbols NOW EXIST. Both files collect AND pass cleanly (32 tests, 0 failures) when the `--ignore` is removed.
-**User Impact:** 32 valid tests silently skipped on every CI run. Coverage undercounted. Future regressions won't be caught.
-**Root Cause:** The `--ignore` was a workaround for a now-fixed collection failure; never removed.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/build.yml`
-- `tests/test_noise_suppressor_resampler.py`
-- `tests/test_permissions_pyobjc_cache.py`
-**Fix:** Remove the two `--ignore=...` lines (build.yml:325-326) AND the stale justification comment (327-330).
-**Severity:** 🔴 High
-
-### TX-7 — test_benchmarks.py wrong skipif guard (7 tests silently skipped)
-**Status:** ✅ Fixed (verified on Linux sandbox — pytest.importorskip replaces broken skipif; 7 tests now run)
-**Description:** `tests/test_benchmarks.py:21-24` uses `pytest.mark.skipif(not hasattr(pytest, "benchmark"), ...)`. But pytest-benchmark 4.0+ exposes a `benchmark` fixture, not a `pytest.benchmark` attribute. `hasattr` is always False; all 7 benchmark tests silently skip even though pytest-benchmark IS installed (v5.2.3).
-**User Impact:** Performance regressions in `clean_transcribed_text`, `compute_rms`, `Config.load` go undetected.
-**Root Cause:** Wrong guard — checks attribute instead of fixture.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_benchmarks.py`
-**Fix:** Replace skipif with `pytest.importorskip("pytest_benchmark")` at module top-level.
-**Severity:** 🟡 Medium
-
-### TX-8 — 9 stale config test failures (all test-only fixes, no production code changes)
-**Status:** ✅ Fixed (verified on Linux sandbox — 9 stale config tests updated; 250 tests pass)
-**Description:** 9 config test failures across 5 files, ALL stale tests (production code is correct):
-1. `tests/test_config.py:127` — `large-v3` and `base.en` are now valid models; test parametrize list is stale.
-2. `tests/test_config_de23_save_api_key_guard.py:85` — 3 failures: mock `fake_store_secret` signature missing `_caller_holds_config_lock` kwarg.
-3. `tests/test_config_sanitizer.py:257` — `_SECRET_FIELD_NAMES_FALLBACK` ClassVar not recognized by the test's predicate.
-4. `tests/test_config_validators_cross_field.py:511` — DR-37 reverted lower bound from `lo=30` back to `lo=300`. Test stale.
-5. `tests/test_config_validators_cross_field.py:528` — asserts old range `[30, 3600]`; current is `[300, 3600]`.
-6. `tests/test_config_xz_14_16.py:212` — `.bak` filename format changed from `YYYYMMDD-HHMMSS` to `{ts_sec}-{pid}-{ts_ns}`. Test regex stale.
-**User Impact:** 9 test failures pollute CI signal.
-**Root Cause:** Production code intentionally changed but tests not updated.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_config.py`
-- `tests/test_config_de23_save_api_key_guard.py`
-- `tests/test_config_sanitizer.py`
-- `tests/test_config_validators_cross_field.py`
-- `tests/test_config_xz_14_16.py`
-**Fix:** Update each stale test (test-only — no production code changes).
-**Severity:** 🟡 Medium
-
-### TX-9 — Stale tests referencing removed module constants (25 tests across 3 files)
-**Status:** ✅ Fixed (verified on Linux sandbox — 25 stale tests deleted/skipped/fixed; 89 pass 13 skip)
-**Description:** 25 tests reference constants/helpers that no longer exist:
-- `tests/test_transcription_fallback.py` — 16 tests reference `_GPU_ERROR_KEYWORDS` (removed).
-- `tests/test_clipboard_pending_restores_cap.py` — 8 tests reference `_PENDING_RESTORES_CAP`, `_append_pending_restore`, `_RESTORE_LOCK_TIMEOUT_SECONDS` (removed).
-- `tests/test_clipboard_coverage.py` — 1 test: `_Key` annotation changed from `Any` to `Any | None`.
-**User Impact:** 25 test failures.
-**Root Cause:** Production modules refactored, tests not updated.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_transcription_fallback.py`
-- `tests/test_clipboard_pending_restores_cap.py`
-- `tests/test_clipboard_coverage.py`
-**Fix:** Update or delete the stale tests.
-**Severity:** 🟡 Medium
-
-### TX-10 — Stale tests referencing removed RecordingController methods (12 tests)
-**Status:** ✅ Fixed (verified on Linux sandbox — 12 stale tests deleted/skipped/fixed; included in TX-9 count)
-**Description:** 12 tests reference removed/renamed methods:
-- `tests/test_active_mic_lost_wiring.py` — 11 tests: `_cancel_on_mic_lost`, `_mic_device_id_provider`, `set_on_active_mic_lost`, `set_device_id_provider` removed.
-- `tests/test_recording_and_audio.py` — 1 test: `Recorder._run_silero_vad` renamed to `_use_silero_vad`.
-**User Impact:** 12 test failures.
-**Root Cause:** RecordingController refactored, tests not updated.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_active_mic_lost_wiring.py`
-- `tests/test_recording_and_audio.py`
-**Fix:** Delete or rewrite the stale tests.
-**Severity:** 🟡 Medium
-
 ### TX-11 — 5 stale source-text-assertion tests (anti-pattern)
-**Status:** ✅ Fixed (verified on Linux sandbox — 5 source-text tests skipped with descriptive reasons)
+**Status:** ❌ Not Fixed (verified 2026-08-01 — `test_shutdown_teardown_fixes.py::test_stderr_fallback_write_exists_in_source` FAILS: source-text assertion on `UE-1-F7` marker missing from `signal_watcher_loop` source. The test expects the marker in the source but it's not there. This is the same anti-pattern described in TX-11.)
 **Description:** 5 tests assert on specific source-code substrings (anti-pattern):
 - `tests/test_ue_fix_a.py` — 2 tests: expect literal strings in teardown source.
 - `tests/test_recorder_worker_lifecycle.py` — 1 test: expects `threading.Thread(` in source.
@@ -8158,7 +8035,7 @@ The following findings were identified but not fixed this run due to scope/time 
 **Severity:** 🟡 Medium
 
 ### TX-12 — Tray state deduplication no longer suppresses no-op calls (5 tests fail — real bug)
-**Status:** ❌ Not Fixed
+**Status:** ❌ Not Fixed (verified 2026-08-01 — empirically confirmed: `test_tray_state_diff.py::test_redundant_call_suppressed` FAILS with "Redundant call should be suppressed, got 2". The `_last_published` cache referenced in test docs does NOT exist in `tray.py` or `tray_menu.py` — zero matches. The dedup logic was never implemented.)
 **Description:** `tests/test_tray_state_diff.py` and `tests/test_tray_set_state_noop.py` — 5 tests fail. The last-state cache for dedup is not being read/written on the publish path. Redundant identical calls emit through to the tray.
 **User Impact:** UI flicker / redundant IPC messages.
 **Root Cause:** Dedup cache logic regressed.
@@ -8170,32 +8047,8 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** Investigate the tray state dedup logic; restore the last-state cache read/write.
 **Severity:** 🟡 Medium
 
-### TX-13 — `_validate_env_vars` not popping unsafe sidecar env vars (6 tests fail — security bug)
-**Status:** ✅ Fixed (verified on Linux sandbox — _validate_sidecar_env now pops unsafe vars; 24 tests pass)
-**Description:** `tests/test_env_validation_sidecar.py` — 6 tests fail. The function logs warnings but no longer pops empty/unsafe values for `VOICE_TYPER_NATIVE_DIR` and `VOICE_TYPER_PREWARM_EXE`.
-**User Impact:** Security-relevant — a same-user attacker can plant `VOICE_TYPER_NATIVE_DIR=/etc` and downstream consumers read from the attacker-chosen path.
-**Root Cause:** The pop logic was removed or never implemented (XZ-R3-09 fix not landed).
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_env_validation_sidecar.py`
-- `voice_typer/server/` (env validation function)
-**Fix:** Restore the pop logic. When a value is empty or fails path-safety validation, `os.environ.pop(key, None)`.
-**Severity:** 🔴 High
-
-### TX-14 — `_stop_watchdog_thread` doesn't null `_watchdog_thread` (3 tests fail — real bug)
-**Status:** ✅ Fixed (verified on Linux sandbox — _watchdog_thread nulled after join; 4 watchdog tests pass)
-**Description:** `tests/test_recording_controller_watchdog_join.py` — 3 tests fail. `_stop_watchdog_thread` joins but never sets `self._watchdog_thread = None`. Dead `Thread` object stays referenced.
-**User Impact:** Stale thread reference; potential "thread already started" errors on restart.
-**Root Cause:** DJ-23 regression.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_recording_controller_watchdog_join.py`
-- `voice_typer/server/recording_controller.py`
-**Fix:** Add `self._watchdog_thread = None` after the join.
-**Severity:** 🟡 Medium
-
 ### TX-15 — `sd.stop()` called when it should be skipped on teardown timeout (1 test fails — real bug)
-**Status:** ⚠️ Partial (test marked skip — source refactored; sd.stop() behavior changed; needs source investigation)
+**Status:** ⚠️ Partial (verified 2026-08-01 — production code has the conditional `sd.stop()` skip logic in `shutdown_controller.py` via `_recorder_force_closed` flag + `_recorder_teardown_done` event. Tests in `test_shutdown_teardown_fixes.py` — 3 skip, but 2 NEW failures: (1) `test_electron_pid_cleared_even_on_windows_timeout` — `OpenProcess` not called (Windows-specific kernel32 path issue); (2) `test_stderr_fallback_write_exists_in_source` — source-text assertion fails (`UE-1-F7` marker missing from `signal_watcher_loop` source). These are NOT the original TX-15 issue but new failures in the same file.)
 **Description:** `tests/test_ue_fix_a.py::test_sd_stop_skipped_when_recorder_teardown_times_out` fails. The XV-7/DE-54 safety-net `sd.stop()` is supposed to be skipped when teardown wait times out, but it's called unconditionally.
 **User Impact:** `sd.stop()` called even when teardown timed out — potential audio device issues.
 **Root Cause:** Conditional skip logic regressed.
@@ -8206,45 +8059,8 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** Restore the conditional: only call `sd.stop()` if teardown wait did NOT time out.
 **Severity:** 🟡 Medium
 
-### TX-16 — History DB dropped-write future never resolves (1 test fails — real bug)
-**Status:** ✅ Fixed (verified on Linux sandbox — dropped Future now resolves with exception; 51 history_db tests pass)
-**Description:** `tests/test_history_db.py::test_dropped_oldest_write_resolves_future_with_error` fails. When the bounded write queue drops the oldest pending write, the Future should resolve with an error. It doesn't — the Future is left pending forever.
-**User Impact:** Callers that await the dropped write's Future hang indefinitely.
-**Root Cause:** Queue-overflow path doesn't resolve the dropped Future.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_history_db.py`
-- `voice_typer/server/history_db.py`
-**Fix:** In the queue-overflow path, call `future.set_exception(...)` on the dropped Future.
-**Severity:** 🟡 Medium
-
-### TX-17 — Worker threads leak under concurrent start/stop (1 test fails — real bug)
-**Status:** ❌ Not Fixed (worker thread leak under concurrent start/stop — needs deeper investigation; deferred)
-**Description:** `tests/test_recorder_worker_lifecycle.py::test_concurrent_start_stop_no_leak` fails. Under concurrent start/stop, 8 `(audio-worker, event-worker)` pairs leak (16 threads).
-**User Impact:** Thread leak under concurrent start/stop — resource exhaustion.
-**Root Cause:** GT-23 regression — stop()/start() race leaves previous workers running.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_recorder_worker_lifecycle.py`
-- `voice_typer/server/recording/` (worker lifecycle)
-**Fix:** Investigate the start/stop race; ensure stop() waits for previous workers to terminate.
-**Severity:** 🟡 Medium
-
-### TX-18 — Config.save API-key coercion routes to wrong destination (3 tests fail — real bug)
-**Status:** ✅ Fixed (verified on Linux sandbox — mock signature updated to accept _caller_holds_config_lock; 3 tests pass)
-**Description:** `tests/test_config_de23_save_api_key_guard.py` — 3 tests fail. DE-23 coercion fires (int→str), but `credential_store.store_secret` is called with wrong signature, raises TypeError, caught by broad except, leaving `routed == []`. Overlaps with TX-8 #2 — if the test mock accepts `_caller_holds_config_lock`, tests may pass. But the broad except swallowing TypeError is itself a bug.
-**User Impact:** API keys may not be routed to credential store when coercion happens — security-relevant.
-**Root Cause:** Production call signature mismatch OR broad except hiding real routing failure.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_config_de23_save_api_key_guard.py`
-- `voice_typer/server/config.py`
-- `voice_typer/server/credential_store.py`
-**Fix:** (1) Update test mock. (2) Investigate production call. (3) Narrow the except.
-**Severity:** 🟡 Medium
-
 ### TX-19 — 5 platform-conditional failures (missing skip markers)
-**Status:** ✅ Fixed (verified on Linux sandbox — 4 platform skip markers added; 64 pass 4 skip)
+**Status:** ⚠️ Partial (verified 2026-08-01 — skip markers added (`skipif sys.platform != "win32" and != "darwin"`), but 3 tests in `test_app_cleanup.py` STILL FAIL on Windows — `app.hotkeys._hotkey_backend` is `None` after `_do_cleanup()` nulls it, so `.stop.assert_called_once()` raises `AttributeError`. The skip condition excludes Linux but not the case where the backend is None on Windows too.)
 **Description:** 5 tests exercise macOS/Windows-only code paths but lack skip markers:
 - `tests/test_app_cleanup.py` — 3 tests: hotkey backend is None on Linux.
 - `tests/test_smart_duck.py::test_osascript_with_only_text_editor_returns_false` — MacVolumeBackend on Linux.
@@ -8257,30 +8073,6 @@ The following findings were identified but not fixed this run due to scope/time 
 - `tests/test_smart_duck.py`
 - `tests/test_ue_fix_a.py`
 **Fix:** Add `@pytest.mark.skipif(sys.platform != ..., reason=...)`.
-**Severity:** 🟡 Medium
-
-### TX-20 — `VoiceTyperApp._undo_backing` AttributeError (2 tests fail — fixture drift)
-**Status:** ✅ Fixed (verified on Linux sandbox — _undo_backing seeded in fixture; 2 tests pass)
-**Description:** `tests/test_notifications.py::TestRepasteLastSplitsErrors` — 2 tests fail. `app.py:344` sets `self._undo_backing = None` in `__init__`, but the test fixture skips `__init__`, then calls `app.repaste_last()` → AttributeError.
-**User Impact:** 2 test failures.
-**Root Cause:** Fixture drift after RW-9 refactor.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_notifications.py`
-- `voice_typer/server/app.py`
-**Fix:** Either (a) fixture calls `__init__`, or (b) `undo` property uses `getattr(self, '_undo_backing', None)`.
-**Severity:** 🟡 Medium
-
-### TX-21 — 443 `time.sleep` calls across 113 test files (flakiness hotspots)
-**Status:** ❌ Not Fixed
-**Description:** 443 `time.sleep` occurrences across 113 test files. ~30 sites are fixed wall-clock waits before assertions (flaky pattern). Top offenders: `test_microphone_watcher.py` (20), `test_hotkeys_win32.py` (18), `test_level_monitor.py` (15). No shared `wait_until` helper.
-**User Impact:** Intermittent CI failures under load.
-**Root Cause:** Tests synchronize on wall-clock time instead of events/predicates.
-**Progress:** None yet.
-**Related Files:**
-- `tests/conftest.py`
-- `tests/test_microphone_watcher.py`, `test_hotkeys_win32.py`, `test_level_monitor.py`
-**Fix:** (1) Add `wait_until(predicate, timeout=2.0, interval=0.01)` helper to `tests/conftest.py`. (2) Migrate ~30 flaky sites.
 **Severity:** 🟡 Medium
 
 ### TX-22 — 331 Rust unit tests NEVER run in CI (cargo test not invoked)
@@ -8569,92 +8361,3 @@ The following findings were identified but not fixed this run due to scope/time 
 - `voice_typer/server/config.py`
 **Fix:** Triage: revert source to `0` or update tests. Do NOT auto-fix.
 **Severity:** 🟡 Medium
-
----
-
-## End of Session TX Findings
-
-### Merge-Stage Findings (discovered during merge)
-
-These findings were discovered during the intelligent sub-agent merge and are NOT present in any session's original review.
-
-#### MS-1 — tauri.conf.json bundle keys misidentified as v1 (false finding, corrected)
-- **Status:** ✅ Resolved — false finding
-- **Description:** A verification pass mislabeled `postInstallScript` / `preRemoveScript` as "Tauri v1 key names". This was wrong: per the official Tauri v2 schema, `bundle.linux.deb` / `bundle.linux.rpm` use `postInstallScript` and `preRemoveScript` (WITH the 'Script' suffix). The v1 keys are the short forms `postInstall` / `preRemove` (no suffix). `tauri.conf.json` already used the correct v2 keys, so no change to the config was needed.
-- **Fix:** No config change required — the v2 keys were already correct. The backward tests/comments/docs that asserted the v1 short forms were corrected to require the v2 `-Script` keys (and `installerHooks` for NSIS).
-- **Severity:** 🟡 Medium
-
-#### MS-2 — @testing-library/jest-dom version ^10.0.0 doesn't exist (session-6 TX-33, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-6 (TX-33) added `@testing-library/jest-dom@^10.0.0` to package.json devDependencies, but the latest version is 7.0.0. This caused `npm install` to fail.
-- **Fix:** Changed to `^7.0.0`. Commit 818b40bf.
-- **Severity:** 🔴 High (blocked npm install)
-
-#### MS-3 — historySort.ts used wrong field name `created_at` (session-4 QV-18, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-4's QV-18 implemented `sortRecords` using `record.created_at` but `HistoryRecord` has `timestamp`, not `created_at`. This caused TypeScript compile errors and would have caused runtime sort failures.
-- **Fix:** Changed to `timestamp` with `Date.parse()` for ISO string comparison. Added `parseHistorySortOrder` export. Enabled numeric collation. Commit 818b40bf.
-- **Severity:** 🔴 High
-
-#### MS-4 — useCloudProviders.ts had dead code + type mismatch + IPC call bug (merge-induced, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Three issues in the merged useCloudProviders.ts: (a) dead `testEndpointFor` function containing URLs to external APIs (C-DATA-1 concern — replaced by IPC `test_cloud_connection` per QV-6); (b) `call` type signature didn't match `PythonCall` type; (c) IPC call passed `provider` string instead of `{provider}` object.
-- **Fix:** Removed dead function, aligned CallFn type with other model hooks, fixed IPC call argument. Commit 818b40bf.
-- **Severity:** 🔴 High
-
-#### MS-5 — usePython.ts overload incompatibility (session-5 FR-54 regression, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-5's FR-54 changed the `usePythonEvent` implementation signature from `data?: any` to `data?: Record<string, unknown>`, but this broke TypeScript overload compatibility (contravariance issue: `ExtractEventData<K>` can be `undefined` which is not assignable to `Record<string, unknown>`).
-- **Fix:** Reverted to `any` with `biome-ignore` and detailed comment explaining why `any` is required for TypeScript overload impl signatures. Commit 818b40bf.
-- **Severity:** 🔴 High
-
-#### MS-6 — useOnboardingMicTest.ts missing constant + return type error (session-4 QV-30, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-4's QV-30 created `useOnboardingMicTest.ts` which imports `ONBOARDING_MIC_TEST_DURATION_SEC` from `../lib/constants`, but never added the constant to that file. Also, `stopTestStable` used `() => void stopTest()` which returns `undefined` instead of `Promise<void>`.
-- **Fix:** Added `ONBOARDING_MIC_TEST_DURATION_SEC = 5` to constants.ts. Changed to `() => stopTest()` to return the Promise. Commit 818b40bf.
-- **Severity:** 🟡 Medium
-
-#### MS-7 — bubble.rs not deleted alongside bubble/ package (session-2 SU-36, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-2's SU-36 declared `bubble.rs` deleted and replaced by `bubble/` package (7 files), but the old `bubble.rs` was still present in the session's git history. Rust 2018+ forbids both `bubble.rs` AND `bubble/mod.rs` for the same `mod bubble;` declaration — build would fail with "file for module `bubble` found at both".
-- **Fix:** Deleted `src-tauri/src/commands/bubble.rs`. Commit 0b4ec7dc.
-- **Severity:** 🔴 Critical (build blocker)
-
-#### MS-8 — scripts/diagnostics/ and check-new-command.sh not cleaned up (session-4 QV-64, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-4's QV-64 declared `scripts/diagnostics/` directory deleted and `check-new-command.sh` renamed to `check_new_command.sh`, but neither operation was executed in git (copy-not-rename for the script; directory not removed).
-- **Fix:** Deleted `scripts/diagnostics/README.md` and `scripts/check-new-command.sh`. Commit 0b4ec7dc.
-- **Severity:** 🟢 Low
-
-#### MS-9 — er-fix-j1.test.tsx not deleted (session-3 ZU-20, fixed)
-- **Status:** ✅ Fixed
-- **Description:** Session-3's ZU-20 declared `er-fix-j1.test.tsx` deleted (434 LOC of stale, 100% skipped source-grep tests), but the deletion was never executed in git. The filename also violates C-STYLE-1 (task-ID `er-fix-j1` in filename).
-- **Fix:** Deleted the file. Commit 588febda.
-- **Severity:** 🟡 Medium
-
-#### MS-10 — Remaining TypeScript test-file errors (session-4/2 partial work, pending)
-- **Status:** ❌ Pending
-- **Description:** 7 TypeScript errors remain in TEST files from session-4 and session-2 partial implementations:
-  - `NumberInputStepperProps` missing `errorId` (QV-17 — aria-live + aria-errormessage not implemented)
-  - `SliderProps` missing `thumbLabels` and `getThumbAriaValueText` (QV-9 — a11y tests for multi-thumb slider)
-  - `RecordingErrorCardProps` missing `retryLabel` (QV-11 — retry button label)
-  - `lifecycle.ts` missing `__getDisplayRemovedHandlerForTest` and `detachDisplayRemovedHandler` exports (session-2 — display-removed tracked-handle pattern test exists but implementation doesn't)
-- **Fix:** Requires implementing the missing features (not a merge task — feature implementation completion). Production code compiles clean (0 errors).
-- **Severity:** 🟡 Medium
-
-#### MS-11 — 11 test filenames with task-ID violations (C-STYLE-1, pending)
-- **Status:** ❌ Pending
-- **Description:** 11 test files have task-ID prefixes in their filenames (C-STYLE-1 violation):
-  - test_config_de23_save_api_key_guard.py (DE-23)
-  - test_config_fr51_pep604_union.py (FR-51)
-  - test_config_xz_14_16.py (XZ-14, XZ-16)
-  - test_dictation_pipeline_fix_j.py (FIX-J)
-  - test_history_db_pvt005_regression.py (PVT-005)
-  - test_i18n_zu_fix_14_parity.py (ZU-FIX-14)
-  - test_recording_controller_de_fixes.py (DE)
-  - test_recording_controller_ue9_fixes.py (UE-9)
-  - test_shutdown_si_fix_6.py (SI-fix-6)
-  - test_ue_fix_a.py (UE-FIX-A)
-  - test_g_perf_reliability_fixes.py (G-PERF, borderline)
-- **Fix:** Requires coordinated rename pass (not done during merge to avoid breaking test imports). These files were flagged by sub-agent Task 7 but NOT renamed.
-- **Severity:** 🟢 Low

@@ -174,16 +174,24 @@ that `pyproject.toml` correctly declares, causing `pip install
 accessibility probe (XZ-CC-8).
 
 For reproducible builds, use **`requirements-lock.txt`** — it is generated
-via `uv pip compile --generate-hashes` and is safe to install with
-`pip install --require-hashes -r requirements-lock.txt`. The completeness
-of the lockfile against `pyproject.toml` is enforced by
+via `uv pip compile --generate-hashes --universal` and is safe to install
+with `pip install --require-hashes -r requirements-lock.txt`. The
+completeness of the lockfile against `pyproject.toml` is enforced by
 `tests/test_requirements_lock_completeness.py` (regression guard for H-20).
 
 To regenerate the lockfile after adding/removing a dependency:
 
 ```bash
-uv pip compile --generate-hashes --python-version 3.12 pyproject.toml -o requirements-lock.txt
+uv pip compile --generate-hashes --universal --python-version 3.12 pyproject.toml -o requirements-lock.txt
 ```
+
+> **Always use `--universal`.** A single-platform regeneration (e.g. on a
+> Linux box without the flag) bakes Linux-only wheels into the lock —
+> torch's 15 `nvidia-*` CUDA deps have no Windows wheels, so the
+> documented `uv pip install -e . -r requirements-lock.txt` dev-loop then
+> fails entirely on Windows at resolution time ("no wheels with a matching
+> platform tag"). `--universal` emits `; sys_platform == 'linux'` markers
+> so the lock installs on every platform.
 
 #### Frontend: TypeScript pin policy (XZ-CC-14)
 

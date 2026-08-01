@@ -75,7 +75,11 @@ From the repo root (the directory containing this `AGENTS.md` file):
 # Python backend — one-time env setup
 uv venv
 source .venv/bin/activate
-uv pip install -e . -r requirements-lock.txt
+# Full dev+test extras (pytest, ruff, mypy, pre-commit) + the hash-pinned
+# lock. NOTE: requirements-lock.txt is BASE-deps only (it does NOT contain
+# pytest/test extras), so install both — the pre-push hook's pytest needs
+# the [test] extra present in the venv.
+uv pip install -e ".[test,dev]" -r requirements-lock.txt
 
 # Renderer + main process — one-time install
 cd voice_typer/client && npm install && cd -
