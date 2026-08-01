@@ -874,7 +874,7 @@ Center with the Voice Typer icon + the notification text.
 - The toast has the Voice Typer icon + text.
 - No `notification:allow-notify` capability error in `voice-typer.log`
   (would indicate the capability wasn't granted — re-check
-  `src-tauri/capabilities/migrate-runtime.json`).
+  `src-tauri/capabilities/main-runtime.json`).
 
 **Fail scenarios**:
 - No toast appears + no error log → "Focus Assist" / "Do Not Disturb"
@@ -1410,8 +1410,8 @@ to create a transcription).
   didn't respond within 30 s. Check `sidecar.log` for the handler
   error.
 - Save dialog doesn't appear → the `dialog:allow-save` capability is
-  missing (it's NOT in the current `migrate-runtime.json` — Sub-agent
-  A must add it). Check `src-tauri/capabilities/migrate-runtime.json`.
+  missing (it's NOT in the current `main-runtime.json` — Sub-agent
+  A must add it). Check `src-tauri/capabilities/main-runtime.json`.
 - File written to wrong path → the dialog returned a path the sidecar
   couldn't write to (permissions). Check the path is writable.
 

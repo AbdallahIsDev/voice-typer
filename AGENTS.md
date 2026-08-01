@@ -69,7 +69,7 @@ PR description rather than paraphrasing it.
 
 ## Dev loop
 
-From the repo root (`/home/z/my-project/skills/_persistent/voice-typer`):
+From the repo root (the directory containing this `AGENTS.md` file):
 
 ```bash
 # Python backend — one-time env setup

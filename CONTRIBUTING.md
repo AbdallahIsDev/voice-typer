@@ -27,7 +27,7 @@ locally.
 - **Python 3.10 or newer** (3.12 recommended; 3.13/3.14 are also
   supported per `[tool.uv].environments`). Install from
   [python.org](https://python.org) or your OS package manager.
-- **Node.js 20 or newer** (matches the `"engines": {"node": ">=20"}`
+- **Node.js 24 or newer** (matches the `"engines": {"node": ">=24"}`
   constraint in `voice_typer/client/package.json`). The recommended way
   is via [nvm](https://github.com/nvm-sh/nvm) or
   [fnm](https://github.com/Schniz/fnm) so you can match CI exactly.
@@ -667,7 +667,7 @@ are updated together.
 > narrowing added 8 more touchpoints: a second host allowlist (Rust), a
 > renderer typed-Request interface, a renderer call site, and four doc-count
 > references that must stay in sync. The automated checker
-> `scripts/check-new-command.sh <cmd>` greps all 11 locations and reports
+> `scripts/check_new_command.sh <cmd>` greps all 11 locations and reports
 > which are missing. Run it before opening a PR that adds or renames a
 > command.
 
@@ -707,13 +707,13 @@ are updated together.
    ::test_security_md_documents_renderer_count_not_registry_count`.
 9. **`docs/ARCHITECTURE.md` doc count** — update the `N-command
    _COMMAND_REGISTRY` references (3 occurrences). Enforced by
-   `scripts/check-new-command.sh` touchpoint 9.
+   `scripts/check_new_command.sh` touchpoint 9.
 10. **`CONTRIBUTING.md` doc count** — update the `N-command registry
     unchanged` count in the `sidecar_ws.py` row of the module table (this
-    section). Enforced by `scripts/check-new-command.sh` touchpoint 10.
+    section). Enforced by `scripts/check_new_command.sh` touchpoint 10.
 11. **`docs/migration/tauri-sidecar-bridge.md` doc count** — update the
     `N-command registry` references (2 occurrences). Enforced by
-    `scripts/check-new-command.sh` touchpoint 11.
+    `scripts/check_new_command.sh` touchpoint 11.
 
 If you are creating a brand-new handler file (not just adding to an existing
 one), also update `voice_typer/server/handlers/__init__.py` `__all__`.
@@ -723,7 +723,7 @@ one), also update `voice_typer/server/handlers/__init__.py` `__all__`.
 Run the automated checker from the repo root:
 
 ```bash
-bash scripts/check-new-command.sh <cmd>
+bash scripts/check_new_command.sh <cmd>
 ```
 
 It greps each of the 11 touchpoints for the command name, reports which are
@@ -758,7 +758,7 @@ Adding a new **ASR engine** has its own touchpoint set: see
 > *without* updating `ALLOWED_COMMANDS` means the renderer's `call()` is
 > rejected by the main process before it ever reaches Python. This has
 > happened 10 times in the past. When you add or rename a command, run
-> `bash scripts/check-new-command.sh <cmd>` and update each missing
+> `bash scripts/check_new_command.sh <cmd>` and update each missing
 > touchpoint.
 
 > **Regression guards:**
@@ -768,7 +768,7 @@ Adding a new **ASR engine** has its own touchpoint set: see
 >   TS allowlist ↔ Rust allowlist ↔ Python `_COMMAND_REGISTRY` (with the
 >   `_HOST_ONLY_COMMANDS` delta for `tray_click` + `shutdown`) ↔
 >   `SECURITY.md` documented count.
-> - `scripts/check-new-command.sh` — pre-PR grep checker for all 11
+> - `scripts/check_new_command.sh` — pre-PR grep checker for all 11
 >   touchpoints (including the doc-count references the tests don't
 >   enforce).
 

@@ -103,6 +103,17 @@ Applies to: All agents, all modes, all sub-agents. THE ORCHESTRATOR MUST EMBED T
 
 ---
 
+## Category: Tauri Config
+
+```
+C-TAURI-1
+Rule: Do NOT use Tauri v1 config keys in `tauri.conf.json`. The project uses Tauri v2 (schema URL: `https://schema.tauri.app/config/2`). V1 keys (`postInstall`, `preRemove`) must be renamed to their v2 equivalents (`postInstallScript`, `preRemoveScript`). Reverting to v1 keys will break the Tauri build.
+Rationale: The Tauri build process reads tauri.conf.json and fails on unrecognized v1 key names. The project already migrated to v2 keys; reverting introduces a build blocker.
+Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 1 (Architecture) or Group 6 (Testing & CI).
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

@@ -78,7 +78,7 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 - `src-tauri/src/sidecar/ws.rs` — Tauri host auth frame send + port discovery.
 - `voice_typer/server/electron_launcher.py` — standalone mode token generation.
 - `docs/architecture/error-envelope-contract.md` — canonical `{type, data: {code, message}, id}` error-envelope contract.
-- `tests/test_e2e_pipeline.py` — `TestE2EAuthEnforcement` tests (wrong token, no auth line, stalled timeout).
+- `tests/test_e2e_pipeline.py` — `TestAuthEnforcement` tests (wrong token, no auth line, stalled timeout).
 - SECURITY.md — SEC-018 documentation.
 
 ## Supersedes

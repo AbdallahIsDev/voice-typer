@@ -10,8 +10,7 @@ Auto-generated reference for the Voice Typer IPC protocol.
 
 > This file is a human-readable summary. The three sources above are the
 > authoritative references; if this doc disagrees with any of them, the
-> source files win. Regenerate by re-running the script that produced this
-> file (see `archive/` for the generator script).
+> source files win.
 
 ## Three-allowlist contract (NH-33 / NH-34)
 
@@ -49,8 +48,8 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_config` | `_handle_get_config` | ✓ |  |
 | `get_defaults` | `_handle_get_defaults` | ✓ |  |
 | `get_status` | `_handle_get_status` | ✓ |  |
-| `heartbeat` | `_handle_heartbeat` | ✓ | doesn't strand the backend with the mic open + mutex held. |
-| `relaunch_ack` | `_handle_relaunch_ack` | ✓ | event-driven wait (bounded by a 2s timeout). |
+| `heartbeat` | `_handle_heartbeat` | ✓ | RW-10 watchdog tick — coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
+| `relaunch_ack` | `_handle_relaunch_ack` | ✓ | PERF-005 relaunch ack — event-driven wait bounded by a 2s timeout. |
 | `set_config` | `_handle_set_config` | ✓ |  |
 
 ### App control (toggle, undo, repaste, tray, force-cancel, restart/quit)
@@ -61,10 +60,10 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `quit_app` | `_handle_quit_app` | ✓ |  |
 | `repaste_last` | `_handle_repaste_last` | ✓ | UX-23: re-paste the last transcription (repaste_handlers mixin). |
 | `restart_app` | `_handle_restart_app` | ✓ |  |
-| `set_tray_locale` | `_handle_set_tray_locale` | ✓ | TRAY-008: allow set_tray_locale so tray labels update when the user changes t... |
-| `shutdown` | `_handle_shutdown` | — | layer runs identically on TCP / stdin / WS. |
+| `set_tray_locale` | `_handle_set_tray_locale` | ✓ | TRAY-008: allows set_tray_locale so tray labels update when the user changes the UI locale. |
+| `shutdown` | `_handle_shutdown` | — | Cooperative shutdown — handler runs identically on TCP / stdin / WS. |
 | `toggle_dictation` | `_handle_toggle_dictation` | ✓ |  |
-| `tray_click` | `_handle_tray_click` | — | "unknown command" differently. |
+| `tray_click` | `_handle_tray_click` | — | Host-only — Rust tray dispatcher invokes via `dispatch_inner`, so a renderer `dispatch` call returns "unknown command". |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
 ### Onboarding wizard
@@ -72,17 +71,17 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `onboarding_apply` | `_handle_onboarding_apply` | ✓ |  |
-| `onboarding_check_permissions` | `_handle_onboarding_check_permissions` | ✓ | the Permissions step. |
+| `onboarding_check_permissions` | `_handle_onboarding_check_permissions` | ✓ | Backs the Onboarding wizard's Permissions step. |
 | `onboarding_get_hotkey_presets` | `_handle_onboarding_get_hotkey_presets` | ✓ |  |
 | `onboarding_get_microphones` | `_handle_onboarding_get_microphones` | ✓ |  |
-| `onboarding_get_model_catalog` | `_handle_onboarding_get_model_catalog` | — |  |
+| `onboarding_get_model_catalog` | `_handle_onboarding_get_model_catalog` | — | Host-only — onboarding wizard queries the model catalog directly via the internal service, not via `dispatch`. |
 | `onboarding_get_model_options` | `_handle_onboarding_get_model_options` | ✓ |  |
-| `onboarding_get_step` | `_handle_onboarding_get_step` | — |  |
+| `onboarding_get_step` | `_handle_onboarding_get_step` | — | Host-only — onboarding wizard reads the current step from the internal service. |
 | `onboarding_is_first_run` | `_handle_onboarding_is_first_run` | ✓ |  |
 | `onboarding_next_step` | `_handle_onboarding_next_step` | ✓ |  |
 | `onboarding_prev_step` | `_handle_onboarding_prev_step` | ✓ |  |
-| `onboarding_request_keyboard_permission` | `_handle_onboarding_request_keyboard_permission` | — | invoke calls returned ``unknown_command``. |
-| `onboarding_reset` | `_handle_onboarding_reset` | ✓ | G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset — invoked by the Onboa... |
+| `onboarding_request_keyboard_permission` | `_handle_onboarding_request_keyboard_permission` | — | Host-only — renderer `dispatch` calls return `unknown_command`. |
+| `onboarding_reset` | `_handle_onboarding_reset` | ✓ | G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset — invoked by the Onboarding wizard's "Start over" button. |
 | `onboarding_set_hotkey` | `_handle_onboarding_set_hotkey` | ✓ |  |
 | `onboarding_set_microphone` | `_handle_onboarding_set_microphone` | ✓ |  |
 | `onboarding_set_model` | `_handle_onboarding_set_model` | ✓ |  |
@@ -93,18 +92,18 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `cancel_model_download` | `_handle_cancel_model_download` | ✓ | NEW-PRIV-011: allow cancel_model_download so the renderer can cancel an in-pr... |
-| `delete_model` | `_handle_delete_model` | ✓ | NEW-UX-005: allow delete_model so the renderer can actually delete model file... |
+| `cancel_model_download` | `_handle_cancel_model_download` | ✓ | NEW-PRIV-011: allows cancel_model_download so the renderer can cancel an in-progress download. |
+| `delete_model` | `_handle_delete_model` | ✓ | NEW-UX-005: allows delete_model so the renderer can actually delete model files from disk. |
 | `download_model` | `_handle_download_model` | ✓ |  |
-| `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings). |
+| `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings. |
 | `get_model_status` | `_handle_get_model_status` | ✓ |  |
-| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | page's "Cache Status" card. |
+| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | Backs the Models page's "Cache Status" card. |
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
-| `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allow import_model so the Models page can scan and import pre-d... |
-| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | from the About page's "View prewarm log" button. |
+| `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allows import_model so the Models page can scan and import pre-downloaded model directories. |
+| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | Opens the prewarm log file — invoked from the About page's "View prewarm log" button. |
 | `pause_model_download` | `_handle_pause_model_download` | ✓ | NEW-PAUSE-001: pause/resume in-progress model downloads. |
 | `resume_model_download` | `_handle_resume_model_download` | ✓ |  |
-| `run_prewarm` | `_handle_run_prewarm` | ✓ | subprocess; the frontend polls get_prewarm_status to track it. |
+| `run_prewarm` | `_handle_run_prewarm` | ✓ | Spawns the prewarm subprocess; the frontend polls get_prewarm_status to track it. |
 
 ### History (CRUD, favorites, search, today stats)
 
@@ -122,10 +121,10 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `apply_vocabulary_suggestion` | `_handle_apply_vocabulary_suggestion` | — |  |
-| `dismiss_vocabulary_suggestion` | `_handle_dismiss_vocabulary_suggestion` | — |  |
+| `apply_vocabulary_suggestion` | `_handle_apply_vocabulary_suggestion` | — | Host-only — applied by the vocabulary automation pipeline. See `vocabulary_automation_handlers.py`. |
+| `dismiss_vocabulary_suggestion` | `_handle_dismiss_vocabulary_suggestion` | — | Host-only — applied by the vocabulary automation pipeline. See `vocabulary_automation_handlers.py`. |
 | `get_vocabulary` | `_handle_get_vocabulary` | ✓ |  |
-| `get_vocabulary_suggestions` | `_handle_get_vocabulary_suggestions` | — | suggestions.  See ``vocabulary_automation_handlers.py``. |
+| `get_vocabulary_suggestions` | `_handle_get_vocabulary_suggestions` | — | Host-only — emitted by the vocabulary automation pipeline as push-event suggestions. See `vocabulary_automation_handlers.py`. |
 | `save_vocabulary` | `_handle_save_vocabulary` | ✓ |  |
 
 ### Templates
@@ -140,7 +139,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `get_microphones` | `_handle_get_microphones` | ✓ |  |
-| `refresh_microphones` | `_handle_refresh_microphones` | — |  |
+| `refresh_microphones` | `_handle_refresh_microphones` | — | Host-only — invoked internally when a microphone change event is detected. |
 
 ### Microphone test (start, stop, cancel, level)
 
@@ -149,7 +148,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `microphone_test_cancel` | `_handle_microphone_test_cancel` | ✓ |  |
 | `microphone_test_get_level` | `_handle_microphone_test_get_level` | ✓ |  |
 | `microphone_test_start` | `_handle_microphone_test_start` | ✓ | Microphone test commands |
-| `microphone_test_status` | `_handle_microphone_test_status` | — |  |
+| `microphone_test_status` | `_handle_microphone_test_status` | — | Host-only — polled by the microphone-test UI via the renderer-reachable `microphone_test_get_level` instead. |
 | `microphone_test_stop` | `_handle_microphone_test_stop` | ✓ |  |
 
 ### Continuous level monitor
@@ -157,47 +156,47 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `level_monitor_start` | `_handle_level_monitor_start` | ✓ | Continuous level monitor |
-| `level_monitor_status` | `_handle_level_monitor_status` | — |  |
+| `level_monitor_status` | `_handle_level_monitor_status` | — | Host-only — polled by the renderer via the renderer-reachable `level_monitor_start` / `level_monitor_stop` instead. |
 | `level_monitor_stop` | `_handle_level_monitor_stop` | ✓ |  |
 
 ### Audio status / RMS
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `get_audio_status` | `_handle_get_audio_status` | — |  |
-| `get_rms_level` | `_handle_get_rms_level` | — |  |
+| `get_audio_status` | `_handle_get_audio_status` | — | Host-only — used internally by the recording pipeline. |
+| `get_rms_level` | `_handle_get_rms_level` | — | Host-only — used internally by the recording pipeline. |
 
 ### Hotkey / ESC cancel
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `set_esc_cancel_paused` | `_handle_set_esc_cancel_paused` | ✓ | the UI is capturing a custom hotkey. |
+| `set_esc_cancel_paused` | `_handle_set_esc_cancel_paused` | ✓ | Pauses ESC-cancel while the UI is capturing a custom hotkey. |
 
 ### Accessibility status
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `check_accessibility` | `_handle_check_accessibility` | — |  |
+| `check_accessibility` | `_handle_check_accessibility` | — | Host-only — macOS Accessibility permission probe used internally by the Onboarding wizard. |
 
 ### Diagnostics / GDPR / personal data
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `delete_all_personal_data` | `_handle_delete_all_personal_data` | — | VoiceTyperService (delete_all_personal_data / export_gdpr_bundle). |
-| `export_diagnostics` | `_handle_export_diagnostics` | — |  |
-| `export_gdpr_bundle` | `_handle_export_gdpr_bundle` | — |  |
+| `delete_all_personal_data` | `_handle_delete_all_personal_data` | — | Host-only — GDPR delete-all; routed through `VoiceTyperService.delete_all_personal_data`. |
+| `export_diagnostics` | `_handle_export_diagnostics` | — | Host-only — invoked from the About page's "Export diagnostics" button via a host-side handler. |
+| `export_gdpr_bundle` | `_handle_export_gdpr_bundle` | — | Host-only — GDPR export bundle; routed through `VoiceTyperService.export_gdpr_bundle`. |
 
 ### LLM connection test
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `test_llm_connection` | `_handle_test_llm_connection` | — |  |
+| `test_llm_connection` | `_handle_test_llm_connection` | — | Host-only — invoked from the Settings → LLM Polishing "Test connection" button via a host-side handler. |
 
 ### Notifications (Electron)
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `show_electron_notification` | `_handle_show_electron_notification` | — |  |
+| `show_electron_notification` | `_handle_show_electron_notification` | — | Host-only — Electron-only path; the renderer posts notifications directly via the Electron main process, not via this command. |
 
 ### Other / unclassified
 

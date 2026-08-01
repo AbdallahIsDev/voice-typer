@@ -896,6 +896,32 @@ ls -la "$HOME/Library/Application Support/voice-typer/"
 
 ---
 
+## Step 8.5 — Autostart LaunchAgent orphan-on-uninstall (packaging gap, low severity)
+
+**Context.** At runtime, `voice_typer/server/server_platform/autostart_macos.py:_enable_autostart_macos` writes a per-user LaunchAgent plist at `~/Library/LaunchAgents/com.voicetyper.plist` (chmod 0o600, `launchctl load`'d). When the user uninstalls the app by dragging the `.app` bundle from `/Applications` to the Trash — the standard macOS uninstall flow — there is no uninstall hook to remove that plist (the `dmg:` format that `electron-builder` uses for macOS does NOT support `afterRemove` / `uninstallerHooks`). The plist is therefore orphaned: on next login `launchd` tries to spawn the (now-deleted) Python interpreter listed in the plist's `ProgramArguments`, fails silently, and logs to `~/Library/Logs/voice-typer-autostart.log`.
+
+**Cross-platform comparison** (kept in `voice_typer/client/electron-builder.yml` as 1-2 line summaries; full context here):
+
+| Platform | Autostart mechanism | Uninstall cleanup status |
+|----------|---------------------|--------------------------|
+| Windows (NSIS) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\VoiceTyper_<hash>` + Scheduled Task `VoiceTyperAutostart<hash>` | **HANDLED** — `scripts/windows/uninstaller.nsh` (wired via `nsis.include` in `electron-builder.yml`) enumerates + deletes every `VoiceTyper*` Run key + scheduled task. Belt-and-suspenders sweep via `scripts/windows/uninstall.bat` → `uninstall_permissions.py` → `_unregister_all_voicetyper_runkeys` / `_unregister_all_voicetyper_tasks`. |
+| Linux (deb/rpm) | `~/.config/autostart/voice-typer.desktop` | **HANDLED** — `scripts/linux/prerm` (line 38-57) and `scripts/linux/prerm.rpm` (line 40-58) remove the `.desktop` entry for every non-system user on uninstall (`$1 = 0`), not on upgrade (`$1 = 1`). |
+| macOS (dmg) | `~/Library/LaunchAgents/com.voicetyper.plist` | **GAP** (low severity, S5-CR-83) — the `dmg:` format has no uninstall hook. The Python runtime DOES clean up its own LaunchAgent when the user explicitly disables autostart in Settings → General (see `_disable_autostart_macos`); the orphan scenario only occurs when the user uninstalls WITHOUT first disabling autostart. |
+
+**Fix path (deferred).** Ship a `voice_typer/client/build/uninstall-autostart.command` script alongside the `.app` bundle (via `mac.extraResources`) that:
+
+1. `launchctl bootout gui/$(id -u)/com.voicetyper` (modern)
+2. `launchctl remove com.voicetyper` (legacy fallback)
+3. `rm -f ~/Library/LaunchAgents/com.voicetyper.plist`
+
+Lighter-weight alternative: document the cleanup in the README / macOS install guide and surface a "Disable autostart before uninstalling" notice in the Settings → General panel. Either way, add a regression test in `voice_typer/client/src/main/__tests__/electron-builder-yml.test.ts` asserting the `extraResources` entry for the `.command` script is present (once the script is added).
+
+**Why the gap is low severity.** The orphan LaunchAgent fails silently — `launchd` logs the spawn failure to `~/Library/Logs/voice-typer-autostart.log` and moves on; it does NOT block login or spawn crash loops. The user is not visibly impacted. The plist is a single 1 KB file that a future reinstall (which re-writes it via `_enable_autostart_macos`) silently overwrites. The Python runtime's `_disable_autostart_macos` is the user-facing "off switch" and works correctly independent of this packaging gap.
+
+**Tracking.** S5-CR-83 (sub-agent 12) documented this gap; the Windows + Linux sides were closed by S2-CR-69 (sub-agent 8) — `scripts/windows/uninstaller.nsh` + `scripts/linux/prerm` — but the macOS side remains open pending the `.command` script. See the `mac:` section comment in `voice_typer/client/electron-builder.yml` for the per-file pointer.
+
+---
+
 ## Step 9 — Capture results
 
 **VALIDATE ON MACOS HOST**

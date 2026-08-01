@@ -37,32 +37,32 @@ all platforms.
 
 | # | Python test | Vitest file |
 | --- | --- | --- |
-| 1 | `test_hotkeys.py::TestHotkeyUtilsFormatLabel::test_formats_single_key` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 2 | `test_hotkeys.py::TestHotkeyUtilsFormatLabel::test_formats_combo` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 3 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_empty` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 4 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_modifiers_only_in_combo` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 5 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_multi_key_in_single_mode` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 6 | `test_hotkeys.py::TestDictationKeySupportsExpandedPresets::test_single_key_presets_include_beyond_f12` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/hotkey-utils-behavior.test.ts` |
-| 7 | `test_hotkeys.py::TestRepasteKeySettingUsesHotkeyPicker::test_settings_imports_hotkey_picker` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/RecordingSettings-hotkey-picker.test.tsx` |
-| 8 | `test_hotkeys.py::TestRepasteKeySettingUsesHotkeyPicker::test_repaste_key_uses_hotkey_picker_combo_mode` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/RecordingSettings-hotkey-picker.test.tsx` |
-| 9 | `test_ux_components.py::TestAppHasHelpOverlayForShortcuts::test_app_has_question_mark_keydown_handler` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/App-help-overlay.test.tsx` |
-| 10 | `test_ux_components.py::TestAppHasHelpOverlayForShortcuts::test_help_overlay_closes_on_escape` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/App-help-overlay.test.tsx` |
-| 11 | `test_ux_components.py::TestBubbleSupportsKeyboardArrowMove::test_bubble_calls_move_by` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/Bubble-keyboard-move.test.tsx` |
-| 12 | `test_ux_components.py::TestBubbleSupportsKeyboardArrowMove::test_bubble_respects_draggable_gate` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/Bubble-keyboard-move.test.tsx` |
-| 13 | `test_ux_components.py::TestSidebarHasAriaCurrentPage::test_sidebar_has_aria_current` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/Sidebar-aria-current.test.tsx` |
-| 14 | `test_ux_components.py::TestAppHasSkipToMainContentLink::test_app_has_skip_link` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/App-a11y.test.tsx` |
-| 15 | `test_ux_components.py::TestAppAnnouncesRecordingStartStopWithAriaLive::test_app_has_aria_live` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/App-a11y.test.tsx` |
-| 16 | `test_ux_components.py::TestHistorySearchHasClearButton::test_history_has_clear_button` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/SearchField-clear-button.test.tsx` |
-| 17 | `test_consent_and_privacy.py::TestAboutPageHasPrivacyDisclosure::test_about_page_has_privacy_section` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/About-privacy.test.tsx` |
-| 18 | `test_consent_and_privacy.py::TestAboutAndSettingsShowVoiceBiometricConsent::test_settings_has_all_consent_toggles_consolidated` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/PrivacySettings-consent.test.tsx` |
-| 19 | `test_feature_hardening_regressions.py::TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/Home-transcription-final.test.tsx` |
-| 20 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_only_six_states` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/RecordingState-types.test.ts` |
-| 21 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_dead_states_removed` | `voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/RecordingState-types.test.ts` |
+| 1 | `test_hotkeys.py::TestHotkeyUtilsFormatLabel::test_formats_single_key` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 2 | `test_hotkeys.py::TestHotkeyUtilsFormatLabel::test_formats_combo` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 3 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_empty` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 4 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_modifiers_only_in_combo` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 5 | `test_hotkeys.py::TestHotkeyUtilsValidate::test_validate_rejects_multi_key_in_single_mode` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 6 | `test_hotkeys.py::TestDictationKeySupportsExpandedPresets::test_single_key_presets_include_beyond_f12` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` |
+| 7 | `test_hotkeys.py::TestRepasteKeySettingUsesHotkeyPicker::test_settings_imports_hotkey_picker` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingSettings-hotkey-picker.test.tsx` |
+| 8 | `test_hotkeys.py::TestRepasteKeySettingUsesHotkeyPicker::test_repaste_key_uses_hotkey_picker_combo_mode` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingSettings-hotkey-picker.test.tsx` |
+| 9 | `test_ux_components.py::TestAppHasHelpOverlayForShortcuts::test_app_has_question_mark_keydown_handler` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/App-help-overlay.test.tsx` |
+| 10 | `test_ux_components.py::TestAppHasHelpOverlayForShortcuts::test_help_overlay_closes_on_escape` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/App-help-overlay.test.tsx` |
+| 11 | `test_ux_components.py::TestBubbleSupportsKeyboardArrowMove::test_bubble_calls_move_by` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Bubble-keyboard-move.test.tsx` |
+| 12 | `test_ux_components.py::TestBubbleSupportsKeyboardArrowMove::test_bubble_respects_draggable_gate` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Bubble-keyboard-move.test.tsx` |
+| 13 | `test_ux_components.py::TestSidebarHasAriaCurrentPage::test_sidebar_has_aria_current` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Sidebar-aria-current.test.tsx` |
+| 14 | `test_ux_components.py::TestAppHasSkipToMainContentLink::test_app_has_skip_link` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/App-a11y.test.tsx` |
+| 15 | `test_ux_components.py::TestAppAnnouncesRecordingStartStopWithAriaLive::test_app_has_aria_live` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/App-a11y.test.tsx` |
+| 16 | `test_ux_components.py::TestHistorySearchHasClearButton::test_history_has_clear_button` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/SearchField-clear-button.test.tsx` |
+| 17 | `test_consent_and_privacy.py::TestAboutPageHasPrivacyDisclosure::test_about_page_has_privacy_section` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/About-privacy.test.tsx` |
+| 18 | `test_consent_and_privacy.py::TestAboutAndSettingsShowVoiceBiometricConsent::test_settings_has_all_consent_toggles_consolidated` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/PrivacySettings-consent.test.tsx` |
+| 19 | `test_feature_hardening_regressions.py::TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Home-transcription-final.test.tsx` |
+| 20 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_only_six_states` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
+| 21 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_dead_states_removed` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
 
 ## Vitest Files Created
 
 All vitest files live under
-`voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/`:
+`voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/`:
 
 | File | Test count | Python tests covered |
 | --- | --- | --- |
@@ -164,13 +164,13 @@ Run from the repo root:
 
 ```bash
 # Vitest — all 53 new tests must pass
-cd voice_typer/client && npx vitest run src/renderer/src/__tests__/rw0-rewrite/
+cd voice_typer/client && npx vitest run src/renderer/src/__tests__/a11y-rewrite/
 
 # Typecheck — must be 0 errors (pre-existing ipc-types.test.ts error
 # is owned by another sub-agent, NOT this rewrite)
 cd voice_typer/client && npx tsc --noEmit -p tsconfig.web.json
 
-# Lint — rw0-rewrite/ must be clean (pre-existing errors in
+# Lint — a11y-rewrite/ must be clean (pre-existing errors in
 # main/index.ts, KeyringStatusBadge.tsx, ModelSettingsSection.tsx,
 # Models.tsx, config.ts are owned by other sub-agents)
 cd voice_typer/client && npm run lint

@@ -29,7 +29,7 @@ These findings drive the design. Each is verified against the actual source.
 
 ### 2.1 `schedule_clipboard_clear()` is dead code
 
-`clipboard.py:812` defines `schedule_clipboard_clear()`. It is **never called from production code** — only from unit tests (`test_clipboard_coverage.py`, `test_clipboard_security.py`, `test_plat_fixes.py`, `test_clipboard_win32_coverage.py`). The snapshot at `clipboard.py:714` (`self._saved_clipboard = pyperclip.paste()`) fires on every `copy()` but the captured value is orphaned and overwritten on the next `copy()`.
+`clipboard.py:812` defines `schedule_clipboard_clear()`. It is **never called from production code** — only from unit tests (`test_clipboard_coverage.py`, `test_clipboard_security.py`, `test_platform_fix_regressions.py`, `test_clipboard_win32_coverage.py`). The snapshot at `clipboard.py:714` (`self._saved_clipboard = pyperclip.paste()`) fires on every `copy()` but the captured value is orphaned and overwritten on the next `copy()`.
 
 **Consequence**: Today, transcription text lands on the clipboard and stays there indefinitely. The user's previous clipboard content is captured but never restored.
 

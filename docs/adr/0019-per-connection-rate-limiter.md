@@ -99,7 +99,7 @@ msgs/s average should be the sustainable ceiling.
   attacks (601+ msgs in any 10 s = 60.1 msg/s avg) that never trip
   the per-second burst.
 
-See `tests/test_ipc4_rate_limiter_dual_window.py` for the behavioral
+See `tests/test_ipc_rate_limiter_dual_window.py` for the behavioral
 pin: a 100 msg/s × 7 s slow-drip attacker is now correctly throttled
 at the 601st msg by the sustained check, where pre-IPC-4 it would
 have leaked through (burst deque never reached 200 in any 1 s, so
@@ -134,7 +134,7 @@ per CR-14 — the duplicate `ipc/` package was NOT deleted in this
 IMPROVE-mode run because the reviewer cycle for a package delete is too
 risky without a full test sweep). The two copies MUST stay in sync; a
 drift would surface as a test failure in
-`tests/test_ipc4_rate_limiter_dual_window.py` (which imports from
+`tests/test_ipc_rate_limiter_dual_window.py` (which imports from
 `ipc_server`).
 
 ### Granularity
@@ -211,11 +211,11 @@ not serialize dispatch.
   imported by tests).
 - `voice_typer/server/ipc/rate_limiter.py` — parallel leaf copy retained
   per CR-14; must stay in sync with `ipc_server.py`.
-- `tests/test_ipc4_rate_limiter_dual_window.py` — pins the dual-window
+- `tests/test_ipc_rate_limiter_dual_window.py` — pins the dual-window
   behavior (burst / sustained independence).
-- `tests/test_cr_fixes.py::TestRateLimiterPerProcess` — pins the
+- `tests/test_comprehensive_review_fixes.py::TestRateLimiterPerProcess` — pins the
   per-process (CR-11) instance-sharing behavior.
-- `tests/test_ipc5_error_envelope_parity.py` — pins the
+- `tests/test_ipc_error_envelope_parity.py` — pins the
   `code: "rate_limited"` envelope shape on both TCP and WS paths.
 - SECURITY.md — RELIABILITY-006 documentation.
 

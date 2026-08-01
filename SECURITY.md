@@ -128,7 +128,8 @@ SEC-018 model:
    mismatch — rejecting`. No dispatch frames are processed until auth
    succeeds.
 5. **Lateral boundary.** Once authenticated, the Tauri `dispatch`
-   command (in `src-tauri/capabilities/migrate-runtime.json`) scopes
+   command (in `src-tauri/capabilities/main-runtime.json` +
+   `bubble-runtime.json`) scopes
    `shell:allow-spawn` to the sidecar binary, mirroring the Electron
    `ALLOWED_COMMANDS` lateral boundary on the TCP path.
 

@@ -441,7 +441,7 @@ python -m nuitka --standalone --onefile ^
 ```
 
 - **Nuitka does NOT expand globs** like `*.dll` in `--include-dll` — those `*.dll` lines above will NOT work as written; use explicit paths or `--include-data-dir` (which copies a whole folder verbatim). The reliable pattern is `--include-data-dir=%SITE%\ctranslate2\lib=%SITE%\ctranslate2\lib` plus an explicit `--include-dll` for `ctranslate2.dll` itself. `ctranslate2/lib` holds `ctranslate2.dll` + optional CUDA DLLs (`cublas64_*`, `cudnn64_*`, `cuda_runtime64_*`) — include the CUDA ones only if the frozen env has CUDA enabled; otherwise CTranslate2 runs CPU-only and those files are absent.
-- `--include-package=websockets` is **required** (added to `requirements.txt` — see §14); the sidecar is a WS *server* and the stdlib has no WS implementation. `--enable-plugin=numpy` pulls numpy's hidden imports; if Nuitka warns about missing `numpy.*` submodules, add `--include-package=numpy`.
+- `--include-package=websockets` is **required** (added to `requirements-lock.txt` — see §14); the sidecar is a WS *server* and the stdlib has no WS implementation. `--enable-plugin=numpy` pulls numpy's hidden imports; if Nuitka warns about missing `numpy.*` submodules, add `--include-package=numpy`.
 - **Discover the exact DLL set at build time**, do not guess: `dir "%SITE%\ctranslate2\lib\*.dll"` and list every file; re-run after any `faster-whisper`/`ctranslate2` version bump.
 - **CPU inference runtimes (easy to miss, instant crash if absent):** `ctranslate2` links Intel MKL / OpenMP for fast x86 CPU inference even with no GPU. If `libiomp5md.dll` (OpenMP) or the MKL redistributables are missing, the frozen exe **builds fine but crashes instantly on `import ctranslate2`** at launch. Verify with `python -c "import ctranslate2"` in the build env, then enumerate loaded companion DLLs (`listdlls`, Sysinternals Process Explorer, or `tasklist /m`) and copy every runtime next to `ctranslate2.dll` via `--include-data-dir` (or an explicit `--include-dll`). At minimum include `libiomp5md.dll`; add any `libiomp*.dll` / `mkl*.dll` / `libgomp*.dll` present. Nuitka does **not** auto-collect these.
 - **Do NOT** bundle model weights — models live in `%APPDATA%/voice-typer/models` (see §8), loaded at runtime. Include only code + native DLLs.
@@ -821,13 +821,13 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. Optio
     "deb": {
       "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3"],
       "desktopTemplate": "voice-typer.desktop.template",
-      "postInstall": "../../scripts/linux/postinst",
-      "preRemove": "../../scripts/linux/prerm"
+      "postInstallScript": "../../scripts/linux/postinst",
+      "preRemoveScript": "../../scripts/linux/prerm"
     },
     "rpm": {
       "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3"],
-      "postInstall": "../../scripts/linux/postinst.rpm",
-      "preRemove": "../../scripts/linux/prerm.rpm"
+      "postInstallScript": "../../scripts/linux/postinst.rpm",
+      "preRemoveScript": "../../scripts/linux/prerm.rpm"
     }
   }
 }
@@ -835,7 +835,7 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. Optio
 
 ### 14. Dev workflow + WebSocket dependency (cross-platform)
 
-- **WebSocket library:** the current IPC is raw TCP — there is **no** WS library in `requirements.txt`. Add **`websockets`** (server-capable) and pin it; Nuitka must `--include-package=websockets` (§4). The sidecar is the WS *server* (`websockets.serve`); Rust is the WS *client* (`tokio-tungstenite`).
+- **WebSocket library:** the current IPC is raw TCP — there is **no** WS library in `requirements-lock.txt`. Add **`websockets`** (server-capable) and pin it; Nuitka must `--include-package=websockets` (§4). The sidecar is the WS *server* (`websockets.serve`); Rust is the WS *client* (`tokio-tungstenite`).
 - **`cargo tauri dev` without recompiling Nuitka per platform:** add a dev mode where the sidecar runs as a plain Python process instead of the frozen exe. Rust reads `VOICE_TYPER_SIDECAR_DEV=1`; when set it spawns `python -m voice_typer.server.ipc_server` (with the same `VOICE_TYPER_IPC_PORT` / `VOICE_TYPER_IPC_TOKEN` env) instead of the `externalBin`. UI/transport iterate in seconds, not minutes; the frozen exe is still used in `release`/bundled builds. **On macOS/Linux dev mode**, also set `VOICE_TYPER_NATIVE_DIR` to the `voice_typer/server/native/` source path so the sidecar finds the dev-mode native binaries.
 - **Per-platform dev gotchas:**
   - **Windows dev:** `python -m voice_typer.server.ipc_server` opens a console window. Use `pythonw.exe` instead, or accept the console for dev (it shows logs).

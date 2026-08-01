@@ -351,7 +351,7 @@ notify-send "test"  # verify libnotify itself works on the host
 **Pass criteria**: A notification appears in the desktop environment's notification list with the Voice Typer icon + the notification text. Both X11 and Wayland show the notification (libnotify is display-server-agnostic via D-Bus).
 
 **Common failures**:
-- `notification:allow-notify not in capabilities` → Add `notification:allow-notify` to `src-tauri/capabilities/migrate-runtime.json`. Per ADR-0020 §7, Tauri v2 silently blocks notification APIs without the capability.
+- `notification:allow-notify not in capabilities` → Add `notification:allow-notify` to `src-tauri/capabilities/main-runtime.json`. Per ADR-0020 §7, Tauri v2 silently blocks notification APIs without the capability.
 - `libnotify: command not found` → `sudo apt-get install libnotify4` (or `libnotify` on Fedora).
 - Notification doesn't appear → Some desktop environments (Sway, i3) don't run a notification daemon by default. Install `mako` or `dunst` and start it.
 
@@ -477,7 +477,7 @@ ls /etc/udev/rules.d/99-voice-typer.rules 2>&1  # should be 'No such file'
 5. The AppImage runs without extraction errors on both X11 and Wayland.
 
 **Common failures**:
-- `postinst: not found` in control archive → The `tauri.conf.json` `bundle.linux.deb.postInstall` path is wrong. Per ADR-0020 §13.3, it should be `"../../scripts/linux/postinst"` (relative to `src-tauri/`).
+- `postinst: not found` in control archive → The `tauri.conf.json` `bundle.linux.deb.postInstallScript` path is wrong. Per ADR-0020 §13.3, it should be `"../../scripts/linux/postinst"` (relative to `src-tauri/`).
 - udev rule not installed → The postinst script failed silently. Run `sudo bash /usr/share/voice-typer/scripts/install_permissions.py` manually to see the error.
 
 ---
@@ -572,7 +572,7 @@ cat ~/Documents/voice-typer-history.json | python -m json.tool | head -20
 **Pass criteria**: The native save dialog opens (GTK FileChooserDialog on both X11 and Wayland). The file is written to the chosen path. The JSON is valid and contains the expected history entries.
 
 **Common failures**:
-- `dialog:allow-save not in capabilities` → Add `dialog:allow-save` to `src-tauri/capabilities/migrate-runtime.json`.
+- `dialog:allow-save not in capabilities` → Add `dialog:allow-save` to `src-tauri/capabilities/main-runtime.json`.
 - Save dialog doesn't open on Wayland → The portal interface (`xdg-desktop-portal`) may not be running. Install `xdg-desktop-portal` + `xdg-desktop-portal-gtk` and verify `dbus-run-session` is in the environment.
 - File written to wrong path → The Rust host returns the absolute path; the sidecar must NOT prepend a default dir. Verify `export_history` in `main.rs` writes to the user-chosen path verbatim.
 
@@ -685,13 +685,13 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. The `
     "deb": {
       "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3", "wl-clipboard", "xclip"],
       "desktopTemplate": "voice-typer.desktop.template",
-      "postInstall": "../../scripts/linux/postinst",
-      "preRemove": "../../scripts/linux/prerm"
+      "postInstallScript": "../../scripts/linux/postinst",
+      "preRemoveScript": "../../scripts/linux/prerm"
     },
     "rpm": {
       "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3", "wl-clipboard", "xclip"],
-      "postInstall": "../../scripts/linux/postinst.rpm",
-      "preRemove": "../../scripts/linux/prerm.rpm"
+      "postInstallScript": "../../scripts/linux/postinst.rpm",
+      "preRemoveScript": "../../scripts/linux/prerm.rpm"
     }
   }
 }

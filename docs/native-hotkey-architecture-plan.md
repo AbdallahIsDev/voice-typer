@@ -1,5 +1,15 @@
 # The complete plan
 
+> **Historical plan document.** This file captures the original
+> cross-platform native-hotkey rewrite plan that was subsequently
+> implemented as ADR-0007 (`docs/adr/0007-native-hotkey-architecture.md`)
+> and the `voice_typer/server/native_hotkeys/` package. It is retained
+> for design rationale and history; the ADR is the authoritative
+> description of what shipped. The phases below describe the original
+> plan as authored — line up each phase against the ADR's "Decision" +
+> "Consequences" sections to see what was implemented verbatim, what was
+> refined, and what was deferred.
+
 ## Phase 0 — Reconcile the design decisions (no code)
 
 1. Default trigger key per platform: Fn on macOS, Caps Lock on Windows, Caps Lock on Linux (with Alt as fallback)

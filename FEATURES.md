@@ -218,7 +218,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 69 | Models | ✅ | Model selection (5 options); download progress; API keys (OpenAI/Groq/Deepgram); test connection; benchmark |
 | 70 | Microphone | ✅ | Device list; system default; select/activate; live level meter; test start/stop; channels/rate |
 | 71 | Analytics | ✅ | Today's stats (4 cards); 7-day bar chart; quick stats (model/device/language); streaks; all-time totals |
-| 72 | Settings | ✅ | 7 sections: General, Overlay, Hotkey, Recording, Post-Processing, LLM Polishing, Audio & Recovery, Troubleshooting |
+| 72 | Settings | ✅ | 8 sections: General, Overlay, Hotkey, Recording, Post-Processing, LLM Polishing, Audio & Recovery, Troubleshooting |
 | 73 | Onboarding | ✅ | 6-step wizard (Welcome, Microphone, Permissions, Hotkey, Model, Done); created on first run detection. The Permissions step gates advancement on macOS (Accessibility) and Linux (input group); on Windows it auto-passes. |
 
 ### Settings (configurable via UI)
