@@ -22,20 +22,13 @@ import pytest
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 #
-# These mirror the fixtures in tests/test_app.py but are kept local so
-# this file can run independently (and so a failure here doesn't depend
-# on test_app.py's fixture setup).  The autouse ``mock_heavy_imports``
-# fixture from tests/conftest.py applies, mocking sounddevice /
-# faster_whisper / pynput / pystray / PIL / pyperclip so the tests run
-# headless.
-
-
-@pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory (so PID file writes are isolated)."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    return tmp_path
+# The autouse ``mock_heavy_imports`` fixture from tests/conftest.py
+# applies, mocking sounddevice / faster_whisper / pynput / pystray / PIL
+# / pyperclip so the tests run headless. ``tmp_config_dir`` is also
+# provided by tests/conftest.py — it patches both
+# ``config._config_dir`` and ``app._config_dir`` so PID file writes /
+# DuckCrashRecovery file writes land in ``tmp_path`` instead of the real
+# ``~/.local/share/voice-typer/`` directory.
 
 
 @pytest.fixture
@@ -45,6 +38,16 @@ def app(tmp_config_dir, monkeypatch):
     Minimal setup — we only need the app instance so we can mock its
     cleanup collaborators (recorder, history_db, etc.) and call
     ``restart_app()`` / ``quit()`` / ``_do_cleanup()`` on it.
+
+    Teardown: ``VoiceTyperApp.__init__`` constructs a real ``HistoryDB()``
+    (which spawns a writer thread) and a real ``CrashRecovery`` (which
+    spawns a save thread). Both are closed in teardown so the daemon
+    threads don't leak across tests. Both ``close()`` and ``shutdown()``
+    are idempotent. By teardown time ``monkeypatch`` has already undone
+    any per-test ``setattr`` overrides installed by
+    ``_stub_restart_environment`` (which swaps ``app.history_db`` /
+    ``app._crash_recovery`` for MagicMocks), so the attributes here are
+    the real instances constructed in ``__init__``.
     """
     monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
@@ -56,7 +59,14 @@ def app(tmp_config_dir, monkeypatch):
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
-    return instance
+    yield instance
+    # Close the real HistoryDB writer thread + CrashRecovery save thread.
+    # ``contextlib.suppress`` defends against double-close after a test
+    # already called ``_do_cleanup()`` (which itself flushes + closes).
+    with contextlib.suppress(Exception):
+        instance.history_db.close()
+    with contextlib.suppress(Exception):
+        instance._crash_recovery.shutdown()
 
 
 def _stub_restart_environment(app, monkeypatch):

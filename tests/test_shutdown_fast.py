@@ -116,15 +116,28 @@ class TestFastCleanupOsExitSource:
 
     def test_do_fast_cleanup_calls_os_exit_even_when_cleanup_done_already(self, _stub_os_exit):
         """When ``_cleanup_done`` is already True (prior cleanup ran),
-        ``_do_fast_cleanup`` still calls ``os._exit(0)`` — we're being
-        invoked from the Windows logoff/shutdown callback and must not
-        return True (which would let the OS re-evaluate us)."""
+        ``_do_fast_cleanup`` still runs its critical flushes UNCONDITIONALLY
+        (the writes are idempotent — running them twice is safe) AND calls
+        ``os._exit(0)`` — we're being invoked from the Windows
+        logoff/shutdown callback and must not return True (which would
+        let the OS re-evaluate us).
+
+        The previous ``if not already_done:`` gate created a false
+        positive: if a normal ``quit()`` was in flight (had set
+        ``_cleanup_done = True`` at the start of ``_do_cleanup``) when
+        Windows logoff fired ``_do_fast_cleanup``, the fast path skipped
+        its own critical flushes — losing pending history DB writes and
+        crash-recovery snapshots. Both cleanup paths skipped the
+        critical writes (the slow one was killed by ``os._exit(0)``
+        mid-flight; the fast one short-circuited). The fix: run the
+        critical flushes unconditionally on every invocation."""
         controller, app = _make_controller_with_app()
         app._cleanup_done = True
-        # Should NOT call crash_recovery.flush (already cleaned up).
+        # crash_recovery.flush MUST be called even though _cleanup_done
+        # is True (unconditional flush — running twice is safe).
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
-        app._crash_recovery.flush.assert_not_called()
+        app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
         # MUST still call os._exit(0).
         assert _stub_os_exit == [0], (
             f"UE-1: _do_fast_cleanup must call os._exit(0) even when _cleanup_done is already True; got {_stub_os_exit}"
@@ -132,15 +145,24 @@ class TestFastCleanupOsExitSource:
 
     def test_do_fast_cleanup_idempotent_second_call_still_exits(self, _stub_os_exit):
         """Two sequential ``_do_fast_cleanup`` invocations: the second
-        short-circuits on ``_cleanup_done`` (no cleanup steps re-run),
-        but BOTH invocations call ``os._exit(0)``."""
+        STILL runs its critical flushes (the writes are idempotent —
+        running them twice is safe), AND BOTH invocations call
+        ``os._exit(0)``.
+
+        The previous ``if not already_done:`` gate skipped the second
+        invocation's flushes, which created a false positive under
+        quit-during-logoff: the slow ``_do_cleanup`` had set
+        ``_cleanup_done = True`` but not yet reached the parallel batch
+        when the fast path fired; the fast path's flushes were skipped,
+        and ``os._exit(0)`` killed the slow path mid-flight — both
+        paths skipped the critical writes. The fix removes the gate."""
         controller, app = _make_controller_with_app()
         controller._do_fast_cleanup()
-        # Second call: arm a spy on crash_recovery.flush — it must NOT
-        # be called (idempotency), but os._exit(0) MUST still fire.
+        # Second call: arm a spy on crash_recovery.flush — it MUST be
+        # called (unconditional flush), AND os._exit(0) MUST fire again.
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
-        app._crash_recovery.flush.assert_not_called()
+        app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
         assert _stub_os_exit == [0, 0], (
             f"UE-1: both _do_fast_cleanup invocations must call os._exit(0); got {_stub_os_exit}"
         )
@@ -402,44 +424,87 @@ class TestFastCleanupSource:
         )
 
     def test_os_exit_is_outside_cleanup_done_guard(self):
-        """The ``os._exit(0)`` call must be OUTSIDE the
-        ``_cleanup_done`` short-circuit ``return`` so it fires even
-        on a no-op second invocation (the Win32 callback must NOT
-        return True without exiting)."""
+        """The ``os._exit(0)`` call must fire UNCONDITIONALLY on every
+        ``_do_fast_cleanup`` invocation — the Win32 callback must NOT
+        return True without exiting.
+
+        The previous ``if not already_done:`` gate around the critical
+        flushes was removed (the flushes now run unconditionally — they
+        are idempotent and bounded by 1s timeouts, so running them
+        twice under a concurrent ``_do_cleanup`` is safe). The
+        ``_cleanup_done`` flag is still SET (so a subsequent
+        ``_do_cleanup`` call short-circuits), but it no longer gates
+        the fast-cleanup body. This source-inspection test verifies:
+
+          1. The ``if not already_done:`` CODE STATEMENT has been
+             REMOVED (its presence would re-introduce the OI-5
+             false-positive quit-during-logoff data loss). The check
+             looks for the pattern as an indented code statement (8+
+             spaces of leading whitespace) — the docstring MENTIONS
+             the phrase ``if not already_done:`` as part of the
+             rationale, but that's inline text inside a triple-quoted
+             string, not an indented code statement.
+          2. ``os._exit(0)`` is at the method-body indentation level
+             (8 spaces) so it runs on every invocation.
+          3. The critical flushes (``crash_recovery.flush`` +
+             ``history_db.flush``) appear AFTER the ``with self._quit_lock:``
+             block — they run unconditionally, NOT gated by the flag."""
+        import re
+
         src = _src(_SHUTDOWN_CONTROLLER_PATH)
         idx = src.find("def _do_fast_cleanup(self) -> None:")
         next_def = src.find("\n    def ", idx + 1)
         body = src[idx:next_def]
-        # The early-return guard must exist (idempotency).
-        assert "if not already_done:" in body, (
-            "UE-1: _do_fast_cleanup must use `if not already_done:` to "
-            "guard the cleanup body (idempotency with prior _do_cleanup)"
+        # The ``if not already_done:`` CODE STATEMENT must NOT exist.
+        # We look for the pattern as an indented code statement (line
+        # starts with whitespace + ``if not already_done:``). The
+        # docstring mentions the phrase inline within a paragraph —
+        # that occurrence has no leading whitespace before ``if``.
+        code_statement_pattern = re.compile(
+            r"^[ \t]+if not already_done:[ \t]*$",
+            re.MULTILINE,
         )
-        # ``os._exit(0)`` must appear AFTER the ``if not already_done:``
-        # block closes (i.e. it must be at the same indentation level
-        # as the ``if`` statement, not nested inside it).
-        if_idx = body.find("if not already_done:")
-        # Find the last ``os._exit(0)`` in the body.
+        code_matches = code_statement_pattern.findall(body)
+        assert not code_matches, (
+            "OI-5: _do_fast_cleanup must NOT use `if not already_done:` "
+            "as a code statement to gate the cleanup body — the critical "
+            "flushes must run unconditionally (running twice is safe; "
+            "the previous gate caused quit-during-logoff to skip the "
+            "flushes when _do_cleanup had already set _cleanup_done=True "
+            "mid-flight)"
+        )
+        # ``os._exit(0)`` must appear in the body.
         exit_idx = body.rfind("os._exit(0)")
-        assert exit_idx > if_idx, (
-            "UE-1: os._exit(0) must appear AFTER the `if not already_done:` "
-            "block so it fires regardless of the _cleanup_done state"
-        )
-        # The line containing ``os._exit(0)`` must NOT be indented
-        # inside the ``if`` block. The ``if`` block body is indented
-        # one level deeper than the ``if`` statement. We check by
-        # finding the line and counting its leading whitespace.
+        assert exit_idx > -1, "UE-1: os._exit(0) must appear in _do_fast_cleanup"
+        # The line containing ``os._exit(0)`` must be at method-body
+        # indentation (8 spaces = class + method body) so it runs on
+        # every invocation, NOT nested inside any ``if`` block.
         exit_line_start = body.rfind("\n", 0, exit_idx) + 1
         exit_line = body[exit_line_start : body.find("\n", exit_idx)]
-        # The ``if not already_done:`` statement is indented 8 spaces
-        # (2 levels of 4-space indent: class + method body). The body
-        # of the ``if`` is indented 12 spaces. ``os._exit(0)`` MUST
-        # be at 8 spaces (method-body level, NOT inside the ``if``).
         leading_spaces = len(exit_line) - len(exit_line.lstrip(" "))
         assert leading_spaces == 8, (
             f"UE-1: os._exit(0) must be at method-body indentation "
             f"(8 spaces) so it runs unconditionally; got {leading_spaces} "
             f"spaces (line: {exit_line!r})"
+        )
+        # The critical flushes (``crash_recovery.flush`` +
+        # ``history_db.flush``) must NOT be nested inside an
+        # ``if already_done:`` guard. They must appear AFTER the
+        # ``with self._quit_lock:`` block (which sets
+        # ``_cleanup_done = True``) — they run unconditionally, NOT
+        # gated by the flag.
+        crash_flush_idx = body.find("app._crash_recovery.flush")
+        assert crash_flush_idx > -1, "OI-5: _do_fast_cleanup must call app._crash_recovery.flush"
+        history_flush_idx = body.find("app.history_db.flush")
+        assert history_flush_idx > -1, "OI-5: _do_fast_cleanup must call app.history_db.flush"
+        lock_idx = body.find("with self._quit_lock:")
+        assert lock_idx > -1, "OI-5: _do_fast_cleanup must acquire _quit_lock to set _cleanup_done"
+        assert crash_flush_idx > lock_idx, (
+            "OI-5: crash_recovery.flush must run AFTER the _quit_lock block "
+            "(unconditionally — not gated by _cleanup_done)"
+        )
+        assert history_flush_idx > lock_idx, (
+            "OI-5: history_db.flush must run AFTER the _quit_lock block (unconditionally — not gated by _cleanup_done)"
         )
 
 

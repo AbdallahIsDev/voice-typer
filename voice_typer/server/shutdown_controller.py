@@ -76,6 +76,7 @@ from voice_typer.server._timeout_utils import (
     TIMEOUT,
     _run_parallel_with_timeout,
     _run_with_timeout,
+    join_leaked_workers,
 )
 from voice_typer.server.platform_utils import is_windows
 
@@ -124,6 +125,35 @@ class ShutdownController:
       ``voice_typer.server.app`` so tests that monkeypatch those
       re-exports still take effect.
     """
+
+    # AC-87: the ordered list of every ``_teardown_*`` phase method that
+    # ``_do_cleanup`` invokes. The first FOUR entries are the sequenced
+    # critical phase (timers/recording → recorder → history_db →
+    # crash_recovery) whose flush-bearing helpers
+    # (``_teardown_history_db`` / ``_teardown_crash_recovery``) MUST run
+    # before the hotkey / level_monitor / event_bus teardowns begin
+    # (flush-before-teardown guarantee — see
+    # ``tests/regressions/electron_test.py::TestShutdownControllerPhasesContract::
+    # test_flush_bearing_phases_run_first``). The remaining 11 entries
+    # are the parallel batch. The list is inspectable at runtime so
+    # tests (and operators) can pin the decomposition.
+    _PARALLEL_TEARDOWN_PHASE_NAMES: tuple[str, ...] = (
+        "_teardown_timers_and_recording",
+        "_teardown_recorder",
+        "_teardown_history_db",
+        "_teardown_crash_recovery",
+        "_teardown_asr_models",
+        "_teardown_restore_volume",
+        "_teardown_waveform_wiring",
+        "_teardown_sounddevice",
+        "_teardown_pid_file",
+        "_teardown_mutex_handle",
+        "_teardown_devnull_files",
+        "_teardown_level_monitor",
+        "_teardown_hotkeys",
+        "_teardown_electron",
+        "_teardown_event_bus",
+    )
 
     def __init__(self, app: VoiceTyperApp) -> None:
         self._app = app
@@ -377,35 +407,94 @@ class ShutdownController:
         except Exception:
             log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
 
-        # ── Parallel batch (): 14 independent teardown helpers ───
+        # ── Sequenced critical teardowns ────────────────────────────
+        # The transcription thread (spawned by ``recorder.stop()``) runs
+        # ASR inference and writes its result to ``history_db`` via
+        # fire-and-forget ``add_transcription()``. The ASR model the
+        # thread is mid-inference on must NOT be unloaded, and the DB
+        # must NOT be closed, until the thread has finished. Running
+        # ``_teardown_recorder``, ``_teardown_history_db``, and
+        # ``_teardown_asr_models`` concurrently in a single parallel
+        # wave races the thread's inference + DB write, risking:
+        #   - a segfault or undefined torch state when the ASR model is
+        #     unloaded under the transcription thread
+        #   - silent drop of the user's last utterance when the DB is
+        #     closed before the thread's ``add_transcription()`` fires
+        #
+        # The sequenced phase runs the dependent teardowns IN ORDER, each
+        # wrapped in ``_run_with_timeout`` so a stuck helper doesn't
+        # block the rest of cleanup:
+        #   1. ``_teardown_timers_and_recording`` — cancel timers, pop
+        #      the streaming session, signal cancel.
+        #   2. ``_teardown_recorder`` — ``recorder.stop()`` + join the
+        #      transcription thread (3s timeout). Sets
+        #      ``_recorder_teardown_done`` so the downstream
+        #      ``_teardown_sounddevice`` (in the parallel batch) gets a
+        #      happens-before guarantee on ``_recorder_force_closed``.
+        #   3. ``_teardown_history_db`` — ``flush()`` + ``close()`` to
+        #      drain pending writes (including the one the transcription
+        #      thread just enqueued).
+        #   4. ``_teardown_crash_recovery`` — ``flush()`` + ``shutdown()``
+        #      to drain pending crash-recovery snapshots.
+        #
+        # ``_teardown_asr_models`` stays in the parallel batch (below):
+        # the sequenced phase completes BEFORE the parallel batch starts,
+        # so the transcription thread is already joined by the time the
+        # ASR model is unloaded. This preserves the parallel speedup for
+        # CUDA teardown (which is independent of the DB close).
+        #
+        # Per-helper failures are logged at DEBUG (consistent with the
+        # parallel batch's exception handling — a single failing helper
+        # must NOT abort the sequenced phase, so subsequent helpers still
+        # run). TIMEOUT results are logged at WARNING (a stuck helper
+        # means a worker thread was leaked as a daemon — operators need
+        # to see these degraded-shutdown events).
+        sequenced_items: list[tuple[str, object, float]] = [
+            ("teardown_timers_and_recording", self._teardown_timers_and_recording, 10.0),
+            ("teardown_recorder", self._teardown_recorder, 15.0),
+            ("teardown_history_db", self._teardown_history_db, 15.0),
+            ("teardown_crash_recovery", self._teardown_crash_recovery, 10.0),
+        ]
+        _degraded_sequenced: list[str] = []
+        for _seq_desc, _seq_func, _seq_timeout in sequenced_items:
+            try:
+                _seq_result = _run_with_timeout(_seq_desc, _seq_func, timeout=_seq_timeout)
+                if _seq_result is TIMEOUT:
+                    log.warning(
+                        "[SHUTDOWN] %s timed out — worker thread leaked as daemon",
+                        _seq_desc,
+                    )
+                    _degraded_sequenced.append(f"{_seq_desc} (timeout)")
+            except BaseException as _seq_exc:  # noqa: BLE001 — per-helper isolation
+                log.debug("[SHUTDOWN] %s raised: %r", _seq_desc, _seq_exc)
+                _degraded_sequenced.append(f"{_seq_desc} (raised: {_seq_exc!r})")
+        if _degraded_sequenced:
+            log.warning(
+                "[SHUTDOWN] %d/%d sequenced teardown helpers degraded: %s",
+                len(_degraded_sequenced),
+                len(sequenced_items),
+                ", ".join(_degraded_sequenced),
+            )
+
+        # ── Parallel batch: 11 independent teardown helpers ─────────
         # Each helper is isolated — a failure in one does NOT propagate
         # (``_run_parallel_with_timeout`` captures per-call exceptions).
         # Shared 10s deadline: each helper is wrapped in
         # ``_run_with_timeout(..., timeout=10.0)`` by
         # ``_run_parallel_with_timeout``; if a helper exceeds 10s, the
         # worker thread is leaked as a daemon and the orchestrator moves
-        # on. The bookends (early WS drain above + late ``tray.stop``
-        # below) remain sequential.
+        # on. The bookends (early WS drain + sequenced critical phase
+        # above + late ``tray.stop`` below) remain sequential.
         #
-        # Ordering within the batch (matters for  flush-before-
-        # teardown ordering tests): ``_teardown_crash_recovery`` and
-        # ``_teardown_history_db`` are placed first AND call ``flush()``
-        # directly (no inner ``_run_with_timeout`` for the flush call),
-        # so their flush side-effects fire immediately when their worker
-        # threads start. The other helpers either wrap their main call
-        # in ``_run_with_timeout`` (adds thread-creation latency) or are
-        # placed later in the list (max_workers=8 → positions 8-13
-        # start only after 6 of the first 8 finish). This gives the
-        # flushes a deterministic head start over hotkeys / level_monitor
-        # event_bus teardown, satisfying 's "flushes run BEFORE
-        # the hotkey / level_monitor / event_bus teardown" guarantee
-        # without sacrificing concurrency.
+        # ``_teardown_asr_models`` is placed FIRST in the parallel batch
+        # so the (potentially slow) CUDA context teardown starts as
+        # early as possible. It runs AFTER the sequenced critical phase
+        # (which joins the transcription thread), so the ASR model is
+        # only unloaded once the thread's inference has completed — no
+        # race between ``registry.unload()`` and mid-inference torch
+        # state.
         parallel_items: list[tuple[str, object, float]] = [
             ("teardown_asr_models", self._teardown_asr_models, 10.0),
-            ("teardown_crash_recovery", self._teardown_crash_recovery, 10.0),
-            ("teardown_history_db", self._teardown_history_db, 10.0),
-            ("teardown_timers_and_recording", self._teardown_timers_and_recording, 10.0),
-            ("teardown_recorder", self._teardown_recorder, 10.0),
             ("teardown_restore_volume", self._teardown_restore_volume, 10.0),
             ("teardown_waveform_wiring", self._teardown_waveform_wiring, 10.0),
             ("teardown_sounddevice", self._teardown_sounddevice, 10.0),
@@ -506,757 +595,100 @@ class ShutdownController:
         Non-critical steps (tray.stop, Electron terminate, hotkey stop,
         level_monitor, waveform worker, event_bus, devnull) are SKIPPED.
 
-        Idempotent with :meth:`_do_cleanup` via the shared ``_cleanup_done``
-        guard. : the actual ctrl_logoff/shutdown routing lives in
+        UNCONDITIONAL FLUSHES: the critical cleanup steps below run
+        EVERY invocation — they are NOT gated by ``_cleanup_done``. The
+        writes (``crash_recovery.flush``, ``history_db.flush``) are
+        idempotent and bounded by per-step 1s timeouts; running them
+        twice is safe. The previous ``if not already_done:`` gate
+        created a false positive: if a normal ``quit()`` was in flight
+        (had set ``_cleanup_done = True`` at the start of
+        ``_do_cleanup``) when Windows logoff fired ``_do_fast_cleanup``,
+        the fast path skipped its own critical flushes — losing pending
+        history DB writes and crash-recovery snapshots. Both cleanup
+        paths skipped the critical writes (the slow one was killed by
+        ``os._exit(0)`` mid-flight; the fast one short-circuited). The
+        fix: run the critical flushes unconditionally on every
+        invocation, then ``os._exit(0)``.
+
+        The ``_cleanup_done`` flag is STILL set (under ``_quit_lock``)
+        so a subsequent ``_do_cleanup`` call short-circuits — but it no
+        longer gates the fast-cleanup body. The actual
+        ctrl_logoff/shutdown routing lives in
         :func:`voice_typer.server.signal_handlers.win32_console_handler`;
         the cross-file change to route logoff/shutdown to this method
-        instead of ``controller.quit()`` is tracked under
+        instead of ``controller.quit()`` is tracked under separate
+        cover.
 
-        this method ends with ``os._exit(0)`` — bypassing atexit
+        This method ends with ``os._exit(0)`` — bypassing atexit
         handlers is correct here because (a) the OS is force-killing us
         within ~5s, so orderly atexit cleanup would race the OS deadline
-        and lose, and (b) the critical cleanup above has already run (or
-        a prior call already ran it via the ``_cleanup_done`` guard). The
-        ``os._exit(0)`` MUST fire even when ``_cleanup_done`` was already
-        True on entry — the Win32 console-control callback must NOT
-        return ``True`` to the OS without exiting, otherwise the OS will
-        re-evaluate us with a CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT
-        escalation. Tests that invoke this method directly MUST monkey-
-        patch ``os._exit`` (see ``tests/test_shutdown_xz_r17_fixes.py``'s
-        autouse ``_stub_os_exit`` fixture).
+        and lose, and (b) the critical cleanup above has already run
+        (and is idempotent, so running it twice under a concurrent
+        ``_do_cleanup`` is safe). The ``os._exit(0)`` MUST fire even
+        when ``_cleanup_done`` was already True on entry — the Win32
+        console-control callback must NOT return ``True`` to the OS
+        without exiting, otherwise the OS will re-evaluate us with a
+        CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT escalation. Tests that
+        invoke this method directly MUST monkey-patch ``os._exit`` (see
+        ``tests/test_shutdown_xz_r17_fixes.py``'s autouse
+        ``_stub_os_exit`` fixture).
         """
         app = self._app
+        # Set ``_cleanup_done`` so a concurrent / subsequent
+        # ``_do_cleanup`` call short-circuits. The flag does NOT gate
+        # the critical flushes below — they run unconditionally so a
+        # quit-during-logoff doesn't lose the user's last write
+        # (the writes are idempotent; running them twice is safe).
         with self._quit_lock:
-            already_done = bool(getattr(app, "_cleanup_done", False))
-            if not already_done:
-                app._cleanup_done = True
+            app._cleanup_done = True
 
-        if not already_done:
-            log.warning(
-                "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
-                "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
-            )
+        log.warning(
+            "[SHUTDOWN] XZ-R17-06: fast cleanup path (Windows logoff/shutdown "
+            "— ~5s OS deadline); running critical-only teardown with 1s timeouts"
+        )
 
-            # 1. crash_recovery.flush()
-            try:
-                if app._crash_recovery is not None:
-                    app._crash_recovery.flush(timeout=1.0)
-            except Exception:
-                log.debug("[SHUTDOWN] fast-path crash_recovery.flush failed", exc_info=True)
-
-            # 2. history_db.flush()
-            try:
-                if app.history_db is not None:
-                    _run_with_timeout(
-                        "history_db.flush (fast-path)",
-                        app.history_db.flush,
-                        timeout=1.0,
-                    )
-            except Exception:
-                log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
-
-            # 3. recorder.stop() — release the PortAudio stream.
-            try:
-                if app.recorder is not None and app.recorder.recording:
-                    _stop_result = _run_with_timeout(
-                        "recorder.stop (fast-path)",
-                        app.recorder.stop,
-                        timeout=1.0,
-                    )
-                    if _stop_result is TIMEOUT:
-                        with contextlib.suppress(Exception):
-                            app.recorder._force_closed = True
-                        log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
-            except Exception:
-                log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
-
-            # 4. _clear_backend_pid_file()
-            try:
-                from voice_typer.server import app as _app_module
-
-                _app_module._clear_backend_pid_file()
-            except Exception:
-                log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
-
-            # 5. Win32 mutex CloseHandle / POSIX flock release.
-            try:
-                if hasattr(app, "_mutex_handle") and app._mutex_handle:
-                    if is_windows():
-                        import ctypes
-
-                        ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
-                    else:
-                        app._mutex_handle.release()
-                    app._mutex_handle = None
-            except Exception:
-                log.debug("[SHUTDOWN] fast-path mutex release failed", exc_info=True)
-
-            # 6. Restore system volume if it was ducked during recording +
-            #    clear the duck crash-recovery marker.
-            # the normal ``_do_cleanup`` path runs
-            # ``_teardown_restore_volume`` (which calls
-            # ``app._restore_volume(fade_ms=0)`` via
-            # ``_run_with_timeout(timeout=5.0)``). The fast path was
-            # missing this, so a quit-during-recording on Windows
-            # logoff/shutdown left the system volume ducked at 25%.
-            # ``_restore_volume`` is wrapped in ``_run_with_timeout``
-            # (1s — fast-path budget) and BOTH the restore and the
-            # crash-recovery ``clear()`` are wrapped in
-            # ``contextlib.suppress(Exception)`` so fast-cleanup NEVER
-            # raises (the OS is killing us within ~5s; raising would
-            # skip the trailing ``os._exit(0)`` and let the Win32
-            # callback return True without exiting).
-            with contextlib.suppress(Exception):
-                _restore_result = _run_with_timeout(
-                    "restore_volume (fast-path)",
-                    lambda: app._restore_volume(fade_ms=0),
-                    timeout=1.0,
-                )
-                if _restore_result is TIMEOUT:
-                    log.warning("[SHUTDOWN] restore_volume timed out in fast-path — system volume may remain ducked")
-            with contextlib.suppress(Exception):
-                app._duck_crash_recovery.clear()
-
-            log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
-
-        # bypass atexit — the OS is killing us (Windows logoff/shutdown
-        # gives ~5s). Orderly atexit cleanup would race the OS force-kill and
-        # lose. Safe because we've already run critical cleanup above (or a
-        # prior call did, via the ``_cleanup_done`` idempotency guard). The
-        # ``os._exit(0)`` MUST fire even on a no-op second invocation so the
-        # Win32 callback does not return ``True`` to the OS without exiting.
-        # ``os._exit`` is async-signal-safe per POSIX, which is the correct
-        # primitive for a console-control callback context.
-        os._exit(0)
-
-    # ───  parallel teardown helpers ──────────────────────────────
-    # ───  parallel teardown helpers ──────────────────────────────
-    #
-    # Each helper takes ``self`` only (no args), accesses ``self._app``
-    # for subsystem references, and logs its own outcome at DEBUG with
-    # ``exc_info=True``. Failures do NOT propagate —
-    # ``_run_parallel_with_timeout`` captures per-call exceptions so
-    # one slow/failing helper does not mask its peers.
-
-    def _teardown_timers_and_recording(self) -> None:
-        """cancel pending timers + drain in-flight timer threads,
-        stop the recording watchdog, and atomically pop the streaming
-        session ().
-
-        Groups three concerns that all touch the RecordingController /
-        TimerCoordinator surface and were previously sequential blocks
-        at the top of ``_do_cleanup``.
-        """
-        app = self._app
-        # Cancel all pending timers.
-        # ``_cancel_pending_timers`` (on TimerCoordinator) bumps
-        # ``_timer_generation`` and calls ``Timer.cancel()`` on every
-        # pending timer — but ``Timer.cancel()`` only prevents a timer
-        # that hasn't fired yet. A timer whose ``guarded_func`` has
-        # already been invoked by the Timer thread (passed the
-        # ``gen == self._timer_generation`` check) but hasn't yet called
-        # ``func()`` will STILL run ``func()`` after the generation bump,
-        # racing the subsystem teardown below. The fix HERE is to give
-        # those in-flight ``func()`` invocations a short bounded window
-        # to complete before we start tearing down the subsystems they
-        # touch.
-        try:
-            timers_coord = getattr(app, "timers", None)
-            in_flight_timers: list = []
-            if timers_coord is not None:
-                pending_lock = getattr(timers_coord, "_pending_timers_lock", None)
-                if pending_lock is not None:
-                    with pending_lock:
-                        in_flight_timers = list(getattr(timers_coord, "_pending_timers", []))
-            app._cancel_pending_timers()
-            # Drain in-flight timer threads with a short total budget.
-            # Per-timer timeout of 0.5s × N timers — for the typical
-            # 3-5 pending timers, total drain is ≤2.5s, well within the
-            # 10s shared deadline.
-            for timer in in_flight_timers:
-                try:
-                    timer.join(timeout=0.5)
-                except Exception:
-                    log.debug("[CLEANUP] in-flight timer join failed", exc_info=True)
-        except Exception:
-            log.debug("[CLEANUP] _cancel_pending_timers failed", exc_info=True)
-
-        # Stop the persistent watchdog thread.
-        try:
-            if hasattr(app, "recording") and app.recording is not None:
-                app.recording._stop_watchdog_thread()
-        except Exception:
-            log.debug("[CLEANUP] _stop_watchdog_thread failed", exc_info=True)
-
-        # atomically pop the streaming session instead of the
-        # two-step ``get_streaming_session()`` + ``set_streaming_session(None)``
-        # pair. The two-step had a TOCTOU race where a concurrent
-        # ``_start_streaming_session_if_enabled`` could install a NEW
-        # session that the subsequent ``set_streaming_session(None)``
-        # would clobber. ``pop_streaming_session()`` is atomic under the
-        # recording controller's lock. If a non-None session is popped,
-        # set its ``_cancel_event`` so the daemon streaming transcription
-        # thread observes the cancel signal.
-        try:
-            if hasattr(app, "recording") and app.recording is not None:
-                session = app.recording.pop_streaming_session()
-                if session is not None:
-                    session._cancel_event.set()
-        except Exception:
-            log.debug("[CLEANUP] streaming session cancel failed", exc_info=True)
-
-    def _teardown_recorder(self) -> None:
-        """stop the PortAudio stream (recorder.stop / discard) and
-        the mic watcher; join the transcription thread.
-
-        if ``recorder.stop()`` (or ``discard()``) times out, the
-        leaked worker thread is still accessing the PortAudio stream.
-        We set a local ``recorder_force_closed`` flag, mirror it onto
-        ``app.recorder._force_closed`` so the recorder itself can
-        short-circuit any later access, and SKIP the downstream
-        ``shutdown_mic_watcher`` call. We also signal
-        ``self._recorder_teardown_done`` and set
-        ``self._recorder_force_closed`` so ``_teardown_sounddevice``
-        (running concurrently in the parallel batch) can SKIP
-        ``sd.stop()`` to avoid a double-stop deadlock ().
-        """
-        app = self._app
-        recorder_force_closed = False
-        try:
-            if app.recorder is not None and app.recorder.recording:
-                try:
-                    _stop_result = _run_with_timeout(
-                        "recorder.stop",
-                        app.recorder.stop,
-                        timeout=5.0,
-                    )
-                    if _stop_result is TIMEOUT:
-                        recorder_force_closed = True
-                        # The ``_force_closed`` field is declared on
-                        # ``Recorder.__init__`` (always present on any real
-                        # ``Recorder`` instance), so the write is safe without
-                        # ``contextlib.suppress`` — the suppress wrapper would
-                        # only mask a real bug.
-                        app.recorder._force_closed = True
-                        log.warning(
-                            "[SHUTDOWN] recorder.stop() timed out — "
-                            "marking recorder as force-closed; downstream "
-                            "recorder.shutdown_mic_watcher will be skipped"
-                        )
-                except Exception as e:
-                    log.warning("[SHUTDOWN] recorder.stop() failed: %s, trying discard()", e)
-                    try:
-                        _discard_result = _run_with_timeout(
-                            "recorder.discard",
-                            app.recorder.discard,
-                            timeout=5.0,
-                        )
-                        if _discard_result is TIMEOUT:
-                            recorder_force_closed = True
-                            # See note above: ``_force_closed`` is always
-                            # present on a real ``Recorder`` instance.
-                            app.recorder._force_closed = True
-                            log.warning(
-                                "[SHUTDOWN] recorder.discard() timed out — "
-                                "marking recorder as force-closed; downstream "
-                                "recorder.shutdown_mic_watcher will be skipped"
-                            )
-                    except Exception as e2:
-                        log.warning("[SHUTDOWN] recorder.discard() also failed: %s", e2)
-        except Exception:
-            log.debug("[CLEANUP] recorder stop/discard failed", exc_info=True)
-
-        # PERF-MIC-001: stop the OS-event device watcher. : SKIP
-        # this step if ``recorder.stop`` / ``recorder.discard`` timed
-        # out above — the leaked worker thread is still accessing the
-        # PortAudio stream, and concurrent ``shutdown_mic_watcher``
-        # calls can segfault or leave the audio device inconsistent.
-        try:
-            if app.recorder is not None and not recorder_force_closed:
-                _run_with_timeout(
-                    "recorder.shutdown_mic_watcher",
-                    app.recorder.shutdown_mic_watcher,
-                    timeout=5.0,
-                )
-            elif recorder_force_closed:
-                log.warning(
-                    "[SHUTDOWN] skipping recorder.shutdown_mic_watcher "
-                    "because recorder.stop()/discard() timed out (leaked worker "
-                    "may still be accessing the PortAudio stream)"
-                )
-        except Exception as e:
-            log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
-
-        # Wait for any running transcription thread to finish (short timeout).
-        # read directly from RecordingController (was a
-        # @property delegate previously).
-        try:
-            if hasattr(app, "recording") and app.recording is not None:
-                t = app.recording._transcription_thread
-                if t is not None and t.is_alive():
-                    log.info("[SHUTDOWN] Waiting for transcription thread to finish...")
-                    t.join(timeout=3.0)
-                    if t.is_alive():
-                        log.warning("[SHUTDOWN] Transcription thread did not finish in time, continuing shutdown")
-        except Exception:
-            log.debug("[CLEANUP] transcription thread join failed", exc_info=True)
-
-        # publish the force-closed flag for
-        # ``_teardown_sounddevice`` (running concurrently in the parallel
-        # batch) and signal that recorder teardown is done. The Event
-        # gives the sounddevice helper a happens-before guarantee on the
-        # flag read even though both helpers run in the same
-        # ThreadPoolExecutor wave.
-        self._recorder_force_closed = recorder_force_closed
-        self._recorder_teardown_done.set()
-
-    def _teardown_level_monitor(self) -> None:
-        """stop the level_monitor module's PortAudio InputStream +
-        worker thread.
-
-        MED-NNN / XCUT-2: the level_monitor module owns its own
-        PortAudio InputStream + worker thread as module-level globals
-        that are NOT registered with ``app._thread_registry``. Without
-        this call the stream + worker leak across restart_app().
-        Best-effort — stop_monitoring() is itself idempotent.
-        """
-        try:
-            from voice_typer.server import level_monitor
-
-            _run_with_timeout(
-                "level_monitor.stop_monitoring",
-                level_monitor.stop_monitoring,
-                timeout=5.0,
-            )
-        except Exception:
-            log.warning(
-                "[SHUTDOWN] level_monitor.stop_monitoring failed",
-                exc_info=True,
-            )
-
-    def _teardown_restore_volume(self) -> None:
-        """restore OS volume if it was ducked when the app quit.
-
-        Without this, a quit-during-recording leaves volume stuck low.
-        Uses ``fade_ms=0`` for instant restore — the app is exiting.
-        """
-        app = self._app
-        try:
-            _run_with_timeout(
-                "restore_volume",
-                lambda: app._restore_volume(fade_ms=0),
-                timeout=5.0,
-            )
-        except Exception:
-            log.debug("[CLEANUP] volume restore failed", exc_info=True)
-
-    def _teardown_hotkeys(self) -> None:
-        """stop all three hotkey backends (dictation / ESC / repaste)
-        in a nested parallel batch.
-
-        The three backends touch disjoint OS resources (RegisterHotKey
-        handles on Windows, evdev/X11 sockets on Linux, CGEventTap on
-        macOS) and are safe to stop in parallel. Sequential stop() took
-        up to 15s (3x5s) worst case; parallel stop() finishes in ≤5s.
-        """
-        app = self._app
-        try:
-            _hk_info = (
-                f"dictation={app.hotkeys._hotkey_backend.hotkey_str if app.hotkeys._hotkey_backend else 'none'}, "
-                f"esc={app.hotkeys._esc_backend.hotkey_str if app.hotkeys._esc_backend else 'none'}, "
-                f"repaste={app.hotkeys._repaste_backend.hotkey_str if app.hotkeys._repaste_backend else 'none'}"
-            )
-            log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
-
-            # the three hotkey backends touch disjoint OS resources
-            # and are safe to stop in parallel.
-            parallel_stops: list[tuple[str, object, float]] = []
-            if app.hotkeys._hotkey_backend:
-                parallel_stops.append(("hotkey_backend.stop", app.hotkeys._hotkey_backend.stop, 5.0))
-            # RELIABILITY-003: also stop ESC cancel and repaste hotkey
-            # backends so their RegisterHotKey / GlobalHotKeys registrations
-            # are released before the next instance tries to claim them.
-            if app.hotkeys._esc_backend:
-                parallel_stops.append(("esc_backend.stop", app.hotkeys._esc_backend.stop, 5.0))
-            if app.hotkeys._repaste_backend:
-                parallel_stops.append(("repaste_backend.stop", app.hotkeys._repaste_backend.stop, 5.0))
-            # same pattern as the ``_do_cleanup`` parallel batch.
-            # Per-helper failures (BaseException) are already logged at
-            # WARNING here (each backend's ``stop()`` does its own
-            # logging). The TIMEOUT branch uses the  message format
-            # ("worker thread leaked as daemon"). A summary WARNING is
-            # emitted after the loop if any backend raised or timed out.
-            _degraded_hotkeys: list[str] = []
-            for _desc, _result in _run_parallel_with_timeout(parallel_stops):
-                if isinstance(_result, BaseException):
-                    log.warning("[SHUTDOWN] %s failed: %s", _desc, _result)
-                    _degraded_hotkeys.append(f"{_desc} (failed: {_result})")
-                elif _result is TIMEOUT:
-                    log.warning(
-                        "[SHUTDOWN] %s timed out — worker thread leaked as daemon",
-                        _desc,
-                    )
-                    _degraded_hotkeys.append(f"{_desc} (timeout)")
-            if _degraded_hotkeys:
-                log.warning(
-                    "[SHUTDOWN] %d/%d hotkey backend stops degraded: %s",
-                    len(_degraded_hotkeys),
-                    len(parallel_stops),
-                    ", ".join(_degraded_hotkeys),
-                )
-
-            # null the hotkey backend refs after stop() so a
-            # subsequent _do_cleanup pass does NOT re-enter stop() on an
-            # already-torn-down backend. stop_all() on HotkeyDispatcher
-            # nulls these refs, but the shutdown path calls individual
-            # backends in parallel (); mirror the nulling here.
-            for _attr in ("_hotkey_backend", "_esc_backend", "_repaste_backend"):
-                with contextlib.suppress(Exception):
-                    setattr(app.hotkeys, _attr, None)
-
-            log.info("[HOTKEY] All hotkey listeners stopped")
-        except Exception:
-            log.debug("[CLEANUP] hotkey backend stop failed", exc_info=True)
-
-    def _teardown_crash_recovery(self) -> None:
-        """flush pending crash-recovery writes + shutdown the writer.
-
-        RELIABILITY-005: flush before the process exits so the latest
-        state is persisted. Short timeout — if the disk is genuinely
-        slow we'd rather exit and lose the in-flight snapshot than hang
-        the shutdown.
-        """
-        app = self._app
+        # 1. crash_recovery.flush()
         try:
             if app._crash_recovery is not None:
-                app._crash_recovery.flush(timeout=2.0)
-                _run_with_timeout(
-                    "crash_recovery.shutdown",
-                    app._crash_recovery.shutdown,
-                    timeout=5.0,
-                )
-        except Exception as e:
-            log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
+                app._crash_recovery.flush(timeout=1.0)
+        except Exception:
+            log.debug("[SHUTDOWN] fast-path crash_recovery.flush failed", exc_info=True)
 
-    def _teardown_history_db(self) -> None:
-        """flush pending fire-and-forget history DB writes + close
-        the DB (joins the writer thread).
-
-        CRASH-SAFE-GAP-A: ``add_transcription()`` is fire-and-forget
-        (enqueues the INSERT and returns immediately). If quit() exits
-        without draining the queue, the writer thread (a daemon) is
-        killed by the OS and any unprocessed INSERTs are silently lost.
-        Flushing here ensures the writer drains its queue and commits
-        all pending writes before the process terminates.
-        """
-        app = self._app
+        # 2. history_db.flush()
         try:
             if app.history_db is not None:
                 _run_with_timeout(
-                    "history_db.flush",
+                    "history_db.flush (fast-path)",
                     app.history_db.flush,
-                    timeout=10.0,
+                    timeout=1.0,
                 )
-                _run_with_timeout(
-                    "history_db.close",
-                    app.history_db.close,
-                    timeout=5.0,
-                )
-        except Exception as e:
-            log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)
-
-    def _teardown_waveform_wiring(self) -> None:
-        """stop the bubble level / waveform worker so it doesn't
-        try to push to a torn-down IPC server during shutdown.
-
-        PERF- the worker / queue / stop_event live on
-        WaveformBubbleWiring; delegate to its stop() helper.
-        """
-        app = self._app
-        try:
-            _run_with_timeout(
-                "waveform_wiring.stop",
-                app.waveform_wiring.stop,
-                timeout=5.0,
-            )
-        except Exception as e:
-            log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
-
-    def _teardown_sounddevice(self) -> None:
-        """safety-net ``sd.stop()`` — skipped when
-        ``recorder.stop()`` (or ``discard()``) timed out.
-
-        if recorder.stop() above failed or an audio callback
-        leaked a stream, this ensures sounddevice doesn't hold the
-        microphone. : SKIP this call when the recorder teardown
-        timed out — the leaked recorder.stop() worker thread is still
-        holding the PortAudio stream lock, and calling ``sd.stop()``
-        while that lock is held deadlocks the cleanup thread on
-        PortAudio backends (notably WASAPI).
-
-        This helper waits for ``_teardown_recorder`` to finish (via
-        ``_recorder_teardown_done``) before reading the
-        ``_recorder_force_closed`` flag, giving a happens-before
-        guarantee even though both helpers run concurrently in the
-        parallel batch.
-
-        ``sd.stop()`` is the non-blocking signal that asks every
-        active PortAudio stream to stop; ``sd.wait()`` is the bounded
-        drain that blocks until each stream has actually closed. Both
-        are wrapped via :func:`_run_with_timeout` so the cleanup thread
-        is never blocked indefinitely. The ``_run_with_timeout`` return
-        value is checked against :data:`TIMEOUT` — if either call times
-        out (the ``wait()`` case is the dangerous one because
-        PortAudio's stream-close handshake can deadlock on backends
-        like WASAPI where the audio callback holds the stream lock),
-        we log at ERROR and force-abort every active stream via
-        :meth:`_abort_sounddevice_streams` (which calls
-        ``stream.abort()`` on each — ``abort()`` is documented to
-        "terminate the stream immediately", bypassing the orderly
-        stop handshake and releasing the PortAudio resources the
-        deadlock was holding).
-        """
-        # Wait for recorder teardown to complete (it sets
-        # _recorder_force_closed). Bound the wait at 9.5s so the outer
-        # _run_with_timeout(10.0) wrapper still has 0.5s slack to log
-        # and return if the recorder helper genuinely finishes near the
-        # shared deadline.
-        self._recorder_teardown_done.wait(timeout=9.5)
-        if self._recorder_force_closed:
-            log.warning(
-                "[SHUTDOWN] skipping sd.stop() because "
-                "recorder.stop()/discard() timed out (leaked worker may "
-                "still be accessing the PortAudio stream)"
-            )
-            return
-        try:
-            import sounddevice as sd
-
-            # ``sd.stop()`` is the non-blocking signal; wrap it
-            # so a wedged PortAudio backend (e.g. WASAPI stream lock
-            # held by a leaked callback) cannot block the cleanup
-            # thread indefinitely. If the call times out, force-abort
-            # every active stream — ``abort()`` bypasses the orderly
-            # stop handshake and breaks the deadlock.
-            _stop_result = _run_with_timeout(
-                "sounddevice.stop",
-                sd.stop,
-                timeout=3.0,
-            )
-            if _stop_result is TIMEOUT:
-                log.error(
-                    "[SHUTDOWN] sd.stop() did not return within 3s — "
-                    "PortAudio may be deadlocked (stream lock held by a "
-                    "leaked callback on backends like WASAPI); force-"
-                    "aborting active streams to release resources"
-                )
-                self._abort_sounddevice_streams(sd)
-                return
-
-            # ``sd.wait()`` blocks until every active stream has
-            # actually drained. PortAudio's stream-close handshake can
-            # deadlock on backends where the audio callback holds the
-            # stream lock; without a bounded wait, this would block
-            # shutdown indefinitely. Wrap it; on timeout, log at ERROR
-            # and force-abort the streams (the wait() return value is
-            # checked explicitly against TIMEOUT).
-            _wait_result = _run_with_timeout(
-                "sounddevice.wait",
-                sd.wait,
-                timeout=2.0,
-            )
-            if _wait_result is TIMEOUT:
-                log.error(
-                    "[SHUTDOWN] sd.wait() did not return within 2s — "
-                    "PortAudio stream(s) did not drain (potential deadlock "
-                    "on backends like WASAPI); force-aborting active "
-                    "streams to release the audio device"
-                )
-                self._abort_sounddevice_streams(sd)
         except Exception:
-            log.debug("[CLEANUP] sd.stop()/wait() failed", exc_info=True)
+            log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
 
-    def _abort_sounddevice_streams(self, sd_module) -> None:
-        """force-abort every active sounddevice stream.
-
-        ``sounddevice._streams`` is the module-level registry of active
-        ``sd.Stream`` / ``sd.InputStream`` / ``sd.OutputStream`` instances
-        that ``sd.stop()`` and ``sd.wait()`` operate on. When the
-        orderly drain times out (a PortAudio deadlock — the audio
-        callback is holding the stream lock and the close handshake
-        cannot complete), iterate a snapshot of the registry and call
-        ``stream.abort()`` on each.
-
-        ``Stream.abort()`` is documented as "Terminate the stream
-        immediately" — it sets the stream's ``_CallbackFlags`` and
-        invokes ``Pa_AbortStream`` under the hood, which closes the
-        stream without waiting for in-flight audio callbacks to drain.
-        This breaks the deadlock by releasing the PortAudio resources
-        the leaked callback was holding, so the audio device is
-        available for the next process launch (without this, the next
-        launch fails with "Device unavailable" because the OS still
-        sees the stream as in-use).
-
-        Best-effort: per-stream failures are suppressed
-        (``contextlib.suppress(Exception)``) so one bad stream does
-        not prevent the abort of the others. The ``_streams`` list is
-        snapshotted before iteration to avoid mutation-during-iteration
-        if ``abort()`` removes the stream from the registry.
-        """
+        # 3. recorder.stop() — release the PortAudio stream.
         try:
-            streams = [s for s in getattr(sd_module, "_streams", []) if s is not None]
-            for stream in streams:
-                with contextlib.suppress(Exception):
-                    stream.abort()
+            if app.recorder is not None and app.recorder.recording:
+                _stop_result = _run_with_timeout(
+                    "recorder.stop (fast-path)",
+                    app.recorder.stop,
+                    timeout=1.0,
+                )
+                if _stop_result is TIMEOUT:
+                    with contextlib.suppress(Exception):
+                        app.recorder._force_closed = True
+                    log.warning("[SHUTDOWN] XZ-R17-06: recorder.stop() timed out in fast-path")
         except Exception:
-            log.debug(
-                "[SHUTDOWN] _abort_sounddevice_streams fallback failed",
-                exc_info=True,
-            )
+            log.debug("[SHUTDOWN] fast-path recorder.stop failed", exc_info=True)
 
-    def _teardown_electron(self) -> None:
-        """terminate the Electron subprocess.
-
-        P1-1.3: prefer the dedicated ``electron_launcher.terminate_electron``
-        helper (which kills the entire process tree on Windows and uses
-        SIGTERM → SIGKILL on POSIX) when we have a tracked PID. Fall
-        back to the legacy ``tray_window`` path for PID discovery.
-
-        the read-terminate-clear sequence is guarded by
-        ``self._electron_pid_lock`` so concurrent ``quit()`` callers
-        don't double-terminate or clobber a freshly-installed PID.
-
-        both branches are wrapped in ``_run_with_timeout(5.0)``.
-        The legacy ``tray_window`` path now does SIGTERM → 2s wait →
-        SIGKILL on POSIX (was SIGTERM-only with a 5s timeout that
-        ``os.kill`` never actually blocks on).
-        """
-        app = self._app
-        try:
-            from voice_typer.server import electron_launcher
-
-            # hold the lock only across the read-terminate-clear
-            # critical section so a concurrent caller observes the
-            # cleared PID and skips. The lock is non-reentrant; the
-            # terminate_electron call inside the critical section does
-            # not re-acquire it.
-            with self._electron_pid_lock:
-                launched_pid = getattr(app, "_electron_pid", None)
-                if launched_pid:
-                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
-                    _term_result = _run_with_timeout(
-                        "electron_launcher.terminate_electron",
-                        lambda: electron_launcher.terminate_electron(launched_pid),
-                        timeout=5.0,
-                    )
-                    if _term_result is TIMEOUT:
-                        # UE-1-F6: escalate on timeout — POSIX gets
-                        # SIGKILL; Windows gets a ctypes
-                        # TerminateProcess fallback. Pre-fix the POSIX
-                        # branch had SIGKILL escalation but the Windows
-                        # branch was a silent no-op on timeout (the
-                        # electron process tree would keep running).
-                        if sys.platform == "win32":
-                            # Best-effort: a failure here must NOT
-                            # prevent the PID clear below (stale PID
-                            # would block the next launch's
-                            # single-instance check).
-                            try:
-                                import ctypes
-                                from ctypes import wintypes
-
-                                # PROCESS_TERMINATE (0x0001) access right.
-                                process_terminate = 0x0001
-                                kernel32 = ctypes.windll.kernel32
-                                kernel32.OpenProcess.argtypes = [
-                                    wintypes.DWORD,
-                                    wintypes.BOOL,
-                                    wintypes.DWORD,
-                                ]
-                                kernel32.OpenProcess.restype = wintypes.HANDLE
-                                handle = kernel32.OpenProcess(process_terminate, False, launched_pid)
-                                if handle:
-                                    kernel32.TerminateProcess(handle, 1)
-                                    kernel32.CloseHandle(handle)
-                            except Exception:
-                                log.debug(
-                                    "[SHUTDOWN] Windows TerminateProcess fallback failed",
-                                    exc_info=True,
-                                )
-                        else:
-                            import signal as _sig_kill
-
-                            with contextlib.suppress(OSError, ProcessLookupError):
-                                os.kill(launched_pid, _sig_kill.SIGKILL)
-                    app._electron_pid = None
-                else:
-                    from voice_typer.server.tray_window import get_electron_pid
-
-                    electron_pid = get_electron_pid()
-                    if electron_pid is not None:
-                        import signal as _sig
-
-                        log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                        # SIGTERM → 2s waitpid poll → SIGKILL on POSIX.
-                        # ``os.kill(SIGTERM)`` returns immediately (it just
-                        # queues the signal); the 2s waitpid poll gives the
-                        # child a grace period to exit cleanly before we
-                        # escalate to SIGKILL.
-                        with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(electron_pid, _sig.SIGTERM)
-                        deadline = time.monotonic() + 2.0
-                        reaped = False
-                        while time.monotonic() < deadline:
-                            try:
-                                pid_done, _status = os.waitpid(electron_pid, os.WNOHANG)
-                                if pid_done != 0:
-                                    reaped = True
-                                    break
-                            except OSError:
-                                # Child already reaped or not a child of
-                                # this process — stop polling.
-                                reaped = True
-                                break
-                            time.sleep(0.1)
-                        if not reaped and sys.platform != "win32":
-                            with contextlib.suppress(OSError, ProcessLookupError):
-                                os.kill(electron_pid, _sig.SIGKILL)
-        except Exception:
-            log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
-
-    def _teardown_pid_file(self) -> None:
-        """clear the backend PID file so a subsequent launch isn't
-        falsely blocked by the single-instance check.
-
-        Looks up ``_clear_backend_pid_file`` dynamically from the app
-        module so tests that monkeypatch
-        ``voice_typer.server.app._clear_backend_pid_file`` still take
-        effect (mirrors the SettingsController convention).
-        """
+        # 4. _clear_backend_pid_file()
         try:
             from voice_typer.server import app as _app_module
 
             _app_module._clear_backend_pid_file()
         except Exception:
-            log.debug("[SHUTDOWN] could not clear backend PID file", exc_info=True)
+            log.debug("[SHUTDOWN] fast-path _clear_backend_pid_file failed", exc_info=True)
 
-    def _teardown_mutex_handle(self) -> None:
-        """release the single-instance mutex handle.
-
-        PLAT-HLEAK: on Windows, ``CloseHandle`` releases the named mutex
-        so a subsequent launch can claim it. On POSIX, the
-        ``_mutex_handle`` is a ``_PosixSingleInstanceHandle`` wrapping
-        the lockfile fd — its ``release()`` closes the fd (releasing the
-        ``fcntl.flock``) and unlinks the ``backend.lock``. Without this
-        branch, the Windows-only ``ctypes.windll.kernel32.CloseHandle``
-        call would raise ``AttributeError`` on POSIX
-        (``ctypes.windll`` is Windows-only), which was swallowed by the
-        try/except, leaving the lockfile fd dangling until process exit
-        and racing a fast re-launch. ``contextlib.suppress(Exception)``
-        mirrors the Windows branch's best-effort contract: cleanup must
-        never propagate failures.
-        """
-        app = self._app
+        # 5. Win32 mutex CloseHandle / POSIX flock release.
         try:
             if hasattr(app, "_mutex_handle") and app._mutex_handle:
                 if is_windows():
@@ -1264,97 +696,279 @@ class ShutdownController:
 
                     ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
                 else:
-                    # POSIX: release the flock-based single-instance
-                    # handle (closes the fd + unlinks the lockfile).
                     app._mutex_handle.release()
                 app._mutex_handle = None
         except Exception:
-            log.debug("[CLEANUP] mutex handle release failed", exc_info=True)
+            log.debug("[SHUTDOWN] fast-path mutex release failed", exc_info=True)
+
+        # 6. Restore system volume if it was ducked during recording +
+        #    clear the duck crash-recovery marker.
+        # The normal ``_do_cleanup`` path runs ``_teardown_restore_volume``
+        # (which calls ``app._restore_volume(fade_ms=0)`` via
+        # ``_run_with_timeout(timeout=5.0)``). The fast path was missing
+        # this, so a quit-during-recording on Windows logoff/shutdown
+        # left the system volume ducked at 25%. ``_restore_volume`` is
+        # wrapped in ``_run_with_timeout`` (1s — fast-path budget) and
+        # BOTH the restore and the crash-recovery ``clear()`` are wrapped
+        # in ``contextlib.suppress(Exception)`` so fast-cleanup NEVER
+        # raises (the OS is killing us within ~5s; raising would skip
+        # the trailing ``os._exit(0)`` and let the Win32 callback return
+        # True without exiting).
+        with contextlib.suppress(Exception):
+            _restore_result = _run_with_timeout(
+                "restore_volume (fast-path)",
+                lambda: app._restore_volume(fade_ms=0),
+                timeout=1.0,
+            )
+            if _restore_result is TIMEOUT:
+                log.warning("[SHUTDOWN] restore_volume timed out in fast-path — system volume may remain ducked")
+        with contextlib.suppress(Exception):
+            app._duck_crash_recovery.clear()
+
+        log.warning("[SHUTDOWN] XZ-R17-06: fast cleanup path complete")
+
+        # Bypass atexit — the OS is killing us (Windows logoff/shutdown
+        # gives ~5s). Orderly atexit cleanup would race the OS force-kill
+        # and lose. Safe because we've already run the critical flushes
+        # above (idempotent — safe even if a concurrent ``_do_cleanup``
+        # is also mid-flight). The ``os._exit(0)`` MUST fire on every
+        # invocation so the Win32 callback does not return ``True`` to
+        # the OS without exiting. ``os._exit`` is async-signal-safe per
+        # POSIX, which is the correct primitive for a console-control
+        # callback context.
+        os._exit(0)
+
+    # ───  parallel teardown helpers ──────────────────────────────
+    # ───  parallel teardown helpers ──────────────────────────────
+    #
+    # Each helper is a thin delegate that calls the standalone
+    # function in :mod:`voice_typer.server.shutdown.teardowns`
+    # (extracted in Phase 4.5 / OI-36 so the controller class body
+    # shrinks to orchestration only). The delegate indirection is
+    # kept so:
+    #
+    #   * tests that ``monkeypatch.setattr(controller, "_teardown_X",
+    #     spy)`` still intercept the call (see
+    #     ``tests/test_shutdown_parallel.py``); and
+    #   * the sequenced-phase list and parallel-batch list in
+    #     ``_do_cleanup`` keep referencing ``self._teardown_X`` (the
+    #     callable attribute must remain on the controller instance).
+    #
+    # The standalone functions all take ``controller`` as their first
+    # positional argument so they can read ``controller._app`` and
+    # (in two cases) the shared synchronization state
+    # (``_recorder_teardown_done`` / ``_recorder_force_closed`` /
+    # ``_electron_pid_lock``) initialized in ``__init__``.
+
+    def _teardown_timers_and_recording(self) -> None:
+        """cancel pending timers + drain in-flight timer threads,
+        stop the recording watchdog, and atomically pop the streaming
+        session.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.timers_and_recording.teardown_timers_and_recording`.
+        """
+        from voice_typer.server.shutdown.teardowns.timers_and_recording import (
+            teardown_timers_and_recording,
+        )
+
+        teardown_timers_and_recording(self)
+
+    def _teardown_recorder(self) -> None:
+        """stop the PortAudio stream (recorder.stop / discard) and
+        the mic watcher; join the transcription thread.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.recorder.teardown_recorder`.
+        Publishes ``_recorder_force_closed`` / ``_recorder_teardown_done``
+        on this controller for the sounddevice helper's happens-before
+        guarantee.
+        """
+        from voice_typer.server.shutdown.teardowns.recorder import (
+            teardown_recorder,
+        )
+
+        teardown_recorder(self)
+
+    def _teardown_level_monitor(self) -> None:
+        """stop the level_monitor module's PortAudio InputStream +
+        worker thread.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.level_monitor.teardown_level_monitor`.
+        """
+        from voice_typer.server.shutdown.teardowns.level_monitor import (
+            teardown_level_monitor,
+        )
+
+        teardown_level_monitor(self)
+
+    def _teardown_restore_volume(self) -> None:
+        """restore OS volume if it was ducked when the app quit.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.volume.teardown_restore_volume`.
+        """
+        from voice_typer.server.shutdown.teardowns.volume import (
+            teardown_restore_volume,
+        )
+
+        teardown_restore_volume(self)
+
+    def _teardown_hotkeys(self) -> None:
+        """stop all three hotkey backends (dictation / ESC / repaste)
+        in a nested parallel batch.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.hotkeys.teardown_hotkeys`.
+        """
+        from voice_typer.server.shutdown.teardowns.hotkeys import (
+            teardown_hotkeys,
+        )
+
+        teardown_hotkeys(self)
+
+    def _teardown_crash_recovery(self) -> None:
+        """flush pending crash-recovery writes + shutdown the writer.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.crash_recovery.teardown_crash_recovery`.
+        """
+        from voice_typer.server.shutdown.teardowns.crash_recovery import (
+            teardown_crash_recovery,
+        )
+
+        teardown_crash_recovery(self)
+
+    def _teardown_history_db(self) -> None:
+        """flush pending fire-and-forget history DB writes + close
+        the DB (joins the writer thread).
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.history_db.teardown_history_db`.
+        """
+        from voice_typer.server.shutdown.teardowns.history_db import (
+            teardown_history_db,
+        )
+
+        teardown_history_db(self)
+
+    def _teardown_waveform_wiring(self) -> None:
+        """stop the bubble level / waveform worker so it doesn't
+        try to push to a torn-down IPC server during shutdown.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.waveform.teardown_waveform_wiring`.
+        """
+        from voice_typer.server.shutdown.teardowns.waveform import (
+            teardown_waveform_wiring,
+        )
+
+        teardown_waveform_wiring(self)
+
+    def _teardown_sounddevice(self) -> None:
+        """safety-net ``sd.stop()`` — skipped when
+        ``recorder.stop()`` (or ``discard()``) timed out.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.sounddevice.teardown_sounddevice`.
+        Reads ``self._recorder_teardown_done`` / ``_recorder_force_closed``
+        (set by :meth:`_teardown_recorder`) for the happens-before
+        guarantee.
+        """
+        from voice_typer.server.shutdown.teardowns.sounddevice import (
+            teardown_sounddevice,
+        )
+
+        teardown_sounddevice(self)
+
+    def _abort_sounddevice_streams(self, sd_module) -> None:
+        """force-abort every active sounddevice stream.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.sounddevice.abort_sounddevice_streams`.
+        """
+        from voice_typer.server.shutdown.teardowns.sounddevice import (
+            abort_sounddevice_streams,
+        )
+
+        abort_sounddevice_streams(self, sd_module)
+
+    def _teardown_electron(self) -> None:
+        """terminate the Electron subprocess.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.electron.teardown_electron`.
+        Acquires ``self._electron_pid_lock`` (initialized in ``__init__``)
+        around the read-terminate-clear critical section.
+        """
+        from voice_typer.server.shutdown.teardowns.electron import (
+            teardown_electron,
+        )
+
+        teardown_electron(self)
+
+    def _teardown_pid_file(self) -> None:
+        """clear the backend PID file so a subsequent launch isn't
+        falsely blocked by the single-instance check.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.pid_file.teardown_pid_file`.
+        """
+        from voice_typer.server.shutdown.teardowns.pid_file import (
+            teardown_pid_file,
+        )
+
+        teardown_pid_file(self)
+
+    def _teardown_mutex_handle(self) -> None:
+        """release the single-instance mutex handle.
+
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.mutex.teardown_mutex_handle`.
+        """
+        from voice_typer.server.shutdown.teardowns.mutex import (
+            teardown_mutex_handle,
+        )
+
+        teardown_mutex_handle(self)
 
     def _teardown_devnull_files(self) -> None:
         """close devnull streams opened during logging setup.
 
-        Looks up ``_close_devnull_files`` dynamically from the app
-        module so tests that monkeypatch
-        ``voice_typer.server.app._close_devnull_files`` still take
-        effect.
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.devnull.teardown_devnull_files`.
         """
-        try:
-            from voice_typer.server import app as _app_module
+        from voice_typer.server.shutdown.teardowns.devnull import (
+            teardown_devnull_files,
+        )
 
-            _app_module._close_devnull_files()
-        except Exception:
-            log.debug("[CLEANUP] close devnull files failed", exc_info=True)
+        teardown_devnull_files(self)
 
     def _teardown_asr_models(self) -> None:
         """unload active ASR backend + release CUDA caching allocator
         blocks so torch's VRAM is returned to the OS before process exit.
 
-        Pre-fix, ``shutdown_controller._do_cleanup`` ran 14 parallel
-        teardown helpers — NONE of them touched ``app.models`` /
-        ``app.models.registry``. ``asr_registry.unload()`` was only
-        invoked on (a) backend load failure and (b) ``app._change_model()``.
-        On a normal quit / restart_app / atexit, the active Parakeet /
-        Whisper backend's ``unload()`` was never called. Combined with
-         (host force-kills after 2-6s), the Python process was
-        SIGKILLed before Python's GC could drop the model references —
-        meaning torch's ``empty_cache()`` / ``cuda.synchronize()`` /
-        context destructor never ran. On GPU systems this leaked CUDA
-        memory across rapid restart cycles; on CPU-only Whisper ~1-3GB
-        RSS stayed resident longer than necessary.
-
-        This helper is placed FIRST in the parallel batch so the
-        (potentially slow) CUDA context teardown starts as early as
-        possible. ``registry.unload()`` is idempotent and already wraps
-        every per-backend ``backend.unload()`` in try/except, so a
-        single failing backend doesn't abort the others.
-        ``release_gpu_memory()`` guards on ``torch.cuda.is_available()``
-        and wraps both ``synchronize()`` and ``empty_cache()`` in
-        try/except, so it is a no-op on CPU-only hosts.
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.asr_models.teardown_asr_models`.
         """
-        try:
-            registry = getattr(self._app.models, "registry", None)
-            if registry is not None and hasattr(registry, "unload"):
-                registry.unload()
-        except Exception:
-            log.debug("[CLEANUP] asr_registry.unload() failed", exc_info=True)
-        try:
-            from voice_typer.server.asr_utils import release_gpu_memory
+        from voice_typer.server.shutdown.teardowns.asr_models import (
+            teardown_asr_models,
+        )
 
-            release_gpu_memory()
-        except Exception:
-            log.debug(
-                "[CLEANUP] release_gpu_memory() failed (non-fatal)",
-                exc_info=True,
-            )
+        teardown_asr_models(self)
 
     def _teardown_event_bus(self) -> None:
         """shut down the event_bus deferred-publish executor.
 
-        M-22: this is the LAST module-level cleanup because earlier
-        steps (bubble worker stop, recorder stop, hotkey stop) can each
-        publish events via ``event_bus.publish``, and an RT-thread
-        publish defers to this executor. Shutting it down here ensures
-        no deferred ``_deliver`` tasks outlive the subsystems they
-        deliver TO.
-
-        ``event_bus.shutdown`` now calls
-        ``executor.shutdown(wait=True, cancel_futures=True)`` so the
-        5s ``_run_with_timeout`` wrapper ACTUALLY bounds the wait
-        (previously ``wait=False`` returned immediately and the
-        non-daemon worker thread lingered past the 5s "timeout").
-        Idempotent — safe under the ``_do_cleanup`` double-call guard.
+        Body lives in
+        :func:`voice_typer.server.shutdown.teardowns.event_bus.teardown_event_bus`.
         """
-        try:
-            from voice_typer.server import event_bus as _event_bus
+        from voice_typer.server.shutdown.teardowns.event_bus import (
+            teardown_event_bus,
+        )
 
-            _run_with_timeout(
-                "event_bus.shutdown",
-                _event_bus.shutdown,
-                timeout=5.0,
-            )
-        except Exception:
-            log.debug("[CLEANUP] event_bus.shutdown failed", exc_info=True)
+        teardown_event_bus(self)
 
     # ─── Quit ──────────────────────────────────────────────────────────
 
@@ -1521,6 +1135,29 @@ class ShutdownController:
                 "main thread (parked in tray.run())",
                 timeout_s,
             )
+            # Best-effort drain of leaked daemon worker threads before
+            # ``os._exit(0)``. ``_do_cleanup`` runs several teardowns
+            # inside ``_run_with_timeout`` / ``_run_parallel_with_timeout``
+            # — when a teardown exceeds its per-helper 10s deadline, the
+            # worker thread is leaked as a daemon and registered in
+            # ``_timeout_utils._LEAKED_WORKERS``. ``os._exit(0)`` bypasses
+            # interpreter shutdown, so those daemon threads are killed
+            # mid-flight by the OS — usually benign (teardown is best
+            # effort), but if a leaked thread holds a lock on
+            # ``history_db._write_lock`` or the ctranslate2 model mutex,
+            # the OS-level kill can leave the SQLite WAL half-written
+            # or the CUDA context half-torn-down. ``join_leaked_workers``
+            # blocks the watchdog for up to 2s total (per-worker 200ms
+            # join, capped at 10 workers) so the daemons can finish
+            # their critical sections. The 2s drain is well within the
+            # watchdog's 30s budget.
+            try:
+                join_leaked_workers(timeout_s=2.0)
+            except Exception:
+                log.debug(
+                    "[SHUTDOWN] join_leaked_workers raised — proceeding to os._exit(0)",
+                    exc_info=True,
+                )
             os._exit(0)
 
         t = threading.Thread(

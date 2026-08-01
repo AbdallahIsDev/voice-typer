@@ -65,20 +65,21 @@ class _FakeApp:
 
 
 @pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory (so PID file writes are isolated)."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    return tmp_path
-
-
-@pytest.fixture
 def fake_app(tmp_config_dir, monkeypatch):
-    """A ``_FakeApp`` with the shutdown environment stubbed out (POSIX)."""
-    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+    """A ``_FakeApp`` with the shutdown environment stubbed out (POSIX).
+
+    Uses ``raising=False`` on the ``monkeypatch.setattr`` calls because
+    ``_clear_backend_pid_file`` / ``_close_devnull_files`` /
+    ``_register_devnull_file`` may or may not exist as module-level
+    attributes on ``voice_typer.server.app`` (the production
+    ``shutdown_controller._do_cleanup`` looks them up dynamically via
+    ``getattr(_app_module, name, None)``). Mirrors the pattern in
+    ``tests/test_shutdown_controller.py::fake_app``.
+    """
+    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
     return _FakeApp()
 
 

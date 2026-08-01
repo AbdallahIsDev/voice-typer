@@ -35,6 +35,7 @@ This module exercises:
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from unittest.mock import patch
@@ -58,12 +59,28 @@ def server() -> IPCServer:
     Matches the post-start() state (``_running = True``) so the watchdog
     treats us as live. We DON'T call ``start()`` (which would spawn the
     daemon thread); we exercise ``_check_heartbeat_timeout`` directly.
+
+    Teardown: ``IPCServer.__init__`` allocates several ``threading.Lock``
+    / ``RLock`` / ``Event`` sync primitives (the TCP write lock, the
+    dispatch lock, the heartbeat stop event, etc.). No real thread is
+    spawned by ``__init__`` — the heartbeat / stdin threads are only
+    started by ``start()`` — but the watchdog code paths exercised by
+    these tests do spawn real daemon threads (the ``heartbeat-force-exit``
+    thread) that call a patched ``os._exit`` and exit naturally. Calling
+    ``server.stop()`` in teardown sets ``_running = False`` and
+    unregisters the push callable so a subsequent test that constructs a
+    fresh ``IPCServer`` doesn't inherit a stale push-hook registration.
     """
     app = make_fake_app()
     service = make_fake_service()
     s = IPCServer(app, service=service)
     s._running = True
-    return s
+    yield s
+    # ``stop()`` is idempotent and safe to call even when ``start()``
+    # was never invoked — it sets ``_running = False`` and unregisters
+    # the push callable.
+    with contextlib.suppress(Exception):
+        s.stop()
 
 
 # ── Force-exit thread scheduling ────────────────────────────────────────

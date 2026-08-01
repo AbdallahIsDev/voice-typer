@@ -200,13 +200,18 @@ class TestParallelTeardownBatch:
 
     def test_subsystem_teardowns_run_concurrently(self, controller, fake_app):
         """XV-7: independent teardowns must run CONCURRENTLY, not
-        sequentially. We instrument two slow teardowns that are STILL
-        in the parallel batch (DJ-9 moved history_db + crash_recovery
-        to a sequential post-drain phase; ``teardown_recorder`` and
-        ``teardown_hotkeys`` remain in the parallel batch). We make
-        each helper sleep 0.3 s by patching the controller's bound
-        methods directly. If they run sequentially, total wall time is
-        ~0.6 s; if concurrently, ~0.3 s.
+        sequentially. We instrument two slow teardowns that remain in
+        the parallel batch (the dependent teardowns —
+        ``_teardown_recorder``, ``_teardown_history_db``,
+        ``_teardown_crash_recovery``, ``_teardown_timers_and_recording``
+        — were moved to a sequenced critical phase BEFORE the parallel
+        batch so the transcription thread join completes BEFORE the DB
+        close + ASR model unload; ``_teardown_hotkeys`` and
+        ``_teardown_electron`` remain in the parallel batch and are
+        independent — no Event dependencies). We make each helper
+        sleep 0.3 s by patching the controller's bound methods
+        directly. If they run sequentially, total wall time is ~0.6 s;
+        if concurrently, ~0.3 s.
 
         We assert the parallel speedup is at least 1.5x (a conservative
         threshold that filters out scheduling jitter while still proving
@@ -214,16 +219,18 @@ class TestParallelTeardownBatch:
         """
         import time as _time
 
-        # history_db + crash_recovery are now sequential. Use
-        # two helpers that remain in the parallel batch.
+        # history_db + crash_recovery + recorder + timers_and_recording
+        # are now in the sequenced critical phase (run BEFORE the
+        # parallel batch). Use two helpers that remain in the parallel
+        # batch and have no Event dependencies on the sequenced phase.
         def _slow_teardown(*args, **kwargs):
             _time.sleep(0.3)
 
         # Patch the bound methods on the controller (NOT on fake_app —
-        # the parallel batch invokes ``self._teardown_recorder`` etc.
+        # the parallel batch invokes ``self._teardown_hotkeys`` etc.
         # directly, not via the app).
-        controller._teardown_recorder = MagicMock(side_effect=_slow_teardown)
         controller._teardown_hotkeys = MagicMock(side_effect=_slow_teardown)
+        controller._teardown_electron = MagicMock(side_effect=_slow_teardown)
 
         start = _time.monotonic()
         controller._do_cleanup()

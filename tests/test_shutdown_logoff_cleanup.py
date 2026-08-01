@@ -86,21 +86,30 @@ class TestFastCleanup:  # noqa: N801
         )
 
     def test_do_fast_cleanup_idempotent(self, _stub_os_exit):
-        """Calling _do_fast_cleanup twice is a no-op on the second call.
+        """Calling _do_fast_cleanup twice is safe — the second invocation
+        STILL runs the critical flushes (they are idempotent; running
+        them twice is bounded by 1s timeouts and safe).
 
         UE-1: the second call still calls ``os._exit(0)`` (because the
         Windows logoff/shutdown callback must not return True without
-        exiting), but it does NOT re-run the critical cleanup steps.
+        exiting). The previous ``if not already_done:`` gate skipped
+        the second invocation's flushes — which created a false
+        positive under quit-during-logoff (the slow ``_do_cleanup``
+        had set ``_cleanup_done = True`` but not yet reached the
+        parallel batch when the fast path fired; the fast path's
+        flushes were skipped, and ``os._exit(0)`` killed the slow
+        path mid-flight — both paths skipped the critical writes).
+        The fix removes the gate so the flushes run unconditionally.
         """
         controller, app = _make_controller_with_app()
         controller._do_fast_cleanup()
-        # Second call should short-circuit at the _cleanup_done guard.
-        # We verify by checking that crash_recovery.flush is NOT called
-        # on the second call (it would be called on the first if present).
+        # Second call: arm a spy on crash_recovery.flush — it MUST be
+        # called (unconditional flush — running twice is safe), AND
+        # os._exit(0) MUST fire again.
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush = MagicMock()
         controller._do_fast_cleanup()
-        app._crash_recovery.flush.assert_not_called()
+        app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
         # os._exit(0) must have been called twice (once per
         # invocation) — the second call still exits to honor the OS
         # force-kill window even though cleanup already ran.
@@ -233,15 +242,26 @@ class TestFastCleanupOsExit:  # noqa: N801
 
     def test_do_fast_cleanup_calls_os_exit_even_when_cleanup_done_already(self, _stub_os_exit):
         """When ``_cleanup_done`` is already True (prior cleanup ran),
-        ``_do_fast_cleanup`` still calls ``os._exit(0)`` — we're being
-        invoked from the Windows logoff/shutdown callback and must not
-        return True (which would let the OS re-evaluate us)."""
+        ``_do_fast_cleanup`` STILL runs its critical flushes
+        UNCONDITIONALLY (the writes are idempotent — running them
+        twice is safe) AND calls ``os._exit(0)`` — we're being
+        invoked from the Windows logoff/shutdown callback and must
+        not return True (which would let the OS re-evaluate us).
+
+        The previous ``if not already_done:`` gate created a false
+        positive under quit-during-logoff: the slow ``_do_cleanup``
+        had set ``_cleanup_done = True`` at its start but had not yet
+        reached the parallel batch when the fast path fired; the fast
+        path's flushes were skipped, and ``os._exit(0)`` killed the
+        slow path mid-flight — both paths skipped the critical writes.
+        The fix removes the gate so the flushes run unconditionally."""
         controller, app = _make_controller_with_app()
         app._cleanup_done = True
-        # Should NOT call crash_recovery.flush (already cleaned up).
+        # crash_recovery.flush MUST be called even though _cleanup_done
+        # is True (unconditional flush — running twice is safe).
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
-        app._crash_recovery.flush.assert_not_called()
+        app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
         # MUST still call os._exit(0).
         assert _stub_os_exit == [0], (
             f"UE-1: _do_fast_cleanup must call os._exit(0) even when _cleanup_done is already True; got {_stub_os_exit}"
