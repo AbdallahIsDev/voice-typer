@@ -5108,16 +5108,6 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 
 ---
 
-# Consolidated Comprehensive Review — GROUP 3 (UX & UI) — Session BG
-
-Scope: Group 3 categories only — UX/UI consistency, Ease of use, Accessibility,
-User onboarding, User flows, Developer experience, Localization / i18n.
-
-Session prefix: BG. Sub-agent count: 20.
-
-All findings below were filed by BG-R1..BG-R20 review sub-agents (Phase 1) and
-deduplicated by the primary agent (Phase 3).
-
 ### [DE-23] — credential_store: non-string api_key value crashes migration with AttributeError
 **Status:** 🔶 Partial
 **Severity:** 🟡 Medium
@@ -8018,98 +8008,6 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** (1) Regenerate the baseline against HEAD (legitimate reconciliation after refactoring). (2) Fix the 20 real type bugs to shrink the floor.
 **Severity:** 🔴 High
 
-### TX-11 — 5 stale source-text-assertion tests (anti-pattern)
-**Status:** ❌ Not Fixed (verified 2026-08-01 — `test_shutdown_teardown_fixes.py::test_stderr_fallback_write_exists_in_source` FAILS: source-text assertion on `UE-1-F7` marker missing from `signal_watcher_loop` source. The test expects the marker in the source but it's not there. This is the same anti-pattern described in TX-11.)
-**Description:** 5 tests assert on specific source-code substrings (anti-pattern):
-- `tests/test_ue_fix_a.py` — 2 tests: expect literal strings in teardown source.
-- `tests/test_recorder_worker_lifecycle.py` — 1 test: expects `threading.Thread(` in source.
-- `tests/test_notifications.py` — 2 tests: expect literal strings in app.py/startup.py source.
-**User Impact:** Tests fail on any legitimate refactor. Negative value.
-**Root Cause:** Anti-pattern — testing source text instead of behavior.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_ue_fix_a.py`
-- `tests/test_recorder_worker_lifecycle.py`
-- `tests/test_notifications.py`
-**Fix:** Rewrite as behavior tests, or delete if behavior is covered elsewhere.
-**Severity:** 🟡 Medium
-
-### TX-12 — Tray state deduplication no longer suppresses no-op calls (5 tests fail — real bug)
-**Status:** ❌ Not Fixed (verified 2026-08-01 — empirically confirmed: `test_tray_state_diff.py::test_redundant_call_suppressed` FAILS with "Redundant call should be suppressed, got 2". The `_last_published` cache referenced in test docs does NOT exist in `tray.py` or `tray_menu.py` — zero matches. The dedup logic was never implemented.)
-**Description:** `tests/test_tray_state_diff.py` and `tests/test_tray_set_state_noop.py` — 5 tests fail. The last-state cache for dedup is not being read/written on the publish path. Redundant identical calls emit through to the tray.
-**User Impact:** UI flicker / redundant IPC messages.
-**Root Cause:** Dedup cache logic regressed.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_tray_state_diff.py`
-- `tests/test_tray_set_state_noop.py`
-- `voice_typer/server/tray*.py`
-**Fix:** Investigate the tray state dedup logic; restore the last-state cache read/write.
-**Severity:** 🟡 Medium
-
-### TX-15 — `sd.stop()` called when it should be skipped on teardown timeout (1 test fails — real bug)
-**Status:** ⚠️ Partial (verified 2026-08-01 — production code has the conditional `sd.stop()` skip logic in `shutdown_controller.py` via `_recorder_force_closed` flag + `_recorder_teardown_done` event. Tests in `test_shutdown_teardown_fixes.py` — 3 skip, but 2 NEW failures: (1) `test_electron_pid_cleared_even_on_windows_timeout` — `OpenProcess` not called (Windows-specific kernel32 path issue); (2) `test_stderr_fallback_write_exists_in_source` — source-text assertion fails (`UE-1-F7` marker missing from `signal_watcher_loop` source). These are NOT the original TX-15 issue but new failures in the same file.)
-**Description:** `tests/test_ue_fix_a.py::test_sd_stop_skipped_when_recorder_teardown_times_out` fails. The XV-7/DE-54 safety-net `sd.stop()` is supposed to be skipped when teardown wait times out, but it's called unconditionally.
-**User Impact:** `sd.stop()` called even when teardown timed out — potential audio device issues.
-**Root Cause:** Conditional skip logic regressed.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_ue_fix_a.py`
-- `voice_typer/server/recording/` (teardown_sounddevice)
-**Fix:** Restore the conditional: only call `sd.stop()` if teardown wait did NOT time out.
-**Severity:** 🟡 Medium
-
-### TX-19 — 5 platform-conditional failures (missing skip markers)
-**Status:** ⚠️ Partial (verified 2026-08-01 — skip markers added (`skipif sys.platform != "win32" and != "darwin"`), but 3 tests in `test_app_cleanup.py` STILL FAIL on Windows — `app.hotkeys._hotkey_backend` is `None` after `_do_cleanup()` nulls it, so `.stop.assert_called_once()` raises `AttributeError`. The skip condition excludes Linux but not the case where the backend is None on Windows too.)
-**Description:** 5 tests exercise macOS/Windows-only code paths but lack skip markers:
-- `tests/test_app_cleanup.py` — 3 tests: hotkey backend is None on Linux.
-- `tests/test_smart_duck.py::test_osascript_with_only_text_editor_returns_false` — MacVolumeBackend on Linux.
-- `tests/test_ue_fix_a.py::test_electron_pid_cleared_even_on_windows_timeout` — Windows kernel32 path.
-**User Impact:** 5 false failures on Linux CI.
-**Root Cause:** Missing platform skip markers.
-**Progress:** None yet.
-**Related Files:**
-- `tests/test_app_cleanup.py`
-- `tests/test_smart_duck.py`
-- `tests/test_ue_fix_a.py`
-**Fix:** Add `@pytest.mark.skipif(sys.platform != ..., reason=...)`.
-**Severity:** 🟡 Medium
-
-### TX-22 — 331 Rust unit tests NEVER run in CI (cargo test not invoked)
-**Status:** ❌ Not Fixed
-**Description:** 331 Rust unit tests exist across 16 source files. `build.yml` doesn't install GTK/WebKit libs and doesn't invoke `cargo test`. `tauri-linux-build.yml` installs libs but only runs `cargo check --all-targets` (compile-only).
-**User Impact:** 331 Rust tests are dead weight. Rust-side bugs go undetected.
-**Root Cause:** No CI job invokes `cargo test`.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/tauri-linux-build.yml`
-- `src-tauri/src/`
-**Fix:** Add `cargo test --manifest-path src-tauri/Cargo.toml --lib` step to `tauri-linux-build.yml`'s `smoke` job.
-**Severity:** 🔴 High
-
-### TX-23 — `sign` workflow_call input is dead code (signing happens regardless)
-**Status:** ❌ Not Fixed
-**Description:** All 3 tauri-* workflows declare a `sign` input but none consult it. Signing gates purely on secret presence. (1) `sign: false` → signing STILL happens. (2) `sign: true` but secrets missing → signing silently skipped.
-**User Impact:** Maintainer can't control signing. Throwaway builds may get production certs; misconfigured releases ship unsigned silently.
-**Root Cause:** `sign` input declared but never wired.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/tauri-{windows,macos,linux}-build.yml`
-- `.github/workflows/tauri-build.yml`
-**Fix:** Either honor `inputs.sign` in conditions AND fail when secrets missing, or remove the input.
-**Severity:** 🟡 Medium
-
-### TX-24 — SLSA attestation step is dead code (never fires)
-**Status:** ❌ Not Fixed
-**Description:** All 3 tauri-* workflows gate SLSA attestation on `startsWith(github.ref, 'refs/tags/v')`. But `github.ref` is NEVER a tag under current triggers (workflow_dispatch/workflow_call only; tag pushes commented out). The step never runs — releases have NO SLSA attestation.
-**User Impact:** No build-provenance attestation on releases.
-**Root Cause:** Trigger model changed but gate not updated.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/tauri-{linux,macos,windows}-build.yml`
-**Fix:** Re-enable tag triggers, or change gate to `workflow_dispatch` + `inputs.sign`, or remove the step.
-**Severity:** 🟡 Medium
-
 ### TX-25 — `svenstaro/upload-release-action@v2` (Node 16) at 4 sites — C-CI-1 concern
 **Status:** ✅ Fixed (verified on Linux sandbox — svenstaro/upload-release-action@v2→@v3 at 4 sites)
 **Description:** `build.yml` lines 1068, 1078, 1250, 1426 use `svenstaro/upload-release-action@v2` (Node 16, deprecated 2023). Current major is `@v3` (Node 24). Not in the file's header list.
@@ -8174,97 +8072,6 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** Wire lockfile into CI, or add version-sync assertion, or regenerate.
 **Severity:** 🟡 Medium
 
-### TX-30 — Unpinned extras deps (17 deps with `>=` but no upper bound)
-**Status:** ❌ Not Fixed
-**Description:** 17 extras deps use unbounded `>=`: pytest, pytest-asyncio, pytest-timeout, pytest-cov, hypothesis, pytest-benchmark, pytest-xdist, pyinstaller, setuptools, ruff, mypy, pre-commit, mutmut, deepfilternet, qwen-asr, dbus-python, pywin32. Only `pyrefly==1.1.1` is pinned.
-**User Impact:** A future major release could silently break CI/dev.
-**Root Cause:** Inconsistent pinning discipline.
-**Progress:** None yet.
-**Related Files:**
-- `pyproject.toml`
-**Fix:** Add `<X.0` upper caps to the 17 unbounded extras.
-**Severity:** 🟢 Low
-
-### TX-31 — `npm run lint` skips root config files (biome check src only)
-**Status:** ✅ Fixed (verified on Linux sandbox — npm run lint now biome check .; biome.json excludes node_modules)
-**Description:** `package.json` `lint` = `biome check src`. Root config files (vitest.config.ts, vite.config.ts, etc.) NOT linted by `npm run lint`.
-**User Impact:** False clean signal for root config; drift undetected.
-**Root Cause:** Script scope too narrow.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/package.json`
-- `voice_typer/client/biome.json`
-**Fix:** Change `lint` to `biome check .` and add `!node_modules` exclude.
-**Severity:** 🟢 Low
-
-### TX-32 — Coverage threshold uses v8 provider (untested files excluded from denominator)
-**Status:** ❌ Not Fixed
-**Description:** `vitest.config.ts` uses `provider: "v8"` — only reports executed files. Untested files NOT in denominator. 70/70/60/70 thresholds only apply to executed set.
-**User Impact:** Real coverage silently decays — gate can't detect "new file without tests."
-**Root Cause:** vitest 4.x dropped `all: true` for v8; istanbul not installed.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/vitest.config.ts`
-- `voice_typer/client/package.json`
-**Fix:** Install `@vitest/coverage-istanbul` and switch, or add file-count regression guard.
-**Severity:** 🟢 Low
-
-### TX-33 — `@testing-library/jest-dom` imported but not in devDependencies
-**Status:** ✅ Fixed (verified on Linux sandbox — @testing-library/jest-dom added to devDependencies)
-**Description:** `test-setup.ts:4` imports `@testing-library/jest-dom/vitest` but `package.json` devDeps don't list it (only as transitive peer of `@testing-library/react`).
-**User Impact:** A future `@testing-library/react` major bump could drop the peer, breaking tests.
-**Root Cause:** Missing explicit dep.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/package.json`
-- `voice_typer/client/src/renderer/src/test-setup.ts`
-**Fix:** Add `"@testing-library/jest-dom": "^10.x"` to devDependencies.
-**Severity:** 🟡 Medium
-
-### TX-34 — Stale conftest.py docstring (references removed --cov-fail-under from addopts)
-**Status:** ✅ Fixed (verified on Linux sandbox — conftest.py docstring rewritten to reflect current addopts)
-**Description:** `conftest.py:15-32` says `--cov-fail-under=65` is in `addopts`. It's NOT (removed). Docstring is stale.
-**User Impact:** Misleads contributors.
-**Root Cause:** FIX-18 follow-up done, docstring not updated.
-**Progress:** None yet.
-**Related Files:**
-- `conftest.py`
-**Fix:** Rewrite docstring to reflect current state.
-**Severity:** 🟢 Low
-
-### TX-35 — Stale comment in populate-hashes.yml (says @v5, code is @v7)
-**Status:** ⚠️ Partial (populate-hashes.yml comment — not yet updated; low priority)
-**Description:** `populate-hashes.yml:76` comment says `setup-python@v5` but line 84 uses `@v7`.
-**User Impact:** Minor — future reader misled.
-**Root Cause:** Code bumped, comment not updated.
-**Progress:** None yet.
-**Related Files:**
-- `.github/workflows/populate-hashes.yml`
-**Fix:** Update comment to `@v7`.
-**Severity:** 🟢 Low
-
-### TX-36 — Duplicated manifest content (two sources of truth)
-**Status:** ❌ Not Fixed
-**Description:** `voice-typer.spec` (lines 156-186) embeds XML manifest inline, duplicating `voice-typer.manifest` verbatim. Standalone `.manifest` NOT referenced by any script (dead).
-**User Impact:** Future edit to one desyncs from the other.
-**Root Cause:** DRY violation.
-**Progress:** None yet.
-**Related Files:**
-- `scripts/build/voice-typer.spec`
-- `scripts/build/voice-typer.manifest`
-**Fix:** Delete `.manifest` and keep inline, OR make `.spec` read `.manifest`.
-**Severity:** 🟢 Low
-
-### TX-37 — Electron 2 minors behind (security backports)
-**Status:** ❌ Not Fixed
-**Description:** `electron@^43.0.0`, installed `43.0.0`. Latest 43.x is `43.2.0`. Electron point releases ship Chromium security backports.
-**User Impact:** Missing 2 minor versions of Chromium security backports.
-**Root Cause:** Not bumped.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/package.json`
-**Fix:** Bump to `^43.2.0`.
-**Severity:** 🟡 Medium
 
 ### TX-38 — `noUncheckedIndexedAccess` not enabled (204 errors if enabled)
 **Status:** ❌ Not Fixed
@@ -8361,3 +8168,20 @@ The following findings were identified but not fixed this run due to scope/time 
 - `voice_typer/server/config.py`
 **Fix:** Triage: revert source to `0` or update tests. Do NOT auto-fix.
 **Severity:** 🟡 Medium
+
+### TX-46 — App does not start at login on Windows (autostart broken on user machine)
+**Status:** ❌ Not Fixed
+**Description:** User reports autostart ("Start app at login") does NOT work on their Windows machine — the app does not launch after logon even though autostart appears enabled. MUST be reproduced and fixed on Windows (win32). Do NOT declare fixed based on Linux tests alone — the Linux autostart path (.desktop file) is unrelated to the Windows path. Windows autostart works via TWO mechanisms: (1) HKCU Run key `Software\Microsoft\Windows\CurrentVersion\Run` with a hash-suffixed `VoiceTyper_<hash>` value whose command is `<pythonw.exe> "…\autostart_launcher.py" --hidden --delay 15`; (2) fallback Task Scheduler task `VoiceTyperAutostart<install_hash>` (LogonTrigger, InteractiveToken, `pythonw.exe … --hidden --delay 15`). Investigate BOTH mechanisms end-to-end: entry present? command valid? launcher actually runs at logon? Electron actually spawns? Also check the `--hidden` path: with `VT_START_HIDDEN=1` the dashboard starts hidden (tray only) — verify the app IS running in the tray and not "not starting at all" (user may see nothing and assume broken). Likely root-cause candidates (in order): (a) venv `pythonw.exe` path baked into the Run-key command no longer exists (dev-mode installs) — `_autostart_command()` swaps to system Python only if the probe succeeds; (b) `autostart_launcher.py` spawns `npm run dev`/`npm run build` — in a packaged/built install there is no npm/node and the launcher must find the built `electron .` output or the Tauri binary `%LOCALAPPDATA%\Programs\Voice Typer\voice-typer-tauri.exe`; (c) `is_autostart_enabled()` reports True (entry exists) while the actual command is dead — status check is existence-only; (d) Task Scheduler task locked from an admin install (`schtasks` access denied → UAC elevation path); (e) Windows Startup-folder alternative never attempted. Check `voice_typer/server/autostart_launcher.py` `_wait_for_backend_ready` / `_read_ipc_port_from_pid_file` logic and the autostart log (`~/.voice-typer/autostart.log` or app log) for evidence of what actually happens at logon.
+**User Impact:** The user expects Voice Typer to be listening after they log in, but they must launch it manually every time. For a dictation/voice app this defeats the "always ready" promise and the user loses anything that requires the app to already be running.
+**Root Cause:** Unknown — needs Windows-side reproduction. Entry-existence check likely masks a dead command path (venv pythonw gone / no npm in packaged install / launcher crash at logon).
+**Progress:** None yet.
+**Related Files:**
+- `voice_typer/server/server_platform/autostart_windows.py` (Run key + Task Scheduler registration, `_autostart_command` call sites)
+- `voice_typer/server/server_platform/autostart.py` (`_autostart_command()` — builds `pythonw … autostart_launcher.py --hidden --delay 15`)
+- `voice_typer/server/autostart_launcher.py` (what actually runs at logon; spawns Electron build / Tauri binary)
+- `voice_typer/server/server_platform/__init__.py` (`_APP_AUTOSTART_TASK_NAME`, re-exports)
+- `voice_typer/server/task_scheduler.py` (`is_supported()`, `_schtasks`, elevated retry)
+- `voice_typer/server/startup_tasks.py` (`sync_autostart` — when config is applied)
+- `voice_typer/server/config.py` (`autostart: bool = True` default, SEC-002 allowlist)
+**Fix:** Reproduce on Windows. Steps: (1) enable autostart in settings; (2) check `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v VoiceTyper_*` and `schtasks /Query /TN VoiceTyperAutostart*`; (3) run the registered command manually and confirm it launches the app; (4) log off/on (or `schtasks /Run`) and check whether the process appears, plus read the autostart log; (5) fix whichever link is dead — prefer a mechanism that survives venv moves and works for both dev (npm/electron) and packaged (Tauri binary) installs; do not leave the run-key pointing at a nonexistent interpreter. Add a Windows-run integration test if feasible; at minimum verify `is_autostart_enabled()` matches reality. Report with platform qualifier: "verified on Windows (win32) — <exact evidence>".
+**Severity:** 🔴 High
