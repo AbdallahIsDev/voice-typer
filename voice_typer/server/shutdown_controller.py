@@ -1149,11 +1149,45 @@ class ShutdownController:
                         lambda: electron_launcher.terminate_electron(launched_pid),
                         timeout=5.0,
                     )
-                    if _term_result is TIMEOUT and sys.platform != "win32":
-                        import signal as _sig_kill
+                    if _term_result is TIMEOUT:
+                        # UE-1-F6: escalate on timeout — POSIX gets
+                        # SIGKILL; Windows gets a ctypes
+                        # TerminateProcess fallback. Pre-fix the POSIX
+                        # branch had SIGKILL escalation but the Windows
+                        # branch was a silent no-op on timeout (the
+                        # electron process tree would keep running).
+                        if sys.platform == "win32":
+                            # Best-effort: a failure here must NOT
+                            # prevent the PID clear below (stale PID
+                            # would block the next launch's
+                            # single-instance check).
+                            try:
+                                import ctypes
+                                from ctypes import wintypes
 
-                        with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(launched_pid, _sig_kill.SIGKILL)
+                                # PROCESS_TERMINATE (0x0001) access right.
+                                process_terminate = 0x0001
+                                kernel32 = ctypes.windll.kernel32
+                                kernel32.OpenProcess.argtypes = [
+                                    wintypes.DWORD,
+                                    wintypes.BOOL,
+                                    wintypes.DWORD,
+                                ]
+                                kernel32.OpenProcess.restype = wintypes.HANDLE
+                                handle = kernel32.OpenProcess(process_terminate, False, launched_pid)
+                                if handle:
+                                    kernel32.TerminateProcess(handle, 1)
+                                    kernel32.CloseHandle(handle)
+                            except Exception:
+                                log.debug(
+                                    "[SHUTDOWN] Windows TerminateProcess fallback failed",
+                                    exc_info=True,
+                                )
+                        else:
+                            import signal as _sig_kill
+
+                            with contextlib.suppress(OSError, ProcessLookupError):
+                                os.kill(launched_pid, _sig_kill.SIGKILL)
                     app._electron_pid = None
                 else:
                     from voice_typer.server.tray_window import get_electron_pid

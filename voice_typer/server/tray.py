@@ -149,6 +149,14 @@ class TrayIcon:
         # The tooltip (``self._icon.title``) is still updated unconditionally
         # so the elapsed ``mm:ss`` stays live.
         self._last_applied_state: AppState | None = None
+        # DJ-38: last-published (icon_name, tooltip) tuple for publish
+        # dedup. ``_publish_tray_state`` skips the emit entirely when
+        # both fields match the cache; ``stop()`` clears it so a
+        # restarted tray re-publishes its initial state. The cache key
+        # is the FULL tuple (not just icon_name) so a tooltip-only
+        # change still emits. Only set on a successful publish — a
+        # failed publish is NOT cached so the next call retries.
+        self._last_published: tuple[str, str] | None = None
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -160,12 +168,22 @@ class TrayIcon:
     def set_state(self, state: AppState, message: str = "") -> None:
         """Update tray icon state and tooltip.
 
+        DJ-41: short-circuit at the top — when ``state`` AND
+        ``message`` are both unchanged, every downstream unit of work
+        (menu-cache invalidation, elapsed-timer start/stop, icon
+        redraw, event emit, menu push) is skipped. Callers that
+        re-issue the same state (IPC reconnect replay,
+        ``refresh_config`` with no actual change, ``_on_parakeet_cpu_fallback``
+        re-fires) pay only a tuple-equality check.
+
         only invalidate the menu cache on TRANSCRIBING ⇄
         non-TRANSCRIBING (Force Cancel visibility flips); RECORDING ⇄
         IDLE only changes the icon. : RECORDING ⇄ IDLE start/stop
         the elapsed timer (: monotonic clock). ADR-0020 §6.5: push
         icon+tooltip to Tauri; on TRANSCRIBING change also push the menu.
         """
+        if state == self._state and message == self._message:
+            return
         prev_state = self._state
         self._state = state
         self._message = message
@@ -408,6 +426,9 @@ class TrayIcon:
         # clear the icon-state cache so a restarted tray
         # redraws the icon on the first ``_apply_state`` (no stale cache).
         self._last_applied_state = None
+        # DJ-38: clear the publish dedup cache so a restarted tray
+        # re-publishes its initial state (no stale suppression).
+        self._last_published = None
 
         try:
             from voice_typer.server import event_bus as _event_bus
@@ -491,19 +512,37 @@ class TrayIcon:
     def _publish_tray_state(self) -> None:
         """ADR-0020 §6.5: push icon+tooltip to Tauri (emit tray_state event
         instead of mutating pystray Icon). No-op on Electron/pystray.
-        Best-effort (hot path)."""
+        Best-effort (hot path).
+
+        DJ-38: suppress redundant publishes — the cache key is the
+        FULL ``(icon_name, tooltip)`` tuple (not just icon_name), so a
+        tooltip-only change still emits. A failed publish is NOT
+        cached, so the next call retries (no silent drop)."""
         from voice_typer.server.tray_menu import publish_tray_state
 
         icon_name = _APP_STATE_TO_ICON_NAME.get(self._state, "idle")
         tooltip = self._compute_tooltip(self._state, self._message)
+        # DJ-38: identical last-published state → skip the emit
+        # entirely (redundant tray_state events cause the Tauri host to
+        # re-run tray.set_icon / tray.set_tooltip, which on Windows is
+        # a DestroyIcon / LoadIcon round-trip per call).
+        if self._last_published == (icon_name, tooltip):
+            return
         try:
-            publish_tray_state(icon=icon_name, tooltip=tooltip)
+            ok = publish_tray_state(icon=icon_name, tooltip=tooltip)
         except Exception:
             log.debug(
                 "[TRAY] publish_tray_state failed (state=%s)",
                 self._state.value if hasattr(self._state, "value") else self._state,
                 exc_info=True,
             )
+            # Do NOT cache a failed publish — the next call must retry.
+            return
+        # Only cache a successful publish (best-effort publish_tray_state
+        # returns False instead of raising on the sidecar-disconnected
+        # path — a False return must NOT suppress the next retry).
+        if ok:
+            self._last_published = (icon_name, tooltip)
 
     def _apply_state(self, state: AppState, message: str) -> None:
         """Apply state to the live icon (safe from any thread).

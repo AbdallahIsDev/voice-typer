@@ -153,7 +153,7 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
             sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
             log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
         except Exception:
-            # async-signal-safe fallback. ``log.info`` could
+            # UE-1-F7: async-signal-safe fallback. ``log.info`` could
             # fail if the logging lock is held by an interrupted thread,
             # if the configured handler raises (e.g. ``FileHandler`` on
             # a closed log file during interpreter shutdown), or if the
@@ -170,7 +170,7 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
         try:
             threading.Thread(target=controller.quit, daemon=True).start()
         except Exception:
-            # same async-signal-safe stderr fallback as above
+            # UE-1-F7: same async-signal-safe stderr fallback as above
             # — ``log.exception`` itself could fail under the same
             # conditions. The ``os.write`` here is the last-resort
             # evidence that we tried to spawn the quit() worker.

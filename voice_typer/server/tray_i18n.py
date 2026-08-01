@@ -197,7 +197,7 @@ _TRAY_LABELS_ZH: dict[str, str] = {
 }
 
 _TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
-    DEFAULT_LOCALE: _TRAY_LABELS_EN,
+    "en": _TRAY_LABELS_EN,
     "es": _TRAY_LABELS_ES,
     "ar": _TRAY_LABELS_AR,
     "de": _TRAY_LABELS_DE,
@@ -218,7 +218,7 @@ def set_tray_locale(locale: str) -> None:
     labels to take effect.
     """
     global _tray_locale
-    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else DEFAULT_LOCALE
+    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else "en"
 
 
 def get_tray_locale() -> str:
