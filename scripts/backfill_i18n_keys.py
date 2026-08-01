@@ -1,6 +1,6 @@
 """Backfill missing i18n keys into all non-English locale files.
 
-The recent RW-01 (keyring) and §3.2-§3.7 (punctuation cheat sheet) sub-agents
+The recent  (keyring) and §3.2-§3.7 (punctuation cheat sheet) sub-agents
 added new English keys but didn't update the other 7 locale files. This script
 copies the English values as placeholders — translators can refine later.
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# shared helpers live in _i18n_common (canonical flatten / load
 # save / merge routines). This script previously duplicated these ~50
 # LOC alongside add_i18n_keys.py and apply_translations.py.
 from _i18n_common import (

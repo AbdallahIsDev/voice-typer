@@ -9,7 +9,7 @@ Called by:
 - Debian ``prerm`` (as root, during ``apt remove voice-typer``)
 - RPM ``%preun`` (as root, during ``dnf remove voice-typer``)
 
-S2-CR-70 (SA-6): this script now also handles an optional ``--purge``
+(): this script now also handles an optional ``--purge``
 flag (or ``VOICE_TYPER_PURGE=1`` env var) that removes the per-user
 Voice Typer data directory (HuggingFace model cache, venv, history DB,
 logs) BEFORE delegating to the system-level uninstaller. The purge is
@@ -42,7 +42,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ─── S2-CR-70 (SA-6): --purge flag handling ─────────────────────────────
+# (): --purge flag handling ─────────────────────────────
 #
 # Parse --purge out of argv BEFORE delegating to install_permissions.py
 # (which doesn't understand the flag and would error). The remaining
@@ -67,20 +67,20 @@ if "--purge" in sys.argv:
 def _purge_user_data_for(username: str, data_dir: Path) -> None:
     """Remove the per-user Voice Typer data dir for ``username``.
 
-    S2-CR-70 (SA-6): Voice Typer stores ALL user data (HuggingFace
-    model cache, venv, history DB, logs, crash-recovery snapshots,
-    single-instance lockfiles) inside ``<config_dir>``. The purge
-    removes each known subpath individually (NOT a blanket
-    ``rm -rf <config_dir>``) so an accidental shared
-    ``$XDG_DATA_HOME`` doesn't take out unrelated user files.
+    (): Voice Typer stores ALL user data (HuggingFace
+        model cache, venv, history DB, logs, crash-recovery snapshots,
+        single-instance lockfiles) inside ``<config_dir>``. The purge
+        removes each known subpath individually (NOT a blanket
+        ``rm -rf <config_dir>``) so an accidental shared
+        ``$XDG_DATA_HOME`` doesn't take out unrelated user files.
 
-    Uses ``sudo -u <username> -- rm -rf <subpath>`` per subpath so the
-    deletion runs as the user (not root) — this preserves file
-    ownership semantics and works even when the data dir contains
-    files owned by the user that root would otherwise need to chown
-    (e.g. venv files created with the user's umask).
+        Uses ``sudo -u <username> -- rm -rf <subpath>`` per subpath so the
+        deletion runs as the user (not root) — this preserves file
+        ownership semantics and works even when the data dir contains
+        files owned by the user that root would otherwise need to chown
+        (e.g. venv files created with the user's umask).
 
-    Best-effort: logs warnings on failure but does not raise.
+        Best-effort: logs warnings on failure but does not raise.
     """
     print(
         f"[voice-typer-permissions] --purge: removing user data for '{username}' at {data_dir}",
@@ -170,12 +170,12 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
 def _purge_user_data() -> None:
     """Remove the per-user Voice Typer data directory.
 
-    S2-CR-70 (SA-6): resolves the user(s) whose data dir should be
-    purged. When invoked via sudo, ``SUDO_USER`` identifies the user.
-    When invoked directly as root (e.g. during prerm), ``SUDO_USER`` is
-    unset and we scan ``/home/*`` for any user with a Voice Typer data
-    dir. Best-effort: errors are logged to stderr but do NOT abort the
-    uninstall.
+    (): resolves the user(s) whose data dir should be
+        purged. When invoked via sudo, ``SUDO_USER`` identifies the user.
+        When invoked directly as root (e.g. during prerm), ``SUDO_USER`` is
+        unset and we scan ``/home/*`` for any user with a Voice Typer data
+        dir. Best-effort: errors are logged to stderr but do NOT abort the
+        uninstall.
     """
     sudo_user = os.environ.get("SUDO_USER", "").strip()
     if sudo_user:

@@ -21,7 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# shared helpers live in _i18n_common (canonical flatten / load
 # save / merge routines). This script previously duplicated these ~50
 # LOC alongside backfill_i18n_keys.py and apply_translations.py.
 from _i18n_common import (

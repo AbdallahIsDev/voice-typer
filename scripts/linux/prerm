@@ -49,12 +49,43 @@ case "$1" in
             fi
         }
 
+        # Prewarm systemd user-unit cleanup.
+        # The prewarm scheduler (voice_typer/server/prewarm_scheduler_posix.py)
+        # registers a SEPARATE systemd user timer + service at
+        # ~/.config/systemd/user/voice-typer-prewarm.{timer,service} with
+        # unit names `voice-typer-prewarm.timer` / `voice-typer-prewarm.service`.
+        # These are distinct from the autostart .desktop entry above. Without
+        # this cleanup, systemd --user keeps trying to launch the (now-deleted)
+        # frozen prewarm binary at every login → journal spam + failed-unit
+        # errors. We disable --now (best-effort, root speaking for the user via
+        # --machine=...) and then delete the unit files.
+        remove_prewarm_for_home() {
+            local home_dir="$1"
+            [ -d "$home_dir" ] || return 0
+            local unit_dir="$home_dir/.config/systemd/user"
+            [ -d "$unit_dir" ] || return 0
+            local user_name
+            user_name="$(basename "$home_dir")"
+            # Disable + stop the timer + service (best-effort). prerm runs as
+            # root; `systemctl --user --machine=<user>@.host` lets root act on
+            # the user's user-session manager. Non-fatal if the user has no
+            # active systemd user session or systemd is unavailable.
+            if [ -n "$user_name" ] && [ "$user_name" != "root" ]; then
+                systemctl --user --machine="${user_name}@.host" disable --now \
+                    voice-typer-prewarm.timer voice-typer-prewarm.service 2>/dev/null || true
+            fi
+            rm -f "$unit_dir/voice-typer-prewarm.service" \
+                  "$unit_dir/voice-typer-prewarm.timer"
+        }
+
         while IFS=: read -r _ _ uid _ _ home_dir _; do
             [ -n "$home_dir" ] || continue
             [ "$uid" -ge 1000 ] 2>/dev/null || continue
             remove_autostart_for_home "$home_dir"
+            remove_prewarm_for_home "$home_dir"
         done < <(getent passwd 2>/dev/null || true)
         remove_autostart_for_home /root
+        remove_prewarm_for_home /root
     ;;
     upgrade|failed-upgrade)
     ;;

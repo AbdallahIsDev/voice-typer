@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Consolidated diagnostic script for Voice Typer.
 
-CQ-016: Previously 5 separate scripts in scripts/diagnostics/.
+Previously 5 separate scripts in scripts/diagnostics/.
 Consolidated into a single entry point with subcommands.
 The old scripts are kept as thin wrappers for backward compatibility.
 
@@ -10,7 +10,7 @@ Subcommands:
     cublas      Verify cuBLAS DLL failure path handling
     runtime     End-to-end runtime verification
     test-runner Run the interactive test suite
-    export      PROD-010: Export a diagnostic bundle (logs, config, system info)
+export      : Export a diagnostic bundle (logs, config, system info)
 
 Usage:
     python scripts/diagnostics.py f2
@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 # The diagnostic entry-point modules were moved from
-# ``scripts/diagnostics/`` to ``tests/manual/`` (CQ-016). Add the repo
+# ``scripts/diagnostics/`` to ``tests/manual/`` (). Add the repo
 # root to ``sys.path`` so ``tests`` (and ``tests.manual``) are importable
 # as packages when this script is invoked directly via
 # ``python scripts/diagnostics.py`` (where ``scripts/`` is on the path
@@ -36,7 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 def run_f2():
-    """CQ-016: Delegate to tests/manual/diagnose_f2.py.
+    """Delegate to tests/manual/diagnose_f2.py.
 
     Updated import path — the module was moved from
     ``scripts/diagnostics/`` to ``tests/manual/`` and exposes its
@@ -48,7 +48,7 @@ def run_f2():
 
 
 def run_cublas():
-    """CQ-016: Delegate to tests/manual/cublas_fallback.py.
+    """Delegate to tests/manual/cublas_fallback.py.
 
     Updated import path — see ``run_f2`` docstring.
     """
@@ -58,7 +58,7 @@ def run_cublas():
 
 
 def run_runtime():
-    """CQ-016: Delegate to tests/manual/runtime_proof.py.
+    """Delegate to tests/manual/runtime_proof.py.
 
     Updated import path — see ``run_f2`` docstring.
     """
@@ -68,7 +68,7 @@ def run_runtime():
 
 
 def run_test_runner():
-    """CQ-016: Delegate to tests/manual/runtime_test_runner.py.
+    """Delegate to tests/manual/runtime_test_runner.py.
 
     Updated import path — see ``run_f2`` docstring.
     """
@@ -78,7 +78,7 @@ def run_test_runner():
 
 
 def run_export():
-    """PROD-010: Export a diagnostic bundle for bug reports."""
+    """Export a diagnostic bundle for bug reports."""
     export_diagnostics()
 
 
@@ -121,7 +121,7 @@ def _collect_log_tail(
 
 
 def export_diagnostics() -> str:
-    """PROD-010: Collect diagnostic info and save as a timestamped zip file.
+    """Collect diagnostic info and save as a timestamped zip file.
 
     Collects:
       - voice-typer.log (Python host log, if it exists)
@@ -214,7 +214,7 @@ def export_diagnostics() -> str:
             try:
                 config_text = config_file.read_text(encoding="utf-8")
                 config_data = json.loads(config_text)
-                # PVT-G5-048: use the canonical _SECRET_CONFIG_FIELDS
+                # use the canonical _SECRET_CONFIG_FIELDS
                 # frozenset from ipc_server.py (single source of truth).
                 # Previously this was a hardcoded set that had drifted
                 # and omitted ``cloud_api_key`` and ``groq_api_key`` —
@@ -246,7 +246,7 @@ def export_diagnostics() -> str:
                 (tmpdir_path / "config_redacted.json").write_text(f"Error reading config: {exc}", encoding="utf-8")
 
         # 3. Log files (Python + Rust host).
-        # S6-CR-13: Previously only the Python log
+        # Previously only the Python log
         # (``config_dir/voice-typer.log``) was collected. The Rust/Tauri
         # host writes to ``config_dir/logs/voice-typer.log`` (rotated to
         # ``.log.1`` … ``.log.4`` — see ``src-tauri/src/platform/logging.rs``

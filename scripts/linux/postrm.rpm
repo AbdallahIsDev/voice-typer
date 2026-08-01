@@ -19,11 +19,13 @@
 # Users who want to keep their data across a `dnf remove` +
 # re-install cycle must back up `~/.local/share/voice-typer/` first.
 #
-# Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
-# Tauri v2 uses `postInstall` and `preRemove` (NOT `postInstallScript` / `preRemoveScript` which were Tauri v1 keys, and NOT `postRemoveScript`).
-# See https://v2.tauri.app/reference/config/#debconfig for the authoritative Tauri v2 config schema.
-# This %postun script is therefore NOT automatically wired into the .rpm
-# by Tauri's bundler. To enable it, the .rpm must be post-processed
+# Tauri v2 note: the bundle config uses the v2 long-form keys
+# `postInstallScript` and `preRemoveScript` (WITH the 'Script' suffix;
+# the v1 short forms `postInstall` / `preRemove` were Tauri v1 keys).
+# The current tauri.conf.json does NOT wire a `postRemoveScript`, so
+# this %postun script is therefore NOT automatically wired into the .rpm
+# by Tauri's bundler.
+# See https://v2.tauri.app/reference/config/#debconfig for the authoritative Tauri v2 config schema. To enable it, the .rpm must be post-processed
 # (e.g. via `rpmrebuild` or a custom spec file in CI) to add this file
 # as the %postun section. Tracked as a known gap; see worklog Fix-R.
 

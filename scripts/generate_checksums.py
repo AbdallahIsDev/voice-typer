@@ -1,6 +1,6 @@
 """Scripts/generate_checksums.py — compute SHA-256 checksums for release artifacts.
 
-TEST-037: Generates SHA256SUMS.txt from release artifacts.
+Generates SHA256SUMS.txt from release artifacts.
 Usage:
     python scripts/generate_checksums.py [dist_dir]
 

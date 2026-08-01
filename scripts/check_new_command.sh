@@ -131,7 +131,7 @@ check_present "5" \
 # `call<T>()` helper accepts an untyped call for commands whose payload
 # is trivial). Make this a warning rather than a hard fail.
 #
-# DT-31 / DT-FIX-7: the former monolithic ipc types file was split into
+#the former monolithic ipc types file was split into
 # a ``types/ipc/`` directory. The typed Request interfaces (each
 # carrying a ``type: "<command>"`` literal) now live in
 # ``types/ipc/requests.ts``.

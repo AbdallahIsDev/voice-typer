@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# DR-49: shared helpers live in _i18n_common (canonical flatten / load /
+# shared helpers live in _i18n_common (canonical flatten / load
 # save / merge routines). This script previously duplicated load_json /
 # save_json alongside add_i18n_keys.py and backfill_i18n_keys.py.
 from _i18n_common import load_json, save_json

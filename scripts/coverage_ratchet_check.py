@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XS-86: coverage ratchet comparison script.
+"""coverage ratchet comparison script.
 
 Compares the current total coverage percentage (parsed from
 ``coverage.xml`` or produced by ``coverage report --format=json``)

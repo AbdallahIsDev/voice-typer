@@ -321,13 +321,7 @@ jobs:
             --cov-report=xml --cov-report=term-missing \
             --junitxml=pytest-results.xml \
             --timeout=120 --timeout-method=thread \
-            --strict-markers --strict-config \
-            --ignore=tests/test_noise_suppressor_resampler.py \
-            --ignore=tests/test_permissions_pyobjc_cache.py
-        # --ignore the 2 collection-error files (collection fails until the
-        # missing symbols _FLOAT_TO_INT16_MAX and _is_pyobjc_available are
-        # restored). Without these ignores the entire pytest step fails at
-        # collection time before any test runs.
+            --strict-markers --strict-config
 
       # XS-85: publish test results as PR annotations so a single
       # failing test among 331 files is surfaced directly on the diff
@@ -1065,22 +1059,15 @@ jobs:
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ steps.installer.outputs.file }}
-          tag: ${{ github.ref_name }}
-          # CI-07: overwrite=true so a re-pushed tag replaces assets
-          overwrite: true
+        run: gh release upload ${{ github.ref_name }} ${{ steps.installer.outputs.file }} --repo ${{ github.repository }} --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload checksums to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ github.workspace }}/SHA256SUMS.txt
-          tag: ${{ github.ref_name }}
-          overwrite: true
+        run: gh release upload ${{ github.ref_name }} ${{ github.workspace }}/SHA256SUMS.txt --repo ${{ github.repository }} --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # CI-09: SLSA build provenance attestation — generates a signed
       # attestation linking the installer artifact to this workflow run.
@@ -1247,13 +1234,9 @@ jobs:
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: voice_typer/client/dist/*.dmg
-          tag: ${{ github.ref_name }}
-          file_glob: true
-          overwrite: true
+        run: gh release upload ${{ github.ref_name }} "voice_typer/client/dist/*.dmg" --repo ${{ github.repository }} --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # CI-09: SLSA build provenance attestation — generates a signed
       # attestation linking the installer artifact to this workflow run.
@@ -1423,13 +1406,9 @@ jobs:
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: voice_typer/client/dist/*
-          tag: ${{ github.ref_name }}
-          file_glob: true
-          overwrite: true
+        run: gh release upload ${{ github.ref_name }} "voice_typer/client/dist/*" --repo ${{ github.repository }} --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # CI-09: SLSA build provenance attestation — generates a signed
       # attestation linking the installer artifacts to this workflow run.
@@ -1476,12 +1455,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # fetch-depth 0 so check-added-large-files can see the full history
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install pre-commit

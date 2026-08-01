@@ -1,6 +1,6 @@
 """Shared helpers for the i18n maintenance scripts.
 
-DR-49: the three i18n scripts (``add_i18n_keys.py``,
+the three i18n scripts (``add_i18n_keys.py``,
 ``backfill_i18n_keys.py``, ``apply_translations.py``) each implemented
 their own ``flatten_keys`` / ``collect_keys``, ``load_json``,
 ``save_json``, and a locale-merge routine. The duplicated contract was

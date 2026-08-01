@@ -7,7 +7,15 @@ repos:
     rev: v0.16.0
     hooks:
       - id: ruff
-        args: [--fix, --unsafe-fixes]
+        # SAFE FIXES ONLY: `--fix` applies ruff's safe, behavior-preserving
+        # autofixes. `--unsafe-fixes` was removed because unsafe fixes can
+        # rewrite semantics (e.g. deleting "unused" imports that are
+        # actually relied on via TYPE_CHECKING side-effects, or restructuring
+        # try/except blocks in ways that change which exceptions are caught).
+        # The ruff-baseline.json + scripts/ruff_ratchet_check.py ratchet is
+        # the safety net for any residual lint debt — unsafe rewrites
+        # should be applied by a human, not silently on every commit.
+        args: [--fix]
       - id: ruff-format
         args: [--check]
 

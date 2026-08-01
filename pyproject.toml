@@ -516,6 +516,18 @@ testpaths = ["tests"]
 # (e.g. `pytest tests/test_foo.py`) don't trip the coverage gate. The
 # threshold is still enforced in CI (build.yml pytest step passes
 # --cov-fail-under=65 explicitly) and in [tool.coverage.report].fail_under.
+# LOCAL RUNS NOTE: `--cov=voice_typer` is intentional for CI parity — it
+# instruments every `voice_typer/**` import so the CI coverage report
+# matches what a contributor would see locally. The trade-off is that
+# `--cov` adds ~15-25% overhead to every test run (line-tracing
+# bytecode instrumentation in pytest-cov). For tight local iteration
+# loops (TDD on a single module, debugging a flaky test), pass
+# `--no-cov` to skip coverage entirely, or `-o addopts=""` to drop ALL
+# addopts (also drops --timeout / --strict-markers — prefer `--no-cov`
+# for the surgical case). Do NOT remove `--cov=voice_typer` from
+# addopts — CI's `pytest tests/ --cov-fail-under=65` step relies on
+# the addopts `--cov=voice_typer` to scope the report; removing it
+# would silently drop CI coverage enforcement.
 addopts = "-v --tb=short --strict-markers --strict-config --timeout=60 --timeout-method=thread --cov=voice_typer"
 # ADR-0020 round-2 fix: async tests (tests/tauri/*, tests/test_cloud_engines.py)
 # use `async def test_*` without explicit @pytest.mark.asyncio markers.
@@ -550,6 +562,46 @@ filterwarnings = [
     # outside our control (third-party library).
     "ignore:`torch.jit.load` is not supported:DeprecationWarning",
 ]
+
+# ── Python version matrix (intentional divergence) ───────────────────────
+# The Python language level is configured DIFFERENTLY across the three
+# type-checkers / linters, and the runtime / `.python-version` pin is
+# different again. This is intentional — each tool's level is chosen
+# for a concrete reason, and aligning them would either break the
+# project's stated support window or cause spurious errors:
+#
+#   Tool / file            | Python level | Why
+#   -----------------------+--------------+-------------------------------
+#   `.python-version`      | 3.12.7       | The interpreter `uv` installs
+#                          |              | for local dev + CI. Matches the
+#                          |              | `python-build-standalone`
+#                          |              | release used by the Nuitka
+#                          |              | sidecar builds (ADR-0020 §4).
+#   `[project].requires-`  | >=3.10       | The project's stated support
+#   `python`               |              | window (3.10-3.14). Users on
+#                          |              | 3.10/3.11 must be able to
+#                          |              | install + run the Electron path.
+#   `[tool.ruff].target-`  | py310        | Lint at the LOWEST supported
+#   `version`              |              | version so syntax we accept
+#                          |              | (PEP 604 unions, etc.) is
+#                          |              | flagged if it requires 3.10+.
+#   `[tool.mypy].python_`  | 3.10         | Type-check at the LOWEST
+#   `version`              |              | supported version so mypy
+#                          |              | catches 3.11+-only typing
+#                          |              | constructs before they ship
+#                          |              | (see CQ-058 comment below).
+#   `[tool.pyrefly].python`| 3.12         | Pyrefly's `type` statement
+#   `-version`             |              | support (PEP 695) + numpy 2.x
+#                          |              | stubs require 3.12+ to parse.
+#                          |              | Pyrefly is a SOFT CI gate; its
+#                          |              | baseline is regenerated at
+#                          |              | 3.12 (see [tool.pyrefly].baseline).
+#
+# Do NOT "fix" this divergence by aligning all three to 3.12 — that
+# would let 3.11+-only typing slip through ruff/mypy and break 3.10
+# installs at runtime. Conversely, dropping pyrefly to 3.10 would
+# prevent it from parsing the numpy 2.x stubs it needs to type-check
+# the audio pipeline. The matrix is the minimum-divergence set.
 
 [tool.ruff]
 target-version = "py310"

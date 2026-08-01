@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reusable import-time profiler (cold-start measurement).
 
-S1-CR-130 (session-1, Medium, Documentation): ``bench/COLDSTART_REPORT.md``
+(session-1, Medium, Documentation): ``bench/COLDSTART_REPORT.md``
 referenced this script in its "Artifacts" section (§7) but the file was
 missing from the repository, so readers could not reproduce the
 "first-run cold start" numbers cited in the report. This implementation

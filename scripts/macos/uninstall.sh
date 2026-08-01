@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice Typer — macOS uninstall cleanup script (CR-69 + CR-70).
+#Voice Typer — macOS uninstall cleanup script ( + ).
 #
 # Removes per-user autostart + data artifacts that survive `app deletion`
 # from /Applications. macOS apps don't have a system uninstaller (the user
@@ -11,7 +11,7 @@
 #   bash scripts/macos/uninstall.sh --purge   # also remove HuggingFace cache
 #   bash scripts/macos/uninstall.sh -h|--help
 #
-# CR-69: removes ~/Library/LaunchAgents/com.voicetyper.plist (the
+#removes ~/Library/LaunchAgents/com.voicetyper.plist (the
 # LaunchAgent written by autostart_macos._enable_autostart_macos when the
 # user enables autostart in Settings). Without this, launchd would keep
 # trying to launch the (now-deleted) binary at every login — spamming
@@ -19,11 +19,11 @@
 # running agent first (best-effort) so it dies immediately rather than
 # lingering until next logout.
 #
-# CR-70: removes ~/Library/Application Support/voice-typer (the per-user
+#removes ~/Library/Application Support/voice-typer (the per-user
 # data dir: settings JSON, history DB, downloaded vocabularies, etc.).
 # This is the macOS equivalent of ~/.local/share/voice-typer on Linux.
 #
-# CR-70 (HuggingFace cache): the HuggingFace cache lives at
+#(HuggingFace cache): the HuggingFace cache lives at
 # ~/.cache/huggingface on macOS (HuggingFace's library follows XDG
 # conventions even on macOS). It stores downloaded ASR model weights
 # (faster-whisper, WhisperCPP, etc.) and can grow to multiple GB. We do
@@ -89,7 +89,7 @@ for arg in "$@"; do
     esac
 done
 
-# CR-69: remove the LaunchAgent plist (autostart).
+#remove the LaunchAgent plist (autostart).
 PLIST_PATH="$HOME/Library/LaunchAgents/com.voicetyper.plist"
 if [ -f "$PLIST_PATH" ]; then
     # Best-effort: unload the agent before deleting so it dies immediately
@@ -107,7 +107,32 @@ else
     echo "[voice-typer-uninstall] No LaunchAgent to remove ($PLIST_PATH not present)"
 fi
 
-# CR-70: remove the per-user data directory.
+# Prewarm LaunchAgent cleanup.
+# The prewarm scheduler (voice_typer/server/prewarm_scheduler_posix.py) registers
+# a SEPARATE LaunchAgent at ~/Library/LaunchAgents/com.voicetyper.prewarm.plist
+# with label `com.voicetyper.prewarm` (RunAtLoad=true). This is distinct from
+# the main-app autostart plist above. Without this cleanup block, the prewarm
+# agent survives uninstall and launchd keeps trying to launch the (now-deleted)
+# frozen prewarm binary at every login — spamming the system log with "command
+# not found" errors. Same bootout/unload/rm pattern as the main-app cleanup
+# above.
+PREWARM_PLIST="$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"
+if [ -f "$PREWARM_PLIST" ]; then
+    UID_NUM="$(id -u 2>/dev/null || echo 501)"
+    # Try modern `launchctl bootout` first (macOS 10.10+), then legacy
+    # `launchctl unload` as a fallback for older systems. Both are
+    # non-fatal: if the agent is already gone or launchctl is restricted,
+    # we still delete the plist file so launchd won't re-load it on next
+    # login.
+    launchctl bootout "gui/${UID_NUM}/com.voicetyper.prewarm" 2>/dev/null || \
+        launchctl unload "$PREWARM_PLIST" 2>/dev/null || true
+    rm -f "$PREWARM_PLIST"
+    echo "[voice-typer-uninstall] Removed prewarm LaunchAgent: $PREWARM_PLIST"
+else
+    echo "[voice-typer-uninstall] No prewarm LaunchAgent to remove ($PREWARM_PLIST not present)"
+fi
+
+#remove the per-user data directory.
 # Quote the path to handle the space in "Application Support".
 DATA_DIR="$HOME/Library/Application Support/voice-typer"
 if [ -d "$DATA_DIR" ]; then
@@ -117,7 +142,7 @@ else
     echo "[voice-typer-uninstall] No user data directory to remove ($DATA_DIR not present)"
 fi
 
-# CR-70 (HF cache): opt-in purge of the HuggingFace cache.
+#(HF cache): opt-in purge of the HuggingFace cache.
 if [ "$PURGE" = "1" ]; then
     HF_CACHE="$HOME/.cache/huggingface"
     if [ -d "$HF_CACHE" ]; then

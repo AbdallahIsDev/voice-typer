@@ -1,15 +1,15 @@
 """Entry point for `python -m voice_typer`.
 
-CQ-028: Adds CLI argument parsing for --help, --version, --debug.
-NEW-CLI-004: Adds operational flags --no-tray, --quiet, --config.
-NEW-CLI-003: Standardized exit codes:
+Adds CLI argument parsing for --help, --version, --debug.
+Adds operational flags --no-tray, --quiet, --config.
+Standardized exit codes:
   0 = clean exit
   1 = crash / runtime error
   2 = port conflict
   3 = duplicate instance
   4 = bad CLI args
 
-NEW-DUP-008: this is NOT a duplicate of the ``voice-typer`` console
+this is NOT a duplicate of the ``voice-typer`` console
 script (pyproject.toml ``[project.scripts]``).  The two serve
 different purposes:
 
@@ -29,7 +29,7 @@ import argparse
 
 from voice_typer.server.branding import APP_NAME
 
-# NEW-CLI-003: standardized exit codes
+# standardized exit codes
 EXIT_CLEAN = 0
 EXIT_CRASH = 1
 EXIT_PORT_CONFLICT = 2
@@ -54,7 +54,7 @@ def _parse_args(argv=None):
         default=False,
         help="Enable debug logging to console",
     )
-    # NEW-CLI-004: operational flags for CI / headless testing
+    # operational flags for CI / headless testing
     parser.add_argument(
         "--quiet",
         action="store_true",
@@ -96,7 +96,7 @@ def main():
 
         os.environ["VOICE_TYPER_DEBUG"] = "1"
 
-    # NEW-CLI-004: pass operational flags via env vars so the IPC
+    # pass operational flags via env vars so the IPC
     # server can read them without changing its signature.
     import os
 

@@ -101,10 +101,23 @@
   ; Best-effort: failures (no matching task, PowerShell disabled, etc.)
   ; are non-fatal — the Pop discards the exit code.
   ;
+  ; Sweep widened from `VoiceTyperAutostart*` to `VoiceTyper*` so it ALSO
+  ; catches the prewarm task `VoiceTyperPrewarm` (registered by
+  ; voice_typer/server/task_scheduler.py with TASK_NAME = "VoiceTyperPrewarm"),
+  ; not just the autostart fallback tasks `VoiceTyperAutostart_<hash>`.
+  ;
   ; NSIS string escaping: $\" is a literal double-quote. We need them
   ; around the task name so schtasks handles names with spaces correctly
   ; (unlikely for "VoiceTyperAutostart_<hash>" but defensive).
-  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ScheduledTask -TaskName VoiceTyperAutostart* -ErrorAction SilentlyContinue | ForEach-Object { schtasks.exe /Delete /TN $\"$($_.TaskName)$\" /F }"'
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ScheduledTask -TaskName VoiceTyper* -ErrorAction SilentlyContinue | ForEach-Object { schtasks.exe /Delete /TN $\"$($_.TaskName)$\" /F }"'
+  Pop $0  ; exit code — best-effort, discard
+
+  ; Belt-and-suspenders: explicit delete of the prewarm task name in case
+  ; the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
+  ; wildcard behavior differs across Windows versions). /F = force (no
+  ; prompt). Non-fatal if the task is already gone (the Pop discards the
+  ; exit code).
+  nsExec::ExecToLog 'schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F'
   Pop $0  ; exit code — best-effort, discard
 
   ; ─── CR-70: per-user data directory cleanup ────────────────────────

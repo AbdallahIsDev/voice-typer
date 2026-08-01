@@ -53,7 +53,7 @@ if not APP_NAME:
     sys.exit(1)
 
 # ── Branding definition files (exempt entirely) ───────────────────────
-# DT-43 (transitional step): include the Rust mirror `branding.rs` so
+# (transitional step): include the Rust mirror `branding.rs` so
 # the scanner doesn't false-positive on its `pub const APP_NAME: &str =
 # "Voice Typer";` declaration. The Rust file is the canonical source
 # for the Tauri host (see the module docstring in branding.rs).
@@ -67,7 +67,7 @@ BRANDING_FILES = frozenset(
 )
 
 # ── Rust branding module (read for the cross-language parity check) ───
-# DT-43: the existing branding.rs:11-21 docstring notes that
+# the existing branding.rs:11-21 docstring notes that
 # `scripts/check_branding.py` does NOT currently read branding.rs, so
 # a drift between the Python and Rust constants would go undetected.
 # Extend the script to read branding.rs and assert byte-for-byte parity
@@ -76,7 +76,7 @@ BRANDING_FILES = frozenset(
 RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 
 # ── Directories to scan ──────────────────────────────────────────────
-# DT-43: include `src-tauri/src` so hardcoded "Voice Typer" literals in
+# include `src-tauri/src` so hardcoded "Voice Typer" literals in
 # the Rust host source (tray tooltips, toast titles, etc.) are caught
 # the same way Python/TS literals are. The Tauri host's branding.rs is
 # exempt (see BRANDING_FILES); other Rust files using the literal would
@@ -90,7 +90,7 @@ SCAN_DIRS = [
 ]
 
 # ── File extensions to check ─────────────────────────────────────────
-# DT-43: include `.rs` so Rust source files are scanned.
+# include `.rs` so Rust source files are scanned.
 EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────
@@ -169,7 +169,7 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
         # If the line imports from branding, it's OK
         if re.search(r"(from\s+.*branding|import.*branding)", line):
             continue
-        # DT-43: Rust modules use `use crate::branding::APP_NAME;` (or
+        # Rust modules use `use crate::branding::APP_NAME;` (or
         # `use super::branding::APP_NAME;`) rather than a Python/TS
         # `from ... import` or `import ... branding`. Treat any Rust
         # `use` line that mentions `branding` as the equivalent
@@ -188,11 +188,11 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
 def _read_rust_app_name() -> str | None:
     """Read ``APP_NAME`` from ``src-tauri/src/branding.rs``.
 
-    DT-43: the Rust host mirrors the Python ``branding.py::APP_NAME``
-    constant as ``pub const APP_NAME: &str = "Voice Typer";``. Return
-    the string literal value (or None if the file/constant is missing)
-    so the cross-language parity check can compare it against the
-    Python canonical value.
+    the Rust host mirrors the Python ``branding.py::APP_NAME``
+        constant as ``pub const APP_NAME: &str = "Voice Typer";``. Return
+        the string literal value (or None if the file/constant is missing)
+        so the cross-language parity check can compare it against the
+        Python canonical value.
     """
     if not RUST_BRANDING_FILE.is_file():
         return None
@@ -213,7 +213,7 @@ def main() -> int:
     show_list = "--list" in sys.argv
     all_hits: list[tuple[str, int, str]] = []  # (file, line, text)
 
-    # DT-43: cross-language parity check. branding.rs is the Rust mirror
+    # cross-language parity check. branding.rs is the Rust mirror
     # of branding.py::APP_NAME — they MUST be byte-for-byte identical.
     # Per branding.rs:11-21, the script historically did NOT read
     # branding.rs, so a drift between the two would go undetected. This

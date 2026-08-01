@@ -4,7 +4,7 @@ SEC-004: This module must not have side effects at import time.
 Only ``__version__`` is exported; no heavy imports, no global state,
 no file I/O, and no logging configuration happen at the module level.
 
-NEW-DOC-019: ``__version__`` is now read from package metadata
+``__version__`` is now read from package metadata
 (installed via ``pyproject.toml``'s ``[project] version`` field)
 using ``importlib.metadata``, with a hardcoded fallback for
 development environments where the package isn't installed.
@@ -12,7 +12,7 @@ This makes ``pyproject.toml`` the single source of truth for the
 version string; ``package.json`` should be
 kept in sync via the build script (see ``scripts/build/sync_versions.py``).
 
-PR-1-FIX-3: ``__version__`` is resolved lazily via PEP 562's
+``__version__`` is resolved lazily via PEP 562's
 ``__getattr__``. The first access pays the ~53ms
 ``importlib.metadata.version("voice-typer")`` cost; subsequent
 accesses read the cached value from ``globals()``. This keeps the

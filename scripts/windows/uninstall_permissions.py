@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voice Typer — Windows uninstaller autostart cleanup (S2-CR-69).
+"""Voice Typer — Windows uninstaller autostart cleanup ().
 
 Removes the per-user Windows autostart entries that
 ``voice_typer/server/server_platform/autostart_windows.py`` creates at
@@ -24,7 +24,7 @@ removes the current install's hash-suffixed entry; the uninstaller must
 be more aggressive so the registry / Task Scheduler are left CLEAN of
 any Voice Typer autostart entry.
 
-S2-CR-70 (SA-6): optional ``--purge`` flag (or ``VOICE_TYPER_PURGE=1``
+(): optional ``--purge`` flag (or ``VOICE_TYPER_PURGE=1``
 env var) ALSO removes the per-user data directory at
 ``%APPDATA%\\voice-typer`` (settings JSON, history DB, downloaded
 vocabularies, HuggingFace model cache, venv, logs). OFF by default so
@@ -51,7 +51,7 @@ Invoked by:
     failed uninstall.
 
 This script mirrors the Linux pattern in
-``scripts/linux/uninstall_permissions.py`` (CR-69 + CR-70): same
+``scripts/linux/uninstall_permissions.py`` ( + ): same
 ``--purge`` flag, same env-var fallback, same "best-effort, log + exit 0"
 semantics (the uninstaller must NEVER block on cleanup failure — a
 locked task or registry permission error should not abort the user's
@@ -94,7 +94,7 @@ import shutil
 import sys
 from pathlib import Path
 
-# ─── S2-CR-70 (SA-6): --purge flag handling ─────────────────────────────
+# (): --purge flag handling ─────────────────────────────
 #
 # Parse --purge out of argv BEFORE importing the voice_typer package (so
 # the env-var fallback also works without argv). Mirrors the Linux
@@ -110,7 +110,7 @@ def _log(msg: str) -> None:
 
 
 def _purge_user_data() -> None:
-    """S2-CR-70 (SA-6): remove the per-user data directory at
+    """(): remove the per-user data directory at
     ``%APPDATA%\\voice-typer``.
 
     Mirrors the Linux purge in ``scripts/linux/uninstall_permissions.py``
@@ -272,7 +272,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
 
 def main() -> int:
     """Entry point — returns 0 on completion (best-effort, never blocks)."""
-    # S2-CR-70 (SA-6): purge runs BEFORE autostart cleanup so the
+    # (): purge runs BEFORE autostart cleanup so the
     # autostart entry is removed LAST (in case the data-dir purge
     # deletes the very Python bundle this script is running from —
     # the autostart cleanup has already happened by then, so a

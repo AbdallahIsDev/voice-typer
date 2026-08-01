@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RW-11: ruff ratchet comparison script.
+"""ruff ratchet comparison script.
 
 Compares the current ruff violation counts (captured in
 ``ruff-current.json``) against the baseline (``ruff-baseline.json``).
@@ -35,7 +35,7 @@ Run from the project root.
 
    The script also REFUSES to regenerate if the baseline file is missing
    or corrupt, because the refuse-to-grow check cannot run without a
-   valid prior baseline (XS-47). To override (e.g. for bootstrap or
+valid prior baseline (). To override (e.g. for bootstrap or
    emergency re-baselining after a deliberate scope change), pass
    ``--force``: this skips both the missing-baseline guard and the
    refuse-to-grow check, and prints a warning.
@@ -257,27 +257,27 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
 def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False) -> int:
     """Rewrite the baseline file with the current violation counts.
 
-    Refuses to write if the new total is HIGHER than the old total —
-    that would be a regression, not a ratchet.
+        Refuses to write if the new total is HIGHER than the old total —
+        that would be a regression, not a ratchet.
 
-    Also refuses to regenerate when the existing baseline is missing or
-    corrupt, because the refuse-to-grow check cannot run without a valid
-    prior baseline — a missing/corrupt baseline must not become a silent
-    escape hatch that locks in an arbitrary regression (XS-47). Both
-    guards are bypassed when ``force`` is True (intended for bootstrap
-    or emergency re-baselining after a deliberate scope change); a
-    warning is printed in that case.
+        Also refuses to regenerate when the existing baseline is missing or
+        corrupt, because the refuse-to-grow check cannot run without a valid
+        prior baseline — a missing/corrupt baseline must not become a silent
+    escape hatch that locks in an arbitrary regression (). Both
+        guards are bypassed when ``force`` is True (intended for bootstrap
+        or emergency re-baselining after a deliberate scope change); a
+        warning is printed in that case.
 
-    F-rule (pyflakes) codes — F401, F811, F821, F841, etc.
-    — are stripped from the regenerated ``by_rule`` and ``total_count``
-    so the baseline never carries a non-zero F-rule floor. Per
-    ``docs/ruff-ratchet.md`` §"Step 1", F-rules must hard-fail at zero
-    tolerance: if any F-rule count > 0 appears in the current ruff
-    output, ``compare()`` sees ``b=0`` (baseline omits F-rules) vs
-    ``c>0`` and reports a per-rule REGRESSION. Locking a non-zero
-    F-rule count into the baseline would silently absorb future
-    regressions in unused-import / undefined-name / unused-variable
-    checks — exactly the hole this filter closes.
+        F-rule (pyflakes) codes — F401, F811, F821, F841, etc.
+        — are stripped from the regenerated ``by_rule`` and ``total_count``
+        so the baseline never carries a non-zero F-rule floor. Per
+        ``docs/ruff-ratchet.md`` §"Step 1", F-rules must hard-fail at zero
+        tolerance: if any F-rule count > 0 appears in the current ruff
+        output, ``compare()`` sees ``b=0`` (baseline omits F-rules) vs
+        ``c>0`` and reports a per-rule REGRESSION. Locking a non-zero
+        F-rule count into the baseline would silently absorb future
+        regressions in unused-import / undefined-name / unused-variable
+        checks — exactly the hole this filter closes.
     """
     _raw_total, raw_by_rule = _summarize(current_violations)
 

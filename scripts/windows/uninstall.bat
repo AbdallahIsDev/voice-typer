@@ -10,6 +10,12 @@ REM     NOT a file, so deleteAppDataOnUninstall in electron-builder.yml
 REM     does NOT remove it.
 REM   - Task Scheduler tasks named "VoiceTyperAutostart<hash>" (the
 REM     fallback autostart mechanism when the Run key fails).
+REM   - Task Scheduler task named "VoiceTyperPrewarm" (the prewarm
+REM     logon-trigger task registered by voice_typer/server/task_scheduler.py
+REM     with TASK_NAME = "VoiceTyperPrewarm"). Distinct from the autostart
+REM     tasks above - without cleanup it survives uninstall and Task
+REM     Scheduler keeps trying to launch the (now-deleted) frozen prewarm
+REM     binary at every login.
 REM
 REM Wired in two places:
 REM   1. voice_typer/client/electron-builder.yml -> nsis.include points
@@ -20,9 +26,9 @@ REM      uninstall time) and then optionally calls this .bat as a
 REM      belt-and-suspenders second sweep (the .nsh's native loop and
 REM      the Python script use different code paths; if either has a
 REM      bug, the other catches it).
-REM   2. src-tauri/tauri.conf.json -> bundle.windows.nsis.preRemoveScript
-REM      points at this .bat (Tauri v2 installerHooks path). Tauri's
-REM      NSIS bundler runs this BEFORE removing the app files (so the
+REM   2. src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks
+REM      points at this .bat (Tauri v2 NSIS hooks key). Tauri's NSIS
+REM      bundler runs this BEFORE removing the app files (so the
 REM      Python bundle is still on disk when the script runs).
 REM
 REM Python-first strategy: try the Python script first (preferred - it
@@ -104,12 +110,23 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
 
 echo [voice-typer-uninstall] Running native PowerShell Task Scheduler sweep...
 
+REM Sweep widened from 'VoiceTyperAutostart*' to 'VoiceTyper*' so it ALSO
+REM catches the prewarm task `VoiceTyperPrewarm` (registered by
+REM voice_typer/server/task_scheduler.py with TASK_NAME = "VoiceTyperPrewarm"),
+REM not just the autostart fallback tasks `VoiceTyperAutostart_<hash>`.
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' -ErrorAction SilentlyContinue |" ^
+    "Get-ScheduledTask -TaskName 'VoiceTyper*' -ErrorAction SilentlyContinue |" ^
     "ForEach-Object {" ^
     "  schtasks.exe /Delete /TN $_.TaskName /F;" ^
     "  Write-Output ('Removed Task Scheduler task: ' + $_.TaskName)" ^
     "}"
+
+REM Belt-and-suspenders: explicit delete of the prewarm task name in case
+REM the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
+REM wildcard behavior differs across Windows versions). /F = force (no
+REM prompt). Non-fatal if the task is already gone.
+schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F >nul 2>nul
+echo [voice-typer-uninstall] Explicit prewarm task delete attempted (best-effort).
 
 REM Optional --purge: remove %APPDATA%\voice-typer if VOICE_TYPER_PURGE=1.
 if /i "%VOICE_TYPER_PURGE%"=="1" (

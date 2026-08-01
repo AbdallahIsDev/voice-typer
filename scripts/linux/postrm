@@ -18,11 +18,13 @@
 # uninstall_permissions.py. This script ONLY removes per-user data on
 # `purge`.
 #
-# Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
-# Tauri v2 uses `postInstall` and `preRemove` (NOT `postInstallScript` / `preRemoveScript` which were Tauri v1 keys, and NOT `postRemoveScript`).
-# See https://v2.tauri.app/reference/config/#debconfig for the authoritative Tauri v2 config schema.
-# This postrm script is therefore NOT automatically wired into the .deb
-# by Tauri's bundler. To enable true `apt purge` cleanup, the .deb must
+# Tauri v2 note: the bundle config uses the v2 long-form keys
+# `postInstallScript` and `preRemoveScript` (WITH the 'Script' suffix;
+# the v1 short forms `postInstall` / `preRemove` were Tauri v1 keys).
+# The current tauri.conf.json does NOT wire a `postRemoveScript`, so
+# this postrm script is therefore NOT automatically wired into the .deb
+# by Tauri's bundler.
+# See https://v2.tauri.app/reference/config/#debconfig for the authoritative Tauri v2 config schema. To enable true `apt purge` cleanup, the .deb must
 # be post-processed (e.g. via a `dpkg-deb --extract` + re-pack step in
 # CI) to copy this file into the package's maintainer-scripts directory
 # (`DEBIAN/postrm`). Until that CI step is added, `apt purge voice-typer`
