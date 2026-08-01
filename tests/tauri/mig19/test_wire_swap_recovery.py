@@ -1325,8 +1325,29 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # The block must also have a branch that kills the freshly-spawned
     # child when the inside-lock recheck sees shutting_down == true.
     # The pattern is: shutting_down recheck → if true → kill_tree.
-    kill_branch_re = re.compile(r"shutting_down.*?\{[^}]*?kill_tree", re.DOTALL)
-    assert kill_branch_re.search(install_block), (
+    # NOTE: the `kill_tree` call textually lives OUTSIDE the
+    # `if shutting_down` brace group (in the `if let Some(c) = child`
+    # block right after the lock scope closes) — the lock scope must
+    # not span an `.await` (`std::sync::MutexGuard` is `!Send`), so
+    # the kill is deliberately performed after the guard is dropped.
+    # The regex therefore allows the closing brace of the recheck
+    # block before `kill_tree` appears.
+    #
+    # ALSO: the code `kill_tree` can sit past the 4500-char install
+    # window (the install-block docstring is long), so the kill-branch
+    # search restarts from the recheck position instead of the block
+    # start — the docstring's `kill_tree` prose mentions all appear
+    # BEFORE the recheck, so slicing from `first_recheck` excludes them.
+    kill_region = supervisor_source[
+        install_block_start
+        + first_recheck.start() : install_block_start
+        + first_recheck.start()
+        + 4000
+    ]
+    kill_branch_re = re.compile(
+        r"if let Some\(c\) = child\s*\{[^}]*\bkill_tree\b", re.DOTALL
+    )
+    assert kill_branch_re.search(kill_region), (
         "YJ-21 / CR-81: when the inside-lock recheck sees "
         "`shutting_down == true`, the freshly-spawned child must be "
         "killed (kill_tree) instead of being installed — otherwise the "

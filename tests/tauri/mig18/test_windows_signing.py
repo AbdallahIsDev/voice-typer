@@ -453,10 +453,18 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     because no ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` was
     wired into the config.
 
-    XPLAT-4 fix: added ``bundle.windows.signCommand`` using an env-var
-    reference (``${WIN_SIGN_COMMAND}``) so local builds without signing
-    env vars still work, but the config is present for CI/production
-    builds that have the env var set.
+    XPLAT-4 fix: added ``bundle.windows.signCommand`` pointing at
+    ``scripts/tauri-sign.cmd`` (``..\scripts\tauri-sign.cmd %1`` relative
+    to the src-tauri cwd — same convention as ``bundle.windows.nsis.installerHooks``).
+
+    Note on the env-var design: the Tauri bundler executes signCommand via
+    ``Command::new`` with NO shell and NO ``${VAR}`` expansion
+    (tauri-bundler ``bundle/windows/sign.rs`` ``sign_command_custom``), so a
+    literal ``${WIN_SIGN_COMMAND}`` value would be spawned as a program name
+    and break every Windows ``cargo tauri build``. The wrapper script honors
+    ``WIN_SIGN_COMMAND`` when set (runs it with the file path as ``%1``) and
+    exits 0 otherwise — so local builds without signing env vars still work,
+    and CI/production builds that set the env var get signed by the bundler.
 
     This test now ASSERTS PRESENCE of the ``windows`` block (GAP-2 closed).
     """

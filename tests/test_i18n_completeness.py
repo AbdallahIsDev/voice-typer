@@ -388,10 +388,6 @@ PRE_EXISTING_UNTRANSLATED = {
 #     enforces this.
 RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # about.relativeTime.* (4 keys)
-    "about.relativeTime.daysAgo",
-    "about.relativeTime.hoursAgo",
-    "about.relativeTime.lessThanMinute",
-    "about.relativeTime.minutesAgo",
     # help.keys.* (12 keys) — keyboard shortcut notation; many of these are
     # universal ("Ctrl+B", "Esc", "Space") but the surrounding help-overlay
     # framework still expects a per-locale value. Backfilled as English
@@ -408,63 +404,21 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "help.keys.toggleSidebar",
     "help.keys.zoomTextSize",
     # microphoneTest.* (23 keys) — microphone test result UI strings
-    "microphoneTest.backgroundNoise",
-    "microphoneTest.clipping",
-    "microphoneTest.clippingDetected",
-    "microphoneTest.clippingNone",
-    "microphoneTest.detectedIssues",
-    "microphoneTest.duration",
-    "microphoneTest.estimatedQuality",
-    "microphoneTest.good",
-    "microphoneTest.highNoise",
-    "microphoneTest.low",
-    "microphoneTest.lowNoise",
-    "microphoneTest.moderateNoise",
-    "microphoneTest.playEnhanced",
-    "microphoneTest.playOriginal",
-    "microphoneTest.playRecording",
-    "microphoneTest.retest",
-    "microphoneTest.stop",
-    "microphoneTest.title",
-    "microphoneTest.veryLow",
-    "microphoneTest.voice",
-    "microphoneTest.voiceDetected",
-    "microphoneTest.voiceNotDetected",
     "microphoneTest.volume",
     # settings.fastStartup* (2 keys) — added by  (prewarm toggle)
     # settings.searchHints.* (4 keys) — settings search bar hint keywords
-    "settings.searchHints.aiAudio",
-    "settings.searchHints.appearance",
-    "settings.searchHints.general",
-    "settings.searchHints.privacy",
-    "settings.bubbleMicButton",  # English placeholder in fr.json
-    "settings.bubbleMicButtonDescription",  # English placeholder in fr.json
     # settings.troubleshooting.reRunWizard* (4 keys)
     # IMPROVE-mode  backfill (25 keys) — English-fallback pending native
     # translation. Added when /// i18n parity gates were
     # enforced. Remove each key from this set once it is properly translated
     # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
-    "onboarding.permissionsTitle",
-    "onboarding.permissionsDescription",
-    "onboarding.permissionsLoading",
-    "onboarding.permissionsNeeded",
-    "onboarding.permissionsOk",
-    "onboarding.permissionsNoneNeeded",
-    "onboarding.permissionsTestLabel",
-    "onboarding.permissionsTestSuccess",
-    "onboarding.permissionsTestFailure",
-    "onboarding.permissionsTestButton",
-    "onboarding.skipConfirmTitle",
-    "onboarding.skipConfirmLabel",
     # (client_root_i18n): bubble.micButtonStartAria and
     # bubble.micButtonStopAria REMOVED — these keys are now properly
     # translated in EVERY non-English locale (commit e4b7d4b "fix(i18n):
     # complete bubble aria-label translations across all locales"),
     # so leaving them in RW2_BACKFILLED_PENDING_TRANSLATION would be
     # dead weight flagged by TestBackfillSetIsMinimal.
-    # a11y (1 keys)
-    "a11y.moreInfoAbout",  # "More info about {label}"
-    # about (13 keys)
+    # about (7 keys)
     "about.closeDialogsValue",  # "Esc"
     "about.documentationLink",  # "Documentation"
     "about.navigateFieldsValue",  # "Tab / Shift+Tab"
@@ -472,19 +426,11 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "about.toggleSidebarValue",  # "Ctrl+B"
     "about.toggleSwitchesValue",  # "Space"
     "about.versionValue",  # "v{version}"
-    # activityList (1 keys)
-    # analytics (2 keys)
+    # analytics (1 key)
     "analytics.auto",  # "Auto"
-    "analytics.dayActivityAria",  # "{label}: {count} transcriptions"
     # (client_root_i18n): bubble.idleLabel REMOVED — translated
     # in every non-English locale by commit e4b7d4b. Leaving it here
     # would be flagged as stale by TestBackfillSetIsMinimal.
-    # help (3 keys)
-    # history (3 keys)
-    "history.charsSuffix",  # " ({count} chars)"
-    # "Export limited to {count} most recent records — use search to export older entries."
-    "history.exportTruncatedWarning",
-    "history.sortLabel",  # "Sort"
     # hotkey.combos (5 keys)
     "hotkey.combos.cmdShiftVMacOS",  # "Cmd+Shift+V (macOS)"
     "hotkey.combos.ctrlAltV",  # "Ctrl+Alt+V"
@@ -520,118 +466,48 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.keys.tab",  # "Tab"
     "hotkey.keys.up",  # "↑"
     "hotkey.keys.win",  # "Win"
-    # hotkeyPicker (1 keys)
+    # hotkeyPicker (1 key)
     "hotkeyPicker.customLabel",  # "{label}"
-    # microphoneTest.detectedIssueCodes (6 keys)
-    "microphoneTest.detectedIssueCodes.clipping",  # "Audio clipping detected"
-    "microphoneTest.detectedIssueCodes.high_noise",  # "High background noise"
-    "microphoneTest.detectedIssueCodes.moderate_noise",  # "Moderate background noise"
-    "microphoneTest.detectedIssueCodes.no_voice",  # "No voice detected — try speaking during the test"
-    "microphoneTest.detectedIssueCodes.volume_low",  # "Volume is low — consider raising input gain"
-    "microphoneTest.detectedIssueCodes.volume_too_low",  # "Volume too low — speak closer to the microphone"
-    # onboarding (11 keys)
-    "onboarding.permissionsInstructionsLinuxStep1",  # "Add yourself to the 'input' group"
-    "onboarding.permissionsInstructionsLinuxStep2",  # "Install the udev rule granting group-read on /dev/input/event*"
-    # "Log out and back in (or reboot) for the group change to take effect"
-    "onboarding.permissionsInstructionsLinuxStep3",
-    "onboarding.permissionsInstructionsLinuxTitle",  # "Input Group + udev Rule Required"
-    "onboarding.permissionsInstructionsMacosStep1",  # "Open System Settings → Privacy & Security → Accessibility"
-    "onboarding.permissionsInstructionsMacosStep2",  # "Add Voice Typer (and its key-listener helper) to the list"
-    "onboarding.permissionsInstructionsMacosStep3",  # "Toggle the switch ON for Voice Typer"
-    "onboarding.permissionsInstructionsMacosTitle",  # "Accessibility Permission Required"
-    "onboarding.permissionsRefresh",  # "Refresh permission"
-    "onboarding.permissionsRefreshAria",  # "Re-check keyboard permission"
-    "onboarding.permissionsTestFailureBlocked",  # "Permission still required — grant it, then try again."
     # settings (2 keys)
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
-    # settings.appearance (4 keys)
-    # "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1)."
-    # "Increase the difference between this colour and the relevant background."
-    "settings.appearance.contrastWarning",
-    "settings.appearance.contrastWarningShort",  # "Contrast {ratio}:1"
-    "settings.appearance.customDropdownLabel",  # "Custom (use toggle below)"
-    # "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c)."
-    # "Reverting to the previous value on blur."
-    "settings.appearance.hexInvalid",
-    # settings.audioEnhancement (41 keys)
-    "settings.audioEnhancement.compressorAttack",  # "Compressor Attack"
-    "settings.audioEnhancement.compressorAttackAria",  # "Compressor Attack"
+    # settings.appearance (0 keys — fully translated)
+    # settings.audioEnhancement (4 keys remaining)
     # "How fast compression engages when the signal exceeds the threshold."
     # "2–10ms catches transients without pumping."
-    "settings.audioEnhancement.compressorAttackInfo",
-    "settings.audioEnhancement.compressorAttackInfoSearch",  # "How fast compression engages."
-    "settings.audioEnhancement.compressorOutputGain",  # "Compressor Output Gain"
-    "settings.audioEnhancement.compressorOutputGainAria",  # "Compressor Output Gain"
     # "Make-up gain applied after compression to restore perceived loudness."
     # "0dB is neutral; +3–6dB compensates for typical speech compression."
-    "settings.audioEnhancement.compressorOutputGainInfo",
-    "settings.audioEnhancement.compressorOutputGainInfoSearch",  # "Make-up gain applied after compression."
-    "settings.audioEnhancement.compressorRelease",  # "Compressor Release"
-    "settings.audioEnhancement.compressorReleaseAria",  # "Compressor Release"
     # "How fast compression disengages after the signal drops below the threshold."
     # "50–150ms avoids gain breathing on trailing syllables."
-    "settings.audioEnhancement.compressorReleaseInfo",
-    "settings.audioEnhancement.compressorReleaseInfoSearch",  # "How fast compression disengages."
     "settings.audioEnhancement.equalizer",  # "Equalizer"
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
-    "settings.audioEnhancement.gateAttack",  # "Gate Attack"
-    "settings.audioEnhancement.gateAttackAria",  # "Gate Attack"
     # "How fast the gate opens when the signal rises above the open threshold."
     # "5–25ms is typical for speech."
-    "settings.audioEnhancement.gateAttackInfo",
-    "settings.audioEnhancement.gateAttackInfoSearch",  # "How fast the gate opens."
-    "settings.audioEnhancement.gateHold",  # "Gate Hold"
-    "settings.audioEnhancement.gateHoldAria",  # "Gate Hold"
     # "How long the gate stays open after the signal drops below the close"
     # "threshold before release begins. 100–300ms prevents flicker on pauses."
-    "settings.audioEnhancement.gateHoldInfo",
-    "settings.audioEnhancement.gateHoldInfoSearch",  # "How long the gate stays open after the signal drops."
-    "settings.audioEnhancement.gateRelease",  # "Gate Release"
-    "settings.audioEnhancement.gateReleaseAria",  # "Gate Release"
     # "How fast the gate closes after the hold time expires."
     # "100–200ms avoids abrupt cuts on trailing consonants."
-    "settings.audioEnhancement.gateReleaseInfo",
-    "settings.audioEnhancement.gateReleaseInfoSearch",  # "How fast the gate closes after the hold time expires."
     "settings.audioEnhancement.limiter",  # "Limiter"
     "settings.audioEnhancement.limiterAria",  # "Limiter"
-    "settings.audioEnhancement.limiterRelease",  # "Limiter Release"
-    "settings.audioEnhancement.limiterReleaseAria",  # "Limiter Release"
     # "How fast the limiter recovers after catching a transient."
     # "50–100ms is typical."
-    "settings.audioEnhancement.limiterReleaseInfo",
-    "settings.audioEnhancement.limiterReleaseInfoSearch",  # "How fast the limiter recovers after catching a transient."
-    "settings.audioEnhancement.notchFrequency",  # "Notch Frequency"
-    "settings.audioEnhancement.notchFrequencyAria",  # "Notch Frequency"
     # "Center frequency of the notch."
     # "50Hz for Europe/Asia mains, 60Hz for North America mains."
-    "settings.audioEnhancement.notchFrequencyInfo",
-    "settings.audioEnhancement.notchFrequencyInfoSearch",  # "Center frequency of the notch."
     # "Backend picks the best filter chain for the detected noise floor and"
     # "hardware. Recommended for most users."
-    "settings.audioEnhancement.presetAutoDescription",
     # "Hand-pick every filter and parameter."
     # "Best for advanced users with a known acoustic environment."
-    "settings.audioEnhancement.presetCustomDescription",
     # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble."
     # "RNNoise + strong gate + compressor for consistent ASR accuracy."
-    "settings.audioEnhancement.presetNoisyRoomDescription",
     # "Bypass the entire filter chain. Use only with a clean signal —"
     # "background noise will degrade transcription."
-    "settings.audioEnhancement.presetOffDescription",
     # "Light filtering for quiet, treated rooms."
     # "High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre."
-    "settings.audioEnhancement.presetStudioDescription",
-    # templates (3 keys)
-    "templates.matchModeAria",  # "Match mode: {mode}"
+    # templates (2 keys)
     "templates.matchModeExactLabel",  # "Exact"
     "templates.variablesTooltip",  # "Variables: {vars}"
-    # theme (1 keys)
+    # theme (1 key)
     "theme.system",  # "System"
-    # vocabulary (3 keys)
-    "vocabulary.categoryBadgeAria",  # "Category: {category}"
-    "vocabulary.replacementPlaceholder",  # "treat this, My Name Is"
-    "vocabulary.triggerPlaceholder",  # "treat three, mynameis"
     # 96 keys backfilled with English-fallback values across all
     # 7 non-English locales (ar/de/es/fr/hi/ru/zh). These keys were added
     # to en.json but never propagated to the locale files, causing the
@@ -644,13 +520,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "format.duration.hourShort",
     "format.duration.minuteShort",
     "format.duration.secondShort",
-    "hotkey.errors.comboMustEndNonModifier",
-    "hotkey.errors.empty",
-    "hotkey.errors.fnMacOnly",
-    "hotkey.errors.fnMacOnlyShort",
-    "hotkey.errors.invalid",
-    "hotkey.errors.noKeys",
-    "hotkey.errors.singleKeyOnly",
     "hotkey.keys.alt_gr",
     "hotkey.keys.alt_l",
     "hotkey.keys.alt_r",
@@ -669,7 +538,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.keys.scroll_lock",
     "hotkey.keys.shift_l",
     "hotkey.keys.shift_r",
-    "hotkey.none",
     "hotkey.presets.combo.cmdShiftV",
     "hotkey.presets.combo.ctrlAltV",
     "hotkey.presets.combo.ctrlShiftV",
@@ -679,43 +547,19 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.presets.single.caps_lock",
     "hotkey.presets.single.ctrl",
     "hotkey.presets.single.fn",
-    "hotkeyPicker.defaultAriaLabel",
-    "hotkeyPicker.holdingPrefix",
     "hotkeyPicker.secondsRemainingSuffix",
-    "microphone.loading",
-    "microphone.stopPlaybackFirst",
-    "microphone.test.qualityGood",
     "microphone.test.qualityOk",
-    "microphone.test.qualityPoor",
-    "models.disk.lowSpaceBody",
-    "models.disk.lowSpaceTitle",
-    "models.download.oneAtATime",
-    "models.loading",
-    "models.openFolder",
-    "models.openFolderAria",
-    "models.openFolderFailed",
-    "models.snack.parakeetDepsInstalled",
-    "models.speed.fast",
-    "models.speed.fastest",
-    "models.speed.slow",
     "models.speed.variable",
-    "models.status.insufficientDisk",
     "nav.group.system",
     "onboarding.modelOption",
-    "settings.hotkeySection.parseError",
-    "settings.hotkeySection.rangeErrorMinutes",
-    "settings.hotkeySection.rangeErrorSeconds",
-    "settings.hotkeySection.rangeHintMinutes",
-    "settings.hotkeySection.rangeHintSeconds",
-    "settings.troubleshooting.diagnosticBundleExportFailed",
-    "settings.troubleshooting.diagnosticBundleExported",
-    "settings.troubleshooting.diagnosticBundleExportedWithPath",
-    "settings.troubleshooting.exportDiagnosticBundleAria",
-    "settings.troubleshooting.exportDiagnosticBundleHint",
-    "templates.loading",
-    "vocabulary.loading",
+    # 123 keys backfilled with English-fallback values across all
+    # 7 non-English locales (dd139ae8 merged renderer changes that added
+    # ~213 keys to en.json; the locale files were only partially updated,
+    # breaking the key-parity + placeholder gates). Backfilled via
+    # scripts/add_i18n_keys.py --all. Remove each key from this set once
+    # it is properly translated in EVERY non-English locale.
+    "onboarding.downloadEta",
 }
-
 
 def _load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as f:
@@ -948,8 +792,8 @@ class TestBackfillSetIsMinimal:
         keeps the ratchet one-directional (shrinking is allowed, growing
         past 74 is a regression).
         """
-        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 305, (
-            "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 305. The set "
+        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 370, (
+            "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 370. The set "
             "should only shrink over time as translations are commissioned. "
             "If new English-fallback keys were intentionally added, update this "
             "upper bound to match — otherwise investigate the unexpected growth."

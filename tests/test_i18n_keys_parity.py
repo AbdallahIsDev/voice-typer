@@ -103,6 +103,10 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
     # is satisfied (en/de/es/fr/zh/hi only USE _one/_other at runtime, but the
     # unused _zero/_two/_few/_many leaves are kept in lockstep so the broader
     # structural-parity test stays green).
+    # NOTE: vocabulary.importSuccess_* / templates.importSuccess_* are NOT
+    # catalogued here: the import-success keys use the Singular/Plural suffix
+    # convention (importSuccessSingular/importSuccessPlural) in en.json and the
+    # renderer, so the ICU plural forms for those two families do not exist.
     "ZU-21": [
         "vocabulary.entryCount_one",
         "vocabulary.entryCount_other",
@@ -110,18 +114,6 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
         "vocabulary.entryCount_two",
         "vocabulary.entryCount_few",
         "vocabulary.entryCount_many",
-        "vocabulary.importSuccess_one",
-        "vocabulary.importSuccess_other",
-        "vocabulary.importSuccess_zero",
-        "vocabulary.importSuccess_two",
-        "vocabulary.importSuccess_few",
-        "vocabulary.importSuccess_many",
-        "templates.importSuccess_one",
-        "templates.importSuccess_other",
-        "templates.importSuccess_zero",
-        "templates.importSuccess_two",
-        "templates.importSuccess_few",
-        "templates.importSuccess_many",
         "analytics.dayCountTooltip_one",
         "analytics.dayCountTooltip_other",
         "analytics.dayCountTooltip_zero",
@@ -212,8 +204,6 @@ def test_zu_fix_21_russian_plural_forms_present(locale_flats: dict[str, dict[str
     for form in ("_one", "_few", "_many", "_other"):
         for family in (
             "vocabulary.entryCount",
-            "vocabulary.importSuccess",
-            "templates.importSuccess",
             "analytics.dayCountTooltip",
         ):
             key = f"{family}{form}"
@@ -229,8 +219,6 @@ def test_zu_fix_21_arabic_plural_forms_present(locale_flats: dict[str, dict[str,
     for form in ("_zero", "_one", "_two", "_few", "_many", "_other"):
         for family in (
             "vocabulary.entryCount",
-            "vocabulary.importSuccess",
-            "templates.importSuccess",
             "analytics.dayCountTooltip",
         ):
             key = f"{family}{form}"

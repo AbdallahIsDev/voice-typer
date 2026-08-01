@@ -219,6 +219,13 @@ EXPECTED_MAIN_RS_COMMANDS = [
     # `bubble_emit_state` removed — dead in production.
     "bubble_resize",
     "bubble_toggle_dictation",
+    # bubble dismiss (SEC-026 bubble '×' button). Registered in
+    # main.rs's generate_handler! list; the command lives in
+    # commands/bubble/commands.rs. Added to the §16 contract when the
+    # bubble-dismiss IPC channel landed (the renderer's bubble window
+    # routes dismiss via the Rust command, not the Electron-only
+    # `bubble:dismiss` IPC channel).
+    "bubble_dismiss",
     # system-level window_ commands.
     "open_logs",
     # dedicated host-log-dir opener.

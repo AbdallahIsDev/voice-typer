@@ -66,32 +66,43 @@ class TestWin32ConsoleHandler:
         assert result is True
         app._kernel32.FreeConsole.assert_called_once()
 
-    def test_ctrl_logoff_event_starts_quit_thread(self, app):
-        """CTRL_LOGOFF_EVENT should start a quit thread."""
-        with patch("voice_typer.server.app.threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
-            result = app._win32_console_handler(5)  # CTRL_LOGOFF_EVENT
+    def test_ctrl_logoff_event_invokes_fast_cleanup(self, app, monkeypatch):
+        """CTRL_LOGOFF_EVENT (5) must route to ``_do_fast_cleanup``
+        (XZ-R17-06) — the critical-only path that ends with
+        ``os._exit(0)`` — NOT a quit thread."""
+        fast_cleanup = MagicMock()
+        monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
+        # stub os._exit so the fast-path's hard exit doesn't kill pytest
+        monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit", lambda code=0: None)
+
+        result = app._win32_console_handler(5)  # CTRL_LOGOFF_EVENT
 
         assert result is True
+        fast_cleanup.assert_called_once_with()
 
-    def test_ctrl_shutdown_event_starts_quit_thread(self, app):
-        """CTRL_SHUTDOWN_EVENT should start a quit thread."""
-        with patch("voice_typer.server.app.threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
-            result = app._win32_console_handler(6)  # CTRL_SHUTDOWN_EVENT
+    def test_ctrl_shutdown_event_invokes_fast_cleanup(self, app, monkeypatch):
+        """CTRL_SHUTDOWN_EVENT (6) must route to ``_do_fast_cleanup``
+        (XZ-R17-06) — NOT a quit thread."""
+        fast_cleanup = MagicMock()
+        monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
+        monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit", lambda code=0: None)
+
+        result = app._win32_console_handler(6)  # CTRL_SHUTDOWN_EVENT
 
         assert result is True
+        fast_cleanup.assert_called_once_with()
 
     def test_ctrl_c_event_starts_quit_thread(self, app):
-        """CTRL_C_EVENT should start a quit thread."""
-        with patch("voice_typer.server.app.threading.Thread") as mock_thread:
+        """CTRL_C_EVENT should start a quit thread (signal_handlers' own
+        threading module, not app's)."""
+        with patch("voice_typer.server.signal_handlers.threading.Thread") as mock_thread:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
             result = app._win32_console_handler(0)  # CTRL_C_EVENT
 
         assert result is True
+        mock_thread.assert_called_once()
+        mock_thread_instance.start.assert_called_once()
 
     def test_unknown_event_returns_false(self, app):
         """Unknown event types should return False."""

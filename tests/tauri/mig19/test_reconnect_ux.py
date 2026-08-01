@@ -466,13 +466,28 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
         r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
+    # The reason literal may appear directly after `reason:` or in the
+    # fallback form `reason: reason || "supervisor_relaunching"` (used
+    # when the payload's own reason should win).
+    mapping_reason_re = re.compile(
+        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
+        re.MULTILINE,
+    )
+    mapping_reason_fallback_re = re.compile(
+        r"reason:\s*[^\n]*\|\|\s*['\"]"
+        + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING)
+        + r"['\"]",
+        re.MULTILINE,
+    )
     assert mapping_type_re.search(tauri_bridge_source), (
         f"tauri-bridge must synthesise type: {_PY_EVENT_RECONNECTING!r} — "
         f"this is the translation that lets usePythonEvent('reconnecting', ...) "
         f"see the Rust host's disconnect signal."
     )
-    assert mapping_reason_re.search(tauri_bridge_source), (
-        f"tauri-bridge must include reason: {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} in the synthesised event data."
+    assert (
+        mapping_reason_re.search(tauri_bridge_source)
+        or mapping_reason_fallback_re.search(tauri_bridge_source)
+    ), (        f"tauri-bridge must include reason: {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} in the synthesised event data."
     )
 
     # The synthesised frame must be passed to the onEvent callback.

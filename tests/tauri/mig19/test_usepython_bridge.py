@@ -345,6 +345,34 @@ TAURI_RUST_ERROR_REJECT_SENTINEL = 'Some("error")'
 #: not-connected / send-exception (python-call-handler.ts:21/23/28).
 ELECTRON_ERROR_ENVELOPE_FIELD = "_error"
 
+#: Single source of truth for Electron IPC channel names
+#: (client/src/main/ipc/channels.ts). The preload scripts and main
+#: handlers now reference the exported constants (e.g.
+#: ``PythonChannels.call``) instead of bare literals, so the parity
+#: checks below accept BOTH the literal string and the constant
+#: reference. The resolver reads the value from channels.ts so a
+#: channel rename updates the tests automatically instead of drifting.
+_CHANNELS_TS = _CLIENT_SRC / "main" / "ipc" / "channels.ts"
+
+
+def _channel_value(group: str, member: str) -> str:
+    """Return the string value of ``group.member`` from channels.ts."""
+    assert _CHANNELS_TS.exists(), f"channels.ts not found: {_CHANNELS_TS}"
+    text = _CHANNELS_TS.read_text(encoding="utf-8")
+    m = re.search(
+        rf"\b{re.escape(group)}\s*=\s*\{{[^}}]*?\b{re.escape(member)}\s*:\s*['\"]([^'\"]+)['\"]",
+        text,
+        re.DOTALL,
+    )
+    assert m, f"channels.ts must declare {group}.{member}"
+    return m.group(1)
+
+
+def _ipc_channel_ref(group: str, member: str) -> str:
+    """Regex fragment matching either the channel literal or its constant ref."""
+    value = _channel_value(group, member)
+    return rf"(?:['\"]{re.escape(value)}['\"]|\b{re.escape(group)}\.{re.escape(member)}\b)"
+
 
 # ─── Shared fixtures ───────────────────────────────────────────────────
 
@@ -564,8 +592,11 @@ def test_electron_python_call_routes_through_ipc_renderer(preload_source) -> Non
     The IPC channel name MUST be ``'python-call'`` (kebab-case) so it
     matches the main handler's ``ipcMain.handle('python-call', …)``.
     """
-    # The preload's `python.call` must invoke the 'python-call' channel.
-    assert ELECTRON_PYTHON_CALL_CHANNEL in preload_source, (
+    # The preload's `python.call` must invoke the 'python-call' channel
+    # — as a bare literal or via the PythonChannels.call constant
+    # (preload/index.ts re-exports the constant from channels.ts).
+    call_channel_re = re.compile(_ipc_channel_ref("PythonChannels", "call"))
+    assert call_channel_re.search(preload_source), (
         f"preload/index.ts must reference the {ELECTRON_PYTHON_CALL_CHANNEL!r} "
         "IPC channel (Electron main handler at "
         "python-call-handler.ts:16 registers ipcMain.handle('python-call'))."
@@ -575,10 +606,11 @@ def test_electron_python_call_routes_through_ipc_renderer(preload_source) -> Non
         "(the request/response bridge, not the fire-and-forget `ipcRenderer.send`)."
     )
     # Specifically the python.call should be a one-liner that invokes
-    # 'python-call' with the msg argument.
+    # 'python-call' (or PythonChannels.call) with the msg argument.
     python_call_re = re.compile(
         r"call:\s*\([^)]*\)\s*=>\s*ipcRenderer\.invoke\(\s*"
-        r"['\"]python-call['\"]\s*,\s*msg\s*\)",
+        + _ipc_channel_ref("PythonChannels", "call")
+        + r"\s*,\s*msg\s*\)",
         re.DOTALL,
     )
     assert python_call_re.search(preload_source), (
@@ -608,9 +640,9 @@ def test_python_call_handler_registered_on_python_call_channel(
     import re as _re
 
     assert _re.search(
-        r'ipcMain\.handle\(\s*["\']python-call["\']',
+        r'ipcMain\.handle\(\s*' + _ipc_channel_ref("PythonChannels", "call") + r'\s*[,\)]',
         python_call_handler_source,
-    ), "python-call-handler.ts must register the 'python-call' IPC handler via `ipcMain.handle('python-call', …)`."
+    ), "python-call-handler.ts must register the 'python-call' IPC handler via `ipcMain.handle('python-call', …)` (or PythonChannels.call)."
     # The handler must call sendToPython (the TCP bridge) on the
     # connected path.
     assert "sendToPython" in python_call_handler_source, (
@@ -997,7 +1029,11 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     concatenates both files so this parity check passes regardless of
     where the literal subscription lives.
     """
-    assert ELECTRON_BUBBLE_LEVEL_CHANNEL in preload_source, (
+    # The channel may appear as a bare literal OR via the
+    # BubbleChannels.level constant (preload/_bubble-channels.ts
+    # imports the constants from channels.ts).
+    bubble_level_re = re.compile(_ipc_channel_ref("BubbleChannels", "level"))
+    assert bubble_level_re.search(preload_source), (
         f"preload/index.ts (or its _bubble-channels.ts factory) must subscribe to the "
         f"{ELECTRON_BUBBLE_LEVEL_CHANNEL!r} IPC channel (Electron main "
         "emits it from handle-message.ts:58 when the Python backend "
@@ -1005,17 +1041,19 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     )
     # The subscription must use ``ipcRenderer.on`` (or the factory's
     # ``ipc.on`` alias, since ``ipc == ipcRenderer`` at the call site).
-    # The factory uses ``makeListener(ipc, "bubble:level", ...)`` which
+    # The factory uses ``makeListener(ipc, BubbleChannels.level, ...)`` which
     # internally calls ``ipc.on(channel, handler)`` where ``channel`` is
-    # the string literal ``"bubble:level"`` — so accept any of:
+    # the constant ``BubbleChannels.level`` — so accept any of:
     # (a) inline ``ipcRenderer.on('bubble:level', ...)``
     # (b) inline ``ipc.on('bubble:level', ...)``
     # (c) factory call ``makeListener<...>(ipc, "bubble:level", ...)``
+    # (d) the same three with the BubbleChannels.level constant
+    bubble_ref = _ipc_channel_ref("BubbleChannels", "level")
     listen_re = re.compile(
         r"(?:"
-        r'ipcRenderer\.on\(\s*["\']bubble:level["\']'
-        r'|ipc\.on\(\s*["\']bubble:level["\']'
-        r'|makeListener<[^>]*>\(\s*ipc\s*,\s*["\']bubble:level["\']'
+        rf"ipcRenderer\.on\(\s*{bubble_ref}"
+        rf"|ipc\.on\(\s*{bubble_ref}"
+        rf"|makeListener<[^>]*>\(\s*ipc\s*,\s*{bubble_ref}"
         r")",
         re.DOTALL,
     )
@@ -1087,8 +1125,13 @@ def test_window_controls_parity_on_both_paths(
     assert tauri_api_fragment in tauri_bridge_source, (
         f"tauri-bridge.ts must reference `{tauri_api_fragment}` (Tauri core window API method for window_.{method})."
     )
-    # Electron path: preload must reference the IPC channel.
-    assert electron_channel in preload_source, (
+    # Electron path: preload must reference the IPC channel — as a bare
+    # literal or via the WindowChannels.<method> constant (preload
+    # imports the constants from channels.ts).
+    window_channel_re = re.compile(
+        rf"(?:['\"]{re.escape(electron_channel)}['\"]|WindowChannels\.{re.escape(method)})\b"
+    )
+    assert window_channel_re.search(preload_source), (
         f"preload/index.ts must reference the {electron_channel!r} "
         f"IPC channel (Electron main registers the handler at "
         f"window-handlers.ts for window_.{method})."

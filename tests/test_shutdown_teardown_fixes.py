@@ -340,14 +340,6 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
     Pre-fix, the POSIX branch had SIGKILL escalation but the Windows
     branch was a silent no-op."""
 
-    @pytest.mark.skip(
-        reason="source refactored — _teardown_electron no longer has "
-        "a separate `if _term_result is TIMEOUT:` branch with a "
-        "Windows TerminateProcess fallback; the new contract uses "
-        "`if _term_result is TIMEOUT and sys.platform != 'win32':` "
-        "for POSIX SIGKILL only (Windows terminate_electron handles "
-        "tree-kill internally)"
-    )
     def test_windows_terminate_process_fallback_exists_in_source(self):
         """UE-1-F6 (source-inspection): the source must contain a
         ``sys.platform == "win32"`` branch inside the ``if _term_result

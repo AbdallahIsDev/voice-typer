@@ -16,7 +16,6 @@ unconditionally without double-flushing.
 """
 
 import contextlib
-import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -214,22 +213,25 @@ class TestRestartAppSharedCleanup:
 
         app.recorder.shutdown_mic_watcher.assert_called_once()
 
-    @pytest.mark.skipif(
-        sys.platform != "win32" and sys.platform != "darwin",
-        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
-    )
     def test_restart_app_stops_all_three_hotkey_backends(self, app, monkeypatch):
         """Sanity: restart_app must still stop _hotkey_backend,
         _esc_backend, and _repaste_backend (RELIABILITY-003) after the
         RW-3 refactor extracts them into _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
+        # _do_cleanup nulls the backend refs after stop() (so a second
+        # cleanup pass doesn't re-enter a torn-down backend) — capture
+        # the mocks BEFORE the cleanup so we can assert stop() was
+        # called on them.
+        hotkey_backend = app.hotkeys._hotkey_backend
+        esc_backend = app.hotkeys._esc_backend
+        repaste_backend = app.hotkeys._repaste_backend
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
-        app.hotkeys._esc_backend.stop.assert_called_once()
-        app.hotkeys._repaste_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
+        esc_backend.stop.assert_called_once()
+        repaste_backend.stop.assert_called_once()
 
     def test_restart_app_calls_tray_stop(self, app, monkeypatch):
         """Sanity: restart_app must still call tray.stop() (to break
@@ -287,16 +289,15 @@ class TestDoCleanupIdempotency:
     the recorder / double-closing the Win32 mutex handle.
     """
 
-    @pytest.mark.skipif(
-        sys.platform != "win32" and sys.platform != "darwin",
-        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
-    )
     def test_do_cleanup_twice_does_not_crash(self, app, monkeypatch):
         """Calling _do_cleanup() twice (e.g. once from quit() and once
         from _atexit_cleanup) must not crash, and the second call must
         be a true no-op — every cleanup collaborator is invoked
         exactly ONCE, not twice."""
         _stub_restart_environment(app, monkeypatch)
+        # _do_cleanup nulls the backend refs after stop() — capture the
+        # mock before the first call to assert stop() was called once.
+        hotkey_backend = app.hotkeys._hotkey_backend
 
         # First call runs the full cleanup body.
         app._do_cleanup()
@@ -310,7 +311,7 @@ class TestDoCleanupIdempotency:
         app.history_db.flush.assert_called_once()
         app._crash_recovery.flush.assert_called_once()
         app._crash_recovery.shutdown.assert_called_once()
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
         app.tray.stop.assert_called_once()
 
     def test_do_cleanup_idempotent_when_recorder_stop_raises(self, app, monkeypatch):
@@ -383,10 +384,6 @@ class TestAtexitCleanupSafetyNet:
         app.recorder.stop.assert_called_once()
         app.history_db.flush.assert_called_once()
 
-    @pytest.mark.skipif(
-        sys.platform != "win32" and sys.platform != "darwin",
-        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
-    )
     def test_atexit_cleanup_runs_when_not_shutting_down(self, app, monkeypatch):
         """_atexit_cleanup() must run _do_cleanup() when the process
         is killed externally (_shutting_down stays False), so critical
@@ -401,6 +398,9 @@ class TestAtexitCleanupSafetyNet:
         leaking the same resources that the OLD restart_app() leaked.
         """
         _stub_restart_environment(app, monkeypatch)
+        # _do_cleanup nulls the backend refs after stop() — capture the
+        # mock before the call to assert stop() was called.
+        hotkey_backend = app.hotkeys._hotkey_backend
 
         # _shutting_down stays False — process was killed externally.
         assert app._shutting_down is False
@@ -413,7 +413,7 @@ class TestAtexitCleanupSafetyNet:
         app.recorder.shutdown_mic_watcher.assert_called_once()
         app._crash_recovery.flush.assert_called_once()
         app._crash_recovery.shutdown.assert_called_once()
-        app.hotkeys._hotkey_backend.stop.assert_called_once()
+        hotkey_backend.stop.assert_called_once()
         app.tray.stop.assert_called_once()
 
     def test_atexit_cleanup_never_raises(self, app, monkeypatch):

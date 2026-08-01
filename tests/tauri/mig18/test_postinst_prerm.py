@@ -252,7 +252,7 @@ def test_postinst_adds_user_to_input_group():
         f"install_permissions.py missing at {INSTALL_PERMISSIONS} — postinst "
         f"delegates the usermod call to this helper (single source of truth)."
     )
-    install_text = INSTALL_PERMISSIONS.read_text()
+    install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
 
     # Accept either `usermod -aG input <user>` or `gpasswd -a <user> input`.
     usermod_pattern = re.compile(r"usermod\s+-aG\s+input\b")
@@ -266,7 +266,7 @@ def test_postinst_adds_user_to_input_group():
 
     # Defensive: confirm the postinst actually invokes install_permissions.py
     # (otherwise the usermod above would never run during apt install).
-    postinst_text = POSTINST.read_text()
+    postinst_text = POSTINST.read_text(encoding="utf-8")
     assert "install_permissions.py" in postinst_text, (
         "postinst must reference install_permissions.py (the helper that "
         "performs the usermod -aG input + udev rule install)."
@@ -290,7 +290,7 @@ def test_postinst_installs_udev_rule():
     ``linux-key-listener`` binary can read keyboard events without root.
     """
     assert INSTALL_PERMISSIONS.is_file()
-    install_text = INSTALL_PERMISSIONS.read_text()
+    install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
     assert UDEV_RULE_INSTALL_PATH in install_text, (
         f"install_permissions.py must install the udev rule to "
         f"{UDEV_RULE_INSTALL_PATH} (the canonical udev rules.d path)."
@@ -318,7 +318,7 @@ def test_udev_rule_grants_input_group_and_mode_0660():
     rw, others get nothing.
     """
     assert UDEV_RULE.is_file(), f"99-voice-typer.rules missing at {UDEV_RULE}"
-    rule_text = UDEV_RULE.read_text()
+    rule_text = UDEV_RULE.read_text(encoding="utf-8")
 
     # Match the event-device rule.  We require ALL of:
     #   - KERNEL=="event[0-9]*"  (or KERNEL=="event*" — match event devices)
@@ -359,7 +359,7 @@ def test_postinst_triggers_udevadm_reload_and_trigger():
     minimal containers don't have udev running).
     """
     assert INSTALL_PERMISSIONS.is_file()
-    install_text = INSTALL_PERMISSIONS.read_text()
+    install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
 
     # udevadm control --reload-rules
     assert re.search(r"udevadm.*control.*--reload-rules", install_text), (
@@ -386,7 +386,7 @@ def test_postinst_warns_user_to_logout_and_login():
     Typer, try the hotkey, find it doesn't work, and not know why.
     """
     assert POSTINST.is_file()
-    postinst_text = POSTINST.read_text()
+    postinst_text = POSTINST.read_text(encoding="utf-8")
 
     # The warning must mention both "log out" (or "logout") and
     # "log back in" (or "log in").  Case-insensitive.
@@ -453,7 +453,7 @@ def test_prerm_removes_udev_rule():
     )
 
     # prerm must reference + invoke uninstall_permissions.py.
-    prerm_text = PRERM.read_text()
+    prerm_text = PRERM.read_text(encoding="utf-8")
     assert "uninstall_permissions.py" in prerm_text, (
         "prerm must reference uninstall_permissions.py (the helper that removes the udev rule + restores the backup)."
     )
@@ -466,12 +466,12 @@ def test_prerm_removes_udev_rule():
     # uninstall_permissions.py delegates to install_permissions.py --uninstall
     # (single source of truth for the cleanup logic).  install_permissions.py's
     # uninstall() path must unlink the udev rule at the canonical install path.
-    uninstall_text = UNINSTALL_PERMISSIONS.read_text()
+    uninstall_text = UNINSTALL_PERMISSIONS.read_text(encoding="utf-8")
     assert "--uninstall" in uninstall_text, (
         "uninstall_permissions.py must delegate to install_permissions.py "
         "with the --uninstall flag (single source of truth for cleanup)."
     )
-    install_text = INSTALL_PERMISSIONS.read_text()
+    install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
     # The uninstall path must remove the udev rule.  We look for either
     # `.unlink()` on the UDEV_RULE_PATH constant or `shutil.rmtree` /
     # `os.remove` referencing the path.
@@ -496,7 +496,7 @@ def test_prerm_does_not_remove_user_from_input_group():
     + uninstall_permissions.py both document this explicitly.
     """
     assert PRERM.is_file()
-    prerm_text = PRERM.read_text()
+    prerm_text = PRERM.read_text(encoding="utf-8")
 
     # 1) prerm header comment must document the "do not remove from input
     #    group" decision (so future maintainers don't "fix" it).
@@ -511,8 +511,8 @@ def test_prerm_does_not_remove_user_from_input_group():
     #    or `usermod -G <groups>` WITHOUT -a (which would REPLACE the
     #    group list, dropping input).  We accept `usermod -aG` (append)
     #    but reject `gpasswd -d`.
-    uninstall_text = UNINSTALL_PERMISSIONS.read_text()
-    install_text = INSTALL_PERMISSIONS.read_text()
+    uninstall_text = UNINSTALL_PERMISSIONS.read_text(encoding="utf-8")
+    install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
     cleanup_text = prerm_text + "\n" + uninstall_text + "\n" + install_text
 
     # gpasswd -d is the canonical "remove from group" command.  It must
@@ -624,7 +624,7 @@ def test_postinst_rpm_delegates_to_same_install_permissions_helper():
     paths (single source of truth for the input-group + udev-rule setup).
     """
     assert POSTINST_RPM.is_file()
-    rpm_text = POSTINST_RPM.read_text()
+    rpm_text = POSTINST_RPM.read_text(encoding="utf-8")
     assert "install_permissions.py" in rpm_text, (
         "postinst.rpm must reference install_permissions.py (the same helper "
         "used by the Debian postinst — single source of truth)."
@@ -644,7 +644,7 @@ def test_prerm_rpm_delegates_to_same_uninstall_permissions_helper():
     "do not remove from input group" decision).
     """
     assert PRERM_RPM.is_file()
-    rpm_text = PRERM_RPM.read_text()
+    rpm_text = PRERM_RPM.read_text(encoding="utf-8")
     assert "uninstall_permissions.py" in rpm_text, (
         "prerm.rpm must reference uninstall_permissions.py (the same helper "
         "used by the Debian prerm — single source of truth)."
