@@ -398,7 +398,11 @@ def mock_heavy_imports(monkeypatch, request):
     try:
         from voice_typer.server.hotkeys import PynputHotkey
 
-        def _force_pynput(hotkey_str):
+        # ``create_hotkey_backend`` now accepts a ``role`` kwarg (used to
+        # give Wayland backends a per-role socket path). The mock must
+        # tolerate it — ``PynputHotkey`` does not take ``role``, so it is
+        # accepted and dropped here.
+        def _force_pynput(hotkey_str, role=None, **kwargs):
             return PynputHotkey(hotkey_str)
 
         # ``create_hotkey_backend`` moved from ``app.py`` to

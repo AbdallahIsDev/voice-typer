@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import os
 import socket as _socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -149,6 +150,10 @@ class TestWaylandSocketPathPerInstance:
         assert none_backend.SOCKET_PATH is not None
         assert none_backend.SOCKET_PATH.endswith("voice-typer-hotkey.sock")
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="AF_UNIX sockets not available on Windows (POSIX/Linux-only test)",
+    )
     def test_two_backends_with_different_roles_can_bind_simultaneously(self, xdg_runtime: str) -> None:
         """End-to-end: two ``WaylandHotkey`` instances with different
         roles can both ``start()`` and bind their sockets without one
