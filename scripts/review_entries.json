@@ -1,0 +1,2235 @@
+[
+  {
+    "ordinal": 1,
+    "line": 43,
+    "raw": "### T-1 — Full vitest + pytest suites: fix ALL pre-existing test failures",
+    "id": "T-1",
+    "title": "Full vitest + pytest suites: fix ALL pre-existing test failures"
+  },
+  {
+    "ordinal": 2,
+    "line": 54,
+    "raw": "### ARCH-9 — `app.py` test-seam re-exports (173 monkeypatch sites)",
+    "id": "ARCH-9",
+    "title": "`app.py` test-seam re-exports (173 monkeypatch sites)"
+  },
+  {
+    "ordinal": 3,
+    "line": 62,
+    "raw": "### ARCH-12 — 164 `inspect.getsource` source-string tests across the codebase",
+    "id": "ARCH-12",
+    "title": "164 `inspect.getsource` source-string tests across the codebase"
+  },
+  {
+    "ordinal": 4,
+    "line": 70,
+    "raw": "### XPLAT-12 — Windows-on-ARM scaffolded but unvalidated",
+    "id": "XPLAT-12",
+    "title": "Windows-on-ARM scaffolded but unvalidated"
+  },
+  {
+    "ordinal": 5,
+    "line": 78,
+    "raw": "### XPLAT-19 — [Partial] ADR §6.3 Win32 focus-restore now compiles",
+    "id": "XPLAT-19",
+    "title": "[Partial] ADR §6.3 Win32 focus-restore now compiles"
+  },
+  {
+    "ordinal": 6,
+    "line": 86,
+    "raw": "### TEST-2 — 99 `time.sleep` calls across 28 test files (flakiness-prone)",
+    "id": "TEST-2",
+    "title": "99 `time.sleep` calls across 28 test files (flakiness-prone)"
+  },
+  {
+    "ordinal": 7,
+    "line": 95,
+    "raw": "### TEST-5 — 12 modules >650 LOC with no dedicated test file",
+    "id": "TEST-5",
+    "title": "12 modules >650 LOC with no dedicated test file"
+  },
+  {
+    "ordinal": 8,
+    "line": 105,
+    "raw": "### S1-CR-33 — ~154 failing vitest tests across 35 client files — real UI regressions (WORSENED)",
+    "id": "S1-CR",
+    "title": "33 — ~154 failing vitest tests across 35 client files — real UI regressions (WORSENED)"
+  },
+  {
+    "ordinal": 9,
+    "line": 115,
+    "raw": "### S1-CR-65 — `apply_config_side_effects` 215-line branching method",
+    "id": "S1-CR",
+    "title": "65 — `apply_config_side_effects` 215-line branching method"
+  },
+  {
+    "ordinal": 10,
+    "line": 121,
+    "raw": "### S1-CR-67 — Custom `_RecordingModule` / `_PrewarmModule` / `_ServerPlatformModule` sys.modules hacks",
+    "id": "S1-CR",
+    "title": "67 — Custom `_RecordingModule` / `_PrewarmModule` / `_ServerPlatformModule` sys.modules hacks"
+  },
+  {
+    "ordinal": 11,
+    "line": 127,
+    "raw": "### S1-CR-78 — IPC protocol is unversioned — schema drift between Python/Rust/TS is undetectable at runtime",
+    "id": "S1-CR",
+    "title": "78 — IPC protocol is unversioned — schema drift between Python/Rust/TS is undetectable at runtime"
+  },
+  {
+    "ordinal": 12,
+    "line": 133,
+    "raw": "### S1-CR-143 — macOS `VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1` silently disables key-up delivery and key suppression",
+    "id": "S1-CR",
+    "title": "143 — macOS `VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1` silently disables key-up delivery and key suppression"
+  },
+  {
+    "ordinal": 13,
+    "line": 139,
+    "raw": "### S1-CR-146 — `StartupWMClass=Voice Typer` may not match Tauri window class",
+    "id": "S1-CR",
+    "title": "146 — `StartupWMClass=Voice Typer` may not match Tauri window class"
+  },
+  {
+    "ordinal": 14,
+    "line": 145,
+    "raw": "### S1-CR-147 — Windows manifest does not declare Windows 11 supportedOS GUID; dpiAwareness missing in standalone manifest",
+    "id": "S1-CR",
+    "title": "147 — Windows manifest does not declare Windows 11 supportedOS GUID; dpiAwareness missing in standalone manifest"
+  },
+  {
+    "ordinal": 15,
+    "line": 151,
+    "raw": "### S1-CR-156 — Incomplete store adoption — prop drilling persists in `App.tsx:327-330`",
+    "id": "S1-CR",
+    "title": "156 — Incomplete store adoption — prop drilling persists in `App.tsx:327-330`"
+  },
+  {
+    "ordinal": 16,
+    "line": 209,
+    "raw": "### S2-CR-39 — Onboarding mic auto-selects first device, ignores default flag, no test button",
+    "id": "S2-CR",
+    "title": "39 — Onboarding mic auto-selects first device, ignores default flag, no test button"
+  },
+  {
+    "ordinal": 17,
+    "line": 221,
+    "raw": "### S2-CR-66 — Windows Tauri workflow hardcodes x86_64 (no Windows-on-ARM build)",
+    "id": "S2-CR",
+    "title": "66 — Windows Tauri workflow hardcodes x86_64 (no Windows-on-ARM build)"
+  },
+  {
+    "ordinal": 18,
+    "line": 235,
+    "raw": "### S3-CR-3 — 65+ existing test failures (CI red)",
+    "id": "S3-CR",
+    "title": "3 — 65+ existing test failures (CI red)"
+  },
+  {
+    "ordinal": 19,
+    "line": 245,
+    "raw": "### S3-CR-21 — 164 `inspect.getsource` source-string tests across 35 files (refactor blocker)",
+    "id": "S3-CR",
+    "title": "21 — 164 `inspect.getsource` source-string tests across 35 files (refactor blocker)"
+  },
+  {
+    "ordinal": 20,
+    "line": 256,
+    "raw": "### S5-CR-26 — `_handle_set_config` reaches into `self.app._waveform_bubble` (private attr) — ADR-0008 §3.1 violation",
+    "id": "S5-CR",
+    "title": "26 — `_handle_set_config` reaches into `self.app._waveform_bubble` (private attr) — ADR-0008 §3.1 violation"
+  },
+  {
+    "ordinal": 21,
+    "line": 261,
+    "raw": "### S5-CR-28 — `config.py` 2,698 LOC mixes 5 module-level concerns + 132-field Config dataclass",
+    "id": "S5-CR",
+    "title": "28 — `config.py` 2,698 LOC mixes 5 module-level concerns + 132-field Config dataclass"
+  },
+  {
+    "ordinal": 22,
+    "line": 270,
+    "raw": "### S5-CR-56 — macOS sidecar/prewarm binaries ship unsigned (Nuitka `--macos-signed-app-name` doesn't codesign)",
+    "id": "S5-CR",
+    "title": "56 — macOS sidecar/prewarm binaries ship unsigned (Nuitka `--macos-signed-app-name` doesn't codesign)"
+  },
+  {
+    "ordinal": 23,
+    "line": 277,
+    "raw": "### H-25 — Doc file path references stale (recording.py / hotkeys.py / prewarm.py don't exist as files — now packages)",
+    "id": "H-25",
+    "title": "Doc file path references stale (recording.py / hotkeys.py / prewarm.py don't exist as files — now packages)"
+  },
+  {
+    "ordinal": 24,
+    "line": 918,
+    "raw": "### XA-1 — TitleBar mixes 3 icon systems, missing hover/transition classes on sidebar toggle, parallel button system",
+    "id": "XA-1",
+    "title": "TitleBar mixes 3 icon systems, missing hover/transition classes on sidebar toggle, parallel button system"
+  },
+  {
+    "ordinal": 25,
+    "line": 940,
+    "raw": "### XA-2 — Pages use inconsistent loading/empty/error patterns; EmptyState variant=\"error\" is dead code",
+    "id": "XA-2",
+    "title": "Pages use inconsistent loading/empty/error patterns; EmptyState variant=\"error\" is dead code"
+  },
+  {
+    "ordinal": 26,
+    "line": 971,
+    "raw": "### XA-3 — UI primitives: inconsistent focus ring, hardcoded palette colors, parallel layout systems",
+    "id": "XA-3",
+    "title": "UI primitives: inconsistent focus ring, hardcoded palette colors, parallel layout systems"
+  },
+  {
+    "ordinal": 27,
+    "line": 1001,
+    "raw": "### XA-4 — Settings: search filtering inconsistent, save indicator missing i18n + error state, toast spam on every save",
+    "id": "XA-4",
+    "title": "Settings: search filtering inconsistent, save indicator missing i18n + error state, toast spam on every save"
+  },
+  {
+    "ordinal": 28,
+    "line": 1037,
+    "raw": "### XA-5 — Feature pages: friction in add flows, missing test/preview, no inline retry for failed downloads, Audio preset buried",
+    "id": "XA-5",
+    "title": "Feature pages: friction in add flows, missing test/preview, no inline retry for failed downloads, Audio preset buried"
+  },
+  {
+    "ordinal": 29,
+    "line": 1069,
+    "raw": "### XA-6 — Floating bubble has no in-bubble stop/cancel/pause, no live transcription, dead error UI, broken multi-monitor, theme sync missing",
+    "id": "XA-6",
+    "title": "Floating bubble has no in-bubble stop/cancel/pause, no live transcription, dead error UI, broken multi-monitor, theme sync missing"
+  },
+  {
+    "ordinal": 30,
+    "line": 1101,
+    "raw": "### XA-7 — Accessibility: no focus management on page navigation, modal focus contract untested, HotkeyPicker i18n gap, theme preview hover-only",
+    "id": "XA-7",
+    "title": "Accessibility: no focus management on page navigation, modal focus contract untested, HotkeyPicker i18n gap, theme preview hover-only"
+  },
+  {
+    "ordinal": 31,
+    "line": 1132,
+    "raw": "### XA-8 — ARIA: EmptyState no role, NumberInputStepper + ErrorBoundary hardcoded English aria, KeyringStatusBadge redundant aria, SegmentedControl icon-only unlabeled, SearchField no role=search, sonner aria hardcoded English",
+    "id": "XA-8",
+    "title": "ARIA: EmptyState no role, NumberInputStepper + ErrorBoundary hardcoded English aria, KeyringStatusBadge redundant aria, SegmentedControl icon-only unlabeled, SearchField no role=search, sonner aria hardcoded English"
+  },
+  {
+    "ordinal": 32,
+    "line": 1161,
+    "raw": "### XA-10 — Onboarding: missing i18n keys step4Item/step5Item (raw key strings on Welcome screen), completeDescription never rendered, setupCompleteSnack never wired, modelSelectAria not interpolated",
+    "id": "XA-10",
+    "title": "Onboarding: missing i18n keys step4Item/step5Item (raw key strings on Welcome screen), completeDescription never rendered, setupCompleteSnack never wired, modelSelectAria not interpolated"
+  },
+  {
+    "ordinal": 33,
+    "line": 1189,
+    "raw": "### XA-12 — Recording flow: silent failure modes, no live transcription, swallowed IPC errors, no pause/resume, 61s crash detection delay",
+    "id": "XA-12",
+    "title": "Recording flow: silent failure modes, no live transcription, swallowed IPC errors, no pause/resume, 61s crash detection delay"
+  },
+  {
+    "ordinal": 34,
+    "line": 1205,
+    "raw": "### XA-15 — Test infrastructure: dead helpers (590 lines), 3 duplicated baseConfig fixtures, mock boilerplate in 21-34 test files, orphan debug test",
+    "id": "XA-15",
+    "title": "Test infrastructure: dead helpers (590 lines), 3 duplicated baseConfig fixtures, mock boilerplate in 21-34 test files, orphan debug test"
+  },
+  {
+    "ordinal": 35,
+    "line": 1235,
+    "raw": "### XA-16 — Error handling UX: ErrorBoundary 6 hardcoded English strings, EmptyState variant dead, Parakeet success toast wrong message, no in-context bug report",
+    "id": "XA-16",
+    "title": "Error handling UX: ErrorBoundary 6 hardcoded English strings, EmptyState variant dead, Parakeet success toast wrong message, no in-context bug report"
+  },
+  {
+    "ordinal": 36,
+    "line": 1271,
+    "raw": "### XA-17 — Hooks & state: useTheme split-brain, useConnection 5+ concerns, no focus management, prop-drilling persists",
+    "id": "XA-17",
+    "title": "Hooks & state: useTheme split-brain, useConnection 5+ concerns, no focus management, prop-drilling persists"
+  },
+  {
+    "ordinal": 37,
+    "line": 1293,
+    "raw": "### XA-20 — RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main window and bubble, no platform-aware shortcuts",
+    "id": "XA-20",
+    "title": "RTL/locale formatting: tChoice unused, untranslated strings, physical CSS properties, runtime locale-isolation between main window and bubble, no platform-aware shortcuts"
+  },
+  {
+    "ordinal": 38,
+    "line": 1341,
+    "raw": "### XZ-SEC-02 — `_write_plaintext_fallback` skips `config.json.lock` (High)",
+    "id": "XZ-SEC",
+    "title": "02 — `_write_plaintext_fallback` skips `config.json.lock` (High)"
+  },
+  {
+    "ordinal": 39,
+    "line": 1351,
+    "raw": "### XZ-SEC-03 — `config.json.bak` not in GDPR delete set (High)",
+    "id": "XZ-SEC",
+    "title": "03 — `config.json.bak` not in GDPR delete set (High)"
+  },
+  {
+    "ordinal": 40,
+    "line": 1360,
+    "raw": "### XZ-SEC-05 — `extend_url_allowlist` is dead code; users can't configure self-hosted endpoints (Medium)",
+    "id": "XZ-SEC",
+    "title": "05 — `extend_url_allowlist` is dead code; users can't configure self-hosted endpoints (Medium)"
+  },
+  {
+    "ordinal": 41,
+    "line": 1372,
+    "raw": "### XZ-IPC-002 — TCP accept-timeout DoS (Medium)",
+    "id": "XZ-IPC",
+    "title": "002 — TCP accept-timeout DoS (Medium)"
+  },
+  {
+    "ordinal": 42,
+    "line": 1378,
+    "raw": "### XZ-IPC-003 — WS no max_connections (Low)",
+    "id": "XZ-IPC",
+    "title": "003 — WS no max_connections (Low)"
+  },
+  {
+    "ordinal": 43,
+    "line": 1384,
+    "raw": "### XZ-IPC-004 — Authenticated idle-connection DoS (Low)",
+    "id": "XZ-IPC",
+    "title": "004 — Authenticated idle-connection DoS (Low)"
+  },
+  {
+    "ordinal": 44,
+    "line": 1390,
+    "raw": "### XZ-IPC-006 — Dead else branch in `_handle_tcp_connection` (Low)",
+    "id": "XZ-IPC",
+    "title": "006 — Dead else branch in `_handle_tcp_connection` (Low)"
+  },
+  {
+    "ordinal": 45,
+    "line": 1396,
+    "raw": "### XZ-IPC-007 — `ipc_server.py` is 2587-line monolith (Low)",
+    "id": "XZ-IPC",
+    "title": "007 — `ipc_server.py` is 2587-line monolith (Low)"
+  },
+  {
+    "ordinal": 46,
+    "line": 1402,
+    "raw": "### XZ-IPC-009 — Stale line-number references in comments (Low)",
+    "id": "XZ-IPC",
+    "title": "009 — Stale line-number references in comments (Low)"
+  },
+  {
+    "ordinal": 47,
+    "line": 1408,
+    "raw": "### XZ-IPC-011 — Stale test docstring (Low)",
+    "id": "XZ-IPC",
+    "title": "011 — Stale test docstring (Low)"
+  },
+  {
+    "ordinal": 48,
+    "line": 1414,
+    "raw": "### XZ-IPC-012 — `is True` idiom fragility (Low)",
+    "id": "XZ-IPC",
+    "title": "012 — `is True` idiom fragility (Low)"
+  },
+  {
+    "ordinal": 49,
+    "line": 1422,
+    "raw": "### XZ-R3-01 — Heartbeat starvation → backend crash (High)",
+    "id": "XZ-R3",
+    "title": "01 — Heartbeat starvation → backend crash (High)"
+  },
+  {
+    "ordinal": 50,
+    "line": 1430,
+    "raw": "### XZ-R3-02 — Rate limiter cost map coverage gap (Medium)",
+    "id": "XZ-R3",
+    "title": "02 — Rate limiter cost map coverage gap (Medium)"
+  },
+  {
+    "ordinal": 51,
+    "line": 1436,
+    "raw": "### XZ-R3-04 — `set_tray_locale` unbounded input (Medium)",
+    "id": "XZ-R3",
+    "title": "04 — `set_tray_locale` unbounded input (Medium)"
+  },
+  {
+    "ordinal": 52,
+    "line": 1444,
+    "raw": "### XZ-R3-05 — Silent failure on restart_app/quit_app (Medium)",
+    "id": "XZ-R3",
+    "title": "05 — Silent failure on restart_app/quit_app (Medium)"
+  },
+  {
+    "ordinal": 53,
+    "line": 1450,
+    "raw": "### XZ-R3-06 — bool-as-int type confusion (Low)",
+    "id": "XZ-R3",
+    "title": "06 — bool-as-int type confusion (Low)"
+  },
+  {
+    "ordinal": 54,
+    "line": 1459,
+    "raw": "### XZ-R3-07 — `max_payload_bytes` fragile scoping (Low)",
+    "id": "XZ-R3",
+    "title": "07 — `max_payload_bytes` fragile scoping (Low)"
+  },
+  {
+    "ordinal": 55,
+    "line": 1465,
+    "raw": "### XZ-R3-08 — `default` rule doesn't fire for explicit None (Low)",
+    "id": "XZ-R3",
+    "title": "08 — `default` rule doesn't fire for explicit None (Low)"
+  },
+  {
+    "ordinal": 56,
+    "line": 1471,
+    "raw": "### XZ-R3-09 — Sidecar env vars not validated (Low)",
+    "id": "XZ-R3",
+    "title": "09 — Sidecar env vars not validated (Low)"
+  },
+  {
+    "ordinal": 57,
+    "line": 1477,
+    "raw": "### XZ-R3-11 — Inconsistent `_error_response` usage (Low)",
+    "id": "XZ-R3",
+    "title": "11 — Inconsistent `_error_response` usage (Low)"
+  },
+  {
+    "ordinal": 58,
+    "line": 1486,
+    "raw": "### XZ-R3-12 — No input validation on `check_accessibility` (Low)",
+    "id": "XZ-R3",
+    "title": "12 — No input validation on `check_accessibility` (Low)"
+  },
+  {
+    "ordinal": 59,
+    "line": 1492,
+    "raw": "### XZ-R3-13 — `register_tray_labels` accumulates without cap (Low)",
+    "id": "XZ-R3",
+    "title": "13 — `register_tray_labels` accumulates without cap (Low)"
+  },
+  {
+    "ordinal": 60,
+    "line": 1500,
+    "raw": "### XZ-R4-001 — Bearer-token auth at handshake only; ADR \"HMAC\" wording misleading (Medium)",
+    "id": "XZ-R4",
+    "title": "001 — Bearer-token auth at handshake only; ADR \"HMAC\" wording misleading (Medium)"
+  },
+  {
+    "ordinal": 61,
+    "line": 1510,
+    "raw": "### XZ-R4-002 — Bearer token via env var readable by same-user processes on Linux (Medium)",
+    "id": "XZ-R4",
+    "title": "002 — Bearer token via env var readable by same-user processes on Linux (Medium)"
+  },
+  {
+    "ordinal": 62,
+    "line": 1516,
+    "raw": "### XZ-R4-005 — `withGlobalTauri: true` exposes full Tauri API (Medium)",
+    "id": "XZ-R4",
+    "title": "005 — `withGlobalTauri: true` exposes full Tauri API (Medium)"
+  },
+  {
+    "ordinal": 63,
+    "line": 1522,
+    "raw": "### XZ-R4-006 — `open_logs` bypasses shell-plugin scope (Low)",
+    "id": "XZ-R4",
+    "title": "006 — `open_logs` bypasses shell-plugin scope (Low)"
+  },
+  {
+    "ordinal": 64,
+    "line": 1528,
+    "raw": "### XZ-R4-009 — restart counter file has no integrity protection (Low)",
+    "id": "XZ-R4",
+    "title": "009 — restart counter file has no integrity protection (Low)"
+  },
+  {
+    "ordinal": 65,
+    "line": 1534,
+    "raw": "### XZ-R4-010 — Inline WS frame construction duplicates dispatch path (Low)",
+    "id": "XZ-R4",
+    "title": "010 — Inline WS frame construction duplicates dispatch path (Low)"
+  },
+  {
+    "ordinal": 66,
+    "line": 1543,
+    "raw": "### XZ-R4-011 — Dev-mode sidecar spawn hardcodes `RUST_LOG=debug`, skips `VOICE_TYPER_PREWARM_EXE` (Low)",
+    "id": "XZ-R4",
+    "title": "011 — Dev-mode sidecar spawn hardcodes `RUST_LOG=debug`, skips `VOICE_TYPER_PREWARM_EXE` (Low)"
+  },
+  {
+    "ordinal": 67,
+    "line": 1549,
+    "raw": "### XZ-R4-012 — WS auth-read path not wrapped in `catch_unwind` (Low)",
+    "id": "XZ-R4",
+    "title": "012 — WS auth-read path not wrapped in `catch_unwind` (Low)"
+  },
+  {
+    "ordinal": 68,
+    "line": 1555,
+    "raw": "### XZ-R4-014 — `paste_text` IPC accepts arbitrary-length text (Low)",
+    "id": "XZ-R4",
+    "title": "014 — `paste_text` IPC accepts arbitrary-length text (Low)"
+  },
+  {
+    "ordinal": 69,
+    "line": 1561,
+    "raw": "### XZ-R4-015 — Tray capabilities overly broad (Low)",
+    "id": "XZ-R4",
+    "title": "015 — Tray capabilities overly broad (Low)"
+  },
+  {
+    "ordinal": 70,
+    "line": 1567,
+    "raw": "### XZ-R4-016 — `kill_process_tree` SIGKILL race (Low)",
+    "id": "XZ-R4",
+    "title": "016 — `kill_process_tree` SIGKILL race (Low)"
+  },
+  {
+    "ordinal": 71,
+    "line": 1573,
+    "raw": "### XZ-R4-017 — `bubble_toggle_dictation` rate limiter uses wall-clock `SystemTime` (Low)",
+    "id": "XZ-R4",
+    "title": "017 — `bubble_toggle_dictation` rate limiter uses wall-clock `SystemTime` (Low)"
+  },
+  {
+    "ordinal": 72,
+    "line": 1579,
+    "raw": "### XZ-R4-018 — Stale PVT-25 TODOs (Informational)",
+    "id": "XZ-R4",
+    "title": "018 — Stale PVT-25 TODOs (Informational)"
+  },
+  {
+    "ordinal": 73,
+    "line": 1585,
+    "raw": "### XZ-R4-019 — `tray.rs::on_menu_event` no pending-map size cap (Low)",
+    "id": "XZ-R4",
+    "title": "019 — `tray.rs::on_menu_event` no pending-map size cap (Low)"
+  },
+  {
+    "ordinal": 74,
+    "line": 1595,
+    "raw": "### XZ-R5-001 — Missing `setWindowOpenHandler` on both windows (Medium)",
+    "id": "XZ-R5",
+    "title": "001 — Missing `setWindowOpenHandler` on both windows (Medium)"
+  },
+  {
+    "ordinal": 75,
+    "line": 1603,
+    "raw": "### XZ-R5-002 — CSP HTTP-header not per-window (Low)",
+    "id": "XZ-R5",
+    "title": "002 — CSP HTTP-header not per-window (Low)"
+  },
+  {
+    "ordinal": 76,
+    "line": 1611,
+    "raw": "### XZ-R5-003 — Allowlist doesn't separate renderer-reachable from internal-only (Medium)",
+    "id": "XZ-R5",
+    "title": "003 — Allowlist doesn't separate renderer-reachable from internal-only (Medium)"
+  },
+  {
+    "ordinal": 77,
+    "line": 1620,
+    "raw": "### XZ-R5-004 — `setMainLocale` is dead code; native dialogs always English (Medium)",
+    "id": "XZ-R5",
+    "title": "004 — `setMainLocale` is dead code; native dialogs always English (Medium)"
+  },
+  {
+    "ordinal": 78,
+    "line": 1629,
+    "raw": "### XZ-R5-005 — Dead `_bubblePageReady` state field (Low)",
+    "id": "XZ-R5",
+    "title": "005 — Dead `_bubblePageReady` state field (Low)"
+  },
+  {
+    "ordinal": 79,
+    "line": 1638,
+    "raw": "### XZ-R5-006 — Dead `__myPyPid` global write (Low)",
+    "id": "XZ-R5",
+    "title": "006 — Dead `__myPyPid` global write (Low)"
+  },
+  {
+    "ordinal": 80,
+    "line": 1644,
+    "raw": "### XZ-R5-007 — Two overlapping structured loggers (Low)",
+    "id": "XZ-R5",
+    "title": "007 — Two overlapping structured loggers (Low)"
+  },
+  {
+    "ordinal": 81,
+    "line": 1650,
+    "raw": "### XZ-R5-008 — Duplicated defensive `require(\"../logging\")` pattern (Low)",
+    "id": "XZ-R5",
+    "title": "008 — Duplicated defensive `require(\"../logging\")` pattern (Low)"
+  },
+  {
+    "ordinal": 82,
+    "line": 1658,
+    "raw": "### XZ-R5-009 — Single-instance stale-PID recovery PID-reuse lockout (Low)",
+    "id": "XZ-R5",
+    "title": "009 — Single-instance stale-PID recovery PID-reuse lockout (Low)"
+  },
+  {
+    "ordinal": 83,
+    "line": 1664,
+    "raw": "### XZ-R5-010 — Bubble IPC accepts non-numeric payloads without type validation (Low)",
+    "id": "XZ-R5",
+    "title": "010 — Bubble IPC accepts non-numeric payloads without type validation (Low)"
+  },
+  {
+    "ordinal": 84,
+    "line": 1670,
+    "raw": "### XZ-R5-011 — No Windows code-signing enforcement; no entitlements file (Medium)",
+    "id": "XZ-R5",
+    "title": "011 — No Windows code-signing enforcement; no entitlements file (Medium)"
+  },
+  {
+    "ordinal": 85,
+    "line": 1676,
+    "raw": "### XZ-R5-012 — Multiple in-scope files exceed 300-line rule (Low)",
+    "id": "XZ-R5",
+    "title": "012 — Multiple in-scope files exceed 300-line rule (Low)"
+  },
+  {
+    "ordinal": 86,
+    "line": 1684,
+    "raw": "### XZ-R6-NH-02 — Factory discards verified binary path (Low)",
+    "id": "XZ-R6",
+    "title": "NH-02 — Factory discards verified binary path (Low)"
+  },
+  {
+    "ordinal": 87,
+    "line": 1692,
+    "raw": "### XZ-R6-NH-03 — Manifest key mismatch disables native hotkeys in dev (Low)",
+    "id": "XZ-R6",
+    "title": "NH-03 — Manifest key mismatch disables native hotkeys in dev (Low)"
+  },
+  {
+    "ordinal": 88,
+    "line": 1700,
+    "raw": "### XZ-R6-AS-01 — Tauri binary spawned at autostart with no integrity check (Low-Medium)",
+    "id": "XZ-R6",
+    "title": "AS-01 — Tauri binary spawned at autostart with no integrity check (Low-Medium)"
+  },
+  {
+    "ordinal": 89,
+    "line": 1706,
+    "raw": "### XZ-R6-AS-02 — Electron binary not integrity-verified (Low)",
+    "id": "XZ-R6",
+    "title": "AS-02 — Electron binary not integrity-verified (Low)"
+  },
+  {
+    "ordinal": 90,
+    "line": 1712,
+    "raw": "### XZ-R6-AS-03 — Stale Run-key cleanup uses naive command-line parsing (Low)",
+    "id": "XZ-R6",
+    "title": "AS-03 — Stale Run-key cleanup uses naive command-line parsing (Low)"
+  },
+  {
+    "ordinal": 91,
+    "line": 1718,
+    "raw": "### XZ-R6-AS-04 — `.desktop` quoting doesn't escape newlines (Low)",
+    "id": "XZ-R6",
+    "title": "AS-04 — `.desktop` quoting doesn't escape newlines (Low)"
+  },
+  {
+    "ordinal": 92,
+    "line": 1724,
+    "raw": "### XZ-R6-AS-06 — `_schtasks_elevated` cmd.exe arg quoting (Low)",
+    "id": "XZ-R6",
+    "title": "AS-06 — `_schtasks_elevated` cmd.exe arg quoting (Low)"
+  },
+  {
+    "ordinal": 93,
+    "line": 1730,
+    "raw": "### XZ-R6-AS-07 — `SYSTEMROOT` env var trust (Low)",
+    "id": "XZ-R6",
+    "title": "AS-07 — `SYSTEMROOT` env var trust (Low)"
+  },
+  {
+    "ordinal": 94,
+    "line": 1736,
+    "raw": "### XZ-R6-AS-08 — PowerShell .ps1 temp file TOCTOU (Low)",
+    "id": "XZ-R6",
+    "title": "AS-08 — PowerShell .ps1 temp file TOCTOU (Low)"
+  },
+  {
+    "ordinal": 95,
+    "line": 1742,
+    "raw": "### XZ-R6-AS-09 — `assets/logo-256.png` missing (Low)",
+    "id": "XZ-R6",
+    "title": "AS-09 — `assets/logo-256.png` missing (Low)"
+  },
+  {
+    "ordinal": 96,
+    "line": 1748,
+    "raw": "### XZ-R6-AS-10 — `taskkill` timeout silent failure (Low)",
+    "id": "XZ-R6",
+    "title": "AS-10 — `taskkill` timeout silent failure (Low)"
+  },
+  {
+    "ordinal": 97,
+    "line": 1756,
+    "raw": "### XZ-CLIP-03 — Outer exception handler fails open (High)",
+    "id": "XZ-CLIP",
+    "title": "03 — Outer exception handler fails open (High)"
+  },
+  {
+    "ordinal": 98,
+    "line": 1762,
+    "raw": "### XZ-CLIP-04 — TOCTOU re-check Windows-only (Medium)",
+    "id": "XZ-CLIP",
+    "title": "04 — TOCTOU re-check Windows-only (Medium)"
+  },
+  {
+    "ordinal": 99,
+    "line": 1768,
+    "raw": "### XZ-CLIP-14 — Redundant safety check (Low)",
+    "id": "XZ-CLIP",
+    "title": "14 — Redundant safety check (Low)"
+  },
+  {
+    "ordinal": 100,
+    "line": 1774,
+    "raw": "### XZ-PII-07 — Log retention: no time-based purge (Low)",
+    "id": "XZ-PII",
+    "title": "07 — Log retention: no time-based purge (Low)"
+  },
+  {
+    "ordinal": 101,
+    "line": 1780,
+    "raw": "### XZ-R10-03 — Pre-migration backup uses `shutil.copy2` (High)",
+    "id": "XZ-R10",
+    "title": "03 — Pre-migration backup uses `shutil.copy2` (High)"
+  },
+  {
+    "ordinal": 102,
+    "line": 1786,
+    "raw": "### XZ-R10-06 — `save()` doesn't catch `TypeError` from `json.dumps` (Medium)",
+    "id": "XZ-R10",
+    "title": "06 — `save()` doesn't catch `TypeError` from `json.dumps` (Medium)"
+  },
+  {
+    "ordinal": 103,
+    "line": 1792,
+    "raw": "### XZ-R10-07 — `_migrate_from_legacy` uses non-atomic `shutil.copytree` (Medium)",
+    "id": "XZ-R10",
+    "title": "07 — `_migrate_from_legacy` uses non-atomic `shutil.copytree` (Medium)"
+  },
+  {
+    "ordinal": 104,
+    "line": 1798,
+    "raw": "### XZ-R10-08 — Windows config file ACLs not enforced (Medium)",
+    "id": "XZ-R10",
+    "title": "08 — Windows config file ACLs not enforced (Medium)"
+  },
+  {
+    "ordinal": 105,
+    "line": 1806,
+    "raw": "### XZ-R10-09 — Deprecated fields never actually leave config.json (Medium)",
+    "id": "XZ-R10",
+    "title": "09 — Deprecated fields never actually leave config.json (Medium)"
+  },
+  {
+    "ordinal": 106,
+    "line": 1812,
+    "raw": "### XZ-R10-10 — `.corrupt-<timestamp>` 1-second resolution collides (Low)",
+    "id": "XZ-R10",
+    "title": "10 — `.corrupt-<timestamp>` 1-second resolution collides (Low)"
+  },
+  {
+    "ordinal": 107,
+    "line": 1818,
+    "raw": "### XZ-R10-11 — Lock file no `O_NOFOLLOW` (Low)",
+    "id": "XZ-R10",
+    "title": "11 — Lock file no `O_NOFOLLOW` (Low)"
+  },
+  {
+    "ordinal": 108,
+    "line": 1824,
+    "raw": "### XZ-R10-13 — `config.py` is 2002-line monolith (Low)",
+    "id": "XZ-R10",
+    "title": "13 — `config.py` is 2002-line monolith (Low)"
+  },
+  {
+    "ordinal": 109,
+    "line": 1830,
+    "raw": "### XZ-R10-14 — Stale `save_strict` docstring (Low)",
+    "id": "XZ-R10",
+    "title": "14 — Stale `save_strict` docstring (Low)"
+  },
+  {
+    "ordinal": 110,
+    "line": 1838,
+    "raw": "### XZ-R11-01 — `save_vocabulary_with_diff` doesn't update in-memory VocabularyManager (High)",
+    "id": "XZ-R11",
+    "title": "01 — `save_vocabulary_with_diff` doesn't update in-memory VocabularyManager (High)"
+  },
+  {
+    "ordinal": 111,
+    "line": 1846,
+    "raw": "### XZ-R11-03 — Migration \"duplicate column name\" handler bumps version without verifying (Medium)",
+    "id": "XZ-R11",
+    "title": "03 — Migration \"duplicate column name\" handler bumps version without verifying (Medium)"
+  },
+  {
+    "ordinal": 112,
+    "line": 1852,
+    "raw": "### XZ-R11-04 — No encryption at rest for dictated text (Medium)",
+    "id": "XZ-R11",
+    "title": "04 — No encryption at rest for dictated text (Medium)"
+  },
+  {
+    "ordinal": 113,
+    "line": 1858,
+    "raw": "### XZ-R11-06 — `TemplateManager` has no lock (Low)",
+    "id": "XZ-R11",
+    "title": "06 — `TemplateManager` has no lock (Low)"
+  },
+  {
+    "ordinal": 114,
+    "line": 1864,
+    "raw": "### XZ-R11-07 — IPC cap (1024) bypasses SEC-011 limits (200/500) (Low)",
+    "id": "XZ-R11",
+    "title": "07 — IPC cap (1024) bypasses SEC-011 limits (200/500) (Low)"
+  },
+  {
+    "ordinal": 115,
+    "line": 1872,
+    "raw": "### XZ-R11-09 — `_handle_restore_history` no payload-size cap (Low)",
+    "id": "XZ-R11",
+    "title": "09 — `_handle_restore_history` no payload-size cap (Low)"
+  },
+  {
+    "ordinal": 116,
+    "line": 1878,
+    "raw": "### XZ-R11-10 — `save_vocabulary_with_diff` throwaway manager (Low)",
+    "id": "XZ-R11",
+    "title": "10 — `save_vocabulary_with_diff` throwaway manager (Low)"
+  },
+  {
+    "ordinal": 117,
+    "line": 1884,
+    "raw": "### XZ-R11-11 — Missing `PRAGMA foreign_keys=ON` (Low)",
+    "id": "XZ-R11",
+    "title": "11 — Missing `PRAGMA foreign_keys=ON` (Low)"
+  },
+  {
+    "ordinal": 118,
+    "line": 1892,
+    "raw": "### XZ-R12-01 — Onboarding auto-heal ignores `.onboarding_started` marker (High)",
+    "id": "XZ-R12",
+    "title": "01 — Onboarding auto-heal ignores `.onboarding_started` marker (High)"
+  },
+  {
+    "ordinal": 119,
+    "line": 1900,
+    "raw": "### XZ-R12-02 — `_migrate_from_legacy` non-atomic (High)",
+    "id": "XZ-R12",
+    "title": "02 — `_migrate_from_legacy` non-atomic (High)"
+  },
+  {
+    "ordinal": 120,
+    "line": 1906,
+    "raw": "### XZ-R12-03 — `migrate.rs` sentinel written after partial failures (High)",
+    "id": "XZ-R12",
+    "title": "03 — `migrate.rs` sentinel written after partial failures (High)"
+  },
+  {
+    "ordinal": 121,
+    "line": 1912,
+    "raw": "### XZ-R12-06 — Lockfile name mismatch (Medium)",
+    "id": "XZ-R12",
+    "title": "06 — Lockfile name mismatch (Medium)"
+  },
+  {
+    "ordinal": 122,
+    "line": 1918,
+    "raw": "### XZ-R12-13 — docstring stale (Low)",
+    "id": "XZ-R12",
+    "title": "13 — docstring stale (Low)"
+  },
+  {
+    "ordinal": 123,
+    "line": 1926,
+    "raw": "### XZ-R12-14 — Prewarm sentinel fail-open (Low)",
+    "id": "XZ-R12",
+    "title": "14 — Prewarm sentinel fail-open (Low)"
+  },
+  {
+    "ordinal": 124,
+    "line": 1932,
+    "raw": "### XZ-R12-15 — Re-onboarding marker inconsistency (Low)",
+    "id": "XZ-R12",
+    "title": "15 — Re-onboarding marker inconsistency (Low)"
+  },
+  {
+    "ordinal": 125,
+    "line": 1940,
+    "raw": "### XZ-R12-16 — `crash_recovery.__del__` racy read (Low)",
+    "id": "XZ-R12",
+    "title": "16 — `crash_recovery.__del__` racy read (Low)"
+  },
+  {
+    "ordinal": 126,
+    "line": 1948,
+    "raw": "### XZ-CFG-02 — `ALLOWED_USER_MODELS` frozen at 8 entries while `MODEL_REGISTRY` has 18 (High)",
+    "id": "XZ-CFG",
+    "title": "02 — `ALLOWED_USER_MODELS` frozen at 8 entries while `MODEL_REGISTRY` has 18 (High)"
+  },
+  {
+    "ordinal": 127,
+    "line": 1959,
+    "raw": "### XZ-CFG-05 — TS `DEFAULT_CONFIG` fixture drift (Medium)",
+    "id": "XZ-CFG",
+    "title": "05 — TS `DEFAULT_CONFIG` fixture drift (Medium)"
+  },
+  {
+    "ordinal": 128,
+    "line": 1967,
+    "raw": "### XZ-CFG-10 — `apply_preset` silently reverts user toggles (Medium)",
+    "id": "XZ-CFG",
+    "title": "10 — `apply_preset` silently reverts user toggles (Medium)"
+  },
+  {
+    "ordinal": 129,
+    "line": 1977,
+    "raw": "### XZ-EH-009 — Silent OSError in Windows registry probe (Medium)",
+    "id": "XZ-EH",
+    "title": "009 — Silent OSError in Windows registry probe (Medium)"
+  },
+  {
+    "ordinal": 130,
+    "line": 1983,
+    "raw": "### XZ-EH-015 — Implicit ack-vs-error contract is fragile (Medium)",
+    "id": "XZ-EH",
+    "title": "015 — Implicit ack-vs-error contract is fragile (Medium)"
+  },
+  {
+    "ordinal": 131,
+    "line": 1991,
+    "raw": "### XZ-R16-02 — `respawn_failed` event unconsumed by renderer (High)",
+    "id": "XZ-R16",
+    "title": "02 — `respawn_failed` event unconsumed by renderer (High)"
+  },
+  {
+    "ordinal": 132,
+    "line": 1999,
+    "raw": "### XZ-R16-04 — Silent `get_config` catch (Medium)",
+    "id": "XZ-R16",
+    "title": "04 — Silent `get_config` catch (Medium)"
+  },
+  {
+    "ordinal": 133,
+    "line": 2005,
+    "raw": "### XZ-R16-08 — Sound manager silent failures (Low)",
+    "id": "XZ-R16",
+    "title": "08 — Sound manager silent failures (Low)"
+  },
+  {
+    "ordinal": 134,
+    "line": 2011,
+    "raw": "### XZ-R16-09 — Logging prefix inconsistency (Low)",
+    "id": "XZ-R16",
+    "title": "09 — Logging prefix inconsistency (Low)"
+  },
+  {
+    "ordinal": 135,
+    "line": 2019,
+    "raw": "### XZ-R17-06 — Windows logoff/shutdown: OS kills process before `_do_cleanup` finishes (Medium)",
+    "id": "XZ-R17",
+    "title": "06 — Windows logoff/shutdown: OS kills process before `_do_cleanup` finishes (Medium)"
+  },
+  {
+    "ordinal": 136,
+    "line": 2025,
+    "raw": "### XZ-R17-08 — `_save_sync` redundant chmod per transcription (Low)",
+    "id": "XZ-R17",
+    "title": "08 — `_save_sync` redundant chmod per transcription (Low)"
+  },
+  {
+    "ordinal": 137,
+    "line": 2031,
+    "raw": "### XZ-R17-11 — `_do_cleanup` doesn't null hotkey backend refs (Low)",
+    "id": "XZ-R17",
+    "title": "11 — `_do_cleanup` doesn't null hotkey backend refs (Low)"
+  },
+  {
+    "ordinal": 138,
+    "line": 2037,
+    "raw": "### XZ-R17-13 — `__del__` and `atexit` redundant double-write (Low)",
+    "id": "XZ-R17",
+    "title": "13 — `__del__` and `atexit` redundant double-write (Low)"
+  },
+  {
+    "ordinal": 139,
+    "line": 2045,
+    "raw": "### XZ-R18-03 — `stop-python.ts` missing SIGKILL fallback (Medium)",
+    "id": "XZ-R18",
+    "title": "03 — `stop-python.ts` missing SIGKILL fallback (Medium)"
+  },
+  {
+    "ordinal": 140,
+    "line": 2051,
+    "raw": "### XZ-R18-07 — `_tcpStartupTimeoutTimer` not reset by `relaunchApp()` (Low)",
+    "id": "XZ-R18",
+    "title": "07 — `_tcpStartupTimeoutTimer` not reset by `relaunchApp()` (Low)"
+  },
+  {
+    "ordinal": 141,
+    "line": 2057,
+    "raw": "### XZ-R18-08 — Cloud engine fallback no user-visible signal (Low)",
+    "id": "XZ-R18",
+    "title": "08 — Cloud engine fallback no user-visible signal (Low)"
+  },
+  {
+    "ordinal": 142,
+    "line": 2063,
+    "raw": "### XZ-R18-10 — Duplicated kill/cleanup logic (Low)",
+    "id": "XZ-R18",
+    "title": "10 — Duplicated kill/cleanup logic (Low)"
+  },
+  {
+    "ordinal": 143,
+    "line": 2073,
+    "raw": "### XZ-CC-2 — Duplicated noise-filter defaults (Medium)",
+    "id": "XZ-CC",
+    "title": "2 — Duplicated noise-filter defaults (Medium)"
+  },
+  {
+    "ordinal": 144,
+    "line": 2081,
+    "raw": "### XZ-CC-13 — Stale TODO migrate-tests cluster (Low)",
+    "id": "XZ-CC",
+    "title": "13 — Stale TODO migrate-tests cluster (Low)"
+  },
+  {
+    "ordinal": 145,
+    "line": 2090,
+    "raw": "### XZ-CC-15 — `pyrefly-baseline.json` `errors: []` while CI reports 116 errors (High)",
+    "id": "XZ-CC",
+    "title": "15 — `pyrefly-baseline.json` `errors: []` while CI reports 116 errors (High)"
+  },
+  {
+    "ordinal": 146,
+    "line": 5353,
+    "raw": "### ZR-8 — `bubble_set_position(x: Value, y: Value)` leaky abstraction (x/y are actually positional keywords)",
+    "id": "ZR-8",
+    "title": "`bubble_set_position(x: Value, y: Value)` leaky abstraction (x/y are actually positional keywords)"
+  },
+  {
+    "ordinal": 147,
+    "line": 5375,
+    "raw": "### ZR-9 — `spawn_heartbeat_task` uses `blocking_lock()` from tokio worker thread (latent deadlock risk)",
+    "id": "ZR-9",
+    "title": "`spawn_heartbeat_task` uses `blocking_lock()` from tokio worker thread (latent deadlock risk)"
+  },
+  {
+    "ordinal": 148,
+    "line": 5396,
+    "raw": "### ZR-16 — `DictationPipeline` is a god-class facade reaching through `self._app: Any` for every dependency",
+    "id": "ZR-16",
+    "title": "`DictationPipeline` is a god-class facade reaching through `self._app: Any` for every dependency"
+  },
+  {
+    "ordinal": 149,
+    "line": 5416,
+    "raw": "### ZR-17 — `shutdown_controller._do_cleanup` is ~1000 lines with implicit ordering contract (no test, no doc)",
+    "id": "ZR-17",
+    "title": "`shutdown_controller._do_cleanup` is ~1000 lines with implicit ordering contract (no test, no doc)"
+  },
+  {
+    "ordinal": 150,
+    "line": 5448,
+    "raw": "### ZR-30 — `tauri-bridge/index.ts` auto-install side effect pollutes tests that transitively import it",
+    "id": "ZR-30",
+    "title": "`tauri-bridge/index.ts` auto-install side effect pollutes tests that transitively import it"
+  },
+  {
+    "ordinal": 151,
+    "line": 5477,
+    "raw": "### ZR-35 — `recorder_force_closed` flag is dead write-only state (set in shutdown_controller, never read by recorder)",
+    "id": "ZR-35",
+    "title": "`recorder_force_closed` flag is dead write-only state (set in shutdown_controller, never read by recorder)"
+  },
+  {
+    "ordinal": 152,
+    "line": 5502,
+    "raw": "### ZR-38 — `recording/__init__.py` test-patch compat shim is 447 LOC of `__init__.py` boilerplate (CR-67 tech debt)",
+    "id": "ZR-38",
+    "title": "`recording/__init__.py` test-patch compat shim is 447 LOC of `__init__.py` boilerplate (CR-67 tech debt)"
+  },
+  {
+    "ordinal": 153,
+    "line": 5512,
+    "raw": "### ZR-49 — Test file naming inconsistency: 5 different conventions, 2 documented (one unused)",
+    "id": "ZR-49",
+    "title": "Test file naming inconsistency: 5 different conventions, 2 documented (one unused)"
+  },
+  {
+    "ordinal": 154,
+    "line": 5534,
+    "raw": "### ZR-51 — `recorder.py` 5 VAD constants comment lies about reference (lines 1446-1447 DO reference them)",
+    "id": "ZR-51",
+    "title": "`recorder.py` 5 VAD constants comment lies about reference (lines 1446-1447 DO reference them)"
+  },
+  {
+    "ordinal": 155,
+    "line": 5563,
+    "raw": "### ZR-53 — `tests/test_history_and_models.py` (1180 LOC, 28 classes, 10 domains) — catch-all test file",
+    "id": "ZR-53",
+    "title": "`tests/test_history_and_models.py` (1180 LOC, 28 classes, 10 domains) — catch-all test file"
+  },
+  {
+    "ordinal": 156,
+    "line": 5581,
+    "raw": "### ZR-55 — `ipc/rate_limiter.py:326-331` stale \"kept in sync\" comment (deduplication already complete)",
+    "id": "ZR-55",
+    "title": "`ipc/rate_limiter.py:326-331` stale \"kept in sync\" comment (deduplication already complete)"
+  },
+  {
+    "ordinal": 157,
+    "line": 5607,
+    "raw": "### ZR-57 — `tests/conftest.py:231-419` — 190-line autouse fixture mocks 15 modules for every test",
+    "id": "ZR-57",
+    "title": "`tests/conftest.py:231-419` — 190-line autouse fixture mocks 15 modules for every test"
+  },
+  {
+    "ordinal": 158,
+    "line": 5621,
+    "raw": "### ZR-60 — `recorder.start()` 610 lines + `_process_audio_chunk` 443 lines (god methods)",
+    "id": "ZR-60",
+    "title": "`recorder.start()` 610 lines + `_process_audio_chunk` 443 lines (god methods)"
+  },
+  {
+    "ordinal": 159,
+    "line": 5657,
+    "raw": "### ZR-67 — Push-event types are stringly-typed (270+ string literals across server + 26+ renderer subscribers)",
+    "id": "ZR-67",
+    "title": "Push-event types are stringly-typed (270+ string literals across server + 26+ renderer subscribers)"
+  },
+  {
+    "ordinal": 160,
+    "line": 5683,
+    "raw": "### ZR-74 — `ThemeSettingsSection.getCurrentThemeColors` 112 lines with 5-branch switch-on-string",
+    "id": "ZR-74",
+    "title": "`ThemeSettingsSection.getCurrentThemeColors` 112 lines with 5-branch switch-on-string"
+  },
+  {
+    "ordinal": 161,
+    "line": 5706,
+    "raw": "### ZR-75 — `bubble-window.createBubbleWindow` 192 lines mixing 7 phases",
+    "id": "ZR-75",
+    "title": "`bubble-window.createBubbleWindow` 192 lines mixing 7 phases"
+  },
+  {
+    "ordinal": 162,
+    "line": 5726,
+    "raw": "### ZR-76 — 6 inline error-envelope construction sites in `ipc_server.py` (DRY)",
+    "id": "ZR-76",
+    "title": "6 inline error-envelope construction sites in `ipc_server.py` (DRY)"
+  },
+  {
+    "ordinal": 163,
+    "line": 5758,
+    "raw": "### ZR-79 — `clipboard.paste()` 349 lines + `_is_safe_paste_target` 198 lines (long methods)",
+    "id": "ZR-79",
+    "title": "`clipboard.paste()` 349 lines + `_is_safe_paste_target` 198 lines (long methods)"
+  },
+  {
+    "ordinal": 164,
+    "line": 5779,
+    "raw": "### ZR-81 — `parakeet_engine.load` 292 lines + `transcription._pre_download_model` 190 lines (duplicated consent-gate pattern)",
+    "id": "ZR-81",
+    "title": "`parakeet_engine.load` 292 lines + `transcription._pre_download_model` 190 lines (duplicated consent-gate pattern)"
+  },
+  {
+    "ordinal": 165,
+    "line": 5794,
+    "raw": "### ZR-84 — `autostart_launcher.py` (849 lines) mixes 6 unrelated helper groups (SPLIT REQUIRED)",
+    "id": "ZR-84",
+    "title": "`autostart_launcher.py` (849 lines) mixes 6 unrelated helper groups (SPLIT REQUIRED)"
+  },
+  {
+    "ordinal": 166,
+    "line": 5822,
+    "raw": "### ZR-86 — `src-tauri/src/sidecar/ws.rs` (1142 lines) — 4 task functions could be split into `ws/` submodule (BORDERLINE)",
+    "id": "ZR-86",
+    "title": "`src-tauri/src/sidecar/ws.rs` (1142 lines) — 4 task functions could be split into `ws/` submodule (BORDERLINE)"
+  },
+  {
+    "ordinal": 167,
+    "line": 5852,
+    "raw": "### NH-43 — `BubbleDismissButton` is keyboard-inaccessible (bubble window is `focusable: false`)",
+    "id": "NH-43",
+    "title": "`BubbleDismissButton` is keyboard-inaccessible (bubble window is `focusable: false`)"
+  },
+  {
+    "ordinal": 168,
+    "line": 5865,
+    "raw": "### YJ-4 — No MemoryHandler ring buffer attached to the VEH crash handler",
+    "id": "YJ-4",
+    "title": "No MemoryHandler ring buffer attached to the VEH crash handler"
+  },
+  {
+    "ordinal": 169,
+    "line": 5879,
+    "raw": "### YJ-15 — Tauri `VoiceTyperError` enum migration is incomplete (only 2 of ~40 commands)",
+    "id": "YJ-15",
+    "title": "Tauri `VoiceTyperError` enum migration is incomplete (only 2 of ~40 commands)"
+  },
+  {
+    "ordinal": 170,
+    "line": 5893,
+    "raw": "### YJ-16 — Two parallel Electron main loggers with overlapping semantics (`electron-main.log` vs `electron-runtime.log`)",
+    "id": "YJ-16",
+    "title": "Two parallel Electron main loggers with overlapping semantics (`electron-main.log` vs `electron-runtime.log`)"
+  },
+  {
+    "ordinal": 171,
+    "line": 5905,
+    "raw": "### YJ-17 — Electron log lines lack `session_id` / `component` / `correlation_id` fields",
+    "id": "YJ-17",
+    "title": "Electron log lines lack `session_id` / `component` / `correlation_id` fields"
+  },
+  {
+    "ordinal": 172,
+    "line": 5918,
+    "raw": "### YJ-32 — `clipboard_target_safety.py` is a 1012-LOC monolith mixing 3 platform branches",
+    "id": "YJ-32",
+    "title": "`clipboard_target_safety.py` is a 1012-LOC monolith mixing 3 platform branches"
+  },
+  {
+    "ordinal": 173,
+    "line": 5930,
+    "raw": "### YJ-39 — 5 monolith files at the IPC/contract boundary exceed 800 LOC",
+    "id": "YJ-39",
+    "title": "5 monolith files at the IPC/contract boundary exceed 800 LOC"
+  },
+  {
+    "ordinal": 174,
+    "line": 5946,
+    "raw": "### YJ-53 — 10 monolith files ≥800 LOC mixing transport/lifecycle/logic (cross-cutting)",
+    "id": "YJ-53",
+    "title": "10 monolith files ≥800 LOC mixing transport/lifecycle/logic (cross-cutting)"
+  },
+  {
+    "ordinal": 175,
+    "line": 5958,
+    "raw": "### YJ-54 — `ipc.ts` `PythonRequest` union covers only 12 of 73 IPC commands",
+    "id": "YJ-54",
+    "title": "`ipc.ts` `PythonRequest` union covers only 12 of 73 IPC commands"
+  },
+  {
+    "ordinal": 176,
+    "line": 5970,
+    "raw": "### DT-21 — recorder.py (4012 lines) — Critical spaghetti monolith",
+    "id": "DT-21",
+    "title": "recorder.py (4012 lines) — Critical spaghetti monolith"
+  },
+  {
+    "ordinal": 177,
+    "line": 5980,
+    "raw": "### DT-24 — config.py (2270 lines) — Critical spaghetti monolith",
+    "id": "DT-24",
+    "title": "config.py (2270 lines) — Critical spaghetti monolith"
+  },
+  {
+    "ordinal": 178,
+    "line": 5991,
+    "raw": "### DT-28 — level_monitor.py (1524 lines) — two disjoint subsystems mixed",
+    "id": "DT-28",
+    "title": "level_monitor.py (1524 lines) — two disjoint subsystems mixed"
+  },
+  {
+    "ordinal": 179,
+    "line": 6001,
+    "raw": "### DT-29 — permissions.py (1282 lines) — 3 platforms × 3 domains mixed",
+    "id": "DT-29",
+    "title": "permissions.py (1282 lines) — 3 platforms × 3 domains mixed"
+  },
+  {
+    "ordinal": 180,
+    "line": 6011,
+    "raw": "### DT-30 — dictation_pipeline.py (1306 lines) — run() 301-line monolith",
+    "id": "DT-30",
+    "title": "dictation_pipeline.py (1306 lines) — run() 301-line monolith"
+  },
+  {
+    "ordinal": 181,
+    "line": 6021,
+    "raw": "### DT-32 — ThemeSettingsSection.tsx (1258 lines) — 6 concerns mixed",
+    "id": "DT-32",
+    "title": "ThemeSettingsSection.tsx (1258 lines) — 6 concerns mixed"
+  },
+  {
+    "ordinal": 182,
+    "line": 6031,
+    "raw": "### DT-36 — main-window.ts (542) + bubble-window.ts (612) — mixed concerns",
+    "id": "DT-36",
+    "title": "main-window.ts (542) + bubble-window.ts (612) — mixed concerns"
+  },
+  {
+    "ordinal": 183,
+    "line": 6042,
+    "raw": "### DT-38 — CR-67 __init__.py indirection (3 packages, ~2000 LOC boilerplate)",
+    "id": "DT-38",
+    "title": "CR-67 __init__.py indirection (3 packages, ~2000 LOC boilerplate)"
+  },
+  {
+    "ordinal": 184,
+    "line": 6054,
+    "raw": "### DT-39 — config_validators.py (1673 lines) — _validate_language 294-line god-function",
+    "id": "DT-39",
+    "title": "config_validators.py (1673 lines) — _validate_language 294-line god-function"
+  },
+  {
+    "ordinal": 185,
+    "line": 6064,
+    "raw": "### DT-40 — shutdown_controller.py (1488 lines) — _do_cleanup 235-line monolith",
+    "id": "DT-40",
+    "title": "shutdown_controller.py (1488 lines) — _do_cleanup 235-line monolith"
+  },
+  {
+    "ordinal": 186,
+    "line": 6074,
+    "raw": "### DT-41 — ALLOWED_COMMANDS 3-layer duplication (76 entries × 3 files)",
+    "id": "DT-41",
+    "title": "ALLOWED_COMMANDS 3-layer duplication (76 entries × 3 files)"
+  },
+  {
+    "ordinal": 187,
+    "line": 6087,
+    "raw": "### DT-43 — APP_NAME 4-way duplication (branding across 4 files)",
+    "id": "DT-43",
+    "title": "APP_NAME 4-way duplication (branding across 4 files)"
+  },
+  {
+    "ordinal": 188,
+    "line": 6103,
+    "raw": "### FZ-8 — 280 `inspect.getsource` source-string tests across 69 Python test files (GREW from 164/30)",
+    "id": "FZ-8",
+    "title": "280 `inspect.getsource` source-string tests across 69 Python test files (GREW from 164/30)"
+  },
+  {
+    "ordinal": 189,
+    "line": 6115,
+    "raw": "### FZ-14 — IPC channel-name strings hardcoded as literals across 8+ TS files (no shared contract module)",
+    "id": "FZ-14",
+    "title": "IPC channel-name strings hardcoded as literals across 8+ TS files (no shared contract module)"
+  },
+  {
+    "ordinal": 190,
+    "line": 6132,
+    "raw": "### FZ-23 — `shutdown_controller.py` (1488 LOC) is a god-module mixing 5 separable concerns",
+    "id": "FZ-23",
+    "title": "`shutdown_controller.py` (1488 LOC) is a god-module mixing 5 separable concerns"
+  },
+  {
+    "ordinal": 191,
+    "line": 6142,
+    "raw": "### FZ-24 — `ws.rs` (1187 LOC) mixes WS transport with supervisor scheduling and event-protocol concerns",
+    "id": "FZ-24",
+    "title": "`ws.rs` (1187 LOC) mixes WS transport with supervisor scheduling and event-protocol concerns"
+  },
+  {
+    "ordinal": 192,
+    "line": 6152,
+    "raw": "### FZ-27 — `thiserror` declared in `Cargo.toml` but NEVER used; all 40+ Rust errors are `Result<T, String>`",
+    "id": "FZ-27",
+    "title": "`thiserror` declared in `Cargo.toml` but NEVER used; all 40+ Rust errors are `Result<T, String>`"
+  },
+  {
+    "ordinal": 193,
+    "line": 6166,
+    "raw": "### FZ-28 — `16000` (Whisper sample rate) hardcoded as a literal across 30+ production sites",
+    "id": "FZ-28",
+    "title": "`16000` (Whisper sample rate) hardcoded as a literal across 30+ production sites"
+  },
+  {
+    "ordinal": 194,
+    "line": 6175,
+    "raw": "### FZ-30 — `ALLOWED_EVENT_TYPES` allowlist duplicated between Rust host and Python publisher (drift already happened twice)",
+    "id": "FZ-30",
+    "title": "`ALLOWED_EVENT_TYPES` allowlist duplicated between Rust host and Python publisher (drift already happened twice)"
+  },
+  {
+    "ordinal": 195,
+    "line": 6186,
+    "raw": "### FZ-54 — Default hotkey `\"<caps_lock>\"` hardcoded as literal in 5 server-side sites + 1 TS site",
+    "id": "FZ-54",
+    "title": "Default hotkey `\"<caps_lock>\"` hardcoded as literal in 5 server-side sites + 1 TS site"
+  },
+  {
+    "ordinal": 196,
+    "line": 6200,
+    "raw": "### FZ-55 — `noise_filter_*` defaults duplicated between `Config` dataclass and `audio_chain_builder._DEFAULTS` test dict",
+    "id": "FZ-55",
+    "title": "`noise_filter_*` defaults duplicated between `Config` dataclass and `audio_chain_builder._DEFAULTS` test dict"
+  },
+  {
+    "ordinal": 197,
+    "line": 6212,
+    "raw": "### FZ-56 — `vad_speech_threshold: 0.5` and `vad_silence_threshold: 0.3` duplicated as `getattr` fallback literals",
+    "id": "FZ-56",
+    "title": "`vad_speech_threshold: 0.5` and `vad_silence_threshold: 0.3` duplicated as `getattr` fallback literals"
+  },
+  {
+    "ordinal": 198,
+    "line": 6224,
+    "raw": "### FZ-57 — Platform-detection `sys.platform == \"win32\"` repeated inline despite `platform_utils.is_windows()` existing",
+    "id": "FZ-57",
+    "title": "Platform-detection `sys.platform == \"win32\"` repeated inline despite `platform_utils.is_windows()` existing"
+  },
+  {
+    "ordinal": 199,
+    "line": 6236,
+    "raw": "### FZ-58 — `test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)",
+    "id": "FZ-58",
+    "title": "`test_history_and_models.py` and other test files use ticket-ID class names (SEC8/G4L06/SVC2/etc.)"
+  },
+  {
+    "ordinal": 200,
+    "line": 6246,
+    "raw": "### FZ-59 — `time.sleep` in 88 test files (top offender: 20 calls in `test_microphone_watcher.py`)",
+    "id": "FZ-59",
+    "title": "`time.sleep` in 88 test files (top offender: 20 calls in `test_microphone_watcher.py`)"
+  },
+  {
+    "ordinal": 201,
+    "line": 6256,
+    "raw": "### FZ-60 — `kill_process_tree` uses N+2 process spawns + 200ms blocking `thread::sleep` on the Tauri event loop",
+    "id": "FZ-60",
+    "title": "`kill_process_tree` uses N+2 process spawns + 200ms blocking `thread::sleep` on the Tauri event loop"
+  },
+  {
+    "ordinal": 202,
+    "line": 6267,
+    "raw": "### FZ-62 — `setLocale` missing from Tauri bridge (`window-namespace.ts`) — parity contract broken",
+    "id": "FZ-62",
+    "title": "`setLocale` missing from Tauri bridge (`window-namespace.ts`) — parity contract broken"
+  },
+  {
+    "ordinal": 203,
+    "line": 6280,
+    "raw": "### FZ-64 — Magic numbers in `main/` (process-exit backstops, TCP frame cap, IPC timeouts) should be named constants",
+    "id": "FZ-64",
+    "title": "Magic numbers in `main/` (process-exit backstops, TCP frame cap, IPC timeouts) should be named constants"
+  },
+  {
+    "ordinal": 204,
+    "line": 6291,
+    "raw": "### FZ-65 — `var` in inline HTML bootstrap scripts (`index.html`, `bubble.html`)",
+    "id": "FZ-65",
+    "title": "`var` in inline HTML bootstrap scripts (`index.html`, `bubble.html`)"
+  },
+  {
+    "ordinal": 205,
+    "line": 6302,
+    "raw": "### FZ-66 — 12+ underscore-prefixed test-only exports ship in production main-process modules",
+    "id": "FZ-66",
+    "title": "12+ underscore-prefixed test-only exports ship in production main-process modules"
+  },
+  {
+    "ordinal": 206,
+    "line": 6318,
+    "raw": "### FZ-69 — Inline IIFE render closures in `ThemeSettingsSection.tsx` and `HotkeyPicker.tsx` defeat `memo()` on children",
+    "id": "FZ-69",
+    "title": "Inline IIFE render closures in `ThemeSettingsSection.tsx` and `HotkeyPicker.tsx` defeat `memo()` on children"
+  },
+  {
+    "ordinal": 207,
+    "line": 6332,
+    "raw": "### DR-3 — Rust monolith files: bubble.rs 1313 LOC, ws.rs 1241, supervisor.rs 1055, logging.rs 989, sidecar_cmds.rs 897, spawn.rs 845",
+    "id": "DR-3",
+    "title": "Rust monolith files: bubble.rs 1313 LOC, ws.rs 1241, supervisor.rs 1055, logging.rs 989, sidecar_cmds.rs 897, spawn.rs 845"
+  },
+  {
+    "ordinal": 208,
+    "line": 6355,
+    "raw": "### DR-23 — Python S1-CR-67 STILL REAL: _RecordingModule custom module class",
+    "id": "DR-23",
+    "title": "Python S1-CR-67 STILL REAL: _RecordingModule custom module class"
+  },
+  {
+    "ordinal": 209,
+    "line": 6371,
+    "raw": "### DR-32 — Python DRY: 16000 sample rate hardcoded 30+ places (FZ-28)",
+    "id": "DR-32",
+    "title": "Python DRY: 16000 sample rate hardcoded 30+ places (FZ-28)"
+  },
+  {
+    "ordinal": 210,
+    "line": 6400,
+    "raw": "### DJ-2 — VoiceTyperApp.__init__ god-constructor blocks tray icon appearance",
+    "id": "DJ-2",
+    "title": "VoiceTyperApp.__init__ god-constructor blocks tray icon appearance"
+  },
+  {
+    "ordinal": 211,
+    "line": 6420,
+    "raw": "### DJ-3 — Redundant eager Qwen engine init on main thread",
+    "id": "DJ-3",
+    "title": "Redundant eager Qwen engine init on main thread"
+  },
+  {
+    "ordinal": 212,
+    "line": 6440,
+    "raw": "### DJ-6 — Sidecar cleanup budget mismatch — host force-kills mid-cleanup causing data corruption",
+    "id": "DJ-6",
+    "title": "Sidecar cleanup budget mismatch — host force-kills mid-cleanup causing data corruption"
+  },
+  {
+    "ordinal": 213,
+    "line": 6462,
+    "raw": "### DJ-7 — ASR models not unloaded on shutdown — CUDA memory leak across restart cycles",
+    "id": "DJ-7",
+    "title": "ASR models not unloaded on shutdown — CUDA memory leak across restart cycles"
+  },
+  {
+    "ordinal": 214,
+    "line": 6483,
+    "raw": "### DJ-10 — Electron 3s SIGTERM-only killTimer with no SIGKILL escalation — orphans native hotkey binary",
+    "id": "DJ-10",
+    "title": "Electron 3s SIGTERM-only killTimer with no SIGKILL escalation — orphans native hotkey binary"
+  },
+  {
+    "ordinal": 215,
+    "line": 6501,
+    "raw": "### DJ-14 — GPU→CPU fallback cold-loads CPU model — 5-50s frozen tray",
+    "id": "DJ-14",
+    "title": "GPU→CPU fallback cold-loads CPU model — 5-50s frozen tray"
+  },
+  {
+    "ordinal": 216,
+    "line": 6520,
+    "raw": "### DJ-16 — Per-segment redundant getattr + import in transcription logging loop",
+    "id": "DJ-16",
+    "title": "Per-segment redundant getattr + import in transcription logging loop"
+  },
+  {
+    "ordinal": 217,
+    "line": 6539,
+    "raw": "### DJ-19 — _all_read_connections pruning is reactive — dead-thread 20MB connections leak until next new-thread read",
+    "id": "DJ-19",
+    "title": "_all_read_connections pruning is reactive — dead-thread 20MB connections leak until next new-thread read"
+  },
+  {
+    "ordinal": 218,
+    "line": 6558,
+    "raw": "### DJ-70 — No BT HFP mode-switch retry logic — recording terminated on every BT mode switch",
+    "id": "DJ-70",
+    "title": "No BT HFP mode-switch retry logic — recording terminated on every BT mode switch"
+  },
+  {
+    "ordinal": 219,
+    "line": 6579,
+    "raw": "### DJ-88 — AudioFilterChain.tsx inline t() calls defeat useMemo labels optimization",
+    "id": "DJ-88",
+    "title": "AudioFilterChain.tsx inline t() calls defeat useMemo labels optimization"
+  },
+  {
+    "ordinal": 220,
+    "line": 6596,
+    "raw": "### DJ-91 — showBubbleWindow redundant OS calls — 2× setAlwaysOnTop + setVisibleOnAllWorkspaces per show",
+    "id": "DJ-91",
+    "title": "showBubbleWindow redundant OS calls — 2× setAlwaysOnTop + setVisibleOnAllWorkspaces per show"
+  },
+  {
+    "ordinal": 221,
+    "line": 6613,
+    "raw": "### DJ-96 — recorder.py is a 3772-line monolith mixing 7 concerns — Phase 4.5 mandatory split",
+    "id": "DJ-96",
+    "title": "recorder.py is a 3772-line monolith mixing 7 concerns — Phase 4.5 mandatory split"
+  },
+  {
+    "ordinal": 222,
+    "line": 6634,
+    "raw": "### DJ-102 — Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read",
+    "id": "DJ-102",
+    "title": "Dead attrs: _previous_chunk_pending + _skipped_frames — declared, reset, incremented, NEVER read"
+  },
+  {
+    "ordinal": 223,
+    "line": 6655,
+    "raw": "### DJ-103 — Stale doc references to non-existent _callback_impl / _audio_callback_record",
+    "id": "DJ-103",
+    "title": "Stale doc references to non-existent _callback_impl / _audio_callback_record"
+  },
+  {
+    "ordinal": 224,
+    "line": 6726,
+    "raw": "### AB-3 — `device_manager._resolve_effective_sample_rate` and `_same_physical_microphone_candidates` bypass the device cache (200-1200ms avoidable RPC latency on hot-swap)",
+    "id": "AB-3",
+    "title": "`device_manager._resolve_effective_sample_rate` and `_same_physical_microphone_candidates` bypass the device cache (200-1200ms avoidable RPC latency on hot-swap)"
+  },
+  {
+    "ordinal": 225,
+    "line": 6738,
+    "raw": "### AB-5 — Level monitor runs RNNoise filter chain on every cosmetic level-bar chunk (15-100% CPU peg for a non-functional bar)",
+    "id": "AB-5",
+    "title": "Level monitor runs RNNoise filter chain on every cosmetic level-bar chunk (15-100% CPU peg for a non-functional bar)"
+  },
+  {
+    "ordinal": 226,
+    "line": 6752,
+    "raw": "### AB-6 — Microphone watcher Linux poll interval defaults to 1.0s (DJ-48 fix never applied, 1Hz idle wakeups for app lifetime)",
+    "id": "AB-6",
+    "title": "Microphone watcher Linux poll interval defaults to 1.0s (DJ-48 fix never applied, 1Hz idle wakeups for app lifetime)"
+  },
+  {
+    "ordinal": 227,
+    "line": 6765,
+    "raw": "### AB-7 — `microphone_list.list_microphones` queries PortAudio on every IPC call (50-200ms latency per call)",
+    "id": "AB-7",
+    "title": "`microphone_list.list_microphones` queries PortAudio on every IPC call (50-200ms latency per call)"
+  },
+  {
+    "ordinal": 228,
+    "line": 6776,
+    "raw": "### AB-22 — `VocabularyManager.apply_to_text` redundantly tokenizes 4× per dictation (4 word-level categories each split+join)",
+    "id": "AB-22",
+    "title": "`VocabularyManager.apply_to_text` redundantly tokenizes 4× per dictation (4 word-level categories each split+join)"
+  },
+  {
+    "ordinal": 229,
+    "line": 6789,
+    "raw": "### AB-23 — `VocabularyManager.apply_to_text` snapshot allocates 6 containers × 5000 ref-copies per dictation (over-applied CR-23 snapshot)",
+    "id": "AB-23",
+    "title": "`VocabularyManager.apply_to_text` snapshot allocates 6 containers × 5000 ref-copies per dictation (over-applied CR-23 snapshot)"
+  },
+  {
+    "ordinal": 230,
+    "line": 6802,
+    "raw": "### AB-24 — LLM polish call blocks dictation pipeline thread (up to 10s paste latency)",
+    "id": "AB-24",
+    "title": "LLM polish call blocks dictation pipeline thread (up to 10s paste latency)"
+  },
+  {
+    "ordinal": 231,
+    "line": 6814,
+    "raw": "### AB-35 — Windows native hotkey installs 3 separate WH_KEYBOARD_LL hooks (3× per-keystroke system-wide CPU)",
+    "id": "AB-35",
+    "title": "Windows native hotkey installs 3 separate WH_KEYBOARD_LL hooks (3× per-keystroke system-wide CPU)"
+  },
+  {
+    "ordinal": 232,
+    "line": 6826,
+    "raw": "### AB-42 — Audio filter chain per-chunk heap allocation churn (compressor/limiter/equalizer zi wrappers + RNNoise resampler zero-stuffing)",
+    "id": "AB-42",
+    "title": "Audio filter chain per-chunk heap allocation churn (compressor/limiter/equalizer zi wrappers + RNNoise resampler zero-stuffing)"
+  },
+  {
+    "ordinal": 233,
+    "line": 6847,
+    "raw": "### AB-47 — `microphone_test_recorder.start_test_recording` has duplicate ~35-line setup blocks (DRY violation)",
+    "id": "AB-47",
+    "title": "`microphone_test_recorder.start_test_recording` has duplicate ~35-line setup blocks (DRY violation)"
+  },
+  {
+    "ordinal": 234,
+    "line": 6860,
+    "raw": "### AB-48 — `waveform_bubble_wiring` 8ms throttle is below chunk period (effectively a no-op; 31-94 Hz IPC to renderer)",
+    "id": "AB-48",
+    "title": "`waveform_bubble_wiring` 8ms throttle is below chunk period (effectively a no-op; 31-94 Hz IPC to renderer)"
+  },
+  {
+    "ordinal": 235,
+    "line": 6873,
+    "raw": "### AB-49 — `audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)",
+    "id": "AB-49",
+    "title": "`audio_quality.analyze_full_audio` allocates 3 full-length temporary arrays (57 MB spike on 5-min recording)"
+  },
+  {
+    "ordinal": 236,
+    "line": 6886,
+    "raw": "### AB-50 — Dead code: `text_cleanup._active_phrase_patterns` + `_active_extra_word_patterns` (XV-42 left eager precompile in place)",
+    "id": "AB-50",
+    "title": "Dead code: `text_cleanup._active_phrase_patterns` + `_active_extra_word_patterns` (XV-42 left eager precompile in place)"
+  },
+  {
+    "ordinal": 237,
+    "line": 6899,
+    "raw": "### AB-51 — `vocabulary_automation._find_closest_vocabulary_match` O(V) scan per low-confidence word (no index structure)",
+    "id": "AB-51",
+    "title": "`vocabulary_automation._find_closest_vocabulary_match` O(V) scan per low-confidence word (no index structure)"
+  },
+  {
+    "ordinal": 238,
+    "line": 6912,
+    "raw": "### AB-52 — `hotkeys/factory.py:60` docstring claims \"1kHz\" polling but actual cadence is 125 Hz (8ms sleep)",
+    "id": "AB-52",
+    "title": "`hotkeys/factory.py:60` docstring claims \"1kHz\" polling but actual cadence is 125 Hz (8ms sleep)"
+  },
+  {
+    "ordinal": 239,
+    "line": 6925,
+    "raw": "### AB-53 — `native_hotkeys.binary_path.load_binary_manifest` not cached (re-reads binaries.json on every backend spawn)",
+    "id": "AB-53",
+    "title": "`native_hotkeys.binary_path.load_binary_manifest` not cached (re-reads binaries.json on every backend spawn)"
+  },
+  {
+    "ordinal": 240,
+    "line": 6938,
+    "raw": "### AB-54 — `crash_handler._python_excepthook` body is duplicated between sys.excepthook and threading.excepthook (DRY violation)",
+    "id": "AB-54",
+    "title": "`crash_handler._python_excepthook` body is duplicated between sys.excepthook and threading.excepthook (DRY violation)"
+  },
+  {
+    "ordinal": 241,
+    "line": 6951,
+    "raw": "### AB-55 — `model_manager._change_model_unload_phase` has dead `elif self.transcriber is not None` branch",
+    "id": "AB-55",
+    "title": "`model_manager._change_model_unload_phase` has dead `elif self.transcriber is not None` branch"
+  },
+  {
+    "ordinal": 242,
+    "line": 6964,
+    "raw": "### AB-56 — `model_manager.try_load` is 142 LOC of dead code with a 60s `wait_for_prewarm` latent perf landmine",
+    "id": "AB-56",
+    "title": "`model_manager.try_load` is 142 LOC of dead code with a 60s `wait_for_prewarm` latent perf landmine"
+  },
+  {
+    "ordinal": 243,
+    "line": 6977,
+    "raw": "### XE-19-4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)",
+    "id": "XE-19",
+    "title": "4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)"
+  },
+  {
+    "ordinal": 244,
+    "line": 6987,
+    "raw": "### XE-19-5 — Medium: _SecureRotatingFileHandler.doRollover chmod runs OUTSIDE the lock + silently suppresses OSError",
+    "id": "XE-19",
+    "title": "5 — Medium: _SecureRotatingFileHandler.doRollover chmod runs OUTSIDE the lock + silently suppresses OSError"
+  },
+  {
+    "ordinal": 245,
+    "line": 6997,
+    "raw": "### XE-19-6 — Medium: Windows rotation lock silently fails — msvcrt.locking failure suppressed, returns fd as if locked",
+    "id": "XE-19",
+    "title": "6 — Medium: Windows rotation lock silently fails — msvcrt.locking failure suppressed, returns fd as if locked"
+  },
+  {
+    "ordinal": 246,
+    "line": 7007,
+    "raw": "### XE-19-7 — Medium: Startup banner reports ROOT logger level (WARNING) instead of voice_typer logger level",
+    "id": "XE-19",
+    "title": "7 — Medium: Startup banner reports ROOT logger level (WARNING) instead of voice_typer logger level"
+  },
+  {
+    "ordinal": 247,
+    "line": 7017,
+    "raw": "### XE-20-1 — Medium: Rust + TS redact_pii both omit Python's generic 20+ char bare-token pattern and SEC-9 flag/key=value patterns",
+    "id": "XE-20",
+    "title": "1 — Medium: Rust + TS redact_pii both omit Python's generic 20+ char bare-token pattern and SEC-9 flag/key=value patterns"
+  },
+  {
+    "ordinal": 248,
+    "line": 7027,
+    "raw": "### XE-20-2 — Medium: TS redactPii missing gsk_ pattern; sk- charset too restrictive",
+    "id": "XE-20",
+    "title": "2 — Medium: TS redactPii missing gsk_ pattern; sk- charset too restrictive"
+  },
+  {
+    "ordinal": 249,
+    "line": 7037,
+    "raw": "### XE-20-3 — Medium: deleteElectronPersonalDataLogs omits electron-runtime.log and electron-lifecycle.log from GDPR erasure scope",
+    "id": "XE-20",
+    "title": "3 — Medium: deleteElectronPersonalDataLogs omits electron-runtime.log and electron-lifecycle.log from GDPR erasure scope"
+  },
+  {
+    "ordinal": 250,
+    "line": 7048,
+    "raw": "### UE-2 — `_teardown_sounddevice` ignores `wait()` return value → DE-54 PortAudio deadlock",
+    "id": "UE-2",
+    "title": "`_teardown_sounddevice` ignores `wait()` return value → DE-54 PortAudio deadlock"
+  },
+  {
+    "ordinal": 251,
+    "line": 7062,
+    "raw": "### UE-8 — `cleanup_and_trigger_respawn` does NOT drain pending → in-flight dispatches orphaned",
+    "id": "UE-8",
+    "title": "`cleanup_and_trigger_respawn` does NOT drain pending → in-flight dispatches orphaned"
+  },
+  {
+    "ordinal": 252,
+    "line": 7075,
+    "raw": "### UE-12 — Dead 1591-line `level_monitor.py` monolith shadowed by package (dead code + confusion)",
+    "id": "UE-12",
+    "title": "Dead 1591-line `level_monitor.py` monolith shadowed by package (dead code + confusion)"
+  },
+  {
+    "ordinal": 253,
+    "line": 7088,
+    "raw": "### UE-18 — `_handle_shutdown` spawns untracked cleanup thread; double-shutdown race",
+    "id": "UE-18",
+    "title": "`_handle_shutdown` spawns untracked cleanup thread; double-shutdown race"
+  },
+  {
+    "ordinal": 254,
+    "line": 7101,
+    "raw": "### UE-20 — Dead `theme-utils.ts` (368 LOC) + divergent `formatBytes` triplication",
+    "id": "UE-20",
+    "title": "Dead `theme-utils.ts` (368 LOC) + divergent `formatBytes` triplication"
+  },
+  {
+    "ordinal": 255,
+    "line": 7117,
+    "raw": "### UE-26 — Protocol-version negotiation exists only on WS path; never bumped despite registry churn",
+    "id": "UE-26",
+    "title": "Protocol-version negotiation exists only on WS path; never bumped despite registry churn"
+  },
+  {
+    "ordinal": 256,
+    "line": 7132,
+    "raw": "### UE-27 — Dead `open_host_logs` Rust command + dead `deleteElectronPersonalDataLogs` forward-declaration",
+    "id": "UE-27",
+    "title": "Dead `open_host_logs` Rust command + dead `deleteElectronPersonalDataLogs` forward-declaration"
+  },
+  {
+    "ordinal": 257,
+    "line": 7148,
+    "raw": "### UE-30 — `ws.rs` 1454-line monolith mixes 8+ concerns (spaghetti)",
+    "id": "UE-30",
+    "title": "`ws.rs` 1454-line monolith mixes 8+ concerns (spaghetti)"
+  },
+  {
+    "ordinal": 258,
+    "line": 7161,
+    "raw": "### UE-31 — `logging.rs` 2161-line monolith mixing 6 concerns (spaghetti) — GROUP 5 mandatory",
+    "id": "UE-31",
+    "title": "`logging.rs` 2161-line monolith mixing 6 concerns (spaghetti) — GROUP 5 mandatory"
+  },
+  {
+    "ordinal": 259,
+    "line": 7174,
+    "raw": "### UE-32 — `ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)",
+    "id": "UE-32",
+    "title": "`ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)"
+  },
+  {
+    "ordinal": 260,
+    "line": 7187,
+    "raw": "### UE-33 — `config.py` Config dataclass 2078-LOC residual monolith (spaghetti)",
+    "id": "UE-33",
+    "title": "`config.py` Config dataclass 2078-LOC residual monolith (spaghetti)"
+  },
+  {
+    "ordinal": 261,
+    "line": 7200,
+    "raw": "### UE-42 — Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)",
+    "id": "UE-42",
+    "title": "Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)"
+  },
+  {
+    "ordinal": 262,
+    "line": 7218,
+    "raw": "### UE-47 — Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)",
+    "id": "UE-47",
+    "title": "Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)"
+  },
+  {
+    "ordinal": 263,
+    "line": 7232,
+    "raw": "### UE-50 — `legacy_code` field emitted in every IPC error response, never consumed by frontend",
+    "id": "UE-50",
+    "title": "`legacy_code` field emitted in every IPC error response, never consumed by frontend"
+  },
+  {
+    "ordinal": 264,
+    "line": 7543,
+    "raw": "### SI-6 — `main.rs` exceeds C-ARCH-1 budget by ~230 LOC",
+    "id": "SI-6",
+    "title": "`main.rs` exceeds C-ARCH-1 budget by ~230 LOC"
+  },
+  {
+    "ordinal": 265,
+    "line": 7554,
+    "raw": "### SI-8 — CSP `connect-src https://api.github.com` latent C-DATA-1 violation",
+    "id": "SI-8",
+    "title": "CSP `connect-src https://api.github.com` latent C-DATA-1 violation"
+  },
+  {
+    "ordinal": 266,
+    "line": 7565,
+    "raw": "### SI-10 — `logging.rs` 2842-LOC monolith: UE-31 deferral stale, split unblocked",
+    "id": "SI-10",
+    "title": "`logging.rs` 2842-LOC monolith: UE-31 deferral stale, split unblocked"
+  },
+  {
+    "ordinal": 267,
+    "line": 7576,
+    "raw": "### SI-17 — Duplicated `PROTOCOL_VERSION` constants across two transports with divergent enforcement",
+    "id": "SI-17",
+    "title": "Duplicated `PROTOCOL_VERSION` constants across two transports with divergent enforcement"
+  },
+  {
+    "ordinal": 268,
+    "line": 7586,
+    "raw": "### SI-18 — `microphone_watcher._post_quit_to_windows` missing 64-bit argtypes/restype",
+    "id": "SI-18",
+    "title": "`microphone_watcher._post_quit_to_windows` missing 64-bit argtypes/restype"
+  },
+  {
+    "ordinal": 269,
+    "line": 7596,
+    "raw": "### SI-19 — ZR-30 fix half-implemented: `install.ts` dead code; `index.ts:148` still auto-invokes",
+    "id": "SI-19",
+    "title": "ZR-30 fix half-implemented: `install.ts` dead code; `index.ts:148` still auto-invokes"
+  },
+  {
+    "ordinal": 270,
+    "line": 7606,
+    "raw": "### SI-20 — `_teardown_sounddevice` 9.5s wait shorter than `_teardown_recorder`'s 18s worst case",
+    "id": "SI-20",
+    "title": "`_teardown_sounddevice` 9.5s wait shorter than `_teardown_recorder`'s 18s worst case"
+  },
+  {
+    "ordinal": 271,
+    "line": 7616,
+    "raw": "### SI-21 — `hotkeys/windows_native.py:123-144` duplicated AB-35 comment + attribute block",
+    "id": "SI-21",
+    "title": "`hotkeys/windows_native.py:123-144` duplicated AB-35 comment + attribute block"
+  },
+  {
+    "ordinal": 272,
+    "line": 7626,
+    "raw": "### SI-22 — `volume_ducker.py` 845 LOC exceeds 800-line spaghetti threshold",
+    "id": "SI-22",
+    "title": "`volume_ducker.py` 845 LOC exceeds 800-line spaghetti threshold"
+  },
+  {
+    "ordinal": 273,
+    "line": 7636,
+    "raw": "### SI-23 — `config_sanitizer.py` fallback frozenset masks silent security degradation",
+    "id": "SI-23",
+    "title": "`config_sanitizer.py` fallback frozenset masks silent security degradation"
+  },
+  {
+    "ordinal": 274,
+    "line": 7646,
+    "raw": "### SI-24 — `clipboard/__init__.py` re-exported mutable globals create stale-binding trap",
+    "id": "SI-24",
+    "title": "`clipboard/__init__.py` re-exported mutable globals create stale-binding trap"
+  },
+  {
+    "ordinal": 275,
+    "line": 7656,
+    "raw": "### SI-25 — `state.rs` remains mixed-purpose: SidecarHandle + shutdown IPC machinery",
+    "id": "SI-25",
+    "title": "`state.rs` remains mixed-purpose: SidecarHandle + shutdown IPC machinery"
+  },
+  {
+    "ordinal": 276,
+    "line": 7666,
+    "raw": "### SI-26 — `migrate.rs` 1249 LOC monolith split deferred (extends AC-138)",
+    "id": "SI-26",
+    "title": "`migrate.rs` 1249 LOC monolith split deferred (extends AC-138)"
+  },
+  {
+    "ordinal": 277,
+    "line": 7676,
+    "raw": "### SI-27 — `hotkey-utils.ts` (734 LOC) is a 5-concern monolith",
+    "id": "SI-27",
+    "title": "`hotkey-utils.ts` (734 LOC) is a 5-concern monolith"
+  },
+  {
+    "ordinal": 278,
+    "line": 7686,
+    "raw": "### SI-28 — Ticket-ID-encoded test filenames violate C-STYLE-1",
+    "id": "SI-28",
+    "title": "Ticket-ID-encoded test filenames violate C-STYLE-1"
+  },
+  {
+    "ordinal": 279,
+    "line": 7696,
+    "raw": "### SI-29 — 25+ test files define local `_make_fake_*` helpers instead of using `tests/fixtures/`",
+    "id": "SI-29",
+    "title": "25+ test files define local `_make_fake_*` helpers instead of using `tests/fixtures/`"
+  },
+  {
+    "ordinal": 280,
+    "line": 7706,
+    "raw": "### SI-30 — `dictation_pipeline.py` 22 `contextlib.suppress(Exception)` sites in finally block",
+    "id": "SI-30",
+    "title": "`dictation_pipeline.py` 22 `contextlib.suppress(Exception)` sites in finally block"
+  },
+  {
+    "ordinal": 281,
+    "line": 7719,
+    "raw": "### XE-19-4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)",
+    "id": "XE-19",
+    "title": "4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)"
+  },
+  {
+    "ordinal": 282,
+    "line": 7723,
+    "raw": "### XE-19-4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)",
+    "id": "XE-19",
+    "title": "4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)"
+  },
+  {
+    "ordinal": 283,
+    "line": 7727,
+    "raw": "### XE-19-4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)",
+    "id": "XE-19",
+    "title": "4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)"
+  },
+  {
+    "ordinal": 284,
+    "line": 7731,
+    "raw": "### XE-19-4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)",
+    "id": "XE-19",
+    "title": "4 — Medium: prewarm.log handler uses plain RotatingFileHandler — no post-rotation chmod (FR-2 not extended to prewarm.log)"
+  },
+  {
+    "ordinal": 285,
+    "line": 7741,
+    "raw": "### XE-19-5 — Medium: _SecureRotatingFileHandler.doRollover chmod runs OUTSIDE the lock + silently suppresses OSError",
+    "id": "XE-19",
+    "title": "5 — Medium: _SecureRotatingFileHandler.doRollover chmod runs OUTSIDE the lock + silently suppresses OSError"
+  },
+  {
+    "ordinal": 286,
+    "line": 7751,
+    "raw": "### XE-19-6 — Medium: Windows rotation lock silently fails — msvcrt.locking failure suppressed, returns fd as if locked",
+    "id": "XE-19",
+    "title": "6 — Medium: Windows rotation lock silently fails — msvcrt.locking failure suppressed, returns fd as if locked"
+  },
+  {
+    "ordinal": 287,
+    "line": 7761,
+    "raw": "### XE-19-7 — Medium: Startup banner reports ROOT logger level (WARNING) instead of voice_typer logger level",
+    "id": "XE-19",
+    "title": "7 — Medium: Startup banner reports ROOT logger level (WARNING) instead of voice_typer logger level"
+  },
+  {
+    "ordinal": 288,
+    "line": 7771,
+    "raw": "### XE-20-1 — Medium: Rust + TS redact_pii both omit Python's generic 20+ char bare-token pattern and SEC-9 flag/key=value patterns",
+    "id": "XE-20",
+    "title": "1 — Medium: Rust + TS redact_pii both omit Python's generic 20+ char bare-token pattern and SEC-9 flag/key=value patterns"
+  },
+  {
+    "ordinal": 289,
+    "line": 7781,
+    "raw": "### XE-20-2 — Medium: TS redactPii missing gsk_ pattern; sk- charset too restrictive",
+    "id": "XE-20",
+    "title": "2 — Medium: TS redactPii missing gsk_ pattern; sk- charset too restrictive"
+  },
+  {
+    "ordinal": 290,
+    "line": 7791,
+    "raw": "### XE-20-3 — Medium: deleteElectronPersonalDataLogs omits electron-runtime.log and electron-lifecycle.log from GDPR erasure scope",
+    "id": "XE-20",
+    "title": "3 — Medium: deleteElectronPersonalDataLogs omits electron-runtime.log and electron-lifecycle.log from GDPR erasure scope"
+  },
+  {
+    "ordinal": 291,
+    "line": 7802,
+    "raw": "### UE-2 — `_teardown_sounddevice` ignores `wait()` return value → DE-54 PortAudio deadlock",
+    "id": "UE-2",
+    "title": "`_teardown_sounddevice` ignores `wait()` return value → DE-54 PortAudio deadlock"
+  },
+  {
+    "ordinal": 292,
+    "line": 7816,
+    "raw": "### UE-8 — `cleanup_and_trigger_respawn` does NOT drain pending → in-flight dispatches orphaned",
+    "id": "UE-8",
+    "title": "`cleanup_and_trigger_respawn` does NOT drain pending → in-flight dispatches orphaned"
+  },
+  {
+    "ordinal": 293,
+    "line": 7829,
+    "raw": "### UE-12 — Dead 1591-line `level_monitor.py` monolith shadowed by package (dead code + confusion)",
+    "id": "UE-12",
+    "title": "Dead 1591-line `level_monitor.py` monolith shadowed by package (dead code + confusion)"
+  },
+  {
+    "ordinal": 294,
+    "line": 7842,
+    "raw": "### UE-18 — `_handle_shutdown` spawns untracked cleanup thread; double-shutdown race",
+    "id": "UE-18",
+    "title": "`_handle_shutdown` spawns untracked cleanup thread; double-shutdown race"
+  },
+  {
+    "ordinal": 295,
+    "line": 7855,
+    "raw": "### UE-20 — Dead `theme-utils.ts` (368 LOC) + divergent `formatBytes` triplication",
+    "id": "UE-20",
+    "title": "Dead `theme-utils.ts` (368 LOC) + divergent `formatBytes` triplication"
+  },
+  {
+    "ordinal": 296,
+    "line": 7871,
+    "raw": "### UE-26 — Protocol-version negotiation exists only on WS path; never bumped despite registry churn",
+    "id": "UE-26",
+    "title": "Protocol-version negotiation exists only on WS path; never bumped despite registry churn"
+  },
+  {
+    "ordinal": 297,
+    "line": 7886,
+    "raw": "### UE-27 — Dead `open_host_logs` Rust command + dead `deleteElectronPersonalDataLogs` forward-declaration",
+    "id": "UE-27",
+    "title": "Dead `open_host_logs` Rust command + dead `deleteElectronPersonalDataLogs` forward-declaration"
+  },
+  {
+    "ordinal": 298,
+    "line": 7902,
+    "raw": "### UE-30 — `ws.rs` 1454-line monolith mixes 8+ concerns (spaghetti)",
+    "id": "UE-30",
+    "title": "`ws.rs` 1454-line monolith mixes 8+ concerns (spaghetti)"
+  },
+  {
+    "ordinal": 299,
+    "line": 7915,
+    "raw": "### UE-31 — `logging.rs` 2161-line monolith mixing 6 concerns (spaghetti) — GROUP 5 mandatory",
+    "id": "UE-31",
+    "title": "`logging.rs` 2161-line monolith mixing 6 concerns (spaghetti) — GROUP 5 mandatory"
+  },
+  {
+    "ordinal": 300,
+    "line": 7928,
+    "raw": "### UE-32 — `ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)",
+    "id": "UE-32",
+    "title": "`ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)"
+  },
+  {
+    "ordinal": 301,
+    "line": 7941,
+    "raw": "### UE-33 — `config.py` Config dataclass 2078-LOC residual monolith (spaghetti)",
+    "id": "UE-33",
+    "title": "`config.py` Config dataclass 2078-LOC residual monolith (spaghetti)"
+  },
+  {
+    "ordinal": 302,
+    "line": 7954,
+    "raw": "### UE-42 — Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)",
+    "id": "UE-42",
+    "title": "Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)"
+  },
+  {
+    "ordinal": 303,
+    "line": 7972,
+    "raw": "### UE-47 — Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)",
+    "id": "UE-47",
+    "title": "Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)"
+  },
+  {
+    "ordinal": 304,
+    "line": 7986,
+    "raw": "### UE-50 — `legacy_code` field emitted in every IPC error response, never consumed by frontend",
+    "id": "UE-50",
+    "title": "`legacy_code` field emitted in every IPC error response, never consumed by frontend"
+  },
+  {
+    "ordinal": 305,
+    "line": 7998,
+    "raw": "### TX-5 — Pyrefly baseline stale: 153 → 220 errors (+67), CI audit will fail on next PR",
+    "id": "TX-5",
+    "title": "Pyrefly baseline stale: 153 → 220 errors (+67), CI audit will fail on next PR"
+  },
+  {
+    "ordinal": 306,
+    "line": 8011,
+    "raw": "### TX-25 — `svenstaro/upload-release-action@v2` (Node 16) at 4 sites — C-CI-1 concern",
+    "id": "TX-25",
+    "title": "`svenstaro/upload-release-action@v2` (Node 16) at 4 sites — C-CI-1 concern"
+  },
+  {
+    "ordinal": 307,
+    "line": 8022,
+    "raw": "### TX-26 — `_make_fake_server` duplicated 6× with drift (DRY)",
+    "id": "TX-26",
+    "title": "`_make_fake_server` duplicated 6× with drift (DRY)"
+  },
+  {
+    "ordinal": 308,
+    "line": 8038,
+    "raw": "### TX-27 — `tmp_config_dir` fixture shadowed 5× (incomplete project-wide fixture)",
+    "id": "TX-27",
+    "title": "`tmp_config_dir` fixture shadowed 5× (incomplete project-wide fixture)"
+  },
+  {
+    "ordinal": 309,
+    "line": 8050,
+    "raw": "### TX-28 — 21 resource-allocating fixtures without `yield` (leak risk)",
+    "id": "TX-28",
+    "title": "21 resource-allocating fixtures without `yield` (leak risk)"
+  },
+  {
+    "ordinal": 310,
+    "line": 8063,
+    "raw": "### TX-29 — Lockfile drift: psutil 6.1.1 (lockfile) vs 7.2.2 (venv) — major version drift",
+    "id": "TX-29",
+    "title": "Lockfile drift: psutil 6.1.1 (lockfile) vs 7.2.2 (venv) — major version drift"
+  },
+  {
+    "ordinal": 311,
+    "line": 8076,
+    "raw": "### TX-38 — `noUncheckedIndexedAccess` not enabled (204 errors if enabled)",
+    "id": "TX-38",
+    "title": "`noUncheckedIndexedAccess` not enabled (204 errors if enabled)"
+  },
+  {
+    "ordinal": 312,
+    "line": 8087,
+    "raw": "### TX-39 — macOS workflow entirely `if: false` (603 lines untested)",
+    "id": "TX-39",
+    "title": "macOS workflow entirely `if: false` (603 lines untested)"
+  },
+  {
+    "ordinal": 313,
+    "line": 8098,
+    "raw": "### TX-40 — S2-CR-66 Windows hardcodes x86_64 (no Windows-on-ARM build)",
+    "id": "TX-40",
+    "title": "S2-CR-66 Windows hardcodes x86_64 (no Windows-on-ARM build)"
+  },
+  {
+    "ordinal": 314,
+    "line": 8109,
+    "raw": "### TX-41 — Pre-commit/CI ruff version skew",
+    "id": "TX-41",
+    "title": "Pre-commit/CI ruff version skew"
+  },
+  {
+    "ordinal": 315,
+    "line": 8122,
+    "raw": "### TX-42 — Test scope mismatch for F-rule gate",
+    "id": "TX-42",
+    "title": "Test scope mismatch for F-rule gate"
+  },
+  {
+    "ordinal": 316,
+    "line": 8133,
+    "raw": "### TX-43 — Hallucination log redaction runs BEFORE truncation (1 test fails)",
+    "id": "TX-43",
+    "title": "Hallucination log redaction runs BEFORE truncation (1 test fails)"
+  },
+  {
+    "ordinal": 317,
+    "line": 8145,
+    "raw": "### TX-44 — 6 client tests use real-setTimeout instead of fake timers (flaky)",
+    "id": "TX-44",
+    "title": "6 client tests use real-setTimeout instead of fake timers (flaky)"
+  },
+  {
+    "ordinal": 318,
+    "line": 8160,
+    "raw": "### TX-45 — Config default-value change needs triage (model_idle_unload_minutes 0→30)",
+    "id": "TX-45",
+    "title": "Config default-value change needs triage (model_idle_unload_minutes 0→30)"
+  },
+  {
+    "ordinal": 319,
+    "line": 8172,
+    "raw": "### TX-46 — App does not start at login on Windows (autostart broken on user machine)",
+    "id": "TX-46",
+    "title": "App does not start at login on Windows (autostart broken on user machine)"
+  }
+]

@@ -8,7 +8,14 @@ changes that pass CI and respect the security model.
 
 > **TL;DR** — install [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
 > then `uv venv && uv pip install -e ".[test,dev]"`, `cd voice_typer/client && npm install`,
-> `pre-commit install`, then `pytest tests/ -v` and `npm run test`.
+> then `pytest tests/ -v` and `npm run test`.
+>
+> (`npm install` in `voice_typer/client/` auto-installs the husky git
+> hooks via the `prepare` script — see §4.3. Do NOT run
+> `pre-commit install`; it writes to `.git/hooks/`, which git ignores
+> because husky sets `core.hooksPath = .husky/_/`. The pre-commit
+> framework is invoked via `pre-commit run` from inside husky's
+> `.husky/pre-commit` wrapper, not via its own git hook.)
 >
 > (`uv` is 10-100x faster than pip for cold installs and is the preferred
 > dev-environment setup. Plain `pip install -e ".[test,dev]"` still works —
@@ -214,41 +221,90 @@ section before touching deps than to read a JSON string field.
 
 ### Pre-commit hooks
 
-The project ships TWO complementary hook systems — they do NOT conflict:
+The project uses husky as the SOLE installer of git hooks. Husky is
+auto-installed by `npm install` in `voice_typer/client/` (via the
+`prepare: cd ../.. && husky` script in `package.json`), which sets
+`core.hooksPath = .husky/_` and installs husky's wrappers for every
+file in `.husky/`. There are currently two husky-managed hooks:
 
-1. **Husky** (`.husky/pre-commit`, auto-installed via `npm install` in
-   `voice_typer/client/`) runs `ruff --fix` + `ruff format` on staged
-   Python files, then `lint-staged` (Biome check) on staged client
-   files, then — if `pre-commit` is on PATH — defers to the
-   `pre-commit` framework for the remaining hooks (mypy, sanity
-   checks). The `command -v pre-commit` guard means contributors who
-   haven't installed the `pre-commit` framework are silently skipped
-   (no hard failure).
-2. **pre-commit framework** (`.pre-commit-config.yaml`, install
-   separately via `pip install pre-commit && pre-commit install`)
-   provides mypy, trailing-whitespace, end-of-file-fixer, check-yaml,
-   check-json, check-merge-conflict, check-added-large-files,
-   mixed-line-ending, biome-check, client-typecheck, check-branding,
-   and hotkey-reserved-sync.
+1. **`.husky/pre-commit`** — runs `lint-staged` (Biome `check --write`
+   on staged client `.ts/.tsx/.js/.jsx/.json/.css` files, then
+   re-stages the fixes), then — if `pre-commit` is on PATH — defers
+   to `pre-commit run --hook-stage commit --files <staged>` for the
+   full hook suite declared in `.pre-commit-config.yaml`. The
+   `command -v pre-commit` guard means contributors who haven't
+   installed the `pre-commit` framework are silently skipped (no hard
+   failure — the lint-staged biome gate still runs).
+2. **`.husky/pre-push`** — runs `npm run typecheck` (cached, ~5s on a
+   warm tree) and the fast pytest subset (`-k 'not slow and not
+   integration' -m 'not slow' --timeout=30`, ~2-3 min). See §7.2.1
+   for skip hooks in an emergency.
 
-XS-34 (prior conflict): both systems previously wrote
-`.git/hooks/pre-commit` and whichever install ran LAST won. The fix:
-husky's pre-commit script now INVOKES `pre-commit run` (when
-available) as its final step, so both mechanisms run together —
-no install-order dependency.
+The pre-commit framework (`.pre-commit-config.yaml`) provides the
+non-lint-staged hooks: ruff (lint + format), mypy (server-only, at
+the pre-push stage), `pre-commit-hooks` (trailing whitespace,
+end-of-file fixer, YAML/JSON validation, merge-conflict markers,
+large-file cap at 500 KB, LF line endings), plus local hooks that
+shell out to `npx biome check` and `npm run typecheck` for the client.
 
-XS-35 (pre-push performance): `mypy` is moved to `stages: [pre-push]`
-in `.pre-commit-config.yaml` so the 2GB torch install only happens on
-explicit `pre-commit run mypy` invocation, not on every commit.
-`.husky/pre-push` uses `npm run typecheck` (cached, ~5s) instead of
-`typecheck:ci` (cache-busting `tsc -b --force`), and scopes pytest to
-`-k 'not slow and not integration' -m 'not slow' --timeout=30` so the
-typical pre-push runs in 2-3 min instead of 10-15.
+#### Why husky is the sole installer (XS-34)
+
+Prior to this fix, CONTRIBUTING.md told contributors to run both
+`npm install` (which triggers husky via `prepare`) AND `pre-commit
+install` (the pre-commit framework's own installer). Both commands
+write to the git hooks directory, and the entry observed that
+"whichever install ran LAST won" — leading to divergent behavior
+depending on install order.
+
+The structural fix is husky v9's `core.hooksPath = .husky/_/`
+mechanism: git looks for hooks ONLY in `.husky/_/`, never in
+`.git/hooks/`. So `pre-commit install` (which writes to
+`.git/hooks/`) is a no-op when husky is active — its hook file is
+never invoked by git. The pre-commit framework is still used, but
+via `pre-commit run` (called from husky's `.husky/pre-commit`
+wrapper), NOT via its own git hook.
+
+**Do NOT run `pre-commit install`.** It is harmless (its output file
+is ignored) but misleading — contributors who run it expecting
+"install the hooks" get no effect. The correct install command is
+just `npm install` in `voice_typer/client/`.
+
+If a contributor previously ran `pre-commit install` and then
+`core.hooksPath` got unset (e.g., by a manual `git config --unset
+core.hooksPath`), restore husky with `cd voice_typer/client && npm
+run prepare` (which re-runs `husky` and re-sets `core.hooksPath`).
+
+#### Why mypy no longer reinstalls torch (XS-35)
+
+The mypy hook was previously a `mirrors-mypy` repo entry with
+`additional_dependencies: [numpy, torch, transformers, pydantic,
+sounddevice, pystray]`. Pre-commit framework spun up an isolated
+venv for mypy and installed those deps on first invocation —
+torch alone is ~2GB and 5-10 min to install. This made
+`pre-commit run mypy` unusable; developers universally
+`--no-verify`'d past it.
+
+The fix: mypy is now a LOCAL hook with `language: system` and
+`entry: python -m mypy`. It reuses the project venv (which already
+has numpy, torch, transformers, pydantic, sounddevice, pystray
+installed via `uv pip install -e ".[test,dev]"`). No torch
+reinstall, no isolated venv, ~5s cold. mypy stays at
+`stages: [pre-push]` so it does NOT run on every commit.
+
+The contributor must activate the project venv before running
+`pre-commit run mypy` — same convention as the `check-branding`
+local hook (which also uses bare `python`).
 
 ```bash
-pre-commit install        # runs ruff, mypy (pre-push stage), biome, sanity
-pre-commit install --hook-type commit-msg   # if you wire commit-msg checks
-pre-commit run --all-files   # run the whole suite manually
+# Correct install (auto-runs husky):
+cd voice_typer/client && npm install
+
+# Run the full hook suite manually (no install needed):
+pre-commit run --all-files
+
+# Run a single hook manually:
+pre-commit run ruff --all-files
+pre-commit run mypy --all-files   # requires project venv activated
 ```
 
 ### Tauri Development (migration in progress)
@@ -434,21 +490,43 @@ npm run build          # electron-vite build (full production bundle)
 
 ### 4.3 Pre-commit
 
+Git hooks are auto-installed by `npm install` in `voice_typer/client/`
+(via the `prepare: cd ../.. && husky` script). Husky v9 sets
+`core.hooksPath = .husky/_/` so git looks for hooks ONLY in
+`.husky/_/`, never in `.git/hooks/`. See the **Pre-commit hooks**
+section earlier in this doc for the full architecture and the
+XS-34 / XS-35 rationale.
+
 ```bash
-pre-commit install                 # wire the hooks into .git/hooks/pre-commit
-pre-commit run --all-files         # run every hook against the whole tree
-pre-commit run ruff --all-files    # run a single hook
+# Hooks are auto-installed by `npm install` — no manual step.
+# To re-install after a hooksPath reset:
+cd voice_typer/client && npm run prepare
+
+# Run the full hook suite manually (no install needed — pre-commit
+# run reads .pre-commit-config.yaml directly):
+pre-commit run --all-files
+
+# Run a single hook manually:
+pre-commit run ruff --all-files
+pre-commit run mypy --all-files   # requires the project venv activated
 ```
 
+**Do NOT run `pre-commit install`.** It writes to `.git/hooks/`,
+which git ignores because husky sets `core.hooksPath = .husky/_/`.
+Running it is harmless (its hook file is never invoked) but
+misleading. The correct install command is just `npm install` in
+`voice_typer/client/`.
+
 Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
-(server-only — runs from the project venv with pyrefly-relevant
-``additional_dependencies`` so it can resolve numpy/torch/etc.; does
-NOT pass ``--ignore-missing-imports`` or ``--no-strict-optional`` so
-contributors' `pre-commit run mypy` matches CI's strict mypy
-configuration; see ``.pre-commit-config.yaml`` for the resolved
-`additional_dependencies` list), `pre-commit-hooks` (trailing whitespace,
+(server-only, `stages: [pre-push]` — runs from the project venv via
+`python -m mypy` so it reuses the deps already installed by
+`uv pip install -e ".[test,dev]"` instead of reinstalling torch in
+an isolated venv; does NOT pass `--ignore-missing-imports` or
+`--no-strict-optional` so contributors' `pre-commit run mypy` matches
+CI's strict mypy configuration — mypy reads `[tool.mypy]` in
+`pyproject.toml` directly), `pre-commit-hooks` (trailing whitespace,
 end-of-file fixer, YAML/JSON validation, merge-conflict markers,
-large-file cap at 500 KB, LF line endings), plus two local hooks that
+large-file cap at 500 KB, LF line endings), plus local hooks that
 shell out to `npx biome check` and `npm run typecheck` for the client.
 
 ### 4.4 Benchmarks

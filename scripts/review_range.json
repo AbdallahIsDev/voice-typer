@@ -1,0 +1,162 @@
+[
+  {
+    "ordinal": 300,
+    "line_start": 7928,
+    "line_end": 7940,
+    "id": "UE-32",
+    "title": "`ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)",
+    "raw_block": "### UE-32 — `ipc_server.py` 2112-line monolith + registry-as-changelog antipattern (spaghetti)\n**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)\n**Description:** `ipc_server.py` is 2112 lines mixing 8+ concerns: lifecycle, transport, push-event registration, tray hook, command registry literal (190 LOC interleaved with ~30 \"X was REMOVED\" comments), dispatcher, builtin handlers, rate-limiter re-export shim, process metadata, argparse, `main()`. The 190-line registry literal is a registry-as-changelog antipattern.\n**User Impact:** A maintainer scanning the file cannot locate \"where is command X dispatched?\" without scrolling past 600 lines of comments. High comment density masks live code changes during review.\n**Root Cause:** 17-mixin decomposition extracted handlers but `IPCServer` itself + registry literal remained.\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/server/ipc_server.py`\n**Fix:** Extract `_COMMAND_REGISTRY` + `_READONLY_COMMANDS` + `_PYTHON_ONLY_COMMANDS` to `ipc/registry.py` (module-level dict). Move the 30 \"REMOVED\" comments to `CHANGELOG.md` or the existing `tests/test_dead_code_stays_removed.py` regression guard. Leave the `IPCServer` class body for a future deeper split (the mixins ARE extracted). Coordinate with UE-13/UE-18 (same file).\n**Severity:** 🟡 Medium\n\n---"
+  },
+  {
+    "ordinal": 301,
+    "line_start": 7941,
+    "line_end": 7953,
+    "id": "UE-33",
+    "title": "`config.py` Config dataclass 2078-LOC residual monolith (spaghetti)",
+    "raw_block": "### UE-33 — `config.py` Config dataclass 2078-LOC residual monolith (spaghetti)\n**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)\n**Description:** Despite the `config_internals/` split (811 LOC) and `config_validators.py` extraction (1735 LOC), the `Config` dataclass itself spans ~2078 LOC mixing 7 concerns: field declarations + defaults, `__post_init__` + mutation-lock plumbing, save/atomic-write/credential-routing, load orchestrator + `_filter_unknown_keys`, migration backups + downgrade, field coercion (6 `_coerce_*`/`_validate_*_path` helpers), non-numeric field sanitization (`_warn_and_reset`/`_warn_and_coerce`/`_validate_non_numeric_fields` — a single 340-LOC method).\n**User Impact:** 2555-LOC file is hard to navigate; the 340-LOC `_validate_non_numeric_fields` is a maintenance hazard.\n**Root Cause:** Decomposition extracted free-function helpers but the dataclass methods remained.\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/server/config.py`\n**Fix:** Extract `config/coercion.py` (the 6 `_coerce_*`/`_validate_*_path` helpers — pure dict transforms) and `config/sanitization.py` (`_warn_and_reset`/`_warn_and_coerce`/`_validate_non_numeric_fields`/`_derive_field_type_registry`). `Config` shrinks to ~600 LOC. No behavior change — same public API, same tests passing.\n**Severity:** 🟡 Medium\n\n---"
+  },
+  {
+    "ordinal": 302,
+    "line_start": 7954,
+    "line_end": 7971,
+    "id": "UE-42",
+    "title": "Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)",
+    "raw_block": "### UE-42 — Stale `as never` casts + duplicated `__TAURI__` casts + `csvEscape` divergence (TS/Rust parity)\n**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)\n**Description:** (a) `python-namespace.ts:111,178` uses `code: \"internal_error\" as never` — `ErrorCodes` already includes `\"internal_error\"`; the cast is stale and lies to the type system. (b) `detect.ts:79,89` + `usePython.ts:257` each re-declare `window as unknown as { __TAURI__?: ... }` — 3 duplicated casts; the `__TAURI__` global augmentation is NOT in `bubble_bridge.ts`'s `declare global` block. (c) `export-handlers.ts:70` (TS `csvEscape`) ↔ `export.rs:222` (Rust `csv_escape`) diverge: TS always wraps in double-quotes; Rust only wraps when the cell contains special chars. The Rust docstring says \"Mirrors the Electron-side `csvEscape`\" but the line reference is stale and the claim is wrong.\n**User Impact:** (a) Future `ErrorCodes` narrowing silently defeated. (b) Three sites need updating if `__TAURI__` shape evolves. (c) Same CSV exported via Electron vs Tauri produces different byte output.\n**Root Cause:** Stale casts never cleaned up; CSV parity never enforced.\n**Description:** `migrate.rs` (1203 LOC = 838 prod + 365 tests) mixes 6+ concerns: per-platform path resolution, migration orchestration, sentinel idempotency marker, JSON merge, atomic copy (small-file vs streaming), SQLite WAL/SHM path builder, backup, recursive copy. The `atomic_copy`/`atomic_copy_file` helpers stayed here instead of being promoted to `util.rs` alongside `atomic_write_bytes` (PVT-G5-033). Separately: `pub(crate) use crate::util::atomic_write_bytes;` re-export at line 562 is stale (supervisor.rs already imports from `crate::util` directly). Separately: `pub fn migrate_electron_userdata`, `pub fn create_tray`, `pub const APP_NAME` are over-exposed (`pub` on a binary crate).\n**User Impact:** 1203-LOC file hard to navigate; dead re-export invites divergence; `pub` on a binary crate suggests an external API that doesn't exist.\n**Root Cause:** Never decomposed; re-export and visibility never cleaned up after migrations.\n**Progress:** None yet.\n**Related Files:**\n- `src-tauri/src/migrate.rs`\n- `src-tauri/src/tray.rs`\n- `src-tauri/src/branding.rs`\n**Fix:** (1) Delete the stale `atomic_write_bytes` re-export at migrate.rs:562. (2) Demote `pub fn migrate_electron_userdata`/`pub fn create_tray`/`pub const APP_NAME` to `pub(crate)`. (3) Defer the full `migrate/{mod,candidates,merge,copy,sentinel}.rs` split if time-boxed — the dead-re-export and visibility fixes are the high-value low-risk part.\n**Severity:** 🟢 Low\n\n---"
+  },
+  {
+    "ordinal": 303,
+    "line_start": 7972,
+    "line_end": 7985,
+    "id": "UE-47",
+    "title": "Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)",
+    "raw_block": "### UE-47 — Empty ASR output treated as \"no speech\" → masks misconfiguration/unloaded-backend (observability)\n**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)\n**Description:** `dictation_stages.EmptyCheckStage` treats empty `\"\"` as \"no speech\" via `_handle_empty_transcription`. But empty output has three distinct causes: (1) genuine silence, (2) `asr_registry.get_active()` returned an UNLOADED backend — `transcribe_with_fallback` on an unloaded Whisper/Parakeet/Qwen typically returns `\"\"` without raising, (3) cloud provider returned 200 with empty body (consent-revoked tokens). The pipeline never raises — always returns to IDLE. The user sees the same \"No speech detected\" toast regardless of cause. Separately, `_handle_empty_transcription` silently suppresses ALL user feedback for short (<15s) near-silent recordings — the user sees nothing.\n**User Impact:** A user whose model failed to load sees \"No speech detected\" — same as a user who said nothing. No diagnostic difference except one WARNING log line. The user cannot tell \"my mic is broken\" from \"the model didn't load\" from \"I was silent.\"\n**Root Cause:** Three failure modes collapsed into one silent path.\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/server/dictation_pipeline.py`\n- `voice_typer/server/dictation_stages.py`\n**Fix:** The registry should expose a per-backend \"busy\" flag (set when `transcribe_with_fallback` is entered, cleared on exit); `ensure_active_engine_loaded`/`_start_dictation` should reject or queue the new request when the active backend is busy. As defense-in-depth, the watchdog's force-recover path should call `backend.unload()` after a 2nd force-recovery to actually tear down the stuck model. (Coordinate with UE-11 — model_manager.py is shared.)\n**Severity:** 🟡 Medium\n\n---"
+  },
+  {
+    "ordinal": 304,
+    "line_start": 7986,
+    "line_end": 7997,
+    "id": "UE-50",
+    "title": "`legacy_code` field emitted in every IPC error response, never consumed by frontend",
+    "raw_block": "### UE-50 — `legacy_code` field emitted in every IPC error response, never consumed by frontend\n**Status:** ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)\n**Description:** `ipc/validation.py:415,454,499,517,539` + `ipc/transport_tcp.py:506,548` emit a `legacy_code` field in every error response. Comment at validation.py:409: \"Drop `legacy_code` once the renderer migrates.\" Verified `rg \"legacy_code\" voice_typer/client/src/` → ZERO frontend references. The renderer has migrated to the namespaced `code` form. The `legacy_code` field is stale tech-debt adding bytes to every error response and ~15 lines of duplication.\n**User Impact:** Minor bandwidth/perf; maintenance burden.\n**Root Cause:** Migration completed but the legacy field never removed.\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/server/ipc/validation.py`\n- `voice_typer/server/ipc/transport_tcp.py`\n**Fix:** Remove the `legacy_code` field from all emission sites (~10 sites). Update any tests that assert on `legacy_code`.\n**Severity:** 🟢 Low"
+  },
+  {
+    "ordinal": 305,
+    "line_start": 7998,
+    "line_end": 8010,
+    "id": "TX-5",
+    "title": "Pyrefly baseline stale: 153 → 220 errors (+67), CI audit will fail on next PR",
+    "raw_block": "### TX-5 — Pyrefly baseline stale: 153 → 220 errors (+67), CI audit will fail on next PR\n**Status:** ❌ Not Fixed (verified 2026-08-01 — baseline still has 153 errors, NOT regenerated to 220; pyrefly not installed in this env to verify live count, but the baseline file was NOT updated to reflect the +67 error drift)\n**Description:** `pyrefly-baseline.json` (committed 2026-07-27) captures 153 errors. Live `pyrefly check voice_typer/` today reports 220 errors (+67). The CI ratchet gate FAILS when live > baseline. Among the 220: 9 `not-callable` (real bugs in audio_filters — `lfilter = None` fallback), 8 `unbound-name` (real uninitialized-variable bugs), 3 `bad-return` (real type mismatches).\n**User Impact:** Any PR landing today fails the pyrefly audit step. The 20 real type bugs are latent runtime issues.\n**Root Cause:** 4 days of code refactoring shifted line numbers, leaving 138 of 146 baseline entries stale. New errors introduced by refactored code.\n**Progress:** None yet.\n**Related Files:**\n- `pyrefly-baseline.json`\n- `voice_typer/server/audio_filters/*.py` (9 not-callable errors)\n- `voice_typer/server/equalizer.py`, `clipboard/manager.py`, `dictation_pipeline.py`, `electron_launcher.py`, `hotkeys/native_adapter.py`, `sidecar_ws.py` (8 unbound-name errors)\n**Fix:** (1) Regenerate the baseline against HEAD (legitimate reconciliation after refactoring). (2) Fix the 20 real type bugs to shrink the floor.\n**Severity:** 🔴 High"
+  },
+  {
+    "ordinal": 306,
+    "line_start": 8011,
+    "line_end": 8021,
+    "id": "TX-25",
+    "title": "`svenstaro/upload-release-action@v2` (Node 16) at 4 sites — C-CI-1 concern",
+    "raw_block": "### TX-25 — `svenstaro/upload-release-action@v2` (Node 16) at 4 sites — C-CI-1 concern\n**Status:** ✅ Fixed (verified on Linux sandbox — svenstaro/upload-release-action@v2→@v3 at 4 sites)\n**Description:** `build.yml` lines 1068, 1078, 1250, 1426 use `svenstaro/upload-release-action@v2` (Node 16, deprecated 2023). Current major is `@v3` (Node 24). Not in the file's header list.\n**User Impact:** Deprecated Node 16 runtime in 4 release-upload steps.\n**Root Cause:** Action version not bumped.\n**Progress:** None yet.\n**Related Files:**\n- `.github/workflows/build.yml`\n**Fix:** Bump all 4 to `@v3` (or migrate to `softprops/action-gh-release@v2`).\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 307,
+    "line_start": 8022,
+    "line_end": 8037,
+    "id": "TX-26",
+    "title": "`_make_fake_server` duplicated 6× with drift (DRY)",
+    "raw_block": "### TX-26 — `_make_fake_server` duplicated 6× with drift (DRY)\n**Status:** ❌ Not Fixed\n**Description:** `_make_fake_server` duplicated 6× — 3 copies lack the `_ws_dispatch_pool = None` fix. Stale copies would re-introduce the RT-FIX-9/EC-FIX-3 bug.\n**User Impact:** Latent bug — stale copies mask the WS dispatch pool fix.\n**Root Cause:** DRY violation.\n**Progress:** None yet.\n**Related Files:**\n- `tests/tauri/mig15/test_ws_hmac_windows.py`\n- `tests/tauri/mig16/test_ws_hmac_macos.py`\n- `tests/tauri/mig17/test_ws_hmac_linux.py`\n- `tests/tauri/test_sidecar_ws_unit.py`\n- `tests/test_ipc5_error_envelope_parity.py`\n- `tests/test_sidecar_ws_thread_safety.py`\n**Fix:** Promote to `tests/fixtures/sidecar_ws_test_helpers.py`; delete 5 inline copies.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 308,
+    "line_start": 8038,
+    "line_end": 8049,
+    "id": "TX-27",
+    "title": "`tmp_config_dir` fixture shadowed 5× (incomplete project-wide fixture)",
+    "raw_block": "### TX-27 — `tmp_config_dir` fixture shadowed 5× (incomplete project-wide fixture)\n**Status:** ❌ Not Fixed\n**Description:** Project-wide `tmp_config_dir` patches `config._config_dir` but NOT `app._config_dir`. 5 test files shadow it locally. Tests using the project-wide fixture AND exercising `app._config_dir` paths silently write to real `~/.local/share/voice-typer/`.\n**User Impact:** Tests may write to real config dir — pollution / data loss risk.\n**Root Cause:** Project-wide fixture incomplete.\n**Progress:** None yet.\n**Related Files:**\n- `tests/conftest.py`\n- `tests/test_app_restart.py`, `tests/test_app_cleanup.py`, `tests/test_shutdown_controller.py`, `tests/test_shutdown_posix_release.py`, `tests/test_shutdown_controller_de.py`\n**Fix:** Add `app._config_dir` patch to project-wide fixture; delete 5 local shadows.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 309,
+    "line_start": 8050,
+    "line_end": 8062,
+    "id": "TX-28",
+    "title": "21 resource-allocating fixtures without `yield` (leak risk)",
+    "raw_block": "### TX-28 — 21 resource-allocating fixtures without `yield` (leak risk)\n**Status:** ❌ Not Fixed\n**Description:** 21 fixtures construct objects holding threads/DB/file locks but lack `yield` (no teardown). 5 `VoiceTyperApp` fixtures leak `_model_load_thread` (WR-2 fixed this for `tests/app/conftest.py` but not inline copies).\n**User Impact:** Thread/resource leaks across test boundaries — flakiness.\n**Root Cause:** Convention not enforced.\n**Progress:** None yet.\n**Related Files:**\n- `tests/test_app_restart.py`, `tests/test_app_cleanup.py`, `tests/test_shutdown_controller.py`, `tests/test_shutdown_posix_release.py`, `tests/test_shutdown_controller_de.py`\n- `tests/test_heartbeat_force_exit.py`\n- `tests/test_volume_ducker.py`\n**Fix:** Add `yield instance` + cleanup to each.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 310,
+    "line_start": 8063,
+    "line_end": 8075,
+    "id": "TX-29",
+    "title": "Lockfile drift: psutil 6.1.1 (lockfile) vs 7.2.2 (venv) — major version drift",
+    "raw_block": "### TX-29 — Lockfile drift: psutil 6.1.1 (lockfile) vs 7.2.2 (venv) — major version drift\n**Status:** ❌ Not Fixed\n**Description:** `requirements-lock.txt` pins `psutil==6.1.1` but live venv has `7.2.2`. Lockfile NOT consumed by CI. Documented `pip install --require-hashes` path would run 6.x while CI runs 7.x.\n**User Impact:** Reproducibility guarantee silently broken.\n**Root Cause:** Lockfile not regenerated; not enforced.\n**Progress:** None yet.\n**Related Files:**\n- `requirements-lock.txt`\n- `pyproject.toml`\n**Fix:** Wire lockfile into CI, or add version-sync assertion, or regenerate.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 311,
+    "line_start": 8076,
+    "line_end": 8086,
+    "id": "TX-38",
+    "title": "`noUncheckedIndexedAccess` not enabled (204 errors if enabled)",
+    "raw_block": "### TX-38 — `noUncheckedIndexedAccess` not enabled (204 errors if enabled)\n**Status:** ❌ Not Fixed\n**Description:** `strict: true` is on but `noUncheckedIndexedAccess` is NOT. Probing produces 204 errors. Highest-value strictness flag still off.\n**User Impact:** Real null-deref bugs in indexed access go undetected.\n**Root Cause:** Not enabled (requires refactor pass).\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/client/tsconfig.base.json`\n**Fix:** Enable and fix 204 errors. Recommendation only.\n**Severity:** 🟢 Low"
+  },
+  {
+    "ordinal": 312,
+    "line_start": 8087,
+    "line_end": 8097,
+    "id": "TX-39",
+    "title": "macOS workflow entirely `if: false` (603 lines untested)",
+    "raw_block": "### TX-39 — macOS workflow entirely `if: false` (603 lines untested)\n**Status:** ❌ Not Fixed\n**Description:** All 3 macOS jobs `if: false` (Phase 0-M gate). 603 lines of signing/notarization logic NEVER executed in CI.\n**User Impact:** macOS release path completely untested.\n**Root Cause:** Intentional Phase 0 gate — logic untested.\n**Progress:** None yet.\n**Related Files:**\n- `.github/workflows/tauri-macos-build.yml`\n**Fix:** Run one-off manual `workflow_dispatch` with `if: true` before release. Cannot fully fix without macOS host.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 313,
+    "line_start": 8098,
+    "line_end": 8108,
+    "id": "TX-40",
+    "title": "S2-CR-66 Windows hardcodes x86_64 (no Windows-on-ARM build)",
+    "raw_block": "### TX-40 — S2-CR-66 Windows hardcodes x86_64 (no Windows-on-ARM build)\n**Status:** ❌ Not Fixed\n**Description:** `tauri-windows-build.yml:105-106` hardcodes `x86_64-pc-windows-msvc`. No aarch64 matrix. Windows-on-ARM users have no release path.\n**User Impact:** Windows-on-ARM users cannot use Voice Typer.\n**Root Cause:** No aarch64 Windows build.\n**Progress:** None yet.\n**Related Files:**\n- `.github/workflows/tauri-windows-build.yml`\n**Fix:** Add aarch64 to matrix. Cannot fully validate without Windows-on-ARM host.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 314,
+    "line_start": 8109,
+    "line_end": 8121,
+    "id": "TX-41",
+    "title": "Pre-commit/CI ruff version skew",
+    "raw_block": "### TX-41 — Pre-commit/CI ruff version skew\n**Status:** ❌ Not Fixed\n**Description:** Pre-commit pins `ruff v0.16.0`. CI installs unpinned (0.16.1). `pyproject.toml` allows `>=0.6`. Contributor's pre-commit could PASS while CI FAILS.\n**User Impact:** Silent local-pass/CI-fail divergence.\n**Root Cause:** Pin not aligned.\n**Progress:** None yet.\n**Related Files:**\n- `.pre-commit-config.yaml`\n- `.github/workflows/build.yml`\n- `pyproject.toml`\n**Fix:** Pin `ruff==0.16.0` (or `>=0.16,<0.17`) in both CI and pyproject.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 315,
+    "line_start": 8122,
+    "line_end": 8132,
+    "id": "TX-42",
+    "title": "Test scope mismatch for F-rule gate",
+    "raw_block": "### TX-42 — Test scope mismatch for F-rule gate\n**Status:** ❌ Not Fixed\n**Description:** `tests/test_ruff_ratchet.py:468-487` runs `ruff check voice_typer/server/` but CI runs full scope. Test could pass locally while CI fails.\n**User Impact:** Latent gap.\n**Root Cause:** Test scope narrower than CI.\n**Progress:** None yet.\n**Related Files:**\n- `tests/test_ruff_ratchet.py`\n**Fix:** Update test scope to match CI.\n**Severity:** 🟢 Low"
+  },
+  {
+    "ordinal": 316,
+    "line_start": 8133,
+    "line_end": 8144,
+    "id": "TX-43",
+    "title": "Hallucination log redaction runs BEFORE truncation (1 test fails)",
+    "raw_block": "### TX-43 — Hallucination log redaction runs BEFORE truncation (1 test fails)\n**Status:** ❌ Not Fixed\n**Description:** `test_cr87_truncation_to_40_chars_after_redaction` fails. CR-87 requires truncation to 40 chars; entire text redacted to `***` because redaction runs first.\n**User Impact:** Log messages don't show truncated text — debugging harder.\n**Root Cause:** Redaction/truncation ordering wrong.\n**Progress:** None yet.\n**Related Files:**\n- `tests/test_hallucination.py`\n- `voice_typer/server/` (hallucination logging)\n**Fix:** Swap order: truncate first, then redact. Or triage if intentional.\n**Severity:** 🟢 Low"
+  },
+  {
+    "ordinal": 317,
+    "line_start": 8145,
+    "line_end": 8159,
+    "id": "TX-44",
+    "title": "6 client tests use real-setTimeout instead of fake timers (flaky)",
+    "raw_block": "### TX-44 — 6 client tests use real-setTimeout instead of fake timers (flaky)\n**Status:** ❌ Not Fixed\n**Description:** 6 renderer tests use `await new Promise((r) => setTimeout(r, N))` with N > 0 instead of fake timers / waitFor. Flaky under CI load.\n**User Impact:** Intermittent CI failures.\n**Root Cause:** Wall-clock waits instead of fake timers.\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/client/src/renderer/src/hooks/__tests__/usePythonEvent-bridge-ready.test.tsx`\n- `voice_typer/client/src/renderer/src/hooks/__tests__/useConnection.test.tsx`\n- `voice_typer/client/src/renderer/src/pages/__tests__/pages-improvements.test.tsx`\n- `voice_typer/client/src/renderer/src/pages/__tests__/Settings-empty-state.test.tsx`\n- `voice_typer/client/src/renderer/src/pages/__tests__/History.test.tsx`\n**Fix:** Migrate to `vi.useFakeTimers()` or `waitFor`.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 318,
+    "line_start": 8160,
+    "line_end": 8171,
+    "id": "TX-45",
+    "title": "Config default-value change needs triage (model_idle_unload_minutes 0→30)",
+    "raw_block": "### TX-45 — Config default-value change needs triage (model_idle_unload_minutes 0→30)\n**Status:** ❌ Not Fixed\n**Description:** `tests/test_model_idle_unload.py` — 2 tests fail. `Config.model_idle_unload_minutes` default changed from `0` to `30`. Either policy regression or intentional — needs triage.\n**User Impact:** If regression: models auto-unload after 30 min, surprising users. If intentional: tests stale.\n**Root Cause:** Needs product-owner triage.\n**Progress:** None yet.\n**Related Files:**\n- `tests/test_model_idle_unload.py`\n- `voice_typer/server/config.py`\n**Fix:** Triage: revert source to `0` or update tests. Do NOT auto-fix.\n**Severity:** 🟡 Medium"
+  },
+  {
+    "ordinal": 319,
+    "line_start": 8172,
+    "line_end": 8187,
+    "id": "TX-46",
+    "title": "App does not start at login on Windows (autostart broken on user machine)",
+    "raw_block": "### TX-46 — App does not start at login on Windows (autostart broken on user machine)\n**Status:** ❌ Not Fixed\n**Description:** User reports autostart (\"Start app at login\") does NOT work on their Windows machine — the app does not launch after logon even though autostart appears enabled. MUST be reproduced and fixed on Windows (win32). Do NOT declare fixed based on Linux tests alone — the Linux autostart path (.desktop file) is unrelated to the Windows path. Windows autostart works via TWO mechanisms: (1) HKCU Run key `Software\\Microsoft\\Windows\\CurrentVersion\\Run` with a hash-suffixed `VoiceTyper_<hash>` value whose command is `<pythonw.exe> \"…\\autostart_launcher.py\" --hidden --delay 15`; (2) fallback Task Scheduler task `VoiceTyperAutostart<install_hash>` (LogonTrigger, InteractiveToken, `pythonw.exe … --hidden --delay 15`). Investigate BOTH mechanisms end-to-end: entry present? command valid? launcher actually runs at logon? Electron actually spawns? Also check the `--hidden` path: with `VT_START_HIDDEN=1` the dashboard starts hidden (tray only) — verify the app IS running in the tray and not \"not starting at all\" (user may see nothing and assume broken). Likely root-cause candidates (in order): (a) venv `pythonw.exe` path baked into the Run-key command no longer exists (dev-mode installs) — `_autostart_command()` swaps to system Python only if the probe succeeds; (b) `autostart_launcher.py` spawns `npm run dev`/`npm run build` — in a packaged/built install there is no npm/node and the launcher must find the built `electron .` output or the Tauri binary `%LOCALAPPDATA%\\Programs\\Voice Typer\\voice-typer-tauri.exe`; (c) `is_autostart_enabled()` reports True (entry exists) while the actual command is dead — status check is existence-only; (d) Task Scheduler task locked from an admin install (`schtasks` access denied → UAC elevation path); (e) Windows Startup-folder alternative never attempted. Check `voice_typer/server/autostart_launcher.py` `_wait_for_backend_ready` / `_read_ipc_port_from_pid_file` logic and the autostart log (`~/.voice-typer/autostart.log` or app log) for evidence of what actually happens at logon.\n**User Impact:** The user expects Voice Typer to be listening after they log in, but they must launch it manually every time. For a dictation/voice app this defeats the \"always ready\" promise and the user loses anything that requires the app to already be running.\n**Root Cause:** Unknown — needs Windows-side reproduction. Entry-existence check likely masks a dead command path (venv pythonw gone / no npm in packaged install / launcher crash at logon).\n**Progress:** None yet.\n**Related Files:**\n- `voice_typer/server/server_platform/autostart_windows.py` (Run key + Task Scheduler registration, `_autostart_command` call sites)\n- `voice_typer/server/server_platform/autostart.py` (`_autostart_command()` — builds `pythonw … autostart_launcher.py --hidden --delay 15`)\n- `voice_typer/server/autostart_launcher.py` (what actually runs at logon; spawns Electron build / Tauri binary)\n- `voice_typer/server/server_platform/__init__.py` (`_APP_AUTOSTART_TASK_NAME`, re-exports)\n- `voice_typer/server/task_scheduler.py` (`is_supported()`, `_schtasks`, elevated retry)\n- `voice_typer/server/startup_tasks.py` (`sync_autostart` — when config is applied)\n- `voice_typer/server/config.py` (`autostart: bool = True` default, SEC-002 allowlist)\n**Fix:** Reproduce on Windows. Steps: (1) enable autostart in settings; (2) check `reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v VoiceTyper_*` and `schtasks /Query /TN VoiceTyperAutostart*`; (3) run the registered command manually and confirm it launches the app; (4) log off/on (or `schtasks /Run`) and check whether the process appears, plus read the autostart log; (5) fix whichever link is dead — prefer a mechanism that survives venv moves and works for both dev (npm/electron) and packaged (Tauri binary) installs; do not leave the run-key pointing at a nonexistent interpreter. Add a Windows-run integration test if feasible; at minimum verify `is_autostart_enabled()` matches reality. Report with platform qualifier: \"verified on Windows (win32) — <exact evidence>\".\n**Severity:** 🔴 High"
+  }
+]
