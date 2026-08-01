@@ -409,6 +409,17 @@ class Recorder(VadShimMixin):
         self._thread_registry = thread_registry
         self._stream: sd.InputStream | None = None
         self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
+        # PERF: running total of buffered samples (sum of ``len(chunk)``
+        # across ``_buffer``). Maintained as an O(1) counter incremented
+        # under ``_lock`` in ``AudioPipeline.append_to_buffer_locked`` so
+        # ``current_duration_seconds`` (polled at 4 Hz by the streaming
+        # thread) doesn't have to iterate the whole deque — previously
+        # each poll paid an O(chunks) ``sum(int(c.shape[0]) for c in
+        # buffer)`` reduction, which on a 30-min dictation at ~16 Hz
+        # chunk arrival summed over ~28k chunks per poll. Reset to 0 in
+        # ``reset_session_state`` (start) and in ``stop()`` / ``discard()``
+        # alongside the buffer swap.
+        self._total_buffered_samples: int = 0
         self._lock = threading.Lock()
         # serializes ``start()`` against ``discard()`` so a
         # concurrent toggle-thread + ESC-cancel-thread + auto-stop
@@ -1672,7 +1683,11 @@ class Recorder(VadShimMixin):
             for info in self._devices._refresh_device_list():
                 if info.get("index") == device:
                     return int(info.get("max_input_channels", 1) or 1)
-        except Exception:
+        except (KeyError, TypeError, ValueError, AttributeError, OSError):
+            # PortAudio query failed, device dict shape drift, or
+            # ``_devices`` not yet initialized. Fall back to 1 channel
+            # (PortAudio's default). Previously a broad
+            # ``except Exception: pass``.
             pass
         return 1
 
@@ -2004,11 +2019,65 @@ class Recorder(VadShimMixin):
                 (``tests/test_recorder_worker_lifecycle.py::test_start_audio_worker_holds_lock``).
                 See :mod:`.capture` for the collaborator pattern and the full
         THREAD-REGISTRY rationale.
+
+        Contract: when the prior worker is still alive AND its stop
+                event was set (the stale-alive case — ``stop()`` join timed
+                out, the worker is exiting on its next iteration as a daemon),
+                ``start_audio_worker_body`` would return early without
+                recreating events or starting a new worker. The wrapper
+                detects this case (``pre_thread.is_alive()`` AND
+                ``_worker_stop_event.is_set()``), replaces the stop/wake
+                events with fresh ``threading.Event`` instances (so the dying
+                stale worker keeps its set stop event and the new worker gets
+                fresh cleared events), and clears ``_worker_thread`` to
+                ``None`` so ``start_audio_worker_body`` does NOT take its
+                early-return branch — a fresh worker is started, and the
+                stale one exits on its next iteration when it observes the
+                old (set) stop event.
         """
         # hold the lifecycle lock across the entire
         # read-check-create-start sequence so a concurrent
         # _stop_audio_worker() cannot observe a stale ``None`` mid-create.
         with self._worker_lifecycle_lock:
+            pre_thread = self._worker_thread
+            # Stale-alive detection. ``pre_thread.is_alive()`` AND
+            # ``_worker_stop_event.is_set()`` together identify the
+            # stale-alive case: the prior worker has not yet exited AND
+            # ``stop()`` has already signalled it to exit. In that case,
+            # wait briefly for the prior worker to actually exit (it has
+            # its stop event set, so it should exit on its next iteration
+            # — typically <16ms at the 16Hz audio rate). This prevents
+            # duplicate workers piling up under concurrent start()/stop()
+            # hammering (leak regression).
+            #
+            # Test scenario: ``test_start_audio_worker_creates_fresh_events_for_stale_worker``
+            # uses a MagicMock whose ``join()`` returns immediately and
+            # whose ``is_alive()`` returns True forever — simulating a
+            # permanently-stuck worker. In that degenerate case the wait
+            # returns immediately and we proceed to start a new worker
+            # anyway (the old one is abandoned as a daemon, matching the
+            # test's expectation that a fresh worker is started).
+            #
+            # Real concurrent scenario: the prior worker exits within
+            # 1-2 audio iterations (≤128ms at 16Hz). After the wait,
+            # replace the events (so any future stale-alive worker that
+            # somehow outlived the join keeps its set stop event) and
+            # clear ``_worker_thread`` so ``start_audio_worker_body``
+            # does NOT take its early-return branch — a fresh worker is
+            # started.
+            if pre_thread is not None and pre_thread.is_alive() and self._worker_stop_event.is_set():
+                # ``RuntimeError: cannot join thread before it is
+                # started`` — observed when the device-health checker
+                # assigns the thread ref before ``Thread.start()``
+                # without holding a lock. Previously a broad
+                # ``except Exception: pass``.
+                with contextlib.suppress(RuntimeError):
+                    pre_thread.join(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S)
+                import threading as _threading
+
+                self._worker_stop_event = _threading.Event()
+                self._worker_wake_event = _threading.Event()
+                self._worker_thread = None
             self._capture.start_audio_worker_body(self)
 
     def _stop_audio_worker(self, *, timeout: float, drain: bool = True) -> None:
@@ -2021,12 +2090,40 @@ class Recorder(VadShimMixin):
                 lifecycle-lock literal; negative: must NOT contain the
                 self-lock literal). See :mod:`.capture` for the collaborator
                 pattern and the full THREAD-REGISTRY rationale.
+
+        Contract: ``stop_audio_worker_body`` clears the stop event
+                AND nulls ``_worker_thread`` unconditionally at the end (so
+                the next start gets a clean slate). When the worker is
+                STILL ALIVE after the join timeout, both actions are
+                wrong: clearing the stop event un-stops the stale worker
+                (it resumes looping on the ring buffer), and nulling
+                ``_worker_thread`` makes the next ``_start_audio_worker``
+                think no worker exists (SPSC invariant violation — it
+                would spawn a second worker). The wrapper captures the
+                pre-call thread reference and restores BOTH the thread
+                reference AND the stop event after delegation if the prior
+                worker did not exit within the timeout.
         """
         # hold the lifecycle lock across the entire
         # read-check-clear-join-unregister sequence. This is a
         # separate lock from the buffer lock — see the helper's docstring.
         with self._worker_lifecycle_lock:
+            pre_thread = self._worker_thread
             self._capture.stop_audio_worker_body(self, timeout=timeout, drain=drain)
+            # If the prior worker is still alive after the join
+            # timed out, restore BOTH the thread reference AND the stop
+            # event so the next ``_start_audio_worker`` can detect the
+            # stale worker via ``is_alive()`` and create fresh events.
+            # ``pre_thread`` is captured before delegation;
+            # ``stop_audio_worker_body`` assigns
+            # ``recorder._worker_thread = None`` at its end, so checking
+            # ``pre_thread.is_alive()`` (not ``self._worker_thread``) is
+            # what detects the stale-alive case. ``is_alive()`` is safe
+            # to call on a stopped thread (returns False) and on a
+            # MagicMock (returns the configured value).
+            if pre_thread is not None and pre_thread.is_alive():
+                self._worker_thread = pre_thread
+                self._worker_stop_event.set()
 
     def _start_event_worker(self) -> None:
         """Start the IPC event worker thread that drains ``_event_queue``.
@@ -2352,24 +2449,23 @@ class Recorder(VadShimMixin):
                 is materialized — this is the key difference vs. calling
                 ``len(self.snapshot()) / sample_rate``.
         """
-        buffer = self._buffer
-        if not buffer:
+        if not self._buffer:
             return 0.0
         sr = getattr(self, "_buffer_sr", None) or self._effective_sr
         if not sr:
             return 0.0
-        # Sum chunk lengths without materializing a contiguous array.
-        # ``sum(len(c) for c in buffer)`` is O(chunks) where chunks ≪
-        # samples (16 Hz chunk arrival × recording length).
-        try:
-            total_samples = sum(int(c.shape[0]) for c in buffer)
-        except (AttributeError, TypeError):
-            # Defensive: a malformed chunk (rare) shouldn't crash the
-            # polling guard. Fall back to 0.0 so the caller proceeds
-            # with the snapshot path (which handles malformed chunks
-            # itself).
-            return 0.0
-        return total_samples / sr
+        # O(1) scalar read — maintained under ``_lock`` by
+        # ``AudioPipeline.append_to_buffer_locked`` and reset to 0 in
+        # ``reset_session_state`` / ``stop()`` / ``discard()``. The
+        # ``if not self._buffer`` guard above is the empty-buffer
+        # fast-path (also O(1) — deque ``__bool__`` is O(1)); it
+        # protects against a stale counter value if a reset path
+        # forgot to zero it (defensive — all reset paths DO zero it).
+        # PERF: previously this property iterated the whole deque via
+        # ``sum(int(c.shape[0]) for c in buffer)`` — O(chunks) per poll.
+        # At 16 Hz chunk arrival × 30-min dictation × 4 Hz poll, each
+        # poll summed ~28k chunks.
+        return self._total_buffered_samples / sr
 
     def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
         """Resample a single chunk of audio.

@@ -125,6 +125,11 @@ class SessionState:
         """
         recorder._buffer.clear()
         recorder._chunk_count = 0
+        # PERF: zero the running buffered-samples counter so the next
+        # session's ``current_duration_seconds`` polls start from 0.
+        # Without this, the counter would carry over the previous
+        # session's total and over-report duration on the first poll.
+        recorder._total_buffered_samples = 0
         recorder._cached_resampled = np.array([], dtype=np.float32)
         recorder._cached_native_chunk_count = 0
         # also reset the cache key so a new session doesn't

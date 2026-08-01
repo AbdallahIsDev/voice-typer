@@ -159,6 +159,14 @@ class Equalizer(AudioFilter):
         self._delay3 = 0.0
         self._low_state = ANTIDENORMAL_EPSILON
         self._high_state = 0.0
+        # zero the pre-allocated delay-line working buffer so the
+        # last chunk's raw input samples (which the 3-sample delay line
+        # copies verbatim into ``_delay_buf[3:]``) do not linger in
+        # process memory until the numpy allocator reuses the block.
+        # Guarded for None because ``_delay_buf`` is lazy-allocated on
+        # the first ``process()`` call (and only when ``n >= 3``).
+        if self._delay_buf is not None:
+            self._delay_buf.fill(0)
 
     @property
     def latency_ms(self) -> float:

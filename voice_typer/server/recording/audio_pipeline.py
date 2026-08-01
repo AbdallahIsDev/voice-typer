@@ -331,10 +331,51 @@ class AudioPipeline:
             # alive via ``.base``, so the buffer safely owns its data
             # without a redundant ``.copy()`` here (saves ~2KB
             # alloc/chunk at 16Hz).
-            recorder._buffer.append(filtered)
+            # PERF: maintain a running sample counter so
+            # ``current_duration_seconds`` (polled at 4 Hz by the
+            # streaming thread) is O(1) instead of O(chunks).
+            # Incremented under the same lock as the buffer append so
+            # the counter never drifts from the deque's contents.
+            #
+            # Eviction compensation: if ``_buffer.maxlen`` is set and
+            # the deque is already full, ``append`` silently drops the
+            # leftmost (oldest) chunk. We peek at ``buffer[0]`` BEFORE
+            # the append and subtract its sample count so the running
+            # total stays in sync with the deque's actual contents.
+            # Without this compensation the counter would monotonically
+            # grow (never shrink) and ``current_duration_seconds``
+            # would over-report once the buffer fills — a regression
+            # vs. the previous ``sum(int(c.shape[0]) for c in buffer)``
+            # which naturally accounted for eviction by re-iterating
+            # the deque on every call.
+            _buf = recorder._buffer
+            _maxlen = _buf.maxlen
+            if _maxlen is not None and len(_buf) >= _maxlen:
+                try:
+                    _evicted = _buf[0]
+                    recorder._total_buffered_samples -= int(_evicted.shape[0])
+                except (AttributeError, IndexError, TypeError):
+                    # Defensive: a malformed evicted chunk (rare)
+                    # shouldn't corrupt the counter. Fall back to
+                    # ``len(_evicted)`` which works for any sequence.
+                    with contextlib.suppress(TypeError):
+                        recorder._total_buffered_samples -= len(_evicted)
+            _buf.append(filtered)
             recorder._chunk_count += 1
+            # ``filtered.shape[0]`` is the number of samples in the
+            # chunk (1-D mono after ``_ensure_mono`` /
+            # ``process_chunk``). ``int()`` coerces the numpy int64 to
+            # a Python int so the running sum stays a plain int (avoids
+            # numpy scalar boxing on every increment).
+            try:
+                recorder._total_buffered_samples += int(filtered.shape[0])
+            except (AttributeError, IndexError):
+                # Defensive: a malformed chunk without ``shape`` (rare)
+                # shouldn't corrupt the counter. Fall back to
+                # ``len(filtered)`` which works for any sequence.
+                recorder._total_buffered_samples += len(filtered)
             chunk_count = recorder._chunk_count
-            buffer_len = len(recorder._buffer)
+            buffer_len = len(_buf)
 
         # Backpressure detection — if the deque dropped
         # chunks (maxlen exceeded), increment a counter and warn the

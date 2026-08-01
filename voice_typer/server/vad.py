@@ -13,24 +13,21 @@ The Silero VAD model is small (~2MB) and runs in real-time on CPU.
 It is loaded lazily on first use so the app doesn't pay the import cost
 unless VAD is enabled.
 
-The model is now bundled locally as ``silero_vad.jit`` (next to
-this file) and loaded via ``torch.jit.load()`` instead of
-``torch.hub.load()``. This eliminates the network dependency on GitHub
-at first-use time and ensures the PyInstaller bundle is self-contained.
-Falls back to ``torch.hub.load()`` if the local model is missing
-(e.g. development mode without the bundled file, or a fresh git clone).
+The model is bundled locally as ``silero_vad.jit`` (next to this file)
+and loaded via ``torch.jit.load()``. This keeps the app fully offline
+(no GitHub fetch at first-use time) and ensures the PyInstaller bundle
+is self-contained. If the bundled file is missing or the load fails,
+``_load_model`` logs an ERROR and returns ``(None, None)`` so VAD
+degrades to the RMS energy fallback (already handled by callers). No
+network call is ever made — the offline guarantee (C-DATA-1) is preserved.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
-from typing import Any
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 
 np = lazy_module("numpy")
@@ -62,24 +59,12 @@ VAD_THRESHOLD = 0.5
 # values are below the threshold.
 _VAD_EARLY_EXIT_PROB: float = 0.95
 
-# deadline for the ``torch.hub.load`` network fallback. On offline
-# or firewalled machines the call retries for 30+ seconds before failing;
-# bounding it to 5s keeps the audio worker responsive and lets the
-# negative-cache path take over quickly.
-_HUB_LOAD_TIMEOUT_S: float = 5.0
-
 # Path to the bundled Silero VAD JIT model (next to this file)
 _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.jit"
 
 # Lazy-loaded model reference
 _model = None
 _utils = None
-
-# negative cache for the ``torch.hub.load`` fallback. Once a hub
-# load has timed out or failed, subsequent calls short-circuit to ``None``
-# instead of re-attempting the (slow) network fetch on every audio chunk.
-# Reset by ``reset()`` / ``unload()`` so a future ``preload()`` can retry.
-_hub_load_failure_cached: bool = False
 
 
 def is_available() -> bool:
@@ -97,13 +82,12 @@ def _check_vad_available() -> bool:
 
         Returns True only if torch is importable AND the bundled local model
         file exists, so ``_load_model`` will succeed via ``torch.jit.load``
-        without ever touching GitHub. Returns False if either:
+        without ever touching the network. Returns False if either:
 
           * torch is not importable (VAD entirely unavailable), or
           * the bundled ``silero_vad.jit`` is missing — in which case
-            ``_load_model`` falls back to ``torch.hub.load``, which fails on an
-            offline / firewalled machine and silently degrades to RMS with no
-            warning at load time (detectable only via a debug log).
+            ``_load_model`` logs an ERROR and returns ``(None, None)`` so
+            VAD degrades to the RMS fallback (handled by callers).
 
     this is the helper the issue asked for — called once at
         startup so the app can surface a warning when VAD will be unavailable
@@ -116,46 +100,19 @@ def _check_vad_available() -> bool:
     return _VAD_MODEL_PATH.exists()
 
 
-def _hub_load_blocking(torch_module: Any) -> Any:
-    """Blocking ``torch.hub.load`` call.
-
-    factored out so it can be run inside a ``ThreadPoolExecutor``
-        with a deadline. On offline / firewalled machines the underlying
-        ``urllib`` retry loop can block the audio worker for 30+ seconds;
-        bounding it keeps the worker responsive and lets the negative-cache
-        path take over quickly.
-    """
-    # (fix): torch.hub.load writes "Using cache found in..."
-    # to STDERR, not STDOUT. redirect_stdout alone doesn't catch it.
-    # Redirect BOTH streams to suppress the noisy cache message.
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        return torch_module.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            trust_repo=True,
-        )
-
-
 def _load_model():
     """Lazily load the Silero VAD model and utils.
 
-    Tries the local bundled ``silero_vad.jit`` first via
-        ``torch.jit.load()``. Falls back to ``torch.hub.load()`` if the
-        local file is missing (development mode without bundled model).
-        Subsequent calls return the cached model immediately.
-
-    the hub fallback is wrapped in a ``ThreadPoolExecutor`` with
-        a 5-second deadline and is negative-cached on timeout / failure so
-        subsequent audio chunks don't re-attempt the slow network fetch.
+    Loads the local bundled ``silero_vad.jit`` via ``torch.jit.load()``.
+        Subsequent calls return the cached model immediately. If the
+        bundled file is missing or the load fails, logs an ERROR and
+        returns ``(None, None)`` so VAD degrades to the RMS energy
+        fallback (handled by callers). No network call is ever made —
+        the app stays fully offline (C-DATA-1).
     """
-    global _model, _utils, _hub_load_failure_cached
+    global _model, _utils
     if _model is not None:
         return _model, _utils
-    if _hub_load_failure_cached:
-        # prior hub load already failed — don't re-attempt on every
-        # audio chunk. ``unload()`` / ``reset()`` clear this so a future
-        # ``preload()`` can retry after the user's environment changes.
-        return None, None
 
     try:
         import torch
@@ -163,50 +120,37 @@ def _load_model():
         log.warning("[VAD] torch not importable — Silero VAD disabled")
         return None, None
 
-    # try local bundled model first (no network).
-    if _VAD_MODEL_PATH.exists():
-        try:
-            log.debug("[VAD] Loading local Silero VAD model from %s", _VAD_MODEL_PATH)
-            # Silero VAD is a small LSTM (~2 MB). For 512-sample
-            # chunks at 16 Hz, CPU inference (~0.5 ms) is faster than the
-            # GPU transfer overhead (~1-2 ms roundtrip). Keep on CPU even
-            # when CUDA is available — intentionally NOT probing / moving
-            # to CUDA. Other ML paths (parakeet_engine, qwen_engine,
-            # transcription) DO probe CUDA because their workloads benefit
-            # from it; VAD's small model + tiny per-call tensor size does
-            # not. Documented here so a future reader doesn't 'fix' this
-            # by adding .to('cuda') and regressing performance.
-            _model = torch.jit.load(str(_VAD_MODEL_PATH))
-            _model.eval()
-            _utils = None  # JIT model bundles everything, no utils needed
-            log.info("[VAD] Silero VAD model loaded from local file")
-            return _model, _utils
-        except Exception as local_exc:
-            log.debug("[VAD] Local model load failed: %s — falling back to hub", local_exc)
-            _model = None
-
-    # hub fallback with deadline + negative cache.
-    try:
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_hub_load_blocking, torch)
-            loaded = future.result(timeout=_HUB_LOAD_TIMEOUT_S)
-        _model, _utils = loaded
-        log.info("[VAD] Silero VAD model loaded via torch.hub")
-        return _model, _utils
-    except FuturesTimeoutError:
-        log.warning(
-            "[VAD] torch.hub.load timed out after %.1fs (offline or firewalled?) "
-            "— negative-caching; Silero VAD disabled until reset()",
-            _HUB_LOAD_TIMEOUT_S,
+    if not _VAD_MODEL_PATH.exists():
+        log.error(
+            "[VAD] bundled model not found at %s — Silero VAD disabled; "
+            "degrading to RMS fallback (no network fetch is attempted)",
+            _VAD_MODEL_PATH,
         )
-        _hub_load_failure_cached = True
         return None, None
-    except Exception as exc:
-        log.warning(
-            "[VAD] torch.hub.load failed: %s — negative-caching; Silero VAD disabled until reset()",
-            exc,
+
+    try:
+        log.debug("[VAD] Loading local Silero VAD model from %s", _VAD_MODEL_PATH)
+        # Silero VAD is a small LSTM (~2 MB). For 512-sample
+        # chunks at 16 Hz, CPU inference (~0.5 ms) is faster than the
+        # GPU transfer overhead (~1-2 ms roundtrip). Keep on CPU even
+        # when CUDA is available — intentionally NOT probing / moving
+        # to CUDA. Other ML paths (parakeet_engine, qwen_engine,
+        # transcription) DO probe CUDA because their workloads benefit
+        # from it; VAD's small model + tiny per-call tensor size does
+        # not. Documented here so a future reader doesn't 'fix' this
+        # by adding .to('cuda') and regressing performance.
+        _model = torch.jit.load(str(_VAD_MODEL_PATH))
+        _model.eval()
+        _utils = None  # JIT model bundles everything, no utils needed
+        log.info("[VAD] Silero VAD model loaded from local file")
+        return _model, _utils
+    except Exception as local_exc:
+        log.error(
+            "[VAD] local Silero VAD model load failed: %s — Silero VAD "
+            "disabled; degrading to RMS fallback (no network fetch is attempted)",
+            local_exc,
         )
-        _hub_load_failure_cached = True
+        _model = None
         return None, None
 
 
@@ -246,7 +190,7 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
     return np.concatenate([chunk, reflect], dtype=out_dtype)
 
 
-def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float | None:
+def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_RATE) -> float | None:
     """Compute the VAD probability for an audio chunk.
 
         Args:
@@ -364,7 +308,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
 
 def is_speech(
     audio_chunk: np.ndarray,
-    sample_rate: int = 16000,
+    sample_rate: int = WHISPER_SAMPLE_RATE,
     threshold: float | None = None,
 ) -> bool:
     """Determine if an audio chunk contains speech.
@@ -433,7 +377,7 @@ def preload() -> bool:
         # Silero expects 512 samples at 16kHz for warmup.
         dummy = torch.zeros(512, dtype=torch.float32)
         with torch.no_grad():
-            model(dummy, 16000)
+            model(dummy, WHISPER_SAMPLE_RATE)
     except Exception:
         log.debug("[VAD] warmup inference failed", exc_info=True)
         return False
@@ -449,15 +393,10 @@ def unload() -> None:
         Silero model stays pinned in RAM for the lifetime of the process.
         This drops the reference so Python can GC it. Safe to call when
         VAD is already unloaded (no-op).
-
-    Also clears the ``torch.hub.load`` negative cache () so a
-        future ``preload()`` retries the hub load rather than persistently
-        refusing after one transient failure.
     """
-    global _model, _utils, _hub_load_failure_cached
+    global _model, _utils
     _model = None
     _utils = None
-    _hub_load_failure_cached = False
     log.info("[VAD] Silero VAD model unloaded")
 
 
@@ -483,12 +422,7 @@ def reset_states() -> None:
 
 
 def reset():
-    """Reset the cached model (for testing or if model needs re-loading).
-
-    also clears the ``torch.hub.load`` negative cache so test
-        isolation is preserved across modules that exercise the hub fallback.
-    """
-    global _model, _utils, _hub_load_failure_cached
+    """Reset the cached model (for testing or if model needs re-loading)."""
+    global _model, _utils
     _model = None
     _utils = None
-    _hub_load_failure_cached = False

@@ -248,8 +248,25 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
             try:
                 actual_hash = compute_file_sha256(file_path)
             except Exception as exc:
-                log.debug("[ASR_SETUP] could not compute hash for %s: %s", file_path, exc)
-                continue
+                # Record the unhashable file as ``failed_file``
+                # (with ``actual_hash = None`` to distinguish "could not
+                # compute" from "computed-but-mismatched"), escalate the
+                # log from DEBUG to WARNING so it's visible in production
+                # logs, and ``break`` on the FIRST unhashable file —
+                # mirroring the ``not file_path.exists()`` branch above.
+                # Pre-fix this branch did ``continue`` with a ``log.debug``,
+                # silently skipping the unhashable file and leaving
+                # ``failed_file = None``, which was indistinguishable
+                # from an empty-manifest soft-pass.
+                log.warning(
+                    "[ASR_SETUP] could not compute hash for %s: %s",
+                    file_path,
+                    exc,
+                )
+                details["failed_file"] = filename
+                details["actual_hash"] = None
+                details["expected_hash"] = expected_hash
+                break
             if actual_hash != expected_hash:
                 details["failed_file"] = filename
                 details["expected_hash"] = expected_hash
@@ -282,43 +299,12 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
 def _cleanup_failed_cache(repo_id: str) -> None:
     """Cache cleanup: best-effort delete a tampered HF cache dir.
 
-    Called from ``download_parakeet_weights`` when
-    ``verify_model_integrity()`` returns False (either on the cache-hit
-    path or after a fresh download).  Removes the
-    ``models--<org>--<repo>`` directory under
-    ``<config_dir>/huggingface/hub/`` so the next call doesn't
-    re-discover the tampered snapshot.
-
-    Best-effort: logs but does not raise if the cleanup itself fails
-    (e.g. file is locked on Windows, permission denied on POSIX).  The
-    integrity hard-fail (``return (False, "integrity_check_failed")``)
-    is the security gate; this cleanup is just hygiene.
+    Delegates to the canonical ``asr_utils.cleanup_hf_cache_dir`` helper
+    (single source of truth — previously the body was duplicated here).
     """
-    import shutil
+    from voice_typer.server.asr_utils import cleanup_hf_cache_dir
 
-    try:
-        from voice_typer.server.config import _config_dir
-
-        cache_root = _config_dir() / "huggingface" / "hub"
-    except Exception as exc:
-        log.debug("[ASR_SETUP] could not resolve config dir for cache cleanup: %s", exc)
-        return
-
-    model_dir = cache_root / f"models--{repo_id.replace('/', '--')}"
-    if not model_dir.exists():
-        return
-    try:
-        shutil.rmtree(model_dir)
-        log.warning(
-            "[ASR_SETUP] Removed tampered HF cache directory %s after integrity check failure.",
-            model_dir,
-        )
-    except OSError as exc:
-        log.warning(
-            "[ASR_SETUP] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
-            model_dir,
-            exc,
-        )
+    cleanup_hf_cache_dir(repo_id, log_prefix="[ASR_SETUP]")
 
 
 def download_parakeet_weights(

@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+
 from ._state import _state
 
 if TYPE_CHECKING:
@@ -238,12 +240,23 @@ def update_level_processor(config_dict: dict) -> None:
     the active noise filters in real-time (high-pass, noise gate,
     RNNoise — but not post-capture which is offline-only).
 
+    All mutations of ``_state._level_processor`` and the snapshot read
+    of ``_state._monitor_sample_rate`` happen under ``_state._monitor_lock``
+    so the level worker thread (which reads ``_level_processor`` from
+    ``_process_level_chunk``) sees a consistent pair: the processor is
+    always built against the sample rate of the stream that will
+    consume its output, and a concurrent ``start_monitoring`` /
+    ``stop_monitoring`` can't tear the assignment. The AudioProcessor
+    construction itself runs OUTSIDE the lock so a slow ``__init__``
+    (RNNoise model load) doesn't block ``get_level()`` / worker drain.
+
     Args:
         config_dict: dict with noise_filter_enabled, noise_filter_highpass,
             noise_filter_gate, noise_filter_rnnoise keys, etc.
     """
     if not config_dict.get("noise_filter_enabled", True):
-        _state._level_processor = None
+        with _state._monitor_lock:
+            _state._level_processor = None
         log.debug("[LEVEL-MON] Level processor disabled")
         return
 
@@ -255,11 +268,28 @@ def update_level_processor(config_dict: dict) -> None:
         # so missing keys fall back to ADR 0007 defaults.
         from voice_typer.server.audio_processor import AudioProcessor
 
+        # Snapshot the current monitor sample rate under the lock so
+        # the AudioProcessor is built against the rate of the stream
+        # that will actually feed it. ``_monitor_sample_rate`` is
+        # mutated by ``start_monitoring`` (also under this lock), so
+        # reading it bare here could race a restart on a different
+        # device and yield a processor tuned to the wrong rate.
+        with _state._monitor_lock:
+            sample_rate = _state._monitor_sample_rate
+
+        # Construct the processor OUTSIDE the lock: ``AudioProcessor.__init__``
+        # may load the RNNoise model (5–50 ms) and we must not block
+        # ``get_level()`` / the level worker thread while it loads.
         ap_config = types.SimpleNamespace(**config_dict)
-        _state._level_processor = AudioProcessor(
-            ap_config,
-            sample_rate=_state._monitor_sample_rate,
-        )
+        new_processor = AudioProcessor(ap_config, sample_rate=sample_rate)
+
+        # Assign under the lock so the worker's read of
+        # ``_level_processor`` is pair-consistent with the snapshot
+        # above (no torn update where the processor is for the previous
+        # rate).
+        with _state._monitor_lock:
+            _state._level_processor = new_processor
+
         log.info(
             "[LEVEL-MON] Level processor updated: highpass=%s, gate=%s, method=%s",
             config_dict.get("noise_filter_highpass", True),
@@ -268,7 +298,8 @@ def update_level_processor(config_dict: dict) -> None:
         )
     except Exception as exc:
         log.warning("[LEVEL-MON] Failed to create level processor: %s", exc)
-        _state._level_processor = None
+        with _state._monitor_lock:
+            _state._level_processor = None
 
 
 def start_monitoring(mic_id: str | None = None) -> dict:
@@ -333,9 +364,11 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # ``dict`` (single device) or a ``DeviceList`` (tuple).  The
             # ``default_samplerate`` key only exists on the dict form, so
             # narrow before indexing.
-            native_rate = int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else 16000
+            native_rate = (
+                int(dev_info_raw["default_samplerate"]) if isinstance(dev_info_raw, dict) else WHISPER_SAMPLE_RATE
+            )
         except Exception:
-            native_rate = 16000
+            native_rate = WHISPER_SAMPLE_RATE
 
         _state._monitor_sample_rate = native_rate
         _state._monitor_level = 0.0
@@ -344,9 +377,15 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         def callback(indata, frames, time_info, status):
             #  (c-review PERF-03): the PortAudio callback runs
             # on the real-time audio thread and must complete in well
-            # under the ~32 ms PortAudio deadline (512-sample blocks at
-            # 16 kHz = 32 ms per chunk; on 44.1/48 kHz devices the
-            # deadline is even tighter). To meet this deadline the
+            # under the ~32 ms PortAudio deadline. The blocksize below
+            # is scaled to ``max(512, int(native_rate * 0.032))`` so a
+            # chunk always represents ~32 ms of audio regardless of the
+            # device native rate — at 16 kHz the block is 512 samples
+            # (32 ms), at 44.1 kHz it is 1411 samples (~32 ms), and at
+            # 48 kHz it is 1536 samples (32 ms). Without that scaling,
+            # a fixed 512-sample block on a 48 kHz device produced a
+            # ~10.7 ms chunk (≈94 Hz callback rate) that flooded the
+            # ring buffer and worker. To meet this deadline the
             # callback does ONLY:
             #
             #   1. ``indata.copy()`` — allocates a ~2 KB float32 buffer
@@ -398,6 +437,17 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                     )
             _state._level_worker_wake_event.set()
 
+        # Scale the block size with the device native sample rate so
+        # every chunk represents ~32 ms of audio (chunk rate ≈ 31 Hz,
+        # regardless of whether the device runs at 16 / 44.1 / 48 kHz).
+        # Previously ``blocksize=512`` was hardcoded, which on a 48 kHz
+        # device produced ~10.7 ms chunks (≈94 Hz callback rate) and
+        # made the 64-entry ring buffer hold only ~0.68 s of audio —
+        # far short of the ~2 s window it is sized for. The ``max(512, ...)``
+        # floor preserves the 512-sample minimum on low-rate devices so
+        # PortAudio doesn't get pathologically small blocks.
+        blocksize = max(512, int(native_rate * 0.032))
+
         try:
             stream = sd.InputStream(
                 samplerate=native_rate,
@@ -406,7 +456,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 device=device,
                 callback=callback,
                 finished_callback=_level_stream_finished,
-                blocksize=512,
+                blocksize=blocksize,
             )
             stream.start()
             _state._monitor_stream = stream

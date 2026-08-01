@@ -637,6 +637,12 @@ def _do_auto_stop_test() -> None:
             exc_info=True,
         )
 
+    with _state._monitor_lock:
+        _secure_clear_test_chunks(_state._test_raw_chunks, _state._test_filtered_chunks, _state._test_chunks)
+        _state._test_raw_chunks.clear()
+        _state._test_filtered_chunks.clear()
+        _state._test_chunks.clear()
+
 
 def _cancel_test_locked() -> bool:
     """Cancel test state under the lock.
@@ -670,6 +676,7 @@ def _cancel_test_locked() -> bool:
         _state._test_mode = False
         # .clear() preserves the bounded deque (and its maxlen).
         # reassigning to [] would make it an unbounded list again.
+        _secure_clear_test_chunks(_state._test_raw_chunks, _state._test_filtered_chunks, _state._test_chunks)
         _state._test_chunks.clear()
         _state._test_raw_chunks.clear()
         _state._test_filtered_chunks.clear()

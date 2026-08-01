@@ -2,9 +2,11 @@
 
 import collections as _collections
 import contextlib
+import functools
 import json
 import logging
 import re
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Final
@@ -72,6 +74,141 @@ class CorrectionsLoadError(RuntimeError):
     """
 
 
+def _load_bundled_corrections():
+    """Load the bundled ``corrections.json`` shipped with the app.
+
+    AC-82 helper: factored out of :func:`_load_external_corrections`
+    so the orchestrator is left with phase composition (load bundled
+    → load user → merge → truncate → filter) rather than 4 inline
+    phases. Returns ``(misspellings, phrase_corrections,
+    extra_word_patterns, loaded_any, load_errors)``.
+
+    On success: fresh containers populated from the bundled JSON,
+    ``loaded_any=True``, ``load_errors=[]``. On failure (file missing
+    OR parse error): empty containers, ``loaded_any=False``, and a
+    single ``"bundled: <exc>"`` entry in ``load_errors`` (the missing-
+    file case is the normal first-launch path and produces no error
+    entry — matching the prior inline behaviour where
+    ``if _BUNDLED_CORRECTIONS_PATH.exists()`` skipped the load block
+    silently).
+
+    The bundled path uses the lenient ``data.get("phrase_corrections",
+    [])`` form (no outer ``isinstance`` check) to preserve the prior
+    behaviour — any iterable of 2-element pairs is accepted. The user
+    path (:func:`_load_user_corrections`) is stricter.
+    """
+    if not _BUNDLED_CORRECTIONS_PATH.exists():
+        return {}, [], [], False, []
+    try:
+        # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+        from voice_typer.server.config import _secure_read_text
+
+        raw = _secure_read_text(_BUNDLED_CORRECTIONS_PATH, encoding="utf-8")
+        data = json.loads(raw)
+        misspellings = dict(data.get("misspellings", {}))
+        phrase_corrections = [
+            tuple(item)
+            for item in data.get("phrase_corrections", [])
+            if isinstance(item, list | tuple) and len(item) == 2
+        ]
+        extra_word_patterns = [
+            tuple(item)
+            for item in data.get("extra_word_patterns", [])
+            if isinstance(item, list | tuple) and len(item) == 2
+        ]
+        return misspellings, phrase_corrections, extra_word_patterns, True, []
+    except Exception as exc:
+        log.warning("[CLEANUP] Failed to load bundled corrections: %s", exc)
+        return {}, [], [], False, [f"bundled: {exc}"]
+
+
+def _load_user_corrections(
+    config_dir: Path | None = None,
+    corrections_path: str | None = None,
+):
+    """Load the user-provided corrections file (if present).
+
+    AC-82 helper: factored out of :func:`_load_external_corrections`.
+    Returns ``(path, misspellings, phrase_corrections, extra_word_patterns,
+    roman_context_ext, roman_following_ext, loaded_any, load_errors)``.
+
+    When no user file exists (no ``corrections_path`` AND no ``config_dir``,
+    OR the resolved path does not exist): returns
+    ``(None, {}, [], [], set(), set(), False, [])`` — no error, no log
+    (matching the prior ``if path is not None and path.exists()`` silent skip).
+
+    On success: returns the resolved path (for the success log),
+    FRESH containers (NOT merged with bundled — the orchestrator
+    merges them via ``dict.update`` / ``list.extend``), the
+    AC-84 Roman-numeral word-set extensions (lowercase strings,
+    EMPTY sets if the user file doesn't include those keys),
+    ``loaded_any=True``, ``load_errors=[]``.
+
+    On failure (parse error, IO error): returns the path (for the
+    error log), empty containers, empty extension sets,
+    ``loaded_any=False``, and a single ``"<filename>: <exc>"`` entry
+    in ``load_errors``.
+
+    The user path uses the strict ``isinstance(data[key], list)`` /
+    ``isinstance(data[key], dict)`` form (preserving the prior inline
+    behaviour where a non-dict ``misspellings`` was silently skipped
+    rather than raising).
+    """
+    path: Path | None = None
+    if corrections_path:
+        path = Path(corrections_path)
+    elif config_dir is not None:
+        path = config_dir / "voice-typer-corrections.json"
+
+    if path is None or not path.exists():
+        return None, {}, [], [], set(), set(), False, []
+
+    try:
+        # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+        from voice_typer.server.config import _secure_read_text
+
+        raw = _secure_read_text(path, encoding="utf-8")
+        data = json.loads(raw)
+        misspellings: dict[str, str] = {}
+        if "misspellings" in data and isinstance(data["misspellings"], dict):
+            misspellings = dict(data["misspellings"])
+        phrase_corrections: list[tuple[str, str]] = []
+        if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
+            phrase_corrections = [
+                tuple(item) for item in data["phrase_corrections"] if isinstance(item, list | tuple) and len(item) == 2
+            ]
+        extra_word_patterns: list[tuple[str, str]] = []
+        if "extra_word_patterns" in data and isinstance(data["extra_word_patterns"], list):
+            extra_word_patterns = [
+                tuple(item) for item in data["extra_word_patterns"] if isinstance(item, list | tuple) and len(item) == 2
+            ]
+        # AC-84: extract optional Roman-numeral word-set extensions.
+        # Both keys default to empty sets when absent or wrongly typed
+        # (silent skip — matches the strict isinstance pattern used for
+        # the other correction fields). Strings are lowercased so the
+        # case-insensitive membership check in _capitalize_pronoun_i
+        # works regardless of how the user capitalised them in the file.
+        roman_context_ext: set[str] = set()
+        if "roman_numeral_context_words" in data and isinstance(data["roman_numeral_context_words"], list):
+            roman_context_ext = {str(w).lower() for w in data["roman_numeral_context_words"] if isinstance(w, str)}
+        roman_following_ext: set[str] = set()
+        if "roman_numeral_following_words" in data and isinstance(data["roman_numeral_following_words"], list):
+            roman_following_ext = {str(w).lower() for w in data["roman_numeral_following_words"] if isinstance(w, str)}
+        return (
+            path,
+            misspellings,
+            phrase_corrections,
+            extra_word_patterns,
+            roman_context_ext,
+            roman_following_ext,
+            True,
+            [],
+        )
+    except Exception as e:
+        log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
+        return path, {}, [], [], set(), set(), False, [f"{path.name}: {e}"]
+
+
 def _load_external_corrections(
     config_dir: Path | None = None,
     corrections_path: str | None = None,
@@ -84,79 +221,61 @@ def _load_external_corrections(
 
     raises ``CorrectionsLoadError`` when a file exists but
     could not be parsed (was previously a silent ``None`` return).
+
+    AC-82: the four phases (load bundled → load user → merge →
+    truncate → filter) are now composed from focused helpers
+    (:func:`_load_bundled_corrections`, :func:`_load_user_corrections`,
+    :func:`_truncate_corrections`, :func:`_filter_corrections_by_length`)
+    instead of being inlined as copy-paste blocks. The body drops
+    from ~160 lines to ~50; each phase is a one-liner.
     """
-    loaded_any = False
-    # track the last load error so callers can distinguish
-    # "no file" (None, no error) from "file failed to load" (raise).
-    load_errors: list[str] = []
+    bundled = _load_bundled_corrections()
+    user = _load_user_corrections(config_dir, corrections_path)
 
-    # Start with bundled corrections
-    misspellings: dict[str, str] = {}
-    phrase_corrections: list[tuple[str, str]] = []
-    extra_word_patterns: list[tuple[str, str]] = []
+    bundled_m, bundled_p, bundled_e, bundled_loaded, bundled_errors = bundled
+    (
+        user_path,
+        user_m,
+        user_p,
+        user_e,
+        user_roman_ctx,
+        user_roman_fol,
+        user_loaded,
+        user_errors,
+    ) = user
 
-    if _BUNDLED_CORRECTIONS_PATH.exists():
-        try:
-            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
-            from voice_typer.server.config import _secure_read_text
+    load_errors: list[str] = list(bundled_errors) + list(user_errors)
+    loaded_any = bool(bundled_loaded or user_loaded)
 
-            raw = _secure_read_text(_BUNDLED_CORRECTIONS_PATH, encoding="utf-8")
-            data = json.loads(raw)
-            misspellings = dict(data.get("misspellings", {}))
-            phrase_corrections = [
-                tuple(item)
-                for item in data.get("phrase_corrections", [])
-                if isinstance(item, list | tuple) and len(item) == 2
-            ]
-            extra_word_patterns = [
-                tuple(item)
-                for item in data.get("extra_word_patterns", [])
-                if isinstance(item, list | tuple) and len(item) == 2
-            ]
-            loaded_any = True
-        except Exception as exc:
-            log.warning("[CLEANUP] Failed to load bundled corrections: %s", exc)
-            load_errors.append(f"bundled: {exc}")
+    # Merge: bundled creates fresh containers; user extends them.
+    misspellings: dict[str, str] = dict(bundled_m)
+    misspellings.update(user_m)
+    phrase_corrections: list[tuple[str, str]] = list(bundled_p) + list(user_p)
+    extra_word_patterns: list[tuple[str, str]] = list(bundled_e) + list(user_e)
 
-    # Merge user-provided corrections on top
-    path = None
-    if corrections_path:
-        path = Path(corrections_path)
-    elif config_dir is not None:
-        path = config_dir / "voice-typer-corrections.json"
+    # AC-84: refresh the user-extension state for the Roman-numeral word
+    # sets on every load. The state is REPLACED (not extended) so removing
+    # the keys from the user file reverts to bundled-only behaviour. The
+    # bundled defaults themselves are constants and never mutated. The
+    # state update happens outside the ``_active_state_lock`` (same
+    # accepted race window as the other module-level state — the lock is
+    # taken in ``configure_corrections`` for the other state, and a
+    # concurrent ``clean_transcribed_text`` call seeing the OLD extension
+    # set for one dictation is benign: it just uses a slightly-staler set
+    # of context words, never a corrupt one).
+    global _user_roman_numeral_context_extensions
+    global _user_roman_numeral_following_extensions
+    _user_roman_numeral_context_extensions = set(user_roman_ctx)
+    _user_roman_numeral_following_extensions = set(user_roman_fol)
 
-    if path is not None and path.exists():
-        try:
-            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
-            from voice_typer.server.config import _secure_read_text
-
-            raw = _secure_read_text(path, encoding="utf-8")
-            data = json.loads(raw)
-            if "misspellings" in data and isinstance(data["misspellings"], dict):
-                misspellings.update(data["misspellings"])
-            if "phrase_corrections" in data and isinstance(data["phrase_corrections"], list):
-                phrase_corrections.extend(
-                    tuple(item)
-                    for item in data["phrase_corrections"]
-                    if isinstance(item, list | tuple) and len(item) == 2
-                )
-            if "extra_word_patterns" in data and isinstance(data["extra_word_patterns"], list):
-                extra_word_patterns.extend(
-                    tuple(item)
-                    for item in data["extra_word_patterns"]
-                    if isinstance(item, list | tuple) and len(item) == 2
-                )
-            log.info(
-                "[CLEANUP] Loaded user corrections from %s (%d misspellings, %d phrases, %d extra-word patterns)",
-                path,
-                len(misspellings),
-                len(phrase_corrections),
-                len(extra_word_patterns),
-            )
-            loaded_any = True
-        except Exception as e:
-            log.warning("[CLEANUP] Failed to load corrections from %s: %s", path, e)
-            load_errors.append(f"{path.name}: {e}")
+    if user_loaded and user_path is not None:
+        log.info(
+            "[CLEANUP] Loaded user corrections from %s (%d misspellings, %d phrases, %d extra-word patterns)",
+            user_path,
+            len(misspellings),
+            len(phrase_corrections),
+            len(extra_word_patterns),
+        )
 
     # raise whenever ANY load error occurred — previously the
     # raise was gated on ``not loaded_any``, which meant a malformed
@@ -341,7 +460,7 @@ _active_extra_word_patterns: list["re.Pattern[str]"] = []
 # prevents the worst race (two threads each replacing the dict mid-
 # cleanup of the other). The instance refactor is deferred because
 # it touches ~20 call sites.
-_active_state_lock = __import__("threading").Lock()
+_active_state_lock = threading.Lock()
 
 # cache of compiled regex patterns for phrase corrections.
 # Keyed on the (lowercased) phrase string; value is a compiled regex
@@ -818,6 +937,43 @@ def _fix_common_misspellings(text: str) -> str:
     return " ".join(_fix_common_misspellings_tokens(text.split(" ")))
 
 
+def _apply_phrase_substitutions(
+    text: str,
+    get_regex,
+    replacer,
+) -> str:
+    """Apply a combined-alternation regex substitution to ``text``.
+
+    Unified core of :func:`_correct_whisper_phrases` and
+    :func:`_remove_extra_words` (AC-81 DRY fix). The two functions
+    previously each repeated the same shape:
+
+        pattern, lookup = get_regex()
+        if pattern is None:
+            return text
+        return pattern.sub(<callback using lookup>, text)
+
+    with the only meaningful difference being the per-match callback
+    (case-preserving for phrase corrections vs plain literal
+    substitution for extra-word removal). This helper hoists the
+    shared short-circuit + ``re.sub`` plumbing out; each call site
+    now passes ``get_regex`` (returning ``(pattern, lookup)``) and
+    ``replacer`` (taking ``(match, lookup)`` and returning the
+    substitution string).
+
+    Both call sites route pattern resolution through the same
+    id-keyed combined-regex cache (``_get_phrases_regex`` /
+    ``_get_extra_words_regex``), so a concurrent
+    ``configure_corrections`` call invalidates the cache via the
+    ``id(_active_*)`` change — closing the parallel-lists race the
+    prior ``_remove_extra_words`` had reintroduced.
+    """
+    pattern, lookup = get_regex()
+    if pattern is None:
+        return text
+    return pattern.sub(lambda m: replacer(m, lookup), text)
+
+
 def _correct_whisper_phrases(text: str) -> str:
     """Fix known Whisper small-model phrase misrecognitions.
 
@@ -855,23 +1011,20 @@ def _correct_whisper_phrases(text: str) -> str:
         length-descending sort in ``_build_phrases_regex``; the bundled
         corrections.json has no overlapping phrases, so this is
         theoretical.)
+
+    AC-81: the shared short-circuit + ``re.sub`` plumbing is
+        hoisted into :func:`_apply_phrase_substitutions`; this function
+        passes the case-preserving replacer that re-applies the original
+        casing to the looked-up replacement.
     """
-    pattern, lookup = _get_phrases_regex()
-    if pattern is None:
-        return text
-
-    def _replacer(match: "re.Match[str]") -> str:
-        # match.group(0) is the matched phrase in its original casing.
-        # lookup is keyed on bad.lower(), so we lowercase the matched
-        # text to find the replacement. Case-preserving substitution
-        # then re-applies the original casing to the replacement.
-        good = lookup[match.group(0).lower()]
-        return _apply_case_preserving_replacement(match, good)
-
-    return pattern.sub(_replacer, text)
+    return _apply_phrase_substitutions(
+        text,
+        _get_phrases_regex,
+        lambda m, lookup: _apply_case_preserving_replacement(m, lookup[m.group(0).lower()]),
+    )
 
 
-def _apply_case_preserving_replacement(match: object, good: str) -> str:
+def _apply_case_preserving_replacement(match: re.Match[str], good: str) -> str:
     """Replace ``match.group(0)`` with ``good`` preserving the original casing.
 
     hoisted out of ``_correct_whisper_phrases`` so the
@@ -887,7 +1040,7 @@ def _apply_case_preserving_replacement(match: object, good: str) -> str:
            lowercasing the rest.
         4. All lower (the common case) → ``good`` as-is.
     """
-    original = match.group(0)  # type: ignore[attr-defined]
+    original = match.group(0)
     # Apply same casing pattern as original
     if original.isupper():
         return good.upper()
@@ -946,15 +1099,32 @@ def _remove_extra_words(text: str) -> str:
         case-preservation needed for extra-word removal (the original
         ``pattern.sub(good, text)`` substituted the literal ``good``
         string regardless of matched casing, which we preserve).
+
+    AC-81: the shared short-circuit + ``re.sub`` plumbing is
+        hoisted into :func:`_apply_phrase_substitutions`; this function
+        passes the plain-literal replacer (no case preservation — the
+        original ``pattern.sub(good, text)`` behaviour).
     """
-    pattern, lookup = _get_extra_words_regex()
-    if pattern is None:
-        return text
-    return pattern.sub(lambda m: lookup[m.group(0).lower()], text)
+    return _apply_phrase_substitutions(
+        text,
+        _get_extra_words_regex,
+        lambda m, lookup: lookup[m.group(0).lower()],
+    )
 
 
+@functools.lru_cache(maxsize=4096)
 def _token_key(token: str) -> str:
     # PERF-PIPE: use precompiled regex instead of re.sub(pattern, ...)
+    # PERF-KEY-CACHE: memoize on the token string. The four token-based
+    # cleanup helpers (_clean_self_corrections_tokens,
+    # _remove_adjacent_duplicate_phrases_tokens via _duplicate_phrase_length,
+    # _remove_near_duplicate_words_tokens, _fix_common_misspellings_tokens)
+    # each iterate the full token list and re-compute the key for every
+    # position — up to ~7N calls for an N-token dictation. Most dictations
+    # repeat tokens heavily (function words, punctuation), so a small
+    # bounded LRU cache amortises this to ~unique-token-count calls.
+    # maxsize=4096 bounds memory in pathological cases; the cache is
+    # thread-safe (functools.lru_cache holds an internal lock).
     return _RE_TOKEN_KEY.sub("", token).lower()
 
 
@@ -971,7 +1141,21 @@ def _capitalize_sentences(text: str) -> str:
     return "".join(chars)
 
 
-# Roman numeral context words that precede lowercase 'i'
+# Roman numeral context words that precede lowercase 'i'.
+#
+# AC-84: these remain the BUNDLED DEFAULTS. Users can extend them
+# (e.g. with "george", "edward", "charles", "napoleon", "alexander"
+# — names the original hardcoded set was missing) by adding a
+# ``roman_numeral_context_words`` list (lowercase strings) to their
+# ``voice-typer-corrections.json``. The user-provided words are
+# purely ADDITIVE to this bundled set — they extend, never replace.
+# See :func:`_load_user_corrections` for the loader path.
+#
+# Format in the user corrections file:
+#     {
+#         "roman_numeral_context_words": ["george", "edward", ...],
+#         "roman_numeral_following_words": ["until", "until-iv", ...]
+#     }
 _ROMAN_NUMERAL_CONTEXT_WORDS = {
     "section",
     "chapter",
@@ -1013,6 +1197,18 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
     "ix",
     "x",
 }
+
+# AC-84: user-provided extensions to the bundled Roman-numeral word
+# sets. Populated by :func:`_load_external_corrections` (via
+# :func:`_load_user_corrections`) when the user corrections file
+# includes ``roman_numeral_context_words`` /
+# ``roman_numeral_following_words`` keys. Resets to empty on every
+# load call (so removing the keys from the user file reverts to
+# bundled-only behaviour). Checked ADDITIVELY to the bundled defaults
+# in :func:`_capitalize_pronoun_i` — a word in EITHER set triggers
+# the Roman-numeral lowercase behaviour.
+_user_roman_numeral_context_extensions: set[str] = set()
+_user_roman_numeral_following_extensions: set[str] = set()
 
 # precompiled regex for standalone 'i' (not preceded or followed by
 # an alpha character — preserves the original semantics where 'i3' or '3i'
@@ -1117,13 +1313,21 @@ def _capitalize_pronoun_i(text: str) -> str:
     # Mutate a mutable buffer in place — no per-match string allocation
     # beyond the O(k) word slices inside the helpers.
     chars = list(text)
+    # AC-84: check both the bundled defaults AND the user-provided
+    # extension sets (additive — a word in EITHER set triggers the
+    # Roman-numeral lowercase behaviour). The extension sets are
+    # refreshed by ``_load_external_corrections`` on every
+    # ``configure_corrections`` call, so the user's corrections file
+    # is the source of truth for extensions.
+    context_words = _ROMAN_NUMERAL_CONTEXT_WORDS | _user_roman_numeral_context_extensions
+    following_words = _ROMAN_NUMERAL_FOLLOWING_WORDS | _user_roman_numeral_following_extensions
     for match in matches:
         start = match.start()
         prev_word = _prev_word_ending_at(text, start)
-        if prev_word and prev_word in _ROMAN_NUMERAL_CONTEXT_WORDS:
+        if prev_word and prev_word in context_words:
             continue  # keep lowercase
         next_word = _next_word_starting_at(text, match.end())
-        if next_word and next_word in _ROMAN_NUMERAL_FOLLOWING_WORDS:
+        if next_word and next_word in following_words:
             continue  # keep lowercase
         chars[start] = "I"
     return "".join(chars)

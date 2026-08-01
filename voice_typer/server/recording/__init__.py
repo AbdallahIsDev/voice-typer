@@ -46,9 +46,10 @@ names via ``_pkg.X`` at call time).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO (2026-07-25,  / TECH-DEBT — OPEN, awaiting migration):
+TODO (2026-08-01, TECH-DEBT — OPEN, awaiting migration;
+tracking: ``docs/rw9-god-class-decomposition.md``):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once  is complete, this
+during the package reorganization.  Once the migration is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
 then remove this class.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
@@ -58,7 +59,7 @@ with
 has been migrated, ``_RecordingModule`` and the ``_MUTABLE_*``
 frozensets below can be deleted.  Estimated scope: 30-50 test files
 per package (so 90-150 test files total across the three packages).
-Tracked as  / TECH-DEBT.
+Tracked as TECH-DEBT (see ``docs/rw9-god-class-decomposition.md``).
 
 Patch-path compatibility
 ------------------------
@@ -355,9 +356,10 @@ __all__ = [
 # ``__setattr__`` overrides that route the mutable names through to
 # the owning submodule.
 #
-# TODO (2026-07-25,  / TECH-DEBT — OPEN, awaiting migration):
+# TODO (2026-08-01, TECH-DEBT — OPEN, awaiting migration;
+# tracking: ``docs/rw9-god-class-decomposition.md``):
 # This ``__init__.py`` boilerplate exists for test-patch compatibility
-# during the package reorganization.  Once  is complete, this
+# during the package reorganization.  Once the migration is complete, this
 # file will be simplified.  Migrate tests to patch submodules directly,
 # then remove this class.  Replace
 # ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
@@ -366,9 +368,9 @@ __all__ = [
 # (and similarly for the other names in ``_MUTABLE_RESAMPLING`` /
 # ``_MUTABLE_BUFFER``).  Once every test site has been migrated,
 # ``_RecordingModule`` and the ``_MUTABLE_*`` frozensets below can be
-# deleted.  Tracked as  / TECH-DEBT (estimated 30-50 test files
+# deleted.  Tracked as TECH-DEBT (estimated 30-50 test files
 # per package; ~90-150 total across recording / prewarm /
-# server_platform).
+# server_platform; see ``docs/rw9-god-class-decomposition.md``).
 #
 # Tests like tests/test_recording.py:689 do
 # ``rec_mod._resample_poly_error = RuntimeError(...)`` (write to the

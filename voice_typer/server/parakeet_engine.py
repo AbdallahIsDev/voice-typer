@@ -255,6 +255,25 @@ class ParakeetEngine:
         # current chunk rather than decoding all remaining ones.
         self._abort_event = threading.Event()
         self._ensure_hf_env()
+        # batch 2-4 chunks per ``processor()`` + ``generate()`` call.
+        # Default batch size is 1 (sequential) so the existing test contract
+        # that pins ``mock_model.generate.call_count == 2`` for a 2-chunk
+        # transcription keeps passing. Operators who want the batching
+        # speedup can set ``PARAKEET_BATCH_SIZE=2`` (or 3/4) in the
+        # environment; on OOM we fall back to per-chunk sequential inference
+        # for the remaining chunks so the user still gets a transcription.
+        #
+        # Read at construction time (NOT import time) so changes to the
+        # env var between engine constructions take effect — previously
+        # the class-attribute form evaluated ``os.environ.get`` once when
+        # the module was imported, freezing the value for the entire
+        # process lifetime and ignoring any later ``os.environ`` mutation
+        # (e.g. a test that does ``monkeypatch.setenv(\"PARAKEET_BATCH_SIZE\",
+        # \"2\")`` after the first ParakeetEngine was constructed would NOT
+        # see the new value, because the class attribute was already
+        # frozen). Setting it as an instance attribute here re-reads the
+        # env var on every ``ParakeetEngine()`` construction.
+        self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
 
     @classmethod
     def _ensure_hf_env(cls):
@@ -872,7 +891,14 @@ class ParakeetEngine:
     # speedup can set ``PARAKEET_BATCH_SIZE=2`` (or 3/4) in the
     # environment; on OOM we fall back to per-chunk sequential inference
     # for the remaining chunks so the user still gets a transcription.
-    _INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
+    #
+    # NOTE: this is the CLASS-level default. ``__init__`` overrides it
+    # with an INSTANCE attribute of the same name, read from the env
+    # var at construction time (NOT import time) so changes to
+    # ``PARAKEET_BATCH_SIZE`` between engine constructions take effect.
+    # The class attribute is kept as a fallback for instances created
+    # via ``__new__`` (e.g. some unit tests) that skip ``__init__``.
+    _INFERENCE_BATCH_SIZE: int = 1
 
     def _transcribe_chunks_batched(self, chunks: list[np.ndarray]) -> list[str]:
         """Transcribe ``chunks`` in batches, falling back to sequential on OOM.
@@ -1261,7 +1287,23 @@ class ParakeetEngine:
 
         chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
         results = []
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
+            # OI-14: abort gate at the TOP of the CPU-fallback chunk
+            # loop, mirroring the batched path in
+            # ``_transcribe_chunks_batched``. The ``_AbortStoppingCriteria``
+            # passed to ``model.generate()`` only stops the CURRENT
+            # chunk's token stream; without this check the loop would
+            # decode every remaining chunk after ESC / watchdog, so a
+            # 2-minute audio split into 5 CPU chunks could take 2-5
+            # minutes to honour the abort instead of the documented
+            # "stop after the current chunk" bound.
+            if self._abort_event.is_set():
+                log.info(
+                    "[PARAKEET] Abort requested — stopping CPU-fallback chunk loop early (completed %d/%d chunks)",
+                    i,
+                    len(chunks),
+                )
+                break
             text = self._transcribe_segment_unlocked(chunk)
             if text:
                 results.append(text)

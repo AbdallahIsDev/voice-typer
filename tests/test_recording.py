@@ -1505,23 +1505,67 @@ class TestRec8BufferOpsLocked:
         import inspect
 
         from voice_typer.server.recording import Recorder
+        from voice_typer.server.recording._recorder_split import (
+            discard_recording,
+            start_recording,
+        )
 
-        start_src = inspect.getsource(Recorder._start_impl)
-        # The buffer.clear() call must be inside a `with self._lock:` block.
-        # We verify by checking the source contains the lock + clear in
-        # proximity. A more robust test would instrument the lock.
-        assert "with self._lock:" in start_src, "REC-8: _start_impl does not acquire self._lock for buffer ops"
-        assert "self._buffer.clear()" in start_src, "REC-8: _start_impl does not call self._buffer.clear()"
+        # The buffer-clear + rebind logic was extracted from the
+        # pre-refactor ``Recorder._start_impl`` (which no longer exists)
+        # into the ``discard_recording`` and ``take_snapshot`` functions
+        # in ``_recorder_split`` (the buffer.clear() lives in
+        # ``discard_recording``; the buffer rebind lives in both
+        # ``discard_recording`` and ``take_snapshot``). The source-string
+        # contract pins the ``with recorder._lock:`` +
+        # ``recorder._buffer = collections.deque(...)`` literal pair on
+        # the actual implementation sites.
+        discard_src = inspect.getsource(discard_recording)
+        assert "with recorder._lock:" in discard_src, (
+            "REC-8: discard_recording does not acquire recorder._lock for buffer ops"
+        )
+        assert "recorder._buffer = collections.deque(" in discard_src, (
+            "REC-8: discard_recording does not rebind recorder._buffer"
+        )
+        # ``start_recording`` delegates the cache-clearance + session
+        # reset to ``Recorder._secure_clear_session_caches`` /
+        # ``_reset_session_state`` (the latter delegates to
+        # ``SessionState.reset_session_state``). The buffer-clear call
+        # happens inside the collaborator. Verify the delegation is
+        # present in the start body so a future regression that removes
+        # the call surfaces here.
+        start_src = inspect.getsource(start_recording)
+        assert "_secure_clear_session_caches" in start_src, (
+            "REC-8: start_recording no longer calls _secure_clear_session_caches"
+        )
+        # ``Recorder.start`` itself acquires ``_start_lock`` (the
+        # source-inspection contract that lives on the entry-point).
+        # Confirm the lock literal still pins to ``Recorder.start`` so
+        # the start lock contract remains testable.
+        start_method_src = inspect.getsource(Recorder.start)
+        assert "with self._start_lock:" in start_method_src, "REC-8: Recorder.start no longer acquires self._start_lock"
 
     def test_buffer_rebind_under_lock(self):
         import inspect
 
-        from voice_typer.server.recording import Recorder
+        from voice_typer.server.recording._recorder_split import (
+            discard_recording,
+            stop_recording,
+        )
 
-        start_src = inspect.getsource(Recorder._start_impl)
-        # The buffer rebind (for dynamic max_recording_time) must be
-        # inside a `with self._lock:` block.
-        assert "self._buffer = collections.deque(" in start_src, "REC-8: _start_impl does not rebind self._buffer"
+        # The buffer rebind (``recorder._buffer = collections.deque(...)``)
+        # is wrapped in ``with recorder._lock:`` at BOTH sites that
+        # perform it: ``discard_recording`` (the discard path) and
+        # ``stop_recording`` (the stop path). Verify the literal pair
+        # at each site so a future regression that drops the lock
+        # acquisition on either path surfaces here.
+        for fn in (discard_recording, stop_recording):
+            src = inspect.getsource(fn)
+            assert "with recorder._lock:" in src, (
+                f"REC-8: {fn.__name__} does not acquire recorder._lock for buffer rebind"
+            )
+            assert "recorder._buffer = collections.deque(" in src, (
+                f"REC-8: {fn.__name__} does not rebind recorder._buffer"
+            )
 
 
 class TestAudio69RebuildOnSampleRateMismatch:

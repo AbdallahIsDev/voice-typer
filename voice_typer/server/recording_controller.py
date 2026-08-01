@@ -25,6 +25,7 @@ import gc
 import logging
 import os
 import threading
+from collections import OrderedDict
 from typing import Any
 
 from voice_typer.server import i18n
@@ -33,6 +34,21 @@ from voice_typer.server.streaming import StreamingConfig, StreamingTranscription
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
+
+
+# Bounded cap for ``_cancelled_cycle_ids``. Each cancel event (ESC-during-
+# transcription, watchdog force-recover) appends one cycle_id; without a
+# cap, the set grew by one entry per cancel event forever — a slow memory
+# leak on long-lived processes that get cancelled a lot (e.g. a user who
+# habitually ESC-cancels half-finished dictations). The OrderedDict-based
+# LRU eviction in ``_mark_cycle_cancelled`` keeps the registry at <=>
+# this many entries, evicting the OLDEST entries first (entries are not
+# re-touched on read, so oldest == least-recently-added). 1000 is well
+# above the realistic working set (a user would have to cancel 1000
+# distinct cycles within a single process lifetime for eviction to
+# matter) and small enough that the per-entry memory cost (a ~40-byte
+# str key + dict slot) is bounded to ~40 KB worst case.
+_MAX_CANCELLED_IDS = 1000
 
 
 class RecordingController:
@@ -118,16 +134,35 @@ class RecordingController:
         self._watchdog_event = threading.Event()
         self._watchdog_stop_event = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
-        #  (IMPROVE-mode run, 2026-07-21): set of cycle_ids that were
-        # force-cancelled by the watchdog. ``DictationPipeline.run()`` checks
-        # this set BEFORE calling ``_copy_and_paste`` — if the cycle was
-        # cancelled (because the transcription thread took >4.5min and the
-        # watchdog fired), the late transcription is NOT pasted into whatever
-        # window currently has focus. Prevents data corruption when the user
-        # alt-tabs away during a stuck transcription and the ctranslate2 call
-        # eventually completes 5-30 min later. Entries are discarded by the
-        # pipeline's ``finally`` block to keep the set bounded.
-        self._cancelled_cycle_ids: set[str] = set()
+        #  (IMPROVE-mode run, 2026-07-21): bounded LRU registry of
+        # cycle_ids that were force-cancelled by the watchdog (or by ESC
+        # during the transcription phase). ``DictationPipeline.run()``
+        # checks this registry BEFORE calling ``_copy_and_paste`` — if
+        # the cycle was cancelled (because the transcription thread took
+        # >4.5min and the watchdog fired), the late transcription is NOT
+        # pasted into whatever window currently has focus. Prevents data
+        # corruption when the user alt-tabs away during a stuck
+        # transcription and the ctranslate2 call eventually completes
+        # 5-30 min later.
+        #
+        # Pre-fix this was a plain ``set[str]`` and the comment
+        # claimed "Entries are discarded by the pipeline's finally block
+        # to keep the set bounded" — which was FALSE (grep found NO
+        # discard/remove/pop/clear calls anywhere; entries were only
+        # ever ADDED, on ESC cancel and on watchdog force-recover). The
+        # set grew by one entry per cancel event forever. Now it's a
+        # bounded ``OrderedDict`` (LRU eviction at ``_MAX_CANCELLED_IDS``
+        # = 1000 entries, evicting the oldest first). The membership
+        # check (``cycle_id in self._cancelled_cycle_ids``) works on
+        # dict keys exactly like it worked on the set, so all read
+        # sites (``dictation_stages.CancellationGuard``,
+        # ``dictation_pipeline._AbortWatcher``) are unchanged. Mutations
+        # go through ``_mark_cycle_cancelled`` (add + LRU-evict) and
+        # ``_discard_cancelled_cycle_id`` (best-effort remove, called
+        # from ``_run_stop_and_transcribe`` after the pipeline returns
+        # so a cycle that completed normally does not linger in the
+        # registry).
+        self._cancelled_cycle_ids: OrderedDict[str, None] = OrderedDict()
         self._cancelled_cycle_ids_lock = threading.Lock()
         #  (privacy): shared, clearable slot holding the audio bytes
         # captured by ``stop()`` for the transcription thread. Pre-fix,
@@ -208,6 +243,74 @@ class RecordingController:
         except Exception:
             log.debug("[DICTATION] _list_active_mic_ids failed", exc_info=True)
             return []
+
+    def _mark_cycle_cancelled(self, cycle_id: str) -> None:
+        """Record a cycle_id as force-cancelled (watchdog / ESC-during-
+        transcription) with LRU eviction at ``_MAX_CANCELLED_IDS``.
+
+        Thread-safe: acquires ``_cancelled_cycle_ids_lock`` for the
+        check-then-insert-then-evict sequence so two concurrent
+        cancellations cannot both pass the membership check and both
+        append (which would let the dict momentarily exceed the cap).
+
+        The OrderedDict's insertion order is the eviction order —
+        ``popitem(last=False)`` removes the OLDEST entry. We do NOT
+        ``move_to_end`` on an existing key (re-touch on read is not
+        part of the contract; the registry only grows when a NEW
+        cancel event fires, and old entries are evicted FIFO once the
+        cap is reached). This matches the set semantics pre-fix
+        (a set has no ordering at all) while bounding the memory cost.
+
+        Duck-typed for tests: if ``_cancelled_cycle_ids`` is a plain
+        ``set`` (the pre-fix type, still used by tests that construct
+        a controller via ``__new__`` and assign ``set()`` directly),
+        we fall back to ``set.add()`` and skip the LRU eviction
+        (a set has no insertion order, so FIFO eviction is undefined).
+        Production always uses the ``OrderedDict`` from ``__init__``.
+        """
+        with self._cancelled_cycle_ids_lock:
+            if cycle_id in self._cancelled_cycle_ids:
+                # Already cancelled — no-op (the watchdog / ESC may
+                # fire more than once for the same cycle; idempotent).
+                return
+            if isinstance(self._cancelled_cycle_ids, set):
+                # Test-double path: plain set has no ordering, so no
+                # LRU eviction. The set membership check still works
+                # for the ``CancellationGuard`` lookup. Production
+                # uses an OrderedDict (see ``__init__``) which DOES
+                # support eviction.
+                self._cancelled_cycle_ids.add(cycle_id)
+                return
+            self._cancelled_cycle_ids[cycle_id] = None
+            if len(self._cancelled_cycle_ids) > _MAX_CANCELLED_IDS:
+                # Evict the OLDEST entry (FIFO). ``popitem(last=False)``
+                # returns ``(key, value)``; we discard both — only the
+                # key matters for the membership check.
+                self._cancelled_cycle_ids.popitem(last=False)
+
+    def _discard_cancelled_cycle_id(self, cycle_id: str) -> None:
+        """Best-effort removal of a cycle_id from the cancelled registry.
+
+        Called from ``_run_stop_and_transcribe`` after the pipeline
+        returns (whether the cycle was cancelled or not) so a cycle
+        that completed normally — or whose late transcription has
+        already been observed + dropped by ``CancellationGuard`` —
+        does not linger in the registry until the ``_MAX_CANCELLED_IDS``
+        cap evicts it years later.
+
+        Thread-safe: acquires ``_cancelled_cycle_ids_lock``. Silent
+        no-op if ``cycle_id`` is not present (the common case — most
+        cycles are never cancelled, so there's nothing to discard).
+
+        Duck-typed for tests: handles both ``set`` (``set.discard``)
+        and ``OrderedDict`` (``dict.pop`` with KeyError suppression).
+        """
+        with self._cancelled_cycle_ids_lock:
+            if isinstance(self._cancelled_cycle_ids, set):
+                self._cancelled_cycle_ids.discard(cycle_id)
+                return
+            with contextlib.suppress(KeyError):
+                self._cancelled_cycle_ids.pop(cycle_id)
 
     def on_device_lost(self) -> None:
         """handle the terminal 'max disconnect retries reached'
@@ -648,7 +751,46 @@ class RecordingController:
             # thread (started in ``_stop_impl``) transcribes the buffered
             # audio once the model is ready. If the model fails to load,
             # we discard the recorder we just started and surface an error.
-            app.models.ensure_active_engine_loaded()
+            #
+            #  Release ``_toggle_lock`` for the duration of
+            # ``ensure_active_engine_loaded()`` so the F2 hotkey backend's
+            # single dispatch thread is NOT blocked for 5-30s on the
+            # idle-unload reload path. Pre-fix, the lock was held across
+            # the model load, so:
+            #   - ESC cancel hotkey (separate thread) blocked on the
+            #     lock — the user could not abort a recording whose
+            #     model was still loading.
+            #   - Tray-menu "Stop" blocked on the lock — the menu
+            #     appeared frozen for 5-30s.
+            #   - Auto-stop Timer (silence / max-duration) blocked on
+            #     the lock — the auto-stop fired but the stop body
+            #     didn't run until the model finished loading,
+            #     defeating the auto-stop's responsiveness guarantee.
+            # The recorder is already running and buffering audio
+            # (started above), so releasing the lock does not pause
+            # audio capture. The ``_busy_event`` is NOT yet cleared
+            # (``_stop_impl`` clears it; ``_start_impl`` does not touch
+            # it), so a concurrent ``stop()`` that acquires the released
+            # lock would see ``busy_event.is_set() == True`` (not busy)
+            # and proceed — which is the desired behavior (the user
+            # explicitly stopped, so the buffered audio should be
+            # transcribed as soon as the model finishes loading). The
+            # transcription thread spawned by that concurrent ``stop()``
+            # calls ``active_transcriber()`` after we finish loading
+            # below; if the model is still loading when the thread
+            # reaches that call, the existing model-manager load
+            # serialization handles the wait.
+            #
+            # Re-acquire the lock AFTER the load completes so the
+            # post-load steps (``active_transcriber`` check,
+            # ``_start_streaming_session_if_enabled``) run under the
+            # lock — preserving the invariant that streaming-session
+            # setup is serialized against concurrent stop / cancel.
+            self._toggle_lock.release()
+            try:
+                app.models.ensure_active_engine_loaded()
+            finally:
+                self._toggle_lock.acquire()
             active = app.models.active_transcriber()
             if active is None or not getattr(active, "is_loaded", False):
                 # No engine loaded -- try to load whisper as a fallback
@@ -1105,6 +1247,21 @@ class RecordingController:
             cycle_id=cycle_id,
             watchdog=None,  # RACE-013: no longer using Timer-based watchdog
         )
+        #  Now that the transcription pipeline has fully
+        # returned (the late-transcription check inside
+        # ``CancellationGuard`` has already run, the paste-or-skip
+        # decision has been made), discard this cycle's entry from
+        # ``_cancelled_cycle_ids``. Without this discard, every
+        # cancelled cycle would linger in the bounded registry until
+        # LRU-evicted at ``_MAX_CANCELLED_IDS`` — the registry would
+        # always be near-full of stale entries from cycles whose
+        # late transcription was already observed + dropped. Discarding
+        # here keeps the registry focused on cycles whose transcription
+        # is STILL pending (i.e. the only entries that matter for the
+        # ``CancellationGuard`` check). Best-effort: a missing cycle_id
+        # is the common case (most cycles are never cancelled) and is
+        # silently ignored by ``_discard_cancelled_cycle_id``.
+        self._discard_cancelled_cycle_id(cycle_id)
 
     def cancel(self) -> None:
         """Feature: ESC to cancel -- cancel current recording/transcription.
@@ -1189,8 +1346,10 @@ class RecordingController:
                 )
                 cycle_id = getattr(app, "_cycle_id", None)
                 if cycle_id is not None:
-                    with self._cancelled_cycle_ids_lock:
-                        self._cancelled_cycle_ids.add(cycle_id)
+                    #  Use the bounded-registry helper so the
+                    # set cannot grow unbounded across many cancel
+                    # events (LRU eviction at ``_MAX_CANCELLED_IDS``).
+                    self._mark_cycle_cancelled(cycle_id)
                     log.info(
                         "[CANCEL] cycle %s marked cancelled — late transcription will not be pasted",
                         cycle_id,
@@ -1638,8 +1797,10 @@ class RecordingController:
         # cycle is present.
         cycle_id = getattr(app, "_cycle_id", None)
         if cycle_id is not None:
-            with self._cancelled_cycle_ids_lock:
-                self._cancelled_cycle_ids.add(cycle_id)
+            #  Use the bounded-registry helper so the
+            # set cannot grow unbounded across many stuck-recovery
+            # events (LRU eviction at ``_MAX_CANCELLED_IDS``).
+            self._mark_cycle_cancelled(cycle_id)
             log.warning(
                 "[STUCK-RECOVERY] cycle %s marked cancelled — late transcription will not be pasted",
                 cycle_id,

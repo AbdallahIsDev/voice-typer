@@ -24,6 +24,12 @@ import numpy as np
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardCopyError
 from voice_typer.server.cloud_engines import CloudEngine
+from voice_typer.server.dictation_stages import (
+    PipelineContext,
+    _PipelineAbortCancelled,
+    _PipelineAbortEmpty,
+    build_default_stages,
+)
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -341,8 +347,6 @@ class DictationPipeline:
         # set this attribute, and ``run`` rebuilds the default list
         # when that happens so the finally-block teardown still
         # exercises the production code paths.
-        from voice_typer.server.dictation_stages import build_default_stages
-
         self._stages: list = build_default_stages()
 
     def request_abort(self) -> None:
@@ -427,11 +431,15 @@ class DictationPipeline:
         # interrupted dictations on the next startup and emit a
         # dictation_lost event. The sentinel is cleared in the finally
         # block below — only a hard process crash leaves it behind.
+        # Atomic write (temp + os.replace) so a crash mid-write cannot
+        # leave a half-truncated sentinel that crash_recovery would
+        # misparse as a (truncated) cycle id.
         with contextlib.suppress(Exception):
             from voice_typer.server._paths import config_dir as _config_dir
+            from voice_typer.server.secure_file_io import _secure_atomic_write
 
             _sentinel = _config_dir() / ".dictation-in-flight"
-            _sentinel.write_text(str(cycle_id), encoding="utf-8")
+            _secure_atomic_write(_sentinel, str(cycle_id), durability=False)
         # publish cycle_id as the correlation id for this thread's
         # logging context.  Capture the token to reset in the finally block.
         from voice_typer.server.log import set_correlation_id
@@ -498,12 +506,6 @@ class DictationPipeline:
             # ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``).
             # Production code always has ``self._stages`` set by
             # ``__init__``.
-            from voice_typer.server.dictation_stages import (
-                PipelineContext,
-                _PipelineAbortCancelled,
-                _PipelineAbortEmpty,
-                build_default_stages,
-            )
 
             stages = getattr(self, "_stages", None) or build_default_stages()
             ctx = PipelineContext(
@@ -846,226 +848,30 @@ class DictationPipeline:
     def _check_resources_throttled(self) -> None:
         """Throttled wrapper around _check_resources.
 
-        Runs the actual check at most once per `_resources_check_interval`
-        seconds (default 60s). The values change slowly and are only
-        needed for post-crash triage, not per-utterance decisions.
-        Previously ran every utterance (~2-5ms of system/driver calls).
+        Delegates to ``resource_probe.check_resources_throttled`` (extracted
+        to a sibling helper module — the body was self-contained with no
+        instance-state dependencies). Preserves the throttle state on
+        ``self._last_resources_check_ts`` for backward compat with tests.
         """
-        import time as _time
+        from voice_typer.server.resource_probe import check_resources_throttled
 
-        now = _time.monotonic()
-        if now - self._last_resources_check_ts < self._resources_check_interval:
-            return
-        self._last_resources_check_ts = now
-        self._check_resources()
+        self._last_resources_check_ts = check_resources_throttled(
+            self._last_resources_check_ts,
+            self._resources_check_interval,
+            logger=log,
+        )
 
     def _check_resources(self) -> None:
         """Pre-flight health check before transcription.
 
-        Checks available RAM, disk space, and GPU memory (if CUDA)
-        and logs warnings when resources are critically low.  The
-        check is best-effort — failures are logged at DEBUG level
-        and do NOT abort the pipeline (the user may still succeed
-        even with low resources).
-
-        Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during
-        transcription is often caused by low memory (RAM) or
-        insufficient disk space (affecting pagefile/swap).  These
-        logs help diagnose the root cause when paired with a crash.
-
-         (deferred refactor — spaghetti/monolith detection):
-        This 185-line method is a self-contained resource probe
-        (RAM / disk / GPU) inlined in the pipeline. It has NO
-        dependencies on ``DictationPipeline`` instance state — only
-        module-level imports (``os``, ``pathlib``, ``psutil``,
-        ``torch``) and the module-level ``log`` logger. The full
-        extraction to a dedicated ``resource_probe.py`` module is
-        DEFERRED to the monolith-split phase: the mechanical
-        extraction is to move the body to a
-        ``ResourceProbe.check()`` classmethod (or
-        ``resource_probe.check_resources()`` module function) and
-        call it from ``_check_resources_throttled``. Coordinate
-        with the broader pipeline-decomposition work (the
-        stage extraction already pulled the *stage execution* into
-        ``dictation_stages.py``; ``_check_resources`` is the next
-        candidate but it's pre-flight, not a stage, so it belongs
-        in a sibling helper module rather than ``dictation_stages``).
-        For now, this method stays inlined — adding the comment so
-        the next maintainer doesn't waste time wondering why a
-        185-line system probe is living inside the dictation
-        pipeline class.
+        Delegates to ``resource_probe.check_resources`` (extracted to a
+        sibling helper module — the body was a 185-LOC self-contained
+        probe with no instance-state dependencies, flagged as a DEFERRED
+        refactor by the original docstring).
         """
-        import os as _os
-        from pathlib import Path as _Path
+        from voice_typer.server.resource_probe import check_resources
 
-        # ── RAM check ───────────────────────────────────────────────
-        free_mb: float | None = None
-        try:
-            import psutil
-
-            free_mb = psutil.virtual_memory().available / (1024 * 1024)
-        except ImportError:
-            try:
-                import ctypes
-
-                if _os.name == "nt":
-
-                    class _MEMORYSTATUSEX(ctypes.Structure):
-                        _fields_ = [
-                            ("dwLength", ctypes.c_ulong),
-                            ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong),
-                            ("ullAvailPhys", ctypes.c_ulonglong),
-                            ("ullTotalPageFile", ctypes.c_ulonglong),
-                            ("ullAvailPageFile", ctypes.c_ulonglong),
-                            ("ullTotalVirtual", ctypes.c_ulonglong),
-                            ("ullAvailVirtual", ctypes.c_ulonglong),
-                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-                        ]
-
-                    stat = _MEMORYSTATUSEX()
-                    stat.dwLength = ctypes.sizeof(stat)
-                    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
-                    free_mb = stat.ullAvailPhys / (1024 * 1024)
-            except Exception:
-                #  previously a bare ``except
-                # Exception: pass`` — the docstring at the top of
-                # ``_check_resources`` promises "failures are logged at
-                # DEBUG level", but this branch silently swallowed the
-                # ctypes fallback failure (e.g. ``GlobalMemoryStatusEx``
-                # returning an error code on a stripped-down Windows
-                # IoT build), leaving operators with no clue why the
-                # RAM INFO line was missing. Emit a DEBUG line with the
-                # traceback so the docstring's promise is honored.
-                log.debug(
-                    "[RESOURCE] RAM check (ctypes fallback) failed (non-fatal)",
-                    exc_info=True,
-                )
-
-        if free_mb is not None:
-            log.info(
-                "[RESOURCE] Available RAM: %.0f MB",
-                free_mb,
-            )
-            if free_mb < 1024:
-                log.warning(
-                    "[RESOURCE] Low RAM (%.0f MB < 1024 MB) — "
-                    "heap corruption (0xC0000374) is possible during "
-                    "model inference.  Close other apps or try a "
-                    "smaller transcription model.",
-                    free_mb,
-                )
-            elif free_mb < 2048:
-                log.info(
-                    "[RESOURCE] RAM is moderate (%.0f MB) — large models may struggle.",
-                    free_mb,
-                )
-        else:
-            log.debug("[RESOURCE] Could not query available RAM")
-
-        # ── Disk space check ────────────────────────────────────────
-        # Check both the system drive (for pagefile) and the model
-        # cache drive (for model downloads).
-        drives_to_check: list[_Path] = []
-        try:
-            from voice_typer.server.config import _config_dir
-
-            config_dir = _config_dir()
-            drives_to_check.append(config_dir)
-            drives_to_check.append(_Path.home())
-            # Add the drive where the model cache lives (HF_HOME)
-            hf_home = _os.environ.get("HF_HOME")
-            if hf_home:
-                drives_to_check.append(_Path(hf_home))
-        except Exception:
-            drives_to_check.append(_Path.home())
-
-        seen_drives: set[str] = set()
-        for path in drives_to_check:
-            try:
-                drive_info = _os.statvfs(path) if hasattr(_os, "statvfs") else None
-            except Exception:
-                continue
-            if drive_info is None:
-                # Windows: use shutil.disk_usage
-                try:
-                    import shutil
-
-                    usage = shutil.disk_usage(path)
-                    free_gb = usage.free / (1024**3)
-                    # Deduplicate by mount point (same drive may appear
-                    # via multiple paths like home dir + config dir)
-                    drive_key = str(path.resolve())
-                    if drive_key in seen_drives:
-                        continue
-                    seen_drives.add(drive_key)
-                    log.info(
-                        "[RESOURCE] Disk free on %s: %.1f GB",
-                        path,
-                        free_gb,
-                    )
-                    if free_gb < 1.0:
-                        log.warning(
-                            "[RESOURCE] Critically low disk space on %s "
-                            "(%.1f GB < 1 GB) — heap corruption is possible "
-                            "if the system pagefile cannot grow.  Free up "
-                            "disk space or move the model cache to a "
-                            "drive with more free space.",
-                            path,
-                            free_gb,
-                        )
-                except Exception:
-                    continue
-            else:
-                # POSIX: use statvfs
-                free_gb = (drive_info.f_bavail * drive_info.f_frsize) / (1024**3)
-                log.info(
-                    "[RESOURCE] Disk free: %.1f GB",
-                    free_gb,
-                )
-                if free_gb < 1.0:
-                    log.warning(
-                        "[RESOURCE] Critically low disk space (%.1f GB) — heap corruption risk for pagefile.",
-                        free_gb,
-                    )
-
-        # ── GPU memory check (if CUDA) ──────────────────────────────
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated() / (1024**2)
-                reserved = torch.cuda.memory_reserved() / (1024**2)
-                total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-                free_gpu = total - allocated
-                log.info(
-                    "[RESOURCE] GPU memory: %.0f MB allocated, %.0f MB reserved, %.0f MB free (total %.0f MB)",
-                    allocated,
-                    reserved,
-                    free_gpu,
-                    total,
-                )
-                if free_gpu < 512:
-                    log.warning(
-                        "[RESOURCE] Low GPU memory (%.0f MB free) — CUDA out-of-memory errors are likely.",
-                        free_gpu,
-                    )
-        except Exception:
-            #  previously ``except (ImportError,
-            # Exception): pass``. ``ImportError`` was redundant (Exception
-            # already covers it) and the bare ``pass`` contradicted the
-            # docstring's promise that "failures are logged at DEBUG
-            # level". Emit a DEBUG line with the traceback so an
-            # operator looking at voice-typer.log sees why the GPU
-            # INFO line is absent (e.g. torch installed but CUDA
-            # driver mismatch, ``torch.cuda.get_device_properties``
-            # raising on a headless CI runner).
-            log.debug(
-                "[RESOURCE] GPU check failed (non-fatal)",
-                exc_info=True,
-            )
-
-        log.debug("[RESOURCE] Pre-flight health check complete")
+        check_resources(logger=log)
 
     def _transcribe(self) -> str:
         """Step 1: Get transcription via streaming finalize or direct.

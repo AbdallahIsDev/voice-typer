@@ -307,7 +307,10 @@ class DeviceManager:
         try:
             if not self.recorder._recording_event.is_set():
                 return
-        except Exception:
+        except AttributeError:
+            # ``_recording_event`` may not be set yet during early init —
+            # proceed (the handler will no-op if recording hasn't started).
+            # Previously a broad ``except Exception: pass``.
             pass
         _captured_gen = getattr(self.recorder, "_stop_generation", 0)
         with contextlib.suppress(Exception):
@@ -518,9 +521,10 @@ class DeviceManager:
         try:
             if not self.recorder._recording_event.is_set():
                 return False
-        except Exception:
-            # If we can't read the recording event, proceed — the
-            # handler will no-op if recording has stopped.
+        except AttributeError:
+            # ``_recording_event`` may not be set yet during early init —
+            # proceed (the handler will no-op if recording hasn't started).
+            # Previously a broad ``except Exception: pass``.
             pass
 
         log.warning(
@@ -647,7 +651,10 @@ class DeviceManager:
                         saved_name,
                     )
                     self._device_name_mismatch_warned = True
-            except Exception:
+            except (KeyError, TypeError, AttributeError):
+                # Device info dict shape drift (PortAudio version skew)
+                # or attribute missing on a partially-initialized
+                # recorder. Previously a broad ``except Exception: pass``.
                 pass
         return saved_index
 
@@ -826,7 +833,10 @@ class DeviceManager:
             try:
                 host_api_idx = dev_info.get("hostapi", 0)
                 host_api_name = sd.query_hostapis(host_api_idx)["name"]
-            except Exception:
+            except (KeyError, TypeError, OSError):
+                # PortAudio version skew, missing hostapi key, or
+                # query_hostapis raised. Host API name is best-effort —
+                # previously a broad ``except Exception: pass``.
                 pass
             dev_info_extra = {
                 "name": dev_info["name"],

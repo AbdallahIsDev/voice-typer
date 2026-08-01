@@ -128,3 +128,10 @@ class Limiter(AudioFilter):
 
     def reset(self) -> None:
         self._envelope = 0.0
+        # zero the pre-allocated dB-domain working buffer so the
+        # last chunk's envelope samples do not linger in process memory
+        # until the numpy allocator reuses the block. Guarded for None
+        # because ``_env_db_buf`` is lazy-allocated on the first
+        # ``process()`` call.
+        if self._env_db_buf is not None:
+            self._env_db_buf.fill(0)

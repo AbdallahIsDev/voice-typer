@@ -143,6 +143,13 @@ class _StreamingResampler:
         self._in_total = 0
         self._out_total = 0
         self._phase = 0
+        # Zero the pre-allocated upsample working buffer so the
+        # last chunk's raw input samples (strided into ``_x_up_buf[::up]``)
+        # do not linger in process memory until the numpy allocator
+        # reuses the block. Guarded for None because ``_x_up_buf`` is
+        # lazy-allocated on the first ``process()`` call.
+        if self._x_up_buf is not None:
+            self._x_up_buf.fill(0)
 
 
 class NoiseSuppressor(AudioFilter):
@@ -492,6 +499,15 @@ class NoiseSuppressor(AudioFilter):
         if self._carry.size > 0:
             self._carry.fill(0)
         self._carry = np.array([], dtype=np.float32)
+        # Zero the pre-allocated per-frame conversion buffers
+        # so the last frame's raw-audio-derived samples (clip+scale+cast
+        # into ``_frame_f32_buf`` / ``_frame_i16_buf`` before being handed
+        # to RNNoise) do not linger in process memory until the numpy
+        # allocator reuses the blocks. Both buffers are non-None
+        # ``np.zeros(...)`` allocations in ``__init__`` so the unguarded
+        # ``.fill(0)`` is safe.
+        self._frame_f32_buf.fill(0)
+        self._frame_i16_buf.fill(0)
         #  also reset the streaming resamplers' filter state
         # so a stale tail from the previous session doesn't bleed into the
         # next processing window.

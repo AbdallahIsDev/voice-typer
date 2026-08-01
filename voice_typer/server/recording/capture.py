@@ -77,6 +77,8 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from voice_typer.server.log_rate_limit import log_rate_limited
 
 # All submodules use the package-level logger so log records propagate
@@ -363,7 +365,22 @@ class AudioCallbackDispatcher:
         # Reset stop event (in case a previous stop() left it set)
         recorder._worker_stop_event.clear()
         recorder._worker_wake_event.clear()
-        # Clear the ring buffer of any stale chunks from a previous session
+        # Clear the ring buffer of any stale chunks from a previous session.
+        # SEC-audit-008: zero each chunk's numpy array BEFORE ``.clear()``
+        # so the previous session's audio data doesn't linger in process
+        # memory after the deque reference is dropped (mirrors the
+        # preroll-buffer pattern in stop()/discard() — see
+        # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring buffer
+        # chunks are small (~2KB each, capacity-bounded by
+        # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
+        # acceptable here. Ring buffer items are 5-tuples
+        # ``(chunk_copy, frames, time_info, status, perf_ts)`` — the
+        # numpy array is the first element. Defensive against
+        # direct-array items too.
+        for _payload in recorder._ring_buffer:
+            _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+            if isinstance(_arr, np.ndarray):
+                _arr.fill(0)
         recorder._ring_buffer.clear()
         recorder._worker_thread = threading.Thread(
             target=recorder._audio_worker_loop,
@@ -436,6 +453,22 @@ class AudioCallbackDispatcher:
             # discard() path: clear the ring buffer so the worker has
             # nothing left to process. It will finish its current chunk
             # (if any) and then exit on the next iteration.
+            # SEC-audit-008: zero each chunk's numpy array BEFORE
+            # ``.clear()`` so the cancelled session's audio data
+            # doesn't linger in process memory after the deque
+            # reference is dropped (mirrors the preroll-buffer pattern
+            # in stop()/discard() — see ``recorder.py``'s
+            # ``_preroll_buffer`` clearing). Ring buffer chunks are
+            # small (~2KB each, capacity-bounded by
+            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing
+            # is acceptable here. Ring buffer items are 5-tuples
+            # ``(chunk_copy, frames, time_info, status, perf_ts)`` —
+            # the numpy array is the first element. Defensive against
+            # direct-array items too.
+            for _payload in recorder._ring_buffer:
+                _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+                if isinstance(_arr, np.ndarray):
+                    _arr.fill(0)
             recorder._ring_buffer.clear()
         # Signal the worker to stop.
         recorder._worker_stop_event.set()

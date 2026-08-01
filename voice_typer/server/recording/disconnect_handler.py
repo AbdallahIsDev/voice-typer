@@ -38,6 +38,7 @@ indirection needed.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import logging
 from typing import TYPE_CHECKING
@@ -98,8 +99,7 @@ def retune_audio_processor(
         try:
             _set_sr(int(effective_sr))
             log.info(
-                "[RECORDING] AudioProcessor.set_sample_rate(%d) called %s — "
-                "chain retuned to device native rate (XV-31)",
+                "[RECORDING] AudioProcessor.set_sample_rate(%d) called %s — chain retuned to device native rate",
                 effective_sr,
                 context,
             )
@@ -312,6 +312,24 @@ class DisconnectHandler:
             # here without the lock is safe — the worker's next
             # ``popleft()`` raises ``IndexError`` and the drain loop
             # breaks cleanly.
+            #
+            # SEC-audit-008: zero each chunk's numpy array BEFORE
+            # ``.clear()`` so the user's voice data doesn't linger in
+            # process memory after the deque reference is dropped (the
+            # bare ``.clear()`` only drops references, leaving the
+            # underlying float32 arrays intact until GC). Mirrors the
+            # preroll-buffer pattern in stop()/discard() (see
+            # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring
+            # buffer chunks are small (~2KB each, capacity-bounded by
+            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
+            # acceptable here. Ring buffer items are 5-tuples
+            # ``(chunk_copy, frames, time_info, status, perf_ts)`` — the
+            # numpy array is the first element. Defensive against
+            # direct-array items (legacy/fallback) too.
+            for _payload in recorder._ring_buffer:
+                _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+                if isinstance(_arr, np.ndarray):
+                    _arr.fill(0)
             recorder._ring_buffer.clear()
             with recorder._lock:
                 recorder._effective_sr = candidate_sr
@@ -361,7 +379,31 @@ class DisconnectHandler:
                 # ``discard()``'s pattern) so the user's voice data
                 # doesn't linger in process memory (SEC-audit-008).
                 recorder._secure_clear_caches()
-                recorder._buffer.clear()
+                # SEC-audit-008: swap-and-secure-clear-background for
+                # ``_buffer`` — mirrors ``discard()``'s pattern in
+                # ``_recorder_split.py:467-475``. The bare
+                # ``.clear()`` previously used here drops all chunk
+                # references WITHOUT zeroing the underlying numpy
+                # arrays, leaving the user's voice data in process
+                # memory until GC reclaims them (privacy regression vs.
+                # the ``discard()`` path, which correctly defers zeroing
+                # to the background buffer-clear worker). Swap in a
+                # fresh deque and enqueue the old one onto the buffer-
+                # clear worker so the hot-swap restart path returns
+                # quickly while the chunks are zeroed off-thread.
+                # Lazy imports (mirrors ``_recorder_split.py:387-392``)
+                # to avoid a circular import: ``recorder.py`` imports
+                # this module at the top of its class body.
+                from voice_typer.server import recording as _recording_pkg
+                from voice_typer.server.recording.recorder import (
+                    DEFAULT_MAX_BUFFER_CHUNKS,
+                )
+
+                _old_buffer = recorder._buffer
+                recorder._buffer = collections.deque(
+                    maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
+                )
+                _recording_pkg._secure_clear_array_background(_old_buffer)
                 # ``_secure_clear_caches`` resets the resample-path
                 # caches but NOT the no-resample segment list / dirty
                 # flag / cache key. Reset them explicitly so the next

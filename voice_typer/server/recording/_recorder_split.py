@@ -43,6 +43,7 @@ sub-agents.
 from __future__ import annotations
 
 import collections
+import contextlib
 import itertools
 import logging
 import time
@@ -472,6 +473,13 @@ def discard_recording(recorder: Recorder) -> None:
         recorder._buffer = collections.deque(
             maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
         )
+        # PERF: zero the running buffered-samples counter — the fresh
+        # deque above is empty, so the counter must be 0 to match.
+        # Without this, ``current_duration_seconds`` would continue
+        # returning the discarded session's total until the next
+        # ``start()`` reset (incorrect for any caller polling between
+        # discard() and start()).
+        recorder._total_buffered_samples = 0
         _recording_pkg._secure_clear_array_background(_old_buffer)
 
 
@@ -696,13 +704,51 @@ def start_recording(recorder: Recorder) -> None:
     # drains the ring buffer and runs the heavy processing pipeline
     # (filter chain, VAD, resample, state machine) off the real-time
     # audio thread.
-    recorder._start_audio_worker()
+    #
+    # REC-2 contract: if ``_start_audio_worker`` OR
+    # ``_start_event_worker`` raises, the PortAudio stream we just
+    # opened must be rolled back so it doesn't leak. Pre-refactor,
+    # the body lived inline in ``Recorder.start`` with a try/except
+    # that called ``_teardown_stream`` on any BaseException. The
+    # extraction lost the rollback path. The wrapper below restores
+    # it: catch BaseException (so ``MemoryError`` / ``KeyboardInterrupt``
+    # propagate after cleanup), bump ``_stop_generation`` (so any
+    # in-flight disconnect handler bails out instead of racing with
+    # the teardown — mirroring ``discard()``'s HOTKEY-CRASH guard),
+    # clear the ``_recording_event`` flag (set earlier in this
+    # function so the audio callback would push to the ring buffer —
+    # without this clear, a failed start leaves the event set and
+    # the next ``start()``'s ``is_set()`` early-return fires,
+    # masking the retry), tear down the stream, optionally stop the
+    # audio worker (only if it was started — i.e. the failure is in
+    # ``_start_event_worker``, not ``_start_audio_worker``), then
+    # re-raise so the caller sees the original error.
+    try:
+        recorder._start_audio_worker()
+        audio_worker_started = True
+    except BaseException:
+        audio_worker_started = False
+        recorder._stop_generation += 1
+        recorder._recording_event.clear()
+        with contextlib.suppress(Exception):
+            recorder._teardown_stream()
+        raise
 
     # Start the IPC event worker thread AFTER the audio worker
     # so the audio worker can enqueue IPC events (e.g. audio_clip)
     # as soon as it begins processing chunks. The event worker is
     # stopped by stop()/discard() — see _stop_event_worker.
-    recorder._start_event_worker()
+    try:
+        recorder._start_event_worker()
+    except BaseException:
+        recorder._stop_generation += 1
+        recorder._recording_event.clear()
+        with contextlib.suppress(Exception):
+            recorder._teardown_stream()
+        if audio_worker_started:
+            with contextlib.suppress(Exception):
+                recorder._stop_audio_worker(timeout=0.5, drain=False)
+        raise
 
     # CPU-03: start the device health checker thread (off the audio
     # worker) so device-disconnect detection doesn't block the hot path.
@@ -869,6 +915,12 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             # the block).
             recorder._secure_clear_caches()
             recorder._chunk_count = 0
+            # PERF: zero the running buffered-samples counter alongside
+            # ``_chunk_count`` so ``current_duration_seconds`` returns
+            # 0.0 after the empty-buffer stop() path (the counter
+            # would otherwise retain the previous session's total until
+            # the next ``start()`` reset).
+            recorder._total_buffered_samples = 0
             return np.array([], dtype=np.float32)
         # capture the chunk list and swap in a fresh deque
         # INSIDE the lock (the swap is O(1) -- just a deque
@@ -879,6 +931,13 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         recorder._buffer = collections.deque(
             maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
         )
+        # PERF: zero the running buffered-samples counter — the fresh
+        # deque above is empty, so the counter must be 0 to match.
+        # Without this, ``current_duration_seconds`` would continue
+        # returning the snapshot session's total duration until the
+        # next ``start()`` reset (incorrect for any caller polling
+        # between stop() and start()).
+        recorder._total_buffered_samples = 0
         _recording_pkg._secure_clear_array_background(_old_buffer)
         # Critical: capture ``_buffer_sr`` into a local
         # BEFORE ``_secure_clear_caches`` resets it to ``None``.
@@ -930,11 +989,27 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         if audio.size:
             flat = audio.reshape(-1)
             rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            peak = float(np.abs(flat).max())
+            # PERF: allocation-free peak — ``max(|x|) == max(max(x),
+            # -min(x))`` — two reductions on the existing ``flat``
+            # view, no intermediate ``np.abs(flat)`` array allocated.
+            # Mirrors the per-chunk peak in
+            # ``AudioPipeline.compute_rms_and_peak``. Pre-fix, this
+            # line allocated a ~115 MB ``np.abs(flat)`` transient for
+            # a 30-min 16 kHz mono dictation (28.8M float32 samples).
+            peak = max(float(flat.max()), -float(flat.min()))
         else:
             peak = 0.0
             rms = 0.0
-        silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
+        # PERF: compute ``np.abs(flat)`` ONCE and reuse it for
+        # silence_pct — pre-fix this line allocated a SECOND ~115 MB
+        # transient (``np.abs(audio)``) for the silence mask, on top
+        # of the peak's ~115 MB allocation above. Combined transient
+        # was ~230 MB; now reduced to a single ~115 MB allocation
+        # (only the silence mask — peak is allocation-free). ``flat``
+        # is a 1-D view of ``audio`` so ``np.abs(flat)`` and
+        # ``np.abs(audio)`` are elementwise-identical.
+        abs_flat = np.abs(flat) if audio.size else None
+        silence_pct = float(np.sum(abs_flat < 0.001) / audio.size * 100) if abs_flat is not None else 0.0
         recorder._last_rms = rms
         # store the full-recording stats so the
         # transcription engine can reuse them instead of recomputing

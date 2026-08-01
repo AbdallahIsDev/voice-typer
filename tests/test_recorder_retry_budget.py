@@ -1,0 +1,271 @@
+"""Sliding-window retry-budget tests for the recorder disconnect path.
+
+Background
+----------
+``Recorder._handle_device_disconnect`` increments
+``_device_disconnect_retries`` and fires ``on_device_lost`` only when
+the counter exceeds ``_max_disconnect_retries``. But
+``DisconnectHandler.restart_stream`` resets the counter to 0 on every
+SUCCESSFUL restart. So a Bluetooth mic that disconnects + reconnects
+every ~30s never reaches the threshold and the user never sees
+"Microphone disconnected" — the recorder silently recovers forever.
+
+Fix
+---
+A sliding-window retry budget (``collections.deque`` of
+``time.monotonic()`` timestamps) tracks recent successful restarts.
+When N restarts (default 3) accumulate within T seconds (default 60s),
+``restart_stream`` fires ``on_device_lost`` (mirroring the max-retries
+callback-resolution + fallback chain in ``_handle_device_disconnect``)
+and clears the deque. A single disconnect+restart leaves the deque
+with 1 entry — well below the threshold — so the normal
+retry-then-recover flow is unaffected.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+# ── Test helpers (mirrored from test_recorder_worker_lifecycle.py) ──
+
+
+class _OkStream:
+    """No-op InputStream mock for tests that don't touch real audio."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def _patch_ok_stream(monkeypatch, recording_mod):
+    """Patch sounddevice with a no-op InputStream + permissive device query.
+
+    Mirrors the helper in ``tests/test_recorder_worker_lifecycle.py`` so
+    the recorder can be ``start()``-ed headless without real audio hardware
+    and ``restart_stream`` succeeds on every call.
+    """
+    monkeypatch.setattr(recording_mod.sd, "InputStream", _OkStream)
+
+    def _query_devices(*args, **kwargs):
+        device_dict = {
+            "max_input_channels": 1,
+            "default_samplerate": 16000,
+            "hostapi": 0,
+            "index": 0,
+            "name": "Mock Input",
+        }
+        if not args and not kwargs:
+            return [device_dict]
+        return device_dict
+
+    monkeypatch.setattr(recording_mod.sd, "query_devices", _query_devices)
+    monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+
+# ── Tests ──────────────────────────────────────────────────────────
+
+
+class TestRetryBudgetSlidingWindow:
+    """The deque-based sliding-window retry budget gates
+    ``on_device_lost`` for flapping devices while leaving the normal
+    retry-then-recover flow intact."""
+
+    def test_single_disconnect_restart_does_not_fire_on_device_lost(self, monkeypatch):
+        """A single disconnect+restart cycle must NOT fire
+        ``on_device_lost`` — the deque has 1 entry, well below the
+        threshold (default 3). This is the regression guard: the fix
+        must not break the normal recovery flow."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            device_lost_calls: list[bool] = []
+            r.on_device_lost = lambda: device_lost_calls.append(True)
+
+            captured_gen = r._stop_generation
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+
+            assert device_lost_calls == [], (
+                "Single disconnect+restart must NOT fire on_device_lost. "
+                f"Got {len(device_lost_calls)} call(s). The sliding-window "
+                "budget should leave the deque with 1 entry (well below "
+                "the default threshold of 3)."
+            )
+            assert len(r._restart_timestamps) == 1, (
+                "After one successful restart, the deque should hold "
+                f"exactly 1 timestamp (got {len(r._restart_timestamps)})."
+            )
+            assert r._device_disconnect_retries == 0, (
+                "Per-attempt counter should be reset to 0 by the successful restart (existing behavior preserved)."
+            )
+        finally:
+            r._device_disconnected = False
+            r.stop()
+
+    def test_flapping_device_3_restarts_in_60s_fires_on_device_lost(self, monkeypatch):
+        """A BT mic that disconnects + reconnects 3 times within 60s
+        (a flap) MUST fire ``on_device_lost`` on the 3rd successful
+        restart. Pre-fix, the per-attempt counter was reset on every
+        successful restart, so the threshold was never reached and the
+        user never saw "Microphone disconnected"."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            device_lost_calls: list[bool] = []
+            r.on_device_lost = lambda: device_lost_calls.append(True)
+
+            captured_gen = r._stop_generation
+
+            # Cycle 1: disconnect + successful restart.
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert device_lost_calls == [], (
+                "Cycle 1: on_device_lost must NOT fire yet (deque has 1 entry, below the threshold of 3)."
+            )
+            assert len(r._restart_timestamps) == 1
+
+            # Cycle 2: another disconnect + successful restart (still
+            # within the 60s window).
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert device_lost_calls == [], (
+                "Cycle 2: on_device_lost must NOT fire yet (deque has 2 entries, below the threshold of 3)."
+            )
+            assert len(r._restart_timestamps) == 2
+
+            # Cycle 3: third disconnect + successful restart within 60s
+            # → flap detected → on_device_lost fires. The deque is then
+            # cleared so the next session gets a fresh budget.
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert len(device_lost_calls) == 1, (
+                "Cycle 3: on_device_lost MUST fire on the 3rd successful "
+                "restart within the 60s window (flap detected). Got "
+                f"{len(device_lost_calls)} call(s). Pre-fix the per-attempt "
+                "counter was reset on every successful restart so the "
+                "threshold was never reached."
+            )
+            assert len(r._restart_timestamps) == 0, (
+                "After firing on_device_lost, the deque must be cleared so "
+                "a subsequent restart within the window doesn't immediately "
+                "re-trigger (got "
+                f"{len(r._restart_timestamps)} entries)."
+            )
+        finally:
+            r._device_disconnected = False
+            r.stop()
+
+    def test_old_restarts_pruned_outside_window(self, monkeypatch):
+        """Restarts older than ``_flapping_window_seconds`` are pruned
+        from the deque, so a slow-flapping device (e.g. one disconnect
+        per 5 minutes) never reaches the threshold. This guards against
+        a regression where the deque grows unbounded."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        # Shrink the window to 0.05s so we don't have to sleep for 60s
+        # in the test.
+        r._flapping_window_seconds = 0.05
+        r.start()
+        try:
+            device_lost_calls: list[bool] = []
+            r.on_device_lost = lambda: device_lost_calls.append(True)
+
+            captured_gen = r._stop_generation
+
+            # Two rapid restarts (below threshold).
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert len(r._restart_timestamps) == 2
+            assert device_lost_calls == []
+
+            # Sleep past the window so the next restart's prune step
+            # evicts the two old timestamps.
+            import time as _time
+
+            _time.sleep(0.06)
+
+            # Third restart — the prune step evicts the 2 old entries
+            # BEFORE the threshold check, so the deque has only 1 entry
+            # (the new one) and on_device_lost must NOT fire.
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert device_lost_calls == [], (
+                "Old restarts outside the window must be pruned — the "
+                "deque should have 1 entry (the new restart), not 3. "
+                "Got on_device_lost fired, which means pruning is broken."
+            )
+            assert len(r._restart_timestamps) == 1, (
+                "After pruning, the deque should hold only the new "
+                f"restart's timestamp (got {len(r._restart_timestamps)})."
+            )
+        finally:
+            r._flapping_window_seconds = 60.0
+            r._device_disconnected = False
+            r.stop()
+
+    def test_start_clears_restart_timestamps(self, monkeypatch):
+        """``Recorder.start()`` must clear ``_restart_timestamps`` so a
+        fresh session doesn't inherit a stale flap-detection window
+        from the prior session."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            # Simulate two prior restarts (deque has 2 entries).
+            captured_gen = r._stop_generation
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            r._handle_device_disconnect(_captured_generation=captured_gen)
+            assert len(r._restart_timestamps) == 2
+
+            # Stop and restart — start() must clear the deque.
+            r.stop()
+            assert len(r._restart_timestamps) == 2, "stop() should NOT clear the deque (only start() does)."
+            r.start()
+            assert len(r._restart_timestamps) == 0, (
+                "start() must clear _restart_timestamps so a fresh session "
+                "doesn't inherit a stale flap-detection window. Got "
+                f"{len(r._restart_timestamps)} entries."
+            )
+        finally:
+            r._device_disconnected = False
+            r.stop()
+
+    def test_threshold_constant_default(self):
+        """The default flap-detection threshold is 3 restarts in 60s.
+        This pins the default so a future change doesn't silently
+        widen or narrow the window."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._flapping_max_restarts == 3, "Default flap-detection threshold must be 3 restarts."
+        assert r._flapping_window_seconds == 60.0, "Default flap-detection window must be 60 seconds."

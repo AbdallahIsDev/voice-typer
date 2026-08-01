@@ -824,7 +824,12 @@ class StreamingTranscriptionSession:
                 )
                 return snapshot_committed_text
         except Exception:
-            pass
+            # Tail re-transcribe is best-effort — if the snapshot
+            # extraction or timing calc fails, fall through to the
+            # normal path (no tail re-transcribe). Log at debug so
+            # the failure is diagnosable. Previously a silent
+            # ``except Exception: pass``.
+            log.debug("[STREAMING] tail re-transcribe skip check failed", exc_info=True)
 
         try:
             tail_start_seconds = max(

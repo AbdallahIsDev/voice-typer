@@ -278,20 +278,35 @@ class WaveformBubbleWiring:
                         (see ``config_handlers`` push path — the trigger list there
                         must include the theme keys for the bubble to actually receive
             theme updates; see  handoff note in the worklog).
+
+            Fix: ``getattr(cfg, name, default)`` returned the attribute
+            value even when it was explicitly ``None`` (e.g. a Config
+            loaded from a partial / corrupt file where these fields
+            were missing or nulled) — so the bubble renderer would
+            receive ``None`` instead of the documented default and
+            fall through to OS prefs. Use
+            ``getattr(cfg, name, None) or default`` so a missing /
+            null value falls back to the default. ``custom_theme`` is
+            exempt because ``None`` is its valid default (no custom
+            theme configured).
             """
             event_bus.publish(
                 {
                     "type": "bubble_config",
                     "data": {
-                        "bubble_behavior": getattr(cfg, "bubble_behavior", "show_on_record"),
-                        "bubble_click_to_toggle": getattr(cfg, "bubble_click_to_toggle", True),
-                        "bubble_mic_button": getattr(cfg, "bubble_mic_button", True),
+                        "bubble_behavior": getattr(cfg, "bubble_behavior", None) or "show_on_record",
+                        "bubble_click_to_toggle": getattr(cfg, "bubble_click_to_toggle", None) or True,
+                        "bubble_mic_button": getattr(cfg, "bubble_mic_button", None) or True,
                         # theme sync. The renderer's useThemeSync hook
                         # (bubble-components.tsx) already consumes these three
                         # fields; previously the backend never sent them, so
                         # the bubble always fell through to OS prefs.
-                        "theme_mode": getattr(cfg, "theme_mode", "system"),
-                        "theme_preset": getattr(cfg, "theme_preset", "default"),
+                        "theme_mode": getattr(cfg, "theme_mode", None) or "system",
+                        "theme_preset": getattr(cfg, "theme_preset", None) or "default",
+                        # None is a valid value for custom_theme (means "no
+                        # custom theme configured") — keep getattr without
+                        # the ``or default`` fallback so we don't paper over
+                        # a legitimately-cleared custom_theme.
                         "custom_theme": getattr(cfg, "custom_theme", None),
                     },
                 }

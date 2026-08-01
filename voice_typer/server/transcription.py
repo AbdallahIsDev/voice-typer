@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
-import site
-import sys
 import threading
 import time
 from typing import Any, Protocol, runtime_checkable
@@ -38,7 +35,6 @@ from voice_typer.server.asr_utils import (  # noqa: F401
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
-from voice_typer.server.platform_utils import is_windows
 
 np = lazy_module("numpy")
 
@@ -107,31 +103,23 @@ _nvidia_dll_path_handles: list[object] = []
 # this module for the backward-compat imports.
 
 
-def _free_nvidia_dll_path_handles() -> None:
-    """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``.
-
-    PERF- ``os.add_dll_directory`` returns a handle that holds
-    a reference to the OS-level DLL directory entry. Previously these
-    handles were stored in ``_nvidia_dll_path_handles`` and never freed,
-    so the process held phantom DLL directory refs even after the model
-    was unloaded. We now iterate and call each handle's ``close()``
-    method (the documented way to release the directory entry).
-    Called from ``TranscriptionEngine.unload()`` on shutdown.
-    """
-    global _nvidia_dll_path_handles
-    for handle in _nvidia_dll_path_handles:
-        try:
-            close = getattr(handle, "close", None)
-            if close is not None:
-                close()
-            else:
-                # Some Python versions return a path string instead of
-                # a handle object; nothing to close in that case.
-                pass
-        except Exception as exc:
-            log.debug("[CUDA-DLL] Error closing handle %s: %s", handle, exc)
-    _nvidia_dll_path_handles = []
-
+# NVIDIA CUDA DLL path setup (Windows-only, gated by ``is_windows()``
+# inside the implementation) was extracted to
+# ``voice_typer.server.nvidia_dll_paths`` so the DLL-search logic lives
+# in a single focused module. The 3 public functions are re-exported
+# below for backward compatibility with callers (and tests) that import
+# them from ``transcription``. The module-level state they mutate —
+# ``_nvidia_dll_path_handles``, ``_nvidia_dll_paths_configured``,
+# ``_nvidia_config_lock`` — STAYS here so existing tests that
+# rebind/read ``transcription._nvidia_dll_path_handles`` (and similar)
+# continue to work; the extracted functions access this state via late
+# binding (``from voice_typer.server import transcription as _t``
+# inside each function body).
+from voice_typer.server.nvidia_dll_paths import (  # noqa: E402, F401
+    _configure_nvidia_dll_paths,
+    _configure_nvidia_dll_paths_locked,
+    _free_nvidia_dll_path_handles,
+)
 
 _nvidia_dll_paths_configured = False
 # RACE-029: module-level lock to serialize _configure_nvidia_dll_paths()
@@ -140,102 +128,6 @@ _nvidia_dll_paths_configured = False
 # _nvidia_dll_path_handles and os.environ["PATH"], causing duplicate
 # DLL directory additions and race-conditional PATH corruption.
 _nvidia_config_lock = threading.Lock()
-
-
-def _configure_nvidia_dll_paths():
-    """Expose NVIDIA wheel DLL directories to the Windows loader.
-
-    RACE-029: serialized by _nvidia_config_lock to prevent concurrent
-    calls from corrupting _nvidia_dll_path_handles and PATH.
-    """
-    with _nvidia_config_lock:
-        _configure_nvidia_dll_paths_locked()
-
-
-def _configure_nvidia_dll_paths_locked():
-    """Inner implementation, called under _nvidia_config_lock."""
-    global _nvidia_dll_paths_configured
-    if _nvidia_dll_paths_configured or not is_windows():
-        return
-
-    roots: list[str] = []
-    try:
-        roots.extend(site.getsitepackages())
-    except Exception as exc:
-        log.warning("[CUDA-DLL] site.getsitepackages() failed: %s", exc)
-    try:
-        user_site = site.getusersitepackages()
-        if user_site:
-            roots.append(user_site)
-    except Exception as exc:
-        log.warning("[CUDA-DLL] site.getusersitepackages() failed: %s", exc)
-
-    # Also include the current venv's site-packages (via sys.prefix).
-    # site.getsitepackages() can be wrong when the app runs from a
-    # different Python environment (e.g. Hermes venv) than expected.
-    venv_sp = os.path.join(sys.prefix, "Lib", "site-packages")
-    if os.path.isdir(venv_sp) and venv_sp not in roots:
-        roots.append(venv_sp)
-        log.debug("[CUDA-DLL] Added current venv site-packages: %s", venv_sp)
-
-    # Fallback: the app's own venv at ~/.voice-typer/venv/ may have the
-    # NVIDIA pip wheels even when the running Python belongs to a
-    # different environment.
-    app_venv_sp = os.path.join(
-        os.path.expanduser("~"),
-        ".voice-typer",
-        "venv",
-        "Lib",
-        "site-packages",
-    )
-    if os.path.isdir(app_venv_sp) and app_venv_sp not in roots:
-        roots.append(app_venv_sp)
-        log.debug("[CUDA-DLL] Added app venv site-packages: %s", app_venv_sp)
-
-    log.debug("[CUDA-DLL] Searching root paths for NVIDIA DLLs: %s", roots)
-
-    candidate_parts = [
-        ("nvidia", "cublas", "bin"),
-        ("nvidia", "cudnn", "bin"),
-        ("nvidia", "cuda_nvrtc", "bin"),
-        # CUDA-DLL-001: torch GPU wheels (pip install torch with CUDA)
-        # also place cublas64_12.dll, cudnn64_9.dll, nvrtc64_120_0.dll
-        # under torch/lib. Without this entry, users who installed the
-        # GPU torch wheel but NOT the standalone nvidia-* pip packages
-        # would have all 3 primary candidate paths miss, even though
-        # the DLLs physically exist on disk.
-        ("torch", "lib"),
-    ]
-    existing_paths = os.environ.get("PATH", "").split(os.pathsep)
-    new_paths: list[str] = []
-    for root in roots:
-        for parts in candidate_parts:
-            path = os.path.join(root, *parts)
-            if not os.path.isdir(path):
-                log.debug("[CUDA-DLL] Path not found: %s", path)
-                continue
-            dll_names = [n for n in os.listdir(path) if n.lower().endswith(".dll")]
-            if not dll_names:
-                log.debug("[CUDA-DLL] No DLLs in: %s", path)
-                continue
-            log.debug("[CUDA-DLL] Found path with %d DLLs: %s (first: %s)", len(dll_names), path, dll_names[0])
-            if path not in existing_paths and path not in new_paths:
-                new_paths.append(path)
-            add_dll_directory = getattr(os, "add_dll_directory", None)
-            if add_dll_directory is not None:
-                try:
-                    handle = add_dll_directory(path)
-                    log.debug("[CUDA-DLL] os.add_dll_directory(%s) -> handle=%s", path, handle)
-                    if handle is not None:
-                        _nvidia_dll_path_handles.append(handle)
-                except Exception as exc:
-                    log.warning("[CUDA-DLL] os.add_dll_directory(%s) failed: %s", path, exc)
-
-    if new_paths:
-        os.environ["PATH"] = os.pathsep.join(new_paths + existing_paths)
-        log.info("[CUDA-DLL] Prepended to PATH: %s", new_paths)
-
-    _nvidia_dll_paths_configured = True
 
 
 class TranscriptionEngine:
@@ -260,6 +152,15 @@ class TranscriptionEngine:
         self.condition_on_previous_text = condition_on_previous_text
         self._model = None
         self._lock = threading.RLock()
+        # counter + Condition so transcribe() can release the model
+        # lock during the (potentially long) segment-decoding loop while
+        # still coordinating with unload(). unload() waits for
+        # ``_active_inference == 0`` under ``_inference_cond`` before
+        # nulling ``self._model`` so a concurrent transcribe() doesn't
+        # dereference a freed ctranslate2 model. Mirrors the pattern in
+        # ``parakeet_engine.py:236-243``.
+        self._active_inference = 0
+        self._inference_cond = threading.Condition(self._lock)
         self._requested_device: str | None = device  # defer CUDA detection to load()
         self._device = "cpu"
         self._compute_type = "int8"
@@ -661,7 +562,7 @@ class TranscriptionEngine:
         try:
             import numpy as np
 
-            warmup_audio = np.zeros(int(16000 * 0.5), dtype=np.float32)
+            warmup_audio = np.zeros(int(_WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
             segments, _ = self._model.transcribe(
                 warmup_audio,
                 beam_size=1,
@@ -884,9 +785,32 @@ class TranscriptionEngine:
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own stats computation
         (saves 1-3 ms + 3× 1.9 MB transient memory per dictation).
+
+        The lock is released during the segment-decoding loop.
+        Previously the entire ``_transcribe_unlocked`` call (including
+        the ctranslate2 generator that drives 0.5-3s per segment) ran
+        under ``self._lock``, blocking ``is_loaded`` / ``unload`` /
+        parallel transcribes for 10-30s per long dictation. We now
+        acquire the lock only briefly to check loaded state and
+        increment ``_active_inference``; ``unload()`` waits on
+        ``_inference_cond`` for the counter to return to 0 before
+        nulling the model, so the inference path can safely access
+        ``self._model`` without holding the lock. Mirrors the pattern
+        in ``parakeet_engine.py:752-779``.
         """
         with self._lock:
+            if self._model is None:
+                raise RuntimeError("Model not loaded. Call load() first.")
+            if len(audio) == 0:
+                return ""
+            self._active_inference += 1
+        try:
             return self._transcribe_unlocked(audio, audio_stats=audio_stats)
+        finally:
+            with self._inference_cond:
+                self._active_inference -= 1
+                if self._active_inference == 0:
+                    self._inference_cond.notify_all()
 
     def _transcribe_unlocked(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         if self._model is None:
@@ -1089,9 +1013,26 @@ class TranscriptionEngine:
         ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own stats computation.
+
+        The lock is released during the segment-decoding loop (mirrors
+        ``transcribe()``). ``unload()`` waits on ``_inference_cond``
+        for ``_active_inference == 0`` before nulling the model, so a
+        stuck backend can be torn down without waiting for the full
+        segment loop to complete.
         """
         with self._lock:
+            if self._model is None:
+                raise RuntimeError("Model not loaded. Call load() first.")
+            if len(audio) == 0:
+                return ""
+            self._active_inference += 1
+        try:
             result = self._transcribe_with_fallback_unlocked(audio, audio_stats=audio_stats)
+        finally:
+            with self._inference_cond:
+                self._active_inference -= 1
+                if self._active_inference == 0:
+                    self._inference_cond.notify_all()
         # RACE-023: perform deferred gc.collect() OUTSIDE the lock
         if getattr(self, "_pending_gc_collect", False):
             self._pending_gc_collect = False

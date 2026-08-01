@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -467,3 +468,91 @@ class TestProductionWiring:
         assert "audio_chunk" in sig.parameters, (
             "WaveformBubble.update_level must accept audio_chunk kwarg to run VAD on the incoming audio"
         )
+
+
+class TestVadLocalOnlyNoNetwork:
+    """C-DATA-1 regression: the VAD module must NEVER make a network call.
+
+    Previously ``_load_model`` had a ``torch.hub.load`` fallback that
+    fired when the bundled ``silero_vad.jit`` was missing — a hard HTTPS
+    call to github.com that violated the offline guarantee. The fallback
+    (and the ``ThreadPoolExecutor`` deadline wrapper + negative-cache
+    flag that supported it) has been removed. These tests pin the
+    removal so a future refactor doesn't reintroduce the network call.
+    """
+
+    _VAD_SRC_PATH = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "vad.py"
+
+    def test_load_model_returns_quickly_without_network(self, monkeypatch):
+        """``_load_model`` must not block on a network timeout.
+
+        Even when the bundled model file is missing, ``_load_model``
+        returns immediately (no hub fetch, no ThreadPoolExecutor
+        deadline) — it logs an ERROR and returns ``(None, None)``.
+        """
+        import time
+
+        from voice_typer.server import vad
+
+        vad.reset()
+        # Point the path at a nonexistent file so the local-load
+        # branch is skipped — exercising the missing-model path that
+        # previously fell through to the network call.
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.jit"))
+        # Install a torch mock so we exercise the missing-file branch
+        # (not the torch-missing short-circuit).
+        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+
+        start = time.monotonic()
+        result = vad._load_model()
+        elapsed = time.monotonic() - start
+
+        assert result == (None, None)
+        # 3s is far below the old 5s hub-timeout deadline — proves no
+        # network call was attempted.
+        assert elapsed < 3.0, (
+            f"_load_model took {elapsed:.2f}s — looks like a network call was attempted (C-DATA-1 violation)"
+        )
+        vad.reset()
+
+    def test_no_torch_hub_load_in_vad_source(self):
+        """``vad.py`` must not import or call ``torch.hub.load``.
+
+        Source-level grep assertion so the network fallback cannot be
+        silently reintroduced by a future refactor.
+        """
+        src = self._VAD_SRC_PATH.read_text(encoding="utf-8")
+        assert "torch.hub.load" not in src, (
+            "C-DATA-1 violation: voice_typer/server/vad.py references "
+            "'torch.hub.load' — a hard network call to github.com that "
+            "breaks the offline guarantee."
+        )
+        assert "hub_load" not in src, (
+            "C-DATA-1 violation: voice_typer/server/vad.py still has a "
+            "'hub_load' reference — the network-fallback helper / "
+            "negative-cache flag should have been removed entirely."
+        )
+        assert "_HUB_LOAD_TIMEOUT_S" not in src, (
+            "Dead-code leftover: _HUB_LOAD_TIMEOUT_S was the deadline "
+            "for the (now-removed) torch.hub.load fallback and should "
+            "have been removed with it."
+        )
+
+    def test_load_model_returns_none_none_when_model_missing(self, monkeypatch):
+        """When the bundled model is missing, ``_load_model`` returns
+        ``(None, None)`` without raising and without a network call."""
+        from voice_typer.server import vad
+
+        vad.reset()
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.jit"))
+        # Torch is importable so we don't short-circuit on the
+        # ImportError branch — we exercise the missing-file path.
+        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+
+        # Must not raise.
+        result = vad._load_model()
+        assert result == (None, None)
+        # And the cached _model must remain None so subsequent
+        # compute_vad_prob calls degrade to the RMS fallback.
+        assert vad._model is None
+        vad.reset()

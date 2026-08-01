@@ -121,6 +121,16 @@ def _stop_level_worker() -> None:
     running (no-op). Joins with a short timeout so a stuck worker
     doesn't block the caller — the worker is a daemon so it'll exit
     when the process does.
+
+    If the worker fails to exit within the 1-second join timeout, the
+    thread slot (``_level_worker_thread``) is LEFT OCCUPIED. This
+    prevents ``_ensure_level_worker_running`` from spawning a duplicate
+    worker that would race the stuck thread for ``_level_ring_buffer``
+    pops (SPSC contract violation) and double-publish ``mic_level``
+    events. The stop event + ring-buffer clear below are skipped in
+    that case so the stuck worker still has a consistent view if it
+    eventually drains; the next ``_ensure_level_worker_running`` call
+    will reuse the (still-alive) thread instead of starting a new one.
     """
     thread = _state._level_worker_thread
     if thread is None:
@@ -129,6 +139,23 @@ def _stop_level_worker() -> None:
     _state._level_worker_wake_event.set()  # wake the worker so it sees the stop
     if thread is not threading.current_thread():
         thread.join(timeout=1.0)
+        if thread.is_alive():
+            # Worker did not exit within the 1-second join timeout —
+            # likely stuck inside a long ``process_chunk`` call
+            # (RNNoise on a stalled CPU, a numpy deadlock, or a
+            # garbage-collection pause longer than 1 s). Leave the slot
+            # occupied so ``_ensure_level_worker_running`` reuses this
+            # thread instead of spawning a duplicate worker that would
+            # race it for the ring buffer (SPSC) and double-publish
+            # ``mic_level`` events. The operator-visible ERROR log
+            # surfaces the stuck worker so it isn't silently leaked.
+            log.error(
+                "[LEVEL-MON] level worker thread did not exit within the "
+                "1s join timeout — leaving _level_worker_thread slot "
+                "occupied to prevent duplicate workers (the stuck worker "
+                "is a daemon and will exit with the process)",
+            )
+            return
     _state._level_worker_thread = None
     # Clear the ring buffer after the worker has been joined so any
     # chunks the worker didn't drain (e.g. because stop_monitoring was
@@ -381,9 +408,14 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         # Apply noise filters to the level bar audio if a processor is
         # active, so the bar reflects what the user hears after
         # filtering, not the raw mic input. ``_level_processor`` is
-        # only mutated by ``update_level_processor`` (which acquires
-        # ``_monitor_lock``), so reading it here without the lock is
-        # safe -- worst case we use a stale reference for one chunk.
+        # only mutated by ``update_level_processor``, which acquires
+        # ``_monitor_lock`` for both the snapshot read of
+        # ``_monitor_sample_rate`` and the assignment of
+        # ``_level_processor`` itself. Reading the reference here
+        # without the lock is still safe under CPython's GIL (a bare
+        # attribute read is atomic), but the worker may observe a
+        # stale reference for one chunk — acceptable, since the next
+        # iteration picks up the new processor.
         processor = _state._level_processor
         if processor is not None:
             filtered = processor.process_chunk(indata.reshape(-1, 1))

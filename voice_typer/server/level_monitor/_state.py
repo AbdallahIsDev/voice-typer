@@ -107,7 +107,14 @@ class _State:
         # thread (single consumer) pops them and runs the heavy
         # processing pipeline (filter chain, RMS/peak smoothing,
         # test-chunk accumulation + quality metrics).
-        self._LEVEL_RING_BUFFER_CAPACITY: int = 64  # ~4s @ 16 Hz block rate
+        # ~2 s of audio at the ~31 Hz chunk rate (32 ms blocks scaled to
+        # the device native sample rate via ``max(512, int(sr * 0.032))``).
+        # The earlier ``# ~4s @ 16 Hz block rate`` comment was stale: at the
+        # previous fixed 512-sample blocksize, a 48 kHz device drove a ~94 Hz
+        # callback rate, so the buffer only held ~0.68 s. With the scaled
+        # blocksize the rate is ~31 Hz on every device and the 64-entry
+        # buffer holds ~2 s of audio.
+        self._LEVEL_RING_BUFFER_CAPACITY: int = 64
         self._level_ring_buffer: collections.deque = collections.deque(
             maxlen=self._LEVEL_RING_BUFFER_CAPACITY,
         )

@@ -278,13 +278,23 @@ class TestRestartStreamBufferFlush:
         assert "recorder._ring_buffer.clear()" in src, "restart_stream must clear the ring buffer to drop stale chunks"
 
     def test_buffer_clear_inside_lock_in_source(self):
-        """``recorder._buffer.clear()`` must be called INSIDE the lock
-        block (atomic with respect to the audio worker's append)."""
+        """The buffer must be securely cleared INSIDE the lock block
+        (atomic with respect to the audio worker's append).
+
+        The disconnect handler now uses the swap-and-secure-clear-background
+        pattern (mirrors ``discard()`` in ``_recorder_split.py``): it captures
+        ``_old_buffer = recorder._buffer``, assigns a fresh deque, then calls
+        ``_secure_clear_array_background(_old_buffer)`` to zero the old
+        chunks in a background worker. The swap happens inside the lock so
+        the atomicity contract is preserved."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
         lock_idx = src.find("with recorder._lock:")
         assert lock_idx >= 0
         lock_block = src[lock_idx:]
-        assert "recorder._buffer.clear()" in lock_block, "_buffer.clear() must be inside recorder._lock"
+        # The swap-and-secure-clear pattern replaces the bare .clear() call.
+        assert "_secure_clear_array_background" in lock_block, (
+            "_secure_clear_array_background must be called inside recorder._lock to securely zero old buffer chunks"
+        )
 
     def test_secure_clear_caches_called_inside_lock(self):
         """``_secure_clear_caches()`` must be called inside the lock to
